@@ -73,8 +73,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     var credentials: SchoolCredentialStatus? by mutableStateOf(null)
         private set
+    /** Core's school session per account: state, problem, retry time and
+     * maintenance, rendered as they are. */
     var sessions: SchoolSessionProfiles? by mutableStateOf(null)
         private set
+    /** The `revision` of the snapshot [sessions] came from. */
+    private var sessionRevision: ULong? = null
     /** Core's sync planner: its runs and sources, rendered as they are. */
     var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
         private set
@@ -113,7 +117,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private val settingsWrite = Mutex()
     private val opening = Mutex()
     private var networkState = SyncNetwork.UNKNOWN
-    private var foreground = false
 
     /** First launch: no school account configured yet. */
     val needsAccount: Boolean
@@ -139,7 +142,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSession(), null, drive,
+                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, drive,
             )
             this.session = session
             val stream = session.subscribe()
@@ -154,29 +157,19 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             watchNetwork()
             watchPowerSaver()
             // WorkManager can start the process with no activity in front.
-            foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
-            if (foreground) {
-                startWaking()
-                // The launch check signs in through the school web views,
-                // which only run in front; out of front the first `FOCUS`
-                // does it instead.
-                reportSchool(SchoolSessionLifecycleKind.LAUNCH)
-            } else {
-                runCatching { session.suspend() }
-            }
+            if (foreground) startWaking() else runCatching { session.suspend() }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
     }
 
     fun foreground(active: Boolean) {
-        foreground = active
         val session = session ?: return
         if (active) {
             runCatching { session.resume() }
             hint(Hint.Foreground)
-            reportSchool(SchoolSessionLifecycleKind.FOCUS)
             startWaking()
             scope.launch { refresh() }
             scope.launch { checkForUpdate() }
@@ -186,7 +179,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             wakeJob?.cancel()
             wakeJob = null
             hint(Hint.Background)
-            reportSchool(SchoolSessionLifecycleKind.FOCUS)
             runCatching { session.suspend() }
         }
     }
@@ -232,14 +224,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 delay(1_000)
             }
         }
-    }
-
-    /** School sign-in hears what desktop sends (`school-session.ts`): `launch`
-     * once when the session opens, then `focus` as the app enters or leaves the
-     * front. Core only acts on a visible focus. */
-    private fun reportSchool(kind: SchoolSessionLifecycleKind) {
-        val session = session ?: return
-        runCatching { session.schoolLifecycle(SchoolSessionLifecycle(kind, foreground)) }
     }
 
     private fun watchNetwork() {
@@ -296,7 +280,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 is StreamUpdate.Event -> when (update.event.name) {
                     "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
                         .onSuccess(::apply)
-                    "school-session", "school-login-status" -> refreshAccounts()
+                    // The whole snapshot. Credentials another device synced
+                    // change it too, so their summary is read again.
+                    "school-session" -> {
+                        runCatching { decodeSchoolSession(update.event.payload) }
+                            .onSuccess(::applySchool)
+                            .onFailure { scope.launch { refreshAccounts() } }
+                        scope.launch { refreshCredentials() }
+                    }
                     "cloud-sync-state" -> refreshCloud()
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
@@ -420,11 +411,25 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     suspend fun refreshAccounts() {
+        refreshCredentials()
+        val session = session ?: return
+        runCatching { (session.schoolSession().value() as? OperationResult.SchoolSession)?.snapshot }
+            .getOrNull()?.let(::applySchool)
+    }
+
+    private suspend fun refreshCredentials() {
         val session = session ?: return
         runCatching { (session.credentialStatus().value() as? OperationResult.Credentials)?.status }
             .getOrNull()?.let { credentials = it }
-        runCatching { (session.schoolSession().value() as? OperationResult.SchoolSession)?.snapshot }
-            .getOrNull()?.let { sessions = it.profiles }
+    }
+
+    /** Keeps the higher `revision` of Core's `school-session` events and
+     * `schoolSession` reads. */
+    private fun applySchool(snapshot: SchoolSessionSnapshot) {
+        val shown = sessionRevision
+        if (shown != null && snapshot.revision < shown) return
+        sessionRevision = snapshot.revision
+        sessions = snapshot.profiles
     }
 
     /** On start and after a missed stream; `sync-snapshot` events carry every
@@ -760,6 +765,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (value as? OperationResult.SchoolConnect)?.result
     }
 
+    /** Retry on an account Core holds (`rejected`, `needs-web`) or waits on
+     * (`unavailable`): Core reads the synced credentials again and signs in
+     * once in front; the credentials stay as they are. */
+    suspend fun retrySchool(profile: SchoolAuthProfile) {
+        val session = session ?: return
+        (session.retrySchool(profile).value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }
+    }
+
     /** The saved school OTP setup as an `otpauth://` link, read only when the
      * person asks to add it to an authenticator or copy it. */
     suspend fun otpSetupLink(): String {
@@ -882,7 +895,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * announces the change, which re-reads every screen. */
     suspend fun reset(request: ResetRequest) {
         val session = session ?: return
-        session.reset(request, SchoolWebSignOut())
+        session.reset(request)
         problem = null
         refreshAccounts()
         readSync()
@@ -899,26 +912,82 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh()
     }
 
+    /** Forgets an account. Returns once Core's account barrier passed: its
+     * reads stopped, its cookies and LMS token are gone and the web views'
+     * store was cleared through [WebCookieSeed]. */
     suspend fun deleteCredentials(profile: SchoolAuthProfile) {
         val session = session ?: return
-        runCatching { session.deleteCredentials(profile).value() }
-        refreshAccounts()
+        try {
+            session.deleteCredentials(profile).value()
+        } finally {
+            refreshAccounts()
+        }
     }
 
     companion object {
-        /** Core's sign-in failure in the person's words, then the page's own. */
-        fun reason(problem: SchoolSignInProblem): String {
-            val reason = when (problem.kind) {
-                SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
-                SchoolSignInProblemKind.LOCKED -> t("failure.theSchoolLockedThisAccount")
-                SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
-                SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
-                SchoolSignInProblemKind.PAGE_WARNING -> t("failure.theSignInPageShowed")
-                SchoolSignInProblemKind.NEEDS_USER -> t("failure.thisSignInStepNeeds")
-                SchoolSignInProblemKind.UNAVAILABLE -> t("failure.theSchoolSiteIsNot")
-            }
-            return if (problem.message.isEmpty() || problem.message == reason) reason else "$reason\n${problem.message}"
+        /** Core's sign-in problem in the person's words, chosen by its kind.
+         * Core's `message` is a diagnostic for the log, never shown. */
+        fun reason(problem: SchoolSignInProblem): String = when (problem.kind) {
+            SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
+            SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
+            SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
+            SchoolSignInProblemKind.EMAIL_OTP -> t("schoolSession.problem.emailOtp")
+            SchoolSignInProblemKind.PASSWORD_CHANGE -> t("schoolSession.problem.passwordChange")
+            SchoolSignInProblemKind.UNKNOWN_PAGE -> t("schoolSession.problem.unknownPage")
+            SchoolSignInProblemKind.NETWORK, SchoolSignInProblemKind.UNANSWERED, SchoolSignInProblemKind.ANOMALY ->
+                t("schoolSession.state.unavailable")
         }
+
+        /** One line for an account's session state, as the account row and a
+         * read waiting on it say it; `problem` and `retryAt` add what Core
+         * knows. */
+        fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
+            when (state) {
+                SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
+                SchoolSessionState.IDLE -> t("schoolSession.state.idle")
+                SchoolSessionState.SIGNING_IN -> t("common.signingIn")
+                SchoolSessionState.ACTIVE -> t("settings.main.connected")
+                SchoolSessionState.REJECTED -> problem?.let(::reason) ?: t("schoolSession.state.rejected")
+                SchoolSessionState.NEEDS_WEB -> t("schoolSession.state.needsWeb")
+                SchoolSessionState.UNAVAILABLE -> Format.date(retryAt)
+                    ?.let { t("schoolSession.state.unavailableRetry", "time" to Format.time(it)) }
+                    ?: t("schoolSession.state.unavailable")
+            }
+
+        /** An account's site paused for maintenance (LMS for Science Tokyo,
+         * 教務Web for Tokyo Tech), until when, with the school's notice. */
+        fun maintenanceText(profile: SchoolAuthProfile, maintenance: SchoolMaintenance): String {
+            val source = if (profile == SchoolAuthProfile.SCIENCE) "LMS" else "教務Web"
+            val line = if (Format.date(maintenance.until) != null) {
+                t("schoolSession.maintenance.until", "site" to source, "time" to Format.due(maintenance.until))
+            } else {
+                t("syncStatus.sourceIsUnderMaintenance", "source" to source)
+            }
+            return listOfNotNull(line, maintenance.notice?.ifBlank { null }).joinToString("\n")
+        }
+
+        /** Core's `school-session` payload, the snapshot in its serde names. */
+        private fun decodeSchoolSession(payload: String): SchoolSessionSnapshot {
+            val row = JSONObject(payload)
+            val profiles = row.getJSONObject("profiles")
+            return SchoolSessionSnapshot(
+                revision = row.getLong("revision").toULong(),
+                profiles = SchoolSessionProfiles(
+                    science = profileSession(profiles.getJSONObject("science")),
+                    tokyoTech = profileSession(profiles.getJSONObject("tokyoTech")),
+                ),
+            )
+        }
+
+        private fun profileSession(row: JSONObject) = SchoolProfileSession(
+            state = wire(row.getString("state")),
+            problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
+            retryAt = row.text("retryAt"),
+            maintenance = row.optJSONObject("maintenance")?.let { SchoolMaintenance(it.text("notice"), it.getString("until")) },
+        )
+
+        /** A kebab-case serde name as its enum entry (`needs-web` → `NEEDS_WEB`). */
+        private inline fun <reified T : Enum<T>> wire(raw: String): T = enumValueOf(raw.uppercase().replace('-', '_'))
 
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)

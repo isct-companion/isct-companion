@@ -7,7 +7,9 @@
 //! `WriteGrant`, which no other code can make. Writes follow the read rules:
 //! a POST form with the token in the body, redirects off, TLS verified, the
 //! app User-Agent (all from `net::Http`), the error envelope and any warning
-//! taken as failure, and no token in a URL or a log line.
+//! taken as failure, and no token in a URL or a log line. Reads run as
+//! operations of the LMS site session; a write takes the account's permit,
+//! goes out on one attempt and never runs again.
 use super::{
     envelope::{form_fields, has_warnings, rest_result},
     lms_url,
@@ -17,6 +19,7 @@ use super::{
 use crate::{
     net::{Body, BoxFuture, Host, Limits, NetError, NetRequest},
     school_auth::SchoolAuthProfile,
+    school_session::{Attempt, Operation, Permit, RunError, SchoolSessions, Site},
     submissions::{
         LmsIdentity, LmsModule, RemoteFile, RemoteState, RemoteStatus, RemoteSubmission,
         SubmissionRules, SubmissionTransport, TransportError, UploadFile, WriteGrant,
@@ -49,24 +52,111 @@ impl MoodleWrite {
     }
 }
 
+/// A read's deadline, from its start: a sign-in and a few page reads.
+const READ_DEADLINE: Duration = crate::sync_engine::KEY_DEADLINE;
+/// A write's attempt outlives its requests, which carry their own limits.
+const WRITE_DEADLINE: Duration = Duration::from_secs(60 * 60);
+
 /// The transport `Core` gives the submission service on every shell.
 pub(crate) struct LmsSubmissions {
     client: Arc<MoodleClient>,
+    sessions: SchoolSessions,
+}
+
+/// The submission read, as an operation of the LMS site session.
+struct ReadSubmission<'a> {
+    submissions: &'a LmsSubmissions,
+    module: LmsModule,
+}
+
+impl Operation for ReadSubmission<'_> {
+    type Output = RemoteSubmission;
+    type Error = MoodleError;
+
+    fn attempt(
+        &mut self,
+        attempt: Attempt,
+    ) -> BoxFuture<'_, Result<RemoteSubmission, MoodleError>> {
+        Box::pin(async move {
+            self.submissions
+                .read_submission(&attempt, self.module)
+                .await
+        })
+    }
+}
+
+/// The user id a removal names, as an operation.
+struct ReadUser<'a>(&'a LmsSubmissions);
+
+impl Operation for ReadUser<'_> {
+    type Output = u64;
+    type Error = MoodleError;
+
+    fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<u64, MoodleError>> {
+        Box::pin(async move {
+            let info = TokenTransport::new(self.0.client.clone())
+                .call(&attempt, MoodleFunction::SiteInfo, &json!({}))
+                .await?;
+            id_of(info.get("userid")).ok_or(MoodleError::Malformed("site user"))
+        })
+    }
+}
+
+/// A read that ended without its answer.
+fn run_error(error: RunError<MoodleError>) -> TransportError {
+    match error {
+        RunError::Op(error) => read_error(error),
+        RunError::Session => TransportError::SignInRequired,
+        RunError::Net(error) => TransportError::NotSent(error.to_string()),
+        RunError::Cancelled => TransportError::NotSent("the account changed".into()),
+        RunError::Deadline => TransportError::NotSent("timed out".into()),
+    }
 }
 
 impl LmsSubmissions {
-    pub(crate) fn new(client: Arc<MoodleClient>) -> Self {
-        Self { client }
+    pub(crate) fn new(client: Arc<MoodleClient>, sessions: SchoolSessions) -> Self {
+        Self { client, sessions }
+    }
+
+    fn permit(&self) -> Result<Permit, TransportError> {
+        self.sessions
+            .permit(SchoolAuthProfile::Science)
+            .ok_or_else(|| TransportError::NotSent("the account is changing".into()))
+    }
+
+    /// A write's attempt: the session made ready, nothing sent yet.
+    async fn write_attempt(&self, permit: &Permit) -> Result<Attempt, TransportError> {
+        self.sessions
+            .write_attempt(
+                Site::Lms,
+                permit,
+                tokio::time::Instant::now() + WRITE_DEADLINE,
+            )
+            .await
+            .map_err(|error| match error {
+                RunError::Session => TransportError::SignInRequired,
+                RunError::Op(error) | RunError::Net(error) => {
+                    TransportError::NotSent(error.to_string())
+                }
+                RunError::Cancelled => TransportError::NotSent("the account changed".into()),
+                RunError::Deadline => TransportError::NotSent("timed out".into()),
+            })
     }
 
     /// The account, the assignment's settings and its current submission,
     /// read as the account the token belongs to now.
-    async fn read_submission(&self, module: LmsModule) -> Result<RemoteSubmission, MoodleError> {
+    async fn read_submission(
+        &self,
+        attempt: &Attempt,
+        module: LmsModule,
+    ) -> Result<RemoteSubmission, MoodleError> {
         let course = module
             .course
             .ok_or(MoodleError::Malformed("assignment course"))?;
-        let transport = TokenTransport::new(&self.client);
-        let info = transport.call(MoodleFunction::SiteInfo, &json!({})).await?;
+        let transport = TokenTransport::new(self.client.clone());
+        let info = transport
+            .call(attempt, MoodleFunction::SiteInfo, &json!({}))
+            .await?;
         let user_id = id_of(info.get("userid")).ok_or(MoodleError::Malformed("site user"))?;
         let site = info
             .get("siteurl")
@@ -77,6 +167,7 @@ impl LmsSubmissions {
         let account = self.account().await?;
         let listed = transport
             .call_bulk(
+                attempt,
                 MoodleFunction::AssignGetAssignments,
                 &json!({"courseids": [course]}),
             )
@@ -97,6 +188,7 @@ impl LmsSubmissions {
             id_of(assignment.get("id")).ok_or(MoodleError::Malformed("assignment id"))?;
         let status = transport
             .call(
+                attempt,
                 MoodleFunction::AssignGetSubmissionStatus,
                 &json!({"assignid": assign_id}),
             )
@@ -138,7 +230,9 @@ impl LmsSubmissions {
         _grant: &WriteGrant,
         files: &[UploadFile],
     ) -> Result<u64, TransportError> {
-        let token = self.client.token().await.map_err(read_error)?;
+        let permit = self.permit()?;
+        let attempt = self.write_attempt(&permit).await?;
+        let token = self.client.token(&attempt).await.map_err(read_error)?;
         let url = lms_url(MoodleWrite::UploadDraftFile.name()).map_err(read_error)?;
         let mut draft = 0_u64;
         for file in files {
@@ -171,10 +265,8 @@ impl LmsSubmissions {
                 &file.name,
                 &contents,
             );
-            let response = self
-                .client
-                .http
-                .send(NetRequest {
+            let response = attempt
+                .bare(NetRequest {
                     host: Host::Moodle,
                     method: Method::POST,
                     url: url.clone(),
@@ -187,7 +279,7 @@ impl LmsSubmissions {
                 })
                 .await
                 .map_err(sent_error)?;
-            let value = answer(&self.client, response.status, &response.body)?;
+            let value = answer(&attempt, response.status, &response.body)?;
             let record = value
                 .as_array()
                 .and_then(|records| records.first())
@@ -216,17 +308,17 @@ impl LmsSubmissions {
         write: MoodleWrite,
         args: &Value,
     ) -> Result<Value, TransportError> {
-        let token = self.client.token().await.map_err(read_error)?;
+        let permit = self.permit()?;
+        let attempt = self.write_attempt(&permit).await?;
+        let token = self.client.token(&attempt).await.map_err(read_error)?;
         let mut form = vec![
             ("wstoken".to_string(), token.expose().to_string()),
             ("wsfunction".to_string(), write.name().to_string()),
             ("moodlewsrestformat".to_string(), "json".to_string()),
         ];
         form.extend(form_fields(args));
-        let response = self
-            .client
-            .http
-            .send(NetRequest {
+        let response = attempt
+            .bare(NetRequest {
                 host: Host::Moodle,
                 method: Method::POST,
                 url: lms_url("webservice/rest/server.php").map_err(read_error)?,
@@ -236,22 +328,41 @@ impl LmsSubmissions {
             })
             .await
             .map_err(sent_error)?;
-        answer(&self.client, response.status, &response.body)
+        answer(&attempt, response.status, &response.body)
     }
 
     /// The user id a removal names, from a fresh site info read.
     async fn user_id(&self) -> Result<u64, TransportError> {
-        let info = TokenTransport::new(&self.client)
-            .call(MoodleFunction::SiteInfo, &json!({}))
+        let permit = self.permit()?;
+        self.sessions
+            .run(
+                Site::Lms,
+                &permit,
+                tokio::time::Instant::now() + READ_DEADLINE,
+                &mut ReadUser(self),
+            )
             .await
-            .map_err(read_error)?;
-        id_of(info.get("userid")).ok_or_else(|| TransportError::NotSent("site user".into()))
+            .map_err(run_error)
     }
 }
 
 impl SubmissionTransport for LmsSubmissions {
     fn read(&self, module: LmsModule) -> BoxFuture<'_, Result<RemoteSubmission, TransportError>> {
-        Box::pin(async move { self.read_submission(module).await.map_err(read_error) })
+        Box::pin(async move {
+            let permit = self.permit()?;
+            self.sessions
+                .run(
+                    Site::Lms,
+                    &permit,
+                    tokio::time::Instant::now() + READ_DEADLINE,
+                    &mut ReadSubmission {
+                        submissions: self,
+                        module,
+                    },
+                )
+                .await
+                .map_err(run_error)
+        })
     }
 
     fn upload<'a>(
@@ -455,12 +566,14 @@ fn warning_codes(warnings: &[Value]) -> String {
 
 /// A write's HTTP answer: the error envelope first, as for reads. A gateway
 /// refusal (4xx) never reached Moodle; a 5xx or an unreadable body may have.
-fn answer(client: &MoodleClient, status: u16, body: &[u8]) -> Result<Value, TransportError> {
+fn answer(attempt: &Attempt, status: u16, body: &[u8]) -> Result<Value, TransportError> {
     match status {
-        200 => rest_result(body).map_err(|error| match client.envelope_error(error) {
-            MoodleError::Malformed(what) => TransportError::Uncertain(what.into()),
-            other => read_error(other),
-        }),
+        200 => {
+            rest_result(body).map_err(|error| match MoodleClient::envelope_error(attempt, error) {
+                MoodleError::Malformed(what) => TransportError::Uncertain(what.into()),
+                other => read_error(other),
+            })
+        }
         400..=499 => Err(TransportError::Rejected(format!("HTTP {status}"))),
         _ => Err(TransportError::Uncertain(format!("HTTP {status}"))),
     }

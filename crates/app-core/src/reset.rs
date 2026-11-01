@@ -27,9 +27,8 @@
 use crate::{
     course_materials::purge_downloads,
     data::{DataError, DataStore, WorkspaceChangeSource},
-    net::BoxFuture,
-    school_auth::{CredentialAvailability, SchoolAuthProfile, SchoolAuthService},
-    school_browser::SchoolBrowserEngine,
+    school_auth::{SchoolAuthProfile, SchoolAuthService},
+    school_session::SchoolSessions,
     sync_engine::{ResetReport, ResetScope, SyncEngine},
     Core,
 };
@@ -47,17 +46,13 @@ const PROFILES: [SchoolAuthProfile; 2] = [SchoolAuthProfile::Science, SchoolAuth
 /// commit gate, so waiting longer would only delay the reset.
 const IDLE_LIMIT: Duration = Duration::from_secs(30);
 
-/// What a shell lends a reset: the files and the school WebView store live
-/// on the platform side.
+/// What a shell lends a reset: the course folder lives on the platform
+/// side. The web view's school cookies are cleared through Core's web
+/// cookie port (`school_session::WebCookieSeed`).
 pub trait ResetDevice: Send + Sync {
     /// The course folder. Downloaded files live in its `materials` folders,
     /// next to the notes folders a reset never touches.
     fn course_files_root(&self) -> Option<PathBuf>;
-    /// Whether this shell can sign the school WebView store out.
-    fn can_sign_out_school_web(&self) -> bool;
-    /// Removes the cookies and sessions of the school WebView store, so the
-    /// next school read signs in again. Saved credentials stay.
-    fn sign_out_school_web(&self) -> BoxFuture<'_, Result<(), String>>;
 }
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
@@ -73,8 +68,6 @@ pub enum ResetError {
     Credentials(String),
     #[error("Downloaded course files could not be removed: {0}")]
     Files(String),
-    #[error("School web pages could not be signed out: {0}")]
-    SignOut(String),
     #[error("The reset stopped before it finished.")]
     Stopped,
 }
@@ -93,9 +86,8 @@ type Flight = Shared<futures_util::future::BoxFuture<'static, Result<ResetReport
 pub struct ResetLease(Mutex<Option<(ResetScope, Flight)>>);
 
 impl Core {
-    /// Resets without shell ports. A scope that needs the course folder or
-    /// the WebView store fails with [`ResetError::Unsupported`] before
-    /// anything is cleared.
+    /// Resets without shell ports. A scope that needs the course folder
+    /// fails with [`ResetError::Unsupported`] before anything is cleared.
     pub async fn reset(&self, scope: ResetScope) -> Result<ResetReport, ResetError> {
         self.reset_with(scope, None).await
     }
@@ -185,7 +177,7 @@ impl Core {
             store: self.store.clone(),
             auth: self.auth.clone(),
             engine: self.reset_engine(),
-            browser: self.school_browser().ok(),
+            sessions: self.sessions().clone(),
             device,
         };
         run.check()?;
@@ -208,7 +200,7 @@ struct ResetRun {
     store: DataStore,
     auth: Arc<SchoolAuthService>,
     engine: Arc<SyncEngine>,
-    browser: Option<Arc<SchoolBrowserEngine>>,
+    sessions: SchoolSessions,
     device: Option<Arc<dyn ResetDevice>>,
 }
 
@@ -216,16 +208,13 @@ impl ResetRun {
     /// Refuses a scope this shell cannot carry out before anything closes.
     fn check(&self) -> Result<(), ResetError> {
         if let ResetScope::SchoolCaches {
-            sign_out_web,
-            delete_downloads,
+            delete_downloads, ..
         } = self.scope
         {
-            let device = self.device.as_ref();
-            if sign_out_web && !device.is_some_and(|device| device.can_sign_out_school_web()) {
-                return Err(ResetError::Unsupported("School web sign-in"));
-            }
             if delete_downloads
-                && device
+                && self
+                    .device
+                    .as_ref()
                     .and_then(|device| device.course_files_root())
                     .is_none()
             {
@@ -293,67 +282,31 @@ impl ResetRun {
             .await?;
             report.freed_bytes += removed.bytes;
         }
-        // A full reset is the first-launch state, so the school web session
-        // goes too whenever the shell can remove it.
-        let sign_out = match self.scope {
+        // Core's sessions and the LMS token are school caches: the next
+        // read signs in again. A full reset is the first-launch state, so the
+        // web view's school cookies go too.
+        let sign_out_web = match self.scope {
             ResetScope::SchoolCaches { sign_out_web, .. } => sign_out_web,
-            ResetScope::Everything => self
-                .device
-                .as_ref()
-                .is_some_and(|device| device.can_sign_out_school_web()),
+            ResetScope::Everything => true,
         };
-        if sign_out {
-            if let Some(device) = &self.device {
-                device
-                    .sign_out_school_web()
-                    .await
-                    .map_err(ResetError::SignOut)?;
-            }
-        }
-        self.restart_sessions(everything || sign_out);
+        self.sessions.reset(sign_out_web).await;
         Ok(report)
     }
 
-    /// The Moodle token is a school cache: the next LMS read launches a new
-    /// one. A full reset also removes the saved school credentials.
+    /// A full reset also removes the saved school credentials.
     async fn forget_secrets(&self, everything: bool) -> Result<(), ResetError> {
+        if !everything {
+            return Ok(());
+        }
         let auth = self.auth.clone();
         blocking(move || {
             for profile in PROFILES {
-                let result = if everything {
-                    auth.delete(profile).map(|_| ())
-                } else {
-                    auth.delete_moodle_token(profile)
-                };
-                result.map_err(|error| ResetError::Credentials(error.to_string()))?;
+                auth.delete(profile)
+                    .map_err(|error| ResetError::Credentials(error.to_string()))?;
             }
             Ok(())
         })
         .await
-    }
-
-    /// After the web session or the credentials went, the school browser
-    /// must not keep reporting a live session: it signs in again first.
-    fn restart_sessions(&self, changed: bool) {
-        let Some(browser) = self.browser.as_ref().filter(|_| changed) else {
-            return;
-        };
-        let status = match self.scope {
-            ResetScope::Everything => None,
-            ResetScope::SchoolCaches { .. } => self.auth.status().ok(),
-        };
-        for profile in PROFILES {
-            let configured = status.as_ref().is_some_and(|status| {
-                let summary = match profile {
-                    SchoolAuthProfile::Science => &status.science,
-                    SchoolAuthProfile::TokyoTech => &status.tokyo_tech,
-                };
-                summary.availability != CredentialAvailability::NotConfigured
-            });
-            if let Err(error) = browser.credentials_changed(profile, configured) {
-                log::warn!(target: "app_core::reset", "School session could not restart: {error}");
-            }
-        }
     }
 }
 

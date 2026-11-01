@@ -31,7 +31,6 @@ impl Fixture {
             self.store.clone(),
             self.notes.clone(),
             crate::downloads::Downloader::default(),
-            crate::course_materials::DownloadSession::default(),
         )
     }
 
@@ -565,7 +564,7 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
     let detail = service.call("course", json!({"id": course})).unwrap();
     assert_eq!(detail["lmsItems"][0]["body"], "News");
     assert!(detail["lmsItems"][0].get("folderFiles").is_none());
-    let every =|| -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
+    let every = || -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
     for (name, args) in [
         ("today", json!({})),
         ("schedule", json!({"from":"2026-10-19","to":"2026-12-10"})),
@@ -705,11 +704,11 @@ fn seed_personal_schedule(fixture: &Fixture) {
         existing_id: None,
     });
     let raw = json!({"schemaVersion":1,"academicYear":2026,"timezone":"Asia/Tokyo",
-        "source":[{"id":"official","title":"Exam notice","url":"https://example.com/exams.pdf"}],
-        "entries":[
-            {"id":"final","kind":"exam","status":"scheduled","quarter":"3Q","courseCode":"ABC.101","syllabusCourseId":"202612345","date":"2026-11-26","periods":[3,4],"label":{"ja":"期末","en":"Final"},"room":{"ja":"Hall","en":"Hall"},"sourceIds":["official"]},
-            {"id":"other","kind":"exam","status":"scheduled","quarter":"3Q","courseCode":"XYZ.999","date":"2026-11-27","periods":[1,2],"label":{"ja":"他","en":"Other"},"sourceIds":["official"]}
-        ]});
+    "source":[{"id":"official","title":"Exam notice","url":"https://example.com/exams.pdf"}],
+    "entries":[
+        {"id":"final","kind":"exam","status":"scheduled","quarter":"3Q","courseCode":"ABC.101","syllabusCourseId":"202612345","date":"2026-11-26","periods":[3,4],"label":{"ja":"期末","en":"Final"},"room":{"ja":"Hall","en":"Hall"},"sourceIds":["official"]},
+        {"id":"other","kind":"exam","status":"scheduled","quarter":"3Q","courseCode":"XYZ.999","date":"2026-11-27","periods":[1,2],"label":{"ja":"他","en":"Other"},"sourceIds":["official"]}
+    ]});
     let feed = crate::subscriptions::PublishedExamFeed {
         kind: crate::subscriptions::ExamFeedKind::Exams,
         level: "undergraduate".into(),
@@ -774,17 +773,26 @@ fn schedule_today_and_exams_carry_the_persons_changes() {
             .clone()
     };
     let quiz = &day("2026-10-19")[0];
-    assert_eq!((&quiz["kind"], &quiz["quiz"]), (&json!("exam"), &json!(true)));
+    assert_eq!(
+        (&quiz["kind"], &quiz["quiz"]),
+        (&json!("exam"), &json!(true))
+    );
     assert_eq!(quiz["key"], "2026-202612345-weekly-0-2026-10-19");
     // Cancelled stays in `schedule` to explain the day, marked as such.
     assert_eq!(day("2026-10-26")[0]["cancelled"], true);
     // The moved class leaves its own date and lands in 4Q.
     assert!(day("2026-11-30").is_empty());
     let moved = &day("2026-12-10")[0];
-    assert_eq!((&moved["overridden"], &moved["termId"]), (&json!(true), &json!("2026-3Q")));
+    assert_eq!(
+        (&moved["overridden"], &moved["termId"]),
+        (&json!(true), &json!("2026-3Q"))
+    );
     // The corrected published exam is on the calendar with the person's room.
     let exam = &day("2026-11-26")[0];
-    assert_eq!((&exam["kind"], &exam["room"]), (&json!("exam"), &json!("W2")));
+    assert_eq!(
+        (&exam["kind"], &exam["room"]),
+        (&json!("exam"), &json!("W2"))
+    );
     // A record Core skipped leaves the class as scheduled and is reported.
     assert_eq!(day("2026-11-09")[0]["overridden"], json!(null));
     assert_eq!(schedule["problems"][0]["id"], "broken");
@@ -820,7 +828,11 @@ fn schedule_today_and_exams_carry_the_persons_changes() {
     };
     let corrected = find("reference:exams:2026:undergraduate:3q:final");
     assert_eq!(
-        (&corrected["room"], &corrected["source"]["room"], &corrected["edited"]),
+        (
+            &corrected["room"],
+            &corrected["source"]["room"],
+            &corrected["edited"]
+        ),
         (&json!("W2"), &json!("Hall"), &json!(true))
     );
     // Listed although the calendar cannot place it.
@@ -828,5 +840,8 @@ fn schedule_today_and_exams_carry_the_persons_changes() {
         .get("courseId")
         .is_none());
     let marked = find("2026-202612345-weekly-0-2026-10-19");
-    assert_eq!((&marked["kind"], &marked["origin"]), (&json!("quiz"), &json!("session")));
+    assert_eq!(
+        (&marked["kind"], &marked["origin"]),
+        (&json!("quiz"), &json!("session"))
+    );
 }

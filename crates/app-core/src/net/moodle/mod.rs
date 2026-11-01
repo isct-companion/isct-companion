@@ -1,9 +1,12 @@
-//! The LMS (Moodle) client: one interface over two transports.
+//! The LMS (Moodle) client: one interface over two transports, every request
+//! on the LMS site session's attempt (`school_session::Attempt`).
 //!
 //! [`rest::TokenTransport`] is the primary path: the official mobile web
 //! service with a token obtained by a cookie-authenticated `launch.php`.
 //! [`ajax::CookieTransport`] is the fallback: AJAX `service.php` with the
 //! dashboard's sesskey, plus Rust HTML parsing of course and activity pages.
+//! A session found gone ends the attempt as `SignInRequired`; recovering it
+//! and reading again is `school_session::run`'s, never this client's.
 //! Both take only [`MoodleFunction`]s, a closed read-only list. The token
 //! path reads the custom timetable through the generic dashboard-block API;
 //! the cookie fallback also reads the block's other quarters. LMS writes
@@ -30,11 +33,9 @@ pub(crate) use reader::LmsReader;
 pub(crate) use submission::LmsSubmissions;
 
 use crate::{
-    net::{
-        sign_in::Session, Body, Host, Http, Limits, NetError, NetRequest, Response, SessionCookies,
-        SignInGate,
-    },
+    net::{Body, Host, Limits, NetError, NetRequest, Response},
     school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService},
+    school_session::{Attempt, OpError},
     sync_state::Dataset,
 };
 use adpt_isct::{
@@ -45,7 +46,7 @@ use adpt_isct::{
     SchoolParseError,
 };
 use envelope::EnvelopeError;
-use reqwest::{header, Method};
+use reqwest::Method;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -153,10 +154,7 @@ impl KeyError {
     }
 
     pub(crate) fn is_sign_in(&self) -> bool {
-        matches!(
-            self.error,
-            MoodleError::SignInRequired | MoodleError::Net(NetError::SignInRequired)
-        )
+        self.error.signed_out()
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
@@ -175,7 +173,8 @@ impl KeyError {
     pub(crate) fn kind(&self) -> String {
         match &self.error {
             MoodleError::Net(error) => error.kind(),
-            MoodleError::SignInRequired | MoodleError::InvalidSesskey => "sign-in".into(),
+            MoodleError::SignInRequired => "sign-in".into(),
+            MoodleError::InvalidSesskey => "sesskey".into(),
             MoodleError::InvalidToken => "token".into(),
             MoodleError::ServiceUnavailable(_) => "unavailable".into(),
             MoodleError::Api(code) => {
@@ -189,6 +188,21 @@ impl KeyError {
             MoodleError::Malformed(_) => "parse".into(),
             MoodleError::Partial => "partial".into(),
         }
+    }
+}
+
+impl OpError for MoodleError {
+    fn signed_out(&self) -> bool {
+        matches!(
+            self,
+            Self::SignInRequired | Self::Net(NetError::SignInRequired)
+        )
+    }
+}
+
+impl OpError for KeyError {
+    fn signed_out(&self) -> bool {
+        self.is_sign_in()
     }
 }
 
@@ -235,52 +249,44 @@ pub(crate) struct Dashboard {
 
 /// Reads LMS data for the signed-in Science account.
 pub struct MoodleClient {
-    http: Http,
-    cookies: Arc<dyn SessionCookies>,
-    sign_in: SignInGate,
     auth: Arc<SchoolAuthService>,
-    /// The token in use; loaded from the vault or launched at most once at a
-    /// time (the lock is held across the launch).
-    token: tokio::sync::Mutex<Option<MoodleToken>>,
+    /// The token in use and the account generation it was obtained in;
+    /// loaded from the vault or launched at most once at a time (the lock is
+    /// held across the launch). Another generation's token is dropped.
+    token: tokio::sync::Mutex<Option<(u64, MoodleToken)>>,
 }
 
 impl MoodleClient {
-    pub fn new(
-        http: Http,
-        cookies: Arc<dyn SessionCookies>,
-        sign_in: SignInGate,
-        auth: Arc<SchoolAuthService>,
-    ) -> Self {
+    pub fn new(auth: Arc<SchoolAuthService>) -> Self {
         Self {
-            http,
-            cookies,
-            sign_in,
             auth,
             token: tokio::sync::Mutex::new(None),
         }
     }
 
-    /// Opens the transport one pull reads its keys with: the token path,
+    /// Opens the transport a pull reads its keys with: the token path,
     /// proven once with `site_info`, or the session cookie when the token
     /// path is not offered.
-    pub(crate) async fn open(&self) -> Result<LmsReader<'_>, KeyError> {
-        match rest::TokenTransport::open(self).await {
+    pub(crate) async fn open(self: &Arc<Self>, attempt: &Attempt) -> Result<LmsReader, KeyError> {
+        match rest::TokenTransport::open(self, attempt).await {
             Ok((transport, language)) => Ok(LmsReader::new(
-                self,
+                self.clone(),
                 reader::Transport::Token(transport),
                 language,
                 None,
             )),
             Err(error) if error.wants_cookie_fallback() => {
                 log::warn!(target: "app_core::net::moodle", "LMS token transport unavailable ({error}); reading with the session cookie");
-                let (transport, dashboard) =
-                    self.cookie_transport().await.map_err(KeyError::at("my/"))?;
+                let (transport, dashboard) = self
+                    .cookie_transport(attempt)
+                    .await
+                    .map_err(KeyError::at("my/"))?;
                 let language = dashboard.config.language.clone();
                 Ok(LmsReader::new(
-                    self,
+                    self.clone(),
                     reader::Transport::Cookie(transport),
                     language,
-                    Some(dashboard),
+                    Some((attempt.instance(), dashboard)),
                 ))
             }
             Err(error) => Err(KeyError::new(MoodleFunction::SiteInfo.name(), error)),
@@ -290,72 +296,54 @@ impl MoodleClient {
     /// The cookie transport over a freshly read dashboard.
     async fn cookie_transport(
         &self,
-    ) -> Result<(ajax::CookieTransport<'_>, Dashboard), MoodleError> {
-        let dashboard = self.dashboard().await?;
-        let transport = ajax::CookieTransport::new(self, &dashboard)?;
+        attempt: &Attempt,
+    ) -> Result<(ajax::CookieTransport, Dashboard), MoodleError> {
+        let dashboard = Self::load_dashboard(attempt).await?;
+        let transport = ajax::CookieTransport::new(attempt, &dashboard)?;
         Ok((transport, dashboard))
     }
 
-    async fn ensure_signed_in(&self) -> Result<(), MoodleError> {
-        self.sign_in
-            .ensure(SchoolAuthProfile::Science)
-            .await
-            .map_err(MoodleError::from)
-    }
-
-    fn envelope_error(&self, error: EnvelopeError) -> MoodleError {
+    fn envelope_error(attempt: &Attempt, error: EnvelopeError) -> MoodleError {
         match error {
             EnvelopeError::NotJson => MoodleError::Malformed("not JSON"),
             EnvelopeError::InvalidToken => MoodleError::InvalidToken,
             EnvelopeError::ServiceUnavailable(code) => MoodleError::ServiceUnavailable(code),
             EnvelopeError::InvalidSesskey => MoodleError::InvalidSesskey,
             EnvelopeError::SignInRequired => MoodleError::SignInRequired,
-            EnvelopeError::Maintenance => {
-                self.http.report_maintenance(Host::Moodle);
-                MoodleError::Api("sitemaintenance".into())
-            }
+            // The LMS's maintenance is the site session's state: its host
+            // pauses and the session snapshot shows it.
+            EnvelopeError::Maintenance => MoodleError::Net(attempt.maintenance(None)),
             EnvelopeError::Api(code) => MoodleError::Api(code),
         }
     }
 
     // -- Cookie requests -----------------------------------------------------
 
-    /// One request with the school session cookie. Cookies the server sets
-    /// go back to the WebView store so both sides keep one session.
+    /// One request with the LMS site session's cookies.
     async fn cookie_send(
-        &self,
+        attempt: &Attempt,
         method: Method,
         url: Url,
         body: Body,
         limits: fn() -> Limits,
     ) -> Result<Response, MoodleError> {
-        let cookie = self.cookies.cookie_header(&url).await?;
-        let response = self
-            .http
+        Ok(attempt
             .send(NetRequest {
                 host: Host::Moodle,
                 method,
-                url: url.clone(),
-                headers: vec![(header::COOKIE, cookie)],
+                url,
+                headers: Vec::new(),
                 body,
                 limits: limits(),
             })
-            .await?;
-        let set = response.set_cookies();
-        if !set.is_empty() {
-            if let Err(error) = self.cookies.store_set_cookies(&url, &set).await {
-                log::warn!(target: "app_core::net::moodle", "could not store LMS cookies: {error}");
-            }
-        }
-        Ok(response)
+            .await?)
     }
 
     /// A page GET that must answer 200 with HTML; a redirect to sign-in is
     /// `SignInRequired`.
-    async fn cookie_page(&self, url: Url) -> Result<String, MoodleError> {
-        let response = self
-            .cookie_send(Method::GET, url.clone(), Body::None, Limits::page)
-            .await?;
+    async fn cookie_page(attempt: &Attempt, url: Url) -> Result<String, MoodleError> {
+        let response =
+            Self::cookie_send(attempt, Method::GET, url.clone(), Body::None, Limits::page).await?;
         match response.status {
             200 => Ok(response.text()?),
             300..=399 => Err(match response.location() {
@@ -366,9 +354,9 @@ impl MoodleClient {
         }
     }
 
-    async fn load_dashboard(&self) -> Result<Dashboard, MoodleError> {
+    async fn load_dashboard(attempt: &Attempt) -> Result<Dashboard, MoodleError> {
         let url = lms_url("my/")?;
-        let html = self.cookie_page(url.clone()).await?;
+        let html = Self::cookie_page(attempt, url.clone()).await?;
         let config = page_config(&html);
         // A page without a sesskey is a sign-in form, not the dashboard.
         if config.sesskey.is_none() {
@@ -377,34 +365,13 @@ impl MoodleClient {
         Ok(Dashboard { html, url, config })
     }
 
-    /// The dashboard, signing in once in the WebView when the session is gone.
-    async fn dashboard(&self) -> Result<Dashboard, MoodleError> {
-        self.signed_in(|| self.load_dashboard()).await
-    }
-
-    /// Runs `read`, signing in once in the WebView when it finds the session
-    /// gone (`net::SignInGate::signed_in`).
-    async fn signed_in<T, Fut>(&self, read: impl Fn() -> Fut) -> Result<T, MoodleError>
-    where
-        Fut: std::future::Future<Output = Result<T, MoodleError>>,
-    {
-        self.sign_in
-            .signed_in(SchoolAuthProfile::Science, || async {
-                match read().await {
-                    Err(MoodleError::SignInRequired) => Ok(Session::Gone),
-                    other => other.map(Session::Live),
-                }
-            })
-            .await?
-            .ok_or(MoodleError::SignInRequired)
-    }
-
     /// The timetable grids: the dashboard's current one first, then every
     /// other quarter the block offers for `years` (the enrolled academic
     /// years) through the block's own filter POST. Any grid that cannot be
     /// read fails the whole list.
     async fn timetables(
         &self,
+        attempt: &Attempt,
         dashboard: &Dashboard,
         years: &BTreeSet<i32>,
     ) -> Result<Vec<Value>, KeyError> {
@@ -436,15 +403,15 @@ impl MoodleClient {
                     ("quota".to_string(), quarter_value.clone()),
                     ("search".to_string(), filters.search.clone()),
                 ];
-                let response = self
-                    .cookie_send(
-                        Method::POST,
-                        post_url.clone(),
-                        Body::Form(form),
-                        Limits::page,
-                    )
-                    .await
-                    .map_err(KeyError::at(page))?;
+                let response = Self::cookie_send(
+                    attempt,
+                    Method::POST,
+                    post_url.clone(),
+                    Body::Form(form),
+                    Limits::page,
+                )
+                .await
+                .map_err(KeyError::at(page))?;
                 if response.status != 200 {
                     return Err(KeyError::new(
                         page,
@@ -506,50 +473,53 @@ impl MoodleClient {
     }
 
     /// The token in use: memory, else the vault, else a new launch.
-    async fn token(&self) -> Result<MoodleToken, MoodleError> {
+    pub(crate) async fn token(&self, attempt: &Attempt) -> Result<MoodleToken, MoodleError> {
+        let generation = attempt.account_generation();
         let mut slot = self.token.lock().await;
-        if let Some(token) = slot.as_ref() {
+        if let Some((_, token)) = slot.as_ref().filter(|(owner, _)| *owner == generation) {
             return Ok(token.clone());
         }
         if let Some(token) = self.vault_token().await {
-            *slot = Some(token.clone());
+            *slot = Some((generation, token.clone()));
             return Ok(token);
         }
-        let token = self.launch().await?;
+        let token = self.launch(attempt).await?;
         self.persist_token(Some(token.clone())).await;
-        *slot = Some(token.clone());
+        *slot = Some((generation, token.clone()));
         Ok(token)
     }
 
-    /// After `invalidtoken`: drop the token, confirm the web sign-in and
-    /// launch again. Concurrent callers that saw the same refused token join
-    /// one renewal.
-    async fn renew_token(&self, refused: &MoodleToken) -> Result<MoodleToken, MoodleError> {
+    /// After `invalidtoken`: drop the token and launch again with the
+    /// session cookie. Concurrent callers that saw the same refused token
+    /// join one renewal.
+    async fn renew_token(
+        &self,
+        attempt: &Attempt,
+        refused: &MoodleToken,
+    ) -> Result<MoodleToken, MoodleError> {
+        let generation = attempt.account_generation();
         let mut slot = self.token.lock().await;
-        if let Some(current) = slot.as_ref().filter(|current| *current != refused) {
+        if let Some((_, current)) = slot
+            .as_ref()
+            .filter(|(owner, current)| *owner == generation && current != refused)
+        {
             return Ok(current.clone());
         }
         *slot = None;
         self.persist_token(None).await;
-        self.ensure_signed_in().await?;
-        let token = self.launch().await?;
+        let token = self.launch(attempt).await?;
         self.persist_token(Some(token.clone())).await;
-        *slot = Some(token.clone());
+        *slot = Some((generation, token.clone()));
         Ok(token)
     }
 
-    async fn launch(&self) -> Result<MoodleToken, MoodleError> {
-        self.signed_in(|| self.launch_once()).await
-    }
-
     /// One `launch.php` GET with the LMS cookie, redirects off.
-    async fn launch_once(&self) -> Result<MoodleToken, MoodleError> {
+    async fn launch(&self, attempt: &Attempt) -> Result<MoodleToken, MoodleError> {
         let passport = token::new_passport();
         let url = token::launch_url(LMS_WWWROOT, &passport)
             .map_err(|_| MoodleError::Malformed("launch URL"))?;
-        let response = self
-            .cookie_send(Method::GET, url.clone(), Body::None, Limits::page)
-            .await?;
+        let response =
+            Self::cookie_send(attempt, Method::GET, url.clone(), Body::None, Limits::page).await?;
         if !(300..400).contains(&response.status) {
             return Err(MoodleError::ServiceUnavailable(format!(
                 "launch HTTP {}",

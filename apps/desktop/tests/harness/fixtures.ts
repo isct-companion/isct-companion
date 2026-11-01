@@ -25,7 +25,8 @@ export const SYLLABUS_SCOPE = "4/0-904-342300-0-0";
 export const DEVICE = "device:test";
 export const UPDATED_AT = "2026-10-01T00:00:00.000Z";
 
-/** Both accounts' sessions in a snapshot, with no sign-in failure recorded. */
+/** Both accounts' sessions in a snapshot, with no sign-in problem, retry
+ * time or maintenance recorded. */
 export function schoolProfiles(
   science: SchoolSessionState,
   tokyoTech: SchoolSessionState,
@@ -33,7 +34,8 @@ export function schoolProfiles(
   const session = (state: SchoolSessionState) => ({
     state,
     problem: null,
-    auto: "allowed" as const,
+    retryAt: null,
+    maintenance: null,
   });
   return { science: session(science), tokyoTech: session(tokyoTech) };
 }

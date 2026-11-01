@@ -11,12 +11,16 @@
 //! `CoreEvent::SyncSnapshot` whenever it changes.
 mod planner;
 mod runner;
+mod school;
 mod snapshot;
 
 pub(crate) use planner::Depth;
 pub(crate) use runner::{Gated, KeyEnd, Lease};
+pub(crate) use school::{net_end, session_end, SchoolReaders};
 
-use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
+use crate::{
+    lifecycle::SchoolSite, school_auth::SchoolAuthProfile, school_session::SchoolSessionState,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -55,9 +59,6 @@ pub enum Hint {
     },
     PowerSaver {
         on: bool,
-    },
-    SignedIn {
-        profile: SchoolAuthProfile,
     },
     /// A page that shows `view` became visible; its keys use the open
     /// threshold (15 min) at Visible/Interactive priority.
@@ -129,8 +130,7 @@ pub enum Held {
     /// Background work waits for Wi-Fi; Interactive still runs.
     Cellular,
     PowerSaver,
-    /// Shell is in the background and the dataset needs the foreground
-    /// (教務: cookie session only).
+    /// The shell suspended the app.
     Background,
     Backoff {
         until: DateTime<Utc>,
@@ -139,8 +139,12 @@ pub enum Held {
         host: String,
         until: DateTime<Utc>,
     },
-    SignInRequired {
+    /// The account's session is not available now (signing in, refused,
+    /// waiting for the person on the web page, or for its retry time). Not a
+    /// failure: no backoff, and the key reads once the session changes.
+    Session {
         profile: SchoolAuthProfile,
+        state: SchoolSessionState,
     },
     Resetting,
     /// Reads once the data it lands on is stored (`planner::prerequisite`):
@@ -186,9 +190,9 @@ pub struct SourceView {
     pub running: bool,
     pub held: Option<Held>,
     pub failure: Option<SyncFailure>,
-    /// Sign-in state for school sources (`active`, `signed-out`,
-    /// `maintenance`, …) — what SchoolStatus used to carry.
-    pub session: Option<String>,
+    /// The account's session state for school sources.
+    pub session: Option<SchoolSessionState>,
+    /// The school's maintenance notice for the source's site.
     pub maintenance: Option<String>,
 }
 

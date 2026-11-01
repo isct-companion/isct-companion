@@ -119,29 +119,26 @@ fn store(name: &str) -> DataStore {
     DataStore::initialize_dir(path).unwrap().0
 }
 
+// Forgetting an account needs no school browser or web port: the saved
+// credentials and Core's session go together.
 #[tokio::test]
-async fn credential_mutations_work_without_a_school_browser() {
+async fn forgetting_an_account_works_without_a_school_browser() {
     let store = store("auth");
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
     let core = Core::new(store, auth.clone());
     let profile = SchoolAuthProfile::TokyoTech;
-
-    // Connecting needs the browser to sign in, but keeps what was entered.
-    assert!(matches!(
-        core.connect_school(
-            profile,
-            SchoolCredentials {
-                username: "student".into(),
-                password: "secret".into(),
-                otp_secret: String::new(),
-                matrix: "A".repeat(70),
-            },
-        )
-        .await,
-        Err(CredentialMutationError::Browser(_))
-    ));
+    auth.stage(
+        profile,
+        SchoolCredentials {
+            username: "student".into(),
+            password: "secret".into(),
+            otp_secret: String::new(),
+            matrix: "A".repeat(70),
+        },
+    )
+    .unwrap();
     assert!(auth.load(profile).unwrap().is_some());
-    assert!(core.delete_credentials(profile).unwrap());
+    assert!(core.delete_credentials(profile).await.unwrap());
     assert!(auth.load(profile).unwrap().is_none());
     core.shutdown().await;
 }
@@ -266,9 +263,10 @@ impl EventSink for WorkspaceEvents {
 
 #[tokio::test]
 async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
-    use crate::lifecycle::SchoolSite;
-    use crate::school_browser::{SchoolSessionEvent, SchoolSessionState};
-    use crate::school_service::{IngestOutcome, IngestState};
+    use crate::school_session::{
+        SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
+        SchoolSessionState,
+    };
     use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
     let store = store("sync-sources");
     store
@@ -287,30 +285,42 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         })
         .unwrap();
     let recorded = Arc::new(RecordedEvents::default());
-    let core = Core::with_events(
-        store,
-        Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        recorded.clone(),
-    );
+    let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
+    auth.stage(
+        SchoolAuthProfile::Science,
+        SchoolCredentials {
+            username: "student".into(),
+            password: "secret".into(),
+            otp_secret: "JBSWY3DPEHPK3PXP".into(),
+            matrix: String::new(),
+        },
+    )
+    .unwrap();
+    let core = Core::with_events(store, auth, recorded.clone());
     core.sync_hint(Hint::Network {
         network: Network::Offline,
     });
     core.start(&tokio::runtime::Handle::current()).unwrap();
     let relay = core.events.clone().unwrap();
+    let session = |state, maintenance| SchoolProfileSession {
+        state,
+        problem: None,
+        retry_at: None,
+        maintenance,
+    };
     relay
-        .emit(CoreEvent::SchoolSession(SchoolSessionEvent {
-            profile: SchoolAuthProfile::Science,
-            state: SchoolSessionState::Active,
+        .emit(CoreEvent::SchoolSession(SchoolSessionSnapshot {
             revision: 1,
-        }))
-        .unwrap();
-    relay
-        .emit(CoreEvent::SchoolIngest(IngestOutcome {
-            site: SchoolSite::Kyomu,
-            kind: "service".into(),
-            state: IngestState::Maintenance,
-            changed: 0,
-            message: "閉局中".into(),
+            profiles: SchoolSessionProfiles {
+                science: session(SchoolSessionState::Active, None),
+                tokyo_tech: session(
+                    SchoolSessionState::Idle,
+                    Some(SchoolMaintenance {
+                        notice: Some("閉局中".into()),
+                        until: "2026-10-19T06:00:00Z".parse().unwrap(),
+                    }),
+                ),
+            },
         }))
         .unwrap();
     // The relay passes every event on; the snapshot follows as its own event,
@@ -344,7 +354,7 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         .iter()
         .map(|(name, _)| *name)
         .collect();
-    assert_eq!(&names[..2], ["school-session", "school-ingest"]);
+    assert_eq!(names[0], "school-session");
     assert_eq!(sent["sources"][0]["source"], "lms");
     assert_eq!(sent["sources"][0]["session"], "active");
     assert_eq!(sent["sources"][0]["lastUpdated"], "2026-10-19T02:46:13Z");

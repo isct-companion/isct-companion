@@ -1,9 +1,8 @@
 //! Settings → reset for the native apps. Core decides what each scope
-//! removes; the shell lends the files directory and, when it can, a way to
-//! sign the school WebView store out.
+//! removes; the shell lends the files directory. The web view's school
+//! cookies are cleared through the shell's `NativeWebCookies`.
 use crate::{SdkError, Session};
 use app_core::{
-    net::BoxFuture,
     reset::ResetDevice,
     sync_engine::{ResetReport, ResetScope},
 };
@@ -30,38 +29,13 @@ pub struct ResetSummary {
     pub freed_bytes: u64,
 }
 
-/// The school WebView store (WKWebsiteDataStore / CookieManager).
-#[uniffi::export(rust, foreign)]
-#[async_trait::async_trait]
-pub trait NativeWebSignOut: Send + Sync {
-    /// Removes every cookie and session of the school WebView store.
-    async fn sign_out_school_web(&self) -> Result<(), SdkError>;
-}
-
 struct MobileReset {
     files: PathBuf,
-    web: Option<Arc<dyn NativeWebSignOut>>,
 }
 
 impl ResetDevice for MobileReset {
     fn course_files_root(&self) -> Option<PathBuf> {
         Some(self.files.clone())
-    }
-
-    fn can_sign_out_school_web(&self) -> bool {
-        self.web.is_some()
-    }
-
-    fn sign_out_school_web(&self) -> BoxFuture<'_, Result<(), String>> {
-        Box::pin(async move {
-            match &self.web {
-                Some(web) => web
-                    .sign_out_school_web()
-                    .await
-                    .map_err(|error| error.to_string()),
-                None => Err("School web sign-out is not installed".into()),
-            }
-        })
     }
 }
 
@@ -94,11 +68,7 @@ impl Session {
     /// Clears what `request` names and returns what went. A repeat while a
     /// reset of the same kind runs joins it. A full reset first stops cloud
     /// sync; no cloud copy changes.
-    pub async fn reset(
-        &self,
-        request: ResetRequest,
-        web: Option<Arc<dyn NativeWebSignOut>>,
-    ) -> Result<ResetSummary, SdkError> {
+    pub async fn reset(&self, request: ResetRequest) -> Result<ResetSummary, SdkError> {
         let inner = self.inner.clone();
         if inner.tasks.is_closed() {
             return Err(SdkError::Closed);
@@ -115,7 +85,6 @@ impl Session {
                 }
                 let device: Arc<dyn ResetDevice> = Arc::new(MobileReset {
                     files: inner.files.clone(),
-                    web,
                 });
                 Ok::<ResetSummary, SdkError>(
                     inner.core.reset_with(scope, Some(device)).await?.into(),
@@ -138,7 +107,6 @@ impl Session {
             .spawn(async move {
                 let device: Arc<dyn ResetDevice> = Arc::new(MobileReset {
                     files: inner.files.clone(),
-                    web: None,
                 });
                 Ok::<ResetSummary, SdkError>(
                     inner.core.reset_preview(scope, Some(device)).await?.into(),

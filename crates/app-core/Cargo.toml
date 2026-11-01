@@ -45,6 +45,9 @@ ego-tree = "0.11"
 ring = "0.17"
 percent-encoding = "2"
 base64 = "0.23"
+# Core's own school cookie jars (`school_session`): domain, path and expiry
+# rules, and saving session cookies with the jar.
+cookie_store = { version = "0.22", default-features = false, features = ["serde_json"] }
 prost = "0.14"
 data-encoding = "2"
 futures-util = "0.3"

@@ -10,7 +10,6 @@ import { listen as tauriListen } from "@tauri-apps/api/event";
 import { nativeError } from "./native-error";
 import type {
   SchoolPageAvailability,
-  SchoolOtpSetup,
   WorkspaceChange,
 } from "../generated/persistence";
 import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
@@ -99,51 +98,67 @@ export type SchoolCredentialStatus = {
     hasMatrix: boolean;
   };
 };
-export type SchoolLoginState =
-  /** A sign-in step started; `message` names the step. */
-  | "progress"
-  /** Automation paused on a step the person must finish in the login page. */
-  | "needs-user"
-  | "connected"
-  | "error"
+/** One account's school session, as Core's session read model names it. */
+export type SchoolSessionState =
+  /** No saved credentials. */
+  | "not-configured"
+  /** Credentials, no identity yet; the next read signs in. */
+  | "idle"
+  | "signing-in"
+  | "active"
+  /** The school turned these credentials down; waits for new ones or Retry. */
+  | "rejected"
+  /** The person signs in on the school page (email code, password change,
+   * a page Core does not know). */
+  | "needs-web"
+  /** Network, timeout or server failure; Core tries again after `retryAt`. */
+  | "unavailable";
+const SCHOOL_SESSION_STATES: readonly unknown[] = [
+  "not-configured",
+  "idle",
+  "signing-in",
+  "active",
+  "rejected",
+  "needs-web",
+  "unavailable",
+] satisfies SchoolSessionState[];
+export type SchoolSignInProblemKind =
+  /** With `rejected`. */
   | "invalid-credentials"
   | "invalid-otp"
   | "invalid-matrix"
-  | "locked"
-  | "maintenance";
-export type SchoolLoginEvent = {
-  profile: SchoolAuthProfile;
-  state: SchoolLoginState;
-  message: string;
-};
-export type SchoolSessionState =
-  "pending" | "active" | "maintenance" | "failed" | "not-configured";
-/** A school session state changed (sign-in, launch, credential change, or renewal). */
-export type SchoolSessionEvent = {
-  profile: SchoolAuthProfile;
-  state: SchoolSessionState;
-  revision: number;
-};
+  /** With `needs-web`. */
+  | "email-otp"
+  | "password-change"
+  | "unknown-page"
+  /** With `unavailable`. */
+  | "network"
+  | "unanswered"
+  | "anomaly";
+/** Why the last sign-in did not finish. `message` is Core's English
+ * diagnostic, for logs and tooltips; the shell shows text chosen by `kind`. */
 export type SchoolSignInProblem = {
-  kind:
-    | "invalid-credentials"
-    | "locked"
-    | "invalid-otp"
-    | "invalid-matrix"
-    | "page-warning"
-    | "needs-user"
-    | "unavailable";
+  kind: SchoolSignInProblemKind;
   message: string;
 };
-/** One account's session, Core's last failure reason and retry policy. */
+/** LMS (science) or 教務Web (tokyoTech) paused for maintenance. */
+export type SchoolMaintenance = {
+  /** The school's own notice, when it posted one. */
+  notice: string | null;
+  /** RFC 3339. */
+  until: string;
+};
 export type SchoolProfileSession = {
   state: SchoolSessionState;
   problem: SchoolSignInProblem | null;
-  auto: "allowed" | "retry-later" | "paused";
+  /** RFC 3339; only with `unavailable`. */
+  retryAt: string | null;
+  maintenance: SchoolMaintenance | null;
 };
+/** Both accounts' sessions; every event carries the whole snapshot, and the
+ * higher `revision` wins. */
 export type SchoolSessionSnapshot = {
   revision: number;
-  kyomuMaintenance?: string | null;
   profiles: {
     science: SchoolProfileSession;
     tokyoTech: SchoolProfileSession;
@@ -155,16 +170,19 @@ export type SchoolConnectResult = {
   problem: SchoolSignInProblem | null;
   verified: boolean;
 };
-export type SchoolSessionLifecycle = {
-  kind: "launch" | "focus";
-  visible: boolean;
+const isSchoolSessionSnapshot = (
+  value: unknown,
+): value is SchoolSessionSnapshot => {
+  if (!value || typeof value !== "object") return false;
+  const { revision, profiles } = value as Partial<SchoolSessionSnapshot>;
+  return (
+    Number.isSafeInteger(revision) &&
+    (revision as number) >= 0 &&
+    Boolean(profiles) &&
+    SCHOOL_SESSION_STATES.includes(profiles?.science?.state) &&
+    SCHOOL_SESSION_STATES.includes(profiles?.tokyoTech?.state)
+  );
 };
-const isSchoolSessionState = (value: unknown): value is SchoolSessionState =>
-  value === "pending" ||
-  value === "active" ||
-  value === "maintenance" ||
-  value === "failed" ||
-  value === "not-configured";
 /** One extractor result from LMS or one 教務Web page. */
 export type SchoolIngestOutcome = {
   site: SchoolSite;
@@ -260,12 +278,11 @@ export type SchoolLoadFailure =
   | "cleartext"
   | "other";
 
-/** A one-time note about the page on screen: a reload was sent as GET. */
-export type SchoolWebNotice = {
-  site: SchoolSite;
-  kind: "reopened";
-  url: string;
-};
+/** A one-time note about the page on screen: a reload was sent as GET, or
+ * Core could not pass the sign-in to the view before opening it. */
+export type SchoolWebNotice =
+  | { site: SchoolSite; kind: "reopened"; url: string }
+  | { site: SchoolSite; kind: "not-seeded" };
 
 /** Whether the app's Back or Forward does something for the page in front;
  * "unknown" when the host does not report history. */
@@ -465,10 +482,6 @@ export interface DesktopBridge {
     callback: (event: { year: number; version: number }) => void,
   ): () => void;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
-  beginSchoolOtpSetup(): Promise<number>;
-  cancelSchoolOtpSetup(operationId: number): Promise<void>;
-  schoolOtpSetup(operationId: number): Promise<SchoolOtpSetup>;
-  completeSchoolOtpSetup(operationId: number, reset: boolean): Promise<void>;
   /** Keeps the entered credentials, then signs in with them. */
   connectSchool(
     profile: SchoolAuthProfile,
@@ -519,7 +532,6 @@ export interface DesktopBridge {
   ): Promise<() => void>;
   /** A one-time note about the page the person is looking at. */
   onSchoolWebNotice?(callback: (notice: SchoolWebNotice) => void): () => void;
-  onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
   /** What the Wi-Fi interface is on now (macOS builds only). */
   campusWifiStatus?(): Promise<CampusWifiStatus>;
   /**
@@ -535,9 +547,11 @@ export interface DesktopBridge {
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
   schoolSessionSnapshot(): Promise<SchoolSessionSnapshot>;
-  schoolSessionLifecycle(event: SchoolSessionLifecycle): Promise<void>;
+  /** One foreground sign-in with the saved credentials, read again from the
+   * synced store; the credentials themselves do not change. */
+  retrySchool(profile: SchoolAuthProfile): Promise<SchoolSessionSnapshot>;
   onSchoolSession(
-    callback: (event: SchoolSessionEvent) => void,
+    callback: (snapshot: SchoolSessionSnapshot) => void,
   ): Promise<() => void> | (() => void);
   /** A shell fact or intent for Core's sync planner; never waits for a read. */
   syncHint?(hint: SyncHint): Promise<void>;
@@ -732,22 +746,6 @@ export function createTauriDesktopBridge(
       };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
-    beginSchoolOtpSetup: async () => {
-      const id = await invokeCommand("begin_school_otp_setup");
-      if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0)
-        throw new Error("begin_school_otp_setup returned an invalid result.");
-      return id;
-    },
-    cancelSchoolOtpSetup: (operationId) =>
-      invokeCommand("cancel_school_otp_setup", { operationId }).then(() => {}),
-    schoolOtpSetup: (operationId) =>
-      invokeCommand("school_otp_setup", { operationId }).then((value) =>
-        requireObject<SchoolOtpSetup>("school_otp_setup", value),
-      ),
-    completeSchoolOtpSetup: (operationId, reset) =>
-      invokeCommand("complete_school_otp_setup", { operationId, reset }).then(
-        () => {},
-      ),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();
@@ -769,39 +767,22 @@ export function createTauriDesktopBridge(
         await invokeCommand("school_otp_qr", { setup }),
       ),
     schoolSessionSnapshot: async () => {
-      const snapshot = await result<SchoolSessionSnapshot>(
-        "school_session_snapshot",
-      );
-      if (
-        !Number.isSafeInteger(snapshot.revision) ||
-        snapshot.revision < 0 ||
-        !snapshot.profiles ||
-        !isSchoolSessionState(snapshot.profiles.science?.state) ||
-        !isSchoolSessionState(snapshot.profiles.tokyoTech?.state)
-      )
+      const snapshot = await invokeCommand("school_session_snapshot");
+      if (!isSchoolSessionSnapshot(snapshot))
         throw new Error("school_session_snapshot returned an invalid result.");
       return snapshot;
     },
-    schoolSessionLifecycle: async (event) => {
-      await invokeCommand("school_session_lifecycle", event);
+    retrySchool: async (profile) => {
+      const snapshot = await invokeCommand("retry_school", { profile });
+      if (!isSchoolSessionSnapshot(snapshot))
+        throw new Error("retry_school returned an invalid result.");
+      return snapshot;
     },
     onSchoolSession: async (callback) => {
       let disposed = false;
-      const unlisten = await listen<SchoolSessionEvent>(
-        "school-session",
-        (payload) => {
-          if (
-            !disposed &&
-            payload &&
-            (payload.profile === "science" ||
-              payload.profile === "tokyo-tech") &&
-            isSchoolSessionState(payload.state) &&
-            Number.isSafeInteger(payload.revision) &&
-            payload.revision >= 0
-          )
-            callback(payload);
-        },
-      );
+      const unlisten = await listen<unknown>("school-session", (payload) => {
+        if (!disposed && isSchoolSessionSnapshot(payload)) callback(payload);
+      });
       return () => {
         disposed = true;
         quietly(unlisten);
@@ -852,29 +833,8 @@ export function createTauriDesktopBridge(
           !disposed &&
           payload &&
           typeof payload.site === "string" &&
-          payload.kind === "reopened" &&
-          typeof payload.url === "string"
-        )
-          callback(payload);
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
-    onSchoolLoginStatus: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<SchoolLoginEvent>("school-login-status", (payload) => {
-        if (
-          !disposed &&
-          payload &&
-          (payload.profile === "science" || payload.profile === "tokyo-tech") &&
-          typeof payload.state === "string" &&
-          typeof payload.message === "string"
+          ((payload.kind === "reopened" && typeof payload.url === "string") ||
+            payload.kind === "not-seeded")
         )
           callback(payload);
       }).then((fn) => {

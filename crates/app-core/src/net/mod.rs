@@ -1,7 +1,7 @@
 //! Core's HTTP layer for school and public sources: one client per host with
 //! that host's budget, timeouts, size cap and circuit breaker. School requests
-//! carry the sign-in of the school WebView through [`SessionCookies`]; the
-//! WebView itself only signs in and shows pages the user opens.
+//! carry the cookies of Core's own sessions (`crate::school_session`); the
+//! WebView only shows pages the person opens and never lends its cookies.
 
 mod breaker;
 pub mod cookies;
@@ -9,12 +9,9 @@ mod http;
 pub mod kyomu;
 pub mod moodle;
 pub mod redact;
-pub mod sign_in;
 mod tls;
 
-pub use cookies::SessionCookies;
 pub use http::Http;
-pub use sign_in::{SignIn, SignInGate};
 
 use std::{future::Future, pin::Pin, time::Duration};
 use url::Url;
@@ -38,15 +35,19 @@ pub enum Host {
     Moodle,
     Kyomu,
     GetAccess,
+    /// The resource proxy GetAccess hands the account and password to before
+    /// it asks for the second factor.
+    GetAccessRouter,
     ScienceAccount,
     IsctData,
 }
 
 impl Host {
-    pub const ALL: [Host; 5] = [
+    pub const ALL: [Host; 6] = [
         Host::Moodle,
         Host::Kyomu,
         Host::GetAccess,
+        Host::GetAccessRouter,
         Host::ScienceAccount,
         Host::IsctData,
     ];
@@ -56,6 +57,7 @@ impl Host {
             Host::Moodle => "lms.s.isct.ac.jp",
             Host::Kyomu => "kyomu0.gakumu.titech.ac.jp",
             Host::GetAccess => "portal.nap.gsic.titech.ac.jp",
+            Host::GetAccessRouter => "rp.nap.gsic.titech.ac.jp",
             Host::ScienceAccount => "isct.ex-tic.com",
             Host::IsctData => "raw.githubusercontent.com",
         }
@@ -78,7 +80,9 @@ impl Host {
     pub(crate) const fn budget(self) -> (usize, Duration) {
         match self {
             Host::Moodle => (4, Duration::from_millis(60)),
-            Host::Kyomu | Host::GetAccess | Host::ScienceAccount => (1, Duration::from_millis(300)),
+            Host::Kyomu | Host::GetAccess | Host::GetAccessRouter | Host::ScienceAccount => {
+                (1, Duration::from_millis(300))
+            }
             Host::IsctData => (2, Duration::ZERO),
         }
     }
@@ -218,7 +222,7 @@ impl Response {
             .map(str::to_owned)
     }
 
-    /// Raw `Set-Cookie` values, for [`SessionCookies::store_set_cookies`].
+    /// Raw `Set-Cookie` values, in the order the response carried them.
     pub fn set_cookies(&self) -> Vec<String> {
         self.headers
             .get_all(reqwest::header::SET_COOKIE)
@@ -265,14 +269,8 @@ fn charset(content_type: &str) -> Option<String> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum KeyOutcome<T> {
     Complete(T),
-    /// Usable data, but these named parts could not be read; keep their old values.
-    Partial {
-        data: T,
-        missing: Vec<&'static str>,
-    },
-    /// The current transport cannot provide this data at all.
+    /// The school does not offer this data now.
     Unavailable(&'static str),
-    SignInRequired,
 }
 
 #[cfg(test)]

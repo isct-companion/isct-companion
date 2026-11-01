@@ -1,9 +1,7 @@
 //! Tools that answer from local data and change nothing.
 use super::dto::{self, pick, pick_all};
 use super::registry::{Effect, Tool};
-use super::{
-    fallback_term, non_empty, parse_term, text, visible_rows, AgentError, Context,
-};
+use super::{fallback_term, non_empty, parse_term, text, visible_rows, AgentError, Context};
 use crate::workspace_changes::WorkspaceChange as W;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

@@ -1,12 +1,16 @@
 //! Authenticated LMS resource resolution and bounded file downloads, and the
-//! school files a page hands over (`save_school_file`).
+//! school files a page hands over (`save_school_file`). Each is a read
+//! operation of a site session (`school_session::run`): its requests carry
+//! that session's cookies, a lost session is recovered once, and a file
+//! lands under its name only while the account's permit holds.
 
 use crate::{
-    net::{NetError, SessionCookies, SignInGate, USER_AGENT},
+    net::{BoxFuture, NetError, USER_AGENT},
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
     school_browser::{browsing_url, is_login_url, school_file_url},
     school_files::{self, SchoolFile, SchoolFileRequest},
+    school_session::{Attempt, OpError, Operation, Permit, RunError, SchoolSessions, Site},
 };
 pub use adpt_isct::lms::ResolvedResource;
 use adpt_isct::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page};
@@ -34,10 +38,12 @@ use tokio::{
 use url::Url;
 
 const SMALL_FILE: u64 = 2 * 1024 * 1024;
-const SESSION_TIMEOUT: Duration = Duration::from_secs(230);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const RESOURCE_TIMEOUT: Duration = Duration::from_secs(260);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
+/// A download's deadline, from its start: a sign-in, then the file.
+const RUN_DEADLINE: Duration = Duration::from_secs(
+    crate::school_session::SIGN_IN_DEADLINE.as_secs() + DOWNLOAD_TIMEOUT.as_secs(),
+);
 const MAX_RESOURCE_PAGE: u64 = 1_000_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,8 +68,25 @@ pub enum FetchError {
     WriteDenied,
 }
 
-/// What a failed cookie read means for a download. Cookie-store failures stay
-/// network errors so they never ask the user to sign in again.
+impl OpError for FetchError {
+    fn signed_out(&self) -> bool {
+        *self == FetchError::Login
+    }
+}
+
+/// A download that ended without its file.
+fn run_error(error: RunError<FetchError>) -> FetchError {
+    match error {
+        RunError::Op(error) => error,
+        RunError::Session => FetchError::Login,
+        RunError::Net(error) => session_error(error),
+        RunError::Cancelled => FetchError::Cancelled,
+        RunError::Deadline => FetchError::Timeout,
+    }
+}
+
+/// What a failed session step means for a download. Failures that are not
+/// the session's stay network errors, so they never ask for a sign-in.
 fn session_error(error: NetError) -> FetchError {
     match error {
         NetError::SignInRequired => FetchError::Login,
@@ -124,17 +147,21 @@ struct SchoolResponse {
     content_type: Option<String>,
 }
 
+/// The cookies of a file request: a site session's attempt, or none for a
+/// file on a public school page.
+type Session = Option<Attempt>;
+
 trait DownloadTransport: Send + Sync {
     fn probe<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, u64>;
 
     fn download<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         file: File,
         limit: Option<u64>,
@@ -143,7 +170,7 @@ trait DownloadTransport: Send + Sync {
 
     fn resolve<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         cmid: u64,
         module: &'a str,
@@ -153,7 +180,7 @@ trait DownloadTransport: Send + Sync {
     /// Streams the school file at `url` into `file`, whatever its size.
     fn school_file<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         referer: Option<&'a Url>,
         file: File,
@@ -185,7 +212,7 @@ impl HttpTransport {
 
     async fn request(
         &self,
-        session: Arc<dyn SessionCookies>,
+        session: &Session,
         url: &Url,
         scope: Scope,
         referer: Option<&Url>,
@@ -197,17 +224,11 @@ impl HttpTransport {
         }
         let mut current = url.clone();
         for _ in 0..=5 {
-            let cookie = tokio::select! {
-                _ = tasks.closed() => return Err(FetchError::Cancelled),
-                cookie = tokio::time::timeout(SESSION_TIMEOUT, session.cookie_header(&current)) => {
-                    match (cookie.map_err(|_| FetchError::Timeout)?, scope) {
-                        (Ok(cookie), _) => cookie,
-                        // A public school page needs no session.
-                        (Err(NetError::SignInRequired), Scope::School) => String::new(),
-                        (Err(error), _) => return Err(session_error(error)),
-                    }
-                },
-            };
+            // A public school page needs no session.
+            let cookie = session
+                .as_ref()
+                .and_then(|session| session.cookie_header(&current))
+                .unwrap_or_default();
             if cookie.trim().is_empty() && scope == Scope::Lms {
                 return Err(FetchError::Login);
             }
@@ -230,21 +251,16 @@ impl HttpTransport {
                         .map_err(|_| FetchError::Network)
                 }
             }?;
-            // Redirects can rotate the browser's session too. Store every hop
-            // and re-read its destination cookies; never forward the old header.
+            // Redirects can rotate the session too. Keep every hop's cookies
+            // and read its destination's; never forward the old header.
             let set_cookie: Vec<String> = response
                 .headers()
                 .get_all(SET_COOKIE)
                 .iter()
                 .filter_map(|value| value.to_str().ok().map(str::to_owned))
                 .collect();
-            if !set_cookie.is_empty() {
-                tokio::select! {
-                    _ = tasks.closed() => return Err(FetchError::Cancelled),
-                    saved = tokio::time::timeout(REQUEST_TIMEOUT, session.store_set_cookies(&current, &set_cookie)) => {
-                        saved.map_err(|_| FetchError::Timeout)?.map_err(session_error)?;
-                    }
-                }
+            if let Some(session) = session.as_ref().filter(|_| !set_cookie.is_empty()) {
+                session.store_cookies(&current, &set_cookie);
             }
             if matches!(response.status().as_u16(), 401 | 403) {
                 return Err(FetchError::Login);
@@ -284,13 +300,13 @@ fn download_redirect(scope: Scope, current: &Url, location: &str) -> Result<Url,
 impl DownloadTransport for HttpTransport {
     fn probe<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, u64> {
         Box::pin(async move {
             let response = self
-                .request(session, url, Scope::Lms, None, Some("bytes=0-0"), &tasks)
+                .request(&session, url, Scope::Lms, None, Some("bytes=0-0"), &tasks)
                 .await?;
             let final_url = checked_response_url(Scope::Lms, &response)?;
             if is_login_url(&final_url) {
@@ -319,7 +335,7 @@ impl DownloadTransport for HttpTransport {
 
     fn download<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         mut file: File,
         limit: Option<u64>,
@@ -327,7 +343,7 @@ impl DownloadTransport for HttpTransport {
     ) -> FetchFuture<'a, Fetched> {
         Box::pin(async move {
             let mut response = self
-                .request(session, url, Scope::Lms, None, None, &tasks)
+                .request(&session, url, Scope::Lms, None, None, &tasks)
                 .await?;
             let final_url = checked_response_url(Scope::Lms, &response)?;
             if is_login_url(&final_url) {
@@ -359,7 +375,7 @@ impl DownloadTransport for HttpTransport {
 
     fn resolve<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         cmid: u64,
         module: &'a str,
@@ -367,7 +383,7 @@ impl DownloadTransport for HttpTransport {
     ) -> FetchFuture<'a, ResolvedResource> {
         Box::pin(async move {
             let mut response = self
-                .request(session, url, Scope::Lms, None, None, &tasks)
+                .request(&session, url, Scope::Lms, None, None, &tasks)
                 .await?;
             let final_url = checked_response_url(Scope::Lms, &response)?;
             if response.status().is_redirection() || is_login_url(&final_url) {
@@ -422,7 +438,7 @@ impl DownloadTransport for HttpTransport {
 
     fn school_file<'a>(
         &'a self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &'a Url,
         referer: Option<&'a Url>,
         mut file: File,
@@ -430,7 +446,7 @@ impl DownloadTransport for HttpTransport {
     ) -> FetchFuture<'a, SchoolResponse> {
         Box::pin(async move {
             let mut response = self
-                .request(session, url, Scope::School, referer, None, &tasks)
+                .request(&session, url, Scope::School, referer, None, &tasks)
                 .await?;
             let final_url = checked_response_url(Scope::School, &response)?;
             let status = response.status();
@@ -590,7 +606,7 @@ impl Drop for TempPath {
 
 struct DownloaderInner {
     transport: Arc<dyn DownloadTransport>,
-    sign_in: OnceLock<SignInGate>,
+    sessions: OnceLock<SchoolSessions>,
     flights: tokio::sync::Mutex<HashMap<FlightKey, Arc<Flight>>>,
     target_locks: Mutex<HashMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>,
     source_locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
@@ -613,7 +629,7 @@ impl Downloader {
     fn with_transport(transport: Arc<dyn DownloadTransport>) -> Self {
         Self(Arc::new(DownloaderInner {
             transport,
-            sign_in: OnceLock::new(),
+            sessions: OnceLock::new(),
             flights: tokio::sync::Mutex::new(HashMap::new()),
             target_locks: Mutex::new(HashMap::new()),
             source_locks: Mutex::new(HashMap::new()),
@@ -624,37 +640,37 @@ impl Downloader {
         }))
     }
 
-    /// Shares the browser's one sign-in flight with ordinary school reads.
-    /// Called once when Core attaches the native browser.
-    pub(crate) fn attach_sign_in(&self, sign_in: SignInGate) {
-        let _ = self.0.sign_in.set(sign_in);
+    /// The school sessions downloads read with. Set once, by Core.
+    pub(crate) fn attach_sessions(&self, sessions: SchoolSessions) {
+        let _ = self.0.sessions.set(sessions);
     }
 
-    async fn authenticated<T, F: Future<Output = Result<T, FetchError>>>(
+    /// Runs `operation` on `site`'s session within the download deadline.
+    async fn run<O: Operation<Error = FetchError>>(
         &self,
-        mut read: impl FnMut() -> F,
-    ) -> Result<T, FetchError> {
-        let result = read().await;
-        if !matches!(result, Err(FetchError::Login)) {
-            return result;
-        }
-        let Some(sign_in) = self.0.sign_in.get() else {
-            return result;
-        };
+        site: Site,
+        operation: &mut O,
+        permit: &Permit,
+    ) -> Result<O::Output, FetchError> {
+        let sessions = self.0.sessions.get().ok_or(FetchError::Login)?;
+        let deadline = tokio::time::Instant::now() + RUN_DEADLINE;
         tokio::select! {
-            _ = self.0.tasks.closed() => return Err(FetchError::Cancelled),
-            renewed = tokio::time::timeout(SESSION_TIMEOUT,
-                sign_in.ensure(crate::school_auth::SchoolAuthProfile::Science)) => {
-                renewed.map_err(|_| FetchError::Timeout)?.map_err(session_error)?;
-            }
+            _ = self.0.tasks.closed() => Err(FetchError::Cancelled),
+            ran = sessions.run(site, permit, deadline, operation) => ran.map_err(run_error),
         }
-        // A rejected second read is final; never loop on a wrong password.
-        read().await
+    }
+
+    fn permit(&self, site: Site) -> Result<Permit, FetchError> {
+        self.0
+            .sessions
+            .get()
+            .ok_or(FetchError::Login)?
+            .permit(site.profile())
+            .ok_or(FetchError::Cancelled)
     }
 
     pub async fn fetch(
         &self,
-        session: Arc<dyn SessionCookies>,
         url: &Url,
         target: PathBuf,
         limit: Option<u64>,
@@ -687,23 +703,23 @@ impl Downloader {
         let mut result = flight.result.subscribe();
         if leader {
             let downloader = self.clone();
-            let worker_session = session.clone();
             let worker_url = url.clone();
             let worker_flight = flight.clone();
             let worker_key = key.clone();
             if !self.0.tasks.spawn(async move {
                 let work_downloader = downloader.clone();
                 let outcome = match tokio::spawn(async move {
+                    let permit = work_downloader.permit(Site::Lms)?;
+                    let mut operation = FetchFile {
+                        downloader: &work_downloader,
+                        permit: &permit,
+                        url: &worker_url,
+                        target: &target,
+                        limit,
+                        foreground,
+                    };
                     work_downloader
-                        .authenticated(|| {
-                            work_downloader.fetch_once(
-                                worker_session.clone(),
-                                &worker_url,
-                                target.clone(),
-                                limit,
-                                foreground,
-                            )
-                        })
+                        .run(Site::Lms, &mut operation, &permit)
                         .await
                 })
                 .await
@@ -737,15 +753,18 @@ impl Downloader {
         }
     }
 
+    /// One attempt at a file: a new temporary file each time, renamed to
+    /// `target` only once complete and while `permit` holds.
     async fn fetch_once(
         &self,
-        session: Arc<dyn SessionCookies>,
+        session: Attempt,
+        permit: &Permit,
         url: &Url,
-        target: PathBuf,
+        target: &Path,
         limit: Option<u64>,
         foreground: bool,
     ) -> Result<Fetched, FetchError> {
-        let target_lock = keyed_lock(&self.0.target_locks, target.clone())?;
+        let target_lock = keyed_lock(&self.0.target_locks, target.to_path_buf())?;
         let _target_turn = cancellable_lock(target_lock, &self.0.tasks).await?;
         if target.is_file() {
             return Ok(Fetched::Saved);
@@ -757,10 +776,7 @@ impl Downloader {
         }
         let size = tokio::select! {
             _ = self.0.tasks.closed() => return Err(FetchError::Cancelled),
-            outcome = tokio::time::timeout(
-                RESOURCE_TIMEOUT,
-                self.0.transport.probe(session.clone(), url, self.0.tasks.clone()),
-            ) => outcome.map_err(|_| FetchError::Timeout)??,
+            outcome = self.0.transport.probe(Some(session.clone()), url, self.0.tasks.clone()) => outcome?,
         };
         if limit.is_some_and(|limit| size > limit) {
             return Ok(Fetched::TooLarge(size));
@@ -779,12 +795,12 @@ impl Downloader {
             };
             (None, Some(permit))
         };
-        let (file, mut temp) = self.create_temp(&target).await?;
+        let (file, mut temp) = self.create_temp(target).await?;
         let outcome = tokio::select! {
             _ = self.0.tasks.closed() => Err(FetchError::Cancelled),
             outcome = tokio::time::timeout(
                 DOWNLOAD_TIMEOUT,
-                self.0.transport.download(session, url, file, limit, self.0.tasks.clone()),
+                self.0.transport.download(Some(session), url, file, limit, self.0.tasks.clone()),
             ) => outcome.map_err(|_| FetchError::Timeout)?,
         };
         match outcome? {
@@ -793,7 +809,12 @@ impl Downloader {
                 if target.is_file() {
                     return Ok(Fetched::Saved);
                 }
-                tokio::fs::rename(&temp.path, &target)
+                // An account change since the download began: the file is
+                // the old account's and does not land.
+                if permit.is_cancelled() {
+                    return Err(FetchError::Cancelled);
+                }
+                tokio::fs::rename(&temp.path, target)
                     .await
                     .map_err(write_error)?;
                 temp.disarm();
@@ -828,7 +849,6 @@ impl Downloader {
 
     pub async fn resolve(
         &self,
-        session: Arc<dyn SessionCookies>,
         url: &Url,
         cmid: u64,
         module: &str,
@@ -839,22 +859,20 @@ impl Downloader {
         if !is_lms_origin(url) {
             return Err(FetchError::Invalid);
         }
-        let transport = self.0.transport.clone();
         let url = url.clone();
         let module = module.to_owned();
-        let worker_tasks = self.0.tasks.clone();
         let downloader = self.clone();
         self.0
             .tasks
             .run(async move {
-                let transport_tasks = worker_tasks.clone();
-                tokio::select! {
-                    _ = worker_tasks.closed() => Err(FetchError::Cancelled),
-                    outcome = tokio::time::timeout(
-                        RESOURCE_TIMEOUT,
-                        downloader.authenticated(|| transport.resolve(session.clone(), &url, cmid, &module, transport_tasks.clone())),
-                    ) => outcome.map_err(|_| FetchError::Timeout)?,
-                }
+                let permit = downloader.permit(Site::Lms)?;
+                let mut operation = ResolveResource {
+                    downloader: &downloader,
+                    url: &url,
+                    cmid,
+                    module: &module,
+                };
+                downloader.run(Site::Lms, &mut operation, &permit).await
             })
             .await
             .map_err(|_| FetchError::Cancelled)?
@@ -864,11 +882,11 @@ impl Downloader {
     /// staging folder, under the name Core gives it
     /// (`school_files::file_name`). The shell moves it to the person's
     /// downloads. A file off the school hosts is answered `External` and never
-    /// fetched. No sign-in is renewed: the person is on the signed-in page
-    /// that linked the file, so a lost session is reported as `Login`.
+    /// fetched. A file of the LMS or 教務Web is read with Core's session of
+    /// that site, never the web view's; a file of a public school page with
+    /// no cookies.
     pub async fn save_school_file(
         &self,
-        session: Arc<dyn SessionCookies>,
         request: SchoolFileRequest,
         directory: PathBuf,
     ) -> Result<SchoolFile, FetchError> {
@@ -890,13 +908,24 @@ impl Downloader {
         self.0
             .tasks
             .run(async move {
-                tokio::select! {
-                    _ = worker_tasks.closed() => Err(FetchError::Cancelled),
-                    outcome = tokio::time::timeout(
-                        DOWNLOAD_TIMEOUT,
-                        downloader.school_file_once(session, &url, referer.as_ref(), &request, &directory),
-                    ) => outcome.map_err(|_| FetchError::Timeout)?,
-                }
+                let Some(site) = Site::for_url(&url) else {
+                    return tokio::select! {
+                        _ = worker_tasks.closed() => Err(FetchError::Cancelled),
+                        outcome = tokio::time::timeout(
+                            DOWNLOAD_TIMEOUT,
+                            downloader.school_file_once(None, &url, referer.as_ref(), &request, &directory),
+                        ) => outcome.map_err(|_| FetchError::Timeout)?,
+                    };
+                };
+                let permit = downloader.permit(site)?;
+                let mut operation = SaveSchoolFile {
+                    downloader: &downloader,
+                    url: &url,
+                    referer: referer.as_ref(),
+                    request: &request,
+                    directory: &directory,
+                };
+                downloader.run(site, &mut operation, &permit).await
             })
             .await
             .map_err(|_| FetchError::Cancelled)?
@@ -904,7 +933,7 @@ impl Downloader {
 
     async fn school_file_once(
         &self,
-        session: Arc<dyn SessionCookies>,
+        session: Session,
         url: &Url,
         referer: Option<&Url>,
         request: &SchoolFileRequest,
@@ -978,6 +1007,86 @@ async fn publish(
         });
     }
     Err(FetchError::WriteDenied)
+}
+
+/// A course file, as an operation of the LMS session.
+struct FetchFile<'a> {
+    downloader: &'a Downloader,
+    permit: &'a Permit,
+    url: &'a Url,
+    target: &'a Path,
+    limit: Option<u64>,
+    foreground: bool,
+}
+
+impl Operation for FetchFile<'_> {
+    type Output = Fetched;
+    type Error = FetchError;
+
+    fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<Fetched, FetchError>> {
+        Box::pin(self.downloader.fetch_once(
+            attempt,
+            self.permit,
+            self.url,
+            self.target,
+            self.limit,
+            self.foreground,
+        ))
+    }
+}
+
+/// An LMS activity page resolved to its file, as an operation.
+struct ResolveResource<'a> {
+    downloader: &'a Downloader,
+    url: &'a Url,
+    cmid: u64,
+    module: &'a str,
+}
+
+impl Operation for ResolveResource<'_> {
+    type Output = ResolvedResource;
+    type Error = FetchError;
+
+    fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<ResolvedResource, FetchError>> {
+        let tasks = self.downloader.0.tasks.clone();
+        Box::pin(async move {
+            tokio::select! {
+                _ = tasks.closed() => Err(FetchError::Cancelled),
+                resolved = self.downloader.0.transport.resolve(Some(attempt), self.url, self.cmid, self.module, tasks.clone()) => resolved,
+            }
+        })
+    }
+}
+
+/// A file a school page handed over, as an operation of its site's session.
+struct SaveSchoolFile<'a> {
+    downloader: &'a Downloader,
+    url: &'a Url,
+    referer: Option<&'a Url>,
+    request: &'a SchoolFileRequest,
+    directory: &'a Path,
+}
+
+impl Operation for SaveSchoolFile<'_> {
+    type Output = SchoolFile;
+    type Error = FetchError;
+
+    fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<SchoolFile, FetchError>> {
+        Box::pin(async move {
+            tokio::time::timeout(
+                DOWNLOAD_TIMEOUT,
+                self.downloader.school_file_once(
+                    Some(attempt),
+                    self.url,
+                    self.referer,
+                    self.request,
+                    self.directory,
+                ),
+            )
+            .await
+            .map_err(|_| FetchError::Timeout)?
+        })
+    }
 }
 
 fn uses_small_lane(size: u64) -> bool {

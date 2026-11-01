@@ -1,7 +1,14 @@
-/** Words for Core's sync snapshot. Core sends i18n keys and facts; this file
- * names them and decides nothing about what is due. */
+/** Words for Core's sync snapshot and school sessions. Core sends i18n keys,
+ * states and facts; this file names them and decides nothing about what is
+ * due or when to sign in. */
 import { formatJst } from "../lib/civil-date";
 import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
+import type {
+  SchoolAuthProfile,
+  SchoolProfileSession,
+  SchoolSessionState,
+  SchoolSignInProblemKind,
+} from "../platform/desktop-bridge";
 import type {
   RunView,
   SyncFailure,
@@ -80,8 +87,8 @@ export function heldText(held: SyncHeld, locale: string) {
         host: held.host,
         time: clock(held.until, locale),
       });
-    case "sign-in-required":
-      return t("app.signInRequired");
+    case "session":
+      return sessionStateText(held.state);
     case "resetting":
       return t("app.resetting");
     case "prerequisite":
@@ -134,4 +141,74 @@ export function failureText(
 export function ageText(at: string | null, now: string, locale: string) {
   if (!at) return t("common.neverUpdated");
   return relativeTimeAgo(at, now, locale) ?? t("syncStatus.justNow");
+}
+
+/** One short label per session state: badges, the footer and a held read. */
+const SESSION_STATES: Record<SchoolSessionState, MessageKey> = {
+  "not-configured": "common.notConnected",
+  idle: "schoolSession.state.idle",
+  "signing-in": "common.signingIn",
+  active: "common.signedIn",
+  rejected: "schoolSession.state.rejected",
+  "needs-web": "schoolSession.state.needsWeb",
+  unavailable: "schoolSession.state.unavailable",
+};
+
+const SIGN_IN_PROBLEMS: Record<SchoolSignInProblemKind, MessageKey> = {
+  "invalid-credentials": "failure.theIDOrPasswordWas",
+  "invalid-otp": "failure.theOneTimePasswordWas",
+  "invalid-matrix": "failure.theMatrixAnswerWasNot",
+  "email-otp": "schoolSession.problem.emailOtp",
+  "password-change": "schoolSession.problem.passwordChange",
+  "unknown-page": "schoolSession.problem.unknownPage",
+  network: "schoolSession.problem.network",
+  unanswered: "schoolSession.problem.unanswered",
+  anomaly: "schoolSession.problem.anomaly",
+};
+
+/** The site each account's maintenance pauses. */
+const MAINTENANCE_SOURCES: Record<SchoolAuthProfile, MessageKey> = {
+  science: "syncStatus.source.lms",
+  "tokyo-tech": "syncStatus.source.kyomu",
+};
+
+export const sessionStateText = (state: SchoolSessionState) =>
+  t(SESSION_STATES[state]);
+
+/** The state's label; `unavailable` adds when Core tries again. */
+export function sessionText(session: SchoolProfileSession, locale: string) {
+  if (session.state === "unavailable" && session.retryAt)
+    return t("schoolSession.state.unavailableRetry", {
+      time: clock(session.retryAt, locale),
+    });
+  return sessionStateText(session.state);
+}
+
+/** The sentences under the label: the reason by kind, what the person can
+ * do about it, and a maintenance pause with its end. */
+export function sessionDetails(
+  profile: SchoolAuthProfile,
+  session: SchoolProfileSession,
+  locale: string,
+): string[] {
+  const lines: string[] = [];
+  // A kind this build does not know yet shows Core's own diagnostic.
+  const problem = session.problem;
+  if (problem)
+    lines.push(
+      SIGN_IN_PROBLEMS[problem.kind]
+        ? t(SIGN_IN_PROBLEMS[problem.kind])
+        : problem.message,
+    );
+  if (session.state === "needs-web")
+    lines.push(t("schoolSession.needsWeb.signInYourself"));
+  if (session.maintenance)
+    lines.push(
+      t("schoolSession.maintenance.until", {
+        site: t(MAINTENANCE_SOURCES[profile]),
+        time: clock(session.maintenance.until, locale),
+      }),
+      ...(session.maintenance.notice ? [session.maintenance.notice] : []),
+    );
+  return lines;
 }

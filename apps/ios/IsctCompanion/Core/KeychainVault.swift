@@ -6,6 +6,11 @@ import Security
 /// school login synchronized through iCloud Keychain from the Mac app is the
 /// same item here. Called on Core worker threads, never the main thread.
 final class KeychainVault: NativeVault, @unchecked Sendable {
+    /// Core's identity snapshot and site cookie jars of each school account:
+    /// kept on this device only, never synchronized, and readable after the
+    /// first unlock so a background wake can sign in.
+    private static let deviceOnly: Set<String> = ["school-session-science", "school-session-tokyo-tech"]
+
     func load(account: String) throws -> String? {
         var query = try baseQuery(account)
         query[kSecReturnData as String] = true
@@ -35,7 +40,8 @@ final class KeychainVault: NativeVault, @unchecked Sendable {
         }
         var insert = query
         insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        insert[kSecAttrAccessible as String] =
+            Self.deviceOnly.contains(account) ? kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly : kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(insert as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw SdkError.Unavailable(detail: "Keychain write failed (OSStatus \(status))")
@@ -51,11 +57,12 @@ final class KeychainVault: NativeVault, @unchecked Sendable {
 
     private func baseQuery(_ account: String) throws -> [String: Any] {
         let item = try vaultItem(account: account)
+        let synchronized = item.synchronized && !Self.deviceOnly.contains(account)
         return [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: item.service,
             kSecAttrAccount as String: item.key,
-            kSecAttrSynchronizable as String: item.synchronized ? kCFBooleanTrue! : kCFBooleanFalse!,
+            kSecAttrSynchronizable as String: synchronized ? kCFBooleanTrue! : kCFBooleanFalse!,
         ]
     }
 }

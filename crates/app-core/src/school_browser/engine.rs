@@ -1,57 +1,34 @@
 use super::policy::{
-    automation_target, browsing_url, is_identity_login, is_login_step, navigation_rule,
-    new_window_rule, restore_record, DenyReason, Verdict, ViewRole,
+    browsing_url, is_identity_login, navigation_rule, new_window_rule, restore_record, DenyReason,
+    Verdict,
 };
 use super::{
     ActionId, BecameDownload, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     DownloadDisposition, History, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
-    NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded, SchoolAutoSignIn,
-    SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolConnectResult,
-    SchoolLoginEvent, SchoolPageCustomization, SchoolProfileSession, SchoolSessionEvent,
-    SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionProfiles,
-    SchoolSessionSnapshot, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
-    SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebResult,
-    SchoolWebStep,
+    NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded, SchoolBrowser,
+    SchoolBrowserError, SchoolBrowserListener, SchoolPageCustomization, SchoolWebEntry,
+    SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebResult, SchoolWebStep,
 };
 use crate::{
-    data::WorkspaceChangeSource,
     events::CoreEvent,
     lifecycle::SchoolSite,
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_auth::{
-        upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
-    },
-    school_service::{IngestOutcome, IngestState},
-    sync_engine::{Hint, SyncHints},
+    school_auth::SchoolAuthProfile,
+    school_session::{SchoolSessions, Seeded},
 };
-use adpt_isct::scripts::SCHOOL_LOGIN;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, PoisonError, Weak,
     },
-    time::{Duration, Instant},
 };
-use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use url::Url;
 
-mod jobs;
-mod lane;
-mod login;
-mod otp_enroll;
-mod otp_setup;
-mod pull;
 mod restore;
 
-use self::{jobs::*, lane::*, login::*, pull::*};
-
-const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
-const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
-const FOCUS_INTERVAL: Duration = Duration::from_secs(120);
 /// Popups one view may hold at once, nested ones included.
 const MAX_POPUPS: usize = 8;
 
@@ -75,49 +52,26 @@ impl<T> Guarded<T> for Mutex<T> {
 }
 
 struct Inner {
-    auth: Arc<SchoolAuthService>,
     events: Arc<dyn EventSink>,
-    /// Sign-ins reach the sync planner here.
-    hints: SyncHints,
+    /// The accounts' identities, written into the web view before an
+    /// App-initiated navigation.
+    sessions: SchoolSessions,
     browser: Arc<dyn SchoolBrowser>,
     capabilities: HostCapabilities,
     state: Mutex<State>,
-    lane: AsyncMutex<()>,
-    traces: broadcast::Sender<Trace>,
-    browsing_changed: Notify,
     tasks: RuntimeTasks,
     runtime: tokio::runtime::Handle,
     next_generation: AtomicU64,
     next_action: AtomicU64,
-    next_job: AtomicU64,
     listener: Mutex<Option<Arc<dyn SchoolBrowserListener>>>,
     restore_io: Mutex<()>,
-    transport: std::sync::OnceLock<Transport>,
 }
 
 #[derive(Default)]
 struct State {
-    otp_setup: Option<u64>,
-    otp_enrollment: Option<otp_enroll::Enrollment>,
     views: HashMap<SchoolSite, ViewState>,
+    /// The site on screen; only its page is published.
     browsing: Option<SchoolSite>,
-    login: Option<ActiveLogin>,
-    /// The last failed sign-in per profile and what automatic sign-in does
-    /// about it; cleared by a successful sign-in or a credential change.
-    sign_in: HashMap<SchoolAuthProfile, SignInRecord>,
-    sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
-    kyomu_maintenance: Option<String>,
-    revision: u64,
-    last_focus: Option<Instant>,
-    last_launch: Option<Instant>,
-    heartbeat: Option<Heartbeat>,
-    /// The one session job each profile may have; every caller joins it.
-    jobs: HashMap<SchoolAuthProfile, SessionJob>,
-    /// Bumped when a new attempt takes a profile over (a session check, a
-    /// sign-in, new credentials). A result that finishes after its attempt
-    /// was superseded must not publish the profile's state.
-    attempts: HashMap<SchoolAuthProfile, u64>,
-    session_retry: HashMap<SchoolAuthProfile, tokio::time::Instant>,
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
     submission: Option<super::submission::PendingSubmission>,
@@ -132,14 +86,10 @@ struct ViewState {
     id: BrowserId,
     last_page: u64,
     url: String,
-    user_url: Option<String>,
-    background_navigation: bool,
-    auth_relay: String,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
-    /// The stop sent to this view for an abandoned attempt, until the view
-    /// confirms it. Hidden work does not lease the view meanwhile.
-    stopping: Option<ActionId>,
+    /// The App's navigation in progress, until its page arrives.
+    intent: Option<Intent>,
     /// Windows its pages opened, in opening order: a popup's parent is the
     /// view or a popup before it. They live and close with the view.
     popups: Vec<Popup>,
@@ -148,6 +98,18 @@ struct ViewState {
     failure: Option<SchoolWebFailure>,
     /// The surface that last brought the view on screen (`open`).
     presenter: Option<String>,
+}
+
+/// An App-initiated navigation of a view, after the account's identity was
+/// written into the web view. A sign-in page it lands on is recovered once.
+struct Intent {
+    profile: SchoolAuthProfile,
+    /// The navigation sent; `None` for a new view's first load.
+    action: Option<ActionId>,
+    target: Url,
+    /// The account generation it was seeded in.
+    account: u64,
+    seeded: Seeded,
 }
 
 struct Popup {
@@ -160,15 +122,10 @@ struct Popup {
 }
 
 impl State {
-    /// Who the view or popup `browser` serves; `None` once it is gone.
-    fn role_of(&self, browser: BrowserId) -> Option<ViewRole> {
-        let view = self.views.get(&browser.site)?;
-        (view.id == browser || view.popups.iter().any(|popup| popup.id == browser)).then(|| {
-            if self.browsing == Some(browser.site) {
-                ViewRole::User
-            } else {
-                ViewRole::Automation
-            }
+    /// Whether the view or popup `browser` still exists.
+    fn alive(&self, browser: BrowserId) -> bool {
+        self.views.get(&browser.site).is_some_and(|view| {
+            view.id == browser || view.popups.iter().any(|popup| popup.id == browser)
         })
     }
 
@@ -213,9 +170,7 @@ impl State {
                 page.notice = popup.failure.clone();
             }
             None => {
-                page.url = view.user_url.clone().or_else(|| {
-                    (view.last_page > 0 && !view.background_navigation).then(|| view.url.clone())
-                });
+                page.url = (view.last_page > 0).then(|| view.url.clone());
                 page.back = step(view.history.map(|history| history.back));
                 page.forward = step(view.history.map(|history| history.forward));
                 page.notice = view.failure.clone();
@@ -261,54 +216,43 @@ impl State {
     }
 }
 
-#[derive(Clone, Debug)]
-enum Trace {
-    Enrollment,
-    Session {
-        profile: SchoolAuthProfile,
-        state: SchoolSessionState,
-    },
-    /// The visible site changed. `Some` preempts hidden work.
-    Browsing(Option<SchoolSite>),
-    /// A school page finished loading in any view (hidden or visible).
-    Loaded(PageLoaded),
-    Closed(BrowserId),
-    /// The view confirmed the stop sent for an abandoned attempt.
-    Halted(BrowserId),
-    Stopped,
+/// The account whose identity the web view needs for `site`: the sites
+/// signed in through Extic and through GetAccess. Public sites need none.
+fn site_profile(site: SchoolSite) -> Option<SchoolAuthProfile> {
+    match site {
+        SchoolSite::SciencePortal | SchoolSite::ScienceLms => Some(SchoolAuthProfile::Science),
+        SchoolSite::TokyoPortal
+        | SchoolSite::TokyoMail
+        | SchoolSite::Kyomu
+        | SchoolSite::Library
+        | SchoolSite::Tsubame => Some(SchoolAuthProfile::TokyoTech),
+        SchoolSite::Syllabus | SchoolSite::StudyGuide => None,
+    }
 }
 
 struct Listener(Weak<Inner>);
 
 impl SchoolBrowserEngine {
     pub fn new(
-        auth: Arc<SchoolAuthService>,
+        sessions: SchoolSessions,
         events: Arc<dyn EventSink>,
         browser: Arc<dyn SchoolBrowser>,
-        hints: SyncHints,
     ) -> Result<Arc<Self>, SchoolBrowserError> {
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| {
             SchoolBrowserError::Platform("School browser requires an async runtime.".into())
         })?;
-        let (traces, _) = broadcast::channel(128);
         let inner = Arc::new(Inner {
-            auth,
             events,
-            hints,
+            sessions,
             capabilities: browser.capabilities(),
             browser: browser.clone(),
             state: Mutex::new(State::default()),
-            lane: AsyncMutex::new(()),
-            traces,
-            browsing_changed: Notify::new(),
             tasks: RuntimeTasks::default(),
             runtime,
             next_generation: AtomicU64::new(1),
             next_action: AtomicU64::new(1),
-            next_job: AtomicU64::new(1),
             listener: Mutex::new(None),
             restore_io: Mutex::new(()),
-            transport: std::sync::OnceLock::new(),
         });
         let listener: Arc<dyn SchoolBrowserListener> = Arc::new(Listener(Arc::downgrade(&inner)));
         browser.attach(Arc::downgrade(&listener))?;
@@ -316,53 +260,18 @@ impl SchoolBrowserEngine {
         Ok(Arc::new(Self(inner)))
     }
 
-    pub fn session_snapshot(&self) -> Result<SchoolSessionSnapshot, SchoolBrowserError> {
-        let state = self.0.state.guard();
-        Ok(snapshot(&state))
-    }
-
+    /// Which site is on screen, the one whose page Core publishes.
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
-        let mut state = self.0.state.guard();
-        if state.browsing == site {
-            return Ok(());
-        }
-        if state.browsing == Some(SchoolSite::SciencePortal)
-            && site != Some(SchoolSite::SciencePortal)
         {
-            state.otp_setup = None;
-            state.otp_enrollment = None;
+            let mut state = self.0.state.guard();
+            if state.browsing == site {
+                return Ok(());
+            }
+            state.browsing = site;
         }
-        // Transfer ownership before notifying the hidden waiter. Its later
-        // cleanup must not erase a new visible login, or leave a stale run
-        // blocking the newly opened page's saved-credential read.
-        state.heartbeat = None;
-        state.login = None;
-        state.browsing = site;
-        let login_page = site
-            .and_then(|site| state.views.get(&site))
-            .and_then(|view| {
-                let url = Url::parse(&view.url).ok()?;
-                is_identity_login(&url).then(|| {
-                    (
-                        PageId {
-                            browser: view.id,
-                            sequence: view.last_page,
-                        },
-                        url,
-                        view.auth_relay.clone(),
-                    )
-                })
-            });
-        drop(state);
-        let _ = self.0.traces.send(Trace::Browsing(site));
-        self.0.browsing_changed.notify_waiters();
         // Changes made while the site was off screen were not published.
         if let Some(site) = site {
             self.0.publish_page(site);
-        }
-        // Revealing a resident login page does not produce another load.
-        if let Some((page, url, relay)) = login_page {
-            self.0.arm_saved_login(page, url, relay);
         }
         Ok(())
     }
@@ -375,20 +284,16 @@ impl SchoolBrowserEngine {
         surface: &str,
         entry: SchoolWebEntry,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let (already_open, current, background_changed, presenter) = {
+        let (view, current, presenter) = {
             let state = self.0.state.guard();
             let view = state.views.get(&site);
             (
-                view.is_some(),
-                view.and_then(|v| {
-                    v.user_url
-                        .clone()
-                        .or_else(|| (!v.background_navigation).then(|| v.url.clone()))
-                }),
-                view.is_some_and(|v| v.background_navigation),
+                view.map(|v| v.id),
+                view.filter(|v| v.last_page > 0).map(|v| v.url.clone()),
                 view.and_then(|v| v.presenter.clone()),
             )
         };
+        let already_open = view.is_some();
         // A surface coming back finds the view as it left it, unless another
         // surface showed it meanwhile.
         let target = match entry {
@@ -397,14 +302,50 @@ impl SchoolBrowserEngine {
             SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
         };
         let explicit_target = target.is_some();
+        // A view on the identity provider's page may be someone signing in
+        // by hand: neither its cookies nor its page are touched.
+        let on_sign_in = current
+            .as_deref()
+            .and_then(|current| Url::parse(current).ok())
+            .is_some_and(|current| is_identity_login(&current));
         let target = target
             .or(current)
             .or_else(|| self.restored_target(site))
             .unwrap_or_else(|| site.start_url().to_string());
         let url = interactive_url(&target)?;
+        // A view the App sends somewhere: a new one, or an app link to
+        // another page. Revealing a view as it is navigates nothing, and
+        // keeps its exact native URL.
+        let navigates = match view {
+            None => true,
+            Some(browser) => {
+                explicit_target && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
+            }
+        };
+        let seeding =
+            site_profile(site).filter(|_| navigates && !on_sign_in && self.0.sessions.seeds_web());
         self.user_browsing(Some(site))?;
+        // A new view that gets the account's identity starts blank: its
+        // store exists before the cookies are written, and its first page
+        // loads after.
+        let blank = seeding.is_some() && !already_open;
+        let created = match view {
+            Some(browser) => Ok(browser),
+            None if blank => Url::parse("about:blank")
+                .map_err(|_| SchoolBrowserError::InvalidInput("Web URL is invalid.".into()))
+                .and_then(|initial| self.ensure_browser(site, initial)),
+            None => self.ensure_browser(site, url.clone()),
+        };
+        let intent = match (seeding, &created) {
+            (Some(profile), Ok(_)) => {
+                let account = self.0.sessions.account_generation(profile);
+                let seeded = self.0.sessions.seed(profile).await;
+                Some((profile, account, seeded))
+            }
+            _ => None,
+        };
         let opened = (|| {
-            let browser = self.ensure_browser(site, url.clone())?;
+            let browser = created?;
             self.0.state.with(|state| {
                 if let Some(view) = state.views.get_mut(&site) {
                     view.presenter = Some(surface.to_owned());
@@ -414,13 +355,24 @@ impl SchoolBrowserEngine {
             if already_open && explicit_target {
                 self.0.close_popups(site);
             }
-            // Revealing an existing resident view must preserve its exact native URL.
-            // Re-navigating to our sanitized identity would strip SSO query state.
-            if already_open
-                && (explicit_target || background_changed)
-                && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
-            {
-                self.dispatch(browser, BrowserAction::Navigate(url))?;
+            let action = if (already_open && navigates) || blank {
+                Some(self.dispatch(browser, BrowserAction::Navigate(url.clone()))?)
+            } else {
+                None
+            };
+            if let Some((profile, account, seeded)) = intent {
+                self.0.state.with(|state| {
+                    if let Some(view) = state.views.get_mut(&site).filter(|view| view.id == browser)
+                    {
+                        view.intent = Some(Intent {
+                            profile,
+                            action,
+                            target: url.clone(),
+                            account,
+                            seeded,
+                        });
+                    }
+                });
             }
             Ok::<_, SchoolBrowserError>(())
         })();
@@ -600,8 +552,6 @@ impl SchoolBrowserEngine {
     pub async fn shutdown(&self) {
         self.0.state.guard().submission = None;
         self.0.tasks.close();
-        let _ = self.0.traces.send(Trace::Stopped);
-        self.0.browsing_changed.notify_waiters();
         self.0.tasks.wait().await;
         let _ = self.0.browser.shutdown().await;
         self.0.listener.guard().take();
@@ -621,19 +571,15 @@ impl SchoolBrowserEngine {
                 site,
                 generation: self.0.next_generation.fetch_add(1, Ordering::Relaxed),
             };
-            let nonce = new_id();
             state.views.insert(
                 site,
                 ViewState {
                     id,
                     last_page: 0,
                     url: initial.to_string(),
-                    user_url: None,
-                    background_navigation: false,
-                    auth_relay: format!("isct-companion-auth:{nonce}:"),
                     navigation: None,
                     actions: HashMap::new(),
-                    stopping: None,
+                    intent: None,
                     popups: Vec::new(),
                     history: None,
                     failure: None,
@@ -667,10 +613,6 @@ impl SchoolBrowserEngine {
     ) -> Result<ActionId, SchoolBrowserError> {
         self.0.dispatch(browser, command)
     }
-
-    fn set_session(&self, profile: SchoolAuthProfile, value: SchoolSessionState) {
-        self.0.set_session_from_inner(profile, value);
-    }
 }
 
 impl SchoolBrowserListener for Listener {
@@ -686,11 +628,6 @@ impl SchoolBrowserListener for Listener {
     fn load_failed(&self, event: LoadFailed) {
         if let Some(inner) = self.0.upgrade() {
             inner.load_failed(event);
-        }
-    }
-    fn title_changed(&self, page: PageId, title: String) {
-        if let Some(inner) = self.0.upgrade() {
-            inner.title_changed(page, &title);
         }
     }
     fn history_changed(&self, browser: BrowserId, history: History) {
@@ -720,11 +657,6 @@ impl SchoolBrowserListener for Listener {
     fn closed(&self, browser: BrowserId) {
         if let Some(inner) = self.0.upgrade() {
             inner.closed(browser);
-        }
-    }
-    fn stopped(&self, page: PageId, action: ActionId) {
-        if let Some(inner) = self.0.upgrade() {
-            inner.stopped(page, action);
         }
     }
 }
@@ -787,17 +719,10 @@ impl Inner {
             return;
         }
         let official_loaded = restore_record(event.url.as_str());
-        let foreground = self
-            .state
-            .with(|state| state.browsing == Some(event.page.browser.site));
-        let Some(safe_loaded) = (if foreground {
-            browsing_url(event.url.as_str())
-        } else {
-            official_loaded.clone()
-        }) else {
+        let Some(safe_loaded) = browsing_url(event.url.as_str()) else {
             return;
         };
-        let (login, heartbeat, auth_relay, customization, guide, restore, foreground) = {
+        let (customization, guide, restore, foreground) = {
             let mut state = self.state.guard();
             let foreground = state.browsing == Some(event.page.browser.site);
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
@@ -821,15 +746,7 @@ impl Inner {
             view.navigation = None;
             view.url = safe_loaded.clone();
             view.failure = None;
-            if foreground {
-                view.user_url = Some(safe_loaded.clone());
-                view.background_navigation = false;
-            }
-            let auth_relay = view.auth_relay.clone();
             (
-                state.login.clone(),
-                state.heartbeat,
-                auth_relay,
                 state
                     .customizations
                     .get(&event.page.browser.site)
@@ -849,9 +766,9 @@ impl Inner {
         if let (Some((path, epoch)), Some(official)) = (restore, official_loaded.as_ref()) {
             self.write_restore(path, epoch, event.page.browser.site, official.clone());
         }
-        let _ = self.traces.send(Trace::Loaded(event.clone()));
-        // External browsing gets history/address updates, never school scripts,
-        // saved credentials, customizations or automatic ingestion.
+        self.landed(&event);
+        // External browsing gets history/address updates, never school
+        // scripts, customizations or a pending submission.
         if official_loaded.is_none() {
             return;
         }
@@ -867,52 +784,71 @@ impl Inner {
         if let Some(guide) = guide {
             let _ = self.dispatch_eval(event.page.browser, guide, false);
         }
-        // Enrollment starts with a visible manual sign-in. In particular it
-        // must never select App OTP using a missing or obsolete saved secret.
-        if self.state.guard().otp_setup.is_some()
-            && event.page.browser.site == SchoolSite::SciencePortal
-        {
-            if foreground && login_succeeded(event.url.as_str(), SchoolAuthProfile::Science) {
-                if let Ok(url) = Url::parse(crate::school_auth::otp_setup::SETTINGS_URL) {
-                    let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(url));
-                }
-            }
-            self.otp_enrollment_page(&event);
-            return;
-        }
-        // A sign-in and a session check belong to the view they run in; a
-        // page from any other view neither finishes nor drives them.
-        let login = login.filter(|active| active.browser == event.page.browser);
-        let heartbeat = heartbeat.filter(|heartbeat| heartbeat.browser == event.page.browser);
-        if let Some(active) = login {
-            if login_succeeded(event.url.as_str(), active.profile) {
-                self.finish_login(active);
-            } else if let Some(script) = login_script(event.url.as_str(), &active, &auth_relay) {
-                let _ = self.dispatch_eval(event.page.browser, script, true);
-            }
-        } else if let Some(heartbeat) =
-            heartbeat.filter(|heartbeat| login_succeeded(event.url.as_str(), heartbeat.profile))
-        {
-            self.publish_session(
-                heartbeat.profile,
-                SchoolSessionState::Active,
-                Some(heartbeat.attempt),
-            );
-        } else if is_identity_login(&event.url) {
-            self.arm_saved_login(event.page, event.url.clone(), auth_relay);
-        }
     }
 
-    fn report_kyomu_maintenance(&self, message: &str) {
-        self.state
-            .with(|state| state.kyomu_maintenance = Some(message.into()));
-        let _ = self.events.emit(CoreEvent::SchoolIngest(IngestOutcome {
-            site: SchoolSite::Kyomu,
-            kind: "service".into(),
-            state: IngestState::Maintenance,
-            changed: 0,
-            message: message.into(),
-        }));
+    /// Where an App-initiated navigation landed. Off the identity provider
+    /// the navigation is done. On its sign-in page, once per navigation: if
+    /// the identity was written, Core signs in over HTTP (with the one
+    /// sign-in background reads share), writes the new identity and, while
+    /// the same view still shows that page in the same account generation,
+    /// opens the target again. A write that failed leaves the page to the
+    /// person, with a notice.
+    fn landed(self: &Arc<Self>, event: &PageLoaded) {
+        let browser = event.page.browser;
+        let sign_in = is_identity_login(&event.url);
+        let on_provider = event
+            .url
+            .host_str()
+            .and_then(SchoolAuthProfile::for_auth_host)
+            .is_some();
+        let intent = self.state.with(|state| {
+            let view = state.views.get_mut(&browser.site)?;
+            if view.id != browser {
+                return None;
+            }
+            let ours = view.intent.as_ref().is_some_and(|intent| {
+                intent.action.is_none() || event.cause.is_none() || event.cause == intent.action
+            });
+            if !ours {
+                view.intent = None;
+                return None;
+            }
+            if sign_in {
+                return view.intent.take();
+            }
+            // A provider's hand-off page is part of the trip.
+            if !on_provider {
+                view.intent = None;
+            }
+            None
+        });
+        let Some(intent) = intent else { return };
+        let seen = match intent.seeded {
+            Seeded::Written(generation) => generation,
+            Seeded::Nothing => 0,
+            Seeded::Failed => {
+                log::info!(target: "app_core::school_browser", "{:?} landed on the sign-in page without the identity", browser.site);
+                self.notice(browser.site, SchoolWebNotice::NotSeeded);
+                return;
+            }
+            Seeded::Unsupported => return,
+        };
+        let sequence = event.page.sequence;
+        let inner = self.clone();
+        self.tasks.spawn(async move {
+            if !inner.sessions.web_sign_in(intent.profile, seen).await {
+                return;
+            }
+            let still = inner.state.with(|state| {
+                state.views.get(&browser.site).is_some_and(|view| {
+                    view.id == browser && view.last_page == sequence && view.navigation.is_none()
+                })
+            }) && inner.sessions.account_generation(intent.profile) == intent.account;
+            if still {
+                log::info!(target: "app_core::school_browser", "{:?} reopened after signing in", browser.site);
+                let _ = inner.dispatch(browser, BrowserAction::Navigate(intent.target));
+            }
+        });
     }
 
     fn load_failed(&self, event: LoadFailed) {
@@ -937,48 +873,32 @@ impl Inner {
                 .and_then(|url| browsing_url(url.as_str())),
             reason: event.reason,
         };
-        let relevant = self.state.with(|state| {
-            // Hidden work fails on its own terms; nothing is shown for it.
-            let shown = state.role_of(browser) == Some(ViewRole::User);
+        self.state.with(|state| {
             let Some(view) = state.views.get_mut(&browser.site) else {
-                return false;
+                return;
             };
             if view.id != browser {
                 if let Some(popup) = view.popups.iter_mut().find(|popup| popup.id == browser) {
                     if event.page.sequence > popup.last_page {
                         popup.last_page = event.page.sequence;
-                        popup.failure = shown.then_some(failure);
+                        popup.failure = Some(failure);
                     }
                 }
-                return false;
+                return;
             }
             if let Some(cause) = event.cause {
                 if view.actions.remove(&cause) != Some(true) {
-                    return false;
+                    return;
                 }
             } else if event.page.sequence <= view.last_page {
-                return false;
+                return;
             }
             view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
-            view.failure = shown.then_some(failure);
-            true
+            view.intent = None;
+            view.failure = Some(failure);
         });
         self.publish_page(browser.site);
-        if relevant {
-            let heartbeat = self.state.with(|state| {
-                state
-                    .heartbeat
-                    .filter(|heartbeat| heartbeat.browser == browser)
-            });
-            if let Some(heartbeat) = heartbeat {
-                self.publish_session(
-                    heartbeat.profile,
-                    SchoolSessionState::Failed,
-                    Some(heartbeat.attempt),
-                );
-            }
-        }
     }
 
     fn notice(&self, site: SchoolSite, notice: SchoolWebNotice) {
@@ -988,13 +908,10 @@ impl Inner {
     }
 
     /// Records a load of `page` the rule table refused as its view's or
-    /// popup's failure, while the person is looking at it.
+    /// popup's failure.
     fn refused(&self, page: PageId, failure: SchoolWebFailure) {
         let browser = page.browser;
         let recorded = self.state.with(|state| {
-            if state.role_of(browser) != Some(ViewRole::User) {
-                return None;
-            }
             let view = state.views.get_mut(&browser.site)?;
             if view.id == browser {
                 view.failure = Some(failure);
@@ -1014,51 +931,29 @@ impl Inner {
     /// Whether `browser` is what the person is looking at for its site.
     fn shown(&self, browser: BrowserId) -> bool {
         self.state.with(|state| {
-            state.role_of(browser) == Some(ViewRole::User)
+            state.browsing == Some(browser.site)
                 && state.front(browser.site, self.capabilities.inline_popups) == Some(browser)
         })
     }
 
-    fn title_changed(self: &Arc<Self>, page: PageId, title: &str) {
-        if !self.current(page.browser) {
-            return;
-        }
-        let auth = self.state.with(|state| {
-            state
-                .views
-                .get(&page.browser.site)
-                .map(|view| view.auth_relay.clone())
-        });
-        if let Some(encoded) = auth.and_then(|auth| title.strip_prefix(&auth).map(str::to_string)) {
-            if let Some(encoded) = encoded.strip_prefix("otp:") {
-                self.otp_enrollment_relay(page, encoded);
-                return;
-            }
-            self.login_relay(page.browser, &encoded);
-        }
-    }
-
-    fn role_of(&self, browser: BrowserId) -> Option<ViewRole> {
-        if self.tasks.is_closed() {
-            return None;
-        }
-        self.state.with(|state| state.role_of(browser))
+    fn alive(&self, browser: BrowserId) -> bool {
+        !self.tasks.is_closed() && self.state.with(|state| state.alive(browser))
     }
 
     fn decide_navigation(&self, request: NavigationRequest) -> NavigationDecision {
         let browser = request.page.browser;
-        let Some(role) = self.role_of(browser) else {
-            denied(browser.site, None, DenyReason::Closed, &request.url);
+        if !self.alive(browser) {
+            denied(browser.site, DenyReason::Closed, &request.url);
             return NavigationDecision::Deny(DenyReason::Closed);
-        };
-        match navigation_rule(role, &request) {
+        }
+        match navigation_rule(&request) {
             Verdict::Allow | Verdict::Popup => NavigationDecision::Allow,
             Verdict::External => {
                 log::info!(target: "app_core::school_browser", "to system browser site={:?} host={}", browser.site, request.url.host_str().unwrap_or("-"));
                 NavigationDecision::External(request.url)
             }
             Verdict::Deny(reason) => {
-                denied(browser.site, Some(role), reason, &request.url);
+                denied(browser.site, reason, &request.url);
                 if reason == DenyReason::Cleartext && request.main_frame {
                     self.refused(
                         request.page,
@@ -1071,21 +966,11 @@ impl Inner {
                 NavigationDecision::Deny(reason)
             }
             Verdict::SkipEntry => {
-                denied(
-                    browser.site,
-                    Some(role),
-                    DenyReason::Resubmission,
-                    &request.url,
-                );
+                denied(browser.site, DenyReason::Resubmission, &request.url);
                 NavigationDecision::SkipEntry
             }
             Verdict::ReloadAsGet => {
-                denied(
-                    browser.site,
-                    Some(role),
-                    DenyReason::Resubmission,
-                    &request.url,
-                );
+                denied(browser.site, DenyReason::Resubmission, &request.url);
                 let mut url = request.url.clone();
                 url.set_fragment(None);
                 let shown = self.shown(browser);
@@ -1105,11 +990,11 @@ impl Inner {
 
     fn new_window(&self, request: NewWindowRequest) -> NewWindowDecision {
         let opener = request.opener.browser;
-        let Some(role) = self.role_of(opener) else {
-            denied(opener.site, None, DenyReason::Closed, &request.url);
+        if !self.alive(opener) {
+            denied(opener.site, DenyReason::Closed, &request.url);
             return NewWindowDecision::Deny(DenyReason::Closed);
-        };
-        match new_window_rule(role, &request) {
+        }
+        match new_window_rule(&request) {
             Verdict::Popup => {
                 let id = BrowserId {
                     site: opener.site,
@@ -1131,12 +1016,7 @@ impl Inner {
                     Some(())
                 });
                 let Some(()) = open else {
-                    denied(
-                        opener.site,
-                        Some(role),
-                        DenyReason::TooManyPopups,
-                        &request.url,
-                    );
+                    denied(opener.site, DenyReason::TooManyPopups, &request.url);
                     return NewWindowDecision::Deny(DenyReason::TooManyPopups);
                 };
                 self.publish_page(opener.site);
@@ -1147,11 +1027,11 @@ impl Inner {
                 NewWindowDecision::External(request.url)
             }
             Verdict::Deny(reason) => {
-                denied(opener.site, Some(role), reason, &request.url);
+                denied(opener.site, reason, &request.url);
                 NewWindowDecision::Deny(reason)
             }
             Verdict::Allow | Verdict::SkipEntry | Verdict::ReloadAsGet => {
-                denied(opener.site, Some(role), DenyReason::Scheme, &request.url);
+                denied(opener.site, DenyReason::Scheme, &request.url);
                 NewWindowDecision::Deny(DenyReason::Scheme)
             }
         }
@@ -1258,83 +1138,6 @@ impl Inner {
         };
         // The host closes a view's popups with it.
         self.publish_page(browser.site);
-        let _ = self.traces.send(Trace::Closed(browser));
-    }
-
-    /// Forgets a view and asks the shell to close it, so the next request
-    /// creates a new generation.
-    fn forget(&self, browser: BrowserId) {
-        let popups = self.state.with(|state| {
-            state
-                .views
-                .get(&browser.site)
-                .filter(|view| view.id == browser)
-                .map(|view| view.popups.iter().map(|popup| popup.id).collect::<Vec<_>>())
-                .unwrap_or_default()
-        });
-        self.closed(browser);
-        for popup in popups {
-            let _ = self.browser.dispose(popup);
-        }
-        let _ = self.browser.dispose(browser);
-    }
-
-    /// Stops the view an abandoned attempt left mid-way: its loads end and
-    /// Core's scripts in it stand down. A view the person is looking at is
-    /// theirs and keeps going.
-    fn halt(&self, browser: BrowserId) {
-        // Shutting down closes every view anyway.
-        if self.tasks.is_closed() {
-            return;
-        }
-        let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
-        let marked = self.state.with(|state| {
-            if state.browsing == Some(browser.site) {
-                return false;
-            }
-            match state.views.get_mut(&browser.site) {
-                Some(view) if view.id == browser => {
-                    view.stopping = Some(action);
-                    true
-                }
-                _ => false,
-            }
-        });
-        if !marked {
-            return;
-        }
-        let sent = self.sent(
-            browser,
-            self.browser.dispatch(BrowserCommand {
-                browser,
-                action,
-                command: BrowserAction::Stop,
-            }),
-        );
-        if let Err(error) = sent {
-            // A view that cannot take the stop is replaced, never reused.
-            log::warn!(target: "app_core::school_browser", "stop not sent site={:?}: {error}", browser.site);
-            self.forget(browser);
-        }
-    }
-
-    fn stopped(&self, page: PageId, action: ActionId) {
-        let confirmed = self.state.with(|state| {
-            let Some(view) = state.views.get_mut(&page.browser.site) else {
-                return false;
-            };
-            if view.id != page.browser || view.stopping != Some(action) {
-                return false;
-            }
-            view.stopping = None;
-            // Pages up to the stop that report late were the abandoned
-            // attempt's; the next attempt must not take them for its own.
-            view.last_page = view.last_page.max(page.sequence);
-            true
-        });
-        if confirmed {
-            let _ = self.traces.send(Trace::Halted(page.browser));
-        }
     }
 
     fn sent(
@@ -1459,24 +1262,12 @@ impl Inner {
     }
 }
 
-/// A per-view close is a platform failure for the work in that view, not a
-/// shutdown of the whole school browser.
-fn view_closed() -> SchoolBrowserError {
-    SchoolBrowserError::Platform("The school view was closed.".into())
-}
-
-fn safe_url(raw: &str) -> Result<Url, SchoolBrowserError> {
-    automation_target(raw).ok_or_else(|| {
-        SchoolBrowserError::InvalidInput("School URL is outside the adapter sites.".into())
-    })
-}
-
 /// Logs a refusal with the URL's scheme and host only: paths and queries
 /// carry SSO tokens and personal data.
-fn denied(site: SchoolSite, role: Option<ViewRole>, reason: DenyReason, url: &Url) {
+fn denied(site: SchoolSite, reason: DenyReason, url: &Url) {
     log::info!(
         target: "app_core::school_browser",
-        "denied site={site:?} role={role:?} reason={reason:?} url={}://{}",
+        "denied site={site:?} reason={reason:?} url={}://{}",
         url.scheme(),
         url.host_str().unwrap_or("")
     );
@@ -1488,7 +1279,4 @@ fn interactive_url(raw: &str) -> Result<Url, SchoolBrowserError> {
         )
     })?;
     Url::parse(&safe).map_err(|_| SchoolBrowserError::InvalidInput("Web URL is invalid.".into()))
-}
-fn new_id() -> String {
-    uuid::Uuid::now_v7().simple().to_string()
 }

@@ -97,7 +97,7 @@ fn rejects_wrong_password_tampering_and_oversized_payloads() {
 
 mod backup {
     use super::*;
-    use crate::school_auth::SchoolAuthService;
+    use crate::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -163,12 +163,21 @@ mod backup {
         let files = MemoryFiles::default();
         let first_vault = MemoryVault::default();
         let first_school = SchoolAuthService::new(MemoryVault::default());
-        first_school
-            .stage_enrollment_otp("student", "JBSWY3DPEHPK3PXP", "one")
+        // A login the school accepted: the synchronized item holds it.
+        let staged = first_school
+            .stage(
+                SchoolAuthProfile::Science,
+                SchoolCredentials {
+                    username: "student".into(),
+                    password: "password".into(),
+                    otp_secret: "JBSWY3DPEHPK3PXP".into(),
+                    matrix: String::new(),
+                },
+            )
             .unwrap();
-        first_school
-            .confirm_enrollment_otp("one", "student")
-            .unwrap();
+        assert!(first_school
+            .promote(SchoolAuthProfile::Science, &staged)
+            .unwrap());
         let first = CredentialBackup::new(&first_vault, &files);
 
         assert!(matches!(

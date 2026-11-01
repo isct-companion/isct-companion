@@ -5,7 +5,7 @@
  * (`approach/sync-planner-hints`); these helpers only choose which row of the snapshot a
  * surface shows.
  */
-import type { SchoolAuthProfile } from "./desktop-bridge";
+import type { SchoolAuthProfile, SchoolSessionState } from "./desktop-bridge";
 
 export type SyncPriority = "background" | "visible" | "interactive";
 export type SyncNetwork = "offline" | "wifi" | "cellular" | "unknown";
@@ -49,7 +49,8 @@ export type SyncHeld =
   | { kind: "background" }
   | { kind: "backoff"; until: string }
   | { kind: "host-paused"; host: string; until: string }
-  | { kind: "sign-in-required"; profile: SchoolAuthProfile }
+  /** The profile's reads wait for its session; not a failure, no backoff. */
+  | { kind: "session"; profile: SchoolAuthProfile; state: SchoolSessionState }
   | { kind: "resetting" }
   | { kind: "prerequisite" };
 

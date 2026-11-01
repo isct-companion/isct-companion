@@ -50,11 +50,6 @@ fn main() {
     output.push_str("export ");
     output.push_str(&<app_core::school_auth::OtpImportAccount as ts_rs::TS>::decl(&cfg));
     output.push_str("\n\n");
-    output.push_str("export ");
-    output.push_str(&<app_core::school_auth::SchoolOtpSetup as ts_rs::TS>::decl(
-        &cfg,
-    ));
-    output.push_str("\n\n");
     output.push_str("export const COURSE_FILE_POLICY: CourseFilePolicy = ");
     output.push_str(
         &serde_json::to_string_pretty(&app_core::contracts::course_file_policy())

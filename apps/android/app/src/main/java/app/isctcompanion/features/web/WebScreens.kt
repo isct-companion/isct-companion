@@ -221,8 +221,10 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
             HorizontalDivider()
         }
-        if (site in web.reopened) {
-            NoticeBanner(t("web.reopenedThisPageWithoutSending"), Theme.colors.accentSoft)
+        when (web.notices[site]) {
+            WebRouter.Notice.REOPENED -> NoticeBanner(t("web.reopenedThisPageWithoutSending"), Theme.colors.accentSoft)
+            WebRouter.Notice.NOT_SEEDED -> NoticeBanner(t("web.signInCouldNotBePassed"), Theme.colors.warnSoft)
+            null -> Unit
         }
         val failure = page?.notice
         if (failure?.reason == LoadFailure.CLEARTEXT) {

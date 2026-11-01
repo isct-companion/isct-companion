@@ -27,7 +27,6 @@ pub use app_core::data;
 mod icloud;
 use app_core::kyomu_guide;
 use app_core::lifecycle;
-mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
 mod native_dialog;
@@ -38,6 +37,7 @@ use app_ocr as matrix_ocr;
 mod core_ports;
 pub(crate) use app_core::school_auth;
 mod school_browser_native;
+mod school_cookies;
 mod school_downloads;
 mod school_web;
 #[cfg(target_os = "macos")]
@@ -304,18 +304,14 @@ pub fn run() {
             commands::sync::sync_hint,
             commands::sync::sync_snapshot,
             commands::school_auth::school_credential_status,
-            commands::school_auth::school_otp_setup,
-            commands::school_auth::complete_school_otp_setup,
-            commands::school_auth::begin_school_otp_setup,
-            commands::school_auth::cancel_school_otp_setup,
             commands::school_auth::connect_school,
+            commands::school_auth::retry_school,
             commands::school_auth::delete_school_credentials,
             commands::school_auth::copy_school_matrix,
             commands::school_auth::copy_school_otp,
             commands::school_auth::school_otp_qr,
             commands::school_auth::import_school_otp,
             commands::school_auth::school_session_snapshot,
-            commands::school_auth::school_session_lifecycle,
             commands::notifications::request_notification_permission,
             commands::notifications::notification_permission,
             commands::notifications::open_notification_settings,
@@ -371,10 +367,13 @@ pub fn run() {
                     .clone(),
                 std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
+            core_ports::core(app.handle()).attach_web_cookies(std::sync::Arc::new(
+                school_cookies::DesktopWebCookies::new(app.handle().clone()),
+            ));
             let school_controller = tauri::async_runtime::block_on(async {
                 let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;
-                let engine = core_ports::core(app.handle())
-                    .attach_school_browser(native.clone(), lms_downloader::session(app.handle()))?;
+                let engine =
+                    core_ports::core(app.handle()).attach_school_browser(native.clone())?;
                 Ok::<_, app_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
                     native, engine,
                 ))
@@ -382,9 +381,6 @@ pub fn run() {
             app.manage(school_controller);
             let runtime = core_ports::runtime(app.handle());
             runtime.notes.at(lms_files::root(app.handle())?.0);
-            runtime
-                .download_session
-                .set(lms_downloader::session(app.handle()));
             let authorized = app
                 .state::<DesktopCloudService<OsSecretVault>>()
                 .authorized_providers()

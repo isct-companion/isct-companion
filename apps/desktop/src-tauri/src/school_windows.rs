@@ -174,8 +174,6 @@ pub(crate) fn popup_command(window: &WebviewWindow, command: BrowserAction) -> R
         BrowserAction::GoBack => window.eval("history.back()"),
         BrowserAction::GoForward => window.eval("history.forward()"),
         BrowserAction::Eval(script) => window.eval(script),
-        // Core stops only the views its hidden work runs in.
-        BrowserAction::Stop => Ok(()),
     }
     .map_err(|error| error.to_string())
 }

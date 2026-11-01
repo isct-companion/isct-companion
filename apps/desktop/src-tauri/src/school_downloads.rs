@@ -6,7 +6,7 @@ use app_core::{
     lifecycle::SchoolSite,
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_browser::{download_permitted, restore_record, ViewRole},
+    school_browser::{download_permitted, restore_record},
 };
 use std::{
     collections::HashSet,
@@ -23,7 +23,6 @@ const DOWNLOAD_NAME_LIMIT: usize = 200;
 
 #[derive(Default)]
 struct DownloadState {
-    active: Option<SchoolSite>,
     pending: Vec<(String, PathBuf)>,
     saved: HashSet<PathBuf>,
 }
@@ -38,12 +37,6 @@ struct DownloadInner {
 pub(crate) struct SchoolDownloads(Arc<DownloadInner>);
 
 impl SchoolDownloads {
-    pub(crate) fn set_visible(&self, site: Option<SchoolSite>) {
-        if let Ok(mut state) = self.0.state.lock() {
-            state.active = site;
-        }
-    }
-
     pub(crate) fn download(
         &self,
         app: &AppHandle,
@@ -56,7 +49,7 @@ impl SchoolDownloads {
                 let accepted = download_dir
                     .is_some_and(|directory| download_destination_ok(destination, &directory))
                     && self.0.state.lock().ok().is_some_and(|mut state| {
-                        if !download_allowed(url.as_str(), site, state.active) {
+                        if !download_permitted(url.as_str()) {
                             return false;
                         }
                         state.pending.push((url.to_string(), destination.clone()));
@@ -105,11 +98,7 @@ impl SchoolDownloads {
         site: SchoolSite,
         saved: crate::school_webkit::SavedData,
     ) {
-        let active = self.0.state.lock().ok().and_then(|state| state.active);
-        let allowed = saved
-            .origin
-            .as_deref()
-            .is_some_and(|origin| download_allowed(origin, site, active));
+        let allowed = saved.origin.as_deref().is_some_and(download_permitted);
         if !allowed {
             log::warn!("[school-download] {site:?} PDF save refused");
             return;
@@ -172,8 +161,7 @@ impl SchoolDownloads {
         url: Option<&url::Url>,
         suggested: &str,
     ) -> Option<PathBuf> {
-        let active = self.0.state.lock().ok().and_then(|state| state.active);
-        if !url.is_some_and(|url| download_allowed(url.as_str(), site, active)) {
+        if !url.is_some_and(|url| download_permitted(url.as_str())) {
             log::warn!("[school-download] {site:?} popup download refused");
             return None;
         }
@@ -229,7 +217,6 @@ impl SchoolDownloads {
         self.0.tasks.close();
         self.0.tasks.wait().await;
         if let Ok(mut state) = self.0.state.lock() {
-            state.active = None;
             state.pending.clear();
         }
     }
@@ -277,17 +264,6 @@ fn emit_download(
             path: path.and_then(Path::to_str).map(str::to_string),
         },
     ));
-}
-
-/// Core's rule: what the person is looking at may hand over any file, a
-/// hidden view only files from adapter sites.
-fn download_allowed(raw_url: &str, site: SchoolSite, active: Option<SchoolSite>) -> bool {
-    let role = if active == Some(site) {
-        ViewRole::User
-    } else {
-        ViewRole::Automation
-    };
-    download_permitted(role, raw_url)
 }
 
 fn safe_file_name(name: &str) -> bool {

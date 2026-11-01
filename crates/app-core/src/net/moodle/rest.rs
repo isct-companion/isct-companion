@@ -12,26 +12,30 @@ use super::{
 };
 use crate::net::{Body, Host, Limits, NetError, NetRequest};
 use crate::school_auth::MoodleToken;
+use crate::school_session::Attempt;
 use adpt_isct::lms::{id_of, StoredModule};
 use futures_util::stream::{self, StreamExt};
 use reqwest::Method;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Forum posts read per course and per forum, as before.
 const FORUM_POSTS_PER_COURSE: usize = 16;
 const FORUM_POSTS_PER_FORUM: usize = 8;
 
-pub(super) struct TokenTransport<'a> {
-    client: &'a MoodleClient,
+pub(super) struct TokenTransport {
+    client: Arc<MoodleClient>,
     /// One relaunch per pull; a token refused again ends the token path.
     relaunched: AtomicBool,
 }
 
-impl<'a> TokenTransport<'a> {
+impl TokenTransport {
     /// A transport whose first call obtains or loads the token.
-    pub(super) fn new(client: &'a MoodleClient) -> Self {
+    pub(super) fn new(client: Arc<MoodleClient>) -> Self {
         Self {
             client,
             relaunched: AtomicBool::new(false),
@@ -41,9 +45,14 @@ impl<'a> TokenTransport<'a> {
     /// Obtains or loads the token and proves it with `site_info`, before any
     /// fan-out, so a refused token is renewed once rather than per request.
     /// Returns the user's language.
-    pub(super) async fn open(client: &'a MoodleClient) -> Result<(Self, String), MoodleError> {
-        let transport = Self::new(client);
-        let info = transport.call(MoodleFunction::SiteInfo, &json!({})).await?;
+    pub(super) async fn open(
+        client: &Arc<MoodleClient>,
+        attempt: &Attempt,
+    ) -> Result<(Self, String), MoodleError> {
+        let transport = Self::new(client.clone());
+        let info = transport
+            .call(attempt, MoodleFunction::SiteInfo, &json!({}))
+            .await?;
         let language = info
             .get("lang")
             .and_then(Value::as_str)
@@ -54,23 +63,26 @@ impl<'a> TokenTransport<'a> {
 
     pub(super) async fn call(
         &self,
+        attempt: &Attempt,
         function: MoodleFunction,
         args: &Value,
     ) -> Result<Value, MoodleError> {
-        self.call_with(function, args, Limits::page).await
+        self.call_with(attempt, function, args, Limits::page).await
     }
 
     /// For the `*_by_courses` getters, whose answers carry page bodies.
     pub(super) async fn call_bulk(
         &self,
+        attempt: &Attempt,
         function: MoodleFunction,
         args: &Value,
     ) -> Result<Value, MoodleError> {
-        self.call_with(function, args, Limits::bulk).await
+        self.call_with(attempt, function, args, Limits::bulk).await
     }
 
     async fn call_with(
         &self,
+        attempt: &Attempt,
         function: MoodleFunction,
         args: &Value,
         limits: fn() -> Limits,
@@ -78,11 +90,11 @@ impl<'a> TokenTransport<'a> {
         if !function.via_rest() {
             return Err(MoodleError::ServiceUnavailable(function.name().into()));
         }
-        let token = self.client.token().await?;
-        match self.post(&token, function, args, limits).await {
+        let token = self.client.token(attempt).await?;
+        match self.post(attempt, &token, function, args, limits).await {
             Err(MoodleError::InvalidToken) if !self.relaunched.swap(true, Ordering::SeqCst) => {
-                let token = self.client.renew_token(&token).await?;
-                self.post(&token, function, args, limits).await
+                let token = self.client.renew_token(attempt, &token).await?;
+                self.post(attempt, &token, function, args, limits).await
             }
             other => other,
         }
@@ -90,6 +102,7 @@ impl<'a> TokenTransport<'a> {
 
     async fn post(
         &self,
+        attempt: &Attempt,
         token: &MoodleToken,
         function: MoodleFunction,
         args: &Value,
@@ -104,10 +117,9 @@ impl<'a> TokenTransport<'a> {
             ("moodlewssettingfilter".to_string(), "true".to_string()),
         ];
         form.extend(form_fields(args));
-        let response = self
-            .client
-            .http
-            .send(NetRequest {
+        // The token is in the body; the REST service needs no cookies.
+        let response = attempt
+            .bare(NetRequest {
                 host: Host::Moodle,
                 method: Method::POST,
                 url: lms_url("webservice/rest/server.php")?,
@@ -120,7 +132,7 @@ impl<'a> TokenTransport<'a> {
             // A gateway refusal is HTML; Moodle's own errors are HTTP 200.
             return Err(MoodleError::Net(NetError::Http(response.status)));
         }
-        rest_result(&response.body).map_err(|error| self.client.envelope_error(error))
+        rest_result(&response.body).map_err(|error| MoodleClient::envelope_error(attempt, error))
     }
 }
 
@@ -133,14 +145,15 @@ impl<'a> TokenTransport<'a> {
 /// stored keeps that body. Assignments and forums list no contents, so their
 /// details are always read. Any failed request fails the key.
 pub(super) async fn read_course(
-    transport: &TokenTransport<'_>,
+    transport: &TokenTransport,
+    attempt: &Attempt,
     course: u64,
     stored: &HashMap<u64, StoredModule>,
     budget: &BodyBudget,
 ) -> Result<Value, KeyError> {
     let function = MoodleFunction::CourseContents;
     let contents = transport
-        .call_bulk(function, &json!({"courseid": course}))
+        .call_bulk(attempt, function, &json!({"courseid": course}))
         .await
         .map_err(KeyError::at(function.name()))?;
     let (mut state, modules) = structure_from_contents(&contents)
@@ -162,7 +175,13 @@ pub(super) async fn read_course(
     let mut resources: HashMap<u64, String> = HashMap::new();
     let mut forums: Vec<(u64, u64)> = Vec::new();
     if wanted("page") {
-        let value = bulk(transport, MoodleFunction::PageGetPagesByCourses, &ids).await?;
+        let value = bulk(
+            transport,
+            attempt,
+            MoodleFunction::PageGetPagesByCourses,
+            &ids,
+        )
+        .await?;
         for page in records(&value, "pages") {
             if let Some(cmid) = id_of(page.get("coursemodule")) {
                 let content = plain_html(page.get("content").and_then(Value::as_str).unwrap_or(""));
@@ -173,6 +192,7 @@ pub(super) async fn read_course(
     if wanted("resource") {
         let value = bulk(
             transport,
+            attempt,
             MoodleFunction::ResourceGetResourcesByCourses,
             &ids,
         )
@@ -184,7 +204,13 @@ pub(super) async fn read_course(
         }
     }
     if wanted("folder") {
-        let value = bulk(transport, MoodleFunction::FolderGetFoldersByCourses, &ids).await?;
+        let value = bulk(
+            transport,
+            attempt,
+            MoodleFunction::FolderGetFoldersByCourses,
+            &ids,
+        )
+        .await?;
         for folder in records(&value, "folders") {
             let Some(cmid) = id_of(folder.get("coursemodule")) else {
                 continue;
@@ -197,7 +223,13 @@ pub(super) async fn read_course(
         }
     }
     if wanted("url") {
-        let value = bulk(transport, MoodleFunction::UrlGetUrlsByCourses, &ids).await?;
+        let value = bulk(
+            transport,
+            attempt,
+            MoodleFunction::UrlGetUrlsByCourses,
+            &ids,
+        )
+        .await?;
         for link in records(&value, "urls") {
             let Some(cmid) = id_of(link.get("coursemodule")) else {
                 continue;
@@ -213,7 +245,13 @@ pub(super) async fn read_course(
         }
     }
     if wanted("assign") {
-        let value = bulk(transport, MoodleFunction::AssignGetAssignments, &ids).await?;
+        let value = bulk(
+            transport,
+            attempt,
+            MoodleFunction::AssignGetAssignments,
+            &ids,
+        )
+        .await?;
         for listed in records(&value, "courses") {
             for assignment in records(listed, "assignments") {
                 let Some(cmid) = id_of(assignment.get("cmid")) else {
@@ -231,7 +269,7 @@ pub(super) async fn read_course(
     if wanted("forum") {
         let function = MoodleFunction::ForumGetForumsByCourses;
         let value = transport
-            .call_bulk(function, &ids)
+            .call_bulk(attempt, function, &ids)
             .await
             .map_err(KeyError::at(function.name()))?;
         for forum in value.as_array().into_iter().flatten() {
@@ -258,7 +296,7 @@ pub(super) async fn read_course(
             let function = MoodleFunction::ForumGetForumDiscussions;
             let args = json!({"forumid": forum, "sortorder": -1, "page": 0, "perpage": count});
             let value = transport
-                .call(function, &args)
+                .call(attempt, function, &args)
                 .await
                 .map_err(KeyError::at(function.name()))?;
             if has_warnings(&value) {
@@ -306,12 +344,13 @@ pub(super) async fn read_course(
 /// One `*_by_courses` getter for a single course. Warnings other than an
 /// inaccessible course mean its answer may be partial, which fails the key.
 async fn bulk(
-    transport: &TokenTransport<'_>,
+    transport: &TokenTransport,
+    attempt: &Attempt,
     function: MoodleFunction,
     ids: &Value,
 ) -> Result<Value, KeyError> {
     let value = transport
-        .call_bulk(function, ids)
+        .call_bulk(attempt, function, ids)
         .await
         .map_err(KeyError::at(function.name()))?;
     if has_warnings(&value) {
@@ -342,12 +381,25 @@ enum Work {
 /// their `*_by_courses` getters, then each one's submission status or
 /// attempts and best grade. Any failed request fails the key.
 pub(super) async fn read_assign(
-    transport: &TokenTransport<'_>,
+    transport: &TokenTransport,
+    attempt: &Attempt,
     course: u64,
 ) -> Result<Vec<Value>, KeyError> {
     let ids = json!({"courseids": [course]});
-    let assignments = bulk(transport, MoodleFunction::AssignGetAssignments, &ids).await?;
-    let quizzes = bulk(transport, MoodleFunction::QuizGetQuizzesByCourses, &ids).await?;
+    let assignments = bulk(
+        transport,
+        attempt,
+        MoodleFunction::AssignGetAssignments,
+        &ids,
+    )
+    .await?;
+    let quizzes = bulk(
+        transport,
+        attempt,
+        MoodleFunction::QuizGetQuizzesByCourses,
+        &ids,
+    )
+    .await?;
     let mut work = Vec::new();
     for listed in records(&assignments, "courses") {
         for assignment in records(listed, "assignments") {
@@ -379,7 +431,7 @@ pub(super) async fn read_assign(
                 Work::Assign { cmid, id } => {
                     let function = MoodleFunction::AssignGetSubmissionStatus;
                     let status = transport
-                        .call(function, &json!({"assignid": id}))
+                        .call(attempt, function, &json!({"assignid": id}))
                         .await
                         .map_err(KeyError::at(function.name()))?;
                     Ok::<_, KeyError>(assign_state(cmid, &status))
@@ -388,6 +440,7 @@ pub(super) async fn read_assign(
                     let function = MoodleFunction::QuizGetUserAttempts;
                     let attempts = transport
                         .call(
+                            attempt,
                             function,
                             &json!({"quizid": id, "status": "all", "includepreviews": false}),
                         )
@@ -395,7 +448,7 @@ pub(super) async fn read_assign(
                         .map_err(KeyError::at(function.name()))?;
                     let function = MoodleFunction::QuizGetUserBestGrade;
                     let best = transport
-                        .call(function, &json!({"quizid": id}))
+                        .call(attempt, function, &json!({"quizid": id}))
                         .await
                         .map_err(KeyError::at(function.name()))?;
                     Ok(Some(quiz_state(cmid, &attempts, &best, Some(&quiz))))

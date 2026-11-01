@@ -330,15 +330,20 @@ summary,
   background: #2f9e62;
   box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 14%, transparent);
 }
-.schoolStatusAccount[data-state="maintenance"] > i {
+.schoolStatusAccount[data-state="idle"] > i {
+  background: var(--accent);
+}
+.schoolStatusAccount[data-state="needs-web"] > i,
+.schoolStatusAccount[data-state="unavailable"] > i,
+.schoolStatusAccount[data-maintenance] > i {
   background: var(--color-warning, #d5a34f);
 }
-
-.schoolStatusAccount[data-state="failed"] > i {
+.schoolStatusAccount[data-state="rejected"] > i {
   background: var(--danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
 }
-.schoolStatusAccount[data-state="checking"] > i {
+.schoolStatusAccount[data-state="checking"] > i,
+.schoolStatusAccount[data-state="signing-in"] > i {
   background: var(--accent);
   animation: schoolStatusPulse 1.5s ease-in-out infinite;
 }
@@ -1231,7 +1236,7 @@ summary,
   gap: 7px;
   min-height: 24px;
   margin-top: 8px;
-  color: var(--danger);
+  color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
 }
 .schoolConnection {
@@ -1248,17 +1253,21 @@ summary,
   font-weight: 600;
   cursor: default;
 }
-.schoolConnection[data-state="checking"],
-.schoolConnection[data-state="progress"] {
-  color: var(--muted);
+.schoolConnection button ~ button {
+  margin-left: 0;
 }
-.schoolConnection[data-state="connected"] {
-  color: var(--ok);
-}
-.schoolConnection[data-state="maintenance"],
-.schoolConnection[data-state="needs-user"],
-.schoolConnection[data-state="timeout"] {
+.schoolConnection[data-state="needs-web"],
+.schoolConnection[data-state="unavailable"],
+.schoolConnection[data-maintenance] {
   color: var(--warn);
+}
+.schoolConnection[data-state="rejected"] {
+  color: var(--danger);
+}
+/* Under Retry: why a rejected account may only need it once. */
+.schoolRetryHint {
+  margin-top: 2px;
+  text-align: right;
 }
 .credentialFields {
   display: grid;
@@ -1504,6 +1513,7 @@ summary,
   }
   /* Looping indicators would flicker at that length: they hold still. */
   .schoolStatusAccount[data-state="checking"] > i,
+  .schoolStatusAccount[data-state="signing-in"] > i,
   .skeleton {
     animation: none !important;
   }

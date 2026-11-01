@@ -67,7 +67,6 @@ impl WebBounds {
 #[derive(Clone)]
 pub(crate) struct ViewCallbacks {
     pub loaded: Arc<dyn Fn(&str) + Send + Sync>,
-    pub title: Arc<dyn Fn(&str) + Send + Sync>,
     pub download: Arc<dyn Fn(tauri::webview::DownloadEvent<'_>) -> bool + Send + Sync>,
 }
 struct View {
@@ -189,36 +188,13 @@ impl NativeBrowser {
             Operation::Dispatch(command) => {
                 let id = command.browser;
                 let cause = Some(command.action);
-                let stop = matches!(command.command, BrowserAction::Stop);
                 let result = self.with_view(id, |view| match command.command {
                     BrowserAction::Navigate(url) => view.navigate(url).map_err(|e| e.to_string()),
                     BrowserAction::Reload => view.reload().map_err(|e| e.to_string()),
                     BrowserAction::GoBack => crate::school_web::go(&view, true),
                     BrowserAction::GoForward => crate::school_web::go(&view, false),
                     BrowserAction::Eval(script) => view.eval(&script).map_err(|e| e.to_string()),
-                    // `window.stop()` in the script ends the loads: Tauri's
-                    // webview has no stop call of its own.
-                    BrowserAction::Stop => view.eval(SCHOOL_STOP).map_err(|e| e.to_string()),
                 });
-                if stop && result.is_ok() {
-                    // Behind the script on the main thread, so the page
-                    // callbacks WebKit delivered before it reach Core first.
-                    let native = self.clone();
-                    let action = command.action;
-                    let confirmed = self.app().and_then(|app| {
-                        app.run_on_main_thread(move || {
-                            if let (Some(page), Some(listener)) =
-                                (native.current_page(id), native.listener())
-                            {
-                                listener.stopped(page, action);
-                            }
-                        })
-                        .map_err(|e| BrowserError::Dispatch(e.to_string()))
-                    });
-                    if let Err(error) = confirmed {
-                        log::warn!("[school-web] stop not confirmed: {error}");
-                    }
-                }
                 (id, cause, result)
             }
             Operation::Dispose(id) if self.is_popup(id) => {
@@ -407,8 +383,6 @@ impl NativeBrowser {
                 BrowserAction::GoBack => Command::GoBack,
                 BrowserAction::GoForward => Command::GoForward,
                 BrowserAction::Eval(script) => Command::Evaluate(script),
-                // Core stops only the views its hidden work runs in.
-                BrowserAction::Stop => return Ok(()),
             };
             let native = self.app()?;
             native
@@ -465,17 +439,18 @@ impl NativeBrowser {
         {
             return Ok(());
         }
+        // A view Core has replaced goes with its popups and file panels:
+        // popups are siblings, so closing the view alone would leave them
+        // over the new one, taking its clicks and drops.
         let previous = self
             .presentation
             .lock()
             .map_err(|_| BrowserError::Stopped)?
             .views
-            .remove(&id.site);
+            .get(&id.site)
+            .map(|view| view.id);
         if let Some(previous) = previous {
-            previous
-                .native
-                .close()
-                .map_err(|e| BrowserError::Dispatch(e.to_string()))?;
+            self.discard(previous);
         }
         let app = self.app()?;
         let sequence = Arc::new(AtomicU64::new(0));
@@ -483,8 +458,6 @@ impl NativeBrowser {
         let weak = Arc::downgrade(self);
         let loaded_sequence = sequence.clone();
         let loaded_url = current.clone();
-        let title_weak = weak.clone();
-        let title_sequence = sequence.clone();
         let download_weak = weak.clone();
         #[cfg(windows)]
         let interim_weak = weak.clone();
@@ -506,17 +479,6 @@ impl NativeBrowser {
                         cause: None,
                         url,
                     });
-                }
-            }),
-            title: Arc::new(move |title| {
-                if let Some(listener) = title_weak.upgrade().and_then(|n| n.listener()) {
-                    listener.title_changed(
-                        PageId {
-                            browser: id,
-                            sequence: title_sequence.load(Ordering::Acquire),
-                        },
-                        title.to_string(),
-                    )
                 }
             }),
             download: Arc::new(move |event| {
@@ -651,7 +613,6 @@ impl NativeBrowser {
                 p.bounds = bounds.sanitized();
             }
         }
-        self.downloads.set_visible(site);
         self.apply_visibility()
     }
 }

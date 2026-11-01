@@ -2007,14 +2007,12 @@ export type ErrorCode =
   | "sign-in-required"
   | "school-maintenance"
   | "school-site-changed"
-  | "school-paused"
   | "host-paused"
   | "workspace-folder-missing"
   | "hand-in-files-only"
   | "hand-in-empty"
   | "hand-in-needs-zip"
   | "hand-in-too-large"
-  | "desktop-only"
   | "note-too-large"
   | "study-admission-term"
   | "study-entry-grade"
@@ -2034,15 +2032,7 @@ export type ErrorCode =
   | "reset-unsupported"
   | "reset-credentials"
   | "reset-files"
-  | "reset-sign-out"
   | "reset-stopped"
-  | "otp-sign-in-required"
-  | "otp-unexpected-page"
-  | "otp-unavailable"
-  | "otp-timed-out"
-  | "otp-rejected"
-  | "otp-already-registered"
-  | "otp-vault"
   | "otp-import-invalid"
   | "otp-import-multiple"
   | "otp-import-unsupported"
@@ -2080,14 +2070,6 @@ export type OtpImportAccount = {
    * Sensitive: only the selected value enters the unsaved credential draft.
    */
   setup: string;
-};
-
-export type SchoolOtpSetup = {
-  registered: boolean;
-  /**
-   * Registered accounts go to settings only after reset confirmation.
-   */
-  url: string;
 };
 
 export const COURSE_FILE_POLICY: CourseFilePolicy = {

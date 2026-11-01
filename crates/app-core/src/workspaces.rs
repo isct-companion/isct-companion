@@ -5,7 +5,7 @@
 //! Either way the hand-in reads `submit/`.
 
 use crate::{
-    course_materials::{CourseKey, CourseMaterials, DownloadSession, Material},
+    course_materials::{CourseKey, CourseMaterials, Material},
     data::DataStore,
     downloads::Downloader,
     notes::NoteStore,
@@ -566,7 +566,6 @@ pub struct AssignmentWorkspaces {
     store: DataStore,
     notes: NoteStore,
     downloads: Downloader,
-    session: DownloadSession,
 }
 
 /// An attachment `create` could not save into the new workspace.
@@ -597,17 +596,11 @@ pub struct SubmitFile {
 }
 
 impl AssignmentWorkspaces {
-    pub fn new(
-        store: DataStore,
-        notes: NoteStore,
-        downloads: Downloader,
-        session: DownloadSession,
-    ) -> Self {
+    pub fn new(store: DataStore, notes: NoteStore, downloads: Downloader) -> Self {
         Self {
             store,
             notes,
             downloads,
-            session,
         }
     }
 
@@ -704,7 +697,6 @@ impl AssignmentWorkspaces {
             self.store.clone(),
             workspaces.root.clone(),
             self.downloads.clone(),
-            self.session.get(),
         );
         let mut saved = Vec::new();
         let mut missing = Vec::new();

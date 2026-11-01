@@ -18,7 +18,7 @@ const BACKEND_EVENTS = [
   "sync-snapshot",
   "school-ingest",
   "school-download",
-  "school-login-status",
+  "school-session",
   "cloud-sync-state",
 ];
 const SECRET_KEY = /pass|secret|token|cookie|credential|otp|auth/i;

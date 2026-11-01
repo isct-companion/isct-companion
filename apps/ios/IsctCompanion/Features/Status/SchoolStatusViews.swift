@@ -54,7 +54,7 @@ enum SyncText {
         case .background: return t("syncStatus.resumesWhenTheAppIs")
         case let .backoff(until): return retry(at: until)
         case let .hostPaused(host, until): return t("syncStatus.hostIsPausedUntilTime", ["host": host, "time": Format.due(until)])
-        case .signInRequired: return t("syncStatus.signInRequired")
+        case let .session(_, state): return SchoolSessionText.state(state)
         case .resetting: return t("syncStatus.resetting")
         case .prerequisite: return t("syncStatus.waitingForTheDataIt")
         }
@@ -90,6 +90,52 @@ enum SyncText {
         case "references": return .references
         default: return .everything
         }
+    }
+}
+
+/// Words for Core's school sign-in read model (`SchoolSessionSnapshot`). Core
+/// decides the state, why an account is stuck and when it tries again; these
+/// only name it. Core's `message` is a diagnostic and never shown.
+enum SchoolSessionText {
+    /// The state alone, where only it is known (a read waiting for its session).
+    static func state(_ state: SchoolSessionState) -> String {
+        switch state {
+        case .notConfigured: return t("common.notConnected")
+        case .idle: return t("schoolSession.state.idle")
+        case .signingIn: return t("common.signingIn")
+        case .active: return t("settings.main.connected")
+        case .rejected: return t("schoolSession.state.rejected")
+        case .needsWeb: return t("schoolSession.state.needsWeb")
+        case .unavailable: return t("schoolSession.state.unavailable")
+        }
+    }
+
+    /// The state with why, and when Core tries again (`retryAt`).
+    static func line(_ state: SchoolSessionState, problem: SchoolSignInProblem?, retryAt: String?) -> String {
+        switch (state, problem?.kind) {
+        case (.rejected, .invalidCredentials?): return t("failure.theIDOrPasswordWas")
+        case (.rejected, .invalidOtp?): return t("failure.theOneTimePasswordWas")
+        case (.rejected, .invalidMatrix?): return t("failure.theMatrixAnswerWasNot")
+        case (.needsWeb, .emailOtp?): return "\(t("schoolSession.problem.emailOtp")) · \(Self.state(state))"
+        case (.needsWeb, .passwordChange?): return "\(t("schoolSession.problem.passwordChange")) · \(Self.state(state))"
+        case (.needsWeb, .unknownPage?): return "\(t("schoolSession.problem.unknownPage")) · \(Self.state(state))"
+        case (.unavailable, _):
+            guard let at = Format.date(retryAt) else { return Self.state(state) }
+            return t("schoolSession.state.unavailableRetry", ["time": Format.time(at)])
+        default: return Self.state(state)
+        }
+    }
+
+    static func line(_ session: SchoolProfileSession) -> String {
+        line(session.state, problem: session.problem, retryAt: session.retryAt)
+    }
+
+    /// The paused site of an account (LMS for Science Tokyo, 教務Web for Tokyo
+    /// Tech), until when, and the school's own notice.
+    static func maintenance(_ maintenance: SchoolMaintenance, profile: SchoolAuthProfile) -> String {
+        let source = SyncText.source(profile == .science ? "lms" : "kyomu")
+        let until = t("schoolSession.maintenance.until", ["site": source, "time": Format.due(maintenance.until)])
+        return ([until] + [maintenance.notice].compactMap { $0 }.filter { !$0.isEmpty }).joined(separator: " · ")
     }
 }
 
@@ -129,9 +175,11 @@ extension SyncSnapshot {
     }
 
     var problem: SyncProblem? {
+        // A read waiting for its session is no failure, but one the school
+        // turned down or that needs the web page waits for the person.
         let held = runs.compactMap(\.held) + sources.compactMap(\.held)
-        for case let .signInRequired(profile) in held {
-            return SyncProblem(text: t("syncStatus.signInRequired"), retry: nil, signIn: profile)
+        for case let .session(profile, state) in held where state == .rejected || state == .needsWeb {
+            return SyncProblem(text: SchoolSessionText.state(state), retry: nil, signIn: profile)
         }
         if let run = runs.first(where: { $0.failure != nil }), let failure = run.failure {
             return SyncProblem(
@@ -314,7 +362,7 @@ private struct SyncSourceRow: View {
                 }
             } else if let held = source.held {
                 Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
-            } else if source.session == "signed-out" {
+            } else if source.session == .notConfigured {
                 Text(t("common.notConnected")).font(.footnote).foregroundStyle(Theme.muted)
             }
         }
@@ -375,7 +423,7 @@ private struct FailureLine: View {
 }
 
 /// "Needs you" (Sync feedback level 3): a failed read with Retry, or an
-/// account to sign in to again.
+/// account whose sign-in needs the person, opening its settings.
 struct SyncProblemBanner: View {
     let problem: SyncProblem
     @Environment(AppModel.self) private var model

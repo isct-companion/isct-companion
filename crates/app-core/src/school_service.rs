@@ -24,8 +24,6 @@ pub struct IngestOutcome {
 pub enum IngestState {
     Ok,
     Unavailable,
-    Maintenance,
-    ReconnectRequired,
     Error,
 }
 

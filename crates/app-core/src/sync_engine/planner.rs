@@ -7,6 +7,7 @@ use crate::{
     lms_ingest::{current_lms_term, lms_course_term, StoredLmsCourse},
     net::Host,
     school_auth::SchoolAuthProfile,
+    school_session::SchoolSessionState,
     sync_state::{self, Dataset, Due, Key, KeyState, Term},
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
@@ -131,11 +132,9 @@ pub(crate) struct Facts {
     pub(crate) suspended: bool,
     pub(crate) power_saver: bool,
     pub(crate) resetting: bool,
-    /// A school browser (sign-in and HTTP transport) is attached.
-    pub(crate) school_attached: bool,
-    /// Profiles with a session seen active since launch. Automatic school
-    /// keys wait for one; a lost session removes it again.
-    pub(crate) signed_in: HashSet<SchoolAuthProfile>,
+    /// Each account's session as its snapshot last said; empty until the
+    /// school readers are attached.
+    pub(crate) sessions: HashMap<SchoolAuthProfile, SessionFact>,
     /// Hosts the circuit breaker paused, until when.
     pub(crate) paused: HashMap<Host, DateTime<Utc>>,
 }
@@ -148,10 +147,57 @@ impl Default for Facts {
             suspended: false,
             power_saver: false,
             resetting: false,
-            school_attached: false,
-            signed_in: HashSet::new(),
+            sessions: HashMap::new(),
             paused: HashMap::new(),
         }
+    }
+}
+
+/// One account's session, as the session snapshot gives it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SessionFact {
+    pub(crate) state: SchoolSessionState,
+    pub(crate) retry_at: Option<DateTime<Utc>>,
+    pub(crate) maintenance: Option<String>,
+}
+
+impl Facts {
+    /// Whether Core reads the account's school data on its own: it is
+    /// connected, and the school has not turned it down or asked for the
+    /// person on its page.
+    fn reads(&self, inputs: &Inputs, profile: SchoolAuthProfile) -> bool {
+        inputs.configured(profile)
+            && self.sessions.get(&profile).is_some_and(|fact| {
+                !matches!(
+                    fact.state,
+                    SchoolSessionState::NotConfigured
+                        | SchoolSessionState::Rejected
+                        | SchoolSessionState::NeedsWeb
+                )
+            })
+    }
+
+    /// Why the account's reads wait for its session now, if they do.
+    pub(crate) fn session_hold(
+        &self,
+        inputs: &Inputs,
+        profile: SchoolAuthProfile,
+        now: DateTime<Utc>,
+    ) -> Option<Held> {
+        let state = match self.sessions.get(&profile) {
+            None => SchoolSessionState::NotConfigured,
+            Some(_) if !inputs.configured(profile) => SchoolSessionState::NotConfigured,
+            Some(fact) => match fact.state {
+                SchoolSessionState::Unavailable if fact.retry_at.is_none_or(|at| at > now) => {
+                    SchoolSessionState::Unavailable
+                }
+                state @ (SchoolSessionState::NotConfigured
+                | SchoolSessionState::Rejected
+                | SchoolSessionState::NeedsWeb) => state,
+                _ => return None,
+            },
+        };
+        Some(Held::Session { profile, state })
     }
 }
 
@@ -520,7 +566,7 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
 /// Keys Core keeps current without being asked, with their priority.
 fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Key, Priority)> {
     let mut keys = Vec::new();
-    if facts.signed_in.contains(&SchoolAuthProfile::Science) {
+    if facts.reads(inputs, SchoolAuthProfile::Science) {
         keys.extend(lms_all().map(|key| (key, Priority::Visible)));
         let current = current_lms_term(now);
         for course in &inputs.courses {
@@ -546,7 +592,7 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
             ));
         }
     }
-    if facts.signed_in.contains(&SchoolAuthProfile::TokyoTech) {
+    if facts.reads(inputs, SchoolAuthProfile::TokyoTech) {
         keys.extend(kyomu_keys().into_iter().map(|key| (key, Priority::Visible)));
         if let Some(year) = inputs.year {
             keys.extend(
@@ -629,16 +675,6 @@ fn evaluate(
     }
 }
 
-/// 教務 and LMS content reads that may need browser pages wait for the
-/// foreground unless requested. Enrolment now reads its dashboard over token.
-fn needs_foreground(dataset: Dataset, priority: Priority) -> bool {
-    match dataset {
-        Dataset::KyomuPage | Dataset::CatalogOfficial => true,
-        Dataset::LmsCourse | Dataset::LmsHistory => priority < Priority::Interactive,
-        _ => false,
-    }
-}
-
 /// Why a due key may not be leased now, most fundamental reason first.
 pub(crate) fn hold(
     key: &Key,
@@ -661,14 +697,12 @@ pub(crate) fn hold(
             until: *until,
         });
     }
-    if let Some(profile) = profile_of(dataset) {
-        if !facts.school_attached
-            || !(facts.signed_in.contains(&profile) || inputs.configured(profile))
-        {
-            return Some(Held::SignInRequired { profile });
-        }
+    if let Some(held) =
+        profile_of(dataset).and_then(|profile| facts.session_hold(inputs, profile, now))
+    {
+        return Some(held);
     }
-    if facts.suspended || (!facts.foreground && needs_foreground(dataset, priority)) {
+    if facts.suspended {
         return Some(Held::Background);
     }
     if priority < Priority::Interactive {

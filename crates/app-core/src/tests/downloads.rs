@@ -6,27 +6,31 @@ use std::{
 use tokio::sync::Semaphore as AsyncSemaphore;
 use uuid::Uuid;
 
-struct CookieSession;
+/// Keeps the keychain out: no account is configured.
+struct NoVault;
 
-impl SessionCookies for CookieSession {
-    fn cookie_header<'a>(
-        &'a self,
-        _url: &'a Url,
-    ) -> crate::net::BoxFuture<'a, Result<String, NetError>> {
-        Box::pin(async { Ok("MoodleSession=test".into()) })
+impl crate::ports::SecretVault for NoVault {
+    fn store(&self, _: &str, _: &str) -> Result<(), crate::ports::SecretError> {
+        Ok(())
     }
-
-    fn store_set_cookies<'a>(
-        &'a self,
-        _url: &'a Url,
-        _set_cookie: &'a [String],
-    ) -> crate::net::BoxFuture<'a, Result<(), NetError>> {
-        Box::pin(async { Ok(()) })
+    fn load(&self, _: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        Ok(None)
+    }
+    fn delete(&self, _: &str) -> Result<(), crate::ports::SecretError> {
+        Ok(())
     }
 }
 
+/// A downloader over `transport` whose site sessions are already ready.
+fn downloader(transport: Arc<FakeTransport>) -> Downloader {
+    let downloader = Downloader::with_transport(transport);
+    downloader.attach_sessions(SchoolSessions::ready(Arc::new(
+        crate::school_auth::SchoolAuthService::new(NoVault),
+    )));
+    downloader
+}
+
 enum DownloadStep {
-    Login,
     Complete(Vec<u8>),
     PartialThenError(Vec<u8>),
     Wait(Vec<u8>),
@@ -102,7 +106,7 @@ impl Drop for ActiveDownload<'_> {
 impl DownloadTransport for FakeTransport {
     fn probe<'a>(
         &'a self,
-        _session: Arc<dyn SessionCookies>,
+        _session: Session,
         _url: &'a Url,
         _tasks: RuntimeTasks,
     ) -> FetchFuture<'a, u64> {
@@ -122,7 +126,7 @@ impl DownloadTransport for FakeTransport {
 
     fn download<'a>(
         &'a self,
-        _session: Arc<dyn SessionCookies>,
+        _session: Session,
         _url: &'a Url,
         mut file: File,
         _limit: Option<u64>,
@@ -138,7 +142,6 @@ impl DownloadTransport for FakeTransport {
                 .pop_front()
                 .ok_or(FetchError::Network)?;
             match step {
-                DownloadStep::Login => Err(FetchError::Login),
                 DownloadStep::Complete(bytes) => {
                     file.write_all(&bytes)
                         .await
@@ -183,7 +186,7 @@ impl DownloadTransport for FakeTransport {
 
     fn resolve<'a>(
         &'a self,
-        _session: Arc<dyn SessionCookies>,
+        _session: Session,
         _url: &'a Url,
         _cmid: u64,
         _module: &'a str,
@@ -197,7 +200,7 @@ impl DownloadTransport for FakeTransport {
 
     fn school_file<'a>(
         &'a self,
-        _session: Arc<dyn SessionCookies>,
+        _session: Session,
         _url: &'a Url,
         _referer: Option<&'a Url>,
         mut file: File,
@@ -230,10 +233,6 @@ fn target(name: &str) -> PathBuf {
     directory.join("file.pdf")
 }
 
-fn session() -> Arc<dyn SessionCookies> {
-    Arc::new(CookieSession)
-}
-
 fn part_files(target: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(target.parent().unwrap())
         .unwrap()
@@ -252,7 +251,7 @@ async fn duplicate_waiter_survives_the_original_callers_drop() {
         10,
         [DownloadStep::Wait(b"complete".to_vec())],
     ));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let path = target("caller-drop");
     let started = transport.wait_started.notified();
     tokio::pin!(started);
@@ -260,14 +259,14 @@ async fn duplicate_waiter_survives_the_original_callers_drop() {
     let first = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move { downloader.fetch(session(), &url(), path, None, false).await }
+        async move { downloader.fetch(&url(), path, None, false).await }
     });
     started.await;
     first.abort();
     let second = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move { downloader.fetch(session(), &url(), path, None, true).await }
+        async move { downloader.fetch(&url(), path, None, true).await }
     });
     tokio::task::yield_now().await;
     transport.wait_release.add_permits(1);
@@ -285,96 +284,20 @@ async fn failed_flight_is_removed_and_a_retry_starts_fresh() {
             DownloadStep::Complete(b"complete".to_vec()),
         ],
     ));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let path = target("retry");
     assert_eq!(
-        downloader
-            .fetch(session(), &url(), path.clone(), None, false)
-            .await,
+        downloader.fetch(&url(), path.clone(), None, false).await,
         Err(FetchError::Network)
     );
     assert!(!path.exists());
     assert!(part_files(&path).is_empty());
     assert_eq!(
-        downloader
-            .fetch(session(), &url(), path.clone(), None, false)
-            .await,
+        downloader.fetch(&url(), path.clone(), None, false).await,
         Ok(Fetched::Saved)
     );
     assert_eq!(transport.downloads.load(Ordering::SeqCst), 2);
     assert_eq!(std::fs::read(path).unwrap(), b"complete");
-}
-
-struct SavedSignIn {
-    calls: AtomicUsize,
-    outcome: Result<(), NetError>,
-}
-
-impl crate::net::SignIn for SavedSignIn {
-    fn sign_in<'a>(
-        &'a self,
-        _: crate::school_auth::SchoolAuthProfile,
-    ) -> crate::net::BoxFuture<'a, Result<(), NetError>> {
-        Box::pin(async move {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            self.outcome.clone()
-        })
-    }
-}
-
-// Expired cookies used to fail immediately on mobile. The real downloader
-// now renews once, cleans the failed temp file, and never loops on rejection.
-#[tokio::test]
-async fn an_expired_download_renews_once_and_keeps_failures_retryable() {
-    for (auth, second, expected) in [
-        (
-            Ok(()),
-            DownloadStep::Complete(b"signed-in file".to_vec()),
-            Ok(Fetched::Saved),
-        ),
-        (Ok(()), DownloadStep::Login, Err(FetchError::Login)),
-        (
-            Err(NetError::SignInRequired),
-            DownloadStep::Login,
-            Err(FetchError::Login),
-        ),
-        (
-            Err(NetError::Deadline),
-            DownloadStep::Login,
-            Err(FetchError::Timeout),
-        ),
-    ] {
-        let attempts = if auth.is_ok() { 2 } else { 1 };
-        let transport = Arc::new(FakeTransport::new(10, [DownloadStep::Login, second]));
-        let downloader = Downloader::with_transport(transport.clone());
-        let sign_in = Arc::new(SavedSignIn {
-            calls: AtomicUsize::new(0),
-            outcome: auth,
-        });
-        downloader.attach_sign_in(SignInGate::new(sign_in.clone()));
-        let path = target("expired-session");
-        assert_eq!(
-            downloader
-                .fetch(session(), &url(), path.clone(), None, true)
-                .await,
-            expected
-        );
-        assert_eq!(sign_in.calls.load(Ordering::SeqCst), 1);
-        assert_eq!(transport.downloads.load(Ordering::SeqCst), attempts);
-        assert!(part_files(&path).is_empty());
-        if expected.is_ok() {
-            assert_eq!(std::fs::read(&path).unwrap(), b"signed-in file");
-            // A cached file must not require a live session again.
-            assert_eq!(
-                downloader.fetch(session(), &url(), path, None, true).await,
-                expected
-            );
-            assert_eq!(sign_in.calls.load(Ordering::SeqCst), 1);
-        } else {
-            assert!(!path.exists());
-        }
-        downloader.shutdown().await;
-    }
 }
 
 #[test]
@@ -498,16 +421,12 @@ async fn a_school_file_is_staged_under_the_responses_name() {
             b"%PDF-1.7".to_vec(),
         ))),
     );
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let directory = target("school").parent().unwrap().join("staging");
     let mut saved = Vec::new();
     for _ in 0..2 {
         let file = downloader
-            .save_school_file(
-                session(),
-                school_request(report, "application/pdf"),
-                directory.clone(),
-            )
+            .save_school_file(school_request(report, "application/pdf"), directory.clone())
             .await
             .unwrap();
         let SchoolFile::Saved {
@@ -543,14 +462,10 @@ async fn school_files_off_school_hosts_or_answered_by_a_page_are_not_saved() {
         },
         b"<html>sign in</html>".to_vec(),
     ))));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let directory = target("school-refused").parent().unwrap().join("staging");
     let save = |url: &str| {
-        downloader.save_school_file(
-            session(),
-            school_request(url, "application/pdf"),
-            directory.clone(),
-        )
+        downloader.save_school_file(school_request(url, "application/pdf"), directory.clone())
     };
     // Core never fetches another site's file; the system browser gets it.
     assert_eq!(
@@ -586,7 +501,7 @@ async fn transport_panic_releases_every_waiter_and_allows_retry() {
             DownloadStep::Complete(b"complete".to_vec()),
         ],
     ));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let path = target("panic");
     let started = transport.wait_started.notified();
     tokio::pin!(started);
@@ -594,13 +509,13 @@ async fn transport_panic_releases_every_waiter_and_allows_retry() {
     let first = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move { downloader.fetch(session(), &url(), path, None, false).await }
+        async move { downloader.fetch(&url(), path, None, false).await }
     });
     started.await;
     let second = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move { downloader.fetch(session(), &url(), path, None, false).await }
+        async move { downloader.fetch(&url(), path, None, false).await }
     });
     loop {
         let joined = downloader
@@ -623,9 +538,7 @@ async fn transport_panic_releases_every_waiter_and_allows_retry() {
     assert!(!path.exists());
     assert!(part_files(&path).is_empty());
     assert_eq!(
-        downloader
-            .fetch(session(), &url(), path.clone(), None, false)
-            .await,
+        downloader.fetch(&url(), path.clone(), None, false).await,
         Ok(Fetched::Saved)
     );
     assert_eq!(transport.downloads.load(Ordering::SeqCst), 2);
@@ -637,7 +550,7 @@ async fn a_small_limit_never_poisoned_a_larger_concurrent_request() {
     let transport = Arc::new(
         FakeTransport::new(100, [DownloadStep::Complete(vec![7; 100])]).with_gated_probe(),
     );
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let path = target("mixed-limit");
     let probe_started = transport.probe_started.notified();
     tokio::pin!(probe_started);
@@ -645,21 +558,13 @@ async fn a_small_limit_never_poisoned_a_larger_concurrent_request() {
     let small = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move {
-            downloader
-                .fetch(session(), &url(), path, Some(50), false)
-                .await
-        }
+        async move { downloader.fetch(&url(), path, Some(50), false).await }
     });
     probe_started.await;
     let large = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move {
-            downloader
-                .fetch(session(), &url(), path, Some(200), true)
-                .await
-        }
+        async move { downloader.fetch(&url(), path, Some(200), true).await }
     });
     transport.probe_release.add_permits(1);
     assert_eq!(small.await.unwrap(), Ok(Fetched::TooLarge(100)));
@@ -671,12 +576,12 @@ async fn a_small_limit_never_poisoned_a_larger_concurrent_request() {
 #[tokio::test]
 async fn shutdown_cancels_waiters_and_cleans_partial_files() {
     let transport = Arc::new(FakeTransport::new(0, [DownloadStep::Cancel]));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let path = target("shutdown");
     let request = tokio::spawn({
         let downloader = downloader.clone();
         let path = path.clone();
-        async move { downloader.fetch(session(), &url(), path, None, false).await }
+        async move { downloader.fetch(&url(), path, None, false).await }
     });
     while transport.downloads.load(Ordering::SeqCst) == 0 {
         tokio::task::yield_now().await;
@@ -686,7 +591,7 @@ async fn shutdown_cancels_waiters_and_cleans_partial_files() {
     assert!(!path.exists());
     assert!(part_files(&path).is_empty());
     assert_eq!(
-        downloader.fetch(session(), &url(), path, None, false).await,
+        downloader.fetch(&url(), path, None, false).await,
         Err(FetchError::Cancelled)
     );
 }
@@ -697,13 +602,11 @@ async fn rename_failure_keeps_the_existing_target_and_removes_temp() {
         10,
         [DownloadStep::Complete(b"complete".to_vec())],
     ));
-    let downloader = Downloader::with_transport(transport);
+    let downloader = downloader(transport);
     let path = target("rename-failure");
     std::fs::create_dir(&path).unwrap();
     assert_eq!(
-        downloader
-            .fetch(session(), &url(), path.clone(), None, false)
-            .await,
+        downloader.fetch(&url(), path.clone(), None, false).await,
         Err(FetchError::Network)
     );
     assert!(path.is_dir());
@@ -723,13 +626,11 @@ async fn a_folder_that_refuses_writes_reports_denied_instead_of_a_network_failur
             DownloadStep::Complete(b"complete".to_vec()),
         ],
     ));
-    let downloader = Downloader::with_transport(transport);
+    let downloader = downloader(transport);
     let path = target("denied");
     let folder = path.parent().unwrap().to_path_buf();
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let result = downloader
-        .fetch(session(), &url(), path.clone(), None, false)
-        .await;
+    let result = downloader.fetch(&url(), path.clone(), None, false).await;
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(result, Err(FetchError::WriteDenied));
     assert!(FetchError::WriteDenied
@@ -739,9 +640,7 @@ async fn a_folder_that_refuses_writes_reports_denied_instead_of_a_network_failur
     // Once the user allows the app, a retry saves normally: nothing remembers
     // the refusal.
     assert_eq!(
-        downloader
-            .fetch(session(), &url(), path.clone(), None, false)
-            .await,
+        downloader.fetch(&url(), path.clone(), None, false).await,
         Ok(Fetched::Saved)
     );
     assert_eq!(std::fs::read(path).unwrap(), b"complete");
@@ -756,7 +655,7 @@ async fn unknown_sizes_use_one_serial_lane() {
             DownloadStep::Complete(b"second".to_vec()),
         ],
     ));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let first_path = target("unknown-first");
     let second_path = target("unknown-second");
     let started = transport.wait_started.notified();
@@ -764,20 +663,12 @@ async fn unknown_sizes_use_one_serial_lane() {
     started.as_mut().enable();
     let first = tokio::spawn({
         let downloader = downloader.clone();
-        async move {
-            downloader
-                .fetch(session(), &url(), first_path, None, false)
-                .await
-        }
+        async move { downloader.fetch(&url(), first_path, None, false).await }
     });
     started.await;
     let second = tokio::spawn({
         let downloader = downloader.clone();
-        async move {
-            downloader
-                .fetch(session(), &url(), second_path, None, false)
-                .await
-        }
+        async move { downloader.fetch(&url(), second_path, None, false).await }
     });
     tokio::task::yield_now().await;
     assert_eq!(transport.max_active.load(Ordering::SeqCst), 1);
@@ -834,19 +725,17 @@ async fn foreground_waiters_take_the_next_small_lane() {
 #[tokio::test]
 async fn resolve_delegates_once_and_rejects_non_lms_urls() {
     let transport = Arc::new(FakeTransport::new(0, []));
-    let downloader = Downloader::with_transport(transport.clone());
+    let downloader = downloader(transport.clone());
     let resource = Url::parse("https://lms.s.isct.ac.jp/2026/mod/resource/view.php?id=42").unwrap();
     assert_eq!(
-        downloader
-            .resolve(session(), &resource, 42, "lecture.pdf")
-            .await,
+        downloader.resolve(&resource, 42, "lecture.pdf").await,
         Ok(ResolvedResource::Unresolved)
     );
     assert_eq!(transport.resolves.load(Ordering::SeqCst), 1);
 
     let outside = Url::parse("https://example.com/resource").unwrap();
     assert_eq!(
-        downloader.resolve(session(), &outside, 42, "x").await,
+        downloader.resolve(&outside, 42, "x").await,
         Err(FetchError::Invalid)
     );
     assert_eq!(transport.resolves.load(Ordering::SeqCst), 1);

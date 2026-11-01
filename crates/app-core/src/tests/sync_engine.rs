@@ -6,6 +6,7 @@ use crate::{
     net::Host,
     ports::{SecretError, SecretVault},
     school_auth::SchoolAuthService,
+    school_session::SchoolSessionState,
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome},
 };
 use chrono::Duration;
@@ -25,6 +26,26 @@ impl SecretVault for EmptyVault {
         Ok(None)
     }
     fn delete(&self, _account: &str) -> Result<(), SecretError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct MemoryVault(std::sync::Mutex<HashMap<String, String>>);
+
+impl SecretVault for MemoryVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(account.into(), secret.into());
+        Ok(())
+    }
+    fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
+        Ok(self.0.lock().unwrap().get(account).cloned())
+    }
+    fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.0.lock().unwrap().remove(account);
         Ok(())
     }
 }
@@ -110,11 +131,27 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
     }
 }
 
+fn session(state: SchoolSessionState) -> planner::SessionFact {
+    planner::SessionFact {
+        state,
+        retry_at: None,
+        maintenance: None,
+    }
+}
+
 fn facts() -> Facts {
     Facts {
         network: Network::Wifi,
-        school_attached: true,
-        signed_in: HashSet::from([SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]),
+        sessions: HashMap::from([
+            (
+                SchoolAuthProfile::Science,
+                session(SchoolSessionState::Idle),
+            ),
+            (
+                SchoolAuthProfile::TokyoTech,
+                session(SchoolSessionState::Idle),
+            ),
+        ]),
         ..Facts::default()
     }
 }
@@ -512,17 +549,14 @@ fn held_reasons_follow_the_shell_facts() {
         held(&inputs, &saver, &calendar),
         Some(Some(Held::PowerSaver))
     );
-    // 教務 reads only in the foreground; token deadlines and the token
-    // dashboard/enrolment read can finish without a resident web session.
+    // In the background every source still reads; only a suspended app
+    // holds its work.
     let background = with(&|facts| facts.foreground = false);
+    assert_eq!(held(&inputs, &background, &grades), Some(None));
+    let suspended = with(&|facts| facts.suspended = true);
     assert_eq!(
-        held(&inputs, &background, &grades),
+        held(&inputs, &suspended, &deadlines),
         Some(Some(Held::Background))
-    );
-    assert_eq!(held(&inputs, &background, &deadlines), Some(None));
-    assert_eq!(
-        held(&inputs, &background, &key(Dataset::LmsEnrolment, "all")),
-        Some(None)
     );
     // A paused host holds its keys only.
     let paused = with(&|facts| {
@@ -535,39 +569,63 @@ fn held_reasons_follow_the_shell_facts() {
         Some(Some(Held::HostPaused { host, .. })) if host == Host::Kyomu.name()
     ));
     assert_eq!(held(&inputs, &paused, &deadlines), Some(None));
-    // Without a session or saved credentials, automatic 教務 keys are not
-    // wanted and an asked-for LMS key waits for sign-in.
+    // Without saved credentials, automatic 教務 keys are not wanted and an
+    // asked-for LMS key waits for an account.
     let mut signed_out = inputs.clone();
     signed_out.science_configured = false;
-    let nobody = with(&|facts| facts.signed_in.clear());
+    let nobody = with(&|facts| facts.sessions.clear());
     assert_eq!(held(&signed_out, &nobody, &grades), None);
     assert_eq!(
         held(&signed_out, &nobody, &deadlines),
-        Some(Some(Held::SignInRequired {
-            profile: SchoolAuthProfile::Science
+        Some(Some(Held::Session {
+            profile: SchoolAuthProfile::Science,
+            state: SchoolSessionState::NotConfigured,
         }))
     );
-    let detached = with(&|facts| facts.school_attached = false);
+    // A refused account waits for the person, not for a backoff.
+    let rejected = with(&|facts| {
+        facts.sessions.insert(
+            SchoolAuthProfile::Science,
+            session(SchoolSessionState::Rejected),
+        );
+    });
     assert_eq!(
-        held(&inputs, &detached, &deadlines),
-        Some(Some(Held::SignInRequired {
-            profile: SchoolAuthProfile::Science
+        held(&inputs, &rejected, &deadlines),
+        Some(Some(Held::Session {
+            profile: SchoolAuthProfile::Science,
+            state: SchoolSessionState::Rejected,
         }))
     );
 }
 
 fn engine(name: &str) -> (SyncEngine, DataStore) {
+    engine_with(name, SchoolAuthService::new(EmptyVault))
+}
+
+fn engine_with(name: &str, auth: SchoolAuthService) -> (SyncEngine, DataStore) {
     let path = std::env::temp_dir().join(format!("isct-sync-{name}-{}", uuid::Uuid::new_v4()));
     let store = DataStore::initialize_dir(path).unwrap().0;
     store
         .put_workspace_setting("selectedTerm", serde_json::json!("2026-3Q"))
         .unwrap();
-    let engine = SyncEngine::new(
-        store.clone(),
-        Arc::new(SchoolAuthService::new(EmptyVault)),
-        Network::Wifi,
-    );
+    let engine = SyncEngine::new(store.clone(), Arc::new(auth), Network::Wifi);
     (engine, store)
+}
+
+/// An engine whose Tokyo Tech account is set up.
+fn tokyo_engine(name: &str) -> (SyncEngine, DataStore) {
+    let auth = SchoolAuthService::new(MemoryVault::default());
+    auth.stage(
+        SchoolAuthProfile::TokyoTech,
+        crate::school_auth::SchoolCredentials {
+            username: "student".into(),
+            password: "secret".into(),
+            otp_secret: String::new(),
+            matrix: "A".repeat(70),
+        },
+    )
+    .unwrap();
+    engine_with(name, auth)
 }
 
 fn reference_runs(snapshot: &SyncSnapshot) -> Vec<&RunView> {
@@ -637,9 +695,9 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
 }
 
 #[tokio::test]
-async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in_backs_off() {
-    let (engine, store) = engine("paused");
-    engine.set_signed_in(SchoolAuthProfile::TokyoTech);
+async fn a_paused_host_or_an_unavailable_session_holds_keys_without_failing_them() {
+    let (engine, store) = tokyo_engine("paused");
+    engine.set_session(SchoolAuthProfile::TokyoTech, SchoolSessionState::Idle);
     let page = key(Dataset::KyomuPage, "grades");
     let until = Utc::now() + Duration::minutes(5);
     engine
@@ -648,7 +706,6 @@ async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in
             KeyEnd::HostPaused {
                 host: Host::Kyomu,
                 until,
-                notice: Some("閉局中".into()),
                 source: String::new(),
             },
         )
@@ -662,8 +719,6 @@ async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in
             until
         })
     );
-    let snapshot = engine.snapshot();
-    assert_eq!(snapshot.sources[1].maintenance.as_deref(), Some("閉局中"));
     let (failures, error_kind): (u32, Option<String>) = store
         .write(None, |transaction| {
             let failures = sync_state::get(transaction, &page)?.map_or(0, |state| state.failures);
@@ -675,13 +730,13 @@ async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in
         .unwrap();
     assert_eq!((failures, error_kind.as_deref()), (0, Some("host-paused")));
 
-    // The reader already ran the saved sign-in and the school still refused:
-    // the key backs off instead of being read again on every evaluation.
+    // The session's own sign-in already ran and could not reach the school:
+    // the key waits for the session, without a failure of its own.
     let refused = key(Dataset::KyomuPage, "gpa");
     engine
         .settle_for_test(
             Lease::detached(&store, refused.clone(), TOKYO),
-            KeyEnd::SignInRequired {
+            KeyEnd::SessionUnavailable {
                 profile: SchoolAuthProfile::TokyoTech,
                 source: String::new(),
             },
@@ -689,10 +744,8 @@ async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in
         .await;
     let state = store
         .write(None, |transaction| sync_state::get(transaction, &refused))
-        .unwrap()
         .unwrap();
-    assert_eq!(state.failures, 1);
-    assert!(state.next_eligible.is_some_and(|until| until > Utc::now()));
+    assert_eq!(state.map_or(0, |state| state.failures), 0);
 }
 
 #[tokio::test]

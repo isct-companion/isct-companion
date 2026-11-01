@@ -64,31 +64,14 @@ fn automation_reaches_adapter_sites_and_identity_providers_only() {
         assert_eq!(SchoolSite::for_url(raw), Some(site), "{raw}");
         assert!(automation_target(raw).is_some(), "{raw}");
     }
-    // A hidden view saves files only from adapter sites; what the person
-    // looks at may hand over anything.
+    // A view the person looks at may save anything they can browse, and
+    // files the page builds itself; never one with embedded credentials.
     let campus = "https://vlmgr-42.edu2024.gsic.titech.ac.jp/file.pdf";
-    assert!(download_permitted(ViewRole::User, campus));
+    assert!(download_permitted(campus));
     assert!(download_permitted(
-        ViewRole::User,
         "blob:https://kyomu0.gakumu.titech.ac.jp/uuid"
     ));
-    assert!(!download_permitted(
-        ViewRole::User,
-        "https://user:secret@example.com/a.pdf"
-    ));
-    assert!(!download_permitted(
-        ViewRole::Automation,
-        "blob:https://lms.s.isct.ac.jp/uuid"
-    ));
-    assert!(!download_permitted(ViewRole::Automation, campus));
-    assert!(!download_permitted(
-        ViewRole::Automation,
-        "http://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf"
-    ));
-    assert!(download_permitted(
-        ViewRole::Automation,
-        "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf"
-    ));
+    assert!(!download_permitted("https://user:secret@example.com/a.pdf"));
 }
 
 #[test]

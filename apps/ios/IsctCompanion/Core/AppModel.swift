@@ -30,7 +30,9 @@ final class AppModel {
         didSet { Localizer.shared.use(records.settings.text("locale")) }
     }
     private(set) var credentials: SchoolCredentialStatus?
-    private(set) var sessions: SchoolSessionProfiles?
+    /// Core's school sign-in read model: each account's state, why it is
+    /// stuck, when Core tries again, maintenance. The higher `revision` wins.
+    private(set) var schoolSessions: SchoolSessionSnapshot?
     /// Core's sync planner: what runs, waits or failed, and when each source
     /// was last read. Rendered as is; Core decides what is due and when.
     private(set) var syncSnapshot: SyncSnapshot?
@@ -60,7 +62,6 @@ final class AppModel {
     private var opening: Task<Void, Never>?
     private let network = NWPathMonitor()
     private var networkState: SyncNetwork = .unknown
-    private var foreground = true
     private var powerObserver: NSObjectProtocol?
 
     init() {
@@ -72,6 +73,11 @@ final class AppModel {
         guard let credentials else { return false }
         return credentials.science.availability == .notConfigured
             && credentials.tokyoTech.availability == .notConfigured
+    }
+
+    /// One school account's session, as Core last reported it.
+    func profileSession(_ profile: SchoolAuthProfile) -> SchoolProfileSession? {
+        profile == .science ? schoolSessions?.profiles.science : schoolSessions?.profiles.tokyoTech
     }
 
     /// One of Core's sync sources (`lms`, `kyomu`, `references`, `catalog`).
@@ -120,7 +126,7 @@ final class AppModel {
                 cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
-                notifications: nil, downloads: WebCookieSession(),
+                notifications: nil, webCookies: WebCookieSeed(),
                 webAuthentication: GoogleSignIn(), driveTokens: nil)
             self.session = session
             let stream = try session.subscribe()
@@ -135,13 +141,9 @@ final class AppModel {
             watchNetwork()
             watchPowerSaver()
             // A background refresh can launch the app without a scene in front.
-            foreground = UIApplication.shared.applicationState != .background
+            let foreground = UIApplication.shared.applicationState != .background
             syncHint(foreground ? .foreground : .background)
             if foreground {
-                // The launch check signs in through the school web views,
-                // which only run in front; out of front the first `.focus`
-                // does it instead.
-                reportSchool(.launch)
                 startWaking()
             } else {
                 _ = try? session.suspend()
@@ -155,18 +157,14 @@ final class AppModel {
         guard let session else { return }
         switch phase {
         case .active:
-            foreground = true
             _ = try? session.resume()
             syncHint(.foreground)
-            reportSchool(.focus)
             startWaking()
             Task { await refresh() }
         case .background:
-            foreground = false
             wakeTask?.cancel()
             wakeTask = nil
             syncHint(.background)
-            reportSchool(.focus)
             _ = try? session.suspend()
             Self.scheduleBackgroundRefresh()
         default:
@@ -199,10 +197,10 @@ final class AppModel {
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    /// One background refresh: Core reads what it may out of front (LMS
-    /// deadlines and assignment states over the token, reference files) and
-    /// runs reminders and iCloud, within the budget iOS gives a refresh. The
-    /// school web views stay closed. Cancelling the task ends it early.
+    /// One background refresh: Core reads what it may out of front, signing
+    /// in with the saved details when a read needs it, and runs reminders and
+    /// iCloud, within the budget iOS gives a refresh. The school web views
+    /// stay closed. Cancelling the task ends it early.
     func backgroundRefresh() async {
         Self.scheduleBackgroundRefresh()
         await start()
@@ -213,13 +211,6 @@ final class AppModel {
             _ = try? operation.cancel()
         }
         await refresh()
-    }
-
-    /// School sign-in hears what desktop sends (`school-session.ts`): `launch`
-    /// once when the session opens, then `focus` as the app enters or leaves the
-    /// front. Core only acts on a visible focus.
-    private func reportSchool(_ kind: SchoolSessionLifecycleKind) {
-        _ = try? session?.schoolLifecycle(event: SchoolSessionLifecycle(kind: kind, visible: foreground))
     }
 
     private func watchNetwork() {
@@ -259,7 +250,9 @@ final class AppModel {
                         if let snapshot = try? decodeSyncSnapshot(payload: event.payload) {
                             apply(snapshot)
                         }
-                    case "school-session", "school-login-status":
+                    // The whole snapshot; credentials synced from another
+                    // device change it too, so both are read again.
+                    case "school-session":
                         await refreshAccounts()
                     case "ocr-progress":
                         if let row = try? JSONSerialization.jsonObject(with: Data(event.payload.utf8)) as? [String: Any],
@@ -400,8 +393,14 @@ final class AppModel {
             credentials = status
         }
         if case let .schoolSession(snapshot)? = try? await session.schoolSession().value() {
-            sessions = snapshot.profiles
+            apply(snapshot)
         }
+    }
+
+    /// A read that started before a newer school session must not replace it.
+    private func apply(_ snapshot: SchoolSessionSnapshot) {
+        guard snapshot.revision >= (schoolSessions?.revision ?? 0) else { return }
+        schoolSessions = snapshot
     }
 
     private func refreshSyncSnapshot() async {
@@ -625,19 +624,14 @@ final class AppModel {
         return result
     }
 
-    /// Core's sign-in failure in the person's words, then the page's own.
-    static func reason(_ problem: SchoolSignInProblem) -> String {
-        let reason: String
-        switch problem.kind {
-        case .invalidCredentials: reason = t("failure.theIDOrPasswordWas")
-        case .locked: reason = t("failure.theSchoolLockedThisAccount")
-        case .invalidOtp: reason = t("failure.theOneTimePasswordWas")
-        case .invalidMatrix: reason = t("failure.theMatrixAnswerWasNot")
-        case .pageWarning: reason = t("failure.theSignInPageShowed")
-        case .needsUser: reason = t("failure.thisSignInStepNeeds")
-        case .unavailable: reason = t("failure.theSchoolSiteIsNot")
+    /// Retry: Core reads the synced credentials again and makes one sign-in
+    /// attempt now. The credentials stay as they are.
+    func retrySchool(_ profile: SchoolAuthProfile) async throws {
+        guard let session else { return }
+        if case let .schoolSession(snapshot) = try await session.retrySchool(profile: profile).value() {
+            apply(snapshot)
         }
-        return problem.message.isEmpty || problem.message == reason ? reason : "\(reason)\n\(problem.message)"
+        await refreshAccounts()
     }
 
     /// The saved school OTP setup as an `otpauth://` link, read only when the
@@ -710,6 +704,8 @@ final class AppModel {
         return try session.beginMatrixCamera()
     }
 
+    /// Returns once Core has stopped the account's reads and removed its
+    /// sign-in, the web views' school cookies included.
     func deleteCredentials(_ profile: SchoolAuthProfile) async {
         guard let session else { return }
         _ = try? await session.deleteCredentials(profile: profile).value()
@@ -873,7 +869,7 @@ extension AppModel {
 
     func reset(_ request: ResetRequest) async throws {
         guard let session else { return }
-        _ = try await session.reset(request: request, web: SchoolWebSignOut())
+        _ = try await session.reset(request: request)
         problem = nil
         await refreshAccounts()
         await refreshSyncSnapshot()

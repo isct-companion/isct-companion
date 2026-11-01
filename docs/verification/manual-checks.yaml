@@ -183,57 +183,61 @@ personas:
 checks:
   - id: SCHOOL-SIGNIN-SCIENCE
     area: school
-    title: Real sign-in to the Science Tokyo portal and LMS
+    title: Core signs in to Science Tokyo over HTTP and the LMS page opens signed in
     persona: undergraduate-first-term
     preconditions: |
-      Signed desktop bundle, campus network or VPN, a live student id and the
-      current OTP factor.
+      A desktop build from this source, a live Science Tokyo student id,
+      password and App OTP setup, and no saved Science Tokyo account (Forget
+      it first if one is saved).
     steps:
       - action: |
-          Cold-launch the bundle and wait for the first screen.
+          Open Settings → School accounts → Science Tokyo, enter the student
+          id, password and OTP setup, and press Connect.
         reason: |
-          Cold launch is where a stale keychain entry or a launch-order bug
-          shows up; a warm relaunch hides both.
+          Connect is one sign-in by Core over HTTP (Extic ID and password,
+          TOTP, SAML to the LMS). The card must end on Signed in from that
+          answer alone; a card that waits for a school page, or opens one,
+          means a shell is still driving the sign-in.
       - action: |
-          Open Settings → Accounts and connect the Science Tokyo account.
-          Enter the student id, then the OTP when asked.
+          Without touching anything else, open the LMS from the site list.
         reason: |
-          The identity provider is tried first by design. Asking for a
-          password before the id would mean the identity-first order regressed.
+          The page must open signed in from the identity Core wrote into the
+          web store before the view navigated. Landing on Extic's sign-in page
+          means the cookies were not written, or were written host-only.
       - action: |
-          Wait for the badge, then open the LMS from the site list.
+          Forget the account, connect again with one wrong character in the
+          password, then read the card. Press Retry once.
         reason: |
-          Distinguishes "signed in" from "the session reaches the LMS". A badge
-          that settles while the LMS still shows a login form is the failure
-          this step exists to catch.
+          A refused password is sent once and kept refused: the card says the
+          school did not accept it and offers Retry, and nothing signs in
+          again by itself. Retry is one more attempt with what is saved; a
+          second refusal must not loop.
       - action: |
-          Look over the whole screen and the logs for the student id, the
-          password or any OTP value.
+          Connect with the right password. Look over the window and the log
+          for the student id, the password or any code.
         reason: |
-          Credential material must never be rendered. A run that passes while
-          leaking a value into the UI or a log is a failure.
+          Credential material must never be rendered or logged; the log names
+          hosts and paths only.
     observe: |
-      Settings → Accounts badge; the LMS page body; the app window and any
-      console output.
+      The Science Tokyo card in Settings, the LMS page in the Web page, and the
+      log in Settings → Diagnostics.
     expected: |
-      The account reaches Signed in without a second prompt, the LMS page
-      loads authenticated, and no credential material appears anywhere.
+      Connect ends on Signed in without any school page shown, and the LMS
+      opens on the dashboard. The wrong password is refused once, the card
+      names it with Retry, and Retry tries exactly once. No credential value
+      appears anywhere.
     why_manual: |
-      Needs a real student id, a live OTP factor and the campus network. The
-      identity provider cannot be replayed offline and the OTP window makes a
-      recorded flow expire immediately.
+      Needs a real account, a live TOTP window and the platform web view's
+      cookie store. The sign-in flow itself runs in the ignored real-account
+      tests (`school_session::login`); only the app shows the card and the
+      web view landing signed in.
     covers:
-      - crates/app-core/src/school_auth.rs
-      - crates/app-core/src/school_browser/engine/**
-      - crates/app-core/src/school_service.rs
-    verified:
-      version: 1.0.0-rc.1
-      date: 2026-10-14
-      commit: 7fdf1b6
-      by: human
-      result: pass
-      notes: Recorded in docs/verification/core-consolidation.md.
-      evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+      - crates/app-core/src/school_session/**
+      - crates/adpt-isct/src/login.rs
+      - apps/desktop/src-tauri/src/school_cookies.rs
+      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+    verified: null
+
 
   - id: SCHOOL-LMS-TOKEN-HTTP
     area: school
@@ -364,7 +368,7 @@ checks:
       enrolment.
     covers:
       - crates/app-core/src/lms_ingest.rs
-      - crates/app-core/src/lms_session.rs
+      - crates/app-core/src/school_session/site.rs
       - crates/adpt-isct/src/lms.rs
       - crates/adpt-isct/src/lms/pages.rs
       - crates/app-core/src/net/moodle/reader.rs
@@ -473,7 +477,7 @@ checks:
       - crates/app-core/src/net/moodle/rest.rs
       - crates/app-core/src/net/moodle/ajax.rs
       - crates/app-core/src/school_auth.rs
-      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/sync_engine/school.rs
       - crates/app-core/src/sync_engine/planner.rs
       - docs/lms-api/README.md
     verified: null
@@ -816,7 +820,7 @@ checks:
       so the path is pinned rather than derived. When it moves, the automated
       suite fails but only a real account can confirm the new path works.
     covers:
-      - crates/app-core/src/lms_session.rs
+      - crates/app-core/src/school_session/site.rs
       - crates/adpt-isct/src/lms.rs
     verified:
       version: 1.0.0-rc.3
@@ -1246,6 +1250,17 @@ checks:
           drag. Repeating after view changes also exercises the intermittent
           loss of drag delivery reported on macOS.
       - action: |
+          On macOS, quit and start the app, open 教務Web first, then the LMS,
+          and drag a small file into the assignment's draft area. Remove the
+          draft file afterwards.
+        reason: |
+          School views are created when first opened, so one opened later
+          sits above the earlier ones. A hidden WKWebView still answers the
+          drag hit test with itself; the hidden 教務Web view used to take the
+          file and the log showed `denied site=Kyomu reason=Scheme
+          url=file://`. Hidden views and popups now answer that they are not
+          the target.
+      - action: |
           On macOS, in the same draft area, press the file picker's upload
           button (Moodle: Add → Upload a file → Choose File) and choose one
           small file; open it again and press Cancel. If a page's file input
@@ -1296,7 +1311,7 @@ checks:
       while the panel is open cannot be triggered by hand; it rests on the
       answer-once guard, which answers Cancel when dropped.
     covers:
-      - crates/app-core/src/school_browser/engine/**
+      - crates/app-core/src/school_browser/engine.rs
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src-tauri/src/school_webkit.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
@@ -3458,7 +3473,7 @@ checks:
       the live university postback state and authenticated content destinations.
       Headless tests exercise the parser, shared projections and UI paging only.
     covers:
-      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/sync_engine/school.rs
       - crates/adpt-isct/src/kyomu/search.rs
       - crates/adpt-isct/src/kyomu/pages.rs
       - crates/app-core/src/net/kyomu.rs
@@ -3592,8 +3607,8 @@ checks:
       - action: Open Settings > Diagnostics and clear the log, then start a full
           LMS refresh from the course list.
         reason: The old WebView relay failed on WebView2 for large results; Core
-          now reads LMS over HTTP, and only a real Windows build shows the TLS,
-          proxy and cookie handoff from WebView2 working.
+          now signs in and reads LMS over HTTP on its own session, and only a
+          real Windows build shows the TLS and proxy path working.
       - action: While the pull runs, open the LMS and 教務Web school pages and
           browse for a minute.
         reason: Reading no longer shares the WebView, so browsing must not
@@ -3606,10 +3621,10 @@ checks:
       Both pulls finish with every enrolled course listed, no timeout and no
       restart while browsing. The log shows no TLS error and no token, sesskey
       or cookie value.
-    why_manual: Needs a real school account, a Windows PC with WebView2's cookie
-      store and the Windows certificate verifier, which no headless suite has.
+    why_manual: Needs a real school account, a Windows PC with WebView2 and the
+      Windows certificate verifier, which no headless suite has.
     covers:
-      - apps/desktop/src-tauri/src/lms_downloader.rs
+      - crates/app-core/src/school_session/site.rs
       - crates/app-core/src/net/tls.rs
       - crates/app-core/src/net/moodle/mod.rs
       - crates/app-core/src/net/kyomu.rs
@@ -3617,127 +3632,51 @@ checks:
 
   - id: DESKTOP-LMS-SESSION-RECOVERY
     area: desktop
-    title: A desktop LMS read without a session signs in once and goes on
+    title: An expired LMS session is rebuilt once and the reads go on
     persona: undergraduate-senior
     preconditions: |
-      A macOS or Windows build from this source, saved Science Tokyo
-      credentials, and a course with at least one PDF material in Lecture Desk.
+      A desktop build from this source with Science Tokyo signed in, and a
+      course with at least one PDF material not yet downloaded.
     steps:
-      - action: Open Settings > Diagnostics and clear the log, then in Settings >
-          Reset clear the school caches with "Also sign out of school web pages"
-          checked.
-        reason: Leaves the school store without a MoodleSession cookie, the
-          state the removed desktop-only LMS view used to repair by polling.
-          Reads now take what the store holds and ask Core for a sign-in.
-      - action: Without opening any school page, open a PDF material of the
-          course and, at the same time, start an LMS refresh from the course
-          list.
-        reason: Two readers find the session gone at once; they must join one
-          sign-in, and the file must arrive over the cookies that sign-in left
-          in the shared store.
-      - action: Copy the diagnostics log.
-        reason: The log is where one sign-in and its service entry can be told
-          apart from one per request.
-    observe: The opened material, the refresh status, and the copied log.
+      - action: |
+          Clear the log in Settings → Diagnostics. Open the LMS in the Web page
+          and sign out there (user menu → Log out).
+        reason: |
+          Signing out on the page ends that page's session only; Core's LMS
+          session and its identity are separate copies and keep working
+          (docs/verification/school-http-sign-in.md, section 5).
+      - action: |
+          Open the PDF material, and at the same time start an LMS refresh
+          from the course list.
+        reason: |
+          Both run on Core's LMS session. If the school did end it, the first
+          call that finds it signed out rebuilds it once from the identity and
+          the other waits for that; neither signs in twice.
+      - action: |
+          Open the LMS in the Web page again, then copy the log.
+        reason: |
+          The page must come back signed in from the identity Core writes
+          before it navigates; the log tells a rebuilt session from a fresh
+          sign-in.
+    observe: |
+      The opened material, the refresh status, the LMS page, and the copied
+      log.
     expected: |
-      The PDF opens and the refresh finishes without the person signing in.
-      For that burst the log shows one `service entry profile=Science
-      result=Ok(true)`, no session timeout, and no token, sesskey or cookie
-      value.
-    why_manual: Needs the school's real sign-on and the native WebKit or WebView2
-      cookie store that the HTTP reads share; the joining itself is covered in
-      Core, but no headless suite holds a real school session cookie.
+      The PDF opens and the refresh finishes without the person signing in;
+      the LMS page opens signed in. The log has at most one `Lms session
+      expired; rebuilding it` and at most one `signing in profile=Science` for
+      the burst, and no token, sesskey or cookie value.
+    why_manual: |
+      Needs a real LMS session that the school ends, and the web view's cookie
+      store. The one-recovery rule is Core's, but no headless suite holds a
+      real school session.
     covers:
-      - apps/desktop/src-tauri/src/lms_downloader.rs
-      - crates/app-core/src/lms_session.rs
-      - crates/app-core/src/net/sign_in.rs
-      - crates/app-core/src/school_browser/engine/jobs.rs
+      - crates/app-core/src/school_session/site.rs
+      - crates/app-core/src/downloads.rs
+      - crates/app-core/src/sync_engine/school.rs
+      - apps/desktop/src-tauri/src/school_cookies.rs
     verified: null
 
-  - id: SCHOOL-CONNECT-TAKES-OVER
-    area: school
-    title: Connecting new credentials does not wait behind a running check
-    persona: careless-multidevice
-    preconditions: |
-      A macOS or Windows build from this source with Science Tokyo
-      credentials saved, the student id, password and current OTP factor at
-      hand, and a way to cut the network (Wi-Fi off).
-    steps:
-      - action: Open Settings > Diagnostics and clear the log. Quit the app,
-          turn Wi-Fi off, launch the app, wait ten seconds and turn Wi-Fi
-          back on.
-        reason: Leaves the launch session check holding the hidden school view
-          on a page that will not answer, the state in which a connect used to
-          queue behind it for the whole session timeout.
-      - action: Within the next minute, open Settings > Accounts and connect
-          the Science Tokyo account again with the same id, password and OTP
-          secret.
-        reason: The connect must take the profile over at once and sign in
-          with what was typed, not with the saved sign-in the stuck check would
-          have used.
-      - action: Copy the diagnostics log.
-        reason: The log shows whether the connect waited for the lane and
-          whether a second sign-in ran after it.
-    observe: The Accounts row's state and the copied log.
-    expected: |
-      The account shows connected within about half a minute of pressing
-      connect, not after the launch check's 90 s. The log has one `session
-      check` started at launch, no `did not confirm its stop`, and no session
-      check sign-in after the connect.
-    why_manual: Needs the school's real sign-in with a live OTP factor and a
-      network that drops mid-check; Core's takeover is covered by
-      `a_connect_takes_the_profile_over_and_answers_everyone_waiting_on_it`,
-      but no headless suite drives the real WebView through it.
-    covers:
-      - apps/desktop/src-tauri/src/school_browser_native.rs
-      - crates/app-core/src/school_browser/engine/jobs.rs
-      - crates/app-core/src/school_browser/engine/login.rs
-    verified: null
-
-  - id: SCHOOL-ABANDONED-VIEW-STOPS
-    area: school
-    title: A timed-out sign-in stops its view on every shell
-    persona: careless-multidevice
-    preconditions: |
-      Builds from this source on macOS (or Windows), an iPhone and an Android
-      phone (the Android build made on Windows), each with Science Tokyo
-      credentials saved, and a way to make the school portal stop answering
-      (Wi-Fi on with the router's uplink unplugged, or a Network Link
-      Conditioner profile with 100% loss).
-    steps:
-      - action: On each device, start from a cold launch with the uplink cut,
-          so the launch session check opens the portal and gets no answer.
-          Wait two minutes.
-        reason: Passes the job's 90 s deadline, so Core abandons the attempt
-          and sends its view a stop. Only the native view can show that the
-          stop really ended the loads and the sign-in script.
-      - action: Restore the uplink, then bring the app to the front (desktop
-          focus, iOS and Android foreground) and wait for the account state to
-          settle.
-        reason: The next check reuses the stopped view only after the shell
-          confirmed the stop. A shell that never confirms makes Core replace
-          the view after 5 s, which the log names.
-      - action: Copy the log (desktop Settings > Diagnostics; Xcode console or
-          `adb logcat` for the phones).
-        reason: Tells a confirmed stop from a replaced view, and shows whether
-          the abandoned run submitted anything after the stop.
-    observe: The account state on each device and the copied logs.
-    expected: |
-      Each device returns to signed in on the check after the network comes
-      back, without the person signing in. No log has `view did not confirm
-      its stop` or `stop not sent`, and no sign-in form submission happens
-      between the timeout and the next check.
-    why_manual: The stop runs in WKWebView, WebView2/WebKitGTK and Android
-      WebView, none of which has a headless mode here, and needs a network
-      that stops answering mid-load; Core's lease and fence are covered by
-      `an_abandoned_attempt_stops_its_view_before_the_view_is_used_again`.
-    covers:
-      - apps/desktop/src-tauri/src/school_browser_native.rs
-      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
-      - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
-      - crates/app-ffi/src/ports.rs
-      - crates/adpt-isct/assets/school-stop.js
-    verified: null
 
   - id: DESKTOP-WINDOWS-SIGNED-INSTALL
     area: desktop
@@ -3797,14 +3736,12 @@ checks:
 
   - id: SCHOOL-OTP-QR
     area: school
-    title: Visible automatic OTP enrollment and authenticator QR import
+    title: Authenticator QR import and the saved OTP shown as a QR
     persona: undergraduate-first-term
-    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display. School-side registration or rotation additionally requires a test school account whose owner explicitly authorizes the automatic credential change.
+    preconditions: A packaged desktop app, a physical camera, a disposable test TOTP QR on another display, and an authenticator export that holds the Science Tokyo account.
     steps:
-      - action: Start signed out with no OTP saved locally, keep アプリに設定してもらう (Let the app set it up) chosen and press Open the school site. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
-        reason: Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
-      - action: On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
-        reason: Only the live school and native vault can establish successful registration and cross-authenticator agreement, and only a real phone camera and authenticator show that the rendered QR is scannable and labelled. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
+      - action: With an OTP saved, press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Confirm the account card shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect.
+        reason: Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The app no longer registers OTP at the school; the setup comes from the person's authenticator, and the two paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
       - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -3812,76 +3749,234 @@ checks:
       - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
         reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
     observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
-    expected: Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators, and the QR code adds a working entry to any authenticator. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
-    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
+    expected: The QR code adds a working entry to any authenticator, and an imported school account connects. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault, and a live school account to accept the imported setup.
     covers:
       - apps/desktop/src/components/OtpSetupInput.tsx
-      - crates/app-core/src/school_auth/otp_setup.rs
-      - crates/app-core/src/school_auth/otp_enrollment.rs
-      - crates/adpt-isct/assets/*.js
-      - crates/app-core/src/school_browser/engine/*.rs
+      - crates/app-core/src/school_auth/otp_import.rs
       - apps/desktop/src-tauri/src/commands/school_auth.rs
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx
     verified: null
 
-  - id: SCHOOL-SIGNIN-TOKYO-VISIBLE
+
+  - id: SCHOOL-SIGNIN-TOKYO
     area: school
-    title: Visible 教務Web passes the Tokyo Tech Portal agreement page with saved credentials
+    title: Core signs in to the Tokyo Tech Portal with Matrix and 教務Web opens signed in
     persona: undergraduate-first-term
     preconditions: |
-      A build of the iPhone app and of the desktop app from the same commit, a
-      Tokyo Tech Portal account saved in 設定 → 学校アカウント (設定済み) with its
-      Matrix code, and no live GetAccess session in either app.
+      A desktop build and an iPhone build from the same commit, a Tokyo Tech
+      Portal account with its Matrix saved in 設定 → 学校アカウント, and no
+      GetAccess session in either app's web view (sign out on the portal, or
+      reset the school caches with web sign-out).
     steps:
       - action: |
-          On the iPhone, cold-launch the app and open ウェブ → 教務Web before
-          opening メール, TSUBAME or the 東工大ポータル tab.
+          On the desktop, press Connect on the Tokyo Tech card, then open
+          教務Web from the site list without opening the portal first.
         reason: |
-          A GetAccess session left by another Tokyo Tech site skips the
-          東京科学大学情報基盤利用承諾 page. Only a visible view that reaches
-          `portal.pl?GASF=...` first exercises the case that used to stop there.
-          If 教務Web opens with no agreement page at all, a session was still
-          alive; note that and do not count the run.
+          Core passes the agreement page, the password and Matrix over HTTP
+          and writes `AUTH_SESSION_ID` (`Domain=.titech.ac.jp`). 教務Web must
+          complete its own SSO from that cookie. The agreement page or the
+          portal's resource menu in the view means the domain cookie did not
+          reach `kyomu0`.
       - action: |
-          Watch the page without touching it until 教務Web's own menu shows.
+          Switch 教務Web to English and back.
         reason: |
-          The agreement page must advance by itself to the account/password
-          page and then Matrix. Staying on the agreement page means the saved
-          login was never armed for the visible view, which is the regression
-          this check exists for; stopping on Matrix with a code saved means the
-          Matrix step regressed instead.
+          The English site is its own session; switching must not sign the
+          Japanese one out or leave it in English.
       - action: |
-          Repeat both steps in the desktop app's Web page with 教務Web.
+          Repeat the first step on the iPhone in ウェブ → 教務Web.
         reason: |
-          Desktop and iPhone share Core's login script and arming, but each
-          shell reports page loads through its own browser port.
+          The iPhone writes the same identity through its own WKWebView
+          cookie port.
       - action: |
-          Only if the portal shows a パスワード変更 form after the password step:
-          confirm nothing is typed into it, and on desktop read the Web page's
-          status line. Otherwise write "password change not shown" in the notes.
+          Only if the portal asks for a password change: confirm the card says
+          to sign in on the school page and nothing is typed into the form.
+          Otherwise write "password change not shown" in the notes.
         reason: |
-          Choosing a new password belongs to the person. The form must be left
-          empty and Core must report that the portal wants a password change,
-          not wait silently until the sign-in times out.
+          Choosing a new password belongs to the person; Core stops and hands
+          the page over instead of guessing.
     observe: |
-      The ウェブ tab on the iPhone, and the desktop Web page with its status
-      line.
+      The Tokyo Tech card, the 教務Web page on both devices, and the desktop
+      log.
     expected: |
-      On both devices 教務Web opens signed in with no tap on the agreement
-      page, the account page or the Matrix page. A password change form, if
-      shown, stays empty and desktop names it as the reason sign-in stopped.
+      Both devices open 教務Web on 学生トップ signed in with no agreement,
+      password or Matrix page shown; English and Japanese stay apart. A
+      password change, if shown, is left to the person and named on the card.
     why_manual: |
-      Needs a real Tokyo Tech account and Matrix code against the live
-      GetAccess portal, on a physical iPhone's WKWebView and the desktop
-      webview. The agreement, password and Matrix pages cannot be replayed
-      offline with a live session cookie flow.
+      Needs a real Tokyo Tech account and Matrix against the live GetAccess
+      portal, and each platform's web cookie store. The HTTP flow runs in the
+      ignored real-account tests; only the app shows the web view landing
+      signed in.
     covers:
-      - crates/adpt-isct/assets/school-login.js
-      - crates/app-core/src/school_browser/engine/login.rs
-      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
-      - apps/ios/IsctCompanion/Features/Web/**
+      - crates/app-core/src/school_session/**
+      - crates/adpt-isct/src/login.rs
+      - apps/desktop/src-tauri/src/school_cookies.rs
+      - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
     verified: null
+
+
+  - id: SCHOOL-SESSION-RESTART
+    area: school
+    title: After a restart the saved sessions are used without a sign-in
+    persona: careless-multidevice
+    preconditions: |
+      A desktop build from this source with both school accounts signed in
+      and read at least once in this launch.
+    steps:
+      - action: |
+          Clear the log, quit the app and start it again within a few minutes.
+          Open Today and let the refresh run, then open the LMS and 教務Web in
+          the Web page.
+        reason: |
+          Core keeps the identity snapshot and the site sessions in this
+          device's vault item. A restart must read them back, not sign in
+          again: each full sign-in counts against the school's limits and
+          sends the password again.
+      - action: |
+          Copy the log.
+        reason: |
+          The log tells a restored session (`session ready` with no `signing
+          in`) from a new sign-in.
+    observe: |
+      The Today refresh status, the two school pages, and the copied log.
+    expected: |
+      Both refreshes finish and both pages open signed in. The log has no
+      `signing in profile=` line after the restart unless a site refused the
+      saved session first, in which case it has exactly one for that account.
+    why_manual: |
+      Needs the real schools to accept a session saved in the system vault
+      across a process restart; no suite holds a live school session.
+    covers:
+      - crates/app-core/src/school_session/store.rs
+      - crates/app-core/src/school_session/mod.rs
+      - crates/app-core/src/school_auth.rs
+    verified: null
+
+
+  - id: DESKTOP-SCHOOL-COOKIES-WINDOWS
+    area: desktop
+    title: Windows school views receive Core's identity cookies
+    persona: windows-snap-user
+    preconditions: |
+      A Windows build from this source with both school accounts signed in
+      from Settings, and no school page opened since launch.
+    steps:
+      - action: |
+          Open 教務Web from the site list.
+        reason: |
+          `AUTH_SESSION_ID` is a `Domain=.titech.ac.jp` cookie. WebView2's
+          `CreateCookie` takes the domain without its leading dot as
+          host-only; the writer restores the dot. The agreement page or the
+          portal's resource menu means the cookie stayed host-only.
+      - action: |
+          Open the LMS from the site list.
+        reason: |
+          The Extic identity is host-only on `isct.ex-tic.com`; the LMS must
+          finish its SAML hand-off from it without the sign-in page.
+      - action: |
+          With the LMS shown (教務Web opened before it and now hidden), click
+          into the LMS search field, type a word and press Tab.
+        reason: |
+          A hidden WebView2 must neither take keyboard focus nor swallow
+          keys; typing that lands nowhere, or focus jumping to an invisible
+          page, means the earlier view still holds focus.
+      - action: |
+          Copy the log in Settings → Diagnostics.
+        reason: |
+          A failed write is logged as `web cookies not written`; a write that
+          landed and still did not sign in points at cookie scope instead.
+    observe: |
+      The two school pages and the copied log.
+    expected: |
+      Both pages open signed in, typing reaches the LMS field, and the log has
+      no `web cookies not written` for the opened views.
+    why_manual: |
+      Needs WebView2's cookie manager on a real Windows PC and live school
+      sessions; no headless WebView2 runs here, and the macOS proof does not
+      carry over to another engine.
+    covers:
+      - apps/desktop/src-tauri/src/school_cookies.rs
+      - apps/desktop/src-tauri/src/school_windows.rs
+    verified: null
+
+
+  - id: DESKTOP-SCHOOL-COOKIES-LINUX
+    area: desktop
+    title: Linux school views receive Core's identity cookies
+    persona: undergraduate-senior
+    preconditions: |
+      A Linux build from this source (WebKitGTK 2.38 or later) with both
+      school accounts signed in from Settings, and no school page opened
+      since launch.
+    steps:
+      - action: |
+          Open 教務Web from the site list.
+        reason: |
+          The writer parses each `Set-Cookie` with libsoup and adds it to the
+          WebKitGTK cookie manager; a domain cookie that lost its scope shows
+          the agreement page or the resource menu instead of 学生トップ.
+      - action: |
+          Open the LMS from the site list.
+        reason: |
+          The host-only Extic identity must carry the LMS through its SAML
+          hand-off.
+      - action: |
+          Copy the log in Settings → Diagnostics.
+        reason: |
+          Separates a failed write (`web cookies not written`) from a write
+          with the wrong scope.
+    observe: |
+      The two school pages and the copied log.
+    expected: |
+      Both pages open signed in, and the log has no `web cookies not written`
+      for the opened views.
+    why_manual: |
+      Needs WebKitGTK's cookie manager on a real Linux desktop and live
+      school sessions; no suite runs WebKitGTK here.
+    covers:
+      - apps/desktop/src-tauri/src/school_cookies.rs
+    verified: null
+
+
+  - id: NATIVE-SCHOOL-BACKGROUND-READ
+    area: native
+    title: Phones read school data in the background without opening a school page
+    persona: careless-multidevice
+    preconditions: |
+      An iPhone build and an Android build from this source, both school
+      accounts signed in from 設定, and data at least an hour old.
+    steps:
+      - action: |
+          Put the app in the background for longer than the data's freshness
+          (or leave it overnight), then open it on Today without opening ウェブ.
+        reason: |
+          Reads no longer need the app in front or a school web view: Core
+          signs in and reads over HTTP whenever the shell gives it time. Data
+          that only refreshes once a school page is opened means a shell still
+          gates reads on the web view.
+      - action: |
+          Open ウェブ → LMS and 教務Web.
+        reason: |
+          The pages must open signed in from the identity Core seeded, not
+          ask for a sign-in the background reads already did.
+    observe: |
+      Today's sync status on each phone and the two school pages.
+    expected: |
+      Today shows fresh data with no sign-in prompt, and both pages open
+      signed in.
+    why_manual: |
+      Background scheduling and the phones' WebKit and Android WebView cookie
+      stores exist only on real devices; iOS was compiled only and Android
+      not built on this machine.
+    covers:
+      - apps/ios/IsctCompanion/Core/AppModel.swift
+      - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt
+      - crates/app-core/src/sync_engine/planner.rs
+    verified: null
+
 
   - id: IOS-CREDENTIAL-SOURCE-TILES
     area: native
@@ -4110,7 +4205,7 @@ checks:
       - crates/app-core/src/facade.rs
       - crates/app-core/src/runtime.rs
       - crates/app-core/src/notes.rs
-      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/sync_engine/school.rs
       - crates/app-core/src/workspace_changes.rs
       - apps/desktop/src/store/workspace.ts
       - apps/desktop/src/platform/view-query.ts
@@ -6806,44 +6901,44 @@ checks:
       iPhone or Android (repeat per platform).
     steps:
       - action: |
-          Sign in to 教務Web in the app, then refresh 教務Web data from
-          Settings.
+          Connect the Tokyo Tech account in Settings, then refresh 教務Web data
+          from Settings.
         reason: |
           This exercises the server's certificate chain with the platform TLS
           verifier and the real school session on each OS.
       - action: |
           Open the 教務Web page in the app's school browser afterwards.
         reason: |
-          Cookies the server set on Core's requests are written back to the
-          WebView store; a broken write-back shows up as the browser being
-          signed out or bounced to GetAccess.
+          The web view gets only the identity cookies Core writes before it
+          navigates, and 教務Web runs its own SSO from them; a write that did
+          not land shows up as the agreement page or GetAccess's menu.
       - action: |
           Leave the app idle for at least an hour (the 教務Web session expires
           while GetAccess stays signed in), then press Retry or refresh
           教務Web once.
         reason: |
-          A live GetAccess sign-in is not a 教務Web session; only the hidden
-          view opening the 教務 entry page starts a new one, which no test can
-          drive without the school's sign-on.
+          A live GetAccess identity is not a 教務Web session; Core's 教務Web
+          site rebuilds its session from the identity through the entry page
+          once, which no test can drive without the school's sign-on.
     observe: |
       The 教務Web status in Settings, the application log, and the school
       browser page.
     expected: |
       All six 教務Web pages refresh with no TLS error in the log, and the
       school browser opens 教務Web still signed in. After the idle hour the
-      log shows one `kyomu entry result=Ok(true)` per refresh and the pages
-      refresh, not a run of TokyoTech session checks ending in sign-in
-      failures.
+      log shows at most one `Kyomu session ready` per refresh and no
+      `signing in profile=TokyoTech` unless GetAccess itself expired, and the
+      pages refresh.
     why_manual: |
       Needs a real Tokyo Tech account and the real kyomu0 certificate chain on
       each OS verifier; no test can reach the school server.
     covers:
       - crates/app-core/src/net/tls.rs
       - crates/app-core/src/net/mod.rs
-      - crates/app-core/src/school_browser/engine/login.rs
-      - apps/desktop/src-tauri/src/lms_downloader.rs
-      - apps/ios/IsctCompanion/Core/WebCookieSession.swift
-      - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt
+      - crates/app-core/src/school_session/site.rs
+      - apps/desktop/src-tauri/src/school_cookies.rs
+      - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
+      - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt
     verified: null
 
   - id: SETTINGS-RESET
@@ -7416,7 +7511,7 @@ checks:
     covers:
       - crates/app-core/src/sync_engine/planner.rs
       - crates/app-core/src/sync_engine/runner.rs
-      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/sync_engine/school.rs
       - apps/desktop/src/app/sync-text.ts
     verified: null
 
@@ -7445,22 +7540,22 @@ checks:
           account page.
         reason: |
           The row shows ログインに失敗しました：<reason>, and the page shows the
-          same reason with whether automatic sign-in retries shortly or waits.
-          A bare "Sign-in failed" means the snapshot's problem never reached
-          the shell.
+          same reason and offers Retry. A bare "Sign-in failed" means the
+          snapshot's problem never reached the shell, and a row that signs in
+          again by itself means a refused code was sent twice.
       - action: |
           Paste the real OTP setup, tap 保存して接続, then open ウェブ → LMS
           without signing in by hand.
         reason: |
-          The connect must lift the pause the bad code left: before, one
-          failure blocked automatic sign-in until the app quit, and only a
-          manual sign-in on the web tab got in.
+          The connect is the person's retry: it lifts the refusal of the bad
+          code, Core signs in over HTTP, and the LMS page opens signed in from
+          the identity Core writes into the web view.
       - action: |
           Background the app until the school session expires (or sign out on
           the school page), return to it, and open LMS again.
         reason: |
-          The hidden session check must sign in again on its own with the
-          corrected credentials, which is where the old block resurfaced.
+          A site that finds its session gone signs in again on its own with the
+          corrected credentials, without any page shown for it.
     observe: |
       The Science Tokyo account page and its row in 設定, and the LMS page in
       the ウェブ tab.
@@ -7471,13 +7566,12 @@ checks:
       on a school page.
     why_manual: |
       Needs the live Extic identity provider, a real account and OTP window,
-      and the iPad's WKWebView. The retry policy and the lifting of a pause
-      are covered by Core's school_browser tests; what remains is the live
-      school's answer and the native page a person reads.
+      and the iPad's WKWebView cookie store. What remains after Core's own
+      tests is the live school's answer and the native page a person reads.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
-      - crates/adpt-isct/assets/school-login.js
+      - crates/app-core/src/school_session/identity.rs
     verified: null
 
   - id: IOS-LMS-ATTACHMENT-SESSION
@@ -7505,12 +7599,14 @@ checks:
       - action: |
           Sign out from the school page while keeping the app's saved
           credentials. Return to the native course page and open an uncached
-          material. Then reveal the resident school login page and switch
-          between school views without restarting the app.
+          material. Then open the LMS in ウェブ again and switch between school
+          views without restarting the app.
         reason: |
-          Core must renew the expired service session once before retrying the
-          material. Revealing an already loaded login page must arm saved
-          credentials, and an old view's disappearance must not hide the new one.
+          Signing out on the page ends only the page's session; Core reads the
+          material over its own LMS session, rebuilding it once if the school
+          ended it. The page must come back signed in from the identity Core
+          writes before it navigates, and an old view's disappearance must not
+          hide the new one.
     observe: |
       The in-app school page, system Quick Look preview, saved Files copy,
       native course material, and school sign-in status.
@@ -7528,6 +7624,7 @@ checks:
       - apps/ios/IsctCompanion/Core/WebRouter.swift
       - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+      - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
     verified: null
 
   - id: IOS-SCHOOL-NATIVE-CONFIRM
@@ -7816,24 +7913,26 @@ checks:
     persona: careless-multidevice
     preconditions: |
       Same pair of devices as SCHOOL-CREDENTIALS-VERIFIED-SYNC, with an OTP
-      change the account owner authorizes (re-registering App OTP at the
-      school), and the iPad app left running in the background.
+      change the account owner authorizes (re-registering App OTP on the
+      school's own page and importing it from the authenticator), and the
+      iPad app left running in the background.
     steps:
       - action: |
-          On the Mac, register a new App OTP (Settings → School accounts →
-          Science Tokyo, let the app set it up) and confirm the Mac signs in
-          with it.
+          Register a new App OTP on the school's page, then on the Mac import
+          it (Settings → School accounts → Science Tokyo → Change) and confirm
+          the Mac signs in with it.
         reason: |
           The new secret is verified on the Mac and written to the
           synchronized item; the old secret stops working at the school.
       - action: |
           Wait for iCloud Keychain, then bring the iPad app to the front
           without quitting it, and open LMS after the school session expired.
+          When the account shows the old secret refused, tap Retry.
         reason: |
-          The running iPad process must re-read the Keychain and sign in with
-          the new secret. Before, it kept the old one in memory until it was
-          killed, and saving only a password there could even write the old
-          secret back to iCloud.
+          A refused account reads the synchronized item again only on Retry,
+          a save or a credential import, never by itself
+          (approach/school-credential-change-discovery). Retry must find the
+          Mac's new secret and sign in with it without a relaunch.
       - action: |
           On the iPad, change only the password field (to the same password)
           and tap 保存して接続; then check the Mac still signs in.
@@ -7843,7 +7942,8 @@ checks:
     observe: |
       The iPad's LMS page and Science Tokyo row; the Mac's sign-in badge.
     expected: |
-      The iPad signs in with the new OTP without a relaunch, and after its own
+      The iPad signs in with the new OTP after one Retry, without a relaunch,
+      and after its own
       save the Mac still signs in with the new OTP.
     why_manual: |
       Needs the live school OTP registration and iCloud Keychain sync between
@@ -7851,8 +7951,7 @@ checks:
       school_auth tests.
     covers:
       - crates/app-core/src/school_auth.rs
-      - crates/app-core/src/school_auth/otp_enrollment.rs
-      - crates/app-core/src/school_browser/engine/login.rs
+      - crates/app-core/src/school_session/mod.rs
     verified: null
 
   - id: DESKTOP-ERROR-CODE-COPY

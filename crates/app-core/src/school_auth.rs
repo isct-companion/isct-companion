@@ -1,12 +1,9 @@
-mod otp_enrollment;
 mod otp_import;
-pub(crate) mod otp_setup;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
-pub use otp_setup::{OtpSetupError, SchoolOtpSetup};
 
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
-use crate::school_browser::SchoolSignInProblem;
+use crate::school_session::SchoolSignInProblem;
 use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -156,8 +153,6 @@ pub struct SchoolCredentialStatus {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialSummary {
-    #[serde(default)]
-    pub otp_only: bool,
     /// Authoritative vault state. `saved` is retained for older clients, but
     /// new callers must render this state instead of inferring availability.
     #[serde(default)]
@@ -224,20 +219,26 @@ fn moodle_token_account(profile: SchoolAuthProfile) -> Option<&'static str> {
         SchoolAuthProfile::TokyoTech => None,
     }
 }
+
+/// The device-only item that keeps the account's school session
+/// (`school_session::store`).
+fn session_account(profile: SchoolAuthProfile) -> &'static str {
+    match profile {
+        SchoolAuthProfile::Science => "school-session-science",
+        SchoolAuthProfile::TokyoTech => "school-session-tokyo-tech",
+    }
+}
+
 /// The synchronized item: credentials the school accepted on some device.
 #[derive(Deserialize, Serialize)]
 struct SchoolCredentialBundle {
     version: u8,
     accounts: HashMap<SchoolAuthProfile, SchoolCredentials>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    science_otp: Option<otp_enrollment::EnrollmentOtp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pending_science_otp: Option<otp_enrollment::EnrollmentOtp>,
 }
 
-/// Device-local credentials typed here that no sign-in has accepted yet.
-/// Like a pending OTP enrollment, they never sync until the school accepts
-/// them; unlike it, they live outside the synchronized item.
+/// Device-local credentials typed here that no sign-in has accepted yet,
+/// and the school's refusal of saved ones. They never sync: only what the
+/// school accepted does.
 const SCHOOL_CANDIDATE_ACCOUNT: &str = "school-candidates";
 
 #[derive(Default, Deserialize, Serialize)]
@@ -253,7 +254,8 @@ struct Candidate {
     /// verified value means another device changed them: the candidate goes.
     base: String,
     /// Why the school turned these down, kept so a relaunch does not submit
-    /// a rejected password again.
+    /// a rejected password again. A refusal of the verified credentials is a
+    /// candidate equal to them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     failure: Option<SchoolSignInProblem>,
 }
@@ -360,12 +362,9 @@ impl SchoolAuthService {
                 username: c.username.clone(),
                 has_otp: !c.otp_secret.is_empty(),
                 has_matrix: !c.matrix.is_empty(),
-                otp_only: false,
             })
             .unwrap_or_else(|| {
-                if availability == CredentialAvailability::AccessDenied
-                    || (profile == SchoolAuthProfile::Science && previous.otp_only)
-                {
+                if availability == CredentialAvailability::AccessDenied {
                     CredentialSummary {
                         availability,
                         ..previous
@@ -410,9 +409,9 @@ impl SchoolAuthService {
     }
 
     /// The next use reads the synchronized item again, where another device
-    /// can replace it. Core calls this when a session check starts, before a
-    /// connect merges blank fields and after the school turns credentials
-    /// down, not on every read.
+    /// can replace it. Core calls this only when the person retries, saves
+    /// credentials or imports a credential file: the moments a password
+    /// changed elsewhere is found (`approach/school-credential-change-discovery`).
     pub(crate) fn refresh(&self) {
         if let Ok(mut accounts) = self.accounts.lock() {
             accounts.stale = true;
@@ -522,29 +521,9 @@ impl SchoolAuthService {
         &self,
         accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
     ) -> Result<String, SchoolAuthError> {
-        let stored = self.enrollment_bundle()?;
-        self.write_credential_bundle(accounts, stored.science_otp, stored.pending_science_otp)
-    }
-
-    fn write_accounts_with_otp(
-        &self,
-        accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
-        science_otp: Option<otp_enrollment::EnrollmentOtp>,
-    ) -> Result<String, SchoolAuthError> {
-        self.write_credential_bundle(accounts, science_otp, None)
-    }
-
-    fn write_credential_bundle(
-        &self,
-        accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
-        science_otp: Option<otp_enrollment::EnrollmentOtp>,
-        pending_science_otp: Option<otp_enrollment::EnrollmentOtp>,
-    ) -> Result<String, SchoolAuthError> {
         let payload = serde_json::to_string(&SchoolCredentialBundle {
             version: 1,
             accounts: accounts.clone(),
-            science_otp,
-            pending_science_otp,
         })
         .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))?;
         self.vault.store(SCHOOL_CREDENTIAL_ACCOUNT, &payload)?;
@@ -560,8 +539,6 @@ impl SchoolAuthService {
         serde_json::to_string(&SchoolCredentialBundle {
             version: 1,
             accounts: accounts.verified.clone(),
-            science_otp: self.enrollment_otp()?.filter(|otp| otp.confirmed),
-            pending_science_otp: self.enrollment_otp()?.filter(|otp| otp.confirmed),
         })
         .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))
     }
@@ -581,19 +558,10 @@ impl SchoolAuthService {
             credentials.validate(*profile)?;
         }
         let mut accounts = self.lock()?;
-        if let Some(otp) = &bundle.science_otp {
-            if !otp.confirmed || otp.username.is_empty() || otp.username.len() > 128 {
-                return Err(SchoolAuthError::invalid(
-                    "Synced OTP enrollment is invalid.",
-                ));
-            }
-            otp_config(&otp.setup)?;
-        }
         self.unlock_accounts(&mut accounts)?;
-        let payload = self.write_accounts_with_otp(&bundle.accounts, bundle.science_otp.clone())?;
+        let payload = self.write_accounts(&bundle.accounts)?;
         // Drops the candidates the imported accounts replace.
         self.adopt(&mut accounts, Some(payload))?;
-        self.record_enrollment_summary(None);
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
             let credentials = accounts.active(profile).cloned();
             self.record_summary(
@@ -606,14 +574,7 @@ impl SchoolAuthService {
                 },
             );
         }
-        if !bundle.accounts.contains_key(&SchoolAuthProfile::Science) {
-            self.record_enrollment_summary(bundle.science_otp.as_ref());
-        }
-        Ok(bundle.accounts.len()
-            + usize::from(
-                bundle.science_otp.is_some()
-                    && !bundle.accounts.contains_key(&SchoolAuthProfile::Science),
-            ))
+        Ok(bundle.accounts.len())
     }
 
     /// Keeps `credentials` (blank fields filled as `resolve` does) as this
@@ -630,6 +591,14 @@ impl SchoolAuthService {
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
         let mut candidates = accounts.candidates().clone();
+        let same = candidates
+            .get(&profile)
+            .is_some_and(|candidate| candidate.credentials == credentials);
+        if same {
+            // The same credentials again: their version, and any refusal of
+            // them, stay. The connect that follows is the person's retry.
+            return Ok(credentials);
+        }
         if accounts.verified.get(&profile) == Some(&credentials) {
             // Connect with the verified credentials must not rewrite Keychain.
             if candidates.remove(&profile).is_none() {
@@ -641,7 +610,6 @@ impl SchoolAuthService {
                 Candidate {
                     credentials: credentials.clone(),
                     base: digest(accounts.verified.get(&profile)),
-                    // Connecting again is the person's decision to retry.
                     failure: None,
                 },
             );
@@ -672,19 +640,30 @@ impl SchoolAuthService {
         {
             return Ok(false);
         }
-        let mut verified = accounts.verified.clone();
-        verified.insert(profile, credentials.clone());
-        let payload = self.write_accounts(&verified)?;
         let mut candidates = accounts.candidates().clone();
         candidates.remove(&profile);
+        // A refusal kept for the verified credentials themselves: they stay
+        // as they are, only the refusal goes.
+        let payload = if accounts.verified.get(&profile) == Some(credentials) {
+            None
+        } else {
+            let mut verified = accounts.verified.clone();
+            verified.insert(profile, credentials.clone());
+            Some(self.write_accounts(&verified)?)
+        };
         self.write_candidates(&candidates)?;
         accounts.candidates = Some(candidates);
-        self.adopt(&mut accounts, Some(payload))?;
+        if let Some(payload) = payload {
+            self.adopt(&mut accounts, Some(payload))?;
+        }
         Ok(true)
     }
 
-    /// The school turned `credentials` down for a reason that needs the
-    /// person. A candidate keeps the reason across launches.
+    /// The school turned `credentials` down, or wants the person on its page.
+    /// The reason is kept with exactly these credentials across launches: a
+    /// candidate keeps it, and a refusal of the verified credentials becomes
+    /// a candidate equal to them, on this device only. Other credentials
+    /// (changed here, or synced from another device) lift it.
     pub(crate) fn record_failure(
         &self,
         profile: SchoolAuthProfile,
@@ -694,16 +673,26 @@ impl SchoolAuthService {
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
         let mut candidates = accounts.candidates().clone();
-        let Some(candidate) = candidates
-            .get_mut(&profile)
-            .filter(|candidate| &candidate.credentials == credentials)
-        else {
-            return Ok(());
-        };
-        if candidate.failure.as_ref() == Some(failure) {
-            return Ok(());
+        match candidates.get_mut(&profile) {
+            Some(candidate) if &candidate.credentials == credentials => {
+                if candidate.failure.as_ref() == Some(failure) {
+                    return Ok(());
+                }
+                candidate.failure = Some(failure.clone());
+            }
+            Some(_) => return Ok(()),
+            None if accounts.verified.get(&profile) == Some(credentials) => {
+                candidates.insert(
+                    profile,
+                    Candidate {
+                        credentials: credentials.clone(),
+                        base: digest(accounts.verified.get(&profile)),
+                        failure: Some(failure.clone()),
+                    },
+                );
+            }
+            None => return Ok(()),
         }
-        candidate.failure = Some(failure.clone());
         self.write_candidates(&candidates)?;
         accounts.candidates = Some(candidates);
         Ok(())
@@ -776,16 +765,6 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
-        if profile == SchoolAuthProfile::Science && credentials.otp_secret.trim().is_empty() {
-            if let Some(otp) = self.enrollment_otp()?.filter(|otp| {
-                otp.confirmed
-                    && (credentials.username.trim().is_empty()
-                        || credentials.username.trim() == otp.username)
-            }) {
-                credentials.username = otp.username;
-                credentials.otp_secret = otp.setup;
-            }
-        }
         credentials.validate(profile)?;
         Ok(credentials)
     }
@@ -827,11 +806,7 @@ impl SchoolAuthService {
         self.unlock_accounts(&mut accounts)?;
         let mut verified = accounts.verified.clone();
         verified.remove(&profile);
-        let payload = if profile == SchoolAuthProfile::Science {
-            self.write_accounts_with_otp(&verified, None)?
-        } else {
-            self.write_accounts(&verified)?
-        };
+        let payload = self.write_accounts(&verified)?;
         let mut candidates = accounts.candidates().clone();
         if candidates.remove(&profile).is_some() {
             self.write_candidates(&candidates)?;
@@ -839,9 +814,6 @@ impl SchoolAuthService {
         accounts.candidates = Some(candidates);
         self.adopt(&mut accounts, Some(payload))?;
         drop(accounts);
-        if profile == SchoolAuthProfile::Science {
-            self.record_enrollment_summary(None);
-        }
         // Signing out also forgets the LMS token; students cannot revoke it.
         let _ = self.delete_moodle_token(profile);
         self.record_summary(profile, None, CredentialAvailability::NotConfigured);
@@ -915,6 +887,26 @@ impl SchoolAuthService {
         }
     }
 
+    /// The account's saved school session, as `school_session` wrote it.
+    pub(crate) fn load_session(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<Option<String>, SchoolAuthError> {
+        Ok(self.vault.load(session_account(profile))?)
+    }
+
+    pub(crate) fn store_session(
+        &self,
+        profile: SchoolAuthProfile,
+        session: &str,
+    ) -> Result<(), SchoolAuthError> {
+        Ok(self.vault.store(session_account(profile), session)?)
+    }
+
+    pub(crate) fn delete_session(&self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
+        Ok(self.vault.delete(session_account(profile))?)
+    }
+
     pub fn status(&self) -> Result<SchoolCredentialStatus, SchoolAuthError> {
         // Metadata only: launch/session checks must not unlock Keychain merely to draw a badge.
         if let Some(mut status) = self.cached_status() {
@@ -937,7 +929,6 @@ impl SchoolAuthService {
                 username: credentials.username,
                 has_otp: !credentials.otp_secret.is_empty(),
                 has_matrix: !credentials.matrix.is_empty(),
-                otp_only: false,
             },
             None => CredentialSummary::default(),
         };
@@ -946,13 +937,6 @@ impl SchoolAuthService {
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
             ..Default::default()
         };
-        if !status.science.saved {
-            if let Some(otp) = self.enrollment_otp()?.filter(|otp| otp.confirmed) {
-                status.science.username = otp.username;
-                status.science.has_otp = true;
-                status.science.otp_only = true;
-            }
-        }
         status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
         self.write_status(&status);
         Ok(status)
@@ -966,10 +950,6 @@ impl SchoolAuthService {
         } else {
             self.load(SchoolAuthProfile::Science)?
                 .map(|credentials| credentials.otp_secret)
-                .or(self
-                    .enrollment_otp()?
-                    .filter(|otp| otp.confirmed)
-                    .map(|otp| otp.setup))
                 .unwrap_or_default()
         };
         if text.is_empty() {
@@ -989,13 +969,10 @@ impl SchoolAuthService {
     /// name as its label. Mobile shells hand it to the OS to open one.
     pub fn otp_setup_link(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
         let text = self.otp_setup_text(draft)?;
-        let account = match self.load(SchoolAuthProfile::Science)? {
-            Some(credentials) => credentials.username,
-            None => self
-                .enrollment_otp()?
-                .map(|otp| otp.username)
-                .unwrap_or_default(),
-        };
+        let account = self
+            .load(SchoolAuthProfile::Science)?
+            .map(|credentials| credentials.username)
+            .unwrap_or_default();
         Ok(otp_setup_uri(&text, &account))
     }
 

@@ -50,34 +50,28 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::SubmissionFilesChanged
         | C::SubmissionExpired
         | C::SubmissionMismatch => SdkError::Conflict { detail },
-        C::Storage
-        | C::WriteDenied
-        | C::VaultUnavailable
-        | C::OtpVault
-        | C::ResetCredentials
-        | C::ResetFiles => SdkError::Storage { detail },
+        C::Storage | C::WriteDenied | C::VaultUnavailable | C::ResetCredentials | C::ResetFiles => {
+            SdkError::Storage { detail }
+        }
         C::Compatibility | C::CloudFormat | C::CloudVersionMissing => {
             SdkError::Compatibility { detail }
         }
-        C::SignInRequired | C::OtpSignInRequired => SdkError::Authentication { detail },
+        C::SignInRequired => SdkError::Authentication { detail },
         C::SchoolMaintenance => SdkError::Maintenance { detail },
         C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
-        C::Timeout | C::OtpTimedOut | C::CloudRetrying => SdkError::Timeout { detail },
+        C::Timeout | C::CloudRetrying => SdkError::Timeout { detail },
         C::Busy | C::ResetBusy | C::SubmissionInProgress | C::SubmissionOutcomeUnknown => {
             SdkError::Busy { detail }
         }
-        C::Cancelled | C::SchoolPaused | C::ResetStopped => SdkError::Cancelled,
+        C::Cancelled | C::ResetStopped => SdkError::Cancelled,
         C::Stopped => SdkError::Closed,
-        C::Callback | C::ResetSignOut => SdkError::Callback { detail },
+        C::Callback => SdkError::Callback { detail },
         C::Internal => SdkError::Internal { detail },
         C::Unavailable
         | C::Platform
-        | C::DesktopOnly
         | C::LogsUnavailable
         | C::CloudNotAttached
         | C::SchoolSiteChanged
-        | C::OtpUnavailable
-        | C::OtpUnexpectedPage
         | C::ResetUnsupported
         | C::MatrixScanEnded
         | C::AgentDisabled
@@ -94,8 +88,6 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::CloudPasswordWrong
         | C::CloudCredentialFile
         | C::CloudTooLarge
-        | C::OtpRejected
-        | C::OtpAlreadyRegistered
         | C::OtpImportInvalid
         | C::OtpImportMultiple
         | C::OtpImportUnsupported

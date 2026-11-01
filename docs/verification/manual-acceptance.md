@@ -17,9 +17,8 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 160 checks must be re-run before the next release.**
+**8 of 162 checks must be re-run before the next release.**
 
-- `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-YEAR-ROLLOVER` — covered paths changed after b598ae6
@@ -29,8 +28,9 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**151 checks have never been run or could not be run:**
+**154 checks have never been run or could not be run:**
 
+- `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -89,12 +89,14 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-DEV-BUILD-UPDATES` — never verified
 - `DESKTOP-WINDOWS-SCHOOL-PULL` — never verified
 - `DESKTOP-LMS-SESSION-RECOVERY` — never verified
-- `SCHOOL-CONNECT-TAKES-OVER` — never verified
-- `SCHOOL-ABANDONED-VIEW-STOPS` — never verified
 - `DESKTOP-WINDOWS-SIGNED-INSTALL` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
-- `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
+- `SCHOOL-SIGNIN-TOKYO` — never verified
+- `SCHOOL-SESSION-RESTART` — never verified
+- `DESKTOP-SCHOOL-COOKIES-WINDOWS` — never verified
+- `DESKTOP-SCHOOL-COOKIES-LINUX` — never verified
+- `NATIVE-SCHOOL-BACKGROUND-READ` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `MOBILE-OTP-AUTHENTICATOR-EXPORT` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
@@ -187,10 +189,10 @@ an unverified area becomes an assumed-good one.
 
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
-| `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_browser/engine/**<br>crates/app-core/src/school_service.rs |
+| `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx |
 | `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | crates/app-core/src/downloads.rs |
-| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/lms_ingest.rs<br>crates/app-core/src/lms_session.rs<br>crates/adpt-isct/src/lms.rs<br>crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>crates/app-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
-| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_browser/engine/pull.rs<br>crates/app-core/src/sync_engine/planner.rs<br>docs/lms-api/README.md |
+| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/lms_ingest.rs<br>crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs<br>crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>crates/app-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
+| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/sync_engine/planner.rs<br>docs/lms-api/README.md |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
@@ -198,13 +200,13 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/app-core/src/kyomu_ingest.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/study_profile.rs |
 | `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/kyomu_ingest.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/app-core/src/lms_session.rs<br>crates/adpt-isct/src/lms.rs |
+| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
-| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
 | `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
@@ -248,22 +250,24 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/app-core/src/schedule/alternation.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/pull.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/school.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/app-core/src/app_updates.rs |
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
-| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
-| `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/app-core/src/lms_session.rs<br>crates/app-core/src/net/sign_in.rs<br>crates/app-core/src/school_browser/engine/jobs.rs |
-| `SCHOOL-CONNECT-TAKES-OVER` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-core/src/school_browser/engine/jobs.rs<br>crates/app-core/src/school_browser/engine/login.rs |
-| `SCHOOL-ABANDONED-VIEW-STOPS` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>crates/app-ffi/src/ports.rs<br>crates/adpt-isct/assets/school-stop.js |
+| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
+| `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/downloads.rs<br>crates/app-core/src/sync_engine/school.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
-| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>crates/adpt-isct/assets/*.js<br>crates/app-core/src/school_browser/engine/*.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
-| `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/school-login.js<br>crates/app-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
+| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_import.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
+| `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
+| `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
+| `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
+| `DESKTOP-SCHOOL-COOKIES-LINUX` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs |
+| `NATIVE-SCHOOL-BACKGROUND-READ` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>crates/app-core/src/sync_engine/planner.rs |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift |
 | `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/school_browser/engine/pull.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
@@ -316,7 +320,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-LOG-ROW-TAP` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
-| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/mod.rs<br>crates/app-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
+| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/mod.rs<br>crates/app-core/src/school_session/site.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
 | `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt |
@@ -328,9 +332,9 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
-| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/planner.rs<br>crates/app-core/src/sync_engine/runner.rs<br>crates/app-core/src/school_browser/engine/pull.rs<br>apps/desktop/src/app/sync-text.ts |
-| `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/adpt-isct/assets/school-login.js |
-| `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/planner.rs<br>crates/app-core/src/sync_engine/runner.rs<br>crates/app-core/src/sync_engine/school.rs<br>apps/desktop/src/app/sync-text.ts |
+| `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/app-core/src/school_session/identity.rs |
+| `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `IOS-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `IOS-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
 | `IOS-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
@@ -338,7 +342,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
-| `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>crates/app-core/src/school_browser/engine/login.rs |
+| `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/mod.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
@@ -454,62 +458,68 @@ as the app moves between full-size, half-screen and quarter-screen sizes.
 
 ## Checks
 
-### Real sign-in to the Science Tokyo portal and LMS (`SCHOOL-SIGNIN-SCIENCE`)
+### Core signs in to Science Tokyo over HTTP and the LMS page opens signed in (`SCHOOL-SIGNIN-SCIENCE`)
 
-**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** pass ⚠
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
-> Needs re-running: covered paths changed after 7fdf1b6
+> Not verified: never verified
 
 **Preconditions**
 
-Signed desktop bundle, campus network or VPN, a live student id and the
-current OTP factor.
+A desktop build from this source, a live Science Tokyo student id,
+password and App OTP setup, and no saved Science Tokyo account (Forget
+it first if one is saved).
 
 **Steps**
 
-1. Cold-launch the bundle and wait for the first screen.
-   - *Why:* Cold launch is where a stale keychain entry or a launch-order bug
-     shows up; a warm relaunch hides both.
-2. Open Settings → Accounts and connect the Science Tokyo account.
-   Enter the student id, then the OTP when asked.
-   - *Why:* The identity provider is tried first by design. Asking for a
-     password before the id would mean the identity-first order regressed.
-3. Wait for the badge, then open the LMS from the site list.
-   - *Why:* Distinguishes "signed in" from "the session reaches the LMS". A badge
-     that settles while the LMS still shows a login form is the failure
-     this step exists to catch.
-4. Look over the whole screen and the logs for the student id, the
-   password or any OTP value.
-   - *Why:* Credential material must never be rendered. A run that passes while
-     leaking a value into the UI or a log is a failure.
+1. Open Settings → School accounts → Science Tokyo, enter the student
+   id, password and OTP setup, and press Connect.
+   - *Why:* Connect is one sign-in by Core over HTTP (Extic ID and password,
+     TOTP, SAML to the LMS). The card must end on Signed in from that
+     answer alone; a card that waits for a school page, or opens one,
+     means a shell is still driving the sign-in.
+2. Without touching anything else, open the LMS from the site list.
+   - *Why:* The page must open signed in from the identity Core wrote into the
+     web store before the view navigated. Landing on Extic's sign-in page
+     means the cookies were not written, or were written host-only.
+3. Forget the account, connect again with one wrong character in the
+   password, then read the card. Press Retry once.
+   - *Why:* A refused password is sent once and kept refused: the card says the
+     school did not accept it and offers Retry, and nothing signs in
+     again by itself. Retry is one more attempt with what is saved; a
+     second refusal must not loop.
+4. Connect with the right password. Look over the window and the log
+   for the student id, the password or any code.
+   - *Why:* Credential material must never be rendered or logged; the log names
+     hosts and paths only.
 
 **Where to look**
 
-Settings → Accounts badge; the LMS page body; the app window and any
-console output.
+The Science Tokyo card in Settings, the LMS page in the Web page, and the
+log in Settings → Diagnostics.
 
 **Expected**
 
-The account reaches Signed in without a second prompt, the LMS page
-loads authenticated, and no credential material appears anywhere.
+Connect ends on Signed in without any school page shown, and the LMS
+opens on the dashboard. The wrong password is refused once, the card
+names it with Retry, and Retry tries exactly once. No credential value
+appears anywhere.
 
 **Why this is manual**
 
-Needs a real student id, a live OTP factor and the campus network. The
-identity provider cannot be replayed offline and the OTP window makes a
-recorded flow expire immediately.
+Needs a real account, a live TOTP window and the platform web view's
+cookie store. The sign-in flow itself runs in the ignored real-account
+tests (`school_session::login`); only the app shows the card and the
+web view landing signed in.
 
 **Covers**
 
-- `crates/app-core/src/school_auth.rs`
-- `crates/app-core/src/school_browser/engine/**`
-- `crates/app-core/src/school_service.rs`
+- `crates/app-core/src/school_session/**`
+- `crates/adpt-isct/src/login.rs`
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
 
-**Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
-
-Recorded in docs/verification/core-consolidation.md.
-
-Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
+**Last recorded** never run
 
 ### Token-backed native reads and resource bytes (`SCHOOL-LMS-TOKEN-HTTP`)
 
@@ -643,7 +653,7 @@ enrolment.
 **Covers**
 
 - `crates/app-core/src/lms_ingest.rs`
-- `crates/app-core/src/lms_session.rs`
+- `crates/app-core/src/school_session/site.rs`
 - `crates/adpt-isct/src/lms.rs`
 - `crates/adpt-isct/src/lms/pages.rs`
 - `crates/app-core/src/net/moodle/reader.rs`
@@ -749,7 +759,7 @@ parsing and mapping are covered by the net::moodle unit tests.
 - `crates/app-core/src/net/moodle/rest.rs`
 - `crates/app-core/src/net/moodle/ajax.rs`
 - `crates/app-core/src/school_auth.rs`
-- `crates/app-core/src/school_browser/engine/pull.rs`
+- `crates/app-core/src/sync_engine/school.rs`
 - `crates/app-core/src/sync_engine/planner.rs`
 - `docs/lms-api/README.md`
 
@@ -1152,7 +1162,7 @@ suite fails but only a real account can confirm the new path works.
 
 **Covers**
 
-- `crates/app-core/src/lms_session.rs`
+- `crates/app-core/src/school_session/site.rs`
 - `crates/adpt-isct/src/lms.rs`
 
 **Last recorded** pass · 2026-10-16 · agent · `b598ae6` · `1.0.0-rc.3`
@@ -1595,7 +1605,16 @@ A Signed in account; at least one course with downloadable material.
      shows "drag entered site=ScienceLms popup" when the popup gets the
      drag. Repeating after view changes also exercises the intermittent
      loss of drag delivery reported on macOS.
-6. On macOS, in the same draft area, press the file picker's upload
+6. On macOS, quit and start the app, open 教務Web first, then the LMS,
+   and drag a small file into the assignment's draft area. Remove the
+   draft file afterwards.
+   - *Why:* School views are created when first opened, so one opened later
+     sits above the earlier ones. A hidden WKWebView still answers the
+     drag hit test with itself; the hidden 教務Web view used to take the
+     file and the log showed `denied site=Kyomu reason=Scheme
+     url=file://`. Hidden views and popups now answer that they are not
+     the target.
+7. On macOS, in the same draft area, press the file picker's upload
    button (Moodle: Add → Upload a file → Choose File) and choose one
    small file; open it again and press Cancel. If a page's file input
    takes several files, select two there.
@@ -1603,14 +1622,14 @@ A Signed in account; at least one course with downloadable material.
      is no longer reached. One file, several, and Cancel are the three
      answers WebKit can get, and each must reach the page exactly once:
      a lost answer leaves the input dead until the page reloads.
-7. Open the assignment's edit page in a popup (⌘-click its Add
+8. Open the assignment's edit page in a popup (⌘-click its Add
    submission or Edit submission button; or open a page with a file
    input from a link that opens a new window) and Choose File there.
    - *Why:* A popup is a WKWebView of the app's own with no wry delegate under
      it, so before this change macOS WebKit treated its file input as
      Cancel and nothing happened. The popup must open the same panel as
      the main view.
-8. Open the file panel again and, with it open, quit the app with ⌘Q.
+9. Open the file panel again and, with it open, quit the app with ⌘Q.
    Start the app again and open the same page.
    - *Why:* When the view goes away the host must end the panel and answer
      Cancel itself; WebKit requires the answer, and a panel left
@@ -1648,7 +1667,7 @@ answer-once guard, which answers Cancel when dropped.
 
 **Covers**
 
-- `crates/app-core/src/school_browser/engine/**`
+- `crates/app-core/src/school_browser/engine.rs`
 - `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src-tauri/src/school_webkit.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
@@ -4118,7 +4137,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 **Covers**
 
-- `crates/app-core/src/school_browser/engine/pull.rs`
+- `crates/app-core/src/sync_engine/school.rs`
 - `crates/adpt-isct/src/kyomu/search.rs`
 - `crates/adpt-isct/src/kyomu/pages.rs`
 - `crates/app-core/src/net/kyomu.rs`
@@ -4277,7 +4296,7 @@ many LMS courses, and saved school credentials.
 **Steps**
 
 1. Open Settings > Diagnostics and clear the log, then start a full LMS refresh from the course list.
-   - *Why:* The old WebView relay failed on WebView2 for large results; Core now reads LMS over HTTP, and only a real Windows build shows the TLS, proxy and cookie handoff from WebView2 working.
+   - *Why:* The old WebView relay failed on WebView2 for large results; Core now signs in and reads LMS over HTTP on its own session, and only a real Windows build shows the TLS and proxy path working.
 2. While the pull runs, open the LMS and 教務Web school pages and browse for a minute.
    - *Why:* Reading no longer shares the WebView, so browsing must not pause or restart the pull.
 3. Start a 教務Web refresh, then copy the diagnostics log.
@@ -4295,18 +4314,18 @@ or cookie value.
 
 **Why this is manual**
 
-Needs a real school account, a Windows PC with WebView2's cookie store and the Windows certificate verifier, which no headless suite has.
+Needs a real school account, a Windows PC with WebView2 and the Windows certificate verifier, which no headless suite has.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/lms_downloader.rs`
+- `crates/app-core/src/school_session/site.rs`
 - `crates/app-core/src/net/tls.rs`
 - `crates/app-core/src/net/moodle/mod.rs`
 - `crates/app-core/src/net/kyomu.rs`
 
 **Last recorded** never run
 
-### A desktop LMS read without a session signs in once and goes on (`DESKTOP-LMS-SESSION-RECOVERY`)
+### An expired LMS session is rebuilt once and the reads go on (`DESKTOP-LMS-SESSION-RECOVERY`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -4314,131 +4333,50 @@ Needs a real school account, a Windows PC with WebView2's cookie store and the W
 
 **Preconditions**
 
-A macOS or Windows build from this source, saved Science Tokyo
-credentials, and a course with at least one PDF material in Lecture Desk.
+A desktop build from this source with Science Tokyo signed in, and a
+course with at least one PDF material not yet downloaded.
 
 **Steps**
 
-1. Open Settings > Diagnostics and clear the log, then in Settings > Reset clear the school caches with "Also sign out of school web pages" checked.
-   - *Why:* Leaves the school store without a MoodleSession cookie, the state the removed desktop-only LMS view used to repair by polling. Reads now take what the store holds and ask Core for a sign-in.
-2. Without opening any school page, open a PDF material of the course and, at the same time, start an LMS refresh from the course list.
-   - *Why:* Two readers find the session gone at once; they must join one sign-in, and the file must arrive over the cookies that sign-in left in the shared store.
-3. Copy the diagnostics log.
-   - *Why:* The log is where one sign-in and its service entry can be told apart from one per request.
+1. Clear the log in Settings → Diagnostics. Open the LMS in the Web page
+   and sign out there (user menu → Log out).
+   - *Why:* Signing out on the page ends that page's session only; Core's LMS
+     session and its identity are separate copies and keep working
+     (docs/verification/school-http-sign-in.md, section 5).
+2. Open the PDF material, and at the same time start an LMS refresh
+   from the course list.
+   - *Why:* Both run on Core's LMS session. If the school did end it, the first
+     call that finds it signed out rebuilds it once from the identity and
+     the other waits for that; neither signs in twice.
+3. Open the LMS in the Web page again, then copy the log.
+   - *Why:* The page must come back signed in from the identity Core writes
+     before it navigates; the log tells a rebuilt session from a fresh
+     sign-in.
 
 **Where to look**
 
-The opened material, the refresh status, and the copied log.
+The opened material, the refresh status, the LMS page, and the copied
+log.
 
 **Expected**
 
-The PDF opens and the refresh finishes without the person signing in.
-For that burst the log shows one `service entry profile=Science
-result=Ok(true)`, no session timeout, and no token, sesskey or cookie
-value.
+The PDF opens and the refresh finishes without the person signing in;
+the LMS page opens signed in. The log has at most one `Lms session
+expired; rebuilding it` and at most one `signing in profile=Science` for
+the burst, and no token, sesskey or cookie value.
 
 **Why this is manual**
 
-Needs the school's real sign-on and the native WebKit or WebView2 cookie store that the HTTP reads share; the joining itself is covered in Core, but no headless suite holds a real school session cookie.
+Needs a real LMS session that the school ends, and the web view's cookie
+store. The one-recovery rule is Core's, but no headless suite holds a
+real school session.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/lms_downloader.rs`
-- `crates/app-core/src/lms_session.rs`
-- `crates/app-core/src/net/sign_in.rs`
-- `crates/app-core/src/school_browser/engine/jobs.rs`
-
-**Last recorded** never run
-
-### Connecting new credentials does not wait behind a running check (`SCHOOL-CONNECT-TAKES-OVER`)
-
-**Area** school · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A macOS or Windows build from this source with Science Tokyo
-credentials saved, the student id, password and current OTP factor at
-hand, and a way to cut the network (Wi-Fi off).
-
-**Steps**
-
-1. Open Settings > Diagnostics and clear the log. Quit the app, turn Wi-Fi off, launch the app, wait ten seconds and turn Wi-Fi back on.
-   - *Why:* Leaves the launch session check holding the hidden school view on a page that will not answer, the state in which a connect used to queue behind it for the whole session timeout.
-2. Within the next minute, open Settings > Accounts and connect the Science Tokyo account again with the same id, password and OTP secret.
-   - *Why:* The connect must take the profile over at once and sign in with what was typed, not with the saved sign-in the stuck check would have used.
-3. Copy the diagnostics log.
-   - *Why:* The log shows whether the connect waited for the lane and whether a second sign-in ran after it.
-
-**Where to look**
-
-The Accounts row's state and the copied log.
-
-**Expected**
-
-The account shows connected within about half a minute of pressing
-connect, not after the launch check's 90 s. The log has one `session
-check` started at launch, no `did not confirm its stop`, and no session
-check sign-in after the connect.
-
-**Why this is manual**
-
-Needs the school's real sign-in with a live OTP factor and a network that drops mid-check; Core's takeover is covered by `a_connect_takes_the_profile_over_and_answers_everyone_waiting_on_it`, but no headless suite drives the real WebView through it.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/school_browser_native.rs`
-- `crates/app-core/src/school_browser/engine/jobs.rs`
-- `crates/app-core/src/school_browser/engine/login.rs`
-
-**Last recorded** never run
-
-### A timed-out sign-in stops its view on every shell (`SCHOOL-ABANDONED-VIEW-STOPS`)
-
-**Area** school · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-Builds from this source on macOS (or Windows), an iPhone and an Android
-phone (the Android build made on Windows), each with Science Tokyo
-credentials saved, and a way to make the school portal stop answering
-(Wi-Fi on with the router's uplink unplugged, or a Network Link
-Conditioner profile with 100% loss).
-
-**Steps**
-
-1. On each device, start from a cold launch with the uplink cut, so the launch session check opens the portal and gets no answer. Wait two minutes.
-   - *Why:* Passes the job's 90 s deadline, so Core abandons the attempt and sends its view a stop. Only the native view can show that the stop really ended the loads and the sign-in script.
-2. Restore the uplink, then bring the app to the front (desktop focus, iOS and Android foreground) and wait for the account state to settle.
-   - *Why:* The next check reuses the stopped view only after the shell confirmed the stop. A shell that never confirms makes Core replace the view after 5 s, which the log names.
-3. Copy the log (desktop Settings > Diagnostics; Xcode console or `adb logcat` for the phones).
-   - *Why:* Tells a confirmed stop from a replaced view, and shows whether the abandoned run submitted anything after the stop.
-
-**Where to look**
-
-The account state on each device and the copied logs.
-
-**Expected**
-
-Each device returns to signed in on the check after the network comes
-back, without the person signing in. No log has `view did not confirm
-its stop` or `stop not sent`, and no sign-in form submission happens
-between the timeout and the next check.
-
-**Why this is manual**
-
-The stop runs in WKWebView, WebView2/WebKitGTK and Android WebView, none of which has a headless mode here, and needs a network that stops answering mid-load; Core's lease and fence are covered by `an_abandoned_attempt_stops_its_view_before_the_view_is_used_again`.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/school_browser_native.rs`
-- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
-- `crates/app-ffi/src/ports.rs`
-- `crates/adpt-isct/assets/school-stop.js`
+- `crates/app-core/src/school_session/site.rs`
+- `crates/app-core/src/downloads.rs`
+- `crates/app-core/src/sync_engine/school.rs`
+- `apps/desktop/src-tauri/src/school_cookies.rs`
 
 **Last recorded** never run
 
@@ -4521,7 +4459,7 @@ Requires a native Windows release executable, Explorer and the real desktop shel
 
 **Last recorded** never run
 
-### Visible automatic OTP enrollment and authenticator QR import (`SCHOOL-OTP-QR`)
+### Authenticator QR import and the saved OTP shown as a QR (`SCHOOL-OTP-QR`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -4529,19 +4467,17 @@ Requires a native Windows release executable, Explorer and the real desktop shel
 
 **Preconditions**
 
-A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display. School-side registration or rotation additionally requires a test school account whose owner explicitly authorizes the automatic credential change.
+A packaged desktop app, a physical camera, a disposable test TOTP QR on another display, and an authenticator export that holds the Science Tokyo account.
 
 **Steps**
 
-1. Start signed out with no OTP saved locally, keep アプリに設定してもらう (Let the app set it up) chosen and press Open the school site. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
-   - *Why:* Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
-2. On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
-   - *Why:* Only the live school and native vault can establish successful registration and cross-authenticator agreement, and only a real phone camera and authenticator show that the rendered QR is scannable and labelled. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
-3. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+1. With an OTP saved, press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Confirm the account card shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect.
+   - *Why:* Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The app no longer registers OTP at the school; the setup comes from the person's authenticator, and the two paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
+2. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
-4. Move the QR into and out of view, then close the dialog and background the app during a second scan.
+3. Move the QR into and out of view, then close the dialog and background the app during a second scan.
    - *Why:* Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
-5. Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+4. Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
    - *Why:* Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
 
 **Where to look**
@@ -4550,26 +4486,23 @@ Settings > School accounts, the camera preview, the input draft, and the OS came
 
 **Expected**
 
-Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators, and the QR code adds a working entry to any authenticator. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+The QR code adds a working entry to any authenticator, and an imported school account connects. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
 
 **Why this is manual**
 
-Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
+Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault, and a live school account to accept the imported setup.
 
 **Covers**
 
 - `apps/desktop/src/components/OtpSetupInput.tsx`
-- `crates/app-core/src/school_auth/otp_setup.rs`
-- `crates/app-core/src/school_auth/otp_enrollment.rs`
-- `crates/adpt-isct/assets/*.js`
-- `crates/app-core/src/school_browser/engine/*.rs`
+- `crates/app-core/src/school_auth/otp_import.rs`
 - `apps/desktop/src-tauri/src/commands/school_auth.rs`
 - `apps/desktop/src/components/QrCamera.tsx`
 - `apps/desktop/src/components/CameraPreview.tsx`
 
 **Last recorded** never run
 
-### Visible 教務Web passes the Tokyo Tech Portal agreement page with saved credentials (`SCHOOL-SIGNIN-TOKYO-VISIBLE`)
+### Core signs in to the Tokyo Tech Portal with Matrix and 教務Web opens signed in (`SCHOOL-SIGNIN-TOKYO`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -4577,59 +4510,248 @@ Requires native camera permissions, optical input and an OS camera indicator in 
 
 **Preconditions**
 
-A build of the iPhone app and of the desktop app from the same commit, a
-Tokyo Tech Portal account saved in 設定 → 学校アカウント (設定済み) with its
-Matrix code, and no live GetAccess session in either app.
+A desktop build and an iPhone build from the same commit, a Tokyo Tech
+Portal account with its Matrix saved in 設定 → 学校アカウント, and no
+GetAccess session in either app's web view (sign out on the portal, or
+reset the school caches with web sign-out).
 
 **Steps**
 
-1. On the iPhone, cold-launch the app and open ウェブ → 教務Web before
-   opening メール, TSUBAME or the 東工大ポータル tab.
-   - *Why:* A GetAccess session left by another Tokyo Tech site skips the
-     東京科学大学情報基盤利用承諾 page. Only a visible view that reaches
-     `portal.pl?GASF=...` first exercises the case that used to stop there.
-     If 教務Web opens with no agreement page at all, a session was still
-     alive; note that and do not count the run.
-2. Watch the page without touching it until 教務Web's own menu shows.
-   - *Why:* The agreement page must advance by itself to the account/password
-     page and then Matrix. Staying on the agreement page means the saved
-     login was never armed for the visible view, which is the regression
-     this check exists for; stopping on Matrix with a code saved means the
-     Matrix step regressed instead.
-3. Repeat both steps in the desktop app's Web page with 教務Web.
-   - *Why:* Desktop and iPhone share Core's login script and arming, but each
-     shell reports page loads through its own browser port.
-4. Only if the portal shows a パスワード変更 form after the password step:
-   confirm nothing is typed into it, and on desktop read the Web page's
-   status line. Otherwise write "password change not shown" in the notes.
-   - *Why:* Choosing a new password belongs to the person. The form must be left
-     empty and Core must report that the portal wants a password change,
-     not wait silently until the sign-in times out.
+1. On the desktop, press Connect on the Tokyo Tech card, then open
+   教務Web from the site list without opening the portal first.
+   - *Why:* Core passes the agreement page, the password and Matrix over HTTP
+     and writes `AUTH_SESSION_ID` (`Domain=.titech.ac.jp`). 教務Web must
+     complete its own SSO from that cookie. The agreement page or the
+     portal's resource menu in the view means the domain cookie did not
+     reach `kyomu0`.
+2. Switch 教務Web to English and back.
+   - *Why:* The English site is its own session; switching must not sign the
+     Japanese one out or leave it in English.
+3. Repeat the first step on the iPhone in ウェブ → 教務Web.
+   - *Why:* The iPhone writes the same identity through its own WKWebView
+     cookie port.
+4. Only if the portal asks for a password change: confirm the card says
+   to sign in on the school page and nothing is typed into the form.
+   Otherwise write "password change not shown" in the notes.
+   - *Why:* Choosing a new password belongs to the person; Core stops and hands
+     the page over instead of guessing.
 
 **Where to look**
 
-The ウェブ tab on the iPhone, and the desktop Web page with its status
-line.
+The Tokyo Tech card, the 教務Web page on both devices, and the desktop
+log.
 
 **Expected**
 
-On both devices 教務Web opens signed in with no tap on the agreement
-page, the account page or the Matrix page. A password change form, if
-shown, stays empty and desktop names it as the reason sign-in stopped.
+Both devices open 教務Web on 学生トップ signed in with no agreement,
+password or Matrix page shown; English and Japanese stay apart. A
+password change, if shown, is left to the person and named on the card.
 
 **Why this is manual**
 
-Needs a real Tokyo Tech account and Matrix code against the live
-GetAccess portal, on a physical iPhone's WKWebView and the desktop
-webview. The agreement, password and Matrix pages cannot be replayed
-offline with a live session cookie flow.
+Needs a real Tokyo Tech account and Matrix against the live GetAccess
+portal, and each platform's web cookie store. The HTTP flow runs in the
+ignored real-account tests; only the app shows the web view landing
+signed in.
 
 **Covers**
 
-- `crates/adpt-isct/assets/school-login.js`
-- `crates/app-core/src/school_browser/engine/login.rs`
-- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
-- `apps/ios/IsctCompanion/Features/Web/**`
+- `crates/app-core/src/school_session/**`
+- `crates/adpt-isct/src/login.rs`
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
+
+**Last recorded** never run
+
+### After a restart the saved sessions are used without a sign-in (`SCHOOL-SESSION-RESTART`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build from this source with both school accounts signed in
+and read at least once in this launch.
+
+**Steps**
+
+1. Clear the log, quit the app and start it again within a few minutes.
+   Open Today and let the refresh run, then open the LMS and 教務Web in
+   the Web page.
+   - *Why:* Core keeps the identity snapshot and the site sessions in this
+     device's vault item. A restart must read them back, not sign in
+     again: each full sign-in counts against the school's limits and
+     sends the password again.
+2. Copy the log.
+   - *Why:* The log tells a restored session (`session ready` with no `signing
+     in`) from a new sign-in.
+
+**Where to look**
+
+The Today refresh status, the two school pages, and the copied log.
+
+**Expected**
+
+Both refreshes finish and both pages open signed in. The log has no
+`signing in profile=` line after the restart unless a site refused the
+saved session first, in which case it has exactly one for that account.
+
+**Why this is manual**
+
+Needs the real schools to accept a session saved in the system vault
+across a process restart; no suite holds a live school session.
+
+**Covers**
+
+- `crates/app-core/src/school_session/store.rs`
+- `crates/app-core/src/school_session/mod.rs`
+- `crates/app-core/src/school_auth.rs`
+
+**Last recorded** never run
+
+### Windows school views receive Core's identity cookies (`DESKTOP-SCHOOL-COOKIES-WINDOWS`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows build from this source with both school accounts signed in
+from Settings, and no school page opened since launch.
+
+**Steps**
+
+1. Open 教務Web from the site list.
+   - *Why:* `AUTH_SESSION_ID` is a `Domain=.titech.ac.jp` cookie. WebView2's
+     `CreateCookie` takes the domain without its leading dot as
+     host-only; the writer restores the dot. The agreement page or the
+     portal's resource menu means the cookie stayed host-only.
+2. Open the LMS from the site list.
+   - *Why:* The Extic identity is host-only on `isct.ex-tic.com`; the LMS must
+     finish its SAML hand-off from it without the sign-in page.
+3. With the LMS shown (教務Web opened before it and now hidden), click
+   into the LMS search field, type a word and press Tab.
+   - *Why:* A hidden WebView2 must neither take keyboard focus nor swallow
+     keys; typing that lands nowhere, or focus jumping to an invisible
+     page, means the earlier view still holds focus.
+4. Copy the log in Settings → Diagnostics.
+   - *Why:* A failed write is logged as `web cookies not written`; a write that
+     landed and still did not sign in points at cookie scope instead.
+
+**Where to look**
+
+The two school pages and the copied log.
+
+**Expected**
+
+Both pages open signed in, typing reaches the LMS field, and the log has
+no `web cookies not written` for the opened views.
+
+**Why this is manual**
+
+Needs WebView2's cookie manager on a real Windows PC and live school
+sessions; no headless WebView2 runs here, and the macOS proof does not
+carry over to another engine.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+- `apps/desktop/src-tauri/src/school_windows.rs`
+
+**Last recorded** never run
+
+### Linux school views receive Core's identity cookies (`DESKTOP-SCHOOL-COOKIES-LINUX`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Linux build from this source (WebKitGTK 2.38 or later) with both
+school accounts signed in from Settings, and no school page opened
+since launch.
+
+**Steps**
+
+1. Open 教務Web from the site list.
+   - *Why:* The writer parses each `Set-Cookie` with libsoup and adds it to the
+     WebKitGTK cookie manager; a domain cookie that lost its scope shows
+     the agreement page or the resource menu instead of 学生トップ.
+2. Open the LMS from the site list.
+   - *Why:* The host-only Extic identity must carry the LMS through its SAML
+     hand-off.
+3. Copy the log in Settings → Diagnostics.
+   - *Why:* Separates a failed write (`web cookies not written`) from a write
+     with the wrong scope.
+
+**Where to look**
+
+The two school pages and the copied log.
+
+**Expected**
+
+Both pages open signed in, and the log has no `web cookies not written`
+for the opened views.
+
+**Why this is manual**
+
+Needs WebKitGTK's cookie manager on a real Linux desktop and live
+school sessions; no suite runs WebKitGTK here.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+
+**Last recorded** never run
+
+### Phones read school data in the background without opening a school page (`NATIVE-SCHOOL-BACKGROUND-READ`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone build and an Android build from this source, both school
+accounts signed in from 設定, and data at least an hour old.
+
+**Steps**
+
+1. Put the app in the background for longer than the data's freshness
+   (or leave it overnight), then open it on Today without opening ウェブ.
+   - *Why:* Reads no longer need the app in front or a school web view: Core
+     signs in and reads over HTTP whenever the shell gives it time. Data
+     that only refreshes once a school page is opened means a shell still
+     gates reads on the web view.
+2. Open ウェブ → LMS and 教務Web.
+   - *Why:* The pages must open signed in from the identity Core seeded, not
+     ask for a sign-in the background reads already did.
+
+**Where to look**
+
+Today's sync status on each phone and the two school pages.
+
+**Expected**
+
+Today shows fresh data with no sign-in prompt, and both pages open
+signed in.
+
+**Why this is manual**
+
+Background scheduling and the phones' WebKit and Android WebView cookie
+stores exist only on real devices; iOS was compiled only and Android
+not built on this machine.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
+- `crates/app-core/src/sync_engine/planner.rs`
 
 **Last recorded** never run
 
@@ -4885,7 +5007,7 @@ shell, which no longer does either, still gets there.
 - `crates/app-core/src/facade.rs`
 - `crates/app-core/src/runtime.rs`
 - `crates/app-core/src/notes.rs`
-- `crates/app-core/src/school_browser/engine/pull.rs`
+- `crates/app-core/src/sync_engine/school.rs`
 - `crates/app-core/src/workspace_changes.rs`
 - `apps/desktop/src/store/workspace.ts`
 - `apps/desktop/src/platform/view-query.ts`
@@ -7945,20 +8067,20 @@ iPhone or Android (repeat per platform).
 
 **Steps**
 
-1. Sign in to 教務Web in the app, then refresh 教務Web data from
-   Settings.
+1. Connect the Tokyo Tech account in Settings, then refresh 教務Web data
+   from Settings.
    - *Why:* This exercises the server's certificate chain with the platform TLS
      verifier and the real school session on each OS.
 2. Open the 教務Web page in the app's school browser afterwards.
-   - *Why:* Cookies the server set on Core's requests are written back to the
-     WebView store; a broken write-back shows up as the browser being
-     signed out or bounced to GetAccess.
+   - *Why:* The web view gets only the identity cookies Core writes before it
+     navigates, and 教務Web runs its own SSO from them; a write that did
+     not land shows up as the agreement page or GetAccess's menu.
 3. Leave the app idle for at least an hour (the 教務Web session expires
    while GetAccess stays signed in), then press Retry or refresh
    教務Web once.
-   - *Why:* A live GetAccess sign-in is not a 教務Web session; only the hidden
-     view opening the 教務 entry page starts a new one, which no test can
-     drive without the school's sign-on.
+   - *Why:* A live GetAccess identity is not a 教務Web session; Core's 教務Web
+     site rebuilds its session from the identity through the entry page
+     once, which no test can drive without the school's sign-on.
 
 **Where to look**
 
@@ -7969,9 +8091,9 @@ browser page.
 
 All six 教務Web pages refresh with no TLS error in the log, and the
 school browser opens 教務Web still signed in. After the idle hour the
-log shows one `kyomu entry result=Ok(true)` per refresh and the pages
-refresh, not a run of TokyoTech session checks ending in sign-in
-failures.
+log shows at most one `Kyomu session ready` per refresh and no
+`signing in profile=TokyoTech` unless GetAccess itself expired, and the
+pages refresh.
 
 **Why this is manual**
 
@@ -7982,10 +8104,10 @@ each OS verifier; no test can reach the school server.
 
 - `crates/app-core/src/net/tls.rs`
 - `crates/app-core/src/net/mod.rs`
-- `crates/app-core/src/school_browser/engine/login.rs`
-- `apps/desktop/src-tauri/src/lms_downloader.rs`
-- `apps/ios/IsctCompanion/Core/WebCookieSession.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt`
+- `crates/app-core/src/school_session/site.rs`
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
 
 **Last recorded** never run
 
@@ -8654,7 +8776,7 @@ covered by Core's sync_engine and lms_ingest tests.
 
 - `crates/app-core/src/sync_engine/planner.rs`
 - `crates/app-core/src/sync_engine/runner.rs`
-- `crates/app-core/src/school_browser/engine/pull.rs`
+- `crates/app-core/src/sync_engine/school.rs`
 - `apps/desktop/src/app/sync-text.ts`
 
 **Last recorded** never run
@@ -8685,18 +8807,18 @@ school in the ウェブ tab or wait for the session to expire.
 2. Go back to 設定 and read the Science Tokyo row, then reopen the
    account page.
    - *Why:* The row shows ログインに失敗しました：<reason>, and the page shows the
-     same reason with whether automatic sign-in retries shortly or waits.
-     A bare "Sign-in failed" means the snapshot's problem never reached
-     the shell.
+     same reason and offers Retry. A bare "Sign-in failed" means the
+     snapshot's problem never reached the shell, and a row that signs in
+     again by itself means a refused code was sent twice.
 3. Paste the real OTP setup, tap 保存して接続, then open ウェブ → LMS
    without signing in by hand.
-   - *Why:* The connect must lift the pause the bad code left: before, one
-     failure blocked automatic sign-in until the app quit, and only a
-     manual sign-in on the web tab got in.
+   - *Why:* The connect is the person's retry: it lifts the refusal of the bad
+     code, Core signs in over HTTP, and the LMS page opens signed in from
+     the identity Core writes into the web view.
 4. Background the app until the school session expires (or sign out on
    the school page), return to it, and open LMS again.
-   - *Why:* The hidden session check must sign in again on its own with the
-     corrected credentials, which is where the old block resurfaced.
+   - *Why:* A site that finds its session gone signs in again on its own with the
+     corrected credentials, without any page shown for it.
 
 **Where to look**
 
@@ -8713,15 +8835,14 @@ on a school page.
 **Why this is manual**
 
 Needs the live Extic identity provider, a real account and OTP window,
-and the iPad's WKWebView. The retry policy and the lifting of a pause
-are covered by Core's school_browser tests; what remains is the live
-school's answer and the native page a person reads.
+and the iPad's WKWebView cookie store. What remains after Core's own
+tests is the live school's answer and the native page a person reads.
 
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 - `apps/ios/IsctCompanion/Core/AppModel.swift`
-- `crates/adpt-isct/assets/school-login.js`
+- `crates/app-core/src/school_session/identity.rs`
 
 **Last recorded** never run
 
@@ -8750,11 +8871,13 @@ course containing a PDF and an attachment the WebView cannot display.
      queued preview.
 3. Sign out from the school page while keeping the app's saved
    credentials. Return to the native course page and open an uncached
-   material. Then reveal the resident school login page and switch
-   between school views without restarting the app.
-   - *Why:* Core must renew the expired service session once before retrying the
-     material. Revealing an already loaded login page must arm saved
-     credentials, and an old view's disappearance must not hide the new one.
+   material. Then open the LMS in ウェブ again and switch between school
+   views without restarting the app.
+   - *Why:* Signing out on the page ends only the page's session; Core reads the
+     material over its own LMS session, rebuilding it once if the school
+     ended it. The page must come back signed in from the identity Core
+     writes before it navigates, and an old view's disappearance must not
+     hide the new one.
 
 **Where to look**
 
@@ -8780,6 +8903,7 @@ prove that the native share sheet receives the file.
 - `apps/ios/IsctCompanion/Core/WebRouter.swift`
 - `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
 
 **Last recorded** never run
 
@@ -9145,22 +9269,24 @@ school_auth and school_browser tests.
 **Preconditions**
 
 Same pair of devices as SCHOOL-CREDENTIALS-VERIFIED-SYNC, with an OTP
-change the account owner authorizes (re-registering App OTP at the
-school), and the iPad app left running in the background.
+change the account owner authorizes (re-registering App OTP on the
+school's own page and importing it from the authenticator), and the
+iPad app left running in the background.
 
 **Steps**
 
-1. On the Mac, register a new App OTP (Settings → School accounts →
-   Science Tokyo, let the app set it up) and confirm the Mac signs in
-   with it.
+1. Register a new App OTP on the school's page, then on the Mac import
+   it (Settings → School accounts → Science Tokyo → Change) and confirm
+   the Mac signs in with it.
    - *Why:* The new secret is verified on the Mac and written to the
      synchronized item; the old secret stops working at the school.
 2. Wait for iCloud Keychain, then bring the iPad app to the front
    without quitting it, and open LMS after the school session expired.
-   - *Why:* The running iPad process must re-read the Keychain and sign in with
-     the new secret. Before, it kept the old one in memory until it was
-     killed, and saving only a password there could even write the old
-     secret back to iCloud.
+   When the account shows the old secret refused, tap Retry.
+   - *Why:* A refused account reads the synchronized item again only on Retry,
+     a save or a credential import, never by itself
+     (approach/school-credential-change-discovery). Retry must find the
+     Mac's new secret and sign in with it without a relaunch.
 3. On the iPad, change only the password field (to the same password)
    and tap 保存して接続; then check the Mac still signs in.
    - *Why:* Blank fields fill from the freshest Keychain value, never from a
@@ -9172,7 +9298,8 @@ The iPad's LMS page and Science Tokyo row; the Mac's sign-in badge.
 
 **Expected**
 
-The iPad signs in with the new OTP without a relaunch, and after its own
+The iPad signs in with the new OTP after one Retry, without a relaunch,
+and after its own
 save the Mac still signs in with the new OTP.
 
 **Why this is manual**
@@ -9184,8 +9311,7 @@ school_auth tests.
 **Covers**
 
 - `crates/app-core/src/school_auth.rs`
-- `crates/app-core/src/school_auth/otp_enrollment.rs`
-- `crates/app-core/src/school_browser/engine/login.rs`
+- `crates/app-core/src/school_session/mod.rs`
 
 **Last recorded** never run
 

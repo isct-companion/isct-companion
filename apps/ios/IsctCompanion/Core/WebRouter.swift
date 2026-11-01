@@ -5,10 +5,11 @@ import UIKit
 
 /// Which school page is on screen. Two entries share the resident views: the
 /// ウェブ tab (site picker) and pushes from a course or assignment. Opening a
-/// page asks Core (`openSchool`), which ensures and navigates the view; the
-/// visibility fact goes back to Core so hidden pulls yield to it. What the
-/// screen says about the page (address, popups, Back and Forward, a failed
-/// load) is Core's `SchoolWebPage`, never read from the views.
+/// page asks Core (`openSchool`), which writes the account's sign-in into the
+/// views' store, then ensures and navigates the view; the visibility fact goes
+/// back to Core, which publishes the page on screen. What the screen says
+/// about the page (address, popups, Back and Forward, a failed load) is Core's
+/// `SchoolWebPage`, never read from the views.
 @MainActor
 @Observable
 final class WebRouter {
@@ -33,10 +34,10 @@ final class WebRouter {
     /// The page the person sees of each site: the higher `revision` of Core's
     /// `school-web-page` and its `schoolWebPage` snapshot.
     private(set) var pages: [SchoolSite: SchoolWebPage] = [:]
-    /// A reload Core opened again without resending a form (`school-web-notice`),
-    /// shown for a while. Tells two notes apart, so one's timer never clears
-    /// the next.
-    private(set) var reopened: [SchoolSite: UUID] = [:]
+    /// A one-time note from Core about the page (`school-web-notice`), shown
+    /// for a while: a reload opened again without resending a form, or a
+    /// sign-in Core could not write into the views' store before opening it.
+    private(set) var notes: [SchoolSite: Note] = [:]
     /// The failed load the person closed for each site, hidden until Core's
     /// notice changes.
     private var dismissed: [SchoolSite: SchoolWebFailure] = [:]
@@ -50,6 +51,12 @@ final class WebRouter {
         browser.onOpenExternal = { url in UIApplication.shared.open(url) }
         browser.onDownload = { [weak self] file in self?.downloads.append(file) }
         browser.onDownloadError = { [weak self] error in self?.error = AppModel.describe(error) }
+    }
+
+    /// `id` tells two notes apart, so one's timer never clears the next.
+    struct Note: Equatable {
+        let notice: SchoolWebNotice
+        let id = UUID()
     }
 
     /// A page pushed from context (course → LMS, assignment → submission).
@@ -193,12 +200,17 @@ final class WebRouter {
                 back: Self.step(row["back"] as? String), forward: Self.step(row["forward"] as? String),
                 notice: notice))
         case "school-web-notice":
-            guard row["kind"] as? String == "reopened" else { return }
-            let note = UUID()
-            reopened[site] = note
+            let notice: SchoolWebNotice
+            switch row["kind"] as? String {
+            case "reopened": notice = .reopened(url: row["url"] as? String ?? "")
+            case "not-seeded": notice = .notSeeded
+            default: return
+            }
+            let note = Note(notice: notice)
+            notes[site] = note
             Task {
                 try? await Task.sleep(for: .seconds(6))
-                if reopened[site] == note { reopened[site] = nil }
+                if notes[site] == note { notes[site] = nil }
             }
         default:
             break

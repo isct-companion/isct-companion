@@ -3,20 +3,17 @@ import { useEffect, useSyncExternalStore } from "react";
 import type {
   DesktopBridge,
   SchoolAuthProfile,
-  SchoolSessionEvent,
+  SchoolProfileSession,
   SchoolSessionSnapshot,
-  SchoolSessionState as NativeSchoolSessionState,
 } from "./desktop-bridge";
 
 type SessionBridge = Pick<
   DesktopBridge,
-  "schoolSessionSnapshot" | "schoolSessionLifecycle" | "onSchoolSession"
+  "schoolSessionSnapshot" | "onSchoolSession"
 >;
 
-export type SchoolSessionState = Exclude<NativeSchoolSessionState, "pending">;
-
-const states = new Map<SchoolAuthProfile, SchoolSessionState>();
-const revisions = new Map<SchoolAuthProfile, number>();
+/** Core's latest session snapshot; undefined until the first one arrives. */
+let current: SchoolSessionSnapshot | undefined;
 const listeners = new Set<() => void>();
 
 type Attachment = {
@@ -24,79 +21,49 @@ type Attachment = {
   users: number;
   disposed: boolean;
   disposeNative?: () => void;
-  disposeLifecycle?: () => void;
 };
 
 let attached: Attachment | undefined;
 let lastBridge: SessionBridge | undefined;
 
-const visible = () => document.visibilityState !== "hidden";
-
-const apply = (
-  profile: SchoolAuthProfile,
-  state: NativeSchoolSessionState,
-  revision: number,
-) => {
-  if (revision <= (revisions.get(profile) ?? -1)) return;
-  revisions.set(profile, revision);
-  const previous = states.get(profile);
-  if (state === "pending") states.delete(profile);
-  else states.set(profile, state);
-  if (previous !== states.get(profile))
-    listeners.forEach((listener) => listener());
-};
-
-const applyEvent = (event: SchoolSessionEvent) =>
-  apply(event.profile, event.state, event.revision);
-
-const applySnapshot = (snapshot: SchoolSessionSnapshot) => {
-  apply("science", snapshot.profiles.science.state, snapshot.revision);
-  apply("tokyo-tech", snapshot.profiles.tokyoTech.state, snapshot.revision);
+const apply = (snapshot: SchoolSessionSnapshot) => {
+  if (current && snapshot.revision <= current.revision) return;
+  current = snapshot;
+  listeners.forEach((listener) => listener());
 };
 
 const stop = (attachment: Attachment) => {
   attachment.disposed = true;
   attachment.disposeNative?.();
-  attachment.disposeLifecycle?.();
   if (attached === attachment) attached = undefined;
 };
 
 const start = (attachment: Attachment) => {
   void (async () => {
-    const disposeNative = await attachment.bridge.onSchoolSession((event) => {
-      if (!attachment.disposed && attached === attachment) applyEvent(event);
-    });
+    const disposeNative = await attachment.bridge.onSchoolSession(
+      (snapshot) => {
+        if (!attachment.disposed && attached === attachment) apply(snapshot);
+      },
+    );
     if (attachment.disposed || attached !== attachment) {
       disposeNative();
       return;
     }
     attachment.disposeNative = disposeNative;
-
-    const focus = () => {
-      void attachment.bridge
-        .schoolSessionLifecycle({ kind: "focus", visible: visible() })
-        .catch(() => undefined);
-    };
-    window.addEventListener("focus", focus);
-    document.addEventListener("visibilitychange", focus);
-    attachment.disposeLifecycle = () => {
-      window.removeEventListener("focus", focus);
-      document.removeEventListener("visibilitychange", focus);
-    };
-
+    // Listen first, then read: an event during the read wins by revision.
     const snapshot = await attachment.bridge
       .schoolSessionSnapshot()
       .catch(() => undefined);
     if (attachment.disposed || attached !== attachment) return;
-    if (snapshot) applySnapshot(snapshot);
-    await attachment.bridge
-      .schoolSessionLifecycle({ kind: "launch", visible: visible() })
-      .catch(() => undefined);
+    if (snapshot) apply(snapshot);
   })().catch(() => undefined);
 };
 
 export const schoolSessions = {
-  get: (profile: SchoolAuthProfile) => states.get(profile),
+  get: (profile: SchoolAuthProfile): SchoolProfileSession | undefined =>
+    profile === "science"
+      ? current?.profiles.science
+      : current?.profiles.tokyoTech,
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => void listeners.delete(listener);
@@ -107,9 +74,8 @@ export const schoolSessions = {
     else {
       if (attached) stop(attached);
       if (lastBridge && lastBridge !== bridge) {
-        const changed = states.size > 0;
-        states.clear();
-        revisions.clear();
+        const changed = current !== undefined;
+        current = undefined;
         if (changed) listeners.forEach((listener) => listener());
       }
       lastBridge = bridge;
@@ -125,16 +91,26 @@ export const schoolSessions = {
       if (attachment.users === 0) stop(attachment);
     };
   },
+  /** Retry: one foreground sign-in with the saved credentials. The answer is
+   * a snapshot, applied like an event from the same bridge. */
+  async retry(
+    bridge: SessionBridge & Pick<DesktopBridge, "retrySchool">,
+    profile: SchoolAuthProfile,
+  ) {
+    const snapshot = await bridge.retrySchool(profile);
+    if (bridge === lastBridge) apply(snapshot);
+  },
   /** Test hook. */
   reset() {
     if (attached) stop(attached);
-    states.clear();
-    revisions.clear();
+    current = undefined;
     lastBridge = undefined;
     listeners.forEach((listener) => listener());
   },
 };
 
+/** The profile's session as Core last reported it; undefined while the
+ * first snapshot is out. */
 export function useSchoolSession(
   bridge: SessionBridge | undefined,
   profile: SchoolAuthProfile,

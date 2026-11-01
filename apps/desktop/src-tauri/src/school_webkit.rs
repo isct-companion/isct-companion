@@ -365,10 +365,9 @@ struct PopupIvars {
 }
 
 define_class!(
-    /// A popup's web view. Like wry's main views
-    /// (`refuse_first_responder_while_hidden`), it does not take the keyboard
-    /// while hidden; as a sibling of its view, it is hidden itself
-    /// (`arrange_popups`).
+    /// A popup's web view. Like wry's main views (`stay_out_while_hidden`),
+    /// it takes neither the keyboard nor a dragged file while hidden; as a
+    /// sibling of its view, it is hidden itself (`arrange_popups`).
     #[unsafe(super(WKWebView, NSView, NSResponder, NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = PopupIvars]
@@ -381,6 +380,15 @@ define_class!(
         fn accepts_first_responder(&self) -> bool {
             !self.isHiddenOrHasHiddenAncestor()
                 && unsafe { msg_send![super(self), acceptsFirstResponder] }
+        }
+
+        /// A hidden popup is no drag destination (`drag_hit_test`).
+        #[unsafe(method(_hitTest:dragTypes:))]
+        fn drag_hit_test(&self, point: *mut NSPoint, types: *mut AnyObject) -> *mut AnyObject {
+            if self.isHiddenOrHasHiddenAncestor() {
+                return null_mut();
+            }
+            unsafe { msg_send![super(self), _hitTest: point, dragTypes: types] }
         }
 
         /// A file dragged onto the popup reaches it (reproductions look for
@@ -1400,7 +1408,7 @@ pub unsafe fn install(
 ) -> Option<DelegateHandle> {
     let mtm = MainThreadMarker::new()?;
     let web_view = unsafe { (web_view as *const WKWebView).as_ref() }?;
-    refuse_first_responder_while_hidden(web_view);
+    stay_out_while_hidden(web_view);
     MAIN_VIEWS.with_borrow_mut(|views| {
         views.retain(|(id, web_view)| id.site != view.site && web_view.load().is_some());
         views.push((view, Weak::new(web_view)));
@@ -1455,14 +1463,48 @@ unsafe extern "C-unwind" fn accepts_first_responder(this: &AnyObject, selector: 
     unsafe { original(this, selector) }
 }
 
-/// Hidden school views load pages whose scripts focus a field on load
-/// (ASP.NET `WebForm_AutoFocus`, sign-in forms). WebKit then makes that view
-/// the window's first responder, and the visible app stops receiving keys
-/// until it is clicked. wry's view class therefore refuses first-responder
-/// status while a view is hidden; a shown view keeps WebKit's answer. It is
-/// installed once on the class, so the hidden LMS downloader view is covered
-/// too.
-fn refuse_first_responder_while_hidden(web_view: &WKWebView) {
+static WEBKIT_DRAG_HIT_TEST: std::sync::OnceLock<objc2::runtime::Imp> =
+    std::sync::OnceLock::new();
+
+unsafe extern "C-unwind" fn drag_hit_test(
+    this: &AnyObject,
+    selector: Sel,
+    point: *mut NSPoint,
+    types: *mut AnyObject,
+) -> *mut AnyObject {
+    let hidden: bool = unsafe { msg_send![this, isHiddenOrHasHiddenAncestor] };
+    if hidden {
+        return null_mut();
+    }
+    let Some(original) = WEBKIT_DRAG_HIT_TEST.get() else {
+        return null_mut();
+    };
+    // SAFETY: the stored IMP is WKWebView's own `_hitTest:dragTypes:`.
+    let original: unsafe extern "C-unwind" fn(
+        &AnyObject,
+        Sel,
+        *mut NSPoint,
+        *mut AnyObject,
+    ) -> *mut AnyObject = unsafe { std::mem::transmute(*original) };
+    unsafe { original(this, selector, point, types) }
+}
+
+/// A school view the person left stays resident and hidden, keeping its
+/// frame, and wry's view class answers two questions for it as if it were
+/// shown:
+///
+/// - Its page may still load and focus a field (ASP.NET `WebForm_AutoFocus`).
+///   WebKit then makes that view the window's first responder, and the
+///   visible app stops receiving keys until it is clicked.
+/// - WKWebView answers AppKit's drag hit test (`_hitTest:dragTypes:`) with
+///   itself for any point in its frame, hidden or not. A hidden view above
+///   the visible one in the window (教務Web opened after the LMS) took every
+///   file dropped on the LMS draft area and tried to load it as a `file://`
+///   page, which Core denies.
+///
+/// The class therefore refuses both while a view is hidden; a shown view
+/// keeps WebKit's answers. It is installed once on the class.
+fn stay_out_while_hidden(web_view: &WKWebView) {
     static INSTALLED: std::sync::Once = std::sync::Once::new();
     INSTALLED.call_once(|| {
         // wry registers its class under a versioned module path, and the
@@ -1496,6 +1538,37 @@ fn refuse_first_responder_while_hidden(web_view: &WKWebView) {
         if !added.as_bool() {
             log::error!(
                 "[school-web] {} already defines acceptsFirstResponder; hidden views keep focus",
+                class.name().to_string_lossy()
+            );
+        }
+        let selector = sel!(_hitTest:dragTypes:);
+        let Some(method) = <WKWebView as objc2::ClassType>::class().instance_method(selector)
+        else {
+            log::error!("[school-web] WKWebView has no drag hit test; hidden views may take drops");
+            return;
+        };
+        let _ = WEBKIT_DRAG_HIT_TEST.set(method.implementation());
+        // SAFETY: the replacement has the `NSView *(id, SEL, NSPoint *, NSSet *)`
+        // signature of the method whose type encoding it is registered with.
+        let added = unsafe {
+            objc2::ffi::class_addMethod(
+                class as *const _ as *mut _,
+                selector,
+                std::mem::transmute::<
+                    unsafe extern "C-unwind" fn(
+                        &AnyObject,
+                        Sel,
+                        *mut NSPoint,
+                        *mut AnyObject,
+                    ) -> *mut AnyObject,
+                    objc2::runtime::Imp,
+                >(drag_hit_test),
+                objc2::ffi::method_getTypeEncoding(method),
+            )
+        };
+        if !added.as_bool() {
+            log::error!(
+                "[school-web] {} already defines _hitTest:dragTypes:; hidden views may take drops",
                 class.name().to_string_lossy()
             );
         }

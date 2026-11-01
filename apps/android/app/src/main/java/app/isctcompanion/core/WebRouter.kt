@@ -16,11 +16,11 @@ import org.json.JSONObject
 
 /** Which school page is on screen. Two entries share the resident views: the
  * ウェブ tab (site switcher) and pushes from a course or assignment. Opening a
- * page asks Core (`openSchool`), which ensures and navigates the view; the
- * visibility fact goes back to Core (`schoolBrowsing`) so background sync
- * yields to it. What the screen says about the page (address, popups, Back
- * and Forward, a failed load) is Core's `SchoolWebPage`, never read from the
- * views. */
+ * page asks Core (`openSchool`), which seeds the account's sign-in, then
+ * ensures and navigates the view; the visibility fact goes back to Core
+ * (`schoolBrowsing`), which publishes that site's page. What the screen says
+ * about the page (address, popups, Back and Forward, a failed load) is Core's
+ * `SchoolWebPage`, never read from the views. */
 class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScope, context: Context) {
     /** The site the ウェブ tab opens on at launch, kept on this device (設定 › ウェブ). */
     private val preferences = context.getSharedPreferences("web", Context.MODE_PRIVATE)
@@ -33,9 +33,17 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     /** The page the person sees of each site: the higher `revision` of
      * Core's `school-web-page` and its `schoolWebPage` snapshot. */
     val pages = mutableStateMapOf<SchoolSite, SchoolWebPage>()
-    /** Sites whose reload Core opened again without resending a form
-     * (`school-web-notice`), each with the job that hides the note again. */
-    val reopened = mutableStateMapOf<SchoolSite, Job>()
+    /** Core's one-time note about a site's page (`school-web-notice`). */
+    enum class Notice {
+        /** A reload was opened again without resending a form. */
+        REOPENED,
+        /** Core could not pass the sign-in to the page before opening it. */
+        NOT_SEEDED,
+    }
+
+    /** The note each site shows, until its job hides it again. */
+    val notices = mutableStateMapOf<SchoolSite, Notice>()
+    private val noticeJobs = mutableMapOf<SchoolSite, Job>()
     var loading by mutableStateOf<SchoolSite?>(null)
         private set
     var error by mutableStateOf<String?>(null)
@@ -82,11 +90,18 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
                     ),
                 )
             }
-            "school-web-notice" -> if (row.optString("kind") == "reopened") {
-                reopened.remove(site)?.cancel()
-                reopened[site] = scope.launch {
+            "school-web-notice" -> {
+                val notice = when (row.optString("kind")) {
+                    "reopened" -> Notice.REOPENED
+                    "not-seeded" -> Notice.NOT_SEEDED
+                    else -> return
+                }
+                noticeJobs.remove(site)?.cancel()
+                notices[site] = notice
+                noticeJobs[site] = scope.launch {
                     delay(6_000)
-                    reopened.remove(site)
+                    notices.remove(site)
+                    noticeJobs.remove(site)
                 }
             }
         }

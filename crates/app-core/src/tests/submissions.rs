@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    course_materials::DownloadSession,
     data::{DataError, DataStore},
     downloads::Downloader,
     notes::NoteStore,
@@ -209,12 +208,7 @@ impl Fixture {
         lms_writes(&store, true);
         let notes = NoteStore::default();
         notes.at(root.join("files"));
-        let workspaces = AssignmentWorkspaces::new(
-            store.clone(),
-            notes,
-            Downloader::default(),
-            DownloadSession::default(),
-        );
+        let workspaces = AssignmentWorkspaces::new(store.clone(), notes, Downloader::default());
         let lms = FakeLms(Arc::new(Lms {
             state: Mutex::new(LmsState {
                 identity: LmsIdentity {

@@ -8,7 +8,10 @@ use super::{
     reader::{set_detail, MAX_STATES, WORKERS},
     sign_in_redirect, Dashboard, KeyError, MoodleClient, MoodleError, MoodleFunction,
 };
-use crate::net::{Body, Limits, NetError};
+use crate::{
+    net::{Body, Limits, NetError},
+    school_session::Attempt,
+};
 use adpt_isct::lms::{
     course_page_bodies, forum_discussion_links, forum_posts, id_of, is_lms_origin, module_body,
     module_page_matches, page_assign_state, parse_resource_page, ResolvedResource, StoredModule,
@@ -18,10 +21,7 @@ use futures_util::stream::{self, StreamExt};
 use reqwest::Method;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Mutex,
-};
+use std::sync::Mutex;
 use url::Url;
 
 /// Activity pages read per course read, newest first.
@@ -31,70 +31,73 @@ const FORUM_POSTS_PER_FORUM: usize = 8;
 /// Larger activity pages are not read.
 const MAX_PAGE_CHARS: usize = 1_000_000;
 
-pub(super) struct CookieTransport<'a> {
-    client: &'a MoodleClient,
-    sesskey: tokio::sync::Mutex<String>,
-    /// One background sign-in per pull.
-    signed_in: AtomicBool,
+/// The cookie transport of a pull. Its sesskey belongs to the site instance
+/// whose dashboard gave it: an attempt on another instance (a rebuilt
+/// session) fetches its own first.
+pub(super) struct CookieTransport {
+    sesskey: tokio::sync::Mutex<(u64, String)>,
 }
 
-impl<'a> CookieTransport<'a> {
-    pub(super) fn new(
-        client: &'a MoodleClient,
-        dashboard: &Dashboard,
-    ) -> Result<Self, MoodleError> {
+impl CookieTransport {
+    pub(super) fn new(attempt: &Attempt, dashboard: &Dashboard) -> Result<Self, MoodleError> {
         let sesskey = dashboard
             .config
             .sesskey
             .clone()
             .ok_or(MoodleError::SignInRequired)?;
         Ok(Self {
-            client,
-            sesskey: tokio::sync::Mutex::new(sesskey),
-            signed_in: AtomicBool::new(false),
+            sesskey: tokio::sync::Mutex::new((attempt.instance(), sesskey)),
         })
     }
 
     pub(super) async fn call(
         &self,
+        attempt: &Attempt,
         function: MoodleFunction,
         args: &Value,
     ) -> Result<Value, MoodleError> {
         if !function.via_ajax() {
             return Err(MoodleError::ServiceUnavailable(function.name().into()));
         }
-        let sesskey = self.sesskey.lock().await.clone();
-        match self.post(&sesskey, function, args).await {
+        let sesskey = self.sesskey(attempt).await?;
+        match self.post(attempt, &sesskey, function, args).await {
+            // A stale sesskey is refreshed once within the attempt: a
+            // parameter, not a lost session.
             Err(MoodleError::InvalidSesskey) => {
-                let fresh = self.refresh(&sesskey).await?;
-                self.post(&fresh, function, args).await
-            }
-            Err(MoodleError::SignInRequired) if !self.signed_in.swap(true, Ordering::SeqCst) => {
-                self.client.ensure_signed_in().await?;
-                let fresh = self.refresh(&sesskey).await?;
-                self.post(&fresh, function, args).await
+                let fresh = self.refresh(attempt, &sesskey).await?;
+                self.post(attempt, &fresh, function, args).await
             }
             other => other,
         }
     }
 
-    /// A new sesskey from the dashboard, once per stale key.
-    async fn refresh(&self, stale: &str) -> Result<String, MoodleError> {
-        let mut slot = self.sesskey.lock().await;
-        if slot.as_str() != stale {
-            return Ok(slot.clone());
+    /// This instance's sesskey.
+    async fn sesskey(&self, attempt: &Attempt) -> Result<String, MoodleError> {
+        let current = self.sesskey.lock().await.clone();
+        if current.0 == attempt.instance() {
+            return Ok(current.1);
         }
-        let dashboard = self.client.load_dashboard().await?;
+        self.refresh(attempt, &current.1).await
+    }
+
+    /// A new sesskey from the dashboard, once per stale key.
+    async fn refresh(&self, attempt: &Attempt, stale: &str) -> Result<String, MoodleError> {
+        let mut slot = self.sesskey.lock().await;
+        if slot.0 == attempt.instance() && slot.1 != stale {
+            return Ok(slot.1.clone());
+        }
+        let dashboard = MoodleClient::load_dashboard(attempt).await?;
         let fresh = dashboard
             .config
             .sesskey
             .ok_or(MoodleError::SignInRequired)?;
-        *slot = fresh.clone();
+        *slot = (attempt.instance(), fresh.clone());
         Ok(fresh)
     }
 
     async fn post(
         &self,
+        attempt: &Attempt,
         sesskey: &str,
         function: MoodleFunction,
         args: &Value,
@@ -104,10 +107,14 @@ impl<'a> CookieTransport<'a> {
             .append_pair("sesskey", sesskey)
             .append_pair("info", function.name());
         let body = json!([{"index": 0, "methodname": function.name(), "args": args}]);
-        let response = self
-            .client
-            .cookie_send(Method::POST, url.clone(), Body::Json(body), Limits::page)
-            .await?;
+        let response = MoodleClient::cookie_send(
+            attempt,
+            Method::POST,
+            url.clone(),
+            Body::Json(body),
+            Limits::page,
+        )
+        .await?;
         if (300..400).contains(&response.status) {
             return Err(match response.location() {
                 Some(location) if sign_in_redirect(&location, &url) => MoodleError::SignInRequired,
@@ -124,15 +131,19 @@ impl<'a> CookieTransport<'a> {
         {
             return Err(MoodleError::SignInRequired);
         }
-        ajax_result(&response.body).map_err(|error| self.client.envelope_error(error))
+        ajax_result(&response.body).map_err(|error| MoodleClient::envelope_error(attempt, error))
     }
 }
 
 /// The course-format outline `{section, cm}` of one course.
-async fn course_state(transport: &CookieTransport<'_>, course: u64) -> Result<Value, KeyError> {
+async fn course_state(
+    transport: &CookieTransport,
+    attempt: &Attempt,
+    course: u64,
+) -> Result<Value, KeyError> {
     let function = MoodleFunction::CourseformatState;
     let raw = transport
-        .call(function, &json!({"courseid": course}))
+        .call(attempt, function, &json!({"courseid": course}))
         .await
         .map_err(KeyError::at(function.name()))?;
     let full: Value = match &raw {
@@ -180,7 +191,7 @@ fn view_path(module: &str) -> String {
 /// six kinds only, a direct redirect to a file is the file, and a page that
 /// is not this activity is ignored. A failed request fails the key.
 async fn read_page(
-    transport: &CookieTransport<'_>,
+    attempt: &Attempt,
     shares: &Mutex<usize>,
     cmid: u64,
     module: &str,
@@ -193,10 +204,14 @@ async fn read_page(
     else {
         return Ok(detail);
     };
-    let response = transport
-        .client
-        .cookie_send(Method::GET, target.clone(), Body::None, Limits::page)
-        .await?;
+    let response = MoodleClient::cookie_send(
+        attempt,
+        Method::GET,
+        target.clone(),
+        Body::None,
+        Limits::page,
+    )
+    .await?;
     if (300..400).contains(&response.status) {
         if let Some(location) = response.location() {
             if sign_in_redirect(&location, &target) {
@@ -235,7 +250,7 @@ async fn read_page(
         };
         let mut bodies = Vec::new();
         for link in links.into_iter().take(take) {
-            let page = transport.client.cookie_page(link.clone()).await?;
+            let page = MoodleClient::cookie_page(attempt, link.clone()).await?;
             if page.len() <= MAX_PAGE_CHARS {
                 bodies.push(forum_posts(&page, &link));
             }
@@ -266,19 +281,18 @@ async fn read_page(
 /// it: as before, each read re-reads the newest activities' pages and the
 /// others keep their stored details. Any failed request fails the key.
 pub(super) async fn read_course(
-    transport: &CookieTransport<'_>,
+    transport: &CookieTransport,
+    attempt: &Attempt,
     course: u64,
     _stored: &HashMap<u64, StoredModule>,
     budget: &BodyBudget,
 ) -> Result<Value, KeyError> {
-    let mut state = course_state(transport, course).await?;
+    let mut state = course_state(transport, attempt, course).await?;
     let mut page_url = lms_url("course/view.php").map_err(KeyError::at("course/view.php"))?;
     page_url
         .query_pairs_mut()
         .append_pair("id", &course.to_string());
-    let html = transport
-        .client
-        .cookie_page(page_url.clone())
+    let html = MoodleClient::cookie_page(attempt, page_url.clone())
         .await
         .map_err(KeyError::at("course/view.php"))?;
     let bodies = course_page_bodies(&html, &page_url, &state);
@@ -319,7 +333,7 @@ pub(super) async fn read_course(
     let shares = &shares;
     let details: Vec<Result<(u64, PageDetail), KeyError>> = stream::iter(targets)
         .map(move |(cmid, module, url)| async move {
-            read_page(transport, shares, cmid, &module, &url)
+            read_page(attempt, shares, cmid, &module, &url)
                 .await
                 .map(|detail| (cmid, detail))
                 .map_err(KeyError::at("mod/view.php"))
@@ -342,10 +356,11 @@ pub(super) async fn read_course(
 /// `lms.assign/{id}` over the cookie: the state each assignment and quiz page
 /// of the course shows. Any failed request fails the key.
 pub(super) async fn read_assign(
-    transport: &CookieTransport<'_>,
+    transport: &CookieTransport,
+    attempt: &Attempt,
     course: u64,
 ) -> Result<Vec<Value>, KeyError> {
-    let state = course_state(transport, course).await?;
+    let state = course_state(transport, attempt, course).await?;
     let work: Vec<(u64, String)> = cms(&state)
         .into_iter()
         .filter_map(|cm| {
@@ -365,9 +380,7 @@ pub(super) async fn read_assign(
             let mut url =
                 lms_url(&format!("mod/{module}/view.php")).map_err(KeyError::at("mod/view.php"))?;
             url.query_pairs_mut().append_pair("id", &cmid.to_string());
-            let html = transport
-                .client
-                .cookie_page(url)
+            let html = MoodleClient::cookie_page(attempt, url)
                 .await
                 .map_err(KeyError::at("mod/view.php"))?;
             Ok::<_, KeyError>(page_assign_state(&html, cmid, &module))

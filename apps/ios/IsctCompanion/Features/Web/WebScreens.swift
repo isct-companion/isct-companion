@@ -8,7 +8,7 @@ import WebKit
 /// The ウェブ tab and pushed pages share one view per site: whichever
 /// container is in the window holds it, and a container that leaves the
 /// window (a covered tab, a popped page) hands it back to the parking window,
-/// where WebKit keeps it running for hidden pulls.
+/// where WebKit keeps it running.
 private struct ResidentWebView: UIViewRepresentable {
     let site: SchoolSite
     let host: SchoolBrowserHost
@@ -284,8 +284,9 @@ struct WebPageScreen: View {
 
 /// What sits between the navigation bar and the page, outside the school
 /// page, all from Core's page of the site: the close bar of a popup the page
-/// opened over itself, a load that failed, and a reload opened again without
-/// resending a form.
+/// opened over itself, a load that failed, and Core's one-time notes (a
+/// reload opened again without resending a form, a sign-in that could not be
+/// passed to the page).
 private struct PageBars: View {
     let site: SchoolSite
     @Environment(WebRouter.self) private var web
@@ -323,8 +324,8 @@ private struct PageBars: View {
                 failed(failure)
                 Divider()
             }
-            if web.reopened[site] != nil {
-                Label(t("web.reopenedThisPageWithoutSending"), systemImage: "arrow.clockwise")
+            if let note = web.notes[site] {
+                Self.label(note.notice)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,7 +337,14 @@ private struct PageBars: View {
         .background(.bar)
         .animation(.default, value: popups)
         .animation(.default, value: web.failure(site))
-        .animation(.default, value: web.reopened[site])
+        .animation(.default, value: web.notes[site])
+    }
+
+    private static func label(_ notice: SchoolWebNotice) -> Label<Text, Image> {
+        switch notice {
+        case .reopened: Label(t("web.reopenedThisPageWithoutSending"), systemImage: "arrow.clockwise")
+        case .notSeeded: Label(t("web.signInCouldNotBePassed"), systemImage: "person.crop.circle.badge.exclamationmark")
+        }
     }
 
     private func failed(_ failure: SchoolWebFailure) -> some View {

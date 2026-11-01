@@ -1,6 +1,6 @@
 //! Credential commands keep potentially interactive OS vault calls off the UI thread.
+use crate::require_local_main;
 use crate::{coded, CommandError};
-use crate::{require_local_main, school_web::SchoolWebController};
 use app_core::school_auth::{
     SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus,
     SchoolCredentials,
@@ -21,59 +21,6 @@ async fn with_credentials<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub(crate) fn begin_school_otp_setup(
-    webview: tauri::Webview,
-    controller: tauri::State<'_, SchoolWebController>,
-) -> Result<u64, CommandError> {
-    require_local_main(&webview).map_err(|_| app_core::school_auth::OtpSetupError::Unavailable)?;
-    Ok(controller.engine.begin_school_otp_setup()?)
-}
-
-#[tauri::command]
-pub(crate) fn cancel_school_otp_setup(
-    webview: tauri::Webview,
-    controller: tauri::State<'_, SchoolWebController>,
-    operation_id: u64,
-) -> Result<(), CommandError> {
-    require_local_main(&webview).map_err(|_| app_core::school_auth::OtpSetupError::Unavailable)?;
-    controller.engine.cancel_school_otp_setup(operation_id);
-    Ok(())
-}
-
-#[tauri::command]
-pub(crate) async fn complete_school_otp_setup(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    controller: tauri::State<'_, SchoolWebController>,
-    operation_id: u64,
-    reset: bool,
-) -> Result<(), CommandError> {
-    use app_core::school_auth::OtpSetupError;
-    require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
-    let engine = controller.engine.clone();
-    Ok(crate::core_ports::runtime(&app)
-        .run(async move { engine.complete_school_otp_setup(operation_id, reset).await })
-        .await
-        .map_err(|_| OtpSetupError::Unavailable)??)
-}
-
-#[tauri::command]
-pub(crate) async fn school_otp_setup(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    controller: tauri::State<'_, SchoolWebController>,
-    operation_id: u64,
-) -> Result<app_core::school_auth::SchoolOtpSetup, CommandError> {
-    use app_core::school_auth::OtpSetupError;
-    require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
-    let engine = controller.engine.clone();
-    Ok(crate::core_ports::runtime(&app)
-        .run(async move { engine.school_otp_setup(operation_id).await })
-        .await
-        .map_err(|_| OtpSetupError::Unavailable)??)
-}
-
-#[tauri::command]
 pub(crate) async fn school_credential_status(
     webview: tauri::Webview,
     service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
@@ -90,7 +37,7 @@ pub(crate) async fn connect_school(
     app: tauri::AppHandle,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
-) -> Result<app_core::school_browser::SchoolConnectResult, CommandError> {
+) -> Result<app_core::school_session::SchoolConnectResult, CommandError> {
     require_local_main(&webview)?;
     let core = crate::core_ports::core(&app);
     crate::core_ports::runtime(&app)
@@ -108,9 +55,26 @@ pub(crate) async fn delete_school_credentials(
 ) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     let core = crate::core_ports::core(&app);
-    tauri::async_runtime::spawn_blocking(move || core.delete_credentials(profile))
+    crate::core_ports::runtime(&app)
+        .run(async move { core.delete_credentials(profile).await })
         .await
-        .map_err(|_| "The credential operation stopped unexpectedly.".to_string())?
+        .map_err(coded)?
+        .map_err(coded)
+}
+
+/// The account's Retry: Core reads the saved credentials again and signs in
+/// once with them, through a refusal on record.
+#[tauri::command]
+pub(crate) async fn retry_school(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    profile: SchoolAuthProfile,
+) -> Result<app_core::school_session::SchoolSessionSnapshot, CommandError> {
+    require_local_main(&webview)?;
+    let core = crate::core_ports::core(&app);
+    crate::core_ports::runtime(&app)
+        .run(async move { core.retry_school(profile).await })
+        .await
         .map_err(coded)
 }
 
@@ -167,31 +131,10 @@ pub(crate) async fn copy_school_matrix(
 #[tauri::command]
 pub(crate) fn school_session_snapshot(
     webview: tauri::Webview,
-    controller: tauri::State<'_, SchoolWebController>,
-) -> Result<app_core::school_browser::SchoolSessionSnapshot, CommandError> {
-    require_local_main(&webview)?;
-    controller.engine.session_snapshot().map_err(coded)
-}
-
-#[tauri::command]
-pub(crate) async fn school_session_lifecycle(
-    webview: tauri::Webview,
     app: tauri::AppHandle,
-    controller: tauri::State<'_, SchoolWebController>,
-    kind: app_core::school_browser::SchoolSessionLifecycleKind,
-    visible: bool,
-) -> Result<(), CommandError> {
+) -> Result<app_core::school_session::SchoolSessionSnapshot, CommandError> {
     require_local_main(&webview)?;
-    let engine = controller.engine.clone();
-    crate::core_ports::runtime(&app)
-        .run(async move {
-            engine
-                .lifecycle(app_core::school_browser::SchoolSessionLifecycle { kind, visible })
-                .await
-        })
-        .await
-        .map_err(coded)?
-        .map_err(coded)
+    Ok(crate::core_ports::core(&app).school_session())
 }
 
 /// Import is local parsing only; saving still requires the credential intent.
