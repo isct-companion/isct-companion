@@ -77,6 +77,7 @@ static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         entry::<reads::Today>(),
         entry::<reads::Schedule>(),
         entry::<reads::Courses>(),
+        entry::<reads::Exams>(),
         entry::<reads::Course>(),
         entry::<reads::SearchCatalog>(),
         entry::<reads::Registration>(),

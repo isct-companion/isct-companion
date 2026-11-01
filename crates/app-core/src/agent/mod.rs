@@ -62,6 +62,14 @@ impl From<DataError> for AgentError {
         }
     }
 }
+impl From<crate::schedule::ScheduleError> for AgentError {
+    fn from(error: crate::schedule::ScheduleError) -> Self {
+        match error {
+            crate::schedule::ScheduleError::InvalidInput(message) => Self::InvalidInput(message),
+            crate::schedule::ScheduleError::Compatibility(message) => Self::Compatibility(message),
+        }
+    }
+}
 impl From<AgentWriteError> for AgentError {
     fn from(error: AgentWriteError) -> Self {
         match error {
@@ -77,6 +85,8 @@ pub struct AgentService {
     workspaces: AssignmentWorkspaces,
     /// Core's submission service, once the school transport is attached.
     submissions: Arc<OnceLock<SubmissionService>>,
+    /// The moment a call answers for; tests fix it.
+    now: fn() -> chrono::DateTime<chrono::Utc>,
 }
 
 impl AgentService {
@@ -89,7 +99,13 @@ impl AgentService {
             store,
             workspaces,
             submissions,
+            now: chrono::Utc::now,
         }
+    }
+
+    #[cfg(test)]
+    fn with_clock(self, now: fn() -> chrono::DateTime<chrono::Utc>) -> Self {
+        Self { now, ..self }
     }
 
     /// Runs one tool with its JSON arguments and answers with its JSON
@@ -112,6 +128,7 @@ impl AgentService {
                 workspaces: &self.workspaces,
                 submissions: self.submissions.get(),
                 view: &view,
+                now: jst((self.now)())?,
             },
             args,
         )
@@ -127,6 +144,8 @@ pub(crate) struct Context<'a> {
     workspaces: &'a AssignmentWorkspaces,
     submissions: Option<&'a SubmissionService>,
     view: &'a dyn Fn() -> Result<View, AgentError>,
+    /// One moment for the whole call, in Japan time.
+    now: chrono::DateTime<chrono::FixedOffset>,
 }
 
 impl Context<'_> {
@@ -178,10 +197,12 @@ fn parse_term(term: &str) -> Result<(i64, &str), AgentError> {
     Ok((year, quarter))
 }
 
-fn now_jst() -> Result<chrono::DateTime<chrono::FixedOffset>, AgentError> {
+fn jst(
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<chrono::DateTime<chrono::FixedOffset>, AgentError> {
     let offset = chrono::FixedOffset::east_opt(9 * 3600)
         .ok_or_else(|| AgentError::Compatibility("Japan time offset is unavailable".into()))?;
-    Ok(chrono::Utc::now().with_timezone(&offset))
+    Ok(now.with_timezone(&offset))
 }
 
 fn fallback_term(date: chrono::NaiveDate) -> String {

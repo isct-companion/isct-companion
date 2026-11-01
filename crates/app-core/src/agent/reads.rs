@@ -2,13 +2,12 @@
 use super::dto::{self, pick, pick_all};
 use super::registry::{Effect, Tool};
 use super::{
-    fallback_term, non_empty, now_jst, parse_term, text, visible_rows, AgentError, Context,
+    fallback_term, non_empty, parse_term, text, visible_rows, AgentError, Context,
 };
 use crate::workspace_changes::WorkspaceChange as W;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeSet;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -46,20 +45,30 @@ pub(super) struct TodayAnswer {
     now: String,
     date: String,
     term: String,
+    /// The weekly class pattern stops today and no class or exam is held.
+    no_classes: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    calendar_notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     calendar: Option<dto::CalendarDay>,
-    classes: Vec<dto::ClassToday>,
-    events: Vec<dto::EventToday>,
+    /// Classes, exams and quizzes held today, as the app's Today counts
+    /// them: cancelled classes are left out (`schedule` keeps them).
+    classes: Vec<dto::Occurrence>,
+    /// Weekly personal events falling today.
+    events: Vec<dto::Occurrence>,
     /// Open assignments not yet due, soonest first.
     assignments: Vec<dto::Assignment>,
     /// Open assignments overdue in the last 14 days.
     overdue: Vec<dto::Assignment>,
     academic_summary: Vec<dto::GpaSummary>,
+    /// Stored plans or overrides Core could not apply anywhere.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    problems: Vec<dto::ScheduleProblem>,
 }
 
 impl Tool for Today {
     const NAME: &'static str = "today";
-    const DESCRIPTION: &'static str = "Today in Japan time: the calendar state (holiday, replacement day), classes actually held, weekly personal events falling today, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.";
+    const DESCRIPTION: &'static str = "Today in Japan time, with every personal change applied: the calendar state (holiday, replacement day), the classes, exams and quizzes actually held, weekly personal events falling today, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.";
     const EFFECT: Effect = Effect::Read;
     const READS: &'static [W] = &[
         W::Courses,
@@ -78,8 +87,8 @@ impl Tool for Today {
     type Output = TodayAnswer;
 
     fn run(cx: &Context<'_>, _: NoArgs) -> Result<TodayAnswer, AgentError> {
-        let (workspace, _) = cx.view()?;
-        let now = now_jst()?;
+        let (workspace, school) = cx.view()?;
+        let now = cx.now;
         let date = now.date_naive();
         let iso = date.to_string();
         let term = text(&workspace, "currentTerm")
@@ -104,33 +113,22 @@ impl Tool for Today {
             .into_iter()
             .filter(|row| due(row).is_some_and(|due| due >= recent))
             .collect::<Vec<_>>();
+        let agenda = crate::schedule::calendar_between(&workspace, &school, &iso, &iso)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AgentError::Compatibility("no agenda for today".into()))?;
+        let classes = crate::schedule::classes_on(&agenda.occurrences);
+        let day = dto::Day::from_agenda(agenda)?;
         Ok(TodayAnswer {
             now: now.to_rfc3339(),
-            calendar: crate::schedule::calendar_state(&workspace, &iso)
-                .map(|row| pick(&row))
-                .transpose()?,
-            classes: occurrences(&workspace, &term, &iso, false)
+            no_classes: day.no_classes,
+            calendar_notice: day.calendar_notice,
+            calendar: day.calendar,
+            classes: classes.into_iter().map(dto::Occurrence::from).collect(),
+            events: day
+                .occurrences
                 .into_iter()
-                .filter(|row| row.kind == crate::schedule::OccurrenceKind::Course)
-                .map(|row| dto::ClassToday {
-                    course_id: row.course_id,
-                    code: row.subtitle,
-                    title: row.title,
-                    start_time: row.start_time,
-                    end_time: row.end_time,
-                    room: row.room,
-                })
-                .collect(),
-            events: occurrences(&workspace, &term, &iso, true)
-                .into_iter()
-                .filter(|row| row.kind == crate::schedule::OccurrenceKind::Event)
-                .map(|row| dto::EventToday {
-                    id: row.id,
-                    title: row.title,
-                    start_time: row.start_time,
-                    end_time: row.end_time,
-                    room: row.room,
-                })
+                .filter(|row| row.kind == "event")
                 .collect(),
             assignments: upcoming
                 .iter()
@@ -141,31 +139,18 @@ impl Tool for Today {
                 .map(dto::Assignment::from_row)
                 .collect::<Result<_, _>>()?,
             academic_summary: pick_all(&visible_rows(&workspace, "gpaSummary"))?,
+            problems: problems(&workspace),
             date: iso,
             term,
         })
     }
 }
 
-/// What is actually held on `date`, after holidays, replacement days and
-/// the quarter's teaching ranges; personal events only when asked.
-fn occurrences(
-    workspace: &Value,
-    term: &str,
-    date: &str,
-    include_personal: bool,
-) -> Vec<crate::schedule::Occurrence> {
-    // A date the calendar cannot place answers with nothing held.
-    crate::schedule::occurrences_on_date(
-        workspace,
-        term,
-        date,
-        crate::schedule::AgendaOptions {
-            include_personal,
-            ..crate::schedule::AgendaOptions::default()
-        },
-    )
-    .unwrap_or_default()
+fn problems(workspace: &Value) -> Vec<dto::ScheduleProblem> {
+    crate::schedule::schedule_problems(workspace)
+        .into_iter()
+        .map(dto::ScheduleProblem::from)
+        .collect()
 }
 
 pub(super) struct Schedule;
@@ -184,22 +169,27 @@ pub(super) struct DateRange {
 pub(super) struct ScheduleAnswer {
     from: String,
     to: String,
-    courses: Vec<dto::Course>,
-    intensive_schedules: Vec<dto::IntensiveSchedule>,
-    events: Vec<dto::Event>,
+    /// Every date of the range, in order.
+    days: Vec<dto::Day>,
+    /// Stored plans or overrides Core could not apply. The days are computed
+    /// without them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    problems: Vec<dto::ScheduleProblem>,
 }
 
 impl Tool for Schedule {
     const NAME: &'static str = "schedule";
-    const DESCRIPTION: &'static str = "Registered or planned courses of the quarters in an inclusive date range (at most 366 days), intensive dates and the weekly personal events of those quarters.";
+    const DESCRIPTION: &'static str = "What actually happens on each date of an inclusive range (at most 366 days), as the app's calendar shows it: classes after holidays, replacement days, cancellations, moved or edited sessions and the person's exam and quiz marks; published exams; and weekly personal events. Cancelled classes stay in the answer, marked cancelled. For the weekly templates of a quarter use `courses`.";
     const EFFECT: Effect = Effect::Read;
     const READS: &'static [W] = &[
         W::Courses,
         W::Registrations,
         W::Finder,
         W::Calendar,
+        W::Exams,
         W::Plans,
         W::Events,
+        W::Subscriptions,
         W::Settings,
     ];
     type Args = DateRange;
@@ -212,38 +202,21 @@ impl Tool for Schedule {
         if !(0..=365).contains(&(to - from).num_days()) {
             return Err("date range must be ordered and no longer than 366 days".into());
         }
-        let (workspace, _) = cx.view()?;
-        let mut terms = BTreeSet::new();
-        let mut cursor = from;
-        while cursor <= to {
-            terms.insert(fallback_term(cursor));
-            cursor += chrono::Duration::days(1);
-        }
-        let date = |row: &Value, key: &str| {
-            text(row, key)
-                .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
-        };
-        let courses = terms
-            .iter()
-            .flat_map(|term| crate::schedule::scheduled_courses(&workspace, term))
-            .collect::<Vec<_>>();
-        let intensive = visible_rows(&workspace, "intensiveSchedules")
-            .into_iter()
-            .filter(|row| {
-                matches!((date(row, "from"), date(row, "to")),
-                    (Some(start), Some(end)) if start <= to && end >= from)
-            })
-            .collect::<Vec<_>>();
-        let events = visible_rows(&workspace, "events")
-            .into_iter()
-            .filter(|row| text(row, "termId").is_some_and(|term| terms.contains(term)))
-            .collect::<Vec<_>>();
+        let (workspace, school) = cx.view()?;
+        let days = crate::schedule::calendar_between(
+            &workspace,
+            &school,
+            &from.to_string(),
+            &to.to_string(),
+        )?;
         Ok(ScheduleAnswer {
             from: from.to_string(),
             to: to.to_string(),
-            courses: pick_all(&courses)?,
-            intensive_schedules: pick_all(&intensive)?,
-            events: pick_all(&events)?,
+            days: days
+                .into_iter()
+                .map(dto::Day::from_agenda)
+                .collect::<Result<_, _>>()?,
+            problems: problems(&workspace),
         })
     }
 }
@@ -260,11 +233,13 @@ pub(super) struct QuarterArgs {
 #[derive(Serialize, JsonSchema)]
 pub(super) struct CoursesAnswer {
     courses: Vec<dto::Course>,
+    /// The quarter's weekly personal events.
+    events: Vec<dto::Event>,
 }
 
 impl Tool for Courses {
     const NAME: &'static str = "courses";
-    const DESCRIPTION: &'static str = "Registered or planned courses for one academic quarter.";
+    const DESCRIPTION: &'static str = "The weekly templates of one academic quarter: registered or planned courses with their meetings, and weekly personal events. A template does not say what is held on a date; `schedule` does.";
     const EFFECT: Effect = Effect::Read;
     const READS: &'static [W] = &[
         W::Courses,
@@ -272,6 +247,7 @@ impl Tool for Courses {
         W::Finder,
         W::Calendar,
         W::Plans,
+        W::Events,
         W::Settings,
     ];
     type Args = QuarterArgs;
@@ -281,8 +257,50 @@ impl Tool for Courses {
         let term = format!("{}-{}", args.year, args.quarter.as_str());
         parse_term(&term)?;
         let (workspace, _) = cx.view()?;
+        let events = visible_rows(&workspace, "events")
+            .into_iter()
+            .filter(|row| text(row, "termId") == Some(term.as_str()))
+            .collect::<Vec<_>>();
         Ok(CoursesAnswer {
             courses: pick_all(&crate::schedule::scheduled_courses(&workspace, &term))?,
+            events: pick_all(&events)?,
+        })
+    }
+}
+
+pub(super) struct Exams;
+
+#[derive(Serialize, JsonSchema)]
+pub(super) struct ExamsAnswer {
+    exams: Vec<dto::Exam>,
+}
+
+impl Tool for Exams {
+    const NAME: &'static str = "exams";
+    const DESCRIPTION: &'static str = "Every exam and quiz of one academic quarter, from the unified exam list: the exam timetable with the person's corrections and links, and the class sessions the person marked as an exam or quiz. Entries without a time or a course are included.";
+    const EFFECT: Effect = Effect::Read;
+    const READS: &'static [W] = &[
+        W::Courses,
+        W::Registrations,
+        W::Finder,
+        W::Calendar,
+        W::Exams,
+        W::Plans,
+        W::Subscriptions,
+        W::Settings,
+    ];
+    type Args = QuarterArgs;
+    type Output = ExamsAnswer;
+
+    fn run(cx: &Context<'_>, args: QuarterArgs) -> Result<ExamsAnswer, AgentError> {
+        let term = format!("{}-{}", args.year, args.quarter.as_str());
+        parse_term(&term)?;
+        let (workspace, school) = cx.view()?;
+        Ok(ExamsAnswer {
+            exams: crate::schedule::exam_views(&workspace, &school, &term)
+                .into_iter()
+                .map(dto::Exam::from)
+                .collect(),
         })
     }
 }

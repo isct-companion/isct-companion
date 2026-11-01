@@ -202,15 +202,15 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
     )
     .await;
     assert!(created["result"]["structuredContent"]["id"].is_string());
-    let schedule = rpc(
+    let templates = rpc(
         &client,
         &connection,
         "tools/call",
-        call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"})),
+        call("courses", json!({"year":2026,"quarter":"3Q"})),
     )
     .await;
     assert_eq!(
-        schedule["result"]["structuredContent"]["events"][0]["title"],
+        templates["result"]["structuredContent"]["events"][0]["title"],
         "HTTP fixture"
     );
     let denied = rpc(
@@ -325,12 +325,12 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
         .await
         .unwrap();
     assert_eq!(permits.available_permits(), 1);
-    let schedule = fixture
+    let templates = fixture
         .core
         .agent
-        .call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"}))
+        .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
-    assert_eq!(schedule["events"][0]["title"], "Still committed");
+    assert_eq!(templates["events"][0]["title"], "Still committed");
     fixture.core.shutdown().await;
 }
 

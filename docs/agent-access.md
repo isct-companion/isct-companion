@@ -36,15 +36,39 @@ Every answer is a JSON object, returned as text and as structured content. A
 failure is an error result whose text is `{"code", "message"}`; `code` is one
 of Core's stable error codes, such as `agent-disabled` or `invalid-input`.
 
-Read tools carry `readOnlyHint` and answer from the local database: today's
-classes, events and open assignments (`today`), the courses and dates of a
-range or quarter (`schedule`, `courses`), one course with its LMS items and
-assignments (`course`), the local course catalog (`search_catalog`), and the
-imported registration, grade, GPA, requirement and recommended-course records.
-They name the fields they return, so sync bookkeeping never reaches a client,
-and school HTML (assignment instructions, LMS pages) arrives as plain text.
-The server never exposes credentials, cookies, sessions or account and cloud
-settings.
+Read tools carry `readOnlyHint` and answer from the local database, through
+the same read models the app's screens use, so a person's own changes reach an
+agent exactly as they reach the app:
+
+- `schedule(from, to)` answers what actually happens on each date, as the
+  calendar draws it: holidays and replacement days applied, the person's
+  cancellations, moved or edited sessions and exam or quiz marks applied,
+  published exams merged, weekly personal events included. Cancelled classes
+  stay in the answer, marked `cancelled`. Each session carries its own `key`.
+- `today` answers today the same way, and counts classes as the app's Today
+  does: classes, exams and quizzes held, cancelled ones left out; plus open
+  and recently overdue assignments and the GPA summary.
+- `exams(year, quarter)` lists every exam and quiz of a quarter from the
+  unified exam list: the exam timetable with the person's corrections and
+  links, and the sessions they marked. Entries without a time or a course are
+  listed although the calendar cannot place them.
+- `courses(year, quarter)` gives the quarter's weekly templates: courses with
+  their meetings (and the dates and quarters each meeting is valid for) and
+  weekly personal events. A template does not say what is held on a date;
+  `schedule` does.
+- `course` (one course with its LMS items and assignments), `search_catalog`,
+  and the imported registration, grade, GPA, requirement and
+  recommended-course records.
+
+A stored plan or override Core cannot apply is left out of the computation
+and listed under `problems` in `schedule` and `today`, so an answer is never
+silently missing something; a schedule that cannot be computed at all is an
+error, never an empty day.
+
+Tools name the fields they return, so sync bookkeeping and screen-only details
+(colours, grid positions) never reach a client, and school HTML (assignment
+instructions, LMS pages) arrives as plain text. The server never exposes
+credentials, cookies, sessions or account and cloud settings.
 
 Assignment tools work on the same workspace folders as the app, under the
 course storage root chosen in Settings: `assignment(assignmentId)` reads one
