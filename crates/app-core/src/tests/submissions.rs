@@ -157,7 +157,7 @@ fn lms_writes(store: &DataStore, allowed: bool) {
     store
         .put_workspace_setting(
             "devicePreferences",
-            json!({"agentAccess": {"enabled": true, "lmsWrites": allowed, "lastWrites": []}}),
+            json!({"agentAccess": {"enabled": true, "lmsWrites": allowed}}),
         )
         .unwrap();
 }

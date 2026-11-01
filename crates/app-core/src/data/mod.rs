@@ -706,37 +706,6 @@ fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
         .unwrap_or(false))
 }
 
-#[cfg(feature = "agent")]
-fn record_agent_write_in(
-    transaction: &rusqlite::Transaction<'_>,
-    tool: &str,
-) -> Result<(), DataError> {
-    let key = if read_setting(transaction, "devicePreferences")?.is_some() {
-        "devicePreferences"
-    } else {
-        "settings"
-    };
-    let mut settings = read_setting(transaction, key)?.unwrap_or_else(|| json!({}));
-    let object = settings
-        .as_object_mut()
-        .ok_or_else(|| "settings must be an object".to_string())?;
-    let access = object
-        .entry("agentAccess")
-        .or_insert_with(|| json!({"enabled":false,"lastWrites":[]}));
-    let writes = access
-        .as_object_mut()
-        .and_then(|access| {
-            access
-                .entry("lastWrites")
-                .or_insert_with(|| json!([]))
-                .as_array_mut()
-        })
-        .ok_or_else(|| "agent access history must be an array".to_string())?;
-    writes.insert(0, json!({"at": now(), "tool": tool}));
-    writes.truncate(20);
-    save_setting(transaction, key, &settings, "mcp").map(|_| ())
-}
-
 /// Device identity, settings and built-in tasks a new or reset database needs.
 fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
     let existing_device_id = read_setting(transaction, "deviceId")?;
@@ -1012,7 +981,6 @@ impl DataStore {
     #[cfg(feature = "agent")]
     pub(crate) fn agent_write<T>(
         &self,
-        tool: &str,
         action: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value) -> Result<T, DataError>,
     ) -> Result<T, AgentWriteError> {
         let source = WorkspaceChangeSource::Mcp;
@@ -1025,9 +993,7 @@ impl DataStore {
                 transaction,
                 actor: source.actor(),
             };
-            let result = action(&write, &current)?;
-            record_agent_write_in(transaction, tool)?;
-            Ok(result)
+            Ok(action(&write, &current)?)
         })
     }
 

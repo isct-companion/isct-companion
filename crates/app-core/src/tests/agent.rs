@@ -15,10 +15,7 @@ impl Fixture {
         std::fs::create_dir_all(&root).unwrap();
         let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         store
-            .put_workspace_setting(
-                "devicePreferences",
-                json!({"agentAccess":{"enabled":true,"lastWrites":[]}}),
-            )
+            .put_workspace_setting("devicePreferences", json!({"agentAccess":{"enabled":true}}))
             .unwrap();
         let notes = crate::notes::NoteStore::default();
         notes.at(root.join("files"));
@@ -60,7 +57,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn trace_keeps_validation_write_audit_and_read_shape_together() {
+fn trace_keeps_validation_write_and_read_shape_together() {
     let fixture = Fixture::new();
     let service = fixture.service();
     let created = service
@@ -84,15 +81,6 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
     assert_eq!(schedule["events"][0]["room"], "W9");
     assert_eq!(schedule["events"][0]["endTime"], "10:00");
     assert!(schedule["events"][0].get("rev").is_none());
-
-    let workspace = fixture.store.load_workspace().unwrap();
-    let writes = workspace
-        .pointer("/settings/agentAccess/lastWrites")
-        .and_then(Value::as_array)
-        .unwrap();
-    assert_eq!(writes.len(), 2);
-    assert_eq!(writes[0]["tool"], "weekly_event_update");
-    assert_eq!(writes[1]["tool"], "weekly_event_create");
 }
 
 #[test]
@@ -135,7 +123,7 @@ fn weekly_event_tools_meet_the_editor_rules_and_invalid_writes_do_not_commit() {
     // Writers that bypass the shared save meet the same contract.
     let error = fixture
         .store
-        .agent_write("weekly_event_create", |write, _| {
+        .agent_write(|write, _| {
             write.put(
                 "personal_events",
                 json!({"kind":"event","termId":"2026-3Q","title":"Raw","room":"","days":[],"startTime":"09:00","endTime":"10:00"}),
@@ -184,7 +172,7 @@ fn closed_access_and_unknown_calls_fail_before_mutation() {
         .store
         .put_workspace_setting(
             "devicePreferences",
-            json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
+            json!({"agentAccess":{"enabled":false}}),
         )
         .unwrap();
     assert!(matches!(
@@ -273,45 +261,16 @@ fn transaction_rechecks_revoked_access_before_running_the_write() {
         .store
         .put_workspace_setting(
             "devicePreferences",
-            json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
+            json!({"agentAccess":{"enabled":false}}),
         )
         .unwrap();
     let ran = std::cell::Cell::new(false);
-    let result = fixture.store.agent_write("weekly_event_create", |_, _| {
+    let result = fixture.store.agent_write(|_, _| {
         ran.set(true);
         Ok(())
     });
     assert!(matches!(result, Err(AgentWriteError::Disabled)));
     assert!(!ran.get());
-}
-
-#[test]
-fn rejected_audit_rolls_back_every_row_of_plan_add() {
-    let fixture = Fixture::new();
-    fixture.seed_offering();
-    let connection = fixture.store.test_connection();
-    connection
-        .execute_batch(
-            "CREATE TRIGGER reject_mcp_audit BEFORE UPDATE ON settings
-             WHEN NEW.updated_by='mcp' BEGIN SELECT RAISE(ABORT, 'audit rejected'); END;",
-        )
-        .unwrap();
-    drop(connection);
-
-    let error = fixture
-        .service()
-        .call(
-            "plan_add",
-            json!({"offeringId":"202612345","term":"2026-3Q"}),
-        )
-        .unwrap_err();
-    assert!(matches!(error, AgentError::Storage(_)));
-    assert!(fixture
-        .store
-        .user_rows("manual_courses")
-        .unwrap()
-        .is_empty());
-    assert!(fixture.store.user_rows("plan_items").unwrap().is_empty());
 }
 
 #[test]

@@ -2473,8 +2473,7 @@ they may hand test files in to and withdraw (no cut-off passed).
 **Where to look**
 
 Claude Code's confirmation prompts and tool results, the assignment's
-LMS page in the app (status, file names, sizes, last modified), and
-Settings → AI agent access → Recent agent changes.
+LMS page in the app (status, file names, sizes, last modified).
 
 **Expected**
 

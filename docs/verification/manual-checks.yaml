@@ -2018,8 +2018,7 @@ checks:
           test files handed in.
     observe: |
       Claude Code's confirmation prompts and tool results, the assignment's
-      LMS page in the app (status, file names, sizes, last modified), and
-      Settings → AI agent access → Recent agent changes.
+      LMS page in the app (status, file names, sizes, last modified).
     expected: |
       With the switch off the save is refused as lms-writes-disabled. With it
       on, Claude Code asks before submission_save and submission_remove even

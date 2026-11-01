@@ -161,8 +161,7 @@
       "autoCleanDays": 30,
       "appearance": "system",
       "agentAccess": {
-        "enabled": false,
-        "lastWrites": []
+        "enabled": false
       },
       "density": "comfortable",
       "locale": "en",

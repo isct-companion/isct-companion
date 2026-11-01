@@ -1,4 +1,4 @@
-import { History, Server, ServerOff } from "lucide-react";
+import { Server, ServerOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
@@ -12,7 +12,6 @@ import {
   SettingsHeader,
   Toggle,
 } from "../../components/forms";
-import { formatDay } from "./subscription-status";
 
 /** Local MCP server for AI agents (see docs/agent-access.md). */
 export function AgentSettings({
@@ -50,9 +49,6 @@ export function AgentSettings({
       .then(() => notify(t("settings.credentialImport.copied")))
       .catch(() => notify(t("settings.otp.copyFailed")));
   const access = data.settings.agentAccess;
-  const writes = [...(access?.lastWrites ?? [])]
-    .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, 8);
   return (
     <>
       <SettingsHeader title="settings.agent.aiAgentAccess" />
@@ -66,10 +62,7 @@ export function AgentSettings({
             checked={access?.enabled === true}
             onChange={(enabled) =>
               update((draft) => {
-                draft.settings.agentAccess ??= {
-                  enabled: false,
-                  lastWrites: [],
-                };
+                draft.settings.agentAccess ??= { enabled: false };
                 draft.settings.agentAccess.enabled = enabled;
                 return draft;
               })
@@ -87,10 +80,7 @@ export function AgentSettings({
               checked={access.lmsWrites === true}
               onChange={(lmsWrites) =>
                 update((draft) => {
-                  draft.settings.agentAccess ??= {
-                    enabled: false,
-                    lastWrites: [],
-                  };
+                  draft.settings.agentAccess ??= { enabled: false };
                   draft.settings.agentAccess.lmsWrites = lmsWrites;
                   return draft;
                 })
@@ -143,29 +133,6 @@ export function AgentSettings({
               {connection?.state === "failed"
                 ? `${t("settings.agent.mcpServerIsUnavailable")} ${connection.error}`
                 : t("common.loading")}
-            </EmptyState>
-          )}
-        </SettingsGroup>
-      )}
-      {(access?.enabled || writes.length > 0) && (
-        <SettingsGroup title="settings.agent.recentAgentChanges">
-          {writes.length ? (
-            <div className="logList">
-              {writes.map((write, index) => (
-                <div key={`${write.at}-${index}`}>
-                  <b>{write.tool}</b>
-                  <span>
-                    {formatDay(write.at, data.settings.locale, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState compact icon={History}>
-              {t("settings.agent.noChangesByAgentsYet")}
             </EmptyState>
           )}
         </SettingsGroup>

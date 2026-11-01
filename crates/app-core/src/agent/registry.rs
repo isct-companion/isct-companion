@@ -15,7 +15,7 @@ pub enum Effect {
     /// Reads; changes nothing.
     Read,
     /// Changes the person's own local data (plans, weekly events, hidden
-    /// assignments), audited in the same transaction.
+    /// assignments).
     LocalWrite,
     /// Changes the school's LMS: hands work in or removes it. Needs the
     /// person's LMS switch, and asks every client to confirm with the person

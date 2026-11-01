@@ -1985,7 +1985,7 @@ async function mountAgent(
   handle: Handler,
 ): Promise<MountedApp> {
   const workspace = workspaceFixture();
-  workspace.settings.agentAccess = { enabled, lastWrites: [] };
+  workspace.settings.agentAccess = { enabled };
   const mounted = await mountSettings(paths.settings("agent"), {
     workspace,
     handle,

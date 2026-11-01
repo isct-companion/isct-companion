@@ -63,9 +63,10 @@ Write tools change only the person's own data on this device: the plan
 `destructiveHint`; those safe to repeat carry `idempotentHint`.
 
 Writes pass through the same validation and versioned store as the
-application. Each write and its audit entry commit in one transaction, with
-access checked again inside it; records with a source are marked
-`source.provider: "mcp"`, and Settings → AI agent access lists recent writes.
+application. Each write commits in one transaction, with access checked
+again inside it, and records with a source are marked
+`source.provider: "mcp"`. The app keeps no history of agent calls; the MCP
+client shows its own.
 The server returns the local result while cloud capture stays owned background
 work. If the connection breaks before a reply, read the current state before
 retrying a create.

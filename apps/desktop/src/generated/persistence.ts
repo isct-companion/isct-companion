@@ -463,15 +463,12 @@ export type CourseOverride = {
   deletedAt?: string;
 };
 
-export type AgentWrite = { at: string; tool: string };
-
 export type AgentAccess = {
   enabled: boolean;
   /**
    * "Allow AI agents to write to LMS"; absent reads as off.
    */
   lmsWrites?: boolean;
-  lastWrites: Array<AgentWrite>;
 };
 
 export type Notifications = {
@@ -2207,7 +2204,6 @@ export const EMPTY_WORKSPACE: Workspace = {
   settings: {
     agentAccess: {
       enabled: false,
-      lastWrites: [],
       lmsWrites: false,
     },
     appearance: "system",

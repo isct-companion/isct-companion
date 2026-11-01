@@ -213,11 +213,6 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         schedule["result"]["structuredContent"]["events"][0]["title"],
         "HTTP fixture"
     );
-    assert_eq!(
-        fixture.core.store.load_workspace().unwrap()["settings"]["agentAccess"]["lastWrites"][0]
-            ["tool"],
-        "weekly_event_create"
-    );
     let denied = rpc(
         &client,
         &connection,
@@ -330,11 +325,6 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
         .await
         .unwrap();
     assert_eq!(permits.available_permits(), 1);
-    let snapshot = fixture.core.store.load_workspace().unwrap();
-    assert_eq!(
-        snapshot["settings"]["agentAccess"]["lastWrites"][0]["tool"],
-        "weekly_event_create"
-    );
     let schedule = fixture
         .core
         .agent

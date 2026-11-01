@@ -98,11 +98,9 @@ pub(super) struct WriteArgs {
     summary: SubmissionSummary,
 }
 
-/// Executes a confirmed preparation of `action`, and lists the call among
-/// the person's recent agent changes once the write exists.
+/// Executes a confirmed preparation of `action`.
 fn execute(
     cx: &Context<'_>,
-    tool: &'static str,
     action: SubmissionAction,
     args: WriteArgs,
 ) -> Result<SubmissionOperation, AgentError> {
@@ -121,12 +119,6 @@ fn execute(
         preparation_id: id.to_owned(),
         summary: args.summary,
     }))?;
-    // The write happened whatever this audit entry does; failing the call
-    // now would invite a retry.
-    if let Err(error) = cx.store.agent_write(tool, |_, _| Ok(())) {
-        let error = AgentError::from(error);
-        log::warn!(target: "app_core::agent", "{tool} was not added to recent agent changes: {error}");
-    }
     Ok(operation)
 }
 
@@ -140,7 +132,7 @@ impl Tool for SubmissionSave {
     type Output = SubmissionOperation;
 
     fn run(cx: &Context<'_>, args: WriteArgs) -> Result<SubmissionOperation, AgentError> {
-        execute(cx, Self::NAME, SubmissionAction::Save, args)
+        execute(cx, SubmissionAction::Save, args)
     }
 }
 
@@ -154,7 +146,7 @@ impl Tool for SubmissionRemove {
     type Output = SubmissionOperation;
 
     fn run(cx: &Context<'_>, args: WriteArgs) -> Result<SubmissionOperation, AgentError> {
-        execute(cx, Self::NAME, SubmissionAction::Remove, args)
+        execute(cx, SubmissionAction::Remove, args)
     }
 }
 

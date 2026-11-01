@@ -39,9 +39,10 @@ const PREPARATION_TTL: i64 = 60 * 60;
 /// has had this long to finish it; until then it stays unknown and blocks
 /// new writes to the assignment.
 const SETTLE_AFTER: i64 = 3 * 60;
-/// Settled writes stay as receipts this long, so a repeated execute finds
-/// the write it repeats.
-const RECEIPT_RETENTION: i64 = 14 * 24 * 60 * 60;
+/// Settled writes stay as receipts only while their preparation could still
+/// be executed, so a repeated execute finds the write it repeats; the ledger
+/// keeps no history beyond that.
+const RECEIPT_RETENTION: i64 = PREPARATION_TTL;
 /// Hex characters of each sha256 the confirmation shows.
 const DIGEST_PREFIX: usize = 12;
 
