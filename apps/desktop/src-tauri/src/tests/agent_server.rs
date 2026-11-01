@@ -163,6 +163,15 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
     assert_eq!(delete_tool["annotations"]["readOnlyHint"], false);
     assert_eq!(delete_tool["annotations"]["destructiveHint"], true);
     assert_eq!(delete_tool["inputSchema"]["additionalProperties"], false);
+    assert!(delete_tool.get("_meta").is_none());
+    // An LMS write reaches the school and asks the person every time.
+    let save_tool = listed_tool("submission_save");
+    assert_eq!(save_tool["annotations"]["destructiveHint"], true);
+    assert_eq!(save_tool["annotations"]["openWorldHint"], true);
+    assert_eq!(
+        save_tool["_meta"]["anthropic/requiresUserInteraction"],
+        true
+    );
     let grades = rpc(
         &client,
         &connection,
@@ -193,21 +202,16 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
     )
     .await;
     assert!(created["result"]["structuredContent"]["id"].is_string());
-    let schedule = rpc(
+    let templates = rpc(
         &client,
         &connection,
         "tools/call",
-        call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"})),
+        call("courses", json!({"year":2026,"quarter":"3Q"})),
     )
     .await;
     assert_eq!(
-        schedule["result"]["structuredContent"]["events"][0]["title"],
+        templates["result"]["structuredContent"]["events"][0]["title"],
         "HTTP fixture"
-    );
-    assert_eq!(
-        fixture.core.store.load_workspace().unwrap()["settings"]["agentAccess"]["lastWrites"][0]
-            ["tool"],
-        "weekly_event_create"
     );
     let denied = rpc(
         &client,
@@ -321,17 +325,12 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
         .await
         .unwrap();
     assert_eq!(permits.available_permits(), 1);
-    let snapshot = fixture.core.store.load_workspace().unwrap();
-    assert_eq!(
-        snapshot["settings"]["agentAccess"]["lastWrites"][0]["tool"],
-        "weekly_event_create"
-    );
-    let schedule = fixture
+    let templates = fixture
         .core
         .agent
-        .call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"}))
+        .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
-    assert_eq!(schedule["events"][0]["title"], "Still committed");
+    assert_eq!(templates["events"][0]["title"], "Still committed");
     fixture.core.shutdown().await;
 }
 

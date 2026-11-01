@@ -1,6 +1,6 @@
 //! Tools that change the person's own local data: the plan, weekly personal
 //! events and locally hidden assignments. Each write runs in one
-//! transaction with its audit entry and rechecks agent access there.
+//! transaction and rechecks agent access there.
 use super::reads::IdArgs;
 use super::registry::{Effect, Tool};
 use super::{non_empty, parse_term, text, visible_rows, AgentError, Context};
@@ -45,7 +45,7 @@ impl Tool for PlanAdd {
         if cx.store.catalog_offering(offering_id)?.is_none() {
             return Err("offering was not found in the local catalog".into());
         }
-        Ok(cx.store.agent_write(Self::NAME, |write, latest_workspace| {
+        Ok(cx.store.agent_write(|write, latest_workspace| {
             let offering = write.catalog_offering(offering_id)?.ok_or_else(|| {
                 DataError::InvalidInput("offering is no longer available in the local catalog".into())
             })?;
@@ -189,7 +189,7 @@ impl Tool for PlanRemove {
         let offering_id = non_empty(&args.offering_id, "offeringId")?;
         let term = non_empty(&args.term, "term")?;
         parse_term(term)?;
-        let removed = cx.store.agent_write(Self::NAME, |write, _| {
+        let removed = cx.store.agent_write(|write, _| {
             let mut removed = 0;
             for row in write.rows("plan_items")? {
                 if text(&row, "offeringId") == Some(offering_id)
@@ -254,7 +254,7 @@ impl Tool for WeeklyEventCreate {
             "endTime": non_empty(&event.end_time, "endTime")?,
             "room": event.room,
         });
-        let id = cx.store.agent_write(Self::NAME, |write, current| {
+        let id = cx.store.agent_write(|write, current| {
             crate::workspace::save_event(write, current, &draft, term, None)
         })?;
         Ok(EventWritten { id })
@@ -294,7 +294,7 @@ impl Tool for WeeklyEventUpdate {
 
     fn run(cx: &Context<'_>, change: EventChange) -> Result<EventWritten, AgentError> {
         let id = non_empty(&change.id, "id")?;
-        cx.store.agent_write(Self::NAME, |write, current| {
+        cx.store.agent_write(|write, current| {
             let mut row = live_event(current, id)?;
             let fields = [
                 ("title", change.title.clone().map(Value::from)),
@@ -328,7 +328,7 @@ impl Tool for WeeklyEventDelete {
 
     fn run(cx: &Context<'_>, IdArgs { id }: IdArgs) -> Result<EventWritten, AgentError> {
         let id = non_empty(&id, "id")?;
-        cx.store.agent_write(Self::NAME, |write, current| {
+        cx.store.agent_write(|write, current| {
             live_event(current, id)?;
             crate::workspace::delete_event(write, current, id)
         })?;
@@ -354,12 +354,11 @@ pub(super) struct AssignmentMarked {
 
 fn mark_assignment(
     cx: &Context<'_>,
-    tool: &'static str,
     id: &str,
     hidden: bool,
 ) -> Result<AssignmentMarked, AgentError> {
     let id = non_empty(id, "id")?;
-    cx.store.agent_write(tool, |write, current| {
+    cx.store.agent_write(|write, current| {
         crate::workspace::set_assignment_mark(write, current, id, Some(hidden), None, None)
     })?;
     Ok(AssignmentMarked {
@@ -379,7 +378,7 @@ impl Tool for HideAssignment {
     type Output = AssignmentMarked;
 
     fn run(cx: &Context<'_>, IdArgs { id }: IdArgs) -> Result<AssignmentMarked, AgentError> {
-        mark_assignment(cx, Self::NAME, &id, true)
+        mark_assignment(cx, &id, true)
     }
 }
 
@@ -394,6 +393,6 @@ impl Tool for RestoreAssignment {
     type Output = AssignmentMarked;
 
     fn run(cx: &Context<'_>, IdArgs { id }: IdArgs) -> Result<AssignmentMarked, AgentError> {
-        mark_assignment(cx, Self::NAME, &id, false)
+        mark_assignment(cx, &id, false)
     }
 }

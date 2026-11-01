@@ -17,6 +17,7 @@ macro_rules! codes {
         /// failure a person acts on differently gets a new code.
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+        #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
         pub enum ErrorCode {
             $(#[serde(rename = $name)] $variant,)*
         }
@@ -100,6 +101,20 @@ codes! {
     GuideTooManyCourses => "guide-too-many-courses",
     LogsUnavailable => "logs-unavailable",
     LmsNotEnrolled => "lms-not-enrolled",
+    SubmissionUnsupported => "submission-unsupported",
+    SubmissionLimit => "submission-limit",
+    SubmissionRemoteNotEmpty => "submission-remote-not-empty",
+    SubmissionNothingToRemove => "submission-nothing-to-remove",
+    SubmissionRemoteConflict => "submission-remote-conflict",
+    SubmissionAccountChanged => "submission-account-changed",
+    SubmissionFilesChanged => "submission-files-changed",
+    SubmissionConfirmationMismatch => "submission-confirmation-mismatch",
+    SubmissionExpired => "submission-expired",
+    SubmissionInProgress => "submission-in-progress",
+    SubmissionOutcomeUnknown => "submission-outcome-unknown",
+    SubmissionRejected => "submission-rejected",
+    SubmissionMismatch => "submission-mismatch",
+    LmsWritesDisabled => "lms-writes-disabled",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -500,7 +515,60 @@ coded!(AgentError, |e| match e {
     AgentError::Conflict(_) => C::Conflict,
     AgentError::Compatibility(_) => C::Compatibility,
     AgentError::Storage(_) => C::Storage,
+    AgentError::Unavailable(_) => C::Unavailable,
+    AgentError::Submission(e) => e.code(),
 });
+
+#[cfg(feature = "agent")]
+coded!(crate::submissions::TransportError, |e| {
+    use crate::submissions::TransportError as E;
+    match e {
+        E::NotSent(_) | E::Uncertain(_) => C::Network,
+        E::Rejected(_) => C::SubmissionRejected,
+        E::SignInRequired => C::SignInRequired,
+    }
+});
+#[cfg(feature = "agent")]
+impl Coded for crate::submissions::SubmissionError {
+    fn code(&self) -> ErrorCode {
+        use crate::submissions::SubmissionError as E;
+        match self {
+            E::Workspace(e) => e.code(),
+            E::HandIn(e) => e.code(),
+            E::Storage(_) => C::Storage,
+            E::Input(_) => C::InvalidInput,
+            E::Transport(e) => e.code(),
+            E::Unsupported(_) => C::SubmissionUnsupported,
+            E::Limit(_) => C::SubmissionLimit,
+            E::RemoteNotEmpty { .. } => C::SubmissionRemoteNotEmpty,
+            E::NothingToRemove => C::SubmissionNothingToRemove,
+            E::RemoteConflict => C::SubmissionRemoteConflict,
+            E::AccountChanged => C::SubmissionAccountChanged,
+            E::FilesChanged => C::SubmissionFilesChanged,
+            E::ConfirmationMismatch(_) => C::SubmissionConfirmationMismatch,
+            E::Expired => C::SubmissionExpired,
+            E::InProgress => C::SubmissionInProgress,
+            E::OutcomeUnknown => C::SubmissionOutcomeUnknown,
+            E::WritesDisabled => C::LmsWritesDisabled,
+        }
+    }
+
+    fn params(&self) -> BTreeMap<&'static str, String> {
+        use crate::submissions::SubmissionError as E;
+        match self {
+            E::Unsupported(reason) => BTreeMap::from([("reason", reason.name().to_owned())]),
+            E::Limit(limit) => BTreeMap::from([("limit", limit.name().to_owned())]),
+            E::RemoteNotEmpty {
+                replaced, removed, ..
+            } => BTreeMap::from([
+                ("replaced", replaced.len().to_string()),
+                ("removed", removed.len().to_string()),
+            ]),
+            E::ConfirmationMismatch(field) => BTreeMap::from([("field", (*field).to_owned())]),
+            _ => BTreeMap::new(),
+        }
+    }
+}
 
 impl Coded for StudyProfileError {
     fn code(&self) -> ErrorCode {

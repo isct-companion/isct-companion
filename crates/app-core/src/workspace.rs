@@ -488,19 +488,18 @@ fn apply_intent(
     match intent {
         WorkspaceIntent::ReplaceSettings { mut settings } => {
             require_object(&settings, "settings")?;
-            for (parent, field) in [
-                ("/subscriptionRefresh", "lastCheckedAt"),
-                ("/agentAccess", "lastWrites"),
-            ] {
-                let owned = current
-                    .pointer(&format!("/settings{parent}/{field}"))
-                    .cloned();
-                if let Some(parent) = settings.pointer_mut(parent).and_then(Value::as_object_mut) {
-                    match owned {
-                        Some(value) => parent.insert(field.into(), value),
-                        None => parent.remove(field),
-                    };
-                }
+            // The subscription poll clock is Core's, whatever the shell sends.
+            let owned = current
+                .pointer("/settings/subscriptionRefresh/lastCheckedAt")
+                .cloned();
+            if let Some(parent) = settings
+                .pointer_mut("/subscriptionRefresh")
+                .and_then(Value::as_object_mut)
+            {
+                match owned {
+                    Some(value) => parent.insert("lastCheckedAt".into(), value),
+                    None => parent.remove("lastCheckedAt"),
+                };
             }
             write.save_settings(&settings)
         }

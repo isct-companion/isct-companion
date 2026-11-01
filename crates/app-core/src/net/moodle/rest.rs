@@ -30,14 +30,19 @@ pub(super) struct TokenTransport<'a> {
 }
 
 impl<'a> TokenTransport<'a> {
+    /// A transport whose first call obtains or loads the token.
+    pub(super) fn new(client: &'a MoodleClient) -> Self {
+        Self {
+            client,
+            relaunched: AtomicBool::new(false),
+        }
+    }
+
     /// Obtains or loads the token and proves it with `site_info`, before any
     /// fan-out, so a refused token is renewed once rather than per request.
     /// Returns the user's language.
     pub(super) async fn open(client: &'a MoodleClient) -> Result<(Self, String), MoodleError> {
-        let transport = Self {
-            client,
-            relaunched: AtomicBool::new(false),
-        };
+        let transport = Self::new(client);
         let info = transport.call(MoodleFunction::SiteInfo, &json!({})).await?;
         let language = info
             .get("lang")
@@ -56,7 +61,7 @@ impl<'a> TokenTransport<'a> {
     }
 
     /// For the `*_by_courses` getters, whose answers carry page bodies.
-    async fn call_bulk(
+    pub(super) async fn call_bulk(
         &self,
         function: MoodleFunction,
         args: &Value,

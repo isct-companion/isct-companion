@@ -463,9 +463,13 @@ export type CourseOverride = {
   deletedAt?: string;
 };
 
-export type AgentWrite = { at: string; tool: string };
-
-export type AgentAccess = { enabled: boolean; lastWrites: Array<AgentWrite> };
+export type AgentAccess = {
+  enabled: boolean;
+  /**
+   * "Allow AI agents to write to LMS"; absent reads as off.
+   */
+  lmsWrites?: boolean;
+};
 
 export type Notifications = {
   classes: boolean;
@@ -2047,7 +2051,21 @@ export type ErrorCode =
   | "matrix-unreadable"
   | "guide-too-many-courses"
   | "logs-unavailable"
-  | "lms-not-enrolled";
+  | "lms-not-enrolled"
+  | "submission-unsupported"
+  | "submission-limit"
+  | "submission-remote-not-empty"
+  | "submission-nothing-to-remove"
+  | "submission-remote-conflict"
+  | "submission-account-changed"
+  | "submission-files-changed"
+  | "submission-confirmation-mismatch"
+  | "submission-expired"
+  | "submission-in-progress"
+  | "submission-outcome-unknown"
+  | "submission-rejected"
+  | "submission-mismatch"
+  | "lms-writes-disabled";
 
 export type CoreFailure = {
   code: ErrorCode;
@@ -2186,7 +2204,7 @@ export const EMPTY_WORKSPACE: Workspace = {
   settings: {
     agentAccess: {
       enabled: false,
-      lastWrites: [],
+      lmsWrites: false,
     },
     appearance: "system",
     cloud: {

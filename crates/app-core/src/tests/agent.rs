@@ -15,10 +15,7 @@ impl Fixture {
         std::fs::create_dir_all(&root).unwrap();
         let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         store
-            .put_workspace_setting(
-                "devicePreferences",
-                json!({"agentAccess":{"enabled":true,"lastWrites":[]}}),
-            )
+            .put_workspace_setting("devicePreferences", json!({"agentAccess":{"enabled":true}}))
             .unwrap();
         let notes = crate::notes::NoteStore::default();
         notes.at(root.join("files"));
@@ -26,7 +23,7 @@ impl Fixture {
     }
 
     fn service(&self) -> AgentService {
-        AgentService::new(self.store.clone(), self.workspaces())
+        AgentService::new(self.store.clone(), self.workspaces(), Default::default())
     }
 
     fn workspaces(&self) -> AssignmentWorkspaces {
@@ -53,6 +50,59 @@ impl Fixture {
     }
 }
 
+impl Fixture {
+    /// Writes `row` into a synced table, as a sync would.
+    fn insert(&self, table: &str, mut row: Value) {
+        row["rev"] = json!(1);
+        row["updatedAt"] = json!("2026-10-01T00:00:00Z");
+        row["updatedBy"] = json!("seed");
+        let id = row["id"].as_str().unwrap().to_string();
+        self.store
+            .write(None, |transaction| {
+                transaction
+                    .execute(
+                        &format!(
+                            "INSERT INTO {table} (id,value,hash,updated_at,updated_by,rev)
+                             VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','seed',1)"
+                        ),
+                        rusqlite::params![id, row.to_string()],
+                    )
+                    .map_err(DataError::from)
+            })
+            .unwrap();
+    }
+
+    /// 2026 3Q teaches 10-01..11-20 with exams to 12-02; 4Q starts 12-07.
+    fn seed_calendar(&self) {
+        for row in [
+            json!({"id":"calendar:2026:quarter-start:3Q","academicYear":2026,"quarter":"3Q","date":"2026-10-01","type":"quarter-start","label":{"en":"start"},
+                   "teachingRanges":[{"start":"2026-10-01","end":"2026-11-20"}],"examRanges":[{"start":"2026-11-24","end":"2026-12-02"}]}),
+            json!({"id":"calendar:2026:quarter-end:3Q","academicYear":2026,"quarter":"3Q","date":"2026-12-02","type":"quarter-end","label":{"en":"end"}}),
+            json!({"id":"calendar:2026:quarter-start:4Q","academicYear":2026,"quarter":"4Q","date":"2026-12-07","type":"quarter-start","label":{"en":"start"},
+                   "teachingRanges":[{"start":"2026-12-07","end":"2027-02-05"}]}),
+            json!({"id":"calendar:2026:quarter-end:4Q","academicYear":2026,"quarter":"4Q","date":"2027-02-15","type":"quarter-end","label":{"en":"end"}}),
+        ] {
+            self.insert("academic_calendar", row);
+        }
+    }
+
+    /// Applies a workspace intent the way the app does.
+    fn intent(&self, intent: crate::workspace::WorkspaceIntent) {
+        let service = crate::workspace::WorkspaceService::new(self.store.clone());
+        service
+            .mutate_commit(crate::workspace::WorkspaceMutation {
+                expected_revision: service.revision().unwrap(),
+                intent,
+            })
+            .unwrap();
+    }
+}
+
+/// 2026-10-19, a Monday of 3Q, 09:30 in Japan.
+fn monday_morning() -> chrono::DateTime<chrono::Utc> {
+    "2026-10-19T00:30:00Z".parse().unwrap()
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
@@ -60,7 +110,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn trace_keeps_validation_write_audit_and_read_shape_together() {
+fn trace_keeps_validation_write_and_read_shape_together() {
     let fixture = Fixture::new();
     let service = fixture.service();
     let created = service
@@ -78,21 +128,12 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
         )
         .unwrap();
     assert_eq!(updated, json!({"id":id}));
-    let schedule = service
-        .call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"}))
+    let templates = service
+        .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
-    assert_eq!(schedule["events"][0]["room"], "W9");
-    assert_eq!(schedule["events"][0]["endTime"], "10:00");
-    assert!(schedule["events"][0].get("rev").is_none());
-
-    let workspace = fixture.store.load_workspace().unwrap();
-    let writes = workspace
-        .pointer("/settings/agentAccess/lastWrites")
-        .and_then(Value::as_array)
-        .unwrap();
-    assert_eq!(writes.len(), 2);
-    assert_eq!(writes[0]["tool"], "weekly_event_update");
-    assert_eq!(writes[1]["tool"], "weekly_event_create");
+    assert_eq!(templates["events"][0]["room"], "W9");
+    assert_eq!(templates["events"][0]["endTime"], "10:00");
+    assert!(templates["events"][0].get("rev").is_none());
 }
 
 #[test]
@@ -135,7 +176,7 @@ fn weekly_event_tools_meet_the_editor_rules_and_invalid_writes_do_not_commit() {
     // Writers that bypass the shared save meet the same contract.
     let error = fixture
         .store
-        .agent_write("weekly_event_create", |write, _| {
+        .agent_write(|write, _| {
             write.put(
                 "personal_events",
                 json!({"kind":"event","termId":"2026-3Q","title":"Raw","room":"","days":[],"startTime":"09:00","endTime":"10:00"}),
@@ -184,7 +225,7 @@ fn closed_access_and_unknown_calls_fail_before_mutation() {
         .store
         .put_workspace_setting(
             "devicePreferences",
-            json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
+            json!({"agentAccess":{"enabled":false}}),
         )
         .unwrap();
     assert!(matches!(
@@ -224,12 +265,46 @@ fn every_tool_declares_object_schemas_and_its_effect() {
         if tool.effect == Effect::Read {
             assert!(tool.idempotent && !tool.destructive, "{}", tool.name);
         }
+        // Whatever a client's approval mode, an LMS write asks the person.
+        let asks = tool.meta.get("anthropic/requiresUserInteraction") == Some(&json!(true));
+        assert_eq!(asks, tool.effect == Effect::LmsWrite, "{}", tool.name);
+        if asks {
+            assert!(
+                tool.destructive && tool.open_world && !tool.read_only,
+                "{}",
+                tool.name
+            );
+        }
     }
+    let lms_writes = tools()
+        .iter()
+        .filter(|tool| tool.effect == Effect::LmsWrite)
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    assert_eq!(lms_writes, ["submission_save", "submission_remove"]);
     let names = tools().iter().map(|tool| tool.name).collect::<Vec<_>>();
     let mut unique = names.clone();
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(unique.len(), names.len());
+}
+
+// An LMS write tool needs its own switch on top of agent access, checked
+// before its arguments are even read; the submission tools answer
+// `unavailable` until the school transport is attached.
+#[test]
+fn lms_write_tools_need_their_own_switch() {
+    use crate::error_code::{Coded, ErrorCode};
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let refused = service
+        .call("submission_save", json!({"preparationId": "p"}))
+        .unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::LmsWritesDisabled);
+    let detached = service
+        .call("submission_status", json!({"operationId": "o"}))
+        .unwrap_err();
+    assert_eq!(detached.code(), ErrorCode::Unavailable);
 }
 
 #[test]
@@ -239,45 +314,16 @@ fn transaction_rechecks_revoked_access_before_running_the_write() {
         .store
         .put_workspace_setting(
             "devicePreferences",
-            json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
+            json!({"agentAccess":{"enabled":false}}),
         )
         .unwrap();
     let ran = std::cell::Cell::new(false);
-    let result = fixture.store.agent_write("weekly_event_create", |_, _| {
+    let result = fixture.store.agent_write(|_, _| {
         ran.set(true);
         Ok(())
     });
     assert!(matches!(result, Err(AgentWriteError::Disabled)));
     assert!(!ran.get());
-}
-
-#[test]
-fn rejected_audit_rolls_back_every_row_of_plan_add() {
-    let fixture = Fixture::new();
-    fixture.seed_offering();
-    let connection = fixture.store.test_connection();
-    connection
-        .execute_batch(
-            "CREATE TRIGGER reject_mcp_audit BEFORE UPDATE ON settings
-             WHEN NEW.updated_by='mcp' BEGIN SELECT RAISE(ABORT, 'audit rejected'); END;",
-        )
-        .unwrap();
-    drop(connection);
-
-    let error = fixture
-        .service()
-        .call(
-            "plan_add",
-            json!({"offeringId":"202612345","term":"2026-3Q"}),
-        )
-        .unwrap_err();
-    assert!(matches!(error, AgentError::Storage(_)));
-    assert!(fixture
-        .store
-        .user_rows("manual_courses")
-        .unwrap()
-        .is_empty());
-    assert!(fixture.store.user_rows("plan_items").unwrap().is_empty());
 }
 
 #[test]
@@ -486,14 +532,8 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
 #[test]
 fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
     let fixture = Fixture::new();
-    fixture.seed_offering();
+    seed_personal_schedule(&fixture);
     let service = fixture.service();
-    service
-        .call(
-            "plan_add",
-            json!({"offeringId":"202612345","term":"2026-3Q"}),
-        )
-        .unwrap();
     service
         .call(
             "weekly_event_create",
@@ -503,28 +543,48 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
         .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
     let course = courses["courses"][0]["id"].as_str().unwrap().to_string();
-    let every = || -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
+    // LMS ingest stores `folderFiles: null` for an item that is not a folder.
+    let item = json!({
+        "id":"lms-item:1", "kind":"material", "courseId":course, "session":0,
+        "title":"Announcements", "type":"link", "module":"forum",
+        "bodyHtml":"<p>News</p>", "folderFiles":null, "resourceUrl":null,
+        "visible":true, "source":{"provider":"lms"}
+    });
+    fixture
+        .store
+        .write(None, |transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO lms_items (id,value,hash,updated_at,updated_by,rev)
+                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','lms',1)",
+                    rusqlite::params!["lms-item:1", item.to_string()],
+                )
+                .map_err(DataError::from)
+        })
+        .unwrap();
+    let detail = service.call("course", json!({"id": course})).unwrap();
+    assert_eq!(detail["lmsItems"][0]["body"], "News");
+    assert!(detail["lmsItems"][0].get("folderFiles").is_none());
+    let every =|| -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
     for (name, args) in [
         ("today", json!({})),
-        ("schedule", json!({"from":"2026-10-01","to":"2026-10-31"})),
+        ("schedule", json!({"from":"2026-10-19","to":"2026-12-10"})),
+        ("exams", json!({"year":2026,"quarter":"3Q"})),
         ("courses", json!({"year":2026,"quarter":"3Q"})),
         ("course", json!({"id": course})),
         ("recommended", json!({"departmentId":"math"})),
     ] {
-        // `today` stamps the moment it answered; only that may differ.
         let tool = registry::find(name).unwrap();
         let answer = |view: &dyn Fn() -> Result<View, AgentError>| {
             let workspaces = fixture.workspaces();
             let cx = Context {
                 store: &fixture.store,
                 workspaces: &workspaces,
+                submissions: None,
                 view,
+                now: jst(monday_morning()).unwrap(),
             };
-            let mut value = tool.run(&cx, args.clone()).unwrap();
-            if let Some(map) = value.as_object_mut() {
-                map.remove("now");
-            }
-            value
+            tool.run(&cx, args.clone()).unwrap()
         };
         assert_eq!(
             answer(&|| load_view(&fixture.store, tool.reads)),
@@ -614,4 +674,159 @@ fn workspace_tools_create_once_report_submit_files_and_follow_the_root() {
         .select_root(fixture.root.join("elsewhere"), || Ok::<(), String>(()))
         .unwrap();
     assert_eq!(call("workspace_status")["exists"], false);
+}
+
+/// Seeds one planned Monday course (08:50–10:30, W1) and the person's
+/// changes to it: a quiz mark on 10-19, a cancellation on 10-26, the 11-30
+/// class moved into 4Q, a corrected published exam, a published exam no
+/// course matches, and an override with periods Core cannot apply.
+fn seed_personal_schedule(fixture: &Fixture) {
+    use crate::workspace::WorkspaceIntent::{EditExam, MarkSession, SaveScheduleOverride};
+    fixture.seed_offering();
+    fixture.seed_calendar();
+    fixture
+        .service()
+        .call(
+            "plan_add",
+            json!({"offeringId":"202612345","term":"2026-3Q"}),
+        )
+        .unwrap();
+    let key = |date: &str| format!("2026-202612345-weekly-0-{date}");
+    fixture.intent(MarkSession {
+        key: key("2026-10-19"),
+        mark: "quiz".into(),
+    });
+    fixture.intent(MarkSession {
+        key: key("2026-10-26"),
+        mark: "cancelled".into(),
+    });
+    fixture.intent(SaveScheduleOverride {
+        draft: json!({"targetKey":key("2026-11-30"),"targetKind":"course","date":"2026-12-10","hidden":false}),
+        existing_id: None,
+    });
+    let raw = json!({"schemaVersion":1,"academicYear":2026,"timezone":"Asia/Tokyo",
+        "source":[{"id":"official","title":"Exam notice","url":"https://example.com/exams.pdf"}],
+        "entries":[
+            {"id":"final","kind":"exam","status":"scheduled","quarter":"3Q","courseCode":"ABC.101","syllabusCourseId":"202612345","date":"2026-11-26","periods":[3,4],"label":{"ja":"期末","en":"Final"},"room":{"ja":"Hall","en":"Hall"},"sourceIds":["official"]},
+            {"id":"other","kind":"exam","status":"scheduled","quarter":"3Q","courseCode":"XYZ.999","date":"2026-11-27","periods":[1,2],"label":{"ja":"他","en":"Other"},"sourceIds":["official"]}
+        ]});
+    let feed = crate::subscriptions::PublishedExamFeed {
+        kind: crate::subscriptions::ExamFeedKind::Exams,
+        level: "undergraduate".into(),
+        quarter: "3q".into(),
+        url: "https://example.com/exams.json".into(),
+        feed: crate::subscriptions::validate_exam_feed(
+            &raw.to_string(),
+            2026,
+            "3q",
+            crate::subscriptions::ExamFeedKind::Exams,
+        )
+        .unwrap(),
+    };
+    fixture
+        .store
+        .write(None, |tx| crate::subscriptions::apply_exam_feed(tx, &feed))
+        .unwrap();
+    fixture.intent(EditExam {
+        exam_key: "reference:exams:2026:undergraduate:3q:final".into(),
+        date: None,
+        start_time: None,
+        end_time: None,
+        room: Some("W2".into()),
+    });
+    // Sync can bring a row the editor would refuse.
+    let broken = json!({"id":"broken","targetKey":key("2026-11-09"),"targetKind":"course","periods":[5,3],
+        "hidden":false,"title":"Broken","rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"sync"});
+    fixture
+        .store
+        .write(None, |transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO schedule_overrides (id,target_key,value,hash,updated_at,updated_by,rev)
+                     VALUES ('broken',?1,?2,'seed','2026-10-01T00:00:00Z','sync',1)",
+                    rusqlite::params![key("2026-11-09"), broken.to_string()],
+                )
+                .map_err(DataError::from)
+        })
+        .unwrap();
+}
+
+// The person's changes reach agents as they reach the app: `today` and
+// `schedule` read the calendar Core draws, `exams` the unified exam list,
+// and an override Core cannot apply is reported, not silently dropped.
+#[test]
+fn schedule_today_and_exams_carry_the_persons_changes() {
+    let fixture = Fixture::new();
+    seed_personal_schedule(&fixture);
+    let service = fixture.service().with_clock(monday_morning);
+    let schedule = service
+        .call("schedule", json!({"from":"2026-10-19","to":"2026-12-10"}))
+        .unwrap();
+    let day = |date: &str| {
+        schedule["days"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|day| day["date"] == date)
+            .unwrap()["occurrences"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let quiz = &day("2026-10-19")[0];
+    assert_eq!((&quiz["kind"], &quiz["quiz"]), (&json!("exam"), &json!(true)));
+    assert_eq!(quiz["key"], "2026-202612345-weekly-0-2026-10-19");
+    // Cancelled stays in `schedule` to explain the day, marked as such.
+    assert_eq!(day("2026-10-26")[0]["cancelled"], true);
+    // The moved class leaves its own date and lands in 4Q.
+    assert!(day("2026-11-30").is_empty());
+    let moved = &day("2026-12-10")[0];
+    assert_eq!((&moved["overridden"], &moved["termId"]), (&json!(true), &json!("2026-3Q")));
+    // The corrected published exam is on the calendar with the person's room.
+    let exam = &day("2026-11-26")[0];
+    assert_eq!((&exam["kind"], &exam["room"]), (&json!("exam"), &json!("W2")));
+    // A record Core skipped leaves the class as scheduled and is reported.
+    assert_eq!(day("2026-11-09")[0]["overridden"], json!(null));
+    assert_eq!(schedule["problems"][0]["id"], "broken");
+    // The exam no course matches cannot be placed on the calendar.
+    assert!(day("2026-11-27").is_empty());
+
+    let today = service.call("today", json!({})).unwrap();
+    assert_eq!(today["date"], "2026-10-19");
+    assert_eq!(today["classes"][0]["quiz"], true);
+    assert_eq!(today["problems"][0]["id"], "broken");
+    // Today counts as the app does: the cancelled class is not held.
+    fn next_monday() -> chrono::DateTime<chrono::Utc> {
+        "2026-10-26T00:30:00Z".parse().unwrap()
+    }
+    let cancelled = fixture
+        .service()
+        .with_clock(next_monday)
+        .call("today", json!({}))
+        .unwrap();
+    assert_eq!(cancelled["classes"], json!([]));
+
+    let exams = service
+        .call("exams", json!({"year":2026,"quarter":"3Q"}))
+        .unwrap();
+    let find = |key: &str| {
+        exams["exams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|exam| exam["key"] == key)
+            .cloned()
+            .unwrap()
+    };
+    let corrected = find("reference:exams:2026:undergraduate:3q:final");
+    assert_eq!(
+        (&corrected["room"], &corrected["source"]["room"], &corrected["edited"]),
+        (&json!("W2"), &json!("Hall"), &json!(true))
+    );
+    // Listed although the calendar cannot place it.
+    assert!(find("reference:exams:2026:undergraduate:3q:other")
+        .get("courseId")
+        .is_none());
+    let marked = find("2026-202612345-weekly-0-2026-10-19");
+    assert_eq!((&marked["kind"], &marked["origin"]), (&json!("quiz"), &json!("session")));
 }

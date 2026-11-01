@@ -684,6 +684,17 @@ fn catalog_offering_in(connection: &Connection, id: &str) -> Result<Option<Value
     .transpose()
 }
 
+/// "Allow AI agents to write to LMS": off unless agent access itself is on.
+#[cfg(feature = "agent")]
+fn lms_writes_enabled_in(connection: &Connection) -> Result<bool, DataError> {
+    Ok(read_setting(connection, "devicePreferences")?
+        .or(read_setting(connection, "settings")?)
+        .is_some_and(|value| {
+            value.pointer("/agentAccess/enabled") == Some(&Value::Bool(true))
+                && value.pointer("/agentAccess/lmsWrites") == Some(&Value::Bool(true))
+        }))
+}
+
 fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
     Ok(read_setting(connection, "devicePreferences")?
         .or(read_setting(connection, "settings")?)
@@ -693,37 +704,6 @@ fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
                 .and_then(Value::as_bool)
         })
         .unwrap_or(false))
-}
-
-#[cfg(feature = "agent")]
-fn record_agent_write_in(
-    transaction: &rusqlite::Transaction<'_>,
-    tool: &str,
-) -> Result<(), DataError> {
-    let key = if read_setting(transaction, "devicePreferences")?.is_some() {
-        "devicePreferences"
-    } else {
-        "settings"
-    };
-    let mut settings = read_setting(transaction, key)?.unwrap_or_else(|| json!({}));
-    let object = settings
-        .as_object_mut()
-        .ok_or_else(|| "settings must be an object".to_string())?;
-    let access = object
-        .entry("agentAccess")
-        .or_insert_with(|| json!({"enabled":false,"lastWrites":[]}));
-    let writes = access
-        .as_object_mut()
-        .and_then(|access| {
-            access
-                .entry("lastWrites")
-                .or_insert_with(|| json!([]))
-                .as_array_mut()
-        })
-        .ok_or_else(|| "agent access history must be an array".to_string())?;
-    writes.insert(0, json!({"at": now(), "tool": tool}));
-    writes.truncate(20);
-    save_setting(transaction, key, &settings, "mcp").map(|_| ())
 }
 
 /// Device identity, settings and built-in tasks a new or reset database needs.
@@ -989,13 +969,18 @@ impl DataStore {
         agent_access_enabled_in(&*self.open()?)
     }
 
+    /// Whether agents may write to the LMS, read at each write.
+    #[cfg(feature = "agent")]
+    pub fn lms_writes_enabled(&self) -> Result<bool, DataError> {
+        lms_writes_enabled_in(&*self.open()?)
+    }
+
     /// One agent tool's writes, on the same rules and commit path as user
     /// intents. Each row's revision is checked under this IMMEDIATE lock, and
     /// `action` reads the workspace as of that lock, not a preflight read.
     #[cfg(feature = "agent")]
     pub(crate) fn agent_write<T>(
         &self,
-        tool: &str,
         action: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value) -> Result<T, DataError>,
     ) -> Result<T, AgentWriteError> {
         let source = WorkspaceChangeSource::Mcp;
@@ -1008,9 +993,7 @@ impl DataStore {
                 transaction,
                 actor: source.actor(),
             };
-            let result = action(&write, &current)?;
-            record_agent_write_in(transaction, tool)?;
-            Ok(result)
+            Ok(action(&write, &current)?)
         })
     }
 

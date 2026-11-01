@@ -226,7 +226,7 @@ fn class(block: Occurrence, periods: &[TeachingPeriod]) -> Result<TodayClass, Sc
 }
 
 /// Classes that count for Today: courses and exams that are not cancelled.
-fn classes_on(agenda: &[Occurrence]) -> Vec<Occurrence> {
+pub(crate) fn classes_on(agenda: &[Occurrence]) -> Vec<Occurrence> {
     agenda
         .iter()
         .filter(|block| {

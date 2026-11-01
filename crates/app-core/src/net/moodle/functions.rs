@@ -1,9 +1,10 @@
-//! The closed, read-only list of Moodle functions this app calls.
+//! The closed, read-only list of Moodle functions this app reads with.
 //!
 //! The school's mobile service also grants write functions (assignment
-//! submission, `mod_ttws_*` evaluations, …). Both transports take a
-//! [`MoodleFunction`], never a function name string, so a write cannot be
-//! expressed anywhere in the client.
+//! submission, `mod_ttws_*` evaluations, …). Both read transports take a
+//! [`MoodleFunction`], never a function name string, so no read path can
+//! express a write. The submission writes are a separate closed list in
+//! `submission`, reachable only through the submission service's grant.
 
 /// One read-only Moodle external function.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
