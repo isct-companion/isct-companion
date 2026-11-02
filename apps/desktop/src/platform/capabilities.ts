@@ -12,7 +12,6 @@ export type CapabilityState = {
 export type CapabilityId =
   | "local-notifications"
   | "remote-push"
-  | "school-web-session"
   | "cloud-sync"
   | "background-sync"
   | "site-customization";
@@ -26,10 +25,6 @@ export type CapabilityRuntime = {
     backgroundSchedule: boolean;
     cloudSync: boolean;
     matrixOcr: boolean;
-  };
-  school: {
-    status: "not-configured" | "connected" | "reconnect-required" | "error";
-    lastResult?: "fresh" | "cached" | "reconnect-required" | "error";
   };
   background: { scheduler: "active" | "off" | "failed" };
   noBackendPush: true;
@@ -52,22 +47,10 @@ export function resolveCapabilities(
   "undefined"
     ? "denied"
     : Notification.permission,
-  runtime: CapabilityRuntime | boolean = false,
+  runtime?: CapabilityRuntime,
 ): Record<CapabilityId, CapabilityState> {
-  const school = typeof runtime === "object" ? runtime.school : undefined;
-  const schoolReady =
-    runtime === true ||
-    (school?.status === "connected" && school.lastResult === "fresh");
-  const schoolUnavailable =
-    school?.status === "error" ||
-    school?.lastResult === "cached" ||
-    school?.lastResult === "error";
-  const schoolExpired =
-    school?.status === "reconnect-required" ||
-    school?.lastResult === "reconnect-required";
-  const scheduler =
-    typeof runtime === "object" ? runtime.background.scheduler : "off";
-  const native = typeof runtime === "object" ? runtime.native : undefined;
+  const scheduler = runtime?.background.scheduler ?? "off";
+  const native = runtime?.native;
   const nativeAvailable = (
     key: keyof NonNullable<CapabilityRuntime["native"]>,
   ) => native?.[key] === true;
@@ -102,31 +85,6 @@ export function resolveCapabilities(
       readiness: "needs-configuration",
       reason: "capabilities.remotePushNeedsAPush",
     },
-    "school-web-session":
-      platform !== "browser-preview" && nativeAvailable("schoolImport")
-        ? {
-            support: "supported",
-            readiness: schoolReady
-              ? "ready"
-              : schoolUnavailable
-                ? "temporarily-unavailable"
-                : "needs-configuration",
-            reason: schoolReady
-              ? "capabilities.thePersistentOfficialSiteSession"
-              : schoolExpired
-                ? "capabilities.theOfficialSiteReturnedA"
-                : schoolUnavailable
-                  ? "capabilities.theLastRefreshFailedOr"
-                  : "capabilities.signInThroughAnIsolated",
-          }
-        : {
-            support: platform === "browser-preview" ? "unsupported" : "unknown",
-            readiness: "temporarily-unavailable",
-            reason:
-              platform === "browser-preview"
-                ? "capabilities.theBrowserPreviewCannotAccess"
-                : "capabilities.theNativeSchoolAdapterHas",
-          },
     "cloud-sync": {
       support:
         platform === "browser-preview" || nativeAvailable("cloudSync")

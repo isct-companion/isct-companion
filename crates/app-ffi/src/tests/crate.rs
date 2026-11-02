@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ports::{CloudObject, NativeCloud, NativeDownloadSession, NativeVault},
+    ports::{CloudObject, NativeCloud, NativeVault},
     types::*,
 };
 use serde_json::json;
@@ -12,17 +12,6 @@ use std::{
     },
 };
 static NEXT: AtomicU64 = AtomicU64::new(1);
-/// A school cookie store with nobody signed in; a browser needs one.
-struct NoCookies;
-#[async_trait::async_trait]
-impl NativeDownloadSession for NoCookies {
-    async fn cookie_header(&self, _: String) -> Result<String, SdkError> {
-        Ok(String::new())
-    }
-    async fn store_set_cookies(&self, _: String, _: Vec<String>) -> Result<(), SdkError> {
-        Ok(())
-    }
-}
 #[derive(Default)]
 struct Vault(Mutex<HashMap<String, String>>);
 impl NativeVault for Vault {
@@ -503,9 +492,10 @@ async fn callback_failure_and_worker_panic_settle_without_killing_the_process() 
         Err(SdkError::Internal { .. })
     ));
     let _ = f.revision().await;
+    // Core still answers after the worker's panic.
     assert!(matches!(
         f.session.school_session().unwrap().await_result().await,
-        Err(SdkError::Unavailable { .. })
+        Ok(OperationResult::SchoolSession { .. })
     ));
     f.finish().await;
 }
@@ -664,12 +654,12 @@ fn school_outcomes_project_into_the_generated_ffi_types() {
     let outcome = app_core::school_service::IngestOutcome {
         site: app_core::lifecycle::SchoolSite::ScienceLms,
         kind: "courses".into(),
-        state: app_core::school_service::IngestState::ReconnectRequired,
+        state: app_core::school_service::IngestState::Error,
         changed: 2,
         message: "partial result".into(),
     };
     let outcomes: Vec<IngestOutcome> = crate::json::project(vec![outcome]).unwrap();
-    assert!(matches!(outcomes[0].state, IngestState::ReconnectRequired));
+    assert!(matches!(outcomes[0].state, IngestState::Error));
     assert_eq!(outcomes[0].changed, 2);
     let unavailable: IngestOutcome =
         crate::json::project(app_core::school_service::IngestOutcome {
@@ -914,7 +904,7 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         Some(browser.clone()),
         None,
         None,
-        Some(Arc::new(NoCookies)),
+        None,
         None,
         None,
     )
@@ -929,15 +919,12 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         session.shutdown().await,
         Err(SdkError::Callback { .. })
     ));
-    let page = PageId {
-        browser: BrowserId {
-            site: SchoolSite::ScienceLms,
-            generation: 1,
-        },
-        sequence: 1,
+    let browser_id = BrowserId {
+        site: SchoolSite::ScienceLms,
+        generation: 1,
     };
     assert!(matches!(
-        events.title_changed(page, "stale page".into()),
+        events.history_changed(browser_id, true, false),
         Err(SdkError::Closed)
     ));
     drop(session);

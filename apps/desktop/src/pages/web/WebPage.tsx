@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
-import { lookup, t } from "../../i18n";
+import { t } from "../../i18n";
 import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import {
@@ -131,22 +131,6 @@ function WebBody({
     if (!editingAddress.current && addressInput.current)
       addressInput.current.scrollLeft = 0;
   }, [address]);
-
-  useEffect(() => {
-    let clear: number | undefined;
-    const dispose = desktopBridge?.onSchoolLoginStatus?.((event) => {
-      window.clearTimeout(clear);
-      if (event.state === "progress") setStatus(t("common.signingIn"));
-      else if (event.state === "connected") {
-        setStatus(t("common.signedIn"));
-        clear = window.setTimeout(() => setStatus(""), 2500);
-      } else setStatus(lookup(event.message) ?? event.message);
-    });
-    return () => {
-      dispose?.();
-      window.clearTimeout(clear);
-    };
-  }, []);
 
   useEffect(() => {
     let hide: number | undefined;

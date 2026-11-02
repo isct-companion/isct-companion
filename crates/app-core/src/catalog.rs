@@ -2,11 +2,15 @@
 //! the stored offerings the finder searches. A search never reads the
 //! network.
 use crate::course_query::OfficialFilterOption;
-use crate::net::{kyomu::KyomuClient, KeyOutcome, NetError};
-use crate::sync_engine::{KeyEnd, Lease};
+use crate::net::{
+    kyomu::{self, CatalogRows},
+    BoxFuture, KeyOutcome, NetError,
+};
+use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
+use crate::sync_engine::{net_end, session_end, KeyEnd, Lease};
 use crate::sync_state::{self, Commit, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -156,7 +160,26 @@ pub(crate) fn official_control_match(
 /// and adds only English titles and instructor names to the stored rows. A
 /// year the school does not offer yet is recorded as unavailable; stored
 /// rows stay.
-pub(crate) async fn read_official(client: &KyomuClient, lease: &Lease) -> KeyEnd {
+/// One department of the official catalog, as an operation of the 教務Web
+/// session (the English one for English titles).
+struct Department<'a> {
+    year: u16,
+    prefix: &'a str,
+}
+
+impl Operation for Department<'_> {
+    type Output = KeyOutcome<CatalogRows>;
+    type Error = NetError;
+
+    fn attempt(
+        &mut self,
+        attempt: Attempt,
+    ) -> BoxFuture<'_, Result<KeyOutcome<CatalogRows>, NetError>> {
+        Box::pin(async move { kyomu::catalog(&attempt, self.year, self.prefix).await })
+    }
+}
+
+pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> KeyEnd {
     let source = format!("{}{}", adpt_isct::kyomu::HOST, KYOMU_SEARCH_PATH);
     let (department, english) = match lease.key.key.strip_suffix("/en") {
         Some(department) => (department, true),
@@ -168,37 +191,41 @@ pub(crate) async fn read_official(client: &KyomuClient, lease: &Lease) -> KeyEnd
     else {
         return KeyEnd::failed("invalid-key", source);
     };
-    let read = if english {
-        client.catalog_english(year, &prefix).await
+    let site = if english {
+        Site::KyomuEnglish
     } else {
-        client.catalog(year, &prefix).await
+        Site::Kyomu
     };
+    let Some(permit) = sessions.permit(SchoolAuthProfile::TokyoTech) else {
+        return KeyEnd::Cancelled { source };
+    };
+    let read = sessions
+        .run(
+            site,
+            &permit,
+            lease.deadline,
+            &mut Department {
+                year,
+                prefix: &prefix,
+            },
+        )
+        .await;
     let (rows, outcome) = match read {
         Ok(KeyOutcome::Complete(rows)) => (Some(rows), Outcome::Complete),
         Ok(KeyOutcome::Unavailable(_)) => (None, Outcome::Unavailable),
-        // The search never splits a department; a split is incomplete.
-        Ok(KeyOutcome::Partial { .. }) => return KeyEnd::failed("partial", source),
-        Ok(KeyOutcome::SignInRequired) | Err(NetError::SignInRequired) => {
-            return KeyEnd::SignInRequired {
-                profile: SchoolAuthProfile::TokyoTech,
-                source,
-            }
-        }
-        Err(NetError::HostPaused { host, until_unix }) => {
-            return KeyEnd::HostPaused {
-                host,
-                until: DateTime::from_timestamp(until_unix, 0).unwrap_or_else(Utc::now),
-                notice: client.maintenance_notice(),
-                source,
-            }
-        }
-        Err(NetError::Cancelled) => return KeyEnd::Cancelled { source },
         Err(error) => {
-            log::warn!(target: "app_core::catalog", "official catalog {} failed: {error}", lease.key);
-            return KeyEnd::failed(error.kind(), source);
+            return session_end(
+                error,
+                SchoolAuthProfile::TokyoTech,
+                source.clone(),
+                |error| {
+                    log::warn!(target: "app_core::catalog", "official catalog {} failed: {error}", lease.key);
+                    net_end(error, source.clone())
+                },
+            )
         }
     };
-    if lease.is_cancelled() {
+    if lease.is_cancelled() || permit.is_cancelled() {
         return KeyEnd::Cancelled { source };
     }
     // Rows past the school's cap were not read even by quarter: the key is

@@ -203,7 +203,7 @@ describe("manual acceptance table", () => {
 
   it("rejects a recorded result that carries no evidence", () => {
     const doc = load();
-    delete doc.checks[0].verified.evidence;
+    delete doc.checks.find((check) => check.verified).verified.evidence;
     expect(validate(doc)).toContainEqual(
       expect.stringContaining("must record evidence"),
     );

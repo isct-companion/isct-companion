@@ -17,8 +17,8 @@ pub fn is_school_cookie_domain(domain: &str) -> bool {
 
 /// A URL school automation may load: HTTPS to a site with an adapter
 /// (`SchoolSite::for_url`) or a school identity provider, without embedded
-/// credentials. Hidden views, Core's page scripts and hidden downloads are
-/// bounded by this; what the person browses is not.
+/// credentials. Core's own school requests and page scripts are bounded by
+/// this; what the person browses is not.
 pub fn automation_target(raw: &str) -> Option<Url> {
     let url = Url::parse(raw).ok()?;
     let host = url.host_str()?;
@@ -155,24 +155,12 @@ pub(crate) fn is_login_step(url: &Url) -> bool {
     }
 }
 
-/// Who a view is serving right now: the person looking at it, or Core's
-/// hidden work (session checks, sign-ins, pulls). Popups take their opener's.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ViewRole {
-    User,
-    Automation,
-}
-
 /// Why a navigation or new window was refused. Every refusal is logged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DenyReason {
     /// The view (or its opener) is gone or was replaced.
     Closed,
-    /// A hidden view left the adapter sites and identity providers.
-    Automation,
-    /// A hidden view asked for a window; only the person opens windows.
-    Hidden,
     /// Plain HTTP the person did not ask for. Nothing relaxes ATS or
     /// cleartext rules; a link the person follows goes to the system browser.
     Cleartext,
@@ -239,8 +227,9 @@ fn user_action(kind: NavigationKind, gesture: bool) -> bool {
         )
 }
 
-/// The rule table for a frame navigation.
-pub(crate) fn navigation_rule(role: ViewRole, request: &NavigationRequest) -> Verdict {
+/// The rule table for a frame navigation. Every school view is the
+/// person's: Core never drives one on its own.
+pub(crate) fn navigation_rule(request: &NavigationRequest) -> Verdict {
     if let NavigationKind::FormResubmit { from_history } = request.kind {
         return match (request.main_frame, from_history) {
             (true, true) => Verdict::SkipEntry,
@@ -248,23 +237,12 @@ pub(crate) fn navigation_rule(role: ViewRole, request: &NavigationRequest) -> Ve
             (false, _) => Verdict::Deny(DenyReason::Resubmission),
         };
     }
-    match (target(&request.url), role) {
-        (Target::Local { data: true }, _) if request.main_frame => {
-            Verdict::Deny(DenyReason::Scheme)
-        }
-        (Target::Local { .. }, _) => Verdict::Allow,
-        (Target::Credentials, _) => Verdict::Deny(DenyReason::Credentials),
-        (Target::Unsupported, _) => Verdict::Deny(DenyReason::Scheme),
-        (Target::Https, ViewRole::User) => Verdict::Allow,
-        (Target::Https, ViewRole::Automation) => {
-            if automation_target(request.url.as_str()).is_some() {
-                Verdict::Allow
-            } else {
-                Verdict::Deny(DenyReason::Automation)
-            }
-        }
-        (Target::Cleartext, ViewRole::Automation) => Verdict::Deny(DenyReason::Automation),
-        (Target::Cleartext, ViewRole::User) => {
+    match target(&request.url) {
+        Target::Local { data: true } if request.main_frame => Verdict::Deny(DenyReason::Scheme),
+        Target::Local { .. } | Target::Https => Verdict::Allow,
+        Target::Credentials => Verdict::Deny(DenyReason::Credentials),
+        Target::Unsupported => Verdict::Deny(DenyReason::Scheme),
+        Target::Cleartext => {
             if request.main_frame && user_action(request.kind, request.user_gesture) {
                 Verdict::External
             } else {
@@ -275,10 +253,7 @@ pub(crate) fn navigation_rule(role: ViewRole, request: &NavigationRequest) -> Ve
 }
 
 /// The rule table for a window a page opens (`window.open`, `target=_blank`).
-pub(crate) fn new_window_rule(role: ViewRole, request: &NewWindowRequest) -> Verdict {
-    if role == ViewRole::Automation {
-        return Verdict::Deny(DenyReason::Hidden);
-    }
+pub(crate) fn new_window_rule(request: &NewWindowRequest) -> Verdict {
     match target(&request.url) {
         Target::Local { data: true } => Verdict::Deny(DenyReason::Scheme),
         Target::Local { .. } | Target::Https => Verdict::Popup,
@@ -289,19 +264,11 @@ pub(crate) fn new_window_rule(role: ViewRole, request: &NewWindowRequest) -> Ver
     }
 }
 
-/// Whether a school view may save a file: anything the person is looking
-/// at, only adapter sites from a hidden view.
-pub fn download_permitted(role: ViewRole, raw: &str) -> bool {
-    match role {
-        // Files a page builds itself (`blob:`, `data:`) included.
-        ViewRole::User => {
-            browsing_url(raw).is_some()
-                || Url::parse(raw).is_ok_and(|url| matches!(url.scheme(), "blob" | "data"))
-        }
-        ViewRole::Automation => {
-            automation_target(raw).is_some_and(|url| SchoolSite::for_url(url.as_str()).is_some())
-        }
-    }
+/// Whether a school view may save a file: anything the person can browse,
+/// files a page builds itself (`blob:`, `data:`) included.
+pub fn download_permitted(raw: &str) -> bool {
+    browsing_url(raw).is_some()
+        || Url::parse(raw).is_ok_and(|url| matches!(url.scheme(), "blob" | "data"))
 }
 
 #[cfg(test)]

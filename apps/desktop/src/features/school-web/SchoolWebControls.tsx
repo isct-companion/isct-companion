@@ -5,8 +5,15 @@ import { desktopBridge } from "../../app/native";
 import type {
   SchoolLoadFailure,
   SchoolSite,
+  SchoolWebNotice,
   SchoolWebPage,
 } from "../../platform/desktop-bridge";
+
+/** Core's one-time notes about the page on screen. */
+const noticeText: Record<SchoolWebNotice["kind"], MessageKey> = {
+  reopened: "web.reopenedThisPageWithoutSending",
+  "not-seeded": "web.signInCouldNotBePassed",
+};
 
 /** What the notice under the address says when a page did not load. */
 const failureText: Record<SchoolLoadFailure, MessageKey> = {
@@ -22,8 +29,9 @@ const failureText: Record<SchoolLoadFailure, MessageKey> = {
  * The lines between a surface's toolbar and the school page: the popup in
  * front with its close button, a failed load with Retry and Open in browser
  * (both from Core's page, so every surface shows the same), and Core's
- * one-time note that a reload was sent without the form. They sit outside
- * the element the native view covers.
+ * one-time notes: a reload was sent without the form, or the sign-in could
+ * not be passed to the page. They sit outside the element the native view
+ * covers.
  */
 export function SchoolWebNotices({
   site,
@@ -34,19 +42,19 @@ export function SchoolWebNotices({
   page: SchoolWebPage | undefined;
   onError: (error: unknown) => void;
 }) {
-  const [reopened, setReopened] = useState(false);
+  const [notice, setNotice] = useState<SchoolWebNotice["kind"]>();
   useEffect(() => {
     let clear: number | undefined;
-    const dispose = desktopBridge?.onSchoolWebNotice?.((notice) => {
-      if (notice.site !== site) return;
+    const dispose = desktopBridge?.onSchoolWebNotice?.((next) => {
+      if (next.site !== site) return;
       window.clearTimeout(clear);
-      setReopened(true);
-      clear = window.setTimeout(() => setReopened(false), 6000);
+      setNotice(next.kind);
+      clear = window.setTimeout(() => setNotice(undefined), 6000);
     });
     return () => {
       dispose?.();
       window.clearTimeout(clear);
-      setReopened(false);
+      setNotice(undefined);
     };
   }, [site]);
   const failure = page?.notice;
@@ -92,9 +100,9 @@ export function SchoolWebNotices({
           )}
         </div>
       )}
-      {reopened && (
+      {notice && (
         <div className="webNotice" role="status">
-          <span>{t("web.reopenedThisPageWithoutSending")}</span>
+          <span>{t(noticeText[notice])}</span>
         </div>
       )}
     </>

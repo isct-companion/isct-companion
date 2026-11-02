@@ -15,38 +15,14 @@
 //! summary keeps codes, counts and settings under synthetic ids; no token,
 //! names, ids or course text.
 use super::*;
-use crate::net::{BoxFuture, Http, SessionCookies, SignIn, SignInGate};
+use crate::net::Http;
 use crate::ports::{vault_key, SecretError, SecretVault, VAULT_SERVICE};
-use crate::school_auth::{SchoolAuthProfile, SchoolAuthService};
+use crate::school_auth::SchoolAuthService;
+use crate::school_session::{Attempt, SchoolSessions, Site};
 use serde_json::Map;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use url::Url;
-
-struct NoCookies;
-
-impl SessionCookies for NoCookies {
-    fn cookie_header<'a>(&'a self, _url: &'a Url) -> BoxFuture<'a, Result<String, NetError>> {
-        Box::pin(async { Err(NetError::SignInRequired) })
-    }
-
-    fn store_set_cookies<'a>(
-        &'a self,
-        _url: &'a Url,
-        _set_cookie: &'a [String],
-    ) -> BoxFuture<'a, Result<(), NetError>> {
-        Box::pin(async { Ok(()) })
-    }
-}
-
-struct NoSignIn;
-
-impl SignIn for NoSignIn {
-    fn sign_in<'a>(&'a self, _profile: SchoolAuthProfile) -> BoxFuture<'a, Result<(), NetError>> {
-        Box::pin(async { Err(NetError::SignInRequired) })
-    }
-}
 
 /// Keeps the real keychain out of `SchoolAuthService`.
 struct NoVault;
@@ -299,12 +275,13 @@ fn course_term(course: &Value) -> Option<String> {
 }
 
 async fn read_or_code(
-    transport: &TokenTransport<'_>,
+    transport: &TokenTransport,
+    attempt: &Attempt,
     function: MoodleFunction,
     args: Value,
 ) -> Result<Value, String> {
     transport
-        .call_bulk(function, &args)
+        .call_bulk(attempt, function, &args)
         .await
         .map_err(|error| error.to_string())
 }
@@ -318,22 +295,21 @@ async fn write_surface_survey() {
         .split(',')
         .map(|term| term.trim().to_string())
         .collect();
-    let client = MoodleClient::new(
-        Http::new().unwrap(),
-        Arc::new(NoCookies),
-        SignInGate::new(Arc::new(NoSignIn)),
-        Arc::new(SchoolAuthService::new(NoVault)),
-    );
-    *client.token.lock().await = Some(stored_token());
+    let auth = Arc::new(SchoolAuthService::new(NoVault));
+    let client = Arc::new(MoodleClient::new(auth.clone()));
+    // A detached attempt runs in account generation 0, the token's.
+    *client.token.lock().await = Some((0, stored_token()));
+    let sessions = SchoolSessions::new(Some(Http::new().unwrap()), auth);
+    let attempt = Attempt::detached(&sessions, Site::Lms, Default::default());
     let transport = TokenTransport {
-        client: &client,
+        client,
         relaunched: AtomicBool::new(true),
     };
     let now = chrono::Utc::now().timestamp();
 
     // What the service grants.
     let info = transport
-        .call(MoodleFunction::SiteInfo, &json!({}))
+        .call(&attempt, MoodleFunction::SiteInfo, &json!({}))
         .await
         .unwrap();
     let functions: BTreeSet<&str> = list(&info, "functions")
@@ -347,6 +323,7 @@ async fn write_surface_survey() {
     loop {
         let page = transport
             .call(
+                &attempt,
                 MoodleFunction::EnrolledCoursesByTimeline,
                 &json!({"classification": "all", "limit": 0, "offset": offset, "sort": "fullname"}),
             )
@@ -385,6 +362,7 @@ async fn write_surface_survey() {
     // the surveyed terms.
     let assignments = transport
         .call_bulk(
+            &attempt,
             MoodleFunction::AssignGetAssignments,
             &json!({"courseids": all_ids}),
         )
@@ -421,9 +399,11 @@ async fn write_surface_survey() {
     let statuses: HashMap<u64, Value> = stream::iter(surveyed)
         .map(|(id, assignment)| {
             let transport = &transport;
+            let attempt = &attempt;
             async move {
                 let shape = match read_or_code(
                     transport,
+                    attempt,
                     MoodleFunction::AssignGetSubmissionStatus,
                     json!({"assignid": id}),
                 )
@@ -455,6 +435,7 @@ async fn write_surface_survey() {
     // Quizzes: settings for all; attempts and access rules for the terms.
     let quizzes = transport
         .call_bulk(
+            &attempt,
             MoodleFunction::QuizGetQuizzesByCourses,
             &json!({"courseids": all_ids}),
         )
@@ -481,9 +462,11 @@ async fn write_surface_survey() {
     )
     .map(|id| {
         let transport = &transport;
+        let attempt = &attempt;
         async move {
             let attempts = read_or_code(
                 transport,
+                attempt,
                 MoodleFunction::QuizGetUserAttempts,
                 json!({"quizid": id, "status": "all", "includepreviews": false}),
             )
@@ -499,6 +482,7 @@ async fn write_surface_survey() {
             let access = if access_offered {
                 match read_or_code(
                     transport,
+                    attempt,
                     MoodleFunction::QuizGetQuizAccessInformation,
                     json!({"quizid": id}),
                 )

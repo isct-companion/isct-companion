@@ -73,15 +73,10 @@ impl Session {
         limit: Option<u64>,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let session = i.download_session.clone().map(|port| {
-                Arc::new(crate::ports::NativeCookies(port))
-                    as Arc<dyn app_core::net::SessionCookies>
-            });
             let service = app_core::course_materials::CourseMaterials::new(
                 i.core.store.clone(),
                 i.files.clone(),
                 i.core.runtime.downloads.clone(),
-                session,
             );
             Ok(OperationResult::Material {
                 material: project(
@@ -95,8 +90,8 @@ impl Session {
     }
     /// Saves a file a school page handed over (the WebView's download
     /// callback) into `directory`, the shell's staging folder: Core fetches
-    /// it with the school session and names it, and the shell moves it to the
-    /// person's downloads. School hosts are reached only through a WebView or
+    /// it with its own session of that site and names it, and the shell moves
+    /// it to the person's downloads. School hosts are reached only through a WebView or
     /// Core (`constraint/school-network-two-stacks`), never a system
     /// download service.
     pub fn save_school_file(
@@ -108,10 +103,6 @@ impl Session {
         directory: String,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let session: Arc<dyn app_core::net::SessionCookies> = match i.download_session.clone() {
-                Some(port) => Arc::new(crate::ports::NativeCookies(port)),
-                None => return Err(crate::session::unavailable("School downloads")),
-            };
             let request = app_core::school_files::SchoolFileRequest {
                 url,
                 referer,
@@ -122,7 +113,7 @@ impl Session {
                 .core
                 .runtime
                 .downloads
-                .save_school_file(session, request, directory.into())
+                .save_school_file(request, directory.into())
                 .await
                 .map_err(|error| crate::error::coded(&error))?;
             Ok(OperationResult::SchoolFile {
@@ -149,24 +140,11 @@ impl Session {
                 i.core.store.clone(),
                 i.files.clone(),
                 i.core.runtime.downloads.clone(),
-                None,
             );
             let count = service.clean(days).await.map_err(material_error)?;
             Ok(OperationResult::Text {
                 value: count.to_string(),
             })
-        })
-    }
-    pub fn school_lifecycle(
-        &self,
-        event: SchoolSessionLifecycle,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            i.core
-                .school_browser()?
-                .lifecycle(project_input(event)?)
-                .await?;
-            Ok(OperationResult::Done)
         })
     }
     pub fn school_browsing(&self, site: Option<SchoolSite>) -> Result<Arc<Operation>, SdkError> {

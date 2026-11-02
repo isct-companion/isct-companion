@@ -23,10 +23,10 @@ import {
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
-type OtpPathId = "school" | "export" | "paste";
+type OtpPathId = "export" | "paste";
 
 /**
- * One way to give the app the school's OTP setup. The three are mutually
+ * One way to give the app the school's OTP setup. The two are mutually
  * exclusive, so they read as radio cards; only the chosen one shows its
  * controls.
  */
@@ -36,7 +36,6 @@ function OtpPath({
   onSelect,
   title,
   hint,
-  recommended,
   children,
 }: {
   value: OtpPathId;
@@ -44,7 +43,6 @@ function OtpPath({
   onSelect: (value: OtpPathId) => void;
   title: string;
   hint: string;
-  recommended?: boolean;
   children: React.ReactNode;
 }) {
   const selected = value === current;
@@ -59,11 +57,6 @@ function OtpPath({
       >
         <i aria-hidden="true" />
         <b>{title}</b>
-        {recommended && (
-          <span className="otpRecommended">
-            {t("settings.otp.recommended")}
-          </span>
-        )}
       </button>
       {selected && (
         <div className="otpPathBody">
@@ -83,14 +76,12 @@ export function OtpSetupInput({
   disabled,
   onChange,
   onScanState,
-  openSchoolSettings,
 }: {
   value: string;
   saved: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
-  openSchoolSettings: (url: string, setupOtp?: boolean) => void;
 }) {
   const [copied, setCopied] = useState(false);
   useTimeout(() => setCopied(false), copied ? 2000 : null);
@@ -124,7 +115,7 @@ export function OtpSetupInput({
   const [error, setError] = useState("");
   const [label, setLabel] = useState("");
   const [changing, setChanging] = useState(false);
-  const [path, setPath] = useState<OtpPathId>("school");
+  const [path, setPath] = useState<OtpPathId>("export");
   // A newly saved setup closes the chooser again.
   useEffect(() => setChanging(false), [saved]);
   const generation = useRef(0);
@@ -231,30 +222,6 @@ export function OtpSetupInput({
         </div>
       ) : (
         <div className="otpPaths" role="radiogroup">
-          <OtpPath
-            value="school"
-            current={path}
-            onSelect={setPath}
-            title={t("settings.otp.letTheAppSetIt")}
-            recommended
-            hint={t("settings.otp.opensTheSchoolSiteSign")}
-          >
-            <Button
-              size="xs"
-              disabled={busy || !desktopBridge}
-              onClick={() =>
-                openSchoolSettings(
-                  "https://isct.ex-tic.com/idm/user/mfa_setting/",
-                  true,
-                )
-              }
-            >
-              {t("settings.otp.openTheSchoolSite")}
-            </Button>
-            <Text size="xs" c="dimmed">
-              {t("settings.otp.alreadyRegisteredElsewhereTheSchool")}
-            </Text>
-          </OtpPath>
           <OtpPath
             value="export"
             current={path}

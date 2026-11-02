@@ -82,7 +82,6 @@ function searchSettings(
 }
 
 function SettingsBody({
-  otpSetupRevision = 0,
   platform,
   data,
   mutate,
@@ -109,12 +108,8 @@ function SettingsBody({
   section: Section;
   setSection: (s: Section) => void;
   notify: (s: string) => void;
-  otpSetupRevision?: number;
-  showLoginPage: (
-    profile: SchoolAuthProfile,
-    targetUrl?: string,
-    setupOtp?: boolean,
-  ) => void;
+  /** Shows the account's school portal on the Web page. */
+  showLoginPage: (profile: SchoolAuthProfile) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   /** Whether reference data can be checked now (the desktop app). */
   refreshReferences?: boolean;
@@ -203,7 +198,6 @@ function SettingsBody({
       <>
         <SettingsHeader title="settings.main.schoolAccounts" />
         <SchoolAccounts
-          otpSetupRevision={otpSetupRevision}
           notify={notify}
           showLoginPage={showLoginPage}
           matrixOcrAvailable={matrixOcrAvailable}

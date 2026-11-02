@@ -46,8 +46,8 @@ pub const VAULT_SERVICE: &str = "app.isctcompanion";
 pub struct VaultItem {
     pub service: &'static str,
     pub key: String,
-    /// School logins follow the person across devices; OAuth tokens and the
-    /// credential-sync password stay on the device.
+    /// School logins follow the person across devices; OAuth tokens, the
+    /// credential-sync password and Core's school sessions stay on the device.
     pub synchronized: bool,
 }
 
@@ -61,6 +61,8 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
         "icloud" => "passwords.icloud",
         "cloud-credential-sync" => "passwords.cloud-credential-sync",
         "lms-token-science" => "passwords.lms-token-science",
+        "school-session-science" => "passwords.school-session-science",
+        "school-session-tokyo-tech" => "passwords.school-session-tokyo-tech",
         _ => return Err(SecretError::InvalidAccount),
     };
     Ok(format!("{app_id}.{suffix}"))

@@ -144,16 +144,22 @@ pub(crate) async fn cloud_credential_backup_status(
 #[tauri::command]
 pub(crate) async fn enable_cloud_credential_sync(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
     auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     password: String,
 ) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    service
+    let outcome = service
         .credential_backup()
         .enable(&password, auth.inner())
         .await
         .map_err(coded)?;
+    // An imported credential file is one of the moments Core reads the
+    // saved credentials again.
+    if outcome == app_core::cloud_credentials::BackupOutcome::Restored {
+        crate::core_ports::core(&app).credentials_imported();
+    }
     Ok(true)
 }
 

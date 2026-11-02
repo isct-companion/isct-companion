@@ -5,7 +5,8 @@
 //! reads one leased key, records how it ended, and takes the next key of its
 //! lane, so an LMS worker keeps its transport open across keys.
 use super::{
-    planner::{self, Candidate, Depth, Facts, Group, Inputs, Lane, ReferenceWatch},
+    planner::{self, Candidate, Depth, Facts, Group, Inputs, Lane, ReferenceWatch, SessionFact},
+    school::{self, SchoolReaders},
     snapshot, Hint, Network, Priority, Scope, SyncSnapshot, View,
 };
 use crate::{
@@ -16,8 +17,7 @@ use crate::{
     ports::EventSink,
     runtime_tasks::{RuntimeTaskError, RuntimeTasks},
     school_auth::{SchoolAuthProfile, SchoolAuthService},
-    school_browser::{SchoolBrowserEngine, SchoolSessionState},
-    school_service::IngestState,
+    school_session::SchoolSessionSnapshot,
     sync_state::{self, Dataset, Key, KeyState, RunOutcome, RunRecord},
 };
 use chrono::{DateTime, Utc};
@@ -35,8 +35,9 @@ use std::{
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
-/// The longest one key may take, sign-in included. A key over it fails as
-/// `timeout`; a reset waits at most this long for commits in progress.
+/// The longest one key may take, from its start, sign-in included. A key
+/// over it fails as `timeout`; a reset waits at most this long for commits
+/// in progress.
 pub const KEY_DEADLINE: Duration = Duration::from_secs(3 * 60);
 /// A whole-department 教務 search is one GET and one 3 MB postback.
 const BULK_DEADLINE: Duration = Duration::from_secs(6 * 60);
@@ -176,6 +177,8 @@ pub(crate) struct Lease {
     pub(crate) locator: Option<String>,
     pub(crate) depth: Depth,
     pub(crate) started: DateTime<Utc>,
+    /// The key's deadline, counted from its start.
+    pub(crate) deadline: tokio::time::Instant,
     pub(crate) cancel: CancellationToken,
     writer: LeaseWriter,
 }
@@ -223,6 +226,7 @@ impl Lease {
             locator: None,
             depth: Depth::Full,
             started: Utc::now(),
+            deadline: tokio::time::Instant::now() + KEY_DEADLINE,
             cancel: CancellationToken::new(),
             writer: LeaseWriter {
                 store: store.clone(),
@@ -257,8 +261,9 @@ pub(crate) enum KeyEnd {
     Refused {
         kind: String,
     },
-    /// The session is gone; the profile's automatic keys wait for sign-in.
-    SignInRequired {
+    /// The account's session is not available: the profile's keys wait for
+    /// it, without a backoff.
+    SessionUnavailable {
         profile: SchoolAuthProfile,
         source: String,
     },
@@ -267,7 +272,6 @@ pub(crate) enum KeyEnd {
     HostPaused {
         host: Host,
         until: DateTime<Utc>,
-        notice: Option<String>,
         source: String,
     },
     Cancelled {
@@ -308,7 +312,7 @@ impl KeyEnd {
 }
 
 /// What the runner records for a read that wrote no rows: the key's
-/// backoff (unless the cause was not the key: sign-in, a paused host, a
+/// backoff (unless the cause was not the key: the session, a paused host, a
 /// cancel) and its `sync_runs` row, inside the lease's gate.
 pub(crate) struct Ending {
     writer: LeaseWriter,
@@ -362,7 +366,7 @@ impl Lease {
     pub(crate) fn ending(&self, end: &KeyEnd) -> Ending {
         let source = match end {
             KeyEnd::Failed { source, .. }
-            | KeyEnd::SignInRequired { source, .. }
+            | KeyEnd::SessionUnavailable { source, .. }
             | KeyEnd::HostPaused { source, .. }
             | KeyEnd::Cancelled { source }
             | KeyEnd::NotEnrolled { source } => source.clone(),
@@ -376,11 +380,10 @@ impl Lease {
         let record = match end {
             KeyEnd::Done { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale => None,
             KeyEnd::Failed { kind, .. } => Some((RunOutcome::Failed, kind.clone(), true)),
-            // The reader already tried the saved sign-in once; backing off
-            // keeps a session the school refuses from being retried on every
-            // evaluation. A manual refresh still ignores the backoff.
-            KeyEnd::SignInRequired { .. } => {
-                Some((RunOutcome::SignInRequired, "sign-in".to_string(), true))
+            // Waiting for the session is not the key's failure: the session
+            // snapshot holds the key until it changes.
+            KeyEnd::SessionUnavailable { .. } => {
+                Some((RunOutcome::SignInRequired, "sign-in".to_string(), false))
             }
             KeyEnd::HostPaused { .. } => {
                 Some((RunOutcome::Failed, "host-paused".to_string(), false))
@@ -484,8 +487,6 @@ struct State {
     stopped: bool,
     evaluate: bool,
     last_evaluated: Option<Instant>,
-    sessions: HashMap<SchoolAuthProfile, String>,
-    kyomu_notice: Option<String>,
     published: Option<SyncSnapshot>,
 }
 
@@ -493,7 +494,7 @@ struct Shared {
     store: DataStore,
     auth: Arc<SchoolAuthService>,
     events: OnceLock<Arc<dyn EventSink>>,
-    school: Mutex<Option<Arc<SchoolBrowserEngine>>>,
+    school: Mutex<Option<SchoolReaders>>,
     state: Mutex<State>,
     gate: Arc<Gate>,
     wake: Notify,
@@ -529,17 +530,11 @@ impl SyncHints {
         self.0.upgrade().map(SyncEngine)
     }
 
-    /// Folds a Core event (sign-in, maintenance) into the snapshot.
+    /// Folds a Core event (the session snapshot) into the snapshot.
     pub fn observe(&self, event: &CoreEvent) {
         if let Some(shared) = self.0.upgrade() {
             SyncEngine(shared).observe(event);
         }
-    }
-
-    /// Whether the shell's app is in front; true without an engine.
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    pub(crate) fn in_front(&self) -> bool {
-        self.engine().is_none_or(|engine| engine.in_front())
     }
 }
 
@@ -559,14 +554,25 @@ impl Drop for AdmissionGuard {
     }
 }
 
-fn session_name(state: SchoolSessionState) -> &'static str {
-    match state {
-        SchoolSessionState::Pending => "pending",
-        SchoolSessionState::Active => "active",
-        SchoolSessionState::Maintenance => "maintenance",
-        SchoolSessionState::Failed => "failed",
-        SchoolSessionState::NotConfigured => "signed-out",
-    }
+/// The planner's view of the accounts' sessions.
+fn session_facts(snapshot: &SchoolSessionSnapshot) -> HashMap<SchoolAuthProfile, SessionFact> {
+    [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]
+        .into_iter()
+        .map(|profile| {
+            let session = snapshot.profile(profile);
+            (
+                profile,
+                SessionFact {
+                    state: session.state,
+                    retry_at: session.retry_at,
+                    maintenance: session
+                        .maintenance
+                        .as_ref()
+                        .and_then(|maintenance| maintenance.notice.clone()),
+                },
+            )
+        })
+        .collect()
 }
 
 impl SyncEngine {
@@ -597,8 +603,6 @@ impl SyncEngine {
                 stopped: false,
                 evaluate: true,
                 last_evaluated: None,
-                sessions: HashMap::new(),
-                kyomu_notice: None,
                 published: None,
             }),
             gate: Arc::new(Gate::default()),
@@ -619,10 +623,15 @@ impl SyncEngine {
         let _ = self.0.events.set(events);
     }
 
-    /// The school browser whose HTTP transport reads LMS and 教務Web.
-    pub(crate) fn attach_school(&self, engine: Arc<SchoolBrowserEngine>) {
-        *guard(&self.0.school) = Some(engine);
-        guard(&self.0.state).evaluate = true;
+    /// The school sessions and clients LMS and 教務Web keys read with.
+    pub(crate) fn attach_school(&self, readers: SchoolReaders) {
+        let facts = session_facts(&readers.sessions.snapshot());
+        *guard(&self.0.school) = Some(readers);
+        {
+            let mut state = guard(&self.0.state);
+            state.facts.sessions = facts;
+            state.evaluate = true;
+        }
         self.0.wake.notify_one();
     }
 
@@ -633,7 +642,7 @@ impl SyncEngine {
         self.0.wake.notify_one();
     }
 
-    fn school(&self) -> Option<Arc<SchoolBrowserEngine>> {
+    fn school(&self) -> Option<SchoolReaders> {
         guard(&self.0.school).clone()
     }
 
@@ -701,11 +710,6 @@ impl SyncEngine {
                     state.facts.power_saver = on;
                     changed
                 }
-                Hint::SignedIn { profile } => {
-                    state.facts.signed_in.insert(profile);
-                    state.sessions.insert(profile, "active".into());
-                    true
-                }
                 Hint::Open { view } => {
                     if let View::Course { lms_course_id } = &view {
                         state.shown.extend(
@@ -731,42 +735,23 @@ impl SyncEngine {
         }
     }
 
-    /// Folds the sign-in and maintenance facts of Core events into the
-    /// sources; the facade's event relay calls this for every event.
+    /// Folds the session snapshot into the facts: a session that changed
+    /// plans again at once, so keys waiting for it go (or stay held). The
+    /// facade's event relay calls this for every event.
     pub fn observe(&self, event: &CoreEvent) {
-        let changed = {
-            let mut state = guard(&self.0.state);
-            match event {
-                CoreEvent::SchoolSession(session) => {
-                    state
-                        .sessions
-                        .insert(session.profile, session_name(session.state).into());
-                    match session.state {
-                        SchoolSessionState::Active => {
-                            state.facts.signed_in.insert(session.profile);
-                            state.evaluate = true;
-                        }
-                        SchoolSessionState::Failed | SchoolSessionState::NotConfigured => {
-                            state.facts.signed_in.remove(&session.profile);
-                            state.evaluate = true;
-                        }
-                        SchoolSessionState::Pending | SchoolSessionState::Maintenance => {}
-                    }
-                    true
-                }
-                CoreEvent::SchoolIngest(outcome)
-                    if outcome.site == SchoolSite::Kyomu
-                        && outcome.state == IngestState::Maintenance =>
-                {
-                    state.kyomu_notice = Some(outcome.message.clone());
-                    true
-                }
-                _ => false,
-            }
+        let CoreEvent::SchoolSession(snapshot) = event else {
+            return;
         };
-        if changed {
-            self.0.wake.notify_one();
+        let facts = session_facts(snapshot);
+        {
+            let mut state = guard(&self.0.state);
+            if state.facts.sessions == facts {
+                return;
+            }
+            state.facts.sessions = facts;
+            state.evaluate = true;
         }
+        self.0.wake.notify_one();
     }
 
     /// The current snapshot, as last sent or newer.
@@ -782,8 +767,6 @@ impl SyncEngine {
             plan: &state.plan,
             facts: &state.facts,
             inputs: &state.inputs,
-            sessions: &state.sessions,
-            kyomu_notice: state.kyomu_notice.as_deref(),
             now: Utc::now(),
         })
     }
@@ -824,19 +807,6 @@ impl SyncEngine {
     pub fn in_front(&self) -> bool {
         let state = guard(&self.0.state);
         state.facts.foreground && !state.facts.suspended
-    }
-
-    pub(crate) fn can_retry_school_sessions(&self) -> bool {
-        let state = guard(&self.0.state);
-        if state.facts.suspended || state.facts.resetting || state.facts.network == Network::Offline
-        {
-            return false;
-        }
-        #[cfg(any(target_os = "ios", target_os = "android"))]
-        if !state.facts.foreground {
-            return false;
-        }
-        true
     }
 
     /// Evaluates once more, then waits until no key is leased and none the
@@ -954,7 +924,6 @@ impl SyncEngine {
                 return;
             }
         };
-        let school_attached = self.school().is_some();
         let now = Utc::now();
         let instant = Instant::now();
         let mut state = guard(&self.0.state);
@@ -990,7 +959,6 @@ impl SyncEngine {
             }
         }
         state.facts.resetting = state.closed > 0;
-        state.facts.school_attached = school_attached;
         state.facts.paused.retain(|_, until| *until > now);
         let opens: Vec<View> = state.opens.keys().cloned().collect();
         let manual: HashMap<Key, Option<String>> = state
@@ -1077,6 +1045,7 @@ impl SyncEngine {
             None => uuid::Uuid::new_v4().to_string(),
         };
         let cancel = CancellationToken::new();
+        let deadline = tokio::time::Instant::now() + deadline(candidate.key.dataset);
         state.leases.insert(
             candidate.key.clone(),
             LeaseEntry {
@@ -1090,6 +1059,7 @@ impl SyncEngine {
             locator: candidate.locator,
             depth: candidate.depth,
             started: now,
+            deadline,
             cancel,
             writer: LeaseWriter {
                 store: self.0.store.clone(),
@@ -1116,9 +1086,9 @@ impl SyncEngine {
     /// LMS keys share one open transport while the lane has work.
     async fn moodle_worker(self, first: Lease) {
         let mut lease = first;
-        let Some(engine) = self.school() else {
+        let Some(readers) = self.school() else {
             loop {
-                let end = KeyEnd::SignInRequired {
+                let end = KeyEnd::SessionUnavailable {
                     profile: SchoolAuthProfile::Science,
                     source: String::new(),
                 };
@@ -1134,7 +1104,7 @@ impl SyncEngine {
             // it: rustc's higher-ranked auto-trait inference rejects the
             // spawned worker otherwise.
             let read: crate::net::BoxFuture<'_, KeyEnd> =
-                Box::pin(engine.read_lms_key(&mut reader, &lease));
+                Box::pin(school::read_lms_key(&readers, &mut reader, &lease));
             let end = bounded(&lease, read).await;
             let keep = match &end {
                 KeyEnd::Done { .. } | KeyEnd::NotEnrolled { .. } => true,
@@ -1152,23 +1122,21 @@ impl SyncEngine {
     }
 
     async fn execute(&self, lease: &Lease) -> KeyEnd {
+        let unattached = || KeyEnd::SessionUnavailable {
+            profile: SchoolAuthProfile::TokyoTech,
+            source: String::new(),
+        };
         match lease.key.dataset {
             Dataset::KyomuPage => match self.school() {
-                Some(engine) => engine.read_kyomu_page(lease).await,
-                None => KeyEnd::SignInRequired {
-                    profile: SchoolAuthProfile::TokyoTech,
-                    source: String::new(),
-                },
-            },
-            Dataset::CatalogOfficial => {
-                match self.school().and_then(|engine| engine.kyomu_client().ok()) {
-                    Some(client) => crate::catalog::read_official(&client, lease).await,
-                    None => KeyEnd::SignInRequired {
-                        profile: SchoolAuthProfile::TokyoTech,
-                        source: String::new(),
-                    },
+                Some(readers) => {
+                    school::read_kyomu_page(&readers, self.0.events.get(), lease).await
                 }
-            }
+                None => unattached(),
+            },
+            Dataset::CatalogOfficial => match self.school() {
+                Some(readers) => crate::catalog::read_official(&readers.sessions, lease).await,
+                None => unattached(),
+            },
             Dataset::Reference => {
                 crate::reference_refresh::read_reference(lease, &self.0.probes).await
             }
@@ -1219,7 +1187,7 @@ async fn bounded(lease: &Lease, work: impl Future<Output = KeyEnd>) -> KeyEnd {
     tokio::select! {
         biased;
         _ = lease.cancel.cancelled() => KeyEnd::Cancelled { source: String::new() },
-        ended = tokio::time::timeout(deadline(lease.key.dataset), work) => {
+        ended = tokio::time::timeout_at(lease.deadline, work) => {
             ended.unwrap_or_else(|_| KeyEnd::failed("timeout", ""))
         }
     }
@@ -1276,13 +1244,10 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
             {
                 state.evaluate = true;
             }
-            if host == Host::Kyomu {
-                state.kyomu_notice = None;
-            }
         }
-        KeyEnd::SignInRequired { profile, .. } => {
-            // Every other key of the profile would fail the same way.
-            state.facts.signed_in.remove(profile);
+        KeyEnd::SessionUnavailable { profile, .. } => {
+            // Every other key of the profile waits the same way; the next
+            // plan holds them by the session snapshot.
             state
                 .plan
                 .retain(|candidate| planner::profile_of(candidate.key.dataset) != Some(*profile));
@@ -1290,18 +1255,8 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
         }
         // The stored course list changed under the read: plan from it again.
         KeyEnd::NotEnrolled { .. } => state.evaluate = true,
-        KeyEnd::HostPaused {
-            host,
-            until,
-            notice,
-            ..
-        } => {
+        KeyEnd::HostPaused { host, until, .. } => {
             state.facts.paused.insert(*host, *until);
-            if *host == Host::Kyomu {
-                if let Some(notice) = notice {
-                    state.kyomu_notice = Some(notice.clone());
-                }
-            }
             state.evaluate = true;
         }
         _ => {}
@@ -1310,11 +1265,7 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
     // a paused host, a cancel or a missing course leaves the key wanted.
     if matches!(
         end,
-        KeyEnd::Done { .. }
-            | KeyEnd::Failed { .. }
-            | KeyEnd::Refused { .. }
-            | KeyEnd::SignInRequired { .. }
-            | KeyEnd::Stale
+        KeyEnd::Done { .. } | KeyEnd::Failed { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale
     ) {
         state.manual.remove(key);
     }
@@ -1347,11 +1298,9 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
             KeyEnd::Failed { kind, .. } | KeyEnd::Refused { kind } => {
                 batch.failed.insert(key.clone(), (kind.clone(), retry_at));
             }
-            KeyEnd::SignInRequired { .. } => {
-                batch.failed.insert(key.clone(), ("sign-in".into(), None));
-            }
             // Still due: the next plan holds or reads it again.
-            KeyEnd::HostPaused { .. }
+            KeyEnd::SessionUnavailable { .. }
+            | KeyEnd::HostPaused { .. }
             | KeyEnd::Cancelled { .. }
             | KeyEnd::NotEnrolled { .. }
             | KeyEnd::Stale => {}
@@ -1559,7 +1508,19 @@ impl SyncEngine {
             .push((ManualTarget::Scope(scope), Instant::now()));
     }
 
-    pub(crate) fn set_signed_in(&self, profile: SchoolAuthProfile) {
-        guard(&self.0.state).facts.signed_in.insert(profile);
+    /// The account's session as a snapshot would report it.
+    pub(crate) fn set_session(
+        &self,
+        profile: SchoolAuthProfile,
+        state: crate::school_session::SchoolSessionState,
+    ) {
+        guard(&self.0.state).facts.sessions.insert(
+            profile,
+            SessionFact {
+                state,
+                retry_at: None,
+                maintenance: None,
+            },
+        );
     }
 }

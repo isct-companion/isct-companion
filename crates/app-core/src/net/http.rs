@@ -140,8 +140,13 @@ impl Http {
         self.0.breaker.trip(host, now_unix());
     }
 
+    /// The end of the host's current pause, while it lasts.
+    pub fn paused_until(&self, host: Host) -> Option<i64> {
+        self.0.breaker.paused_until(host, now_unix())
+    }
+
     fn paused(&self, host: Host) -> Result<(), NetError> {
-        match self.0.breaker.paused_until(host, now_unix()) {
+        match self.paused_until(host) {
             Some(until_unix) => Err(NetError::HostPaused { host, until_unix }),
             None => Ok(()),
         }

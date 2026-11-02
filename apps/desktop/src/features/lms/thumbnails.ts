@@ -22,9 +22,9 @@ export const loadThumbnail = (
 export const dropThumbnail = (_url: string) => undefined;
 
 export function onSignedIn(retry: () => void) {
-  let active = schoolSessions.get("science") === "active";
+  let active = schoolSessions.get("science")?.state === "active";
   return schoolSessions.subscribe(() => {
-    const next = schoolSessions.get("science") === "active";
+    const next = schoolSessions.get("science")?.state === "active";
     if (next && !active) retry();
     active = next;
   });

@@ -39,7 +39,7 @@ import {
   type ListenNative,
   type SchoolDownloadEvent,
   type SchoolRecords,
-  type SchoolSessionEvent,
+  type SchoolSessionSnapshot,
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
 import { finderQuery } from "@app/platform/finder-query";
@@ -790,25 +790,20 @@ const runtime = (
     cloudSync: true,
     matrixOcr: true,
   },
-  school: { status: "not-configured" },
   background: { scheduler: "off" },
   noBackendPush: true,
   ...overrides,
 });
 
 describe("runtime capabilities", () => {
-  it("reports a validated native school session as ready", () => {
+  it("reports an active desktop schedule and acknowledged adapters as ready", () => {
     const capabilities = resolveCapabilities(
       "native-desktop",
       false,
       "granted",
-      runtime({
-        school: { status: "connected", lastResult: "fresh" },
-        background: { scheduler: "active" },
-      }),
+      runtime({ background: { scheduler: "active" } }),
     );
 
-    expect(capabilities["school-web-session"].readiness).toBe("ready");
     expect(capabilities["background-sync"].readiness).toBe("ready");
     expect(capabilities["site-customization"].support).toBe("supported");
   });
@@ -821,7 +816,6 @@ describe("runtime capabilities", () => {
       runtime({ native: undefined }),
     );
 
-    expect(capabilities["school-web-session"].support).toBe("unknown");
     expect(capabilities["background-sync"].support).toBe("unknown");
     expect(capabilities["site-customization"].support).toBe("unknown");
   });
@@ -834,7 +828,6 @@ describe("runtime capabilities", () => {
       runtime(),
     );
 
-    expect(capabilities["school-web-session"].support).toBe("unsupported");
     expect(capabilities["background-sync"].support).toBe("unsupported");
     expect(capabilities["site-customization"].support).toBe("unsupported");
   });
@@ -1020,7 +1013,11 @@ describe("Tauri bridge contract", () => {
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
         case "connect_school":
-          return { state: "failed", problem: null, verified: false };
+          return {
+            state: "rejected",
+            problem: { kind: "invalid-otp", message: "otp" },
+            verified: false,
+          };
         case "navigate_school_web":
         case "set_school_web_zoom":
         case "school_web_forward":
@@ -1028,10 +1025,13 @@ describe("Tauri bridge contract", () => {
         case "school_session_snapshot":
           return {
             revision: 4,
-            profiles: schoolProfiles("active", "pending"),
+            profiles: schoolProfiles("active", "idle"),
           };
-        case "school_session_lifecycle":
-          return null;
+        case "retry_school":
+          return {
+            revision: 5,
+            profiles: schoolProfiles("active", "signing-in"),
+          };
         case "school_web_back":
           return false;
         case "open_school_site":
@@ -1057,12 +1057,15 @@ describe("Tauri bridge contract", () => {
 
     await expect(
       bridge.connectSchool("science", credentials),
-    ).resolves.toMatchObject({ state: "failed", verified: false });
+    ).resolves.toMatchObject({ state: "rejected", verified: false });
     await expect(bridge.schoolSessionSnapshot()).resolves.toEqual({
       revision: 4,
-      profiles: schoolProfiles("active", "pending"),
+      profiles: schoolProfiles("active", "idle"),
     });
-    await bridge.schoolSessionLifecycle({ kind: "focus", visible: true });
+    await expect(bridge.retrySchool("tokyo-tech")).resolves.toEqual({
+      revision: 5,
+      profiles: schoolProfiles("active", "signing-in"),
+    });
     await bridge.openSchoolSite(
       "science-portal",
       "body{}",
@@ -1097,10 +1100,7 @@ describe("Tauri bridge contract", () => {
         payload: { profile: "science", credentials },
       },
       { command: "school_session_snapshot", payload: undefined },
-      {
-        command: "school_session_lifecycle",
-        payload: { kind: "focus", visible: true },
-      },
+      { command: "retry_school", payload: { profile: "tokyo-tech" } },
       {
         command: "open_school_site",
         payload: {
@@ -1198,6 +1198,14 @@ describe("Tauri bridge contract", () => {
           return { runs: "later" };
         case "school_session_snapshot":
           return { revision: -1, states: {} };
+        case "retry_school":
+          return {
+            revision: 2,
+            profiles: {
+              ...schoolProfiles("active", "idle"),
+              science: { state: "failed", problem: null },
+            },
+          };
         case "school_credential_status":
           return [];
         default:
@@ -1221,32 +1229,42 @@ describe("Tauri bridge contract", () => {
     await expect(bridge.schoolSessionSnapshot()).rejects.toThrow(
       "school_session_snapshot returned an invalid result",
     );
+    await expect(bridge.retrySchool("science")).rejects.toThrow(
+      "retry_school returned an invalid result",
+    );
     await expect(bridge.schoolCredentialStatus()).rejects.toThrow(
       "school_credential_status returned an invalid result",
     );
   });
 
-  it("filters malformed session events and disposes its listener", async () => {
+  it("filters malformed session snapshots and disposes its listener", async () => {
     const seam = listenerSeam();
     const bridge = createTauriDesktopBridge(
       invokeSeam(() => undefined).invoke,
       seam.listen,
     );
-    const received: SchoolSessionEvent[] = [];
-    const dispose = await bridge.onSchoolSession((event) =>
-      received.push(event),
+    const received: SchoolSessionSnapshot[] = [];
+    const dispose = await bridge.onSchoolSession((snapshot) =>
+      received.push(snapshot),
     );
 
-    seam.deliver({ profile: "science", state: "active", revision: 2 });
-    seam.deliver({ profile: "other", state: "active", revision: 3 });
-    seam.deliver({ profile: "science", state: "broken", revision: 4 });
-    seam.deliver({ profile: "science", state: "failed", revision: -1 });
-    expect(received).toEqual([
-      { profile: "science", state: "active", revision: 2 },
-    ]);
+    const valid = { revision: 2, profiles: schoolProfiles("active", "idle") };
+    seam.deliver(valid);
+    // The pre-redesign per-profile event and states are refused outright.
+    seam.deliver({ profile: "science", state: "active", revision: 3 });
+    seam.deliver({
+      revision: 4,
+      profiles: { ...valid.profiles, science: { state: "failed" } },
+    });
+    seam.deliver({ revision: -1, profiles: valid.profiles });
+    seam.deliver({
+      revision: 5,
+      profiles: { science: valid.profiles.science },
+    });
+    expect(received).toEqual([valid]);
 
     dispose();
-    seam.deliver({ profile: "science", state: "active", revision: 5 });
+    seam.deliver({ ...valid, revision: 6 });
     expect(received).toHaveLength(1);
     expect(seam.unlistens()).toBe(1);
   });
@@ -1304,7 +1322,7 @@ describe("Tauri bridge contract", () => {
       listen,
     );
 
-    const dispose = bridge.onSchoolLoginStatus!(() => undefined);
+    const dispose = bridge.onSchoolWebNotice!(() => undefined);
     dispose();
     release?.(() => {
       unlistens += 1;

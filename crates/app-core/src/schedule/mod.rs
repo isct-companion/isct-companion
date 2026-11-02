@@ -90,7 +90,9 @@ pub use today::{
     assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
     RecentItem, RecentKind, TodayClass, TodayPhase, TodayView,
 };
-pub(crate) use today::{classes_on, recent_key, recent_version, unseen_recent, RECENT_DAYS};
+#[cfg(feature = "agent")]
+pub(crate) use today::classes_on;
+pub(crate) use today::{recent_key, recent_version, unseen_recent, RECENT_DAYS};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {

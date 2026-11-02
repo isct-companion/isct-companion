@@ -4,7 +4,6 @@ use crate::{
     contracts::FolderFile,
     data::DataStore,
     downloads::{Downloader, FetchError, Fetched, ResolvedResource},
-    net::SessionCookies,
     storage::{self, component, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
 use adpt_isct::lms::ResolvedFile;
@@ -13,7 +12,6 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
     time::{Duration, SystemTime},
 };
 use url::Url;
@@ -24,22 +22,6 @@ const MAX_RETENTION_DAYS: u64 = 3650;
 /// An orphaned partial download of another process is reclaimed after this
 /// long without writes; an active download keeps touching its file.
 const STALE_PARTIAL_AGE: Duration = Duration::from_secs(6 * 60 * 60);
-
-/// The school session course downloads use, as the shell registered it.
-#[derive(Clone, Default)]
-pub struct DownloadSession(Arc<std::sync::RwLock<Option<Arc<dyn SessionCookies>>>>);
-
-impl DownloadSession {
-    pub fn set(&self, session: Arc<dyn SessionCookies>) {
-        if let Ok(mut current) = self.0.write() {
-            *current = Some(session);
-        }
-    }
-
-    pub fn get(&self) -> Option<Arc<dyn SessionCookies>> {
-        self.0.read().ok().and_then(|current| current.clone())
-    }
-}
 
 /// A course's download folder: `<term>/<course>` under the files directory.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -87,10 +69,6 @@ pub enum MaterialError {
     /// The course folder refused the write; the message says how to allow it.
     #[error("{0}")]
     Denied(String),
-    #[error("Course files are resolved in the desktop app")]
-    UnsupportedResolution,
-    #[error("Course files are downloaded in the desktop app")]
-    UnsupportedDownload,
 }
 
 impl From<StorageError> for MaterialError {
@@ -108,21 +86,14 @@ pub struct CourseMaterials {
     store: DataStore,
     root: PathBuf,
     downloads: Downloader,
-    session: Option<Arc<dyn SessionCookies>>,
 }
 
 impl CourseMaterials {
-    pub fn new(
-        store: DataStore,
-        root: PathBuf,
-        downloads: Downloader,
-        session: Option<Arc<dyn SessionCookies>>,
-    ) -> Self {
+    pub fn new(store: DataStore, root: PathBuf, downloads: Downloader) -> Self {
         Self {
             store,
             root,
             downloads,
-            session,
         }
     }
 
@@ -196,15 +167,7 @@ impl CourseMaterials {
                         _ => return Ok(failed(MaterialFailure::Invalid)),
                     }
                 } else {
-                    let session = self
-                        .session
-                        .clone()
-                        .ok_or(MaterialError::UnsupportedResolution)?;
-                    match self
-                        .downloads
-                        .resolve(session, &source_url, cmid, &module)
-                        .await
-                    {
+                    match self.downloads.resolve(&source_url, cmid, &module).await {
                         Ok(ResolvedResource::File { url }) => {
                             let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
                             else {
@@ -261,14 +224,10 @@ impl CourseMaterials {
             if !download {
                 return Ok(Material::Missing);
             }
-            let session = self
-                .session
-                .clone()
-                .ok_or(MaterialError::UnsupportedDownload)?;
             let limit = bounded_download_limit(limit);
             match self
                 .downloads
-                .fetch(session, &url, path.clone(), limit, foreground)
+                .fetch(&url, path.clone(), limit, foreground)
                 .await
             {
                 Ok(Fetched::Saved) => {}

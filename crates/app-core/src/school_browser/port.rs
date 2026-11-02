@@ -35,10 +35,6 @@ pub enum BrowserAction {
     GoBack,
     GoForward,
     Eval(String),
-    /// Ends an abandoned attempt: the view stops loading, runs
-    /// [`SCHOOL_STOP`](crate::school_browser::SCHOOL_STOP), and then answers
-    /// with [`SchoolBrowserListener::stopped`].
-    Stop,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -234,7 +230,6 @@ pub trait SchoolBrowser: Send + Sync {
 pub trait SchoolBrowserListener: Send + Sync {
     fn page_loaded(&self, event: PageLoaded);
     fn load_failed(&self, event: LoadFailed);
-    fn title_changed(&self, page: PageId, title: String);
     /// The engine's history of a view or popup may have changed: a page
     /// committed or finished, or a popup was created (none yet).
     fn history_changed(&self, browser: BrowserId, history: History);
@@ -246,7 +241,4 @@ pub trait SchoolBrowserListener: Send + Sync {
     /// A view or popup is gone: closed by its page (`window.close`), by the
     /// person, by `dispose`, or never created.
     fn closed(&self, browser: BrowserId);
-    /// The view carried out `action`'s stop. `page` is the last page it had
-    /// reported then: any later report of that page or an earlier one is late.
-    fn stopped(&self, page: PageId, action: ActionId);
 }

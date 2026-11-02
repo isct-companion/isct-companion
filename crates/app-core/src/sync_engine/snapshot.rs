@@ -16,7 +16,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 pub(super) struct Parts<'a> {
     pub(super) generation: u64,
@@ -26,8 +26,6 @@ pub(super) struct Parts<'a> {
     pub(super) plan: &'a [Candidate],
     pub(super) facts: &'a Facts,
     pub(super) inputs: &'a Inputs,
-    pub(super) sessions: &'a HashMap<SchoolAuthProfile, String>,
-    pub(super) kyomu_notice: Option<&'a str>,
     pub(super) now: DateTime<Utc>,
 }
 
@@ -133,13 +131,6 @@ const SOURCES: [Source; 4] = [
     },
 ];
 
-fn configured(inputs: &Inputs, profile: SchoolAuthProfile) -> bool {
-    match profile {
-        SchoolAuthProfile::Science => inputs.science_configured,
-        SchoolAuthProfile::TokyoTech => inputs.tokyo_configured,
-    }
-}
-
 fn source_view(source: &Source, parts: &Parts<'_>) -> SourceView {
     let states = || {
         parts
@@ -168,14 +159,9 @@ fn source_view(source: &Source, parts: &Parts<'_>) -> SourceView {
                 .clone()
                 .filter(|held| *held != Held::Prerequisite)
         });
-    if let Some(profile) = source.profile {
-        if held.is_none()
-            && !running
-            && !parts.facts.signed_in.contains(&profile)
-            && !configured(parts.inputs, profile)
-        {
-            held = Some(Held::SignInRequired { profile });
-        }
+    // A source whose session waits says so even with nothing planned.
+    if let Some(profile) = source.profile.filter(|_| held.is_none() && !running) {
+        held = parts.facts.session_hold(parts.inputs, profile, parts.now);
     }
     let backing_off = |state: &&KeyState| {
         state.failures > 0 && state.next_eligible.is_some_and(|at| at > parts.now)
@@ -199,10 +185,12 @@ fn source_view(source: &Source, parts: &Parts<'_>) -> SourceView {
         failure,
         session: source
             .profile
-            .and_then(|profile| parts.sessions.get(&profile).cloned()),
-        maintenance: (source.name == "kyomu")
-            .then(|| parts.kyomu_notice.map(str::to_owned))
-            .flatten(),
+            .and_then(|profile| parts.facts.sessions.get(&profile))
+            .map(|fact| fact.state),
+        maintenance: source
+            .profile
+            .and_then(|profile| parts.facts.sessions.get(&profile))
+            .and_then(|fact| fact.maintenance.clone()),
     }
 }
 

@@ -1,5 +1,6 @@
 //! What is particular to Institute of Science Tokyo: parsers for its LMS and
-//! 教務Web pages, the scripts its school pages run, and its URLs.
+//! 教務Web pages and its two sign-in providers, the scripts its school pages
+//! run, and its URLs.
 //!
 //! This crate holds no state. It must not open network connections, touch a
 //! platform, or write to SQLite; acquisition, session recovery, downloads and
@@ -7,6 +8,7 @@
 
 pub mod kyomu;
 pub mod lms;
+pub mod login;
 pub mod scripts;
 pub mod urls;
 

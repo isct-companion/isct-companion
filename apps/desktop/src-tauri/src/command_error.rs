@@ -57,7 +57,6 @@ macro_rules! from_coded {
 from_coded!(
     app_core::workspaces::WorkspaceError,
     app_core::school_browser::SubmissionError,
-    app_core::school_auth::OtpSetupError,
     app_core::school_auth::OtpImportError,
 );
 

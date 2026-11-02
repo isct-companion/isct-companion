@@ -24,9 +24,9 @@ fun main(args:Array<String>) = runBlocking {
     vault.failNextStore()
     try {session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing callback error")}
     catch(_:SdkException.Callback) {}
-    // No school browser here: connecting keeps the credentials, then cannot sign in.
-    try {session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing browser error")}
-    catch(_:SdkException.Unavailable) {}
+    // The session is offline: connecting keeps the credentials and sends nothing.
+    val offline=(session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value() as OperationResult.SchoolConnect).result
+    check(offline.state==SchoolSessionState.UNAVAILABLE && !offline.verified) { "An offline connect must not sign in" }
     check((session.credentialStatus().value() as OperationResult.Credentials).status.tokyoTech.saved)
     session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value()
     val stream=session.subscribe()

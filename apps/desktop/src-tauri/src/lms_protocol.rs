@@ -57,11 +57,9 @@ fn error(reason: Reason, bytes: Option<u64>) -> http::Response<Vec<u8>> {
         .unwrap_or_else(|_| http::Response::new(Vec::new()))
 }
 
-fn login_error(app: &AppHandle) -> http::Response<Vec<u8>> {
-    // Core coalesces session checks from concurrent failed images/files.
-    if let Ok(engine) = crate::core_ports::core(app).school_browser() {
-        let _ = engine.request_session(app_core::school_auth::SchoolAuthProfile::Science);
-    }
+/// The LMS session stayed unavailable even after Core's own recovery: the
+/// session snapshot tells the person why.
+fn login_error() -> http::Response<Vec<u8>> {
     error(Reason::Login, None)
 }
 
@@ -331,7 +329,7 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
         Ok(Ok(Material::TooLarge { bytes })) => error(Reason::TooLarge, Some(bytes)),
         Ok(Ok(Material::Missing)) => error(Reason::Unresolved, None),
         Ok(Ok(Material::Failed { reason })) => match reason {
-            MaterialFailure::Login => login_error(&app),
+            MaterialFailure::Login => login_error(),
             MaterialFailure::Invalid => error(Reason::Invalid, None),
             MaterialFailure::Timeout => error(Reason::Timeout, None),
             MaterialFailure::Unresolved => error(Reason::Unresolved, None),

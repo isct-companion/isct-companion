@@ -176,7 +176,7 @@ const baseHandle: Handle = (command, args) => {
     case "school_session_snapshot":
       return {
         revision: 0,
-        profiles: schoolProfiles("pending", "pending"),
+        profiles: schoolProfiles("not-configured", "not-configured"),
       };
     default:
       return undefined;

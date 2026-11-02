@@ -64,10 +64,11 @@ hickory-resolver = { version = "0.26", default-features = false, features = ["to
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSCell", "NSControl", "NSDragging", "NSGraphics", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSavePanel", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
 # Native notifications (notifications_macos.rs).
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
-# School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
+# School view WebKit hooks (school_webkit.rs) and the identity cookies Core
+# writes into the school store (school_cookies.rs). Same versions wry uses.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSString", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
-objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSHTTPCookie", "NSString", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test
@@ -91,11 +92,21 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-collections = "0.3"
+# WebView2's cookie manager: the identity cookies Core writes into the school
+# store (school_cookies.rs). The version wry already uses.
+webview2-com = "0.39"
 # The tray icon that keeps a closed window's app running (window_close_windows.rs).
 tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
 # A second launch shows the running app's hidden window instead of starting
 # another copy against the same data. It injects no script into webviews.
 tauri-plugin-single-instance = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# WebKitGTK's cookie manager and libsoup's Set-Cookie parser: the identity
+# cookies Core writes into the school store (school_cookies.rs). The versions
+# wry already uses.
+webkit2gtk = { version = "2.0", features = ["v2_38"] }
+soup3 = "0.5"
 
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }

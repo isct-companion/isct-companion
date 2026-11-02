@@ -60,7 +60,6 @@ private struct TileLabel: LabelStyle {
 /// The OTP setup, as the desktop's chooser: once saved, one line that says
 /// codes fill themselves in; otherwise a choice between an authenticator's
 /// export QR (camera or a screenshot on this phone) and a pasted setup.
-/// Registering with the school is the desktop's job, so it is pointed to.
 struct OtpImportField: View {
     let saved: Bool
     @Binding var setup: String
@@ -174,11 +173,7 @@ struct OtpImportField: View {
         if let error {
             Text(error).font(.footnote).foregroundStyle(Theme.danger)
         }
-        if !saved {
-            Text(t("settings.credentialImport.notRegisteredYetTheDesktop"))
-                .font(.footnote)
-                .foregroundStyle(Theme.muted)
-        } else if setup.isEmpty {
+        if saved && setup.isEmpty {
             Button(t("settings.credentialImport.keepTheSavedSetup")) { changing = false }
         }
     }

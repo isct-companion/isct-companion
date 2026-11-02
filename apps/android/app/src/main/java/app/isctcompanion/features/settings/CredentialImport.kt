@@ -149,8 +149,8 @@ private fun copySensitive(context: Context, text: String) {
 /** The OTP setup, as the desktop's chooser: once saved, one line that says
  * codes fill themselves in; otherwise a choice between an authenticator's
  * export QR (Google's code scanner, or a screenshot on this phone) and a
- * pasted setup. Registering with the school is the desktop's job, so it is
- * pointed to. */
+ * pasted setup. The app never registers an authenticator with the school;
+ * it imports one already registered. */
 @Composable
 fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     val context = LocalContext.current
@@ -273,9 +273,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     }
     label?.let { Text(t("settings.credentialImport.readLabelSaveToUse", "label" to it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
-    if (!saved) {
-        Hint(t("settings.credentialImport.notRegisteredYetTheDesktop"))
-    } else if (setup.isEmpty()) {
+    if (saved && setup.isEmpty()) {
         TextButton(onClick = { changing = false }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
     }
     if (choices.isNotEmpty()) {

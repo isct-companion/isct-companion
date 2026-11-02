@@ -55,10 +55,10 @@ struct SettingsScreen: View {
             Group {
                 Section(t("settings.main.schoolAccounts")) {
                     NavigationLink(value: SettingsRoute.account(.science)) {
-                        accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated)
+                        accountRow(.science, "Science Tokyo", model.syncSource("lms")?.lastUpdated)
                     }
                     NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                        accountRow(t("settings.main.tokyoTechFormer"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated)
+                        accountRow(.tokyoTech, t("settings.main.tokyoTechFormer"), model.syncSource("kyomu")?.lastUpdated)
                     }
                 }
                 Section {
@@ -228,30 +228,39 @@ struct SettingsScreen: View {
         return refresh["allowCellular"] as? Bool == true ? t("settings.main.updateOnCellularData") : t("settings.main.updatesAutomaticallyOnWiFi")
     }
 
-    private func accountRow(
-        _ name: String, _ credential: CredentialSummary?, _ session: SchoolProfileSession?, _ lastRun: String?
-    ) -> some View {
-        let connected = credential?.availability == .available || credential?.availability == .savedLocked
-        let state: (String, Color) = {
-            guard connected else { return (t("common.notConnected"), Theme.muted) }
-            if session?.state == .failed, let problem = session?.problem {
-                return (t("settings.main.signInFailedReason", ["reason": AppModel.reason(problem).components(separatedBy: "\n")[0]]), Theme.danger)
+    /// An account with its session as Core reports it, and a paused site.
+    private func accountRow(_ profile: SchoolAuthProfile, _ name: String, _ lastRun: String?) -> some View {
+        let session = model.profileSession(profile)
+        let state = session?.state ?? .notConfigured
+        let text: String =
+            if state == .active, let lastRun {
+                t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)])
+            } else if let session {
+                SchoolSessionText.line(session)
+            } else {
+                SchoolSessionText.state(state)
             }
-            switch session?.state {
-            case .active?:
-                if let lastRun { return (t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)]), Theme.ok) }
-                return (t("settings.main.connected"), Theme.ok)
-            case .failed?: return (t("common.signInFailed"), Theme.danger)
-            case .maintenance?: return (t("common.underMaintenance"), Theme.warn)
-            default: return (t("settings.main.checking"), Theme.muted)
-            }
-        }()
         return HStack(spacing: 12) {
-            Circle().fill(connected ? state.1 : Theme.line).frame(width: 8, height: 8)
+            Circle().fill(Self.tint(state)).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                Text(state.0).font(.subheadline).foregroundStyle(Theme.muted)
+                Text(text).font(.subheadline).foregroundStyle(Theme.muted)
+                if let maintenance = session?.maintenance {
+                    Text(SchoolSessionText.maintenance(maintenance, profile: profile))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.warn)
+                }
             }
+        }
+    }
+
+    private static func tint(_ state: SchoolSessionState) -> Color {
+        switch state {
+        case .notConfigured: Theme.line
+        case .signingIn: Theme.muted
+        case .idle, .active: Theme.ok
+        case .unavailable: Theme.warn
+        case .rejected, .needsWeb: Theme.danger
         }
     }
 }
@@ -275,7 +284,8 @@ private struct SettingsIcon: View {
 }
 
 /// Sign in, change or forget a school account. The password goes straight to
-/// Core, which stores it in the Keychain and starts the session check.
+/// Core, which stores it in the Keychain and signs in with it. While the
+/// account is stuck, the page says why and offers Core's Retry.
 private struct AccountScreen: View {
     let profile: SchoolAuthProfile
     let name: String
@@ -286,24 +296,19 @@ private struct AccountScreen: View {
     @State private var otpSecret = ""
     @State private var matrix = ""
     @State private var saving = false
+    @State private var retrying = false
+    @State private var removing = false
     @State private var error: String?
 
     private var summary: CredentialSummary? {
         profile == .science ? model.credentials?.science : model.credentials?.tokyoTech
     }
 
-    /// Why the last sign-in failed, as Core recorded it, while it still applies.
-    private var problem: String? {
-        let session = profile == .science ? model.sessions?.science : model.sessions?.tokyoTech
-        guard let session, session.state != .active, let problem = session.problem else { return nil }
-        var text = AppModel.reason(problem)
-        if session.auto == .paused {
-            text += "\n" + t("settings.main.automaticSignInWaitsUntil")
-        } else if session.auto == .retryLater {
-            text += "\n" + t("settings.main.automaticSignInTriesAgain")
-        }
-        return text
-    }
+    private var session: SchoolProfileSession? { model.profileSession(profile) }
+
+    /// The states that wait for the person or for Core's next try, where
+    /// Retry makes one attempt now with the synced credentials.
+    private static let stuck: [SchoolSessionState] = [.rejected, .needsWeb, .unavailable]
 
     var body: some View {
         Form {
@@ -329,8 +334,13 @@ private struct AccountScreen: View {
                 } else {
                     MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
                 }
-                if let message = error ?? (saving ? nil : problem) {
-                    Section { Text(message).foregroundStyle(Theme.danger) }
+                if let error {
+                    Section { Text(error).foregroundStyle(Theme.danger) }
+                } else if !saving, let session, Self.stuck.contains(session.state) {
+                    status(session)
+                }
+                if let maintenance = session?.maintenance {
+                    Section { Text(SchoolSessionText.maintenance(maintenance, profile: profile)).foregroundStyle(Theme.warn) }
                 }
                 Section {
                     Button {
@@ -342,12 +352,17 @@ private struct AccountScreen: View {
                 }
                 if summary?.saved == true {
                     Section {
-                        Button(t("settings.main.removeSignInDetailsFrom"), role: .destructive) {
+                        // Core first stops the account's reads, so this can take a moment.
+                        Button(role: .destructive) {
+                            removing = true
                             Task {
                                 await model.deleteCredentials(profile)
                                 dismiss()
                             }
+                        } label: {
+                            if removing { ProgressView() } else { Text(t("settings.main.removeSignInDetailsFrom")) }
                         }
+                        .disabled(removing)
                     }
                 }
             }
@@ -359,6 +374,36 @@ private struct AccountScreen: View {
         .onAppear { username = summary?.username ?? "" }
     }
 
+    /// Why the account is stuck, then Retry. Needs-web says the person signs
+    /// in on the school page; rejected says when Retry helps.
+    private func status(_ session: SchoolProfileSession) -> some View {
+        Section {
+            Text(SchoolSessionText.line(session))
+                .foregroundStyle(session.state == .unavailable ? Theme.warn : Theme.danger)
+            if session.state == .needsWeb {
+                Text(t("schoolSession.needsWeb.signInYourself")).font(.footnote).foregroundStyle(Theme.muted)
+            }
+            Button {
+                Task { await retry() }
+            } label: {
+                if retrying { ProgressView() } else { Text(t("common.retry")) }
+            }
+            .disabled(retrying)
+        } footer: {
+            if session.state == .rejected { Text(t("schoolSession.retry.otherDevice")) }
+        }
+    }
+
+    private func retry() async {
+        retrying = true
+        defer { retrying = false }
+        do {
+            try await model.retrySchool(profile)
+        } catch {
+            self.error = AppModel.describe(error)
+        }
+    }
+
     private func save() async {
         saving = true
         defer { saving = false }
@@ -368,8 +413,8 @@ private struct AccountScreen: View {
                 profile,
                 SchoolCredentials(username: username, password: password, otpSecret: otpSecret, matrix: matrix))
             // Stay on the page with the reason, so the person can correct it.
-            if let result, result.state == .failed || result.state == .maintenance {
-                error = result.problem.map(AppModel.reason) ?? t(result.state == .maintenance ? "common.underMaintenance" : "common.signInFailed")
+            if let result, Self.stuck.contains(result.state) {
+                error = SchoolSessionText.line(result.state, problem: result.problem, retryAt: nil)
                 return
             }
             dismiss()

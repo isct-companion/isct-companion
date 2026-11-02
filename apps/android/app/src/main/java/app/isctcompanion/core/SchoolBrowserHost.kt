@@ -12,6 +12,8 @@ import android.os.Looper
 import android.os.Message
 import android.print.PrintAttributes
 import android.print.PrintManager
+import android.view.DragEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -151,14 +153,19 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             ?.print(name, webView.createPrintDocumentAdapter(name), PrintAttributes.Builder().build())
     }
 
-    /** The off-screen host that keeps views running while no screen shows them. */
+    /** The off-screen host that keeps views running while no screen shows them.
+     * Its views stay laid out and nearly transparent, so WebView keeps running
+     * them, but they take no input: a touch or a dropped file that the screen
+     * above lets through, or a page focusing a field, must never reach a page
+     * the person cannot see. */
     fun attachParking(activity: Activity) {
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        val host = parking ?: FrameLayout(context).apply {
+        val host = parking ?: object : FrameLayout(context) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
+            override fun dispatchDragEvent(event: DragEvent): Boolean = false
+        }.apply {
             alpha = 0.01f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            // Core's login script focuses fields it fills; a hidden page must
-            // not take focus and raise the soft keyboard.
             descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }
         (host.parent as? ViewGroup)?.removeView(host)
@@ -206,7 +213,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             loadWithOverviewMode = true
             useWideViewPort = true
         }
-        // One cookie store: visible pages and hidden sync reads share a session; SSO
+        // One cookie store, which Core seeds with the account's sign-in; SSO
         // crosses sites.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         return webView
@@ -266,17 +273,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             is BrowserAction.Reload -> webView.reload()
             is BrowserAction.GoBack -> webView.goBack()
             is BrowserAction.GoForward -> webView.goForward()
-            // Scripts report through title and navigation relays.
+            // Scripts report through navigation relays.
             is BrowserAction.Evaluate -> webView.evaluateJavascript(action.script, null)
-            // Core abandoned this view's attempt and leases it again only once
-            // this confirms; the page reported at that point is the last one
-            // the attempt may claim.
-            is BrowserAction.Stop -> {
-                webView.stopLoading()
-                webView.evaluateJavascript(action.script) {
-                    runCatching { listener()?.stopped(tab.page, command.actionId) }
-                }
-            }
         }
     }
 
@@ -443,9 +441,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
         /** WebView hands over a response it cannot show; Core downloads it
          * (`onDownload`), never the system DownloadManager. Only a site the
-         * person is looking at saves files: Core's `download_permitted` would
-         * let a hidden view save adapter-site files, but it is not in the FFI
-         * and no hidden work on Android needs one. */
+         * person is looking at saves files. */
         val downloads = DownloadListener { url, _, contentDisposition, mimeType, _ ->
             val save = onDownload
             if (!siteShown(this) || save == null) return@DownloadListener
@@ -458,11 +454,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         }
 
         val chrome = object : WebChromeClient() {
-            override fun onReceivedTitle(view: WebView, title: String?) {
-                if (title.isNullOrEmpty()) return
-                runCatching { listener()?.titleChanged(page, title) }
-            }
-
             // WebView names no URL until the window navigates; that first
             // navigation reaches Core from the popup like any other.
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
@@ -499,7 +490,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 ask(PageDialog.Kind.LEAVE, url, message, null, result)
 
             /** A file input opens the system picker for the page on screen,
-             * as a dialog does; a hidden page chooses nothing. */
+             * as a dialog does; a page off screen chooses nothing. */
             override fun onShowFileChooser(
                 view: WebView,
                 callback: ValueCallback<Array<Uri>>,
@@ -517,9 +508,9 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             }
         }
 
-        /** Shows a page dialog for the page on screen. A hidden page is
+        /** Shows a page dialog for the page on screen. A page off screen is
          * answered at once without UI: Cancel, except that it may always
-         * leave, so hidden work is never held on a page. */
+         * leave, so it is never held on a page nobody sees. */
         private fun ask(kind: PageDialog.Kind, url: String, message: String, value: String?, result: JsResult): Boolean {
             if (!shown(this) || dialog != null) {
                 if (kind == PageDialog.Kind.LEAVE) result.confirm() else result.cancel()

@@ -1,8 +1,9 @@
 //! One application service owner, shared by native shells and agent adapters.
 #[cfg(feature = "agent")]
 use crate::agent::AgentService;
-use crate::school_browser::{
-    SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError, SchoolConnectResult,
+use crate::school_browser::{SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError};
+use crate::school_session::{
+    SchoolConnectResult, SchoolSessionSnapshot, SchoolSessions, WebCookieSeed,
 };
 use crate::{
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
@@ -25,8 +26,8 @@ pub struct Core {
     pub agent: AgentService,
     /// Assignment workspaces under the selected course storage root.
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
-    /// LMS writes, once the school browser's transport is attached; the
-    /// MCP tools share the slot. Only the desktop's agents write to the LMS.
+    /// LMS writes; the MCP tools share the slot. Only the desktop's agents
+    /// write to the LMS.
     #[cfg(feature = "agent")]
     submissions: Arc<std::sync::OnceLock<crate::submissions::SubmissionService>>,
     pub workspace: WorkspaceService,
@@ -34,6 +35,8 @@ pub struct Core {
     /// Every network read of school and reference data; `Core::reset`
     /// closes its admission.
     pub(crate) sync: Arc<SyncEngine>,
+    /// The school accounts' sign-in and sessions, owned by Core.
+    sessions: SchoolSessions,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
     pub(crate) reset_lease: crate::reset::ResetLease,
@@ -42,8 +45,8 @@ pub struct Core {
 
 struct CoreEvents {
     sink: Mutex<Option<Arc<dyn EventSink>>>,
-    /// Every event passes the relay below, so sign-in and maintenance facts
-    /// reach the sync snapshot once for all shells.
+    /// Every event passes the relay below, so the session snapshot reaches the
+    /// sync planner once for all shells.
     sync: SyncHints,
 }
 
@@ -174,6 +177,19 @@ impl Core {
             sync.set_events(events.clone());
         }
         let runtime = Arc::new(CoreRuntime::new(sync.hints()));
+        let sessions = SchoolSessions::new(crate::net::Http::new().ok(), auth.clone());
+        sessions.set_events(
+            events
+                .as_ref()
+                .map(|events| events.clone() as Arc<dyn EventSink>)
+                .unwrap_or_else(|| Arc::new(NoopEvents)),
+        );
+        runtime.downloads.attach_sessions(sessions.clone());
+        let moodle = Arc::new(crate::net::moodle::MoodleClient::new(auth.clone()));
+        sync.attach_school(crate::sync_engine::SchoolReaders {
+            sessions: sessions.clone(),
+            moodle: moodle.clone(),
+        });
         let sync = Arc::new(sync);
         let seq = store.commit_seq_handle();
         store.observe(Arc::new(StoreChanges {
@@ -206,11 +222,10 @@ impl Core {
             store.clone(),
             runtime.notes.clone(),
             runtime.downloads.clone(),
-            runtime.download_session.clone(),
         );
         #[cfg(feature = "agent")]
         let submissions = Arc::new(std::sync::OnceLock::new());
-        Self {
+        let core = Self {
             #[cfg(feature = "agent")]
             agent: AgentService::new(
                 store.clone(),
@@ -223,6 +238,7 @@ impl Core {
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
             sync,
+            sessions: sessions.clone(),
             school_browser: Mutex::new(None),
             store,
             auth,
@@ -230,19 +246,32 @@ impl Core {
             events,
             reset_lease: Default::default(),
             finder: Default::default(),
+        };
+        // A ledger that cannot open leaves writes off and reads untouched.
+        #[cfg(feature = "agent")]
+        if let Err(error) = core.attach_submissions(Arc::new(
+            crate::net::moodle::LmsSubmissions::new(moodle, sessions),
+        )) {
+            crate::diagnostics::report("submissions", &error);
         }
+        #[cfg(not(feature = "agent"))]
+        let _ = (moodle, sessions);
+        core
     }
 
     /// A shell fact or intent for the sync planner. Never blocks.
     pub fn sync_hint(&self, hint: Hint) {
+        if let Hint::Network { network } = &hint {
+            self.sessions.network(*network);
+        }
         self.sync.hint(hint);
     }
 
     /// Holds an OS background wake open: resumes, then waits until sync
-    /// has nothing left that it may read out of front, at most `limit`. The
-    /// planner keeps 教務 and the LMS reads that need the dashboard for the
-    /// foreground, and a phone's sign-in waits for it too, so only token and
-    /// public reads run. Returns whether sync went quiet in time.
+    /// has nothing left to read, at most `limit`. Core signs in over HTTP on
+    /// its own, so school reads run in the background too; what the time
+    /// does not cover waits for the next wake. Returns whether sync went
+    /// quiet in time.
     pub async fn sync_in_background(&self, limit: std::time::Duration) -> bool {
         self.runtime.resume().await;
         self.sync.wait_quiet(limit).await
@@ -252,8 +281,16 @@ impl Core {
     /// front meanwhile.
     pub async fn end_background_wake(&self) {
         if !self.sync.in_front() {
-            self.runtime.suspend().await;
+            self.suspend().await;
         }
+    }
+
+    /// The OS is about to suspend the process: no new keys are leased, and
+    /// a sign-in under way stops (a password already sent waits out its
+    /// pause, never resent at once).
+    pub async fn suspend(&self) {
+        self.sessions.suspend();
+        self.runtime.suspend().await;
     }
 
     /// What sync is doing now. The same value is sent as `sync-snapshot`
@@ -272,12 +309,10 @@ impl Core {
         self.sync.start(handle)
     }
 
-    /// Attaches the shell's school WebView and the cookie port that lets
-    /// Core's HTTP clients read with the WebView's school session.
+    /// Attaches the shell's school web view: the pages the person opens.
     pub fn attach_school_browser(
         &self,
         browser: Arc<dyn SchoolBrowser>,
-        cookies: Arc<dyn crate::net::SessionCookies>,
     ) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
         let mut owner = self
             .school_browser
@@ -293,31 +328,21 @@ impl Core {
             .as_ref()
             .map(|events| events.clone() as Arc<dyn EventSink>)
             .unwrap_or_else(|| Arc::new(NoopEvents));
-        let engine =
-            SchoolBrowserEngine::new(self.auth.clone(), events, browser, self.sync.hints())?;
-        let http = crate::net::Http::new()
-            .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
-        engine.attach_transport(http, cookies)?;
-        // LMS writes exist only where agents do (the desktop). A ledger that
-        // cannot open leaves writes off and reads untouched.
-        #[cfg(feature = "agent")]
-        let attached = engine
-            .moodle_client()
-            .map_err(|error| error.to_string())
-            .and_then(|client| {
-                self.attach_submissions(Arc::new(crate::net::moodle::LmsSubmissions::new(client)))
-                    .map_err(|error| error.to_string())
-            });
-        #[cfg(feature = "agent")]
-        if let Err(error) = attached {
-            crate::diagnostics::report("submissions", &error);
-        }
-        self.runtime
-            .downloads
-            .attach_sign_in(engine.sign_in_gate()?);
+        let engine = SchoolBrowserEngine::new(self.sessions.clone(), events, browser)?;
         *owner = Some(engine.clone());
-        self.sync.attach_school(engine.clone());
         Ok(engine)
+    }
+
+    /// The shell's write-only port into the web view's cookie store, where
+    /// Core writes an account's identity before an App-initiated school
+    /// navigation and clears it when the account goes.
+    pub fn attach_web_cookies(&self, seed: Arc<dyn WebCookieSeed>) {
+        self.sessions.attach_web(seed);
+    }
+
+    /// The school accounts' sessions.
+    pub fn sessions(&self) -> &SchoolSessions {
+        &self.sessions
     }
 
     /// Opens the submission service over `transport`, once. What an earlier
@@ -354,7 +379,7 @@ impl Core {
 
     /// The one way a shell connects a school account: keep the entered
     /// credentials as this device's candidate (blank fields keep what is
-    /// saved), lift any pause on automatic sign-in, and sign in with them.
+    /// saved) and sign in with them over HTTP, through any refusal on record.
     /// They reach the synchronized Keychain item and cloud sync only once
     /// the school accepts them.
     pub async fn connect_school(
@@ -366,35 +391,45 @@ impl Core {
         let credentials = tokio::task::spawn_blocking(move || auth.stage(profile, credentials))
             .await
             .map_err(|_| SchoolBrowserError::Stopped)??;
-        self.credentials_changed(profile, true)?;
-        Ok(self.school_browser()?.connect(profile, credentials).await?)
+        let result = self.sessions.connect(profile, credentials).await;
+        // The account keys belong to may have changed.
+        self.sync.reevaluate();
+        Ok(result)
     }
 
-    pub fn delete_credentials(
+    /// The person's Retry: one sign-in with the credentials saved now, read
+    /// again first.
+    pub async fn retry_school(&self, profile: SchoolAuthProfile) -> SchoolSessionSnapshot {
+        self.sessions.retry(profile).await
+    }
+
+    /// Both accounts' sessions as shells render them.
+    pub fn school_session(&self) -> SchoolSessionSnapshot {
+        self.sessions.snapshot()
+    }
+
+    /// Forgets the account's credentials and signs it out of this device:
+    /// Core's session, the LMS token and the web view's school cookies go.
+    pub async fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<bool, CredentialMutationError> {
-        let deleted = self.auth.delete(profile)?;
-        self.credentials_changed(profile, false)?;
+        let auth = self.auth.clone();
+        let deleted = tokio::task::spawn_blocking(move || auth.delete(profile))
+            .await
+            .map_err(|_| SchoolBrowserError::Stopped)??;
+        self.sessions.sign_out(profile).await;
+        self.sync.reevaluate();
         Ok(deleted)
     }
 
-    fn credentials_changed(
-        &self,
-        profile: SchoolAuthProfile,
-        configured: bool,
-    ) -> Result<(), CredentialMutationError> {
-        // The account keys belong to may have changed.
-        self.sync.reevaluate();
-        let browser = self
-            .school_browser
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .clone();
-        if let Some(browser) = browser {
-            browser.credentials_changed(profile, configured)?;
+    /// A credential file was imported: both accounts read their saved
+    /// credentials again, which lifts a refusal of credentials it replaced.
+    pub fn credentials_imported(&self) {
+        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+            self.sessions.credentials_changed(profile);
         }
-        Ok(())
+        self.sync.reevaluate();
     }
 
     /// Ports are scoped to operations, so completed work releases native handles.
@@ -465,11 +500,8 @@ impl Core {
     /// Run every periodic domain service once. Each result is retained so a
     /// failed refresh cannot suppress cloud journaling or reminder delivery.
     pub async fn wake(&self, services: WakeServices) -> WakeReport {
-        if self.sync.can_retry_school_sessions() {
-            if let Ok(browser) = self.school_browser() {
-                browser.retry_sessions();
-            }
-        }
+        // A session's pause that ran out lifts; the planner reads again.
+        self.sessions.wake();
         let runtime = self.runtime.wake(services.scheduler).await;
         let cloud = services
             .cloud
@@ -502,11 +534,12 @@ impl Core {
 
     pub async fn shutdown(&self) {
         self.reminders.shutdown().await;
-        // Reads stop before the browser they may be signing in with.
+        // Reads stop before the sessions they read with.
         self.sync.shutdown().await;
         if let Ok(browser) = self.school_browser() {
             browser.shutdown().await;
         }
+        self.sessions.shutdown().await;
         self.runtime.shutdown().await;
         if let Some(events) = &self.events {
             events.clear();

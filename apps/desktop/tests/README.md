@@ -31,7 +31,7 @@ with `// @vitest-environment jsdom`; everything else runs in plain node.
 | ---------------------------------------------------------------- | -------------------------------------------------- |
 | Dates, quarters, timetable geometry, locales, text, message keys | `unit/schedule-and-dates`, `unit/text-and-locales` |
 | Course eligibility, finder ranking, editors                      | `unit/courses-and-eligibility`                     |     | LMS files, previews, lessons, assignments, OCR input | `unit/lms-content` |
-| School hosts, login scripts, sessions, injected web scripts      | `unit/school-sites`                                |
+| School hosts, sessions, injected web scripts                     | `unit/school-sites`                                |
 | Public fixture provenance, bundled subscription data             | `unit/school-extractors`                           |
 | Bridge contracts, capability policy, query caches, store, routes | `unit/workspace-store`                             |
 | Build/release tooling, generated artifacts                       | `unit/tooling`                                     |

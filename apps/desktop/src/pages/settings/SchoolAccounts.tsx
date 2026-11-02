@@ -1,5 +1,6 @@
 import { errorText } from "../../app/shared";
 import { notify as appNotify } from "../../app/notify";
+import { sessionDetails, sessionText } from "../../app/sync-text";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -7,8 +8,6 @@ import {
   FileButton,
   Group,
   Paper,
-  Progress,
-  Stack,
   Text,
   TextInput,
 } from "../../components/ui";
@@ -16,7 +15,7 @@ import { OtpSetupInput } from "../../components/OtpSetupInput";
 import { MatrixCamera } from "../../components/MatrixCamera";
 import { UiInput } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
-import { lookup, t, type MessageKey } from "../../i18n";
+import i18n, { t, type MessageKey } from "../../i18n";
 
 import { desktopBridge } from "../../app/native";
 import {
@@ -33,9 +32,12 @@ import type {
   SchoolAuthProfile,
   SchoolCredentialStatus,
   SchoolCredentials,
-  SchoolLoginEvent,
+  SchoolSessionState,
 } from "../../platform/desktop-bridge";
-import { useSchoolSession } from "../../platform/school-session";
+import {
+  schoolSessions,
+  useSchoolSession,
+} from "../../platform/school-session";
 
 const emptyStatus: SchoolCredentialStatus = {
   science: {
@@ -67,79 +69,15 @@ const CONFIDENCE_NOTE = {
   low: "settings.schoolAccounts.confidenceLow",
 } satisfies Record<MatrixConfidence, MessageKey>;
 
-// Steps the login script reports, in the order each portal shows them.
-const STEPS = [
-  { key: "identifier", label: "settings.schoolAccounts.id" },
-  { key: "password", label: "settings.main.password" },
-  { key: "code", label: "courses.code" },
-  { key: "connected", label: "common.signedIn" },
-] as const satisfies readonly { key: string; label: MessageKey }[];
-// Portal-side steps that sit between the ones shown above.
-const STEP_ALIASES: Record<string, string> = {
-  agree: "password",
-  method: "code",
-  otp: "code",
-  matrix: "code",
+const SESSION_BADGE: Record<SchoolSessionState, string> = {
+  "not-configured": "gray",
+  idle: "campus",
+  "signing-in": "campus",
+  active: "green",
+  rejected: "red",
+  "needs-web": "yellow",
+  unavailable: "orange",
 };
-// Reset on every reported step; a single portal round trip is far shorter.
-const STEP_TIMEOUT_MS = 30_000;
-
-type Connection = {
-  state: "idle" | "checking" | "timeout" | SchoolLoginEvent["state"];
-  step: string;
-  message: string;
-};
-
-function SignInSteps({ connection }: { connection: Connection }) {
-  if (connection.state === "maintenance")
-    return (
-      <Text c="yellow" size="sm">
-        {t("common.underMaintenance")}
-      </Text>
-    );
-  const connected = connection.state === "connected";
-  const current = connected
-    ? STEPS.length - 1
-    : Math.max(
-        0,
-        STEPS.findIndex((step) => step.key === connection.step),
-      );
-  const failed = !["checking", "progress", "connected"].includes(
-    connection.state,
-  );
-  const value = connected ? 100 : ((current + 0.35) / STEPS.length) * 100;
-  return (
-    <Stack gap={5} className="signInProgress">
-      <Group justify="space-between" gap="xs" wrap="nowrap">
-        {STEPS.map((step, index) => (
-          <Text
-            key={step.key}
-            size="xs"
-            fw={index === current ? 700 : 500}
-            c={
-              connected || index < current
-                ? "green"
-                : index === current && failed
-                  ? "red"
-                  : index === current
-                    ? undefined
-                    : "dimmed"
-            }
-          >
-            {t(step.label)}
-          </Text>
-        ))}
-      </Group>
-      <Progress
-        value={value}
-        size="sm"
-        radius="xl"
-        color={failed ? "red" : connected ? "green" : "campus"}
-        animated={!failed && !connected}
-      />
-    </Stack>
-  );
-}
 
 const emptyDraft = (): Draft => ({
   username: "",
@@ -452,74 +390,27 @@ function Account({
   setDraft: (draft: Draft) => void;
   refresh: () => Promise<void>;
   notify: (message: string) => void;
-  showLoginPage: (
-    profile: SchoolAuthProfile,
-    targetUrl?: string,
-    setupOtp?: boolean,
-  ) => void;
+  showLoginPage: (profile: SchoolAuthProfile) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  // A save that could not run at all (the vault, the command); the session
+  // snapshot says nothing about it.
+  const [error, setError] = useState("");
   const [matrixReplacing, setMatrixReplacing] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [connection, setConnection] = useState<Connection>({
-    state: "idle",
-    step: "",
-    message: "",
-  });
-  const timeout = useRef<number | undefined>(undefined);
-  // Only an attempt started from this card may pull the person to the page.
-  const started = useRef(false);
-  const armTimeout = () => {
-    if (timeout.current) window.clearTimeout(timeout.current);
-    timeout.current = window.setTimeout(() => {
-      setConnection((current) => ({
-        ...current,
-        state: "timeout",
-        message: t("settings.schoolAccounts.noResponseFromThePortal"),
-      }));
-      setBusy(false);
-      started.current = false;
-    }, STEP_TIMEOUT_MS);
-  };
-  useEffect(() => {
-    const dispose = desktopBridge?.onSchoolLoginStatus?.((event) => {
-      if (event.profile !== profile) return;
-      if (event.state === "progress") {
-        const step = STEP_ALIASES[event.message] ?? event.message;
-        setConnection({ state: "progress", step, message: "" });
-        setBusy(true);
-        armTimeout();
-        return;
-      }
-      if (timeout.current) window.clearTimeout(timeout.current);
-      setConnection((current) => ({
-        state: event.state,
-        step: current.step,
-        message: event.state === "connected" ? "" : event.message,
-      }));
-      setBusy(false);
-      if (event.state === "needs-user" && started.current)
-        showLoginPage(profile);
-      started.current = false;
-    });
-    return () => {
-      dispose?.();
-      if (timeout.current) window.clearTimeout(timeout.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile]);
-  const stored = useSchoolSession(desktopBridge, profile);
-  // Signed in, failed, or not set up; nothing while the first result is out.
-  const unavailable = summary.availability
-    ? summary.availability === "not-configured" ||
-      summary.availability === "missing"
-    : !summary.saved;
-  const session = unavailable
-    ? "not-configured"
-    : stored === "not-configured"
-      ? undefined
-      : stored;
+  // Core's session read model; nothing while the first snapshot is out.
+  const session = useSchoolSession(desktopBridge, profile);
+  const details = session
+    ? sessionDetails(profile, session, i18n.language)
+    : [];
+  // Retry re-reads the synced credentials and signs in once now; Core also
+  // tries an unavailable school again by itself.
+  const retryOffered =
+    session?.state === "rejected" ||
+    session?.state === "needs-web" ||
+    session?.state === "unavailable";
   const credentials = (): SchoolCredentials => ({
     username: draft.username,
     password: draft.password,
@@ -539,51 +430,40 @@ function Account({
   };
   const connect = async () => {
     if (!desktopBridge || scanning || !validateMatrix()) return;
-    const nextCredentials = credentials();
     setBusy(true);
-    started.current = true;
-    setConnection({ state: "checking", step: "", message: "" });
-    armTimeout();
+    setError("");
     try {
-      const result = await desktopBridge.connectSchool(
-        profile,
-        nextCredentials,
-      );
+      const result = await desktopBridge.connectSchool(profile, credentials());
       setDraft({ ...emptyDraft(), username: draft.username.trim() });
       setMatrixReplacing(false);
       await refresh();
-      // The sign-in events already showed the school's own words; a result
-      // they did not cover still ends the checking state.
-      if (result.state !== "active" && result.problem?.kind !== "needs-user") {
-        if (timeout.current) window.clearTimeout(timeout.current);
-        started.current = false;
-        setConnection((current) =>
-          current.state === "checking" || current.state === "progress"
-            ? {
-                state: result.state === "maintenance" ? "maintenance" : "error",
-                step: current.step,
-                message: result.problem?.message ?? t("common.signInFailed"),
-              }
-            : current,
-        );
-        setBusy(false);
-      }
-    } catch (error) {
-      if (timeout.current) window.clearTimeout(timeout.current);
-      started.current = false;
-      setConnection((current) =>
-        current.state === "maintenance"
-          ? current
-          : {
-              state: "error",
-              step: "",
-              message:
-                errorText(error) ??
-                t("settings.schoolAccounts.signInCouldNotStart"),
-            },
+      // The card follows Core's session; the answer to this click is said
+      // once, since new credentials may not be what the session shows yet.
+      const answer = { ...result, retryAt: null, maintenance: null };
+      notify(
+        result.verified
+          ? t("common.signedIn")
+          : sessionDetails(profile, answer, i18n.language).join(" ") ||
+              sessionText(answer, i18n.language),
       );
-      setBusy(false);
+    } catch (reason) {
+      setError(
+        errorText(reason) ?? t("settings.schoolAccounts.signInCouldNotStart"),
+      );
       await refresh().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const retry = async () => {
+    if (!desktopBridge) return;
+    setRetrying(true);
+    try {
+      await schoolSessions.retry(desktopBridge, profile);
+    } catch (error) {
+      appNotify.error(error);
+    } finally {
+      setRetrying(false);
     }
   };
   const copyMatrix = async () => {
@@ -615,9 +495,9 @@ function Account({
     setBusy(true);
     try {
       await desktopBridge.deleteSchoolCredentials(profile);
+      setError("");
       setDraft(emptyDraft());
       setMatrixReplacing(false);
-      setConnection({ state: "idle", step: "", message: "" });
       await refresh();
       notify(t("settings.schoolAccounts.accountForgotten", { account: title }));
     } finally {
@@ -637,36 +517,21 @@ function Account({
         <Text fw={700}>{title}</Text>
         {session && (
           <Badge
-            variant="light"
-            color={
-              session === "active"
-                ? "green"
-                : session === "maintenance"
-                  ? "yellow"
-                  : session === "failed"
-                    ? "red"
-                    : "gray"
-            }
+            color={SESSION_BADGE[session.state]}
+            title={session.problem?.message}
           >
-            {t(
-              session === "active"
-                ? "common.signedIn"
-                : session === "maintenance"
-                  ? "common.underMaintenance"
-                  : session === "failed"
-                    ? "common.signInFailed"
-                    : "settings.schoolAccounts.notSetUp",
-            )}
+            {sessionText(session, i18n.language)}
           </Badge>
         )}
       </Group>
-      {connection.state !== "idle" && (
-        <div className="schoolConnection" data-state={connection.state}>
-          <SignInSteps connection={connection} />
-          {connection.message && (
-            <span>{lookup(connection.message) ?? connection.message}</span>
-          )}
-          {connection.state !== "connected" && (
+      {session && (details.length > 0 || retryOffered) && (
+        <div
+          className="schoolConnection"
+          data-state={session.state}
+          data-maintenance={session.maintenance ? "" : undefined}
+        >
+          <span>{details.join(" ")}</span>
+          {session.state === "needs-web" && (
             <Button
               variant="subtle"
               size="compact-xs"
@@ -675,7 +540,28 @@ function Account({
               {t("settings.schoolAccounts.showPage")}
             </Button>
           )}
+          {retryOffered && (
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              disabled={busy || retrying}
+              loading={retrying}
+              onClick={() => void retry()}
+            >
+              {t("common.retry")}
+            </Button>
+          )}
         </div>
+      )}
+      {session?.state === "rejected" && (
+        <Text size="xs" c="dimmed" className="schoolRetryHint">
+          {t("schoolSession.retry.otherDevice")}
+        </Text>
+      )}
+      {error && (
+        <Text c="red" size="sm" role="alert">
+          {error}
+        </Text>
       )}
       {summary.availability === "missing" && (
         <Text c="red" size="sm">
@@ -711,9 +597,6 @@ function Account({
         {profile === "science" && (
           <OtpSetupInput
             value={draft.otpSecret}
-            openSchoolSettings={(url, setupOtp) =>
-              showLoginPage("science", url, setupOtp)
-            }
             saved={summary.hasOtp}
             disabled={busy}
             onScanState={setScanning}
@@ -761,18 +644,12 @@ function Account({
 const SAVED_SECRET = "••••••••";
 
 export function SchoolAccounts({
-  otpSetupRevision = 0,
   notify,
   showLoginPage,
   matrixOcrAvailable,
 }: {
-  otpSetupRevision?: number;
   notify: (message: string) => void;
-  showLoginPage: (
-    profile: SchoolAuthProfile,
-    targetUrl?: string,
-    setupOtp?: boolean,
-  ) => void;
+  showLoginPage: (profile: SchoolAuthProfile) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);
@@ -795,13 +672,6 @@ export function SchoolAccounts({
     void refresh().catch((error) => appNotify.error(error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const observedOtpSetup = useRef(otpSetupRevision);
-  useEffect(() => {
-    if (observedOtpSetup.current === otpSetupRevision) return;
-    observedOtpSetup.current = otpSetupRevision;
-    setScience((current) => ({ ...current, otpSecret: "" }));
-    void refresh().catch((error) => appNotify.error(error));
-  }, [otpSetupRevision]);
   if (!desktopBridge)
     return (
       <p className="settingsNote">

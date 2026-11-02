@@ -6,8 +6,9 @@ use crate::{
     cloud_sync::SyncState,
     data::WorkspaceChangeSource,
     lifecycle::SchoolSite,
-    school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolWebNotice, SchoolWebPage},
+    school_browser::{SchoolWebNotice, SchoolWebPage},
     school_service::IngestOutcome,
+    school_session::SchoolSessionSnapshot,
     sync_engine::SyncSnapshot,
     workspace_changes::WorkspaceChange,
 };
@@ -66,8 +67,8 @@ pub enum CoreEvent {
         completed: u64,
         total: u64,
     },
-    SchoolLogin(SchoolLoginEvent),
-    SchoolSession(SchoolSessionEvent),
+    /// Both accounts' sessions, whenever they change.
+    SchoolSession(SchoolSessionSnapshot),
     /// The page the person sees of the site on screen changed; read
     /// `SchoolBrowserEngine::page` for the current value.
     SchoolWebPage(SchoolWebPage),
@@ -90,7 +91,6 @@ impl CoreEvent {
             Self::WorkspaceChanged { .. } => "workspace-changed",
             Self::CatalogChanged { .. } => "catalog-changed",
             Self::OcrProgress { .. } => "ocr-progress",
-            Self::SchoolLogin(_) => "school-login-status",
             Self::SchoolSession(_) => "school-session",
             Self::SchoolWebPage(_) => "school-web-page",
             Self::SchoolWebNotice { .. } => "school-web-notice",
@@ -128,8 +128,7 @@ impl CoreEvent {
                 "completed": completed,
                 "total": total,
             }),
-            Self::SchoolLogin(event) => json!(event),
-            Self::SchoolSession(event) => json!(event),
+            Self::SchoolSession(snapshot) => json!(snapshot),
             Self::SchoolWebPage(page) => json!(page),
             Self::SchoolWebNotice { site, notice } => {
                 let mut payload = json!(notice);

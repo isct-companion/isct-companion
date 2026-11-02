@@ -6,7 +6,7 @@ import WebKit
 
 /// `NativeBrowser` over one resident WKWebView per school site and the popups
 /// its pages open (docs/core-school-browser.md). Core decides every
-/// navigation, window, sign-in and extraction; this adapter reports what
+/// navigation, window and extraction; this adapter reports what
 /// WebKit knows, carries out what Core decides, creates, shows and hides the
 /// views, and keeps no rules of its own. Port methods arrive on Core workers
 /// and only enqueue main-thread work.
@@ -26,7 +26,7 @@ import WebKit
 ///   changes in place, and when a popup is created. Core decides what Back
 ///   and Forward do, closing a popup at the start of its history included.
 /// - Page dialogs and `window.print()` appear only for a page on screen; a
-///   hidden view gets Cancel and prints nothing.
+///   parked view gets Cancel and prints nothing.
 /// - Load failures, cancellations included, go to Core, which decides what
 ///   the web screen shows (`school-web-page`).
 final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
@@ -186,8 +186,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         return textScales.contains(stored) ? stored : 115
     }()
 
-    private static let noScriptedFocus = "HTMLElement.prototype.focus = function () {};"
-
     private static func textScaleScript(_ percent: Int) -> String {
         "document.documentElement.style.webkitTextSizeAdjust = '\(percent)%';"
     }
@@ -205,14 +203,10 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         if views[id.site]?.id == id { return }
         if let previous = views[id.site] { discard(previous.id) }
         let configuration = WKWebViewConfiguration()
-        // One persistent store: visible pages and hidden pulls share a session.
+        // One persistent store: every page, and the sign-in Core writes
+        // into it before opening one (`WebCookieSeed`).
         configuration.websiteDataStore = .default()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        // A script the app evaluates counts as a user action on iOS, so the
-        // login script focusing the field it fills raised the keyboard, even
-        // for a hidden pull. Programmatic focus is dropped; a tap still focuses.
-        configuration.userContentController.addUserScript(
-            WKUserScript(source: Self.noScriptedFocus, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         // Larger text without zooming the layout, so fixed-width pages still fit.
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.textScaleScript(textScale), injectionTime: .atDocumentEnd, forMainFrameOnly: false))
@@ -257,19 +251,10 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             webView.goForward()
         case let .evaluate(script):
             webView.evaluateJavaScript(script) { [weak self] _, error in
-                // Scripts report through title and navigation relays; only a
-                // script that could not run fails the page.
+                // Only a script that could not run fails the page.
                 guard let self, let error = error as? WKError, error.code != .javaScriptResultTypeIsUnsupported
                 else { return }
                 self.fail(page, cause: command.actionId, detail: error.localizedDescription)
-            }
-        case let .stop(script):
-            // Core abandoned this view's attempt and leases it again only
-            // once this confirms; the page reported at that point is the last
-            // one the attempt may claim.
-            webView.stopLoading()
-            webView.evaluateJavaScript(script) { [weak self] _, _ in
-                try? self?.listener()?.stopped(page: page.page, actionId: command.actionId)
             }
         }
     }
@@ -358,10 +343,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     /// A transfer of `page` ended; a disposed page goes once it has none left.
     @MainActor fileprivate func transferEnded(_ page: SchoolPage) {
         if !page.downloading { finishing.remove(page) }
-    }
-
-    @MainActor fileprivate func titled(_ page: SchoolPage, _ title: String) {
-        try? listener()?.titleChanged(page: page.page, title: title)
     }
 
     /// Where `page`'s own history can go from the page it shows, for Core's
@@ -511,7 +492,6 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     /// whose entry differs travels through history instead of reloading.
     private(set) var committed: WKBackForwardListItem?
     private weak var host: SchoolBrowserHost?
-    private var titleObservation: NSKeyValueObservation?
     /// A same-document navigation (`pushState`) changes the history with no
     /// commit or finish.
     private var historyObservations: [NSKeyValueObservation] = []
@@ -528,13 +508,6 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        titleObservation = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
-            let title = webView.title ?? ""
-            Task { @MainActor in
-                guard let self, !title.isEmpty else { return }
-                self.host?.titled(self, title)
-            }
-        }
         historyObservations = [\WKWebView.canGoBack, \WKWebView.canGoForward].map { path in
             webView.observe(path, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in

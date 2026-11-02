@@ -71,10 +71,12 @@ const LmsWorkspace = lazy(() =>
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
-import {
-  useSchoolSession,
-  type SchoolSessionState,
-} from "../platform/school-session";
+import { schoolSessions, useSchoolSession } from "../platform/school-session";
+import type {
+  SchoolAuthProfile,
+  SchoolProfileSession,
+} from "../platform/desktop-bridge";
+import { sessionDetails, sessionText } from "./sync-text";
 
 import { performAction } from "../platform/actions";
 
@@ -103,7 +105,6 @@ import type {
   Workspace,
 } from "../lib/model";
 import { tokyoDate } from "../lib/civil-date";
-import { errorCode } from "../platform/native-error";
 import { useRecords } from "../platform/records";
 import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import type { WorkspaceIntent } from "../lib/workspace-intents";
@@ -113,12 +114,75 @@ const KYOMU_REGISTRATION =
 const KYOMU_GPA =
   "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx";
 
-function sessionStatusLabel(state: SchoolSessionState | undefined) {
-  if (state === "active") return t("common.signedIn");
-  if (state === "maintenance") return t("common.underMaintenance");
-  if (state === "failed") return t("common.signInFailed");
-  if (state === "not-configured") return t("app.notConfigured");
-  return t("app.checkingSession");
+/** Credentials are saved and the school has not turned them down. */
+const connectedSession = (session: SchoolProfileSession | undefined) =>
+  session !== undefined &&
+  session.state !== "not-configured" &&
+  session.state !== "rejected";
+
+/** One account in the footer: a dot by state, its label, the reason on
+ * hover, and Retry while the account waits on the person. */
+function SchoolStatusAccount({
+  profile,
+  name,
+  session,
+  locale,
+}: {
+  profile: SchoolAuthProfile;
+  name: string;
+  session: SchoolProfileSession | undefined;
+  locale: string;
+}) {
+  const [retrying, setRetrying] = useState(false);
+  const retry = () => {
+    if (!desktopBridge) return;
+    setRetrying(true);
+    void schoolSessions
+      .retry(desktopBridge, profile)
+      .catch(notify.error)
+      .finally(() => setRetrying(false));
+  };
+  const label = session
+    ? [
+        sessionText(session, locale),
+        session.maintenance ? t("common.underMaintenance") : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : t("app.checkingSession");
+  return (
+    <span
+      className="schoolStatusAccount"
+      data-state={session?.state ?? "checking"}
+      data-maintenance={session?.maintenance ? "" : undefined}
+      title={
+        session
+          ? [label, ...sessionDetails(profile, session, locale)].join("\n")
+          : undefined
+      }
+    >
+      <i aria-hidden="true" />
+      <span>
+        <b>{name}</b>
+        <small>{label}</small>
+      </span>
+      {(session?.state === "rejected" || session?.state === "needs-web") && (
+        <UiButton
+          type="button"
+          className="textButton"
+          disabled={retrying}
+          title={
+            session.state === "rejected"
+              ? t("schoolSession.retry.otherDevice")
+              : undefined
+          }
+          onClick={retry}
+        >
+          {t("common.retry")}
+        </UiButton>
+      )}
+    </span>
+  );
 }
 
 const pages: Page[] = ["home", "timetable", "lectures", "web"];
@@ -241,93 +305,11 @@ export function WorkspaceApp() {
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
   const [webContext, setWebContext] = useState<{
-    page: "home" | "lectures" | "settings";
+    page: "home" | "lectures";
     label: string;
     url: string;
     request: number;
   } | null>(null);
-  const otpSetupRequest = useRef<{ id: number | null; shown: boolean } | null>(
-    null,
-  );
-  useEffect(() => {
-    const request = otpSetupRequest.current;
-    if (!request) return;
-    if (page === "web") request.shown = true;
-    else if (request.shown) {
-      otpSetupRequest.current = null;
-      if (request.id !== null)
-        void desktopBridge
-          ?.cancelSchoolOtpSetup(request.id)
-          .catch(notify.error);
-    }
-  }, [page]);
-  useEffect(
-    () => () => {
-      const request = otpSetupRequest.current;
-      otpSetupRequest.current = null;
-      if (request?.id != null)
-        void desktopBridge?.cancelSchoolOtpSetup(request.id).catch(() => {});
-    },
-    [],
-  );
-  const [otpSetupRevision, setOtpSetupRevision] = useState(0);
-  const startOtpSetup = async () => {
-    if (!desktopBridge || otpSetupRequest.current) return;
-    const request = { id: null as number | null, shown: false };
-    otpSetupRequest.current = request;
-    const open = async (url: string) => {
-      setWebContext({
-        page: "settings",
-        label: navigation.settings,
-        url,
-        request: Date.now(),
-      });
-      await navigate(paths.web());
-    };
-    try {
-      const id = await desktopBridge.beginSchoolOtpSetup();
-      if (otpSetupRequest.current !== request) {
-        await desktopBridge.cancelSchoolOtpSetup(id);
-        return;
-      }
-      request.id = id;
-      await open("https://isct.ex-tic.com/idm/user/mfa_setting/");
-      const setup = await desktopBridge.schoolOtpSetup(id);
-      if (otpSetupRequest.current !== request) return;
-      otpSetupRequest.current = null;
-      if (setup.registered) {
-        await hideNativeSchoolWeb();
-        setWebContext(null);
-        await navigate(pagePath("settings"));
-        if (
-          !(await confirmAction(
-            t("app.appAuthenticationIsAlreadyRegistered"),
-            t("app.continueToReset"),
-            { title: t("app.resetSchoolOTP") },
-          ))
-        )
-          return;
-      }
-      const enrollment = await desktopBridge.beginSchoolOtpSetup();
-      request.id = enrollment;
-      request.shown = false;
-      otpSetupRequest.current = request;
-      await open("https://isct.ex-tic.com/idm/user/mfa_setting/");
-      await desktopBridge.completeSchoolOtpSetup(enrollment, setup.registered);
-      if (otpSetupRequest.current !== request) return;
-      otpSetupRequest.current = null;
-      await hideNativeSchoolWeb();
-      setWebContext(null);
-      await navigate(pagePath("settings"));
-      setOtpSetupRevision((revision) => revision + 1);
-      notify.info(t("app.schoolOTPIsConfiguredAnd"));
-    } catch (error) {
-      if (otpSetupRequest.current !== request) return;
-      otpSetupRequest.current = null;
-      if (errorCode(error) !== "cancelled")
-        notify.error(t("app.couldNotFinishOTPSetup"));
-    }
-  };
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
   const renderedRoutes = useRef({
@@ -596,10 +578,6 @@ export function WorkspaceApp() {
     data.settings.notifications.localPermission,
     {
       native: nativeCapabilities,
-      school: {
-        status: data.importStatus.school,
-        lastResult: data.importStatus.lastResult,
-      },
       background: { scheduler: schedulerState },
       noBackendPush: true,
     },
@@ -920,7 +898,7 @@ export function WorkspaceApp() {
     !readOnly &&
     !data.importStatus.timetableReviewedAt &&
     !data.courses.some((course) => !course.deletedAt) &&
-    tokyoTechSession !== "active";
+    !connectedSession(tokyoTechSession);
   const homePage = (
     <div
       className={`homePage ${renderedRoutes.current.homeView}${showSchoolSetup ? " needsSetup" : ""}`}
@@ -1206,7 +1184,6 @@ export function WorkspaceApp() {
   );
   const settingsPage = (
     <Settings
-      otpSetupRevision={otpSetupRevision}
       mutate={workspaceActions.mutate}
       platform={platform}
       update={update}
@@ -1230,21 +1207,7 @@ export function WorkspaceApp() {
       }
       refreshReferences={syncAvailable()}
       matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
-      showLoginPage={(profile, targetUrl, setupOtp) => {
-        if (setupOtp) {
-          void startOtpSetup();
-          return;
-        }
-        if (targetUrl) {
-          setWebContext({
-            page: "settings",
-            label: navigation.settings,
-            url: targetUrl,
-            request: Date.now(),
-          });
-          void navigate(paths.web());
-          return;
-        }
+      showLoginPage={(profile) => {
         sessionStorage.setItem(
           "isct-companion-active-school-site",
           profile === "science" ? "science-portal" : "tokyo-portal",
@@ -1258,7 +1221,9 @@ export function WorkspaceApp() {
       <WelcomeSheet
         settings={data.settings}
         update={update}
-        connected={scienceSession === "active" || tokyoTechSession === "active"}
+        connected={
+          connectedSession(scienceSession) || connectedSession(tokyoTechSession)
+        }
         held={!readOnly && !data.settings.dataNoticeAcknowledgedAt}
         openAccounts={() => void navigate(paths.settings("accounts"))}
         openAgents={() => void navigate(paths.settings("agent"))}
@@ -1444,26 +1409,18 @@ export function WorkspaceApp() {
         aria-label={t("app.schoolConnectionStatus")}
       >
         <div className="schoolStatusAccounts">
-          <span
-            className="schoolStatusAccount"
-            data-state={scienceSession ?? "checking"}
-          >
-            <i aria-hidden="true" />
-            <span>
-              <b>Science Tokyo</b>
-              <small>{sessionStatusLabel(scienceSession)}</small>
-            </span>
-          </span>
-          <span
-            className="schoolStatusAccount"
-            data-state={tokyoTechSession ?? "checking"}
-          >
-            <i aria-hidden="true" />
-            <span>
-              <b>TokyoTech</b>
-              <small>{sessionStatusLabel(tokyoTechSession)}</small>
-            </span>
-          </span>
+          <SchoolStatusAccount
+            profile="science"
+            name="Science Tokyo"
+            session={scienceSession}
+            locale={data.settings.locale}
+          />
+          <SchoolStatusAccount
+            profile="tokyo-tech"
+            name="TokyoTech"
+            session={tokyoTechSession}
+            locale={data.settings.locale}
+          />
         </div>
         <SchoolStatusLine
           snapshot={sync}

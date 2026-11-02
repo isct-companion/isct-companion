@@ -56,14 +56,12 @@ codes! {
     SignInRequired => "sign-in-required",
     SchoolMaintenance => "school-maintenance",
     SchoolSiteChanged => "school-site-changed",
-    SchoolPaused => "school-paused",
     HostPaused => "host-paused",
     WorkspaceFolderMissing => "workspace-folder-missing",
     HandInFilesOnly => "hand-in-files-only",
     HandInEmpty => "hand-in-empty",
     HandInNeedsZip => "hand-in-needs-zip",
     HandInTooLarge => "hand-in-too-large",
-    DesktopOnly => "desktop-only",
     NoteTooLarge => "note-too-large",
     StudyAdmissionTerm => "study-admission-term",
     StudyEntryGrade => "study-entry-grade",
@@ -83,15 +81,7 @@ codes! {
     ResetUnsupported => "reset-unsupported",
     ResetCredentials => "reset-credentials",
     ResetFiles => "reset-files",
-    ResetSignOut => "reset-sign-out",
     ResetStopped => "reset-stopped",
-    OtpSignInRequired => "otp-sign-in-required",
-    OtpUnexpectedPage => "otp-unexpected-page",
-    OtpUnavailable => "otp-unavailable",
-    OtpTimedOut => "otp-timed-out",
-    OtpRejected => "otp-rejected",
-    OtpAlreadyRegistered => "otp-already-registered",
-    OtpVault => "otp-vault",
     OtpImportInvalid => "otp-import-invalid",
     OtpImportMultiple => "otp-import-multiple",
     OtpImportUnsupported => "otp-import-unsupported",
@@ -205,7 +195,7 @@ use crate::{
     runtime_tasks::RuntimeTaskError,
     schedule::{NotificationSinkError, ReminderError, ScheduleError},
     scheduler::{ExportError, SchedulerError},
-    school_auth::{OtpImportError, OtpSetupError, SchoolAuthError},
+    school_auth::{OtpImportError, SchoolAuthError},
     school_browser::{BrowserError, SchoolBrowserError, SubmissionError},
     storage::StorageError,
     study_profile::StudyProfileError,
@@ -366,16 +356,6 @@ coded!(SchoolAuthError, |e| match e {
     SchoolAuthError::Compatibility(_) => C::Compatibility,
     SchoolAuthError::Storage(_) => C::Storage,
 });
-coded!(OtpSetupError, |e| match e {
-    OtpSetupError::SignInRequired => C::OtpSignInRequired,
-    OtpSetupError::UnexpectedPage => C::OtpUnexpectedPage,
-    OtpSetupError::Unavailable => C::OtpUnavailable,
-    OtpSetupError::Cancelled => C::Cancelled,
-    OtpSetupError::TimedOut => C::OtpTimedOut,
-    OtpSetupError::Rejected => C::OtpRejected,
-    OtpSetupError::AlreadyRegistered => C::OtpAlreadyRegistered,
-    OtpSetupError::Storage => C::OtpVault,
-});
 coded!(OtpImportError, |e| match e {
     OtpImportError::Invalid => C::OtpImportInvalid,
     OtpImportError::MultiplePages => C::OtpImportMultiple,
@@ -385,12 +365,6 @@ coded!(SchoolBrowserError, |e| match e {
     SchoolBrowserError::InvalidInput(_) => C::InvalidInput,
     SchoolBrowserError::Platform(_) => C::Platform,
     SchoolBrowserError::Storage(_) => C::Storage,
-    SchoolBrowserError::Auth(_) => C::SignInRequired,
-    SchoolBrowserError::Maintenance(_) => C::SchoolMaintenance,
-    SchoolBrowserError::SiteChanged(_) => C::SchoolSiteChanged,
-    SchoolBrowserError::Timeout(_) => C::Timeout,
-    SchoolBrowserError::Cancelled => C::Cancelled,
-    SchoolBrowserError::Preempted => C::SchoolPaused,
     SchoolBrowserError::Stopped => C::Stopped,
 });
 coded!(BrowserError, |e| match e {
@@ -430,7 +404,6 @@ coded!(MaterialError, |e| match e {
     MaterialError::Input(_) => C::InvalidInput,
     MaterialError::Storage(_) => C::Storage,
     MaterialError::Denied(_) => C::WriteDenied,
-    MaterialError::UnsupportedResolution | MaterialError::UnsupportedDownload => C::DesktopOnly,
 });
 coded!(StorageError, |e| match e {
     StorageError::Input(_) => C::InvalidInput,
@@ -468,7 +441,6 @@ coded!(ResetError, |e| match e {
     ResetError::Storage(_) => C::Storage,
     ResetError::Credentials(_) => C::ResetCredentials,
     ResetError::Files(_) => C::ResetFiles,
-    ResetError::SignOut(_) => C::ResetSignOut,
     ResetError::Stopped => C::ResetStopped,
 });
 coded!(AppUpdateError, |e| match e {

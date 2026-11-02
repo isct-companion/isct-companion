@@ -33,7 +33,6 @@ pub mod kyomu_guide;
 pub mod kyomu_ingest;
 pub mod lifecycle;
 pub mod lms_ingest;
-pub mod lms_session;
 pub mod matrix_scan;
 pub mod net;
 pub mod notes;
@@ -49,6 +48,7 @@ pub mod school_auth;
 pub mod school_browser;
 pub mod school_files;
 pub mod school_service;
+pub mod school_session;
 pub mod storage;
 pub mod study_profile;
 #[cfg(feature = "agent")]

@@ -42,7 +42,6 @@ pub struct SessionConfig {
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct Capabilities {
     pub school_browser: bool,
-    pub downloads: bool,
     pub cloud: bool,
     pub notifications: bool,
     pub ocr: bool,
@@ -73,7 +72,6 @@ pub(crate) struct Inner {
     /// Drive's sign-in, when the shell installed a Drive port.
     drive: Option<Arc<DriveAuth>>,
     pub notifications: Option<Arc<dyn NativeNotifications>>,
-    pub download_session: Option<Arc<dyn NativeDownloadSession>>,
     pub files: PathBuf,
     backup_directory: PathBuf,
     capabilities: Capabilities,
@@ -244,7 +242,7 @@ impl Session {
         browser: Option<Arc<dyn NativeBrowser>>,
         cloud: Option<Arc<dyn NativeCloud>>,
         notifications: Option<Arc<dyn NativeNotifications>>,
-        downloads: Option<Arc<dyn NativeDownloadSession>>,
+        web_cookies: Option<Arc<dyn NativeWebCookies>>,
         web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
         drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
     ) -> Result<Arc<Self>, SdkError> {
@@ -276,7 +274,7 @@ impl Session {
                 Ports {
                     cloud,
                     notifications,
-                    downloads,
+                    web_cookies,
                     web_authentication,
                     drive_tokens,
                 },
@@ -395,20 +393,33 @@ impl Session {
             })
         })
     }
+    /// Forgets the account's credentials and signs it out of this device.
+    /// Waits for Core's account barrier: in-flight reads stop, Core's
+    /// session and the LMS token go, and `NativeWebCookies::clear` runs.
     pub fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
+        self.start(false, move |i, _| async move {
             let profile = project_input(profile)?;
-            let value = i.core.delete_credentials(profile)?;
+            let value = i.core.delete_credentials(profile).await?;
             Ok(OperationResult::Flag { value })
         })
     }
     pub fn school_session(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
             Ok(OperationResult::SchoolSession {
-                snapshot: project(i.core.school_browser()?.session_snapshot()?)?,
+                snapshot: project(i.core.school_session())?,
+            })
+        })
+    }
+    /// The person's Retry for a refused account: Core reads the saved
+    /// credentials again and signs in once with them.
+    pub fn retry_school(&self, profile: SchoolAuthProfile) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let snapshot = i.core.retry_school(project_input(profile)?).await;
+            Ok(OperationResult::SchoolSession {
+                snapshot: project(snapshot)?,
             })
         })
     }
@@ -443,10 +454,11 @@ impl Session {
             })
         })
     }
-    /// The OS is about to suspend the process: Core stops leasing new keys.
+    /// The OS is about to suspend the process: Core stops leasing new keys
+    /// and ends a sign-in under way.
     pub fn suspend(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
-            i.core.runtime.suspend().await;
+            i.core.suspend().await;
             Ok(OperationResult::Done)
         })
     }
@@ -470,10 +482,9 @@ impl Session {
     }
     /// One wake from the OS background scheduler (iOS BGAppRefreshTask,
     /// Android WorkManager), sent while the app is out of front. Core
-    /// resumes, runs one `wake`, reads what may be read in the background
-    /// (LMS deadlines and assignment states over the token, and references;
-    /// nothing that needs the school WebView) and waits for
-    /// those reads at most `budget_seconds`. It then suspends again unless
+    /// resumes, runs one `wake`, reads what is due (signing in over HTTP
+    /// when a session needs it) and waits for those reads at most
+    /// `budget_seconds`. It then suspends again unless
     /// the app came to the front. Cancel it when the OS ends the task early.
     pub fn background_wake(&self, budget_seconds: u32) -> Result<Arc<Operation>, SdkError> {
         self.start(true, move |i, cancel| async move {
@@ -606,7 +617,7 @@ fn ocr_available() -> bool {
 struct Ports {
     cloud: Option<Arc<dyn NativeCloud>>,
     notifications: Option<Arc<dyn NativeNotifications>>,
-    downloads: Option<Arc<dyn NativeDownloadSession>>,
+    web_cookies: Option<Arc<dyn NativeWebCookies>>,
     web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
     drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
 }
@@ -620,7 +631,7 @@ async fn initialize(
     let Ports {
         cloud,
         notifications,
-        downloads,
+        web_cookies,
         web_authentication,
         drive_tokens,
     } = ports;
@@ -630,7 +641,6 @@ async fn initialize(
     let drive = DriveAuth::new(vault.clone(), web_authentication, drive_tokens)?.map(Arc::new);
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
-        downloads: downloads.is_some(),
         cloud: cloud.is_some() || drive.is_some(),
         notifications: notifications.is_some(),
         ocr: ocr_available(),
@@ -681,17 +691,13 @@ async fn initialize(
     core.sync_hint(app_core::sync_engine::Hint::Network {
         network: initial_network,
     });
+    if let Some(web_cookies) = web_cookies {
+        core.attach_web_cookies(Arc::new(crate::ports::WebCookies(web_cookies)));
+    }
     let browser_shutdown_error = if let Some(native) = browser {
         let browser = Arc::new(Browser::new(native));
         let errors = browser.shutdown_error.clone();
-        // Without a native cookie port Core cannot read school data over
-        // HTTP; the shell must pass one together with the browser.
-        let cookies = downloads.clone().ok_or_else(|| {
-            SdkError::from(app_core::school_browser::SchoolBrowserError::Platform(
-                "A school browser needs the native cookie session.".into(),
-            ))
-        })?;
-        core.attach_school_browser(browser, Arc::new(crate::ports::NativeCookies(cookies)))?;
+        core.attach_school_browser(browser)?;
         Some(errors)
     } else {
         None
@@ -726,7 +732,6 @@ async fn initialize(
         sync_services,
         drive,
         notifications,
-        download_session: downloads,
         files,
         backup_directory,
         capabilities,
@@ -737,13 +742,6 @@ async fn initialize(
         )),
     });
     inner.core.runtime.notes.at(inner.files.clone());
-    if let Some(port) = inner.download_session.clone() {
-        inner
-            .core
-            .runtime
-            .download_session
-            .set(Arc::new(crate::ports::NativeCookies(port)));
-    }
     inner.core.start(&Handle::current())?;
     Ok(inner)
 }

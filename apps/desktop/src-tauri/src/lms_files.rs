@@ -73,12 +73,10 @@ pub(crate) fn display_root(path: &Path) -> String {
     value.into_owned()
 }
 pub(crate) fn materials(app: &AppHandle) -> Result<CourseMaterials, CommandError> {
-    let session = Some(crate::lms_downloader::session(app));
     Ok(CourseMaterials::new(
         app.state::<DataStore>().inner().clone(),
         root(app)?.0,
         crate::core_ports::runtime(app).downloads.clone(),
-        session,
     ))
 }
 pub(crate) fn notes(app: &AppHandle) -> Result<Notes, CommandError> {

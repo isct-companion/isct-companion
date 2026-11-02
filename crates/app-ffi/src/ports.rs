@@ -58,11 +58,6 @@ pub enum BrowserAction {
     Evaluate {
         script: String,
     },
-    /// Stop loading, evaluate `script`, then confirm with
-    /// `BrowserEvents::stopped` once the script has run.
-    Stop {
-        script: String,
-    },
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct BrowserCommand {
@@ -122,8 +117,6 @@ pub struct NewWindowRequest {
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum DenyReason {
     Closed,
-    Automation,
-    Hidden,
     Cleartext,
     Credentials,
     Scheme,
@@ -135,8 +128,6 @@ impl From<browser::DenyReason> for DenyReason {
         use browser::DenyReason as R;
         match reason {
             R::Closed => Self::Closed,
-            R::Automation => Self::Automation,
-            R::Hidden => Self::Hidden,
             R::Cleartext => Self::Cleartext,
             R::Credentials => Self::Credentials,
             R::Scheme => Self::Scheme,
@@ -243,10 +234,6 @@ impl BrowserEvents {
         });
         Ok(())
     }
-    pub fn title_changed(&self, page: PageId, title: String) -> Result<(), SdkError> {
-        self.listener()?.title_changed(project_input(page)?, title);
-        Ok(())
-    }
     /// Where the view's or popup's own history can go from its page. Report
     /// it when a page commits or finishes and when a popup is created.
     pub fn history_changed(
@@ -331,12 +318,6 @@ impl BrowserEvents {
         self.listener()?.closed(project_input(browser)?);
         Ok(())
     }
-    /// `page` is the last page the view had reported when it stopped.
-    pub fn stopped(&self, page: PageId, action_id: u64) -> Result<(), SdkError> {
-        self.listener()?
-            .stopped(project_input(page)?, browser::ActionId(action_id));
-        Ok(())
-    }
 }
 pub(crate) struct Browser {
     native: Arc<dyn NativeBrowser>,
@@ -390,9 +371,6 @@ impl browser::SchoolBrowser for Browser {
             browser::BrowserAction::GoBack => BrowserAction::GoBack,
             browser::BrowserAction::GoForward => BrowserAction::GoForward,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
-            browser::BrowserAction::Stop => BrowserAction::Stop {
-                script: browser::SCHOOL_STOP.to_owned(),
-            },
         };
         self.native
             .dispatch(BrowserCommand {
@@ -465,71 +443,66 @@ impl app_core::schedule::NotificationSink for Notifications {
         })
     }
 }
-/// The school WebView's cookie store: course files, LMS and 教務Web requests
-/// read the sign-in from it and write server cookies back to it.
+/// One identity cookie as the school sent it: the response URL and the raw
+/// `Set-Cookie` value.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct WebCookie {
+    pub url: String,
+    pub set_cookie: String,
+}
+
+/// The shell's web cookie store, written only. Core writes an account's
+/// identity cookies before an App-initiated school navigation and clears the
+/// school cookies when an account goes; it never reads them back. Run the
+/// calls one at a time, in order, each answering after the platform's
+/// completion callback.
 #[uniffi::export(rust, foreign)]
 #[async_trait::async_trait]
-pub trait NativeDownloadSession: Send + Sync {
-    /// The Cookie header the school store sends to `url`; empty when none.
-    async fn cookie_header(&self, url: String) -> Result<String, SdkError>;
-    /// Stores Set-Cookie values from a Core response to `url` (already vetted
-    /// by Core: host-only or for the response's own site).
-    async fn store_set_cookies(&self, url: String, set_cookie: Vec<String>)
-        -> Result<(), SdkError>;
-}
-pub(crate) struct NativeCookies(pub Arc<dyn NativeDownloadSession>);
-fn cookie_error(error: SdkError) -> app_core::net::NetError {
-    use app_core::net::NetError as E;
-    match error {
-        SdkError::Authentication { .. } => E::SignInRequired,
-        SdkError::InvalidInput { detail } => E::Invalid(detail),
-        SdkError::Timeout { .. } => E::Deadline,
-        SdkError::Cancelled | SdkError::Closed => E::Cancelled,
-        // Cookie access failures must not ask the user to sign in again.
-        other => E::Connect(format!("cookie store: {other}")),
-    }
+pub trait NativeWebCookies: Send + Sync {
+    /// Writes each cookie with the platform's own `Set-Cookie` parser for its
+    /// URL (never rebuilt from properties: that loses a Domain's leading
+    /// dot). Ignore the call when `generation` is older than the last clear.
+    async fn write(&self, generation: u64, cookies: Vec<WebCookie>) -> Result<(), SdkError>;
+    /// Removes the school cookies (Android: every cookie and the web
+    /// storage) and remembers `generation` as the last clear.
+    async fn clear(&self, generation: u64) -> Result<(), SdkError>;
 }
 
-#[cfg(test)]
-#[path = "tests/ports__download_tests.rs"]
-mod download_tests;
+pub(crate) struct WebCookies(pub Arc<dyn NativeWebCookies>);
 
-impl app_core::net::SessionCookies for NativeCookies {
-    fn cookie_header<'a>(
-        &'a self,
-        url: &'a Url,
-    ) -> app_core::net::BoxFuture<'a, Result<String, app_core::net::NetError>> {
+impl app_core::school_session::WebCookieSeed for WebCookies {
+    fn write(
+        &self,
+        generation: u64,
+        cookies: Vec<app_core::school_session::WebCookie>,
+    ) -> app_core::net::BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
-            let header = self
-                .0
-                .cookie_header(url.to_string())
-                .await
-                .map_err(cookie_error)?;
-            if header.trim().is_empty() {
-                Err(app_core::net::NetError::SignInRequired)
-            } else {
-                Ok(header)
-            }
-        })
-    }
-
-    fn store_set_cookies<'a>(
-        &'a self,
-        url: &'a Url,
-        set_cookie: &'a [String],
-    ) -> app_core::net::BoxFuture<'a, Result<(), app_core::net::NetError>> {
-        Box::pin(async move {
-            let storable = app_core::net::cookies::storable(url, set_cookie);
-            if storable.is_empty() {
-                return Ok(());
-            }
             self.0
-                .store_set_cookies(url.to_string(), storable)
+                .write(
+                    generation,
+                    cookies
+                        .into_iter()
+                        .map(|cookie| WebCookie {
+                            url: cookie.url,
+                            set_cookie: cookie.set_cookie,
+                        })
+                        .collect(),
+                )
                 .await
-                .map_err(cookie_error)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn clear(&self, generation: u64) -> app_core::net::BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .clear(generation)
+                .await
+                .map_err(|error| error.to_string())
         })
     }
 }
+
 /// One stored workspace object and the provider's opaque change tag for it.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CloudObject {

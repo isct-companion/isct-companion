@@ -4,12 +4,14 @@ use app_core::{
     data::WorkspaceChangeSource,
     events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
-    school_auth::SchoolAuthProfile,
     school_browser::{
-        LoadFailure, SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState, SchoolWebFailure,
-        SchoolWebNotice, SchoolWebPage, SchoolWebStep,
+        LoadFailure, SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebStep,
     },
     school_service::{IngestOutcome, IngestState},
+    school_session::{
+        SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot, SchoolSessionState,
+        SchoolSignInProblem, SchoolSignInProblemKind,
+    },
     sync_engine::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
     workspace_changes::WorkspaceChange,
 };
@@ -21,7 +23,6 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::WorkspaceChanged { .. } => "workspace",
         CoreEvent::CatalogChanged { .. } => "catalog",
         CoreEvent::OcrProgress { .. } => "ocr",
-        CoreEvent::SchoolLogin(_) => "login",
         CoreEvent::SchoolSession(_) => "session",
         CoreEvent::SchoolWebPage(_) => "page",
         CoreEvent::SchoolWebNotice { .. } => "notice",
@@ -32,9 +33,7 @@ fn sample(event: &CoreEvent) -> &'static str {
     }
 }
 
-/// Names and payloads React listens for (desktop-bridge.ts). The shapes
-/// match the events main emitted before Core owned them; school-session
-/// gained `revision` and sync-snapshot is new with Core's planner.
+/// Names and payloads React listens for (desktop-bridge.ts).
 #[test]
 fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
     let url = "https://lms.s.isct.ac.jp/course/view.php?id=1".to_string();
@@ -67,22 +66,31 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             json!({"operationId":42,"completed":7,"total":70}),
         ),
         (
-            CoreEvent::SchoolLogin(SchoolLoginEvent {
-                profile: SchoolAuthProfile::TokyoTech,
-                state: "connected".into(),
-                message: "Connected".into(),
-            }),
-            "school-login-status",
-            json!({"profile":"tokyo-tech","state":"connected","message":"Connected"}),
-        ),
-        (
-            CoreEvent::SchoolSession(SchoolSessionEvent {
-                profile: SchoolAuthProfile::Science,
-                state: SchoolSessionState::NotConfigured,
+            CoreEvent::SchoolSession(SchoolSessionSnapshot {
                 revision: 7,
+                profiles: SchoolSessionProfiles {
+                    science: SchoolProfileSession {
+                        state: SchoolSessionState::Active,
+                        problem: None,
+                        retry_at: None,
+                        maintenance: None,
+                    },
+                    tokyo_tech: SchoolProfileSession {
+                        state: SchoolSessionState::Rejected,
+                        problem: Some(SchoolSignInProblem {
+                            kind: SchoolSignInProblemKind::InvalidMatrix,
+                            message: "matrix".into(),
+                        }),
+                        retry_at: None,
+                        maintenance: None,
+                    },
+                },
             }),
             "school-session",
-            json!({"profile":"science","state":"not-configured","revision":7}),
+            json!({"revision":7,"profiles":{
+                "science":{"state":"active","problem":null,"retryAt":null,"maintenance":null},
+                "tokyoTech":{"state":"rejected","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
+            }}),
         ),
         (
             CoreEvent::SchoolWebPage(SchoolWebPage {
@@ -112,12 +120,12 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             CoreEvent::SchoolIngest(IngestOutcome {
                 site: SchoolSite::Kyomu,
                 kind: "grades".into(),
-                state: IngestState::ReconnectRequired,
+                state: IngestState::Unavailable,
                 changed: 0,
-                message: "Sign in".into(),
+                message: "Not offered".into(),
             }),
             "school-ingest",
-            json!({"site":"kyomu","kind":"grades","state":"reconnect-required","changed":0,"message":"Sign in"}),
+            json!({"site":"kyomu","kind":"grades","state":"unavailable","changed":0,"message":"Not offered"}),
         ),
         (
             CoreEvent::SchoolDownload(SchoolDownloadEvent {
@@ -155,7 +163,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     running: true,
                     held: None,
                     failure: None,
-                    session: Some("active".into()),
+                    session: Some(SchoolSessionState::Active),
                     maintenance: None,
                 }],
             }),
@@ -173,5 +181,5 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 11);
+    assert_eq!(covered.len(), 10);
 }

@@ -6,11 +6,7 @@ use crate::{
 };
 use rusqlite::params;
 use serde_json::{json, Value};
-use std::{
-    collections::HashMap,
-    fs,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::{collections::HashMap, fs};
 
 #[derive(Clone, Default)]
 struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
@@ -29,23 +25,14 @@ impl SecretVault for MemoryVault {
     }
 }
 
-/// The shell's course folder and WebView store. The WebView has no headless
-/// mode, so this port is the one fake: it records the sign-out request.
+/// The shell's course folder.
 struct Device {
     root: PathBuf,
-    signed_out: AtomicUsize,
 }
 
 impl ResetDevice for Device {
     fn course_files_root(&self) -> Option<PathBuf> {
         Some(self.root.clone())
-    }
-    fn can_sign_out_school_web(&self) -> bool {
-        true
-    }
-    fn sign_out_school_web(&self) -> BoxFuture<'_, Result<(), String>> {
-        self.signed_out.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(()) })
     }
 }
 
@@ -312,10 +299,10 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
     let _ = fs::remove_dir_all(store.directory());
 }
 
-/// The two options remove what the panel promises and nothing else: the
-/// WebView store is signed out, downloaded files go and their bytes are
-/// counted, the notes folder is untouched. A shell that lends no device is
-/// refused before anything closes.
+/// The two options remove what the panel promises and nothing else:
+/// downloaded files go and their bytes are counted, the notes folder is
+/// untouched. A shell that lends no device is refused before anything
+/// closes.
 #[tokio::test]
 async fn school_cache_options_remove_downloads_and_web_session_but_never_notes() {
     let fixture = fixture("options");
@@ -328,7 +315,7 @@ async fn school_cache_options_remove_downloads_and_web_session_but_never_notes()
     let generation = core.sync.generation();
     assert_eq!(
         core.reset(scope).await,
-        Err(ResetError::Unsupported("School web sign-in"))
+        Err(ResetError::Unsupported("Downloaded course files"))
     );
     assert_eq!(core.sync.generation(), generation);
     assert_eq!(count(&core.store, "lms_courses"), 1);
@@ -341,10 +328,7 @@ async fn school_cache_options_remove_downloads_and_web_session_but_never_notes()
     fs::write(&material, vec![0u8; 4096]).unwrap();
     let note = course.join("notes").join("week-1-0123abcd.md");
     fs::write(&note, "my notes").unwrap();
-    let device = Arc::new(Device {
-        root: root.clone(),
-        signed_out: AtomicUsize::new(0),
-    });
+    let device = Arc::new(Device { root: root.clone() });
 
     let preview = core
         .reset_preview(scope, Some(device.clone() as Arc<dyn ResetDevice>))
@@ -357,7 +341,6 @@ async fn school_cache_options_remove_downloads_and_web_session_but_never_notes()
 
     assert!(!material.exists());
     assert_eq!(fs::read_to_string(&note).unwrap(), "my notes");
-    assert_eq!(device.signed_out.load(Ordering::SeqCst), 1);
     assert!(report.freed_bytes >= 4096);
     assert!(preview.freed_bytes >= 4096);
     assert_eq!(count(&core.store, "lms_courses"), 0);

@@ -40,9 +40,9 @@ fn url_paths_and_names_preserve_the_desktop_contract() {
 }
 
 #[tokio::test]
-async fn cached_hit_and_missing_do_not_require_a_download_session() {
+async fn cached_hit_and_missing_do_not_reach_the_school() {
     let root = root("cache");
-    let service = CourseMaterials::new(store("cache"), root.clone(), Downloader::default(), None);
+    let service = CourseMaterials::new(store("cache"), root.clone(), Downloader::default());
     let source = "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/readme.txt";
     let url = Url::parse(source).unwrap();
     let path = material_path(&root, &course(), &url).unwrap();
@@ -69,40 +69,6 @@ async fn cached_hit_and_missing_do_not_require_a_download_session() {
         .await
         .unwrap();
     assert_eq!(missing, Material::Missing);
-}
-
-#[tokio::test]
-async fn unavailable_native_operations_keep_distinct_typed_errors() {
-    let service = CourseMaterials::new(
-        store("unsupported"),
-        root("unsupported"),
-        Downloader::default(),
-        None,
-    );
-    assert!(matches!(
-        service
-            .open(
-                course(),
-                "https://lms.s.isct.ac.jp/2026/mod/resource/view.php?id=9".into(),
-                false,
-                false,
-                None,
-            )
-            .await,
-        Err(MaterialError::UnsupportedResolution)
-    ));
-    assert!(matches!(
-        service
-            .open(
-                course(),
-                "https://lms.s.isct.ac.jp/2026/pluginfile.php/9/a.pdf".into(),
-                true,
-                false,
-                None,
-            )
-            .await,
-        Err(MaterialError::UnsupportedDownload)
-    ));
 }
 
 #[test]
@@ -314,7 +280,7 @@ async fn cleanup_removes_only_stale_complete_material_cache_files() {
             .set_times(fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
             .unwrap();
     }
-    let service = CourseMaterials::new(store("cleanup"), root.clone(), Downloader::default(), None);
+    let service = CourseMaterials::new(store("cleanup"), root.clone(), Downloader::default());
     assert_eq!(service.clean(1).await.unwrap(), 2);
     // The files above sit in the layout before the trees: the first use moved
     // every quarter folder into `material/`, and cleanup ran there. A folder
@@ -358,8 +324,7 @@ async fn cleanup_reclaims_stale_partials_of_other_processes_only() {
     );
     age(&recent, SystemTime::now());
     age(&own, SystemTime::UNIX_EPOCH);
-    let service =
-        CourseMaterials::new(store("partials"), root.clone(), Downloader::default(), None);
+    let service = CourseMaterials::new(store("partials"), root.clone(), Downloader::default());
     // A long retention for cached files does not keep orphaned partials.
     assert_eq!(service.clean(MAX_RETENTION_DAYS).await.unwrap(), 1);
     assert!(!orphaned.exists());

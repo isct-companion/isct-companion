@@ -16,6 +16,7 @@ import type { FinderRowView } from "../../platform/finder-query";
 import type { CourseEligibility } from "../../generated/persistence";
 import { runsFor } from "../../platform/sync";
 import { useSync } from "../../app/useSync";
+import { sessionStateText } from "../../app/sync-text";
 import { t, type MessageKey } from "../../i18n";
 import type { Finder } from "./useFinder";
 
@@ -168,10 +169,15 @@ export function CourseFinder({
   // (`catalog.official`); the finder re-reads it when it lands.
   const sync = useSync();
   const catalogRuns = runsFor(sync, ["catalog.official"], String(year));
-  // The catalog is the 教務 course search: it waits for a 教務 sign-in.
-  const signInNeeded = catalogRuns.some(
-    (run) => run.held?.kind === "sign-in-required",
-  );
+  // The catalog is the 教務 course search: it waits for the 教務 session.
+  const sessionHeld = catalogRuns.flatMap((run) =>
+    run.held?.kind === "session" ? [run.held] : [],
+  )[0];
+  // Only these wait on the person; the rest Core resolves by itself.
+  const signInNeeded =
+    sessionHeld?.state === "not-configured" ||
+    sessionHeld?.state === "rejected" ||
+    sessionHeld?.state === "needs-web";
   const downloading = catalogRuns.some((run) => !run.failure && !run.held);
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
@@ -701,9 +707,11 @@ export function CourseFinder({
               ? t("courses.downloadingTheYearCourseCatalogResults", { year })
               : stored === 0 && signInNeeded
                 ? t("courses.signInToSearchCourses")
-                : stored === 0
-                  ? t("courses.noYearCourseCatalogIs", { year })
-                  : t("courses.noMatchingCoursesRemoveA")}
+                : stored === 0 && sessionHeld
+                  ? sessionStateText(sessionHeld.state)
+                  : stored === 0
+                    ? t("courses.noYearCourseCatalogIs", { year })
+                    : t("courses.noMatchingCoursesRemoveA")}
           </EmptyState>
         )}
         <div

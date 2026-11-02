@@ -45,6 +45,7 @@ UniFFI checks signatures when the library loads.
 | `core/AppModel.kt` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents, lifecycle facts |
 | `core/SchoolBrowserHost.kt` | `NativeBrowser`: one resident WebView per school site, driven by Core; injects Core's scripts after each load |
 | `core/WebRouter.kt` | Which school page is on screen; `openSchool` and the visibility fact |
+| `core/WebCookieSeed.kt` | `NativeWebCookies`: writes Core's sign-in cookies into the WebView store before a school page opens, wipes the store on sign-out; Core never reads it |
 | `core/KeystoreVault.kt` | `NativeVault`: secrets sealed with an Android Keystore AES-GCM key, kept on this device |
 | `core/NotificationScheduler.kt` | Schedules Core's `notificationPlan` as alarms (64 pending at most) |
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |

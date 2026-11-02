@@ -66,6 +66,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -99,7 +100,6 @@ import app.isctcompanion.core.CredentialSummary
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolBrowserHost
-import app.isctcompanion.core.SchoolAutoSignIn
 import app.isctcompanion.core.SchoolProfileSession
 import app.isctcompanion.core.SchoolSessionState
 import app.isctcompanion.core.SyncState
@@ -251,14 +251,16 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         SectionLabel(t("settings.main.schoolAccounts"))
         Card {
             val science = accountName(SchoolAuthProfile.SCIENCE)
-            AccountRow(science, model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated) {
-                open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, science))
-            }
+            AccountRow(
+                SchoolAuthProfile.SCIENCE, science, model.credentials?.science, model.sessions?.science,
+                model.syncSource("lms")?.lastUpdated,
+            ) { open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, science)) }
             RowDivider(inset = 36.dp)
             val tokyoTech = accountName(SchoolAuthProfile.TOKYO_TECH)
-            AccountRow(tokyoTech, model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated) {
-                open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech))
-            }
+            AccountRow(
+                SchoolAuthProfile.TOKYO_TECH, tokyoTech, model.credentials?.tokyoTech, model.sessions?.tokyoTech,
+                model.syncSource("kyomu")?.lastUpdated,
+            ) { open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech)) }
         }
         Card(Modifier.padding(top = 16.dp)) {
             NavRow(
@@ -475,8 +477,20 @@ private fun WebCard() {
     }
 }
 
+/** The colour of an account's state: green while connected, red when the
+ * school turned the details down, amber while it waits on the school page or
+ * the network. */
+@Composable
+private fun stateColor(state: SchoolSessionState): Color = when (state) {
+    SchoolSessionState.IDLE, SchoolSessionState.ACTIVE -> Theme.colors.ok
+    SchoolSessionState.REJECTED -> Theme.colors.danger
+    SchoolSessionState.NEEDS_WEB, SchoolSessionState.UNAVAILABLE -> Theme.colors.warn
+    SchoolSessionState.NOT_CONFIGURED, SchoolSessionState.SIGNING_IN -> Theme.colors.muted
+}
+
 @Composable
 private fun AccountRow(
+    profile: SchoolAuthProfile,
     name: String,
     credential: CredentialSummary?,
     session: SchoolProfileSession?,
@@ -487,15 +501,11 @@ private fun AccountRow(
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
         !connected -> t("common.notConnected") to Theme.colors.muted
-        session?.state == SchoolSessionState.ACTIVE -> (
+        session == null -> t("settings.main.checking") to Theme.colors.muted
+        session.state == SchoolSessionState.ACTIVE -> (
             lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: t("settings.main.connected")
             ) to Theme.colors.ok
-        session?.state == SchoolSessionState.FAILED -> (
-            session.problem?.let { t("settings.main.signInFailedReason", "reason" to AppModel.reason(it).lines().first()) }
-                ?: t("common.signInFailed")
-            ) to Theme.colors.danger
-        session?.state == SchoolSessionState.MAINTENANCE -> t("common.underMaintenance") to Theme.colors.warn
-        else -> t("settings.main.checking") to Theme.colors.muted
+        else -> AppModel.sessionText(session.state, session.problem, session.retryAt) to stateColor(session.state)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -506,13 +516,56 @@ private fun AccountRow(
         Column(Modifier.weight(1f)) {
             Text(name, color = Theme.colors.ink)
             Text(label, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
+            session?.maintenance?.takeIf { connected }?.let {
+                Text(AppModel.maintenanceText(profile, it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.warn)
+            }
         }
         Icon(Icons.Rounded.ChevronRight, null, tint = Theme.colors.muted)
     }
 }
 
+/** Where the account's session stands when it needs a word: why the school
+ * turned the details down, why it wants its own page, or when Core tries
+ * again, each with Retry; and the site's maintenance. */
+@Composable
+private fun SessionStatus(
+    profile: SchoolAuthProfile,
+    session: SchoolProfileSession,
+    retrying: Boolean,
+    enabled: Boolean,
+    retry: () -> Unit,
+) {
+    val state = session.state
+    val retryable = state == SchoolSessionState.REJECTED || state == SchoolSessionState.NEEDS_WEB ||
+        state == SchoolSessionState.UNAVAILABLE
+    val maintenance = session.maintenance
+    if (!retryable && maintenance == null) return
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (retryable) {
+                // The kind says what the school page asks for; signing in there
+                // is the person's own and serves only that page.
+                val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let(AppModel::reason) else null
+                Text(headline ?: AppModel.sessionText(state, session.problem, session.retryAt), color = stateColor(state))
+                if (state == SchoolSessionState.NEEDS_WEB) {
+                    Text(t("schoolSession.needsWeb.signInYourself"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
+                }
+                OutlinedButton(onClick = retry, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+                    if (retrying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("common.retry"))
+                }
+                if (state == SchoolSessionState.REJECTED) {
+                    Text(t("schoolSession.retry.otherDevice"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
+                }
+            }
+            maintenance?.let {
+                Text(AppModel.maintenanceText(profile, it), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.warn)
+            }
+        }
+    }
+}
+
 /** Sign in, change or forget a school account. The password goes straight to
- * Core, which stores it in the Keystore vault and starts the session check. */
+ * Core, which stores it in the Keystore vault and signs in with it. */
 @Composable
 private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val model = LocalModel.current
@@ -523,18 +576,27 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     var otpSecret by remember { mutableStateOf("") }
     var matrix by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
+    var retrying by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val busy = saving || retrying || removing
     val saved = summary?.saved == true
     val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
-    // Why the last sign-in failed, as Core recorded it, while it still applies.
-    val problem = session?.problem?.takeIf { session.state != SchoolSessionState.ACTIVE }?.let {
-        AppModel.reason(it) + when (session.auto) {
-            SchoolAutoSignIn.PAUSED -> "\n" + t("settings.main.automaticSignInWaitsUntil")
-            SchoolAutoSignIn.RETRY_LATER -> "\n" + t("settings.main.automaticSignInTriesAgain")
-            SchoolAutoSignIn.ALLOWED -> ""
-        }
-    }
     Page {
+        if (saved && session != null) {
+            SessionStatus(profile, session, retrying, enabled = !busy) {
+                scope.launch {
+                    retrying = true
+                    error = null
+                    try {
+                        model.retrySchool(profile)
+                    } catch (failure: Exception) {
+                        error = AppModel.describe(failure)
+                    }
+                    retrying = false
+                }
+            }
+        }
         OutlinedTextField(
             username, { username = it }, label = { Text(t("settings.main.studentID")) }, singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -552,7 +614,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
             SectionLabel(t("settings.main.matrixCard"))
             MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
         }
-        (error ?: problem.takeUnless { saving })?.let { Footer(it, Theme.colors.danger) }
+        error?.let { Footer(it, Theme.colors.danger) }
         Button(
             onClick = {
                 scope.launch {
@@ -562,8 +624,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                         val result = model.connect(profile, SchoolCredentials(username, password, otpSecret, matrix))
                         // Stay on the page with the reason, so the person can correct it.
                         if (result != null && result.state != SchoolSessionState.ACTIVE) {
-                            error = result.problem?.let(AppModel::reason)
-                                ?: t(if (result.state == SchoolSessionState.MAINTENANCE) "common.underMaintenance" else "common.signInFailed")
+                            error = result.problem?.let(AppModel::reason) ?: AppModel.sessionText(result.state)
                         } else {
                             done()
                         }
@@ -573,21 +634,37 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                     saving = false
                 }
             },
-            enabled = !saving && username.isNotEmpty() && (password.isNotEmpty() || saved),
+            enabled = !busy && username.isNotEmpty() && (password.isNotEmpty() || saved),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) {
             if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
         }
         if (saved) {
+            // Core stops the account's reads and clears the web sign-in
+            // before this returns, which can take a moment.
             TextButton(
                 onClick = {
                     scope.launch {
-                        model.deleteCredentials(profile)
-                        done()
+                        removing = true
+                        error = null
+                        try {
+                            model.deleteCredentials(profile)
+                            done()
+                        } catch (failure: Exception) {
+                            error = AppModel.describe(failure)
+                        }
+                        removing = false
                     }
                 },
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(t("settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger) }
+            ) {
+                if (removing) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Theme.colors.danger)
+                } else {
+                    Text(t("settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger)
+                }
+            }
         }
     }
 }

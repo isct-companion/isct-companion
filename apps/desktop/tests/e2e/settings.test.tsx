@@ -27,6 +27,7 @@ import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import type {
   CloudSyncState,
   SchoolCredentialStatus,
+  SchoolProfileSession,
 } from "@app/platform/desktop-bridge";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
@@ -180,7 +181,7 @@ const saved = (overrides: Partial<Portal> = {}): Portal => ({
 
 const noSession = {
   revision: 0,
-  profiles: schoolProfiles("pending", "pending"),
+  profiles: schoolProfiles("not-configured", "not-configured"),
 };
 
 function account(
@@ -213,98 +214,6 @@ function cardButtons(card: HTMLElement): (string | undefined)[] {
 }
 
 describe("School accounts", () => {
-  it.each([false, true])(
-    "checks school OTP enrollment and gates an existing registration behind confirmation (%s)",
-    async (registered) => {
-      const url = registered
-        ? "https://isct.ex-tic.com/idm/user/mfa_setting/"
-        : "https://isct.ex-tic.com/idm/user/totp_setting/add";
-      let complete!: (value: { registered: boolean; url: string }) => void;
-      let finish!: () => void;
-      let operation = 0;
-      const mounted = await mountAccounts({
-        capabilities: { schoolWeb: true },
-        handle: (command, args) => {
-          if (command === "begin_school_otp_setup") return ++operation;
-          if (command === "complete_school_otp_setup")
-            return new Promise<void>((resolve) => {
-              finish = resolve;
-            });
-          if (command === "school_otp_setup")
-            return new Promise((resolve) => {
-              complete = resolve;
-            });
-          if (
-            [
-              "configure_school_web_policy",
-              "set_school_web_bounds",
-              "hide_school_web",
-              "set_school_web_zoom",
-            ].includes(command)
-          )
-            return true;
-          if (command === "resolve_school_url")
-            return { site: "science-portal", url: args.url };
-          if (command === "open_school_site")
-            return {
-              site: "science-portal",
-              url:
-                (args.entry as { url?: string }).url ??
-                "https://isct.ex-tic.com/idm/user/mfa_setting/",
-              phase: "pageLoaded",
-            };
-          return undefined;
-        },
-      });
-      const start = async () => {
-        await clickButton(account(mounted, "science"), "Open the school site");
-        await wait(() =>
-          expect(
-            mounted.core.commands("resolve_school_url").at(-1)?.args,
-          ).toMatchObject({
-            url: "https://isct.ex-tic.com/idm/user/mfa_setting/",
-          }),
-        );
-        await wait(() =>
-          expect(document.querySelector('[role="dialog"]')).toBeNull(),
-        );
-        await act(async () => {
-          complete({ registered, url });
-        });
-      };
-      await start();
-      if (registered) {
-        const dialog = await wait(() => openDialog());
-        expect(dialog.textContent).toContain("every other authenticator");
-        const opened = mounted.core.commands("resolve_school_url").length;
-        await answerDialog("Cancel");
-        expect(mounted.core.commands("resolve_school_url")).toHaveLength(
-          opened,
-        );
-        await start();
-        await answerDialog("Continue to reset");
-      }
-      await wait(() =>
-        expect(
-          mounted.core.commands("complete_school_otp_setup").at(-1)?.args,
-        ).toMatchObject({ reset: registered }),
-      );
-      await act(async () => {
-        finish();
-      });
-      await wait(() =>
-        expect(document.body.textContent).toContain(
-          "School OTP is configured and saved.",
-        ),
-      );
-      expect(mounted.core.commands("connect_school")).toHaveLength(0);
-      expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
-        0,
-      );
-    },
-    TIMEOUT,
-  );
-
   it(
     "imports a selected QR account into the draft and saves only on Connect",
     async () => {
@@ -425,16 +334,20 @@ describe("School accounts", () => {
   );
 
   it(
-    "offers Connect and Forget on a saved portal and Not set up on an empty one",
+    "offers Connect and Forget on a saved portal and labels each card by Core's session",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
         tokyoTech: notConfigured(),
       };
+      let answer!: (snapshot: typeof noSession) => void;
       const mounted = await mountAccounts({
         handle: (command) => {
           if (command === "school_credential_status") return status;
-          if (command === "school_session_snapshot") return noSession;
+          if (command === "school_session_snapshot")
+            return new Promise((resolve) => {
+              answer = resolve;
+            });
           return undefined;
         },
       });
@@ -443,8 +356,20 @@ describe("School accounts", () => {
       expect(
         cardButtons(science.querySelector(".schoolAccountActions")!),
       ).toEqual(["Connect", "Forget"]);
-      // Saved, but no session has been reported yet in this launch.
+      // No label until Core's first snapshot lands.
       expect(science.querySelector(".uiTag")).toBeNull();
+      await wait(() => expect(answer).toBeDefined());
+      await act(async () =>
+        answer({
+          revision: 1,
+          profiles: schoolProfiles("idle", "not-configured"),
+        }),
+      );
+      await wait(() =>
+        expect(science.querySelector(".uiTag")?.textContent).toBe(
+          "Connected · signs in when needed",
+        ),
+      );
       expect(
         [
           ...settingsPane(mounted).querySelectorAll<HTMLElement>(
@@ -454,7 +379,9 @@ describe("School accounts", () => {
       ).toEqual(["science", "tokyo-tech"]);
 
       const tokyoTech = account(mounted, "tokyo-tech");
-      await wait(() => expect(tokyoTech.textContent).toContain("Not set up"));
+      expect(tokyoTech.querySelector(".uiTag")?.textContent).toBe(
+        "Not connected",
+      );
       expect(cardButtons(tokyoTech)).not.toContain("Forget");
     },
     TIMEOUT,
@@ -473,11 +400,8 @@ describe("School accounts", () => {
           if (command === "school_session_snapshot") return noSession;
           if (command === "connect_school")
             return {
-              state: "failed",
-              problem: {
-                kind: "invalid-otp",
-                message: "The one-time password was not accepted.",
-              },
+              state: "rejected",
+              problem: { kind: "invalid-otp", message: "TOTP 401 twice" },
               verified: false,
             };
           return undefined;
@@ -493,77 +417,46 @@ describe("School accounts", () => {
         profile: "science",
         credentials: { username: "saved-id" },
       });
-      // Core's reason ends the checking state when no sign-in event did.
+      // The answer is said by its kind; Core's diagnostic stays out of the text.
       await wait(() =>
-        expect(science.textContent).toContain(
+        expect(document.body.textContent).toContain(
           "The one-time password was not accepted.",
         ),
       );
-    },
-    TIMEOUT,
-  );
-
-  it(
-    "labels the login steps ID, Password, Code, Signed in and follows a native step",
-    async () => {
-      const status: SchoolCredentialStatus = {
-        science: saved({ username: "saved-id", hasOtp: true }),
-        tokyoTech: notConfigured(),
-      };
-      const mounted = await mountAccounts({
-        handle: (command) => {
-          if (command === "school_credential_status") return status;
-          if (command === "school_session_snapshot") return noSession;
-          if (command === "connect_school")
-            return { state: "active", problem: null, verified: true };
-          return undefined;
-        },
-      });
-
-      const science = account(mounted, "science");
-      await clickButton(science, "Connect");
-      const steps = await wait(() => {
-        const element = science.querySelector(".signInProgress");
-        if (!element) throw new Error("The login steps are not shown yet.");
-        return element;
-      });
-      for (const label of ["ID", "Password", "Code", "Signed in"])
-        expect(steps.textContent).toContain(label);
-
-      // Every account card listens for its own profile; the status bar reads
-      // sign-in from Core's school status instead.
+      expect(document.body.textContent).not.toContain("TOTP 401 twice");
       await wait(() =>
-        expect(mounted.core.listenerCount("school-login-status")).toBe(2),
-      );
-      await act(async () =>
-        emitNative(mounted.core, "school-login-status", {
-          profile: "science",
-          state: "progress",
-          message: "otp",
-        }),
-      );
-      await wait(() =>
-        expect(
-          science
-            .querySelector(".schoolConnection")
-            ?.getAttribute("data-state"),
-        ).toBe("progress"),
+        expect(buttonIn(science, "Connect").disabled).toBe(false),
       );
     },
     TIMEOUT,
   );
 
   it(
-    "shows and updates the sign-in badge from native session events",
+    "follows Core's session snapshots and retries a rejected or web-only account once",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
         tokyoTech: notConfigured(),
       };
+      const snapshot = (
+        revision: number,
+        science: Partial<SchoolProfileSession>,
+      ) => {
+        const profiles = schoolProfiles("idle", "not-configured");
+        return {
+          revision,
+          profiles: {
+            ...profiles,
+            science: { ...profiles.science, ...science },
+          },
+        };
+      };
       const mounted = await mountAccounts({
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
+          if (command === "retry_school")
+            return snapshot(4, { state: "active" });
           return undefined;
         },
       });
@@ -574,21 +467,69 @@ describe("School accounts", () => {
 
       await act(async () =>
         emitNative(mounted.core, "school-session", {
-          profile: "science",
-          state: "active",
           revision: 1,
+          profiles: schoolProfiles("active", "not-configured"),
         }),
       );
       await wait(() => expect(science.textContent).toContain("Signed in"));
+      expect(buttonByText(science, "Retry")).toBeFalsy();
 
+      // A rejection is said by its kind, with Retry and the other-device hint.
       await act(async () =>
-        emitNative(mounted.core, "school-session", {
-          profile: "science",
-          state: "failed",
-          revision: 2,
-        }),
+        emitNative(
+          mounted.core,
+          "school-session",
+          snapshot(2, {
+            state: "rejected",
+            problem: { kind: "invalid-credentials", message: "401" },
+          }),
+        ),
       );
-      await wait(() => expect(science.textContent).toContain("Sign-in failed"));
+      await wait(() =>
+        expect(science.textContent).toContain("Not accepted by the school"),
+      );
+      expect(science.textContent).toContain(
+        "The ID or password was not accepted.",
+      );
+      expect(science.textContent).toContain(
+        "If you changed the password on another device, use Retry.",
+      );
+      expect(buttonByText(science, "Show page")).toBeFalsy();
+
+      // Retry is one call that keeps the credentials; its answer replaces
+      // the card's state.
+      await clickButton(science, "Retry");
+      await wait(() =>
+        expect(mounted.core.commands("retry_school")).toHaveLength(1),
+      );
+      expect(mounted.core.commands("retry_school")[0].args).toEqual({
+        profile: "science",
+      });
+      await wait(() => expect(science.textContent).toContain("Signed in"));
+      expect(mounted.core.commands("connect_school")).toHaveLength(0);
+
+      // The web-only state sends the person to the portal page.
+      await act(async () =>
+        emitNative(
+          mounted.core,
+          "school-session",
+          snapshot(5, {
+            state: "needs-web",
+            problem: { kind: "email-otp", message: "email" },
+          }),
+        ),
+      );
+      await wait(() =>
+        expect(science.textContent).toContain("Sign in on the school page"),
+      );
+      expect(science.textContent).toContain(
+        "The school asks for a code sent by email.",
+      );
+      expect(science.textContent).not.toContain("on another device");
+      await clickButton(science, "Show page");
+      expect(sessionStorage.getItem("isct-companion-active-school-site")).toBe(
+        "science-portal",
+      );
     },
     TIMEOUT,
   );
@@ -637,56 +578,6 @@ describe("School accounts", () => {
         expect(document.body.textContent).toContain(
           "Science Tokyo Portal account forgotten.",
         ),
-      );
-    },
-    TIMEOUT,
-  );
-
-  it(
-    "opens the login page only for a user-required event from the account being connected",
-    async () => {
-      const status: SchoolCredentialStatus = {
-        science: saved({ username: "saved-id", hasOtp: true }),
-        tokyoTech: notConfigured(),
-      };
-      const mounted = await mountAccounts({
-        handle: (command) => {
-          if (command === "school_credential_status") return status;
-          if (command === "school_session_snapshot") return noSession;
-          if (command === "connect_school")
-            return { state: "active", problem: null, verified: true };
-          return undefined;
-        },
-      });
-
-      await clickButton(account(mounted, "science"), "Connect");
-      await wait(() =>
-        expect(mounted.core.listenerCount("school-login-status")).toBe(2),
-      );
-
-      // The other card never started a login, so its event must not pull anyone away.
-      await act(async () =>
-        emitNative(mounted.core, "school-login-status", {
-          profile: "tokyo-tech",
-          state: "needs-user",
-          message: "Complete sign in",
-        }),
-      );
-      expect(
-        sessionStorage.getItem("isct-companion-active-school-site"),
-      ).toBeNull();
-
-      await act(async () =>
-        emitNative(mounted.core, "school-login-status", {
-          profile: "science",
-          state: "needs-user",
-          message: "Complete sign in",
-        }),
-      );
-      await wait(() =>
-        expect(
-          sessionStorage.getItem("isct-companion-active-school-site"),
-        ).toBe("science-portal"),
       );
     },
     TIMEOUT,
@@ -1054,14 +945,7 @@ describe("Matrix scan and paste", () => {
       );
       expect(card.textContent).toContain("70/70");
       expect(card.textContent).not.toContain("AAAA");
-      // Connect's sign-in check holds the card until the portal answers.
-      await act(async () =>
-        emitNative(mounted.core, "school-login-status", {
-          profile: "tokyo-tech",
-          state: "connected",
-          message: "",
-        }),
-      );
+      // Connect holds the card until Core answers.
       await wait(() => expect(matrixInputs(card)[0].disabled).toBe(false));
     },
     TIMEOUT,

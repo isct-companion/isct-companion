@@ -162,6 +162,6 @@ struct SchoolStatusBar: View {
     private func color(_ source: SourceView) -> Color {
         if source.failure != nil { return Theme.danger }
         if source.maintenance != nil { return Theme.warn }
-        return source.session == "signed-out" ? Theme.muted : Theme.ok
+        return source.session == .notConfigured ? Theme.muted : Theme.ok
     }
 }
