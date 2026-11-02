@@ -271,6 +271,20 @@ pub fn download_permitted(raw: &str) -> bool {
         || Url::parse(raw).is_ok_and(|url| matches!(url.scheme(), "blob" | "data"))
 }
 
+/// Whether a school attachment (`Content-Disposition: attachment`) of
+/// `mime` is shown in its view instead of saved: a PDF, a raster image,
+/// audio or video, none of which runs script. Everything else is saved.
+/// HTML, SVG and XML shown in place would run as a page of the school's
+/// origin, which the attachment header exists to prevent; notebooks, JSON
+/// and text read badly as a page anyway.
+pub fn attachment_shown_in_place(mime: &str) -> bool {
+    let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    mime == "application/pdf"
+        || (mime.starts_with("image/") && !mime.contains("svg") && !mime.contains("xml"))
+        || mime.starts_with("audio/")
+        || mime.starts_with("video/")
+}
+
 #[cfg(test)]
 #[path = "../tests/school_browser__policy.rs"]
 mod tests;

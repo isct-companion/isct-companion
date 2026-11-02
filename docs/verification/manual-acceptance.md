@@ -1706,11 +1706,17 @@ with a course whose material includes a PDF.
      window.
 3. On an LMS course page, open a PDF material that opens in a new
    window, then Close window. If the course offers a Word or other
-   file that is not shown, open it the same way.
+   file that is not shown, open it the same way. Then open a
+   notebook (.ipynb), HTML or plain-text attachment, for example an
+   assignment's attached notebook.
    - *Why:* The LMS sends PDFs as attachments, which the app fetches and shows.
      The popup's download used to be shown in the course page behind
      it, leaving the popup blank until it was closed. A file that is
      only saved leaves its popup empty, so Core closes that popup.
+     Every attachment WebKit could display used to be shown in place:
+     a notebook appeared as raw, garbled JSON with no way to save it,
+     and an HTML or SVG file would have run as a page of the LMS. Only
+     PDFs, images and media are shown now; the rest are saved.
 4. Set the Web page's zoom to 120%, open the 教務Web picker or an LMS
    PDF popup, then change the zoom to 90% while it is open.
    - *Why:* A popup is a web view of its own; it used to stay at 100% whatever
@@ -1751,8 +1757,9 @@ the popup's text size, and the failure line with Retry.
 Each window covers the page inside the web pane with its own address,
 a Close window line appears, and closing returns to the opener exactly
 as it was, with no reload. The LMS PDF shows in the popup and the
-course page underneath is unchanged; a saved file lands in Downloads
-and no empty window stays open. A popup opens at the app's zoom and
+course page underneath is unchanged; a saved file, the notebook, HTML
+or text attachment included, lands in Downloads under its own name and
+no empty window stays open. A popup opens at the app's zoom and
 follows a change. In the reader pane the PDF shows with a Close window
 line and the PDF's address; Back closes it and the assignment is in
 front; switching away and back keeps the PDF, while entering the
@@ -1764,9 +1771,9 @@ line shows on both surfaces until Retry loads the page.
 Needs a 教務Web account, a submitted LMS assignment and WebKit's own
 windows; whether the popup sits in the pane, which page is in front
 and which line shows is seen at a glance. The entry rules (resume,
-return, go), the back rule and the failure's lifetime are Core's and
-tested there; the reader reading them from the snapshot is tested in
-the desktop suite.
+return, go), the back rule, which attachment types are shown in place
+and the failure's lifetime are Core's and tested there; the reader
+reading them from the snapshot is tested in the desktop suite.
 
 **Covers**
 

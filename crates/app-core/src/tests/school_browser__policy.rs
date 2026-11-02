@@ -75,6 +75,35 @@ fn automation_reaches_adapter_sites_and_identity_providers_only() {
 }
 
 #[test]
+fn only_scriptless_attachments_are_shown_in_place() {
+    for mime in [
+        "application/pdf",
+        "image/png",
+        "IMAGE/JPEG",
+        "video/mp4",
+        "audio/mpeg",
+    ] {
+        assert!(attachment_shown_in_place(mime), "{mime}");
+    }
+    // Script would run as the school's origin, or the file reads badly as a
+    // page (a notebook as raw JSON): these are saved.
+    for mime in [
+        "text/html",
+        "text/html; charset=utf-8",
+        "application/xhtml+xml",
+        "image/svg+xml",
+        "application/xml",
+        "text/xml",
+        "application/json",
+        "application/x-ipynb+json",
+        "text/plain",
+        "",
+    ] {
+        assert!(!attachment_shown_in_place(mime), "{mime}");
+    }
+}
+
+#[test]
 fn restore_records_keep_only_bounded_domain_parameters() {
     assert_eq!(
         restore_record("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1#a").as_deref(),

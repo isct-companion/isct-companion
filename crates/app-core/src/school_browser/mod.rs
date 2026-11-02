@@ -5,7 +5,7 @@ mod submission;
 
 pub use engine::SchoolBrowserEngine;
 pub use policy::{
-    automation_target, browsing_target, browsing_url, download_permitted, is_login_url,
+    attachment_shown_in_place, automation_target, browsing_target, browsing_url, download_permitted, is_login_url,
     is_school_cookie_domain, restore_record, school_file_url, DenyReason,
 };
 pub use port::*;

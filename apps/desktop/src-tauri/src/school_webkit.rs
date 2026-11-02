@@ -34,9 +34,10 @@
 //!   private `_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:`.
 //!   A displayable `Content-Disposition: attachment` response (Moodle
 //!   submissions, `?forcedownload=1`), which WebKit would commit as an empty
-//!   page, is fetched as a `WKDownload` and loaded back in place. Other
-//!   attachments stay with wry's download handling in main views and are
-//!   saved through the shell in popups. Private API: if WebKit renames a
+//!   page, is fetched as a `WKDownload`; a type Core lets show in place
+//!   (`attachment_shown_in_place`: PDF, images, media) is loaded back in
+//!   place. Other attachments stay with wry's download handling in main
+//!   views and are saved through the shell in popups. Private API: if WebKit renames a
 //!   selector its feature goes back to doing nothing; nothing crashes.
 //!
 //! WebKit caches which delegate methods exist when a delegate is set, so each
@@ -44,7 +45,7 @@
 
 use crate::lifecycle::SchoolSite;
 use app_core::school_browser::{
-    BrowserId, LoadFailure, NavigationDecision, NavigationKind, NewWindowDecision, WindowFeatures,
+    attachment_shown_in_place, BrowserId, LoadFailure, NavigationDecision, NavigationKind, NewWindowDecision, WindowFeatures,
 };
 use block2::{DynBlock, RcBlock};
 use objc2::rc::{Retained, Weak};
@@ -182,6 +183,14 @@ fn displayable_attachment(navigation: &WKNavigationResponse) -> bool {
                 .next()
                 .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("attachment"))
         })
+}
+
+/// A displayable attachment Core lets show in place rather than save.
+fn shown_in_place(navigation: &WKNavigationResponse) -> bool {
+    displayable_attachment(navigation)
+        && unsafe { navigation.response() }
+            .MIMEType()
+            .is_some_and(|mime| attachment_shown_in_place(&mime.to_string()))
 }
 
 fn request_url(request: &NSURLRequest) -> Option<Url> {
@@ -987,7 +996,8 @@ define_class!(
         }
 
         // wry only turns responses WebKit cannot display into downloads, so a
-        // displayable attachment here is always one the shim started.
+        // displayable attachment here is always one the shim started. The
+        // shim keeps one it shows in place; wry saves the rest like any file.
         #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
         fn response_did_become_download(
             &self,
@@ -995,7 +1005,7 @@ define_class!(
             navigation: &WKNavigationResponse,
             download: &WKDownload,
         ) {
-            let shown = displayable_attachment(navigation);
+            let shown = shown_in_place(navigation);
             let url = unsafe { navigation.response() }.URL();
             match &self.ivars().original {
                 Some(original) if !shown => {
