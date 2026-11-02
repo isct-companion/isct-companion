@@ -783,6 +783,7 @@ describe("the LMS reading workspace", () => {
       back: "no",
       forward: "unknown",
       notice: null,
+      access: null,
     };
     let snapshot: unknown = page;
     const { host, core, render } = await openWorkspace(f, {

@@ -257,8 +257,8 @@ struct SettingsScreen: View {
     private static func tint(_ state: SchoolSessionState) -> Color {
         switch state {
         case .notConfigured: Theme.line
-        case .signingIn: Theme.muted
-        case .idle, .active: Theme.ok
+        case .signingIn, .verifying: Theme.muted
+        case .idle, .unverified, .active: Theme.ok
         case .unavailable: Theme.warn
         case .rejected, .needsWeb: Theme.danger
         }

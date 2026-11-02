@@ -35,8 +35,7 @@ final class WebRouter {
     /// `school-web-page` and its `schoolWebPage` snapshot.
     private(set) var pages: [SchoolSite: SchoolWebPage] = [:]
     /// A one-time note from Core about the page (`school-web-notice`), shown
-    /// for a while: a reload opened again without resending a form, or a
-    /// sign-in Core could not write into the views' store before opening it.
+    /// for a while: a reload opened again without resending a form.
     private(set) var notes: [SchoolSite: Note] = [:]
     /// The failed load the person closed for each site, hidden until Core's
     /// notice changes.
@@ -198,12 +197,11 @@ final class WebRouter {
                 site: site, revision: revision, url: row["url"] as? String,
                 popups: (row["popups"] as? NSNumber)?.uint64Value ?? 0,
                 back: Self.step(row["back"] as? String), forward: Self.step(row["forward"] as? String),
-                notice: notice))
+                notice: notice, access: Self.access(row["access"] as? [String: Any])))
         case "school-web-notice":
             let notice: SchoolWebNotice
             switch row["kind"] as? String {
             case "reopened": notice = .reopened(url: row["url"] as? String ?? "")
-            case "not-seeded": notice = .notSeeded
             default: return
             }
             let note = Note(notice: notice)
@@ -216,6 +214,27 @@ final class WebRouter {
             break
         }
     }
+
+    /// Core's `SchoolWebAccess` from its wire form.
+    private static func access(_ row: [String: Any]?) -> SchoolWebAccess? {
+        switch row?["kind"] as? String {
+        case "signing-in": return .signingIn
+        case "problem":
+            let problem: SchoolWebProblem
+            switch row?["problem"] as? String {
+            case "unreachable": problem = .unreachable
+            case "rejected": problem = .rejected
+            case "storage": problem = .storage
+            case "submission-unconfirmed": problem = .submissionUnconfirmed
+            default: problem = .stillSignIn
+            }
+            return .problem(problem: problem)
+        default: return nil
+        }
+    }
+
+    /// "Cancel, I'll sign in myself" while Core signs `site`'s view in.
+    func cancelSignIn(_ site: SchoolSite) { _ = try? session?.cancelSchoolSignIn(site: site) }
 
     /// Core's `SchoolWebStep` from its wire name.
     private static func step(_ wire: String?) -> SchoolWebStep {

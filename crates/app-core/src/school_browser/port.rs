@@ -224,6 +224,10 @@ pub trait SchoolBrowser: Send + Sync {
     fn dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError>;
     fn current_url(&self, browser: BrowserId) -> Result<Option<Url>, BrowserError>;
     fn dispose(&self, browser: BrowserId) -> Result<(), BrowserError>;
+    /// Takes a view, with the popups over it, out of sight and out of the
+    /// input layer while Core signs it in (`covered`), or gives it back.
+    /// The surface shows Core's sign-in panel in its place.
+    fn cover(&self, browser: BrowserId, covered: bool) -> Result<(), BrowserError>;
     fn shutdown(&self) -> BrowserFuture<'_, ()>;
 }
 

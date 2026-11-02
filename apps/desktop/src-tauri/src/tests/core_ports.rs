@@ -5,7 +5,8 @@ use app_core::{
     events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     school_browser::{
-        LoadFailure, SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebStep,
+        LoadFailure, SchoolWebAccess, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
+        SchoolWebProblem, SchoolWebStep,
     },
     school_service::{IngestOutcome, IngestState},
     school_session::{
@@ -74,6 +75,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                         problem: None,
                         retry_at: None,
                         maintenance: None,
+                        web_kept: false,
                     },
                     tokyo_tech: SchoolProfileSession {
                         state: SchoolSessionState::Rejected,
@@ -83,13 +85,14 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                         }),
                         retry_at: None,
                         maintenance: None,
+                        web_kept: false,
                     },
                 },
             }),
             "school-session",
             json!({"revision":7,"profiles":{
-                "science":{"state":"active","problem":null,"retryAt":null,"maintenance":null},
-                "tokyoTech":{"state":"rejected","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
+                "science":{"state":"active","problem":null,"retryAt":null,"maintenance":null,"webKept":false},
+                "tokyoTech":{"state":"rejected","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null,"webKept":false}
             }}),
         ),
         (
@@ -104,9 +107,12 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     url: Some(url.clone()),
                     reason: LoadFailure::HostNotFound,
                 }),
+                access: Some(SchoolWebAccess::Problem {
+                    problem: SchoolWebProblem::SubmissionUnconfirmed,
+                }),
             }),
             "school-web-page",
-            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"}}),
+            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"submission-unconfirmed"}}),
         ),
         (
             CoreEvent::SchoolWebNotice {

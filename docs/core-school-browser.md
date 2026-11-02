@@ -270,6 +270,37 @@ snapshot after their event stream is running.
 a reload would have resent a form, so the page was opened again with GET. The
 app shows it for a few seconds; a surface that misses it loses nothing.
 
+## Signing a view in (web operations)
+
+Core signs a school view in only when the person acts: an App link that opens
+a new target (`Go`, a `Return` taken as one, a view's first page), or the
+App's Reload while the page in front is a known identity-provider sign-in
+page. Resuming a view, a surface mounting again and a page moving to the
+sign-in page by itself start nothing, and nothing watches a page afterwards
+(`engine/operation.rs`).
+
+An operation has an id, its view (or the popup in front, for Reload), the
+account and web-store generations it began in, and one deadline; a new
+navigation, closing the view or an account change supersede it, and repeated
+Reloads join it. It gets the identity ready (a fresh verified one as it is, an
+unverified or aging one verified by one bounded SSO, a sign-in only when there
+is none), writes it through the one exit (`school_session::seed`, verified
+generations of a usable account only), then opens the target. If the page
+still lands on the sign-in page and the operation has not signed in yet, it
+signs in once, writes and opens again; otherwise it stops. The network,
+maintenance and store failures never send a password; Reload goes through a
+pause after a failure but never through a refusal. Reload reopens the visit's
+last page reached with a GET, else the site's entry (`adpt_isct::urls::entry`);
+a sign-in page reached from a form says the submission is unconfirmed, and a
+host that does not report methods (Android) reloads the page itself.
+
+While it signs in, the page's `access` is `signing-in`: the host covers the
+view (`SchoolBrowser::cover`) and the surface offers "Cancel, I'll sign in
+myself"; the view comes back once a write already handed to the platform
+ended. Where it stopped, `access` is `problem` (`unreachable`, `rejected`,
+`storage`, `still-sign-in`, `submission-unconfirmed`) until the view shows
+another page.
+
 Nothing is injected into a school page to show these.
 
 ## Page dialogs and printing

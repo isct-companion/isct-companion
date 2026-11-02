@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 162 checks must be re-run before the next release.**
+**8 of 166 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**154 checks have never been run or could not be run:**
+**158 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -94,6 +94,10 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO` — never verified
 - `SCHOOL-SESSION-RESTART` — never verified
+- `SCHOOL-WEB-RESTORED-IDENTITY` — never verified
+- `SCHOOL-WEB-RELOAD-SIGN-IN` — never verified
+- `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` — never verified
+- `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` — never verified
 - `DESKTOP-SCHOOL-COOKIES-WINDOWS` — never verified
 - `DESKTOP-SCHOOL-COOKIES-LINUX` — never verified
 - `NATIVE-SCHOOL-BACKGROUND-READ` — never verified
@@ -261,6 +265,10 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_import.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
+| `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
+| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx |
+| `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
+| `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
 | `DESKTOP-SCHOOL-COOKIES-LINUX` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs |
 | `NATIVE-SCHOOL-BACKGROUND-READ` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>crates/app-core/src/sync_engine/planner.rs |
@@ -4614,6 +4622,223 @@ across a process restart; no suite holds a live school session.
 - `crates/app-core/src/school_session/store.rs`
 - `crates/app-core/src/school_session/mod.rs`
 - `crates/app-core/src/school_auth.rs`
+
+**Last recorded** never run
+
+### An assignment opened after a restart shows the LMS signed in, verified first (`SCHOOL-WEB-RESTORED-IDENTITY`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build from this source with the Science Tokyo account
+connected and the LMS read at least once, then quit for more than five
+minutes. This is the reported case: the account showed as signed in,
+and the assignment page opened from the timetable was signed out.
+
+**Steps**
+
+1. Clear the log, start the app, and before opening any school page,
+   look at the Science Tokyo account in Settings.
+   - *Why:* The identity read back from the vault is only unverified now; a
+     card that says signed in (`active`) before the school confirmed
+     anything is the old behaviour that wrote an expired identity.
+2. Open an assignment from the timetable and press its LMS link.
+   - *Why:* An App link is a web operation: Core verifies the identity with one
+     SSO from its snapshot, writes it, and only then opens the page. The
+     LMS sign-in page, or `web cookies not written` in the log, means the
+     write or the order failed.
+3. Copy the log.
+   - *Why:* `identity checked profile=Science Verified` with no `signing in
+     profile=` tells a verification from a password sign-in.
+
+**Where to look**
+
+The account card before and after, the LMS page, and the copied log.
+
+**Expected**
+
+The card reads "Connected · confirms the sign-in when a page opens"
+before, and signed in after. The assignment opens on the LMS signed in.
+The log has one `identity checked` line and no `signing in profile=`.
+
+**Why this is manual**
+
+Needs the real Extic and LMS to accept a snapshot saved across a
+restart, and WebKit's cookie store; the order and the verification
+rules are in the Core suites, the live acceptance only here.
+
+**Covers**
+
+- `crates/app-core/src/school_session/identity.rs`
+- `crates/app-core/src/school_session/mod.rs`
+- `crates/app-core/src/school_browser/engine/operation.rs`
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+
+**Last recorded** never run
+
+### Reload on the school sign-in page signs the page in once, and can be cancelled (`SCHOOL-WEB-RELOAD-SIGN-IN`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build from this source with the Science Tokyo account
+connected, the LMS open in the Web page on a course page.
+
+**Steps**
+
+1. In the LMS page, log out of the LMS from its own menu so the view
+   shows the Extic sign-in page, and wait ten seconds.
+   - *Why:* A page that reaches the sign-in page by itself starts nothing: the
+     app must not type anything or reopen anything on its own.
+2. Press the app's Reload.
+   - *Why:* Reload on a known sign-in page is a web operation for the page in
+     front: the view hides behind "Signing in to this page…" with
+     "Cancel, I'll sign in myself", then the course page reopens signed
+     in. Extic's form left on screen, or the panel staying, means it did
+     not run or did not end.
+3. Log out again, press Reload, and press "Cancel, I'll sign in
+   myself" while the panel shows.
+   - *Why:* Cancelling hands the page back once the write already given to
+     WebKit ended; the sign-in page must come back usable for typing.
+4. On an assignment, start a submission, log out of Extic in another
+   tab of the view if needed so that saving lands on the sign-in page,
+   then press Reload.
+   - *Why:* The page came from a form: Core opens the visit's last safe page and
+     says the submission is unconfirmed instead of sending the form again.
+5. Copy the log.
+   - *Why:* `web operation … started` and `ended` lines, and at most one
+     `signing in profile=` per operation, show the one-password rule.
+
+**Where to look**
+
+The LMS view, the line under the address, and the copied log.
+
+**Expected**
+
+Nothing happens until Reload. Each Reload reopens the course page signed
+in; Cancel gives the sign-in page back. The submission case shows "The
+sign-in had run out when the form was sent…" on a safe LMS page and
+sends nothing again. No operation has more than one `signing in` line.
+
+**Why this is manual**
+
+Needs a real LMS session to end and the real Extic sign-in page in
+WebKit; the trigger, the one-sign-in budget and the reopen rules are in
+the Core web operation suite.
+
+**Covers**
+
+- `crates/app-core/src/school_browser/engine/operation.rs`
+- `crates/app-core/src/school_browser/engine.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
+- `apps/desktop/src/features/school-web/SchoolWebControls.tsx`
+
+**Last recorded** never run
+
+### Signing one account out clears only its school websites (`SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build and an Android build from this source, both with
+both school accounts connected and the LMS and 教務Web each opened once.
+
+**Steps**
+
+1. On the desktop, delete the Science Tokyo credentials in Settings,
+   then open 教務Web and the LMS from the Web page.
+   - *Why:* Only `isct.ac.jp` and `ex-tic.com` data go: 教務Web must still open
+     signed in, and the LMS must show its sign-in page. 教務Web signed out
+     means the clear covered the other account.
+2. On Android, delete the Science Tokyo credentials.
+   - *Why:* WebView cannot clear one account's websites: the account page must
+     say the web sign-in was kept and offer to clear every school web
+     sign-in, never clear both silently.
+3. Press "Clear all school web sign-ins", then open 教務Web.
+   - *Why:* The person's choice clears both accounts' web sessions; 教務Web then
+     signs in again through a web operation, since Core's Tokyo Tech
+     identity stays valid.
+
+**Where to look**
+
+The LMS and 教務Web views on both devices, and the Android account page.
+
+**Expected**
+
+The desktop LMS is signed out and 教務Web signed in. Android names the
+kept web sign-in, clears both only when asked, and 教務Web opens signed
+in afterwards without a password prompt.
+
+**Why this is manual**
+
+Needs each platform's real website data store and the real school
+cookies' domains; the clear order and the domain table are in the Core
+suites.
+
+**Covers**
+
+- `crates/app-core/src/school_session/web.rs`
+- `apps/desktop/src-tauri/src/school_cookies.rs`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
+
+**Last recorded** never run
+
+### A file dropped on the LMS draft area is logged with the view that took it (`DESKTOP-SCHOOL-DRAG-DIAGNOSTICS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build from this source with the Science Tokyo account
+connected. Open the Science Tokyo Portal in the Web page first, then an
+assignment's LMS submission page, as in the report where the drop went
+to the hidden Portal.
+
+**Steps**
+
+1. Clear the log, drag a PDF from Finder onto the LMS draft area and
+   drop it.
+   - *Why:* The diagnostics name the view instance AppKit asked, its window,
+     whether it is mounted and hidden, whether it is in front, and why a
+     view refused. A `drag hit` line for the Portal with `accepted=true`
+     is the defect, with the evidence to decide how hidden views leave
+     the input layer.
+2. Copy the log lines with `[school-web] drag hit` and
+   `[school-web] presentation`.
+   - *Why:* They carry no URL, cookie or page content, only view ids, windows
+     and presentation state, so they can be shared as they are.
+
+**Where to look**
+
+The LMS draft area and the copied log lines.
+
+**Expected**
+
+The file lands in the LMS draft area and the log names the LMS view as
+the receiver; any other view that answered is listed with its reason.
+
+**Why this is manual**
+
+AppKit's drag hit test runs only with a real drag from Finder over real
+WKWebViews; nothing headless reaches `_hitTest:dragTypes:`.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
 
 **Last recorded** never run
 

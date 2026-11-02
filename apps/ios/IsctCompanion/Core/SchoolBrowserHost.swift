@@ -85,6 +85,18 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         }
     }
 
+    /// While Core signs a view in, it and its popups are out of sight and
+    /// take no touch; the web screen shows Core's panel (`access`) instead.
+    func cover(browser: BrowserId, covered: Bool) throws {
+        DispatchQueue.main.async {
+            guard let view = self.views[browser.site], view.id == browser else { return }
+            for page in [view] + self.popups.filter({ $0.id.site == browser.site }) {
+                page.webView.isHidden = covered
+                page.webView.isUserInteractionEnabled = !covered
+            }
+        }
+    }
+
     func shutdown() throws {
         lock.withLock {
             closedForGood = true

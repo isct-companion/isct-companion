@@ -118,6 +118,18 @@ pub(crate) fn reload_school_web(
     controller.engine.reload(site).map_err(coded)
 }
 
+/// The person's "Cancel, I'll sign in myself" while Core signs the school
+/// view in.
+#[tauri::command]
+pub(crate) fn cancel_school_web_sign_in(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    site: SchoolSite,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    controller.engine.cancel_sign_in(site).map_err(coded)
+}
+
 #[tauri::command]
 pub(crate) fn navigate_school_web(
     webview: tauri::Webview,

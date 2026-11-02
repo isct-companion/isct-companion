@@ -2,17 +2,20 @@ use super::{NavigationKind, NavigationRequest, NewWindowRequest};
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
 use url::Url;
 
-/// The registrable domains of the school sign-ins. Every cookie under them
-/// belongs to a school session.
-const SCHOOL_DOMAINS: [&str; 3] = ["isct.ac.jp", "titech.ac.jp", "ex-tic.com"];
+/// The registrable domains of both accounts' school websites
+/// (`adpt_isct::urls`). Every cookie under them belongs to a school session.
+pub(crate) fn school_domains() -> impl Iterator<Item = &'static str> {
+    adpt_isct::urls::SCIENCE_DOMAINS
+        .iter()
+        .chain(adpt_isct::urls::TOKYO_TECH_DOMAINS)
+        .copied()
+}
 
 /// Whether a cookie or website-data domain (`.lms.s.isct.ac.jp`,
-/// `isct.ac.jp`) is a school one, which a school web sign-out removes.
-pub fn is_school_cookie_domain(domain: &str) -> bool {
+/// `isct.ac.jp`) is `registrable` or under it.
+pub(crate) fn domain_under(domain: &str, registrable: &str) -> bool {
     let domain = domain.trim_start_matches('.').to_ascii_lowercase();
-    SCHOOL_DOMAINS
-        .iter()
-        .any(|school| domain == *school || domain.ends_with(&format!(".{school}")))
+    domain == registrable || domain.ends_with(&format!(".{registrable}"))
 }
 
 /// A URL school automation may load: HTTPS to a site with an adapter
@@ -43,9 +46,7 @@ pub fn school_file_url(raw: &str) -> Option<Url> {
         && url.password().is_none()
         && url.host_str().is_some_and(|host| {
             !host.starts_with('.')
-                && SCHOOL_DOMAINS
-                    .iter()
-                    .any(|school| host.ends_with(&format!(".{school}")))
+                && school_domains().any(|school| host.ends_with(&format!(".{school}")))
         }))
     .then_some(url)
 }
@@ -278,7 +279,12 @@ pub fn download_permitted(raw: &str) -> bool {
 /// origin, which the attachment header exists to prevent; notebooks, JSON
 /// and text read badly as a page anyway.
 pub fn attachment_shown_in_place(mime: &str) -> bool {
-    let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let mime = mime
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     mime == "application/pdf"
         || (mime.starts_with("image/") && !mime.contains("svg") && !mime.contains("xml"))
         || mime.starts_with("audio/")

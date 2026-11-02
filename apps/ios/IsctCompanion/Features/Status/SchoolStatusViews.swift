@@ -103,6 +103,8 @@ enum SchoolSessionText {
         case .notConfigured: return t("common.notConnected")
         case .idle: return t("schoolSession.state.idle")
         case .signingIn: return t("common.signingIn")
+        case .unverified: return t("schoolSession.state.unverified")
+        case .verifying: return t("schoolSession.state.verifying")
         case .active: return t("settings.main.connected")
         case .rejected: return t("schoolSession.state.rejected")
         case .needsWeb: return t("schoolSession.state.needsWeb")

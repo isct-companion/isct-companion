@@ -184,6 +184,10 @@ pub trait NativeBrowser: Send + Sync {
     fn dispatch(&self, command: BrowserCommand) -> Result<(), SdkError>;
     fn current_url(&self, browser: BrowserId) -> Result<Option<String>, SdkError>;
     fn dispose(&self, browser: BrowserId) -> Result<(), SdkError>;
+    /// Takes the view, with its popups, out of sight and out of input while
+    /// Core signs it in (`covered`), or gives it back; the screen shows Core's
+    /// sign-in panel (the page's `access`) in its place.
+    fn cover(&self, browser: BrowserId, covered: bool) -> Result<(), SdkError>;
     fn shutdown(&self) -> Result<(), SdkError>;
 }
 #[derive(uniffi::Object)]
@@ -392,6 +396,11 @@ impl browser::SchoolBrowser for Browser {
             .dispose(project(id).map_err(dispatch_error)?)
             .map_err(dispatch_error)
     }
+    fn cover(&self, id: browser::BrowserId, covered: bool) -> Result<(), browser::BrowserError> {
+        self.native
+            .cover(project(id).map_err(dispatch_error)?, covered)
+            .map_err(dispatch_error)
+    }
     fn shutdown(&self) -> browser::BrowserFuture<'_, ()> {
         Box::pin(async move {
             *self
@@ -451,21 +460,57 @@ pub struct WebCookie {
     pub set_cookie: String,
 }
 
+/// Which school website data a clear removes: cookies, storage and caches.
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum WebClearScope {
+    /// One account's websites, under these registrable domains.
+    Domains { domains: Vec<String> },
+    /// Both accounts' websites.
+    AllSchool,
+}
+
+impl WebClearScope {
+    fn of(scope: app_core::school_session::WebClear) -> Self {
+        match scope {
+            app_core::school_session::WebClear::Domains(domains) => Self::Domains { domains },
+            app_core::school_session::WebClear::AllSchool => Self::AllSchool,
+        }
+    }
+
+    fn core(self) -> app_core::school_session::WebClear {
+        match self {
+            Self::Domains { domains } => app_core::school_session::WebClear::Domains(domains),
+            Self::AllSchool => app_core::school_session::WebClear::AllSchool,
+        }
+    }
+}
+
+/// Whether a cookie's or a website data record's domain is one `scope`
+/// removes, for the shell's `NativeWebCookies::clear`.
+#[uniffi::export]
+pub fn web_clear_covers(scope: WebClearScope, domain: String) -> bool {
+    scope.core().covers(&domain)
+}
+
 /// The shell's web cookie store, written only. Core writes an account's
-/// identity cookies before an App-initiated school navigation and clears the
-/// school cookies when an account goes; it never reads them back. Run the
-/// calls one at a time, in order, each answering after the platform's
-/// completion callback.
+/// verified identity cookies before it opens a school page for the person
+/// and clears an account's school websites when it goes; it never reads
+/// them back. Core runs the calls one at a time, in order, and decides which
+/// writes are stale: a shell answers each call once the platform's
+/// completion callback ran, however long that takes, and never gives up on
+/// one itself.
 #[uniffi::export(rust, foreign)]
 #[async_trait::async_trait]
 pub trait NativeWebCookies: Send + Sync {
     /// Writes each cookie with the platform's own `Set-Cookie` parser for its
     /// URL (never rebuilt from properties: that loses a Domain's leading
-    /// dot). Ignore the call when `generation` is older than the last clear.
-    async fn write(&self, generation: u64, cookies: Vec<WebCookie>) -> Result<(), SdkError>;
-    /// Removes the school cookies (Android: every cookie and the web
-    /// storage) and remembers `generation` as the last clear.
-    async fn clear(&self, generation: u64) -> Result<(), SdkError>;
+    /// dot).
+    async fn write(&self, cookies: Vec<WebCookie>) -> Result<(), SdkError>;
+    /// Removes the website data `scope` covers (`web_clear_covers`).
+    async fn clear(&self, scope: WebClearScope) -> Result<(), SdkError>;
+    /// Whether `clear` can remove one account's websites alone. A platform
+    /// that cannot (Android) is only asked for `AllSchool`.
+    fn clears_by_site(&self) -> bool;
 }
 
 pub(crate) struct WebCookies(pub Arc<dyn NativeWebCookies>);
@@ -473,13 +518,11 @@ pub(crate) struct WebCookies(pub Arc<dyn NativeWebCookies>);
 impl app_core::school_session::WebCookieSeed for WebCookies {
     fn write(
         &self,
-        generation: u64,
         cookies: Vec<app_core::school_session::WebCookie>,
     ) -> app_core::net::BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             self.0
                 .write(
-                    generation,
                     cookies
                         .into_iter()
                         .map(|cookie| WebCookie {
@@ -493,13 +536,20 @@ impl app_core::school_session::WebCookieSeed for WebCookies {
         })
     }
 
-    fn clear(&self, generation: u64) -> app_core::net::BoxFuture<'_, Result<(), String>> {
+    fn clear(
+        &self,
+        scope: app_core::school_session::WebClear,
+    ) -> app_core::net::BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             self.0
-                .clear(generation)
+                .clear(WebClearScope::of(scope))
                 .await
                 .map_err(|error| error.to_string())
         })
+    }
+
+    fn clears_by_site(&self) -> bool {
+        self.0.clears_by_site()
     }
 }
 
@@ -844,13 +894,6 @@ pub fn cloudkit_record() -> CloudKitRecord {
 pub fn school_start_url(site: crate::types::SchoolSite) -> Result<String, SdkError> {
     let site: app_core::lifecycle::SchoolSite = project_input(site)?;
     Ok(site.start_url().to_string())
-}
-
-/// Whether a cookie or website-data domain is a school one, for the shell's
-/// `NativeWebSignOut`.
-#[uniffi::export]
-pub fn is_school_cookie_domain(domain: String) -> bool {
-    app_core::school_browser::is_school_cookie_domain(&domain)
 }
 
 #[uniffi::export]

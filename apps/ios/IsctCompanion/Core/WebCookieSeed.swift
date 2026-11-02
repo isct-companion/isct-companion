@@ -3,19 +3,14 @@ import IsctCore
 import WebKit
 
 /// `NativeWebCookies` over the store the school web views share. Core writes
-/// the account's sign-in cookies into it before it opens a school page for
-/// the person, and clears the school ones on sign-out, account switch and
-/// reset. Core never reads them back.
+/// an account's verified sign-in cookies into it before it opens a school
+/// page for the person, and clears an account's school websites on sign-out,
+/// account switch and reset. Core never reads them back.
 ///
-/// Calls run one at a time, each after the previous one completed, and a
-/// write older than the last clear is dropped, so a sign-out is never undone
-/// by a write that was already on its way.
+/// Core runs the calls one at a time and drops stale writes; each call here
+/// answers once WebKit has called back, however long that takes.
 final class WebCookieSeed: NativeWebCookies, @unchecked Sendable {
-    /// The last call queued; the next one starts once it has completed.
-    @MainActor private var tail: Task<Void, Never>?
-    @MainActor private var lastClearedGeneration: UInt64 = 0
-
-    func write(generation: UInt64, cookies: [WebCookie]) async throws {
+    func write(cookies: [WebCookie]) async throws {
         // WebKit's own Set-Cookie parser for the URL each was received at:
         // a cookie built from properties loses the leading dot of `Domain`.
         let parsed = try cookies.flatMap { cookie in
@@ -24,8 +19,7 @@ final class WebCookieSeed: NativeWebCookies, @unchecked Sendable {
             guard !read.isEmpty else { throw SdkError.InvalidInput(detail: "set-cookie") }
             return read
         }
-        await serially { [self] in
-            guard generation >= lastClearedGeneration else { return }
+        await onMain {
             let store = WKWebsiteDataStore.default().httpCookieStore
             for cookie in parsed {
                 await store.setCookie(cookie)
@@ -33,31 +27,28 @@ final class WebCookieSeed: NativeWebCookies, @unchecked Sendable {
         }
     }
 
-    /// Removes every cookie of a school domain, then the rest of those
-    /// sites' website data (storage, caches). Core decides which domains are
-    /// school ones.
-    func clear(generation: UInt64) async throws {
-        await serially { [self] in
-            lastClearedGeneration = max(lastClearedGeneration, generation)
+    /// Removes every cookie of a domain `scope` covers, then the rest of
+    /// those sites' website data (storage, caches). Core decides which
+    /// domains those are (`webClearCovers`).
+    func clear(scope: WebClearScope) async throws {
+        await onMain {
             let data = WKWebsiteDataStore.default()
             let store = data.httpCookieStore
-            for cookie in await store.allCookies() where isSchoolCookieDomain(domain: cookie.domain) {
+            for cookie in await store.allCookies() where webClearCovers(scope: scope, domain: cookie.domain) {
                 await store.deleteCookie(cookie)
             }
             let types = WKWebsiteDataStore.allWebsiteDataTypes()
-            let school = await data.dataRecords(ofTypes: types).filter { isSchoolCookieDomain(domain: $0.displayName) }
+            let school = await data.dataRecords(ofTypes: types).filter { webClearCovers(scope: scope, domain: $0.displayName) }
             await data.removeData(ofTypes: types, for: school)
         }
     }
 
-    /// Runs `work` once every earlier call has completed, and returns when it has.
-    @MainActor private func serially(_ work: @escaping @MainActor () async -> Void) async {
-        let previous = tail
-        let task = Task { @MainActor in
-            await previous?.value
-            await work()
-        }
-        tail = task
-        await task.value
+    /// WebKit removes one site's data by its record.
+    func clearsBySite() -> Bool { true }
+
+    /// Runs `work` on the main actor, where WebKit's store lives, and returns
+    /// when it has.
+    private func onMain(_ work: @escaping @MainActor () async -> Void) async {
+        await Task { @MainActor in await work() }.value
     }
 }

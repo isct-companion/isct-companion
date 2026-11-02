@@ -15,9 +15,12 @@
 //! `run` rebuilds the requests on each attempt, recovers the session at most
 //! once and runs the operation again at most once. Writes never run again.
 //!
-//! The web view gets an account's identity cookies, one way, before an
-//! App-initiated navigation (`seed`); Core never reads its cookies, and a
-//! session someone signs in to by hand on a web page stays the web page's.
+//! The web view gets an account's identity cookies, one way, from a web
+//! operation the person started (`seed`, the one exit): only a verified
+//! generation, only while the account is usable. Core never reads them back,
+//! and a session someone signs in to by hand on a web page stays the web
+//! page's. Signing an account out clears its websites only, in a fixed order
+//! (`clear_web_of`).
 //!
 //! Every change of an account goes through its owner (`owner`): permits
 //! stamped with the account generation, and the barrier that switching
@@ -34,10 +37,15 @@ mod web;
 
 pub(crate) use owner::Permit;
 pub(crate) use site::{Attempt, OpError, Operation, RunError, Site};
-pub use web::{WebCookie, WebCookieSeed};
+pub use web::{WebClear, WebCookie, WebCookieSeed};
 
 use self::{
-    identity::Identity, jar::Jar, owner::Owner, site::SiteSession, store::Saved, web::WebQueue,
+    identity::{Checked, Identity},
+    jar::Jar,
+    owner::Owner,
+    site::SiteSession,
+    store::Saved,
+    web::{WebError, WebQueue},
 };
 use crate::{
     events::CoreEvent,
@@ -54,7 +62,7 @@ use std::{
     collections::HashSet,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex, MutexGuard, OnceLock, PoisonError,
+        Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak,
     },
     time::Duration,
 };
@@ -69,9 +77,20 @@ pub const SIGN_IN_DEADLINE: Duration = Duration::from_secs(60);
 pub const OTP_MARGIN: Duration = Duration::from_secs(8);
 /// After a network failure, the earliest the next sign-in may start.
 pub const RETRY_NOT_BEFORE: Duration = Duration::from_secs(60);
-/// The longest an App-initiated navigation waits for the shell to write the
-/// identity cookies into the web view.
+/// The longest a web operation waits for the shell to write the identity
+/// cookies into the web view. Only the caller stops waiting: the write stays
+/// queued, and nothing behind it overtakes it.
 pub const SEED_WAIT: Duration = Duration::from_secs(10);
+/// A web cookie call the platform has not answered after this makes the
+/// store unusable until it does: no write is admitted meanwhile. Within it,
+/// shutdown waits for the answer.
+pub const WEB_STORE_LIMIT: Duration = Duration::from_secs(10);
+/// One verification of an identity, everything included.
+pub const VERIFY_DEADLINE: Duration = Duration::from_secs(30);
+/// A web operation uses an identity verified less long ago as it is.
+pub const VERIFIED_FRESH: Duration = Duration::from_secs(5 * 60);
+
+const _: () = assert!(SEED_WAIT.as_secs() <= WEB_STORE_LIMIT.as_secs());
 
 // A sync key's deadline (from the call's start) covers one sign-in and two
 // page reads; every other limit comes from the caller's deadline.
@@ -88,7 +107,12 @@ pub enum SchoolSessionState {
     /// Credentials, but no identity yet: the next read signs in.
     Idle,
     SigningIn,
-    /// An identity snapshot is held.
+    /// An identity read back from the vault that the school has not
+    /// confirmed since: the next web page the App opens verifies it.
+    Unverified,
+    /// The identity is being verified (no password is sent).
+    Verifying,
+    /// A verified identity is held.
     Active,
     /// The school turned these credentials down; waits for new ones or a
     /// retry.
@@ -160,6 +184,10 @@ pub struct SchoolProfileSession {
     pub retry_at: Option<DateTime<Utc>>,
     /// The account's site (LMS, 教務Web) is paused for maintenance.
     pub maintenance: Option<SchoolMaintenance>,
+    /// The account was signed out, and its school web sign-in is still in
+    /// the web view: the platform cannot clear one account's websites alone.
+    /// `clear_web` clears both accounts'.
+    pub web_kept: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -341,6 +369,10 @@ struct Inner {
     events: OnceLock<Arc<dyn EventSink>>,
     accounts: [Account; 2],
     web: WebQueue,
+    /// The web views a sign-out stops (the school browser engine).
+    views: Mutex<Option<Weak<dyn AccountViews>>>,
+    /// Per account (Science, Tokyo Tech): `SchoolProfileSession::web_kept`.
+    web_kept: Mutex<[bool; 2]>,
     tasks: RuntimeTasks,
     revision: AtomicU64,
     published: Mutex<Option<SchoolSessionProfiles>>,
@@ -356,17 +388,79 @@ fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Clone)]
 pub struct SchoolSessions(Arc<Inner>);
 
-/// What writing an account's identity into the web view came to.
+/// The web views of the accounts, as a sign-out stops them.
+pub(crate) trait AccountViews: Send + Sync {
+    /// Ends the web operations of `profiles` and closes their views.
+    fn stop(&self, profiles: &[SchoolAuthProfile]);
+}
+
+/// Why a web operation could not get an account's identity into the web
+/// view.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Seeded {
-    /// The shell committed the cookies of this identity generation.
-    Written(u64),
-    /// Core holds no identity for the account: nothing to write.
-    Nothing,
-    /// The write failed or took longer than `SEED_WAIT`.
-    Failed,
+pub(crate) enum WebStop {
+    /// No verdict: offline, the network, maintenance, a pause after a
+    /// failure, out of time. No password was sent for it.
+    Unreachable,
+    /// The school refused the saved credentials.
+    Rejected,
+    /// The school wants the person on its own page.
+    NeedsWeb,
+    NotConfigured,
+    /// The web cookie store failed or is unusable.
+    Storage,
+    /// An account change, or a newer identity, made it stale.
+    Stale,
     /// The shell has no web cookie port.
     Unsupported,
+}
+
+impl WebStop {
+    fn of(state: SchoolSessionState) -> Self {
+        match state {
+            SchoolSessionState::Rejected => Self::Rejected,
+            SchoolSessionState::NeedsWeb => Self::NeedsWeb,
+            SchoolSessionState::NotConfigured => Self::NotConfigured,
+            _ => Self::Unreachable,
+        }
+    }
+}
+
+/// An identity a web operation got ready.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Prepared {
+    /// The verified generation to write.
+    pub(crate) identity: u64,
+    /// Getting it used the operation's one sign-in with credentials.
+    pub(crate) signed_in: bool,
+}
+
+/// A write of an identity into the web view, queued.
+pub(crate) struct WebWrite {
+    wait: tokio::sync::oneshot::Receiver<Result<(), WebError>>,
+    answer: Option<Result<(), WebStop>>,
+}
+
+impl WebWrite {
+    /// The platform's answer, waited for at most `within`; `None` while it
+    /// has not come.
+    pub(crate) async fn wait(&mut self, within: Duration) -> Option<Result<(), WebStop>> {
+        if let Some(answer) = self.answer {
+            return Some(answer);
+        }
+        let answer = match tokio::time::timeout(within, &mut self.wait).await {
+            Err(_) => return None,
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(WebError::Stale))) => Err(WebStop::Stale),
+            Ok(Ok(Err(WebError::Unsupported))) => Err(WebStop::Unsupported),
+            Ok(Ok(Err(error))) => {
+                log::warn!(target: "app_core::school_session", "web cookies not written: {error}");
+                Err(WebStop::Storage)
+            }
+            Ok(Err(_)) => Err(WebStop::Storage),
+        };
+        self.answer = Some(answer);
+        Some(answer)
+    }
 }
 
 impl SchoolSessions {
@@ -410,6 +504,8 @@ impl SchoolSessions {
                 ),
             ],
             web: WebQueue::default(),
+            views: Mutex::new(None),
+            web_kept: Mutex::new([false; 2]),
             tasks: RuntimeTasks::default(),
             revision: AtomicU64::new(1),
             published: Mutex::new(None),
@@ -443,6 +539,11 @@ impl SchoolSessions {
     /// Whether the shell gave Core its web cookie port.
     pub(crate) fn seeds_web(&self) -> bool {
         self.0.web.attached()
+    }
+
+    /// The school browser engine, whose views a sign-out stops.
+    pub(crate) fn attach_views(&self, views: Weak<dyn AccountViews>) {
+        *guard(&self.0.views) = Some(views);
     }
 
     /// Both accounts as shells render them.
@@ -533,13 +634,19 @@ impl SchoolSessions {
     }
 
     /// Clears the sessions of both accounts (a reset), the web view's school
-    /// cookies too when `web`. Saved credentials stay.
+    /// websites too when `web`. Saved credentials stay.
     pub async fn reset(&self, web: bool) {
+        if web {
+            self.0.web.close_admission(&PROFILES);
+        }
         // Both accounts stay closed until both are clean: one reopened early
         // would sign in while the other is still being cleared.
         let mut closed = Vec::new();
         for account in &self.0.accounts {
-            closed.push(self.0.close(account.profile, web).await);
+            closed.push(self.0.close(account.profile, false).await);
+        }
+        if web {
+            self.0.clear_web_of(&PROFILES).await;
         }
         for account in &self.0.accounts {
             let configured = configured_profiles(&self.0.auth).contains(&account.profile);
@@ -547,6 +654,15 @@ impl SchoolSessions {
         }
         drop(closed);
         log::info!(target: "app_core::school_session", "sessions reset");
+        self.0.publish();
+    }
+
+    /// Clears both accounts' school websites from the web view, the
+    /// person's choice where the platform cannot clear one account's alone
+    /// (`SchoolProfileSession::web_kept`). Core's identities stay: only the
+    /// web sessions go.
+    pub async fn clear_web(&self) {
+        self.0.clear_web_of(&PROFILES).await;
         self.0.publish();
     }
 
@@ -607,24 +723,64 @@ impl SchoolSessions {
         self.0.write_attempt(site, permit, deadline).await
     }
 
-    /// Writes `profile`'s identity into the web view before an App-initiated
-    /// navigation, waiting at most `SEED_WAIT`.
-    pub(crate) async fn seed(&self, profile: SchoolAuthProfile) -> Seeded {
-        self.0.seed(profile).await
+    /// The identity a web operation can write at once: verified less than
+    /// `VERIFIED_FRESH` ago, the account usable. `None` when getting one
+    /// needs the school.
+    pub(crate) fn fresh(&self, profile: SchoolAuthProfile) -> Option<u64> {
+        self.0.account(profile).identity.fresh()
     }
 
-    /// A web page the App opened landed on the identity provider's sign-in
-    /// page after `seeded` was written: signs in over HTTP (joining any
-    /// sign-in already running) and writes the new identity. `true` when the
-    /// web view now holds a newer identity than the one that failed.
-    pub(crate) async fn web_sign_in(&self, profile: SchoolAuthProfile, seeded: u64) -> bool {
-        self.0.web_sign_in(profile, seeded).await
+    /// Gets `profile`'s identity ready for a web operation: a fresh one as
+    /// it is, an unverified or aging one verified, and only when there is
+    /// none (or the school found it invalid) a sign-in with the saved
+    /// credentials. A refusal on record always stops it; a pause after a
+    /// failure stops it unless `past_pause` (the person's Reload on the
+    /// sign-in page).
+    pub(crate) async fn prepare_web(
+        &self,
+        profile: SchoolAuthProfile,
+        past_pause: bool,
+    ) -> Result<Prepared, WebStop> {
+        self.0.prepare_web(profile, past_pause).await
     }
 
-    /// The account generation of `profile`, which a web page's recovery
-    /// checks did not move.
+    /// A web operation's one sign-in with the saved credentials: the web
+    /// page refused the verified identity `seen`. A newer identity that
+    /// appeared meanwhile is used instead.
+    pub(crate) async fn sign_in_web(
+        &self,
+        profile: SchoolAuthProfile,
+        seen: u64,
+        past_pause: bool,
+    ) -> Result<u64, WebStop> {
+        self.0
+            .sign_in(profile, seen, identity::How::Web { past_pause })
+            .await
+            .map_err(|unavailable| WebStop::of(unavailable.state))
+    }
+
+    /// The one exit of an identity into the web view: queues the cookies of
+    /// `profile`'s verified generation `identity`, while the account is
+    /// usable. The queue drops them if, by their turn, the account changed or
+    /// that generation is no longer the one to write.
+    pub(crate) fn seed(
+        &self,
+        profile: SchoolAuthProfile,
+        identity: u64,
+    ) -> Result<WebWrite, WebStop> {
+        self.0.seed(profile, identity)
+    }
+
+    /// The account generation of `profile`, which a web operation checks
+    /// did not move.
     pub(crate) fn account_generation(&self, profile: SchoolAuthProfile) -> u64 {
         self.0.account(profile).owner.generation()
+    }
+
+    /// Grows with every clear of the web view's store the platform
+    /// confirmed, which a web operation checks did not move.
+    pub(crate) fn web_storage(&self) -> u64 {
+        self.0.web.storage()
     }
 
     /// Ends every sign-in and keeps the sites' jars for the next launch.
@@ -635,6 +791,15 @@ impl SchoolSessions {
         }
         self.0.tasks.close();
         self.0.tasks.wait().await;
+    }
+}
+
+const PROFILES: [SchoolAuthProfile; 2] = [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech];
+
+fn slot(profile: SchoolAuthProfile) -> usize {
+    match profile {
+        SchoolAuthProfile::Science => 0,
+        SchoolAuthProfile::TokyoTech => 1,
     }
 }
 
@@ -685,6 +850,7 @@ impl Inner {
             problem,
             retry_at,
             maintenance: self.maintenance(account),
+            web_kept: guard(&self.web_kept)[slot(profile)],
         }
     }
 
@@ -804,11 +970,15 @@ impl Inner {
     }
 
     /// Closes the account and clears its session: its sign-in stops, its
-    /// reads drain, Core's cookies, the LMS token and (with `web`) the web
-    /// view's school cookies go. It reopens, one generation on, when the
-    /// guard drops.
+    /// reads drain, Core's cookies, the LMS token and (with `web`) the
+    /// account's school websites in the web view go. It reopens, one
+    /// generation on, when the guard drops.
     async fn close(&self, profile: SchoolAuthProfile, web: bool) -> owner::Closed<'_> {
         let account = self.account(profile);
+        // No write of this account is admitted from here on.
+        if web {
+            self.web.close_admission(&[profile]);
+        }
         let closed = account.owner.close().await;
         account.identity.cancel_flight();
         account.identity.wait_flight().await;
@@ -827,51 +997,145 @@ impl Inner {
             log::warn!(target: "app_core::school_session", "session not deleted profile={profile:?}: {error}");
         }
         if web {
-            if let Err(error) = self.web.clear(&self.tasks).await {
-                log::warn!(target: "app_core::school_session", "web cookies not cleared: {error}");
-            }
+            self.clear_web_of(&[profile]).await;
         }
         closed
     }
 
-    async fn seed(&self, profile: SchoolAuthProfile) -> Seeded {
+    /// Clears the school websites of `profiles` from the web view, in order:
+    /// close their admission, stop their views, let the writes already
+    /// handed to the platform end (the queue runs them first), clear, and
+    /// wait for the platform's confirmation, after which the store moves one
+    /// generation on. The caller waits at most `WEB_STORE_LIMIT`; a clear
+    /// still queued then runs once the store answers, and the queue admits
+    /// no write meanwhile. One account alone on a platform that cannot
+    /// clear by site is not cleared: the person is told (`web_kept`) and
+    /// chooses `clear_web`.
+    async fn clear_web_of(&self, profiles: &[SchoolAuthProfile]) {
         if !self.web.attached() {
-            return Seeded::Unsupported;
+            return;
         }
-        self.restore(profile).await;
-        let account = self.account(profile);
-        let Some(_permit) = account.owner.permit() else {
-            return Seeded::Failed;
-        };
-        let Some((snapshot, generation)) = account.identity.snapshot() else {
-            return Seeded::Nothing;
-        };
-        let wait = self.web.write(&self.tasks, snapshot.cookies.clone());
-        match tokio::time::timeout(SEED_WAIT, wait).await {
-            Ok(Ok(Ok(()))) => Seeded::Written(generation),
-            Ok(Ok(Err(error))) => {
-                log::warn!(target: "app_core::school_session", "web cookies not written profile={profile:?}: {error}");
-                Seeded::Failed
+        self.web.close_admission(profiles);
+        let views = guard(&self.views).as_ref().and_then(Weak::upgrade);
+        if let Some(views) = views {
+            views.stop(profiles);
+        }
+        let scope = match profiles {
+            [profile] if !self.web.clears_by_site() => {
+                log::info!(target: "app_core::school_session", "web sign-in kept profile={profile:?}: the platform clears only every school site");
+                guard(&self.web_kept)[slot(*profile)] = true;
+                return;
             }
-            Ok(Err(_)) | Err(_) => {
-                log::warn!(target: "app_core::school_session", "web cookies not written in time profile={profile:?}");
-                Seeded::Failed
+            [profile] => WebClear::account(*profile),
+            _ => WebClear::AllSchool,
+        };
+        let wait = self.web.clear(&self.tasks, scope);
+        match tokio::time::timeout(WEB_STORE_LIMIT, wait).await {
+            Ok(Ok(Ok(()))) => {
+                let mut kept = guard(&self.web_kept);
+                if profiles.len() == PROFILES.len() {
+                    *kept = [false; 2];
+                } else {
+                    for profile in profiles {
+                        kept[slot(*profile)] = false;
+                    }
+                }
+                log::info!(target: "app_core::school_session", "school websites cleared profiles={profiles:?}");
+            }
+            Ok(Ok(Err(error))) => {
+                log::warn!(target: "app_core::school_session", "school websites not cleared: {error}");
+            }
+            Ok(Err(_)) => {
+                log::warn!(target: "app_core::school_session", "school websites not cleared: the queue stopped");
+            }
+            Err(_) => {
+                log::warn!(target: "app_core::school_session", "school websites not cleared yet; the clear runs once the store answers");
             }
         }
     }
 
-    async fn web_sign_in(self: &Arc<Self>, profile: SchoolAuthProfile, seeded: u64) -> bool {
-        if self
-            .sign_in(profile, seeded, identity::How::Background)
-            .await
-            .is_err()
-        {
-            return false;
+    async fn prepare_web(
+        self: &Arc<Self>,
+        profile: SchoolAuthProfile,
+        past_pause: bool,
+    ) -> Result<Prepared, WebStop> {
+        self.restore(profile).await;
+        let identity = &self.account(profile).identity;
+        match identity.state() {
+            state @ (SchoolSessionState::NotConfigured
+            | SchoolSessionState::Rejected
+            | SchoolSessionState::NeedsWeb) => return Err(WebStop::of(state)),
+            SchoolSessionState::Unavailable if identity.paused() && !past_pause => {
+                return Err(WebStop::Unreachable)
+            }
+            _ => {}
         }
-        matches!(self.seed(profile).await, Seeded::Written(generation) if generation > seeded)
+        if let Some(generation) = identity.fresh() {
+            return Ok(Prepared {
+                identity: generation,
+                signed_in: false,
+            });
+        }
+        match self.verify(profile).await {
+            Checked::Verified(generation) if identity.writable(generation).is_some() => {
+                return Ok(Prepared {
+                    identity: generation,
+                    signed_in: false,
+                })
+            }
+            Checked::Verified(_) => return Err(WebStop::of(identity.state())),
+            Checked::Unconfirmed => return Err(WebStop::Unreachable),
+            Checked::Expired => {}
+        }
+        let seen = identity.generation();
+        let generation = self
+            .sign_in(profile, seen, identity::How::Web { past_pause })
+            .await
+            .map_err(|unavailable| WebStop::of(unavailable.state))?;
+        Ok(Prepared {
+            identity: generation,
+            signed_in: true,
+        })
+    }
+
+    fn seed(
+        self: &Arc<Self>,
+        profile: SchoolAuthProfile,
+        identity: u64,
+    ) -> Result<WebWrite, WebStop> {
+        if !self.web.attached() {
+            return Err(WebStop::Unsupported);
+        }
+        let account = self.account(profile);
+        let Some(_permit) = account.owner.permit() else {
+            return Err(WebStop::Stale);
+        };
+        let Some(snapshot) = account.identity.writable(identity) else {
+            return Err(WebStop::Stale);
+        };
+        if !self.web.usable() {
+            return Err(WebStop::Storage);
+        }
+        let sessions = Arc::downgrade(self);
+        let valid = Box::new(move || {
+            sessions.upgrade().is_some_and(|sessions| {
+                sessions
+                    .account(profile)
+                    .identity
+                    .writable(identity)
+                    .is_some()
+            })
+        });
+        Ok(WebWrite {
+            wait: self
+                .web
+                .write(&self.tasks, profile, snapshot.cookies.clone(), valid),
+            answer: None,
+        })
     }
 }
 
+// The scripted school and web store in it serve the web operation suite too.
 #[cfg(test)]
 #[path = "../tests/school_session.rs"]
-mod tests;
+pub(crate) mod tests;

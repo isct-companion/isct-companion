@@ -881,6 +881,9 @@ impl crate::ports::NativeBrowser for BrowserFixture {
     fn dispose(&self, _: BrowserId) -> Result<(), SdkError> {
         Ok(())
     }
+    fn cover(&self, _: BrowserId, _: bool) -> Result<(), SdkError> {
+        Ok(())
+    }
     fn shutdown(&self) -> Result<(), SdkError> {
         Err(SdkError::Callback {
             detail: "test shutdown failure".into(),

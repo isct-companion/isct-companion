@@ -105,6 +105,12 @@ export type SchoolSessionState =
   /** Credentials, no identity yet; the next read signs in. */
   | "idle"
   | "signing-in"
+  /** An identity read back at launch that the school has not confirmed
+   * since; the next school page the App opens verifies it. */
+  | "unverified"
+  /** The identity is being verified (no password is sent). */
+  | "verifying"
+  /** A verified identity. */
   | "active"
   /** The school turned these credentials down; waits for new ones or Retry. */
   | "rejected"
@@ -117,6 +123,8 @@ const SCHOOL_SESSION_STATES: readonly unknown[] = [
   "not-configured",
   "idle",
   "signing-in",
+  "unverified",
+  "verifying",
   "active",
   "rejected",
   "needs-web",
@@ -154,6 +162,9 @@ export type SchoolProfileSession = {
   /** RFC 3339; only with `unavailable`. */
   retryAt: string | null;
   maintenance: SchoolMaintenance | null;
+  /** Signed out, with its web sign-in still in the web view: a platform
+   * that cannot clear one account's websites (Android). */
+  webKept: boolean;
 };
 /** Both accounts' sessions; every event carries the whole snapshot, and the
  * higher `revision` wins. */
@@ -278,11 +289,32 @@ export type SchoolLoadFailure =
   | "cleartext"
   | "other";
 
-/** A one-time note about the page on screen: a reload was sent as GET, or
- * Core could not pass the sign-in to the view before opening it. */
-export type SchoolWebNotice =
-  | { site: SchoolSite; kind: "reopened"; url: string }
-  | { site: SchoolSite; kind: "not-seeded" };
+/** A one-time note about the page on screen: a reload was sent as GET. */
+export type SchoolWebNotice = {
+  site: SchoolSite;
+  kind: "reopened";
+  url: string;
+};
+
+/** Why Core's sign-in of a school view stopped, or what it has to say about
+ * where it ended. */
+export type SchoolWebProblem =
+  /** The school could not be reached; no password was sent. */
+  | "unreachable"
+  /** The school refused the saved password; Settings updates it. */
+  | "rejected"
+  /** The sign-in could not be written into the web view. */
+  | "storage"
+  /** The page still asks for a sign-in. */
+  | "still-sign-in"
+  /** A safe page opened instead of a form's result; whether the form was
+   * received is unknown. */
+  | "submission-unconfirmed";
+
+/** Core is signing the view in (the view is covered; the person may cancel),
+ * or what its last sign-in left to say, until the view shows another page. */
+export type SchoolWebAccess =
+  { kind: "signing-in" } | { kind: "problem"; problem: SchoolWebProblem };
 
 /** Whether the app's Back or Forward does something for the page in front;
  * "unknown" when the host does not report history. */
@@ -305,6 +337,7 @@ export type SchoolWebPage = {
   back: SchoolWebStep;
   forward: SchoolWebStep;
   notice: SchoolWebFailure | null;
+  access: SchoolWebAccess | null;
 };
 
 /** How a surface brings a site's view on screen. Core resumes, goes to the
@@ -515,6 +548,8 @@ export interface DesktopBridge {
   /** Hide every embedded school webview (when leaving the Web page). */
   hideSchoolWeb?(): Promise<boolean>;
   reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
+  /** "Cancel, I'll sign in myself" while Core signs the view in. */
+  cancelSchoolWebSignIn?(site: SchoolSite): Promise<boolean>;
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
   /** Back through the engine's history of the view or the popup in front;
    * Core keeps it from sending a form again. */
@@ -591,6 +626,7 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
   if (!value || typeof value !== "object") return false;
   const page = value as Record<string, unknown>;
   const notice = page.notice as Record<string, unknown> | null | undefined;
+  const access = page.access as Record<string, unknown> | null | undefined;
   return (
     typeof page.site === "string" &&
     Number.isSafeInteger(page.revision) &&
@@ -601,7 +637,11 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
     (notice === null ||
       (typeof notice === "object" &&
         (notice.url === null || typeof notice.url === "string") &&
-        typeof notice.reason === "string"))
+        typeof notice.reason === "string")) &&
+    (access === null ||
+      (typeof access === "object" &&
+        (access.kind === "signing-in" ||
+          (access.kind === "problem" && typeof access.problem === "string"))))
   );
 };
 
@@ -817,6 +857,8 @@ export function createTauriDesktopBridge(
       booleanCommand("set_school_web_bounds", { bounds }),
     hideSchoolWeb: () => booleanCommand("hide_school_web"),
     reloadSchoolWeb: (site) => booleanCommand("reload_school_web", { site }),
+    cancelSchoolWebSignIn: (site) =>
+      booleanCommand("cancel_school_web_sign_in", { site }),
     navigateSchoolWeb: (site, url) =>
       booleanCommand("navigate_school_web", { site, url }),
     schoolWebBack: (site) => booleanCommand("school_web_back", { site }),
@@ -833,8 +875,8 @@ export function createTauriDesktopBridge(
           !disposed &&
           payload &&
           typeof payload.site === "string" &&
-          ((payload.kind === "reopened" && typeof payload.url === "string") ||
-            payload.kind === "not-seeded")
+          payload.kind === "reopened" &&
+          typeof payload.url === "string"
         )
           callback(payload);
       }).then((fn) => {
