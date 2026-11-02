@@ -449,7 +449,8 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
     events.fail.store(true, Ordering::Relaxed);
     let after = admission_year(&core, core.workspace.read_back().unwrap().revision, 2027).unwrap();
     assert_eq!(after.workspace["academicProfile"]["admissionYear"], 2027);
-    assert_eq!(changes().len(), 3);
+    // The MCP write above exists only with the desktop's `agent` feature.
+    assert_eq!(changes().len(), if cfg!(feature = "agent") { 3 } else { 2 });
 }
 
 /// The finder keeps its prepared catalog and personal context between

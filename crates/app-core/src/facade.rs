@@ -261,6 +261,9 @@ impl Core {
 
     /// A shell fact or intent for the sync planner. Never blocks.
     pub fn sync_hint(&self, hint: Hint) {
+        if let Hint::Network { network } = &hint {
+            self.sessions.network(*network);
+        }
         self.sync.hint(hint);
     }
 

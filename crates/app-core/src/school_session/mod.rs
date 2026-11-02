@@ -53,7 +53,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, OnceLock, PoisonError,
     },
     time::Duration,
@@ -344,6 +344,8 @@ struct Inner {
     tasks: RuntimeTasks,
     revision: AtomicU64,
     published: Mutex<Option<SchoolSessionProfiles>>,
+    /// The shell reports no network: a sign-in sends nothing.
+    offline: AtomicBool,
 }
 
 fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -411,6 +413,7 @@ impl SchoolSessions {
             tasks: RuntimeTasks::default(),
             revision: AtomicU64::new(1),
             published: Mutex::new(None),
+            offline: AtomicBool::new(false),
         }))
     }
 
@@ -557,6 +560,15 @@ impl SchoolSessions {
         if changed {
             self.0.publish();
         }
+    }
+
+    /// The network the shell reports (`Hint::Network`). While it is
+    /// offline a sign-in ends as unavailable without sending anything.
+    pub(crate) fn network(&self, network: crate::sync_engine::Network) {
+        self.0.offline.store(
+            network == crate::sync_engine::Network::Offline,
+            Ordering::SeqCst,
+        );
     }
 
     /// The system took the background time back: sign-ins stop.

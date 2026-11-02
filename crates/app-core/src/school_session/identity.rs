@@ -441,6 +441,9 @@ impl Inner {
                 credentials: None,
             };
         }
+        if self.offline.load(Ordering::SeqCst) {
+            return End::Unavailable(problem(Kind::Network, "the device is offline"));
+        }
         log::info!(target: "app_core::school_session", "signing in profile={profile:?}");
         let end = match profile {
             SchoolAuthProfile::Science => {

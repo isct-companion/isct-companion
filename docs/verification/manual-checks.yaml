@@ -7077,7 +7077,7 @@ checks:
           The screens empty and refill; the hidden assignment stays hidden;
           the course file reads not downloaded; the ウェブ tab and LMS reads
           sign in again with the saved login. A sign-out failure notice means
-          the shell's `NativeWebSignOut` failed.
+          the shell's `WebCookieSeed` could not clear the school cookies.
       - action: |
           設定 › リセット › 完全リセット; check the button stays disabled until the
           acknowledgement is on, then confirm in the system dialog (iPhone:
@@ -7099,9 +7099,9 @@ checks:
       `crates/app-core/src/tests/reset.rs`; this check is the shell wiring.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift
-      - apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift
+      - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt
-      - apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt
     verified: null
 
   - id: MOBILE-BACKGROUND-SYNC

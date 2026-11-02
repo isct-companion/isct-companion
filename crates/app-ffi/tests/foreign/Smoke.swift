@@ -90,7 +90,7 @@ func require(_ condition: Bool, _ detail: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("isct-swift-\(UUID().uuidString)")
         let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
         let vault = MemoryVault()
-        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, downloads: nil, webAuthentication: nil, driveTokens: nil)
+        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, webCookies: nil, webAuthentication: nil, driveTokens: nil)
         let logs = try exportApplicationLogs(about: "smoke")
         try require(logs.hasPrefix("smoke\n") && logs.contains("Application started"), "Opening a session must install Core's logger")
         let waitingOperation = WaitingOperation()
@@ -123,15 +123,16 @@ func require(_ condition: Bool, _ detail: String) throws {
             case .pending:
                 try require(completionClock.now < completionDeadline, "Detached credential save did not settle")
                 await Task.yield()
-            case .completed:
-                throw NSError(domain: "cancelled-operation-result", code: 1)
-            // No school browser here: connecting keeps the credentials, then cannot sign in.
-            case .failed(SdkError.Unavailable):
+            // The session is offline: connecting keeps the credentials and sends nothing.
+            case .completed(.schoolConnect(let result)):
+                try require(result.state == .unavailable && !result.verified, "An offline connect must not sign in")
                 guard case let .credentials(status) = try await session.credentialStatus().value() else {
                     throw NSError(domain: "credential-status", code: 1)
                 }
                 try require(status.tokyoTech.saved, "Detached credential save did not complete")
                 break operationCompletion
+            case .completed:
+                throw NSError(domain: "connect-result", code: 1)
             case let .failed(error):
                 throw error
             }
@@ -145,10 +146,10 @@ func require(_ condition: Bool, _ detail: String) throws {
             _ = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value()
             throw NSError(domain: "missing-callback-error", code: 1)
         } catch SdkError.Callback { }
-        do {
-            _ = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value()
-            throw NSError(domain: "missing-browser-error", code: 1)
-        } catch SdkError.Unavailable { }
+        guard case let .schoolConnect(offline) = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value() else {
+            throw NSError(domain: "connect-result", code: 1)
+        }
+        try require(offline.state == .unavailable, "An offline connect must not sign in")
         _ = try await session.deleteCredentials(profile: .tokyoTech).value()
         let stream = try session.subscribe()
         guard case let .text(first) = try await session.workspaceRevision().value() else { throw NSError(domain:"revision",code:1) }

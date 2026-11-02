@@ -323,7 +323,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/mod.rs<br>crates/app-core/src/school_session/site.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
 | `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
-| `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt |
+| `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt |
 | `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
 | `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
 | `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
@@ -8260,7 +8260,7 @@ iPhone iCloud backup on with a recent upload.
    - *Why:* The screens empty and refill; the hidden assignment stays hidden;
      the course file reads not downloaded; the ウェブ tab and LMS reads
      sign in again with the saved login. A sign-out failure notice means
-     the shell's `NativeWebSignOut` failed.
+     the shell's `WebCookieSeed` could not clear the school cookies.
 3. 設定 › リセット › 完全リセット; check the button stays disabled until the
    acknowledgement is on, then confirm in the system dialog (iPhone:
    choose クラウドから復元する first).
@@ -8288,9 +8288,9 @@ iCloud need a device. What each scope deletes is covered by
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift`
-- `apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift`
+- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
 
 **Last recorded** never run
 
