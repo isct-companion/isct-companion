@@ -89,8 +89,15 @@ pub const WEB_STORE_LIMIT: Duration = Duration::from_secs(10);
 pub const VERIFY_DEADLINE: Duration = Duration::from_secs(30);
 /// A web operation uses an identity verified less long ago as it is.
 pub const VERIFIED_FRESH: Duration = Duration::from_secs(5 * 60);
+/// One web operation, everything included: getting the identity ready (a
+/// verification, a sign-in), two writes and two page loads.
+pub const WEB_OPERATION_DEADLINE: Duration = Duration::from_secs(150);
 
 const _: () = assert!(SEED_WAIT.as_secs() <= WEB_STORE_LIMIT.as_secs());
+const _: () = assert!(
+    VERIFY_DEADLINE.as_secs() + SIGN_IN_DEADLINE.as_secs() + 2 * SEED_WAIT.as_secs() + 30
+        <= WEB_OPERATION_DEADLINE.as_secs()
+);
 
 // A sync key's deadline (from the call's start) covers one sign-in and two
 // page reads; every other limit comes from the caller's deadline.

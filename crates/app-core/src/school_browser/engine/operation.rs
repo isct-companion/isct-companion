@@ -21,20 +21,10 @@
 
 use super::*;
 use crate::school_session::{
-    Prepared, WebStop, WebWrite, SEED_WAIT, SIGN_IN_DEADLINE, VERIFY_DEADLINE, WEB_STORE_LIMIT,
+    Prepared, WebStop, WebWrite, SEED_WAIT, WEB_OPERATION_DEADLINE, WEB_STORE_LIMIT,
 };
-use std::time::Duration;
 use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
-
-/// One operation, everything included: getting the identity ready (a
-/// verification, a sign-in), two writes and two page loads.
-pub(super) const WEB_OPERATION_DEADLINE: Duration = Duration::from_secs(150);
-
-const _: () = assert!(
-    VERIFY_DEADLINE.as_secs() + SIGN_IN_DEADLINE.as_secs() + 2 * SEED_WAIT.as_secs() + 30
-        <= WEB_OPERATION_DEADLINE.as_secs()
-);
 
 /// How a view's or popup's pages were reached, and the last one of the
 /// visit that is safe to open again.
