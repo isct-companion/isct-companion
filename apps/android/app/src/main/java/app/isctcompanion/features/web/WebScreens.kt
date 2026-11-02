@@ -76,7 +76,9 @@ import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.LoadFailure
 import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SchoolWebAccess
 import app.isctcompanion.core.SchoolWebFailure
+import app.isctcompanion.core.SchoolWebProblem
 import app.isctcompanion.core.SchoolWebStep
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.design.Theme
@@ -221,9 +223,15 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
             HorizontalDivider()
         }
+        when (val access = page?.access) {
+            is SchoolWebAccess.SigningIn -> NoticeBanner(t("web.signIn.signingIn"), Theme.colors.accentSoft) {
+                TextButton(onClick = { web.cancelSignIn(site) }) { Text(t("web.signIn.cancel")) }
+            }
+            is SchoolWebAccess.Problem -> NoticeBanner(t(problemText(access.problem)), Theme.colors.warnSoft)
+            null -> Unit
+        }
         when (web.notices[site]) {
             WebRouter.Notice.REOPENED -> NoticeBanner(t("web.reopenedThisPageWithoutSending"), Theme.colors.accentSoft)
-            WebRouter.Notice.NOT_SEEDED -> NoticeBanner(t("web.signInCouldNotBePassed"), Theme.colors.warnSoft)
             null -> Unit
         }
         val failure = page?.notice
@@ -258,6 +266,16 @@ private fun PageFiles(host: SchoolBrowserHost) {
             request.answer(null)
         }
     }
+}
+
+/** What the line over the page says when Core's sign-in of the view stopped,
+ * or ended with something to say. */
+private fun problemText(problem: SchoolWebProblem): String = when (problem) {
+    SchoolWebProblem.UNREACHABLE -> "web.signIn.unreachable"
+    SchoolWebProblem.REJECTED -> "web.signIn.rejected"
+    SchoolWebProblem.STORAGE -> "web.signIn.storage"
+    SchoolWebProblem.STILL_SIGN_IN -> "web.signIn.stillSignIn"
+    SchoolWebProblem.SUBMISSION_UNCONFIRMED -> "web.signIn.submissionUnconfirmed"
 }
 
 @Composable

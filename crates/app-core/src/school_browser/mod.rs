@@ -5,9 +5,10 @@ mod submission;
 
 pub use engine::SchoolBrowserEngine;
 pub use policy::{
-    automation_target, browsing_target, browsing_url, download_permitted, is_login_url,
-    is_school_cookie_domain, restore_record, school_file_url, DenyReason,
+    attachment_shown_in_place, automation_target, browsing_target, browsing_url,
+    download_permitted, is_login_url, restore_record, school_file_url, DenyReason,
 };
+pub(crate) use policy::{domain_under, school_domains};
 pub use port::*;
 pub use submission::{
     SubmissionError, SubmissionFile, SubmissionMessages, MAX_SUBMISSION_BYTES, MAX_SUBMISSION_FILES,
@@ -24,16 +25,46 @@ pub struct SchoolWebTarget {
 }
 
 /// A one-time note about the page the person is looking at, shown next to
-/// the address for a while. A failed load is not one: it is part of
-/// [`SchoolWebPage`] for as long as it describes the page.
+/// the address for a while. A failed load or a sign-in problem is not one:
+/// it is part of [`SchoolWebPage`] for as long as it describes the page.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SchoolWebNotice {
     /// A reload would have sent a form again; the page was opened with GET.
     Reopened { url: String },
-    /// The account's sign-in could not be written into the web view before
-    /// the App opened the page; it landed on the sign-in page.
-    NotSeeded,
+}
+
+/// Why a web operation (signing a view in, on an App link or on Reload at
+/// the sign-in page) stopped, or what it has to say about where it ended.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolWebProblem {
+    /// The school could not be reached (offline, the network, maintenance,
+    /// a pause after a failure). No password was sent.
+    Unreachable,
+    /// The school refused the saved password: Settings updates it.
+    Rejected,
+    /// The sign-in could not be written into the web view's store.
+    Storage,
+    /// The page still asks for a sign-in: Core signed in and the page did
+    /// not take it, or the school wants the person on its own page.
+    StillSignIn,
+    /// The page came from a form the person sent when the sign-in ran out;
+    /// a safe page opened instead, and whether the school received the form
+    /// is unknown.
+    SubmissionUnconfirmed,
+}
+
+/// The sign-in state of the visit in front of a site.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SchoolWebAccess {
+    /// Core is signing the view in: the view is covered, and the person may
+    /// cancel to sign in on the page themselves.
+    SigningIn,
+    /// The last web operation of the view stopped, or ended with something
+    /// to say. It stays until the view shows another page.
+    Problem { problem: SchoolWebProblem },
 }
 
 /// The page the person sees of a site: the frontmost popup's when one is
@@ -55,6 +86,8 @@ pub struct SchoolWebPage {
     pub forward: SchoolWebStep,
     /// The page in front did not load.
     pub notice: Option<SchoolWebFailure>,
+    /// A web operation runs for the view, or what its last one left to say.
+    pub access: Option<SchoolWebAccess>,
 }
 
 /// Whether the app's Back or Forward does something for the page in front.

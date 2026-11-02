@@ -148,6 +148,8 @@ const SESSION_STATES: Record<SchoolSessionState, MessageKey> = {
   "not-configured": "common.notConnected",
   idle: "schoolSession.state.idle",
   "signing-in": "common.signingIn",
+  unverified: "schoolSession.state.unverified",
+  verifying: "schoolSession.state.verifying",
   active: "common.signedIn",
   rejected: "schoolSession.state.rejected",
   "needs-web": "schoolSession.state.needsWeb",

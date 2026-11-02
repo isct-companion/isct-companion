@@ -1,7 +1,10 @@
 //! The school views' cookie store as Core's write-only `WebCookieSeed`: Core
-//! writes an account's identity cookies before an App-initiated school
-//! navigation and clears the school cookies when an account goes. Nothing
-//! here reads a cookie for Core.
+//! writes an account's verified identity cookies before a web operation
+//! opens a school page and clears an account's school websites when it goes.
+//! Nothing here reads a cookie for Core, and nothing here decides: Core's
+//! queue runs the calls one at a time, drops stale writes and bounds the
+//! wait. A call answers once the platform confirmed it, however long that
+//! takes.
 //!
 //! Every write goes through the platform's own `Set-Cookie` handling, never
 //! Tauri's `Webview::set_cookie`: that builds the cookie from the `cookie`
@@ -9,52 +12,49 @@
 //! dotless domain is host-only to WebKit, so `AUTH_SESSION_ID` for
 //! `.titech.ac.jp` never reached 教務Web.
 //!
-//! - macOS: `NSHTTPCookie cookiesWithResponseHeaderFields:forURL:` (WebKit's
-//!   parser keeps the dot, the path, HttpOnly, Secure and SameSite) into the
-//!   view's `WKHTTPCookieStore`, each write awaited through its completion
-//!   handler.
+//! - macOS: the school data store itself (`SCHOOL_DATA_STORE`), no view
+//!   needed. `NSHTTPCookie cookiesWithResponseHeaderFields:forURL:` (WebKit's
+//!   parser keeps the dot, the path, HttpOnly, Secure and SameSite) into its
+//!   `WKHTTPCookieStore`, each write awaited through its completion handler;
+//!   a clear removes the website data records (cookies, storage, caches) of
+//!   the account's domains.
 //! - Windows: WebView2's `CookieManager`, with the leading dot of a Domain
 //!   attribute put back. `AddOrUpdateCookie` has no completion; it applies
 //!   in call order on the view's thread, before the navigation Core sends
-//!   after it.
+//!   after it. A clear removes the account's cookies.
 //! - Linux: libsoup's `soup_cookie_parse` into WebKitGTK's cookie manager,
-//!   each write awaited through its callback.
-//!
-//! Calls run one at a time (Core's queue), and a write of a generation
-//! older than the last clear is dropped here too.
+//!   each write awaited through its callback. A clear removes the account's
+//!   cookies.
 
 use app_core::{
     net::BoxFuture,
-    school_session::{WebCookie, WebCookieSeed},
+    school_session::{WebClear, WebCookie, WebCookieSeed},
 };
-use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::AppHandle;
+#[cfg(not(target_os = "macos"))]
 use tauri::{
-    webview::WebviewBuilder, AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview,
-    WebviewUrl,
+    webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl,
 };
 
 /// The resident school views, which share the school store
 /// (`school_web::school_profile`).
+#[cfg(not(target_os = "macos"))]
 const SCHOOL_VIEW_PREFIX: &str = "school-web-";
 /// A view in the school store, made only when a clear finds no school view
 /// in this process: cookies are reached through a view.
+#[cfg(not(target_os = "macos"))]
 const CLEAR_LABEL: &str = "school-cookie-clear";
-/// The longest a platform may take to confirm one write or clear.
-const CONFIRM: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub(crate) struct DesktopWebCookies {
     app: AppHandle,
-    cleared: AtomicU64,
 }
 
 impl DesktopWebCookies {
     pub(crate) fn new(app: AppHandle) -> Self {
-        Self {
-            app,
-            cleared: AtomicU64::new(0),
-        }
+        Self { app }
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn school_view(&self) -> Option<Webview> {
         self.app
             .webviews()
@@ -64,12 +64,41 @@ impl DesktopWebCookies {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl WebCookieSeed for DesktopWebCookies {
-    fn write(&self, generation: u64, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+    fn write(&self, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
-            if generation < self.cleared.load(Ordering::SeqCst) {
-                return Ok(());
-            }
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.app
+                .run_on_main_thread(move || native::write(&cookies, sender))
+                .map_err(|error| error.to_string())?;
+            receiver
+                .await
+                .map_err(|_| "the school store went away".to_string())?
+        })
+    }
+
+    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.app
+                .run_on_main_thread(move || native::clear(scope, sender))
+                .map_err(|error| error.to_string())?;
+            receiver
+                .await
+                .map_err(|_| "the school store went away".to_string())?
+        })
+    }
+
+    fn clears_by_site(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl WebCookieSeed for DesktopWebCookies {
+    fn write(&self, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
             // Core creates the site's view before it writes, so a school
             // view exists whenever a write is due.
             let view = self
@@ -78,30 +107,33 @@ impl WebCookieSeed for DesktopWebCookies {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             view.with_webview(move |platform| native::write(platform, &cookies, sender))
                 .map_err(|error| error.to_string())?;
-            tokio::time::timeout(CONFIRM, receiver)
+            receiver
                 .await
-                .map_err(|_| "the school store did not confirm the write".to_string())?
                 .map_err(|_| "the school view went away".to_string())?
         })
     }
 
-    fn clear(&self, generation: u64) -> BoxFuture<'_, Result<(), String>> {
+    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
-            self.cleared.fetch_max(generation, Ordering::SeqCst);
             let app = self.app.clone();
             let existing = self.school_view();
             // Tauri's cookie calls must not run on the main thread, which
             // WebView2 needs free to answer them.
-            tauri::async_runtime::spawn_blocking(move || clear(&app, existing))
+            tauri::async_runtime::spawn_blocking(move || clear(&app, existing, &scope))
                 .await
                 .map_err(|error| error.to_string())?
         })
     }
+
+    fn clears_by_site(&self) -> bool {
+        true
+    }
 }
 
-/// Deletes the school store's cookies, through a temporary view when no
-/// school view exists.
-fn clear(app: &AppHandle, existing: Option<Webview>) -> Result<(), String> {
+/// Deletes the school store's cookies `scope` covers, through a temporary
+/// view when no school view exists.
+#[cfg(not(target_os = "macos"))]
+fn clear(app: &AppHandle, existing: Option<Webview>, scope: &WebClear) -> Result<(), String> {
     let (view, temporary) = match existing {
         Some(view) => (view, false),
         None => (store_view(app)?, true),
@@ -112,7 +144,7 @@ fn clear(app: &AppHandle, existing: Option<Webview>) -> Result<(), String> {
         .and_then(|cookies| {
             for cookie in cookies
                 .into_iter()
-                .filter(|cookie| removable(cookie.domain()))
+                .filter(|cookie| cookie.domain().is_some_and(|domain| scope.covers(domain)))
             {
                 view.delete_cookie(cookie)
                     .map_err(|error| format!("A school cookie could not be removed: {error}"))?;
@@ -125,6 +157,7 @@ fn clear(app: &AppHandle, existing: Option<Webview>) -> Result<(), String> {
     result
 }
 
+#[cfg(not(target_os = "macos"))]
 fn store_view(app: &AppHandle) -> Result<Webview, String> {
     let main = app.get_window("main").ok_or("Main window is unavailable")?;
     let blank = Url::parse("about:blank").map_err(|error| error.to_string())?;
@@ -143,36 +176,40 @@ fn store_view(app: &AppHandle) -> Result<Webview, String> {
     Ok(view)
 }
 
-/// macOS and Windows give the school views their own data store, so every
-/// cookie in it is a school session.
-#[cfg(not(target_os = "linux"))]
-fn removable(_domain: Option<&str>) -> bool {
-    true
-}
-
-/// WebKitGTK views share the app's default store; only school sessions go.
-#[cfg(target_os = "linux")]
-fn removable(domain: Option<&str>) -> bool {
-    domain.is_some_and(app_core::school_browser::is_school_cookie_domain)
-}
-
 #[cfg(target_os = "macos")]
 mod native {
-    use super::WebCookie;
+    use super::{WebClear, WebCookie};
+    use crate::school_browser_native::SCHOOL_DATA_STORE;
     use block2::RcBlock;
-    use objc2_foundation::{NSDictionary, NSHTTPCookie, NSString, NSURL};
-    use objc2_web_kit::WKWebView;
-    use std::{cell::RefCell, rc::Rc};
+    use objc2::{rc::Retained, MainThreadMarker};
+    use objc2_foundation::{NSArray, NSDictionary, NSHTTPCookie, NSString, NSURL, NSUUID};
+    use objc2_web_kit::{WKWebsiteDataRecord, WKWebsiteDataStore};
+    use std::{cell::RefCell, ptr::NonNull, rc::Rc};
     use tokio::sync::oneshot::Sender;
 
+    type Done = Rc<RefCell<Option<Sender<Result<(), String>>>>>;
+
+    fn answer(done: &Done, result: Result<(), String>) {
+        if let Some(done) = done.borrow_mut().take() {
+            let _ = done.send(result);
+        }
+    }
+
+    /// The school views' persistent store (`data_store_identifier`).
+    fn store(mtm: MainThreadMarker) -> Retained<WKWebsiteDataStore> {
+        let identifier = NSUUID::from_bytes(SCHOOL_DATA_STORE);
+        // SAFETY: on the main thread (`mtm`), with a non-zero identifier.
+        unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&identifier, mtm) }
+    }
+
     /// Parses each value with WebKit's own reader for its URL and hands it
-    /// to the view's cookie store; answers once WebKit has called back for
-    /// the last one. Runs on the main thread (`with_webview`).
-    pub(super) fn write(
-        platform: tauri::webview::PlatformWebview,
-        cookies: &[WebCookie],
-        done: Sender<Result<(), String>>,
-    ) {
+    /// to the store's cookie store; answers once WebKit has called back for
+    /// the last one. Runs on the main thread.
+    pub(super) fn write(cookies: &[WebCookie], done: Sender<Result<(), String>>) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            let _ = done.send(Err("the school store is reached on the main thread".into()));
+            return;
+        };
         let mut parsed = Vec::new();
         for cookie in cookies {
             let Some(url) = NSURL::URLWithString(&NSString::from_str(&cookie.url)) else {
@@ -189,21 +226,14 @@ mod native {
             }
             parsed.extend(found.iter());
         }
-        let webview = platform.inner();
-        if webview.is_null() {
-            let _ = done.send(Err("the school view is not ready".into()));
-            return;
-        }
         if parsed.is_empty() {
             let _ = done.send(Ok(()));
             return;
         }
-        // SAFETY: `inner()` is this view's live WKWebView, and `with_webview`
-        // runs this on the main thread.
-        let webview = unsafe { &*(webview as *const WKWebView) };
-        let store = unsafe { webview.configuration().websiteDataStore().httpCookieStore() };
+        // SAFETY: on the main thread, with the school store's own cookies.
+        let cookie_store = unsafe { store(mtm).httpCookieStore() };
         let left = Rc::new(RefCell::new(parsed.len()));
-        let done = Rc::new(RefCell::new(Some(done)));
+        let done: Done = Rc::new(RefCell::new(Some(done)));
         for cookie in parsed {
             let left = left.clone();
             let done = done.clone();
@@ -211,14 +241,61 @@ mod native {
                 let mut count = left.borrow_mut();
                 *count -= 1;
                 if *count == 0 {
-                    if let Some(done) = done.borrow_mut().take() {
-                        let _ = done.send(Ok(()));
-                    }
+                    answer(&done, Ok(()));
                 }
             });
-            // SAFETY: on the main thread, with the view's own store.
-            unsafe { store.setCookie_completionHandler(&cookie, Some(&handler)) };
+            // SAFETY: on the main thread, with the store's own cookie store.
+            unsafe { cookie_store.setCookie_completionHandler(&cookie, Some(&handler)) };
         }
+    }
+
+    /// Removes the website data records (cookies, storage, caches) of the
+    /// domains `scope` covers and answers once WebKit has. Runs on the main
+    /// thread.
+    pub(super) fn clear(scope: WebClear, done: Sender<Result<(), String>>) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            let _ = done.send(Err("the school store is reached on the main thread".into()));
+            return;
+        };
+        let store = store(mtm);
+        // SAFETY: on the main thread.
+        let types = unsafe { WKWebsiteDataStore::allWebsiteDataTypes(mtm) };
+        let done: Done = Rc::new(RefCell::new(Some(done)));
+        let fetched = {
+            let store = store.clone();
+            let types = types.clone();
+            RcBlock::new(move |records: NonNull<NSArray<WKWebsiteDataRecord>>| {
+                // SAFETY: WebKit hands a valid array for the call's duration.
+                let records = unsafe { records.as_ref() };
+                let chosen: Vec<Retained<WKWebsiteDataRecord>> = records
+                    .iter()
+                    // SAFETY: a record's display name is its registrable domain.
+                    .filter(|record| scope.covers(&unsafe { record.displayName() }.to_string()))
+                    .collect();
+                log::info!(
+                    "[school-web] clearing {} school website records",
+                    chosen.len()
+                );
+                if chosen.is_empty() {
+                    answer(&done, Ok(()));
+                    return;
+                }
+                let chosen = NSArray::from_retained_slice(&chosen);
+                let removed = {
+                    let done = done.clone();
+                    RcBlock::new(move || answer(&done, Ok(())))
+                };
+                // SAFETY: on the main thread (WebKit calls back there), with
+                // records this store fetched.
+                unsafe {
+                    store.removeDataOfTypes_forDataRecords_completionHandler(
+                        &types, &chosen, &removed,
+                    )
+                };
+            })
+        };
+        // SAFETY: on the main thread.
+        unsafe { store.fetchDataRecordsOfTypes_completionHandler(&types, &fetched) };
     }
 }
 

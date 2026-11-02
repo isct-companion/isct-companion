@@ -395,7 +395,10 @@ impl Session {
     }
     /// Forgets the account's credentials and signs it out of this device.
     /// Waits for Core's account barrier: in-flight reads stop, Core's
-    /// session and the LMS token go, and `NativeWebCookies::clear` runs.
+    /// session and the LMS token go, the account's school views close, and
+    /// `NativeWebCookies::clear` removes its websites (where the platform
+    /// cannot clear one account's alone, the session's `webKept` says so and
+    /// `clear_school_web` is the person's choice).
     pub fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,

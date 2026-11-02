@@ -334,8 +334,8 @@ impl Core {
     }
 
     /// The shell's write-only port into the web view's cookie store, where
-    /// Core writes an account's identity before an App-initiated school
-    /// navigation and clears it when the account goes.
+    /// Core writes an account's verified identity before a web operation
+    /// opens a school page and clears the account's websites when it goes.
     pub fn attach_web_cookies(&self, seed: Arc<dyn WebCookieSeed>) {
         self.sessions.attach_web(seed);
     }
@@ -409,7 +409,8 @@ impl Core {
     }
 
     /// Forgets the account's credentials and signs it out of this device:
-    /// Core's session, the LMS token and the web view's school cookies go.
+    /// Core's session, the LMS token and the account's school websites in
+    /// the web view go.
     pub async fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,

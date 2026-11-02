@@ -18,7 +18,7 @@ use super::{
     jar::{Cookies, Jar},
     login::{self, KYOMU_ENTRY, KYOMU_STUDENT, LMS_HOME},
     walk::{Page, Walk, WalkError},
-    Inner, Permit,
+    Inner, Permit, Snapshot,
 };
 use crate::{
     net::{BoxFuture, Host, NetError, NetRequest, Response},
@@ -26,7 +26,7 @@ use crate::{
 };
 use adpt_isct::login::SciencePage;
 use reqwest::header::COOKIE;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::time::Instant;
 use url::Url;
 
@@ -328,6 +328,15 @@ struct Budget {
     signed_in: bool,
 }
 
+/// How a verification's SSO ended.
+pub(super) enum Walked {
+    /// It reached the site: the snapshot with what the school set on the way.
+    Ready(Snapshot),
+    /// It reached the identity provider's sign-in page.
+    SignIn,
+    Failed,
+}
+
 enum Sso {
     Ready,
     /// The SSO reached the identity provider's sign-in page.
@@ -469,6 +478,7 @@ impl Inner {
                         return Err(RunError::Session);
                     }
                     budget.signed_in = true;
+                    identity.invalidate(generation);
                     bounded(
                         permit,
                         deadline,
@@ -479,6 +489,39 @@ impl Inner {
                 }
                 Sso::Failed(error) => return Err(RunError::Net(error)),
             }
+        }
+    }
+
+    /// One SSO of `profile`'s account from a new jar holding `snapshot`
+    /// (the LMS for Science Tokyo, 教務Web for Tokyo Tech), keeping the
+    /// identity cookies the school sets on the way: a verification
+    /// (`identity::verify`). Nothing of it is installed as a site instance.
+    pub(super) async fn check_sso(
+        &self,
+        profile: SchoolAuthProfile,
+        snapshot: &Snapshot,
+    ) -> Walked {
+        let jar = Mutex::new(snapshot.jar());
+        let captured = Mutex::new(snapshot.cookies.clone());
+        let hosts: &[Host] = match profile {
+            SchoolAuthProfile::Science => &[Host::ScienceAccount],
+            SchoolAuthProfile::TokyoTech => &[Host::GetAccess, Host::GetAccessRouter],
+        };
+        let walk = Walk::new(self.transport.as_ref(), &jar).capturing(hosts, &captured);
+        let ended = match profile {
+            SchoolAuthProfile::Science => lms_sso(&walk).await,
+            SchoolAuthProfile::TokyoTech => kyomu_sso(&walk, false).await,
+        };
+        match ended {
+            Ok(None) => {
+                let lines = captured
+                    .into_inner()
+                    .unwrap_or_else(PoisonError::into_inner);
+                Walked::Ready(Snapshot::from_responses(lines, chrono::Utc::now()))
+            }
+            Err(SsoError::SignIn) => Walked::SignIn,
+            // A maintenance notice, the network, an unknown page: no verdict.
+            Ok(Some(_)) | Err(SsoError::Walk(_)) => Walked::Failed,
         }
     }
 

@@ -1009,6 +1009,7 @@ describe("Tauri bridge contract", () => {
       back: "yes",
       forward: "unknown",
       notice: { url: null, reason: "offline" },
+      access: { kind: "problem", problem: "storage" },
     };
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
@@ -1042,6 +1043,8 @@ describe("Tauri bridge contract", () => {
           };
         case "school_web_page":
           return page;
+        case "cancel_school_web_sign_in":
+          return true;
         default:
           throw new Error(`unexpected command ${command}`);
       }
@@ -1081,6 +1084,7 @@ describe("Tauri bridge contract", () => {
     expect(seam.names).toEqual(["school-web-page"]);
     await expect(bridge.schoolWebPage!("science-lms")).resolves.toEqual(page);
     seam.deliver({ ...page, revision: 8, back: "maybe" });
+    seam.deliver({ ...page, revision: 8, access: { kind: "watching" } });
     seam.deliver({ ...page, revision: 9, notice: null });
     expect(pages).toEqual([{ ...page, revision: 9, notice: null }]);
     dispose();
@@ -1093,6 +1097,9 @@ describe("Tauri bridge contract", () => {
     await bridge.setSchoolWebZoom?.("science-portal", 1.2);
     await expect(bridge.schoolWebBack?.("kyomu")).resolves.toBe(false);
     await expect(bridge.schoolWebForward?.("kyomu")).resolves.toBe(true);
+    await expect(bridge.cancelSchoolWebSignIn?.("science-lms")).resolves.toBe(
+      true,
+    );
 
     expect(calls).toEqual([
       {
@@ -1126,6 +1133,10 @@ describe("Tauri bridge contract", () => {
       },
       { command: "school_web_back", payload: { site: "kyomu" } },
       { command: "school_web_forward", payload: { site: "kyomu" } },
+      {
+        command: "cancel_school_web_sign_in",
+        payload: { site: "science-lms" },
+      },
     ]);
   });
 

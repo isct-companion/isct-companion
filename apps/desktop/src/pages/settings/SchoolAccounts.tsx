@@ -73,6 +73,8 @@ const SESSION_BADGE: Record<SchoolSessionState, string> = {
   "not-configured": "gray",
   idle: "campus",
   "signing-in": "campus",
+  unverified: "campus",
+  verifying: "campus",
   active: "green",
   rejected: "red",
   "needs-web": "yellow",
@@ -439,7 +441,12 @@ function Account({
       await refresh();
       // The card follows Core's session; the answer to this click is said
       // once, since new credentials may not be what the session shows yet.
-      const answer = { ...result, retryAt: null, maintenance: null };
+      const answer = {
+        ...result,
+        retryAt: null,
+        maintenance: null,
+        webKept: false,
+      };
       notify(
         result.verified
           ? t("common.signedIn")

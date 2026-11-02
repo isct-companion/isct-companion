@@ -482,10 +482,10 @@ private fun WebCard() {
  * the network. */
 @Composable
 private fun stateColor(state: SchoolSessionState): Color = when (state) {
-    SchoolSessionState.IDLE, SchoolSessionState.ACTIVE -> Theme.colors.ok
+    SchoolSessionState.IDLE, SchoolSessionState.UNVERIFIED, SchoolSessionState.ACTIVE -> Theme.colors.ok
     SchoolSessionState.REJECTED -> Theme.colors.danger
     SchoolSessionState.NEEDS_WEB, SchoolSessionState.UNAVAILABLE -> Theme.colors.warn
-    SchoolSessionState.NOT_CONFIGURED, SchoolSessionState.SIGNING_IN -> Theme.colors.muted
+    SchoolSessionState.NOT_CONFIGURED, SchoolSessionState.SIGNING_IN, SchoolSessionState.VERIFYING -> Theme.colors.muted
 }
 
 @Composable
@@ -564,6 +564,21 @@ private fun SessionStatus(
     }
 }
 
+/** The account was signed out, and its school web sign-in is still in the web
+ * views: WebView cannot clear one account's websites. The person decides
+ * whether to clear every school web sign-in, both accounts'. */
+@Composable
+private fun WebKept(enabled: Boolean, clear: () -> Unit) {
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(t("settings.schoolAccounts.webKept"), color = Theme.colors.ink)
+            OutlinedButton(onClick = clear, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+                Text(t("settings.schoolAccounts.clearAllWeb"))
+            }
+        }
+    }
+}
+
 /** Sign in, change or forget a school account. The password goes straight to
  * Core, which stores it in the Keystore vault and signs in with it. */
 @Composable
@@ -583,6 +598,18 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val saved = summary?.saved == true
     val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
     Page {
+        if (session?.webKept == true) {
+            WebKept(enabled = !busy) {
+                scope.launch {
+                    error = null
+                    try {
+                        model.clearSchoolWeb()
+                    } catch (failure: Exception) {
+                        error = AppModel.describe(failure)
+                    }
+                }
+            }
+        }
         if (saved && session != null) {
             SessionStatus(profile, session, retrying, enabled = !busy) {
                 scope.launch {

@@ -114,6 +114,17 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         }
     }
 
+    /** While Core signs a view in, it and its popups are out of sight and take
+     * no touch; the web screen shows Core's panel (`access`) instead. */
+    override fun cover(browser: BrowserId, covered: Boolean) {
+        main.post {
+            if (views[browser.site]?.id != browser) return@post
+            for (tab in tabs.values.filter { it.id.site == browser.site }) {
+                tab.webView.visibility = if (covered) android.view.View.INVISIBLE else android.view.View.VISIBLE
+            }
+        }
+    }
+
     override fun shutdown() {
         synchronized(lock) {
             closedForGood = true

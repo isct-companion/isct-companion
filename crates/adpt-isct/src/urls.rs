@@ -16,3 +16,33 @@ pub fn syllabus_url(offering_id: &str, language: &str) -> String {
         url
     }
 }
+
+/// The registrable domains the Science Tokyo account's websites keep their
+/// data under (cookies, storage, caches), by the cookie domains measured on
+/// Extic, the LMS and the portal.
+pub const SCIENCE_DOMAINS: &[&str] = &["isct.ac.jp", "ex-tic.com"];
+
+/// The registrable domain of the Tokyo Tech account's websites (GetAccess,
+/// 教務Web, the portal, mail, the library, TSUBAME).
+pub const TOKYO_TECH_DOMAINS: &[&str] = &["titech.ac.jp"];
+
+/// Each school site's entry page: a GET that sends no form and changes
+/// nothing, so opening it again is always safe. A site opens here when it
+/// has no page to show, and a sign-in recovery opens it when the visit kept
+/// no safe page of its own.
+pub mod entry {
+    pub const SCIENCE_PORTAL: &str = "https://isct.ex-tic.com/idm/user/portal/";
+    pub const SCIENCE_LMS: &str = "https://lms.s.isct.ac.jp/2025/";
+    pub const TOKYO_PORTAL: &str =
+        "https://portal.nap.gsic.titech.ac.jp/GetAccess/ResourceList?lang=ja";
+    pub const TOKYO_MAIL: &str = "https://mailv4.m.titech.ac.jp/cgi-bin/loginweb";
+    pub const KYOMU: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+    pub const LIBRARY: &str = "https://request.libra.titech.ac.jp/portal/user.php?plang=jpn";
+    /// The Tokyo Tech portal SSO entry; it signs in with the same GetAccess
+    /// login as 教務Web instead of a mailed one-time code.
+    pub const TSUBAME: &str = "https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/";
+    pub const SYLLABUS: &str = "https://syllabus.s.isct.ac.jp/";
+    /// 学修案内等一覧, where the student site's 学修案内 (理工学系) links;
+    /// the guide PDFs live under www.titech.ac.jp/guide/.
+    pub const STUDY_GUIDE: &str = "https://www.titech.ac.jp/student/students/life/resources";
+}

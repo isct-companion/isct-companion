@@ -55,23 +55,20 @@ impl SchoolSite {
         }
     }
 
+    /// The site's entry page (`adpt_isct::urls::entry`): a GET that sends
+    /// no form and changes nothing, so it is always safe to open again.
     pub const fn start_url(self) -> &'static str {
+        use adpt_isct::urls::entry;
         match self {
-            Self::SciencePortal => "https://isct.ex-tic.com/idm/user/portal/",
-            Self::ScienceLms => "https://lms.s.isct.ac.jp/2025/",
-            Self::TokyoPortal => {
-                "https://portal.nap.gsic.titech.ac.jp/GetAccess/ResourceList?lang=ja"
-            }
-            Self::TokyoMail => "https://mailv4.m.titech.ac.jp/cgi-bin/loginweb",
-            Self::Kyomu => "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
-            Self::Library => "https://request.libra.titech.ac.jp/portal/user.php?plang=jpn",
-            // The Tokyo Tech portal SSO entry; it signs in with the same
-            // GetAccess login as 教務Web instead of a mailed one-time code.
-            Self::Tsubame => "https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/",
-            Self::Syllabus => "https://syllabus.s.isct.ac.jp/",
-            // 学修案内等一覧, where the student site's 学修案内 (理工学系) links;
-            // the guide PDFs live under www.titech.ac.jp/guide/.
-            Self::StudyGuide => "https://www.titech.ac.jp/student/students/life/resources",
+            Self::SciencePortal => entry::SCIENCE_PORTAL,
+            Self::ScienceLms => entry::SCIENCE_LMS,
+            Self::TokyoPortal => entry::TOKYO_PORTAL,
+            Self::TokyoMail => entry::TOKYO_MAIL,
+            Self::Kyomu => entry::KYOMU,
+            Self::Library => entry::LIBRARY,
+            Self::Tsubame => entry::TSUBAME,
+            Self::Syllabus => entry::SYLLABUS,
+            Self::StudyGuide => entry::STUDY_GUIDE,
         }
     }
 }

@@ -34,9 +34,10 @@
 //!   private `_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:`.
 //!   A displayable `Content-Disposition: attachment` response (Moodle
 //!   submissions, `?forcedownload=1`), which WebKit would commit as an empty
-//!   page, is fetched as a `WKDownload` and loaded back in place. Other
-//!   attachments stay with wry's download handling in main views and are
-//!   saved through the shell in popups. Private API: if WebKit renames a
+//!   page, is fetched as a `WKDownload`; a type Core lets show in place
+//!   (`attachment_shown_in_place`: PDF, images, media) is loaded back in
+//!   place. Other attachments stay with wry's download handling in main
+//!   views and are saved through the shell in popups. Private API: if WebKit renames a
 //!   selector its feature goes back to doing nothing; nothing crashes.
 //!
 //! WebKit caches which delegate methods exist when a delegate is set, so each
@@ -44,7 +45,8 @@
 
 use crate::lifecycle::SchoolSite;
 use app_core::school_browser::{
-    BrowserId, LoadFailure, NavigationDecision, NavigationKind, NewWindowDecision, WindowFeatures,
+    attachment_shown_in_place, BrowserId, LoadFailure, NavigationDecision, NavigationKind,
+    NewWindowDecision, WindowFeatures,
 };
 use block2::{DynBlock, RcBlock};
 use objc2::rc::{Retained, Weak};
@@ -182,6 +184,14 @@ fn displayable_attachment(navigation: &WKNavigationResponse) -> bool {
                 .next()
                 .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("attachment"))
         })
+}
+
+/// A displayable attachment Core lets show in place rather than save.
+fn shown_in_place(navigation: &WKNavigationResponse) -> bool {
+    displayable_attachment(navigation)
+        && unsafe { navigation.response() }
+            .MIMEType()
+            .is_some_and(|mime| attachment_shown_in_place(&mime.to_string()))
 }
 
 fn request_url(request: &NSURLRequest) -> Option<Url> {
@@ -386,9 +396,13 @@ define_class!(
         #[unsafe(method(_hitTest:dragTypes:))]
         fn drag_hit_test(&self, point: *mut NSPoint, types: *mut AnyObject) -> *mut AnyObject {
             if self.isHiddenOrHasHiddenAncestor() {
+                log_drag(self, None, "hidden");
                 return null_mut();
             }
-            unsafe { msg_send![super(self), _hitTest: point, dragTypes: types] }
+            let hit: *mut AnyObject =
+                unsafe { msg_send![super(self), _hitTest: point, dragTypes: types] };
+            log_drag(self, Some(hit), if hit.is_null() { "webkit" } else { "" });
+            hit
         }
 
         /// A file dragged onto the popup reaches it (reproductions look for
@@ -987,7 +1001,8 @@ define_class!(
         }
 
         // wry only turns responses WebKit cannot display into downloads, so a
-        // displayable attachment here is always one the shim started.
+        // displayable attachment here is always one the shim started. The
+        // shim keeps one it shows in place; wry saves the rest like any file.
         #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
         fn response_did_become_download(
             &self,
@@ -995,7 +1010,7 @@ define_class!(
             navigation: &WKNavigationResponse,
             download: &WKDownload,
         ) {
-            let shown = displayable_attachment(navigation);
+            let shown = shown_in_place(navigation);
             let url = unsafe { navigation.response() }.URL();
             match &self.ivars().original {
                 Some(original) if !shown => {
@@ -1463,8 +1478,7 @@ unsafe extern "C-unwind" fn accepts_first_responder(this: &AnyObject, selector: 
     unsafe { original(this, selector) }
 }
 
-static WEBKIT_DRAG_HIT_TEST: std::sync::OnceLock<objc2::runtime::Imp> =
-    std::sync::OnceLock::new();
+static WEBKIT_DRAG_HIT_TEST: std::sync::OnceLock<objc2::runtime::Imp> = std::sync::OnceLock::new();
 
 unsafe extern "C-unwind" fn drag_hit_test(
     this: &AnyObject,
@@ -1472,11 +1486,15 @@ unsafe extern "C-unwind" fn drag_hit_test(
     point: *mut NSPoint,
     types: *mut AnyObject,
 ) -> *mut AnyObject {
+    // SAFETY: the class this is installed on is a WKWebView subclass.
+    let view = unsafe { &*(this as *const AnyObject as *const NSView) };
     let hidden: bool = unsafe { msg_send![this, isHiddenOrHasHiddenAncestor] };
     if hidden {
+        log_drag(view, None, "hidden");
         return null_mut();
     }
     let Some(original) = WEBKIT_DRAG_HIT_TEST.get() else {
+        log_drag(view, None, "no-webkit-hit-test");
         return null_mut();
     };
     // SAFETY: the stored IMP is WKWebView's own `_hitTest:dragTypes:`.
@@ -1486,7 +1504,57 @@ unsafe extern "C-unwind" fn drag_hit_test(
         *mut NSPoint,
         *mut AnyObject,
     ) -> *mut AnyObject = unsafe { std::mem::transmute(*original) };
-    unsafe { original(this, selector, point, types) }
+    let hit = unsafe { original(this, selector, point, types) };
+    log_drag(view, Some(hit), if hit.is_null() { "webkit" } else { "" });
+    hit
+}
+
+thread_local! {
+    /// The last drag answer logged: the view's address and whether it took
+    /// the drag. AppKit asks on every mouse move; a line is written only
+    /// when the answer changes.
+    static LAST_DRAG: Cell<Option<(usize, bool)>> = const { Cell::new(None) };
+}
+
+/// Diagnostics for a file dragged over a school view or popup: which view
+/// instance AppKit asked, in which window, whether it is mounted and hidden,
+/// whether it is the page in front of its site, and why it refused (`hidden`,
+/// `webkit`: WebKit itself found no target). `hit` is `None` when the view
+/// refused before asking WebKit. Never a URL, a cookie or a page's content.
+fn log_drag(view: &NSView, hit: Option<*mut AnyObject>, reason: &str) {
+    let address = view as *const NSView as usize;
+    let accepted = hit.is_some_and(|hit| !hit.is_null());
+    if LAST_DRAG.get() == Some((address, accepted)) {
+        return;
+    }
+    LAST_DRAG.set(Some((address, accepted)));
+    let main = MAIN_VIEWS.with_borrow(|views| {
+        views
+            .iter()
+            .find(|(_, web_view)| {
+                web_view
+                    .load()
+                    .is_some_and(|web_view| &*web_view as *const WKWebView as usize == address)
+            })
+            .map(|(id, _)| *id)
+    });
+    let popup = POPUPS.with_borrow(|popups| {
+        popups
+            .iter()
+            .find(|popup| &*popup.web_view as *const WKWebView as usize == address)
+            .map(|popup| popup.id)
+    });
+    let id = main.or(popup);
+    let window = view.window().map_or(-1, |window| window.windowNumber());
+    let mounted = unsafe { view.superview() }.is_some();
+    log::info!(
+        "[school-web] drag hit view={:?} kind={} instance={address:#x} window={window} mounted={mounted} hidden={} hiddenAncestor={} front={} accepted={accepted} reason={reason}",
+        id.map(|id| (id.site, id.generation)),
+        if popup.is_some() { "popup" } else if main.is_some() { "main" } else { "unknown" },
+        view.isHidden(),
+        view.isHiddenOrHasHiddenAncestor(),
+        id.is_some_and(in_front),
+    );
 }
 
 /// A school view the person left stays resident and hidden, keeping its

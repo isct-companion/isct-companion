@@ -67,8 +67,8 @@ objc2-user-notifications = { version = "0.3.2", default-features = false, featur
 # School view WebKit hooks (school_webkit.rs) and the identity cookies Core
 # writes into the school store (school_cookies.rs). Same versions wry uses.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSHTTPCookie", "NSString", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
-objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSHTTPCookie", "NSSet", "NSString", "NSUUID", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test

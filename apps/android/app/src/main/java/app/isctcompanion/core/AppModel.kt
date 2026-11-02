@@ -913,8 +913,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     /** Forgets an account. Returns once Core's account barrier passed: its
-     * reads stopped, its cookies and LMS token are gone and the web views'
-     * store was cleared through [WebCookieSeed]. */
+     * reads stopped and its cookies and LMS token are gone. WebView cannot
+     * clear one account's websites, so its web sign-in stays until the person
+     * chooses [clearSchoolWeb] (the account's `webKept`). */
     suspend fun deleteCredentials(profile: SchoolAuthProfile) {
         val session = session ?: return
         try {
@@ -922,6 +923,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         } finally {
             refreshAccounts()
         }
+    }
+
+    /** Clears both accounts' school web sign-ins from the web views, the
+     * person's choice after signing an account out. */
+    suspend fun clearSchoolWeb() {
+        val session = session ?: return
+        (session.clearSchoolWeb().value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }
     }
 
     companion object {
@@ -946,6 +954,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
                 SchoolSessionState.IDLE -> t("schoolSession.state.idle")
                 SchoolSessionState.SIGNING_IN -> t("common.signingIn")
+                SchoolSessionState.UNVERIFIED -> t("schoolSession.state.unverified")
+                SchoolSessionState.VERIFYING -> t("schoolSession.state.verifying")
                 SchoolSessionState.ACTIVE -> t("settings.main.connected")
                 SchoolSessionState.REJECTED -> problem?.let(::reason) ?: t("schoolSession.state.rejected")
                 SchoolSessionState.NEEDS_WEB -> t("schoolSession.state.needsWeb")
@@ -984,6 +994,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
             retryAt = row.text("retryAt"),
             maintenance = row.optJSONObject("maintenance")?.let { SchoolMaintenance(it.text("notice"), it.getString("until")) },
+            webKept = row.optBoolean("webKept"),
         )
 
         /** A kebab-case serde name as its enum entry (`needs-web` → `NEEDS_WEB`). */

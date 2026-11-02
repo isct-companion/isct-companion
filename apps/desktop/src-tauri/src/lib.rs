@@ -294,6 +294,7 @@ pub fn run() {
             commands::school::set_school_web_bounds,
             commands::school::hide_school_web,
             commands::school::reload_school_web,
+            commands::school::cancel_school_web_sign_in,
             commands::school::navigate_school_web,
             commands::school::school_web_back,
             commands::school::school_web_forward,

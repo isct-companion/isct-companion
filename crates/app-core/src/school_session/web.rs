@@ -1,19 +1,26 @@
 //! The one way Core touches the web view's cookies: writing an account's
-//! identity cookies before an App-initiated school navigation, and clearing
-//! the school cookies when an account goes. Nothing is ever read back.
+//! verified identity before a web operation opens a school page, and
+//! clearing an account's school websites when it goes. Nothing is read back.
 //!
-//! Every write and clear goes through one queue, in order, each waiting for
-//! the platform's completion before the next starts. A clear stamps a new
-//! generation; a write stamped with an older one is dropped, so a write that
-//! a caller gave up on (`SEED_WAIT`) can never land after the clear that an
-//! account switch or a sign-out queued behind it.
+//! Every write and clear goes through one queue, in order, and the queue
+//! never moves past a call the platform has not answered: a write a caller
+//! stopped waiting for (`SEED_WAIT`) still lands before anything queued
+//! behind it, never after the clear that follows. The queue alone drops a
+//! stale write: a clear closes the admission of its accounts when it is
+//! queued, and a write queued under the old admission, or whose identity is
+//! no longer the one to write, is answered without reaching the platform.
+//! A call that runs past `WEB_STORE_LIMIT` makes the store unusable until it
+//! answers: no write is admitted meanwhile.
 
-use crate::net::BoxFuture;
-use serde::{Deserialize, Serialize};
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, OnceLock,
+use super::{guard, WEB_STORE_LIMIT};
+use crate::{
+    net::BoxFuture,
+    runtime_tasks::RuntimeTasks,
+    school_auth::SchoolAuthProfile,
+    school_browser::{domain_under, school_domains},
 };
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::{mpsc, oneshot};
 
 /// One identity cookie as the school sent it.
@@ -28,95 +35,186 @@ pub struct WebCookie {
     pub set_cookie: String,
 }
 
-/// The shell's write-only port into its web cookie store.
+/// Which school website data a clear removes: cookies, storage and caches.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WebClear {
+    /// One account's websites, under these registrable domains.
+    Domains(Vec<String>),
+    /// Both accounts' websites.
+    AllSchool,
+}
+
+impl WebClear {
+    /// The websites of `profile`'s account (`adpt_isct::urls`).
+    pub(crate) fn account(profile: SchoolAuthProfile) -> Self {
+        let domains = match profile {
+            SchoolAuthProfile::Science => adpt_isct::urls::SCIENCE_DOMAINS,
+            SchoolAuthProfile::TokyoTech => adpt_isct::urls::TOKYO_TECH_DOMAINS,
+        };
+        Self::Domains(domains.iter().map(|domain| (*domain).to_owned()).collect())
+    }
+
+    /// Whether a cookie's or a website data record's domain
+    /// (`.lms.s.isct.ac.jp`, `isct.ac.jp`) is one this clear removes.
+    pub fn covers(&self, domain: &str) -> bool {
+        match self {
+            Self::Domains(domains) => domains
+                .iter()
+                .any(|registrable| domain_under(domain, registrable)),
+            Self::AllSchool => {
+                school_domains().any(|registrable| domain_under(domain, registrable))
+            }
+        }
+    }
+}
+
+/// The shell's write-only port into its web cookie store. A call resolves
+/// once the platform confirmed it, however long that takes: Core bounds the
+/// wait, never the shell.
 pub trait WebCookieSeed: Send + Sync {
     /// Writes `cookies` in order through the platform's own `Set-Cookie`
-    /// parser and resolves once the store has committed every one. A shell
-    /// drops a write whose `generation` is older than its last clear.
-    fn write(&self, generation: u64, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>>;
-    /// Removes the school sites' cookies (Android: the whole store and web
-    /// storage, which it cannot remove by domain) and resolves when done.
-    fn clear(&self, generation: u64) -> BoxFuture<'_, Result<(), String>>;
+    /// parser and resolves once the store has committed every one.
+    fn write(&self, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>>;
+    /// Removes the website data `scope` covers and resolves once done.
+    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>>;
+    /// Whether `clear` can remove one account's websites alone. Android's
+    /// WebView cannot; Core then asks it only for `WebClear::AllSchool`.
+    fn clears_by_site(&self) -> bool;
 }
+
+/// Why a write or clear did not happen.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum WebError {
+    /// The shell has no web cookie port.
+    Unsupported,
+    /// An account change closed the admission it was queued under, or its
+    /// identity is no longer the one to write.
+    Stale,
+    /// A call ran past `WEB_STORE_LIMIT` and has not answered, or the queue
+    /// stopped.
+    Unavailable,
+    /// The platform's own error.
+    Platform(String),
+}
+
+impl std::fmt::Display for WebError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("the shell has no web cookie store"),
+            Self::Stale => formatter.write_str("an account change made the write stale"),
+            Self::Unavailable => formatter.write_str("the web cookie store is unavailable"),
+            Self::Platform(message) => formatter.write_str(message),
+        }
+    }
+}
+
+/// Whether a write still carries the identity to write, asked right before
+/// it reaches the platform.
+pub(crate) type Valid = Box<dyn Fn() -> bool + Send>;
 
 enum Command {
     Write {
-        generation: u64,
+        profile: SchoolAuthProfile,
+        admission: u64,
         cookies: Vec<WebCookie>,
-        done: oneshot::Sender<Result<(), String>>,
+        valid: Valid,
+        done: oneshot::Sender<Result<(), WebError>>,
     },
     Clear {
-        generation: u64,
-        done: oneshot::Sender<Result<(), String>>,
+        scope: WebClear,
+        done: oneshot::Sender<Result<(), WebError>>,
     },
 }
 
-pub(super) struct WebQueue {
-    seed: Arc<OnceLock<Arc<dyn WebCookieSeed>>>,
-    commands: OnceLock<mpsc::UnboundedSender<Command>>,
-    /// The generation the next write is stamped with: the last clear queued.
-    generation: AtomicU64,
+#[derive(Default)]
+struct QueueState {
+    /// Per account (Science, Tokyo Tech): grows when a clear closes its
+    /// admission. A write carries the value it was queued under.
+    admission: [u64; 2],
+    /// Grows once the platform confirmed a clear.
+    storage: u64,
+    /// A call ran past `WEB_STORE_LIMIT` and has not answered.
+    stuck: bool,
 }
 
-impl Default for WebQueue {
-    fn default() -> Self {
-        Self {
-            seed: Arc::new(OnceLock::new()),
-            commands: OnceLock::new(),
-            generation: AtomicU64::new(1),
-        }
+fn index(profile: SchoolAuthProfile) -> usize {
+    match profile {
+        SchoolAuthProfile::Science => 0,
+        SchoolAuthProfile::TokyoTech => 1,
     }
+}
+
+#[derive(Default)]
+struct Shared {
+    seed: OnceLock<Arc<dyn WebCookieSeed>>,
+    state: Mutex<QueueState>,
+}
+
+#[derive(Default)]
+pub(super) struct WebQueue {
+    shared: Arc<Shared>,
+    commands: OnceLock<mpsc::UnboundedSender<Command>>,
 }
 
 impl WebQueue {
     pub(super) fn attach(&self, seed: Arc<dyn WebCookieSeed>) -> bool {
-        self.seed.set(seed).is_ok()
+        self.shared.seed.set(seed).is_ok()
     }
 
     pub(super) fn attached(&self) -> bool {
-        self.seed.get().is_some()
+        self.shared.seed.get().is_some()
+    }
+
+    pub(super) fn clears_by_site(&self) -> bool {
+        self.shared
+            .seed
+            .get()
+            .is_some_and(|seed| seed.clears_by_site())
+    }
+
+    /// Grows with every clear the platform confirmed.
+    pub(super) fn storage(&self) -> u64 {
+        guard(&self.shared.state).storage
+    }
+
+    /// Whether a write would be admitted now.
+    pub(super) fn usable(&self) -> bool {
+        self.attached() && !guard(&self.shared.state).stuck
+    }
+
+    /// Closes the admission of `profiles`: a write queued before this is
+    /// dropped when its turn comes.
+    pub(super) fn close_admission(&self, profiles: &[SchoolAuthProfile]) {
+        let mut state = guard(&self.shared.state);
+        for profile in profiles {
+            state.admission[index(*profile)] += 1;
+        }
     }
 
     /// The queue's runner starts with the first command, on the caller's
-    /// runtime, and lives as long as the queue's sender.
-    fn sender(
-        &self,
-        tasks: &crate::runtime_tasks::RuntimeTasks,
-    ) -> Option<&mpsc::UnboundedSender<Command>> {
+    /// runtime, and ends with Core's runtime tasks: a call the platform has
+    /// already been handed is waited for until it answers or runs past its
+    /// limit.
+    fn sender(&self, tasks: &RuntimeTasks) -> Option<&mpsc::UnboundedSender<Command>> {
         if let Some(sender) = self.commands.get() {
             return Some(sender);
         }
         let (sender, mut receiver) = mpsc::unbounded_channel::<Command>();
-        let seed = self.seed.clone();
+        let shared = self.shared.clone();
+        let stop = tasks.clone();
         let started = tasks.spawn(async move {
-            let mut cleared = 0_u64;
-            while let Some(command) = receiver.recv().await {
-                let Some(seed) = seed.get().cloned() else {
-                    let done = match command {
-                        Command::Write { done, .. } | Command::Clear { done, .. } => done,
-                    };
-                    let _ = done.send(Err("no web cookie store".into()));
-                    continue;
+            loop {
+                let command = tokio::select! {
+                    biased;
+                    _ = stop.closed() => break,
+                    command = receiver.recv() => match command {
+                        Some(command) => command,
+                        None => break,
+                    },
                 };
-                match command {
-                    Command::Write {
-                        generation,
-                        cookies,
-                        done,
-                    } => {
-                        let result = if generation < cleared {
-                            Err("an account change cleared the web store since".into())
-                        } else {
-                            seed.write(generation, cookies).await
-                        };
-                        let _ = done.send(result);
-                    }
-                    Command::Clear { generation, done } => {
-                        cleared = cleared.max(generation);
-                        let _ = done.send(seed.clear(generation).await);
-                    }
-                }
+                shared.run(command, &stop).await;
             }
+            // Commands still queued are answered by their dropped senders.
         });
         if !started {
             return None;
@@ -125,50 +223,149 @@ impl WebQueue {
         self.commands.get()
     }
 
-    /// Queues `cookies` and returns the wait for their completion.
+    /// Queues `cookies` for `profile` and returns the wait for their
+    /// completion. `valid` is asked once more right before the platform
+    /// gets them.
     pub(super) fn write(
         &self,
-        tasks: &crate::runtime_tasks::RuntimeTasks,
+        tasks: &RuntimeTasks,
+        profile: SchoolAuthProfile,
         cookies: Vec<WebCookie>,
-    ) -> oneshot::Receiver<Result<(), String>> {
+        valid: Valid,
+    ) -> oneshot::Receiver<Result<(), WebError>> {
         let (done, wait) = oneshot::channel();
-        let generation = self.generation.load(Ordering::SeqCst);
+        if !self.attached() {
+            let _ = done.send(Err(WebError::Unsupported));
+            return wait;
+        }
+        let admission = {
+            let state = guard(&self.shared.state);
+            if state.stuck {
+                let _ = done.send(Err(WebError::Unavailable));
+                return wait;
+            }
+            state.admission[index(profile)]
+        };
+        let command = Command::Write {
+            profile,
+            admission,
+            cookies,
+            valid,
+            done,
+        };
         match self.sender(tasks) {
             Some(sender) => {
                 if let Err(mpsc::error::SendError(Command::Write { done, .. })) =
-                    sender.send(Command::Write {
-                        generation,
-                        cookies,
-                        done,
-                    })
+                    sender.send(command)
                 {
-                    let _ = done.send(Err("the web cookie queue has stopped".into()));
+                    let _ = done.send(Err(WebError::Unavailable));
                 }
             }
             None => {
-                let _ = done.send(Err("the web cookie queue has stopped".into()));
+                if let Command::Write { done, .. } = command {
+                    let _ = done.send(Err(WebError::Unavailable));
+                }
             }
         }
         wait
     }
 
-    /// Queues a clear under a new generation and waits for it.
-    pub(super) async fn clear(
+    /// Queues a clear of `scope` and returns the wait for its completion.
+    /// Close the admission of the accounts it covers first.
+    pub(super) fn clear(
         &self,
-        tasks: &crate::runtime_tasks::RuntimeTasks,
-    ) -> Result<(), String> {
-        if !self.attached() {
-            return Ok(());
-        }
-        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        tasks: &RuntimeTasks,
+        scope: WebClear,
+    ) -> oneshot::Receiver<Result<(), WebError>> {
         let (done, wait) = oneshot::channel();
-        let sender = self
-            .sender(tasks)
-            .ok_or_else(|| "the web cookie queue has stopped".to_string())?;
-        sender
-            .send(Command::Clear { generation, done })
-            .map_err(|_| "the web cookie queue has stopped".to_string())?;
-        wait.await
-            .unwrap_or_else(|_| Err("the web cookie queue has stopped".into()))
+        if !self.attached() {
+            let _ = done.send(Err(WebError::Unsupported));
+            return wait;
+        }
+        match self.sender(tasks) {
+            Some(sender) => {
+                if let Err(mpsc::error::SendError(Command::Clear { done, .. })) =
+                    sender.send(Command::Clear { scope, done })
+                {
+                    let _ = done.send(Err(WebError::Unavailable));
+                }
+            }
+            None => {
+                let _ = done.send(Err(WebError::Unavailable));
+            }
+        }
+        wait
+    }
+}
+
+impl Shared {
+    async fn run(&self, command: Command, stop: &RuntimeTasks) {
+        let Some(seed) = self.seed.get().cloned() else {
+            let done = match command {
+                Command::Write { done, .. } | Command::Clear { done, .. } => done,
+            };
+            let _ = done.send(Err(WebError::Unsupported));
+            return;
+        };
+        match command {
+            Command::Write {
+                profile,
+                admission,
+                cookies,
+                valid,
+                done,
+            } => {
+                let admitted = {
+                    let state = guard(&self.state);
+                    state.admission[index(profile)] == admission && !state.stuck
+                };
+                if !admitted || !valid() {
+                    let _ = done.send(Err(WebError::Stale));
+                    return;
+                }
+                let result = self.answer(seed.write(cookies), stop).await;
+                let _ = done.send(result);
+            }
+            Command::Clear { scope, done } => {
+                let result = self.answer(seed.clear(scope), stop).await;
+                if result.is_ok() {
+                    guard(&self.state).storage += 1;
+                }
+                let _ = done.send(result);
+            }
+        }
+    }
+
+    /// The platform's answer to a call it was handed. Within
+    /// `WEB_STORE_LIMIT` it is awaited as it is, shutdown included. Past it
+    /// the store is unusable until the answer comes; the queue still waits
+    /// for it, so nothing queued behind can overtake it, unless Core is
+    /// shutting down.
+    async fn answer(
+        &self,
+        call: BoxFuture<'_, Result<(), String>>,
+        stop: &RuntimeTasks,
+    ) -> Result<(), WebError> {
+        tokio::pin!(call);
+        let answered = tokio::select! {
+            answer = &mut call => Some(answer),
+            _ = tokio::time::sleep(WEB_STORE_LIMIT) => None,
+        };
+        let answer = match answered {
+            Some(answer) => answer,
+            None => {
+                log::warn!(target: "app_core::school_session", "the web cookie store did not answer in time; no writes until it does");
+                guard(&self.state).stuck = true;
+                let answer = tokio::select! {
+                    biased;
+                    answer = &mut call => answer,
+                    _ = stop.closed() => return Err(WebError::Unavailable),
+                };
+                guard(&self.state).stuck = false;
+                log::info!(target: "app_core::school_session", "the web cookie store answered late");
+                answer
+            }
+        };
+        answer.map_err(WebError::Platform)
     }
 }

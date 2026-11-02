@@ -91,6 +91,9 @@ pub(crate) struct Presentation {
     views: HashMap<SchoolSite, View>,
     pub(crate) popups: HashMap<BrowserId, PopupRecord>,
     visible: Option<SchoolSite>,
+    /// Views Core is signing in: out of sight and out of input, Core's
+    /// panel in their place (`SchoolBrowser::cover`).
+    covered: std::collections::HashSet<BrowserId>,
     bounds: WebBounds,
 }
 enum Operation {
@@ -246,6 +249,7 @@ impl NativeBrowser {
                     .filter(|popup| popup.site == id.site)
                     .copied()
                     .collect();
+                state.covered.remove(&id);
                 (state.views.remove(&id.site), popups)
             })
             .unwrap_or_default();
@@ -523,8 +527,17 @@ impl NativeBrowser {
                     _host: host,
                 },
             );
-            (state.visible == Some(id.site), state.bounds)
+            (
+                state.visible == Some(id.site) && !state.covered.contains(&id),
+                state.bounds,
+            )
         };
+        log::info!(
+            "[school-web] {:?} view {} mounted window={} shown={visible}",
+            id.site,
+            id.generation,
+            view.window().label()
+        );
         if visible {
             apply_bounds(&view, bounds).map_err(BrowserError::Dispatch)?;
             view.show()
@@ -580,17 +593,31 @@ impl NativeBrowser {
             (
                 p.views
                     .iter()
-                    .map(|(s, v)| (*s, v.native.clone()))
+                    .map(|(s, v)| (*s, v.id, p.covered.contains(&v.id), v.native.clone()))
                     .collect::<Vec<_>>(),
                 p.visible,
                 p.bounds,
             )
         };
+        // Drag diagnostics: which views are mounted, which one is shown.
+        log::info!(
+            "[school-web] presentation visible={visible:?} views={:?}",
+            views
+                .iter()
+                .map(|(site, id, covered, view)| (
+                    *site,
+                    id.generation,
+                    view.window().label().to_owned(),
+                    visible == Some(*site) && !covered,
+                    *covered
+                ))
+                .collect::<Vec<_>>()
+        );
         // A file panel answers a page the person can see.
         #[cfg(target_os = "macos")]
         self.end_file_panels(move |owner| Some(owner.site) != visible);
-        for (site, view) in views {
-            if visible == Some(site) {
+        for (site, _, covered, view) in views {
+            if visible == Some(site) && !covered {
                 apply_bounds(&view, bounds)?;
                 view.show().map_err(|e| e.to_string())?;
                 let _ = view.set_focus();
@@ -650,6 +677,25 @@ impl SchoolBrowser for NativeBrowser {
     }
     fn dispose(&self, id: BrowserId) -> Result<(), BrowserError> {
         self.send(Operation::Dispose(id))
+    }
+    fn cover(&self, id: BrowserId, covered: bool) -> Result<(), BrowserError> {
+        {
+            let mut p = self
+                .presentation
+                .lock()
+                .map_err(|_| BrowserError::Stopped)?;
+            if covered {
+                p.covered.insert(id);
+            } else {
+                p.covered.remove(&id);
+            }
+        }
+        log::info!(
+            "[school-web] {:?} view {} covered={covered}",
+            id.site,
+            id.generation
+        );
+        self.apply_visibility().map_err(BrowserError::Dispatch)
     }
     fn shutdown(&self) -> BrowserFuture<'_, ()> {
         Box::pin(async move {

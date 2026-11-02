@@ -1,13 +1,14 @@
 use super::policy::{
-    browsing_url, is_identity_login, navigation_rule, new_window_rule, restore_record, DenyReason,
-    Verdict,
+    browsing_url, is_identity_login, is_login_url, navigation_rule, new_window_rule,
+    restore_record, DenyReason, Verdict,
 };
 use super::{
     ActionId, BecameDownload, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     DownloadDisposition, History, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
     NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded, SchoolBrowser,
-    SchoolBrowserError, SchoolBrowserListener, SchoolPageCustomization, SchoolWebEntry,
-    SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebResult, SchoolWebStep,
+    SchoolBrowserError, SchoolBrowserListener, SchoolPageCustomization, SchoolWebAccess,
+    SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebProblem,
+    SchoolWebResult, SchoolWebStep,
 };
 use crate::{
     events::CoreEvent,
@@ -15,7 +16,7 @@ use crate::{
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
-    school_session::{SchoolSessions, Seeded},
+    school_session::{AccountViews, SchoolSessions},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -27,7 +28,10 @@ use std::{
 };
 use url::Url;
 
+mod operation;
 mod restore;
+
+use operation::{Landing, Start, Visit, WebOp};
 
 /// Popups one view may hold at once, nested ones included.
 const MAX_POPUPS: usize = 8;
@@ -88,8 +92,14 @@ struct ViewState {
     url: String,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
-    /// The App's navigation in progress, until its page arrives.
-    intent: Option<Intent>,
+    /// The web operation signing the view in (`operation`).
+    op: Option<WebOp>,
+    /// What the last operation left to say, until the view shows another
+    /// page.
+    problem: Option<SchoolWebProblem>,
+    /// The host was told to cover the view.
+    covered: bool,
+    visit: Visit,
     /// Windows its pages opened, in opening order: a popup's parent is the
     /// view or a popup before it. They live and close with the view.
     popups: Vec<Popup>,
@@ -100,18 +110,6 @@ struct ViewState {
     presenter: Option<String>,
 }
 
-/// An App-initiated navigation of a view, after the account's identity was
-/// written into the web view. A sign-in page it lands on is recovered once.
-struct Intent {
-    profile: SchoolAuthProfile,
-    /// The navigation sent; `None` for a new view's first load.
-    action: Option<ActionId>,
-    target: Url,
-    /// The account generation it was seeded in.
-    account: u64,
-    seeded: Seeded,
-}
-
 struct Popup {
     id: BrowserId,
     parent: BrowserId,
@@ -119,6 +117,7 @@ struct Popup {
     url: Option<String>,
     history: Option<History>,
     failure: Option<SchoolWebFailure>,
+    visit: Visit,
 }
 
 impl State {
@@ -127,6 +126,41 @@ impl State {
         self.views.get(&browser.site).is_some_and(|view| {
             view.id == browser || view.popups.iter().any(|popup| popup.id == browser)
         })
+    }
+
+    /// The visit of the view or popup `browser`.
+    fn visit(&self, browser: BrowserId) -> Option<&Visit> {
+        let view = self.views.get(&browser.site)?;
+        if view.id == browser {
+            return Some(&view.visit);
+        }
+        view.popups
+            .iter()
+            .find(|popup| popup.id == browser)
+            .map(|popup| &popup.visit)
+    }
+
+    fn visit_mut(&mut self, browser: BrowserId) -> Option<&mut Visit> {
+        let view = self.views.get_mut(&browser.site)?;
+        if view.id == browser {
+            return Some(&mut view.visit);
+        }
+        view.popups
+            .iter_mut()
+            .find(|popup| popup.id == browser)
+            .map(|popup| &mut popup.visit)
+    }
+
+    /// The address Core last saw in the view or popup `browser`.
+    fn known_url(&self, browser: BrowserId) -> Option<String> {
+        let view = self.views.get(&browser.site)?;
+        if view.id == browser {
+            return (view.last_page > 0).then(|| view.url.clone());
+        }
+        view.popups
+            .iter()
+            .find(|popup| popup.id == browser)
+            .and_then(|popup| popup.url.clone())
     }
 
     /// The view or popup the app's toolbar acts on for `site`.
@@ -151,9 +185,16 @@ impl State {
             back: SchoolWebStep::No,
             forward: SchoolWebStep::No,
             notice: None,
+            access: None,
         };
         let Some(view) = self.views.get(&site) else {
             return page;
+        };
+        page.access = match &view.op {
+            Some(op) if op.covering => Some(SchoolWebAccess::SigningIn),
+            _ => view
+                .problem
+                .map(|problem| SchoolWebAccess::Problem { problem }),
         };
         let step = |known: Option<bool>| match known {
             Some(true) => SchoolWebStep::Yes,
@@ -257,6 +298,8 @@ impl SchoolBrowserEngine {
         let listener: Arc<dyn SchoolBrowserListener> = Arc::new(Listener(Arc::downgrade(&inner)));
         browser.attach(Arc::downgrade(&listener))?;
         inner.listener.guard().replace(listener);
+        let views: std::sync::Weak<dyn AccountViews> = Arc::downgrade(&inner) as _;
+        inner.sessions.attach_views(views);
         Ok(Arc::new(Self(inner)))
     }
 
@@ -302,12 +345,6 @@ impl SchoolBrowserEngine {
             SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
         };
         let explicit_target = target.is_some();
-        // A view on the identity provider's page may be someone signing in
-        // by hand: neither its cookies nor its page are touched.
-        let on_sign_in = current
-            .as_deref()
-            .and_then(|current| Url::parse(current).ok())
-            .is_some_and(|current| is_identity_login(&current));
         let target = target
             .or(current)
             .or_else(|| self.restored_target(site))
@@ -322,27 +359,19 @@ impl SchoolBrowserEngine {
                 explicit_target && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
             }
         };
-        let seeding =
-            site_profile(site).filter(|_| navigates && !on_sign_in && self.0.sessions.seeds_web());
+        // Where the account's identity is written first, a web operation
+        // opens the target (`operation`).
+        let operation = site_profile(site).filter(|_| navigates && self.0.sessions.seeds_web());
         self.user_browsing(Some(site))?;
         // A new view that gets the account's identity starts blank: its
         // store exists before the cookies are written, and its first page
         // loads after.
-        let blank = seeding.is_some() && !already_open;
         let created = match view {
             Some(browser) => Ok(browser),
-            None if blank => Url::parse("about:blank")
+            None if operation.is_some() => Url::parse("about:blank")
                 .map_err(|_| SchoolBrowserError::InvalidInput("Web URL is invalid.".into()))
                 .and_then(|initial| self.ensure_browser(site, initial)),
             None => self.ensure_browser(site, url.clone()),
-        };
-        let intent = match (seeding, &created) {
-            (Some(profile), Ok(_)) => {
-                let account = self.0.sessions.account_generation(profile);
-                let seeded = self.0.sessions.seed(profile).await;
-                Some((profile, account, seeded))
-            }
-            _ => None,
         };
         let opened = (|| {
             let browser = created?;
@@ -355,24 +384,12 @@ impl SchoolBrowserEngine {
             if already_open && explicit_target {
                 self.0.close_popups(site);
             }
-            let action = if (already_open && navigates) || blank {
-                Some(self.dispatch(browser, BrowserAction::Navigate(url.clone()))?)
-            } else {
-                None
-            };
-            if let Some((profile, account, seeded)) = intent {
-                self.0.state.with(|state| {
-                    if let Some(view) = state.views.get_mut(&site).filter(|view| view.id == browser)
-                    {
-                        view.intent = Some(Intent {
-                            profile,
-                            action,
-                            target: url.clone(),
-                            account,
-                            seeded,
-                        });
-                    }
-                });
+            match operation {
+                Some(profile) => self.0.start(site, browser, profile, Start::Go(url.clone())),
+                None if already_open && navigates => {
+                    self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
+                }
+                None => {}
             }
             Ok::<_, SchoolBrowserError>(())
         })();
@@ -425,13 +442,40 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
-    /// The app's Reload. A host that reports form resubmission reloads
-    /// natively, and the rule table turns a resubmission into a GET; for one
-    /// that cannot, Core loads the current URL with GET itself.
+    /// The app's Reload. On a known sign-in page of a site with an account
+    /// it starts a web operation for the page in front (`operation`), and a
+    /// Reload while one signs the view in joins it. Elsewhere a host that reports form
+    /// resubmission reloads natively, and the rule table turns a
+    /// resubmission into a GET; for one that cannot, Core loads the current
+    /// URL with GET itself.
     pub fn reload(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
         let Ok(browser) = self.front(site) else {
             return Ok(false);
         };
+        let (joins, on_sign_in) = self.0.state.with(|state| {
+            let on_sign_in = state
+                .known_url(browser)
+                .and_then(|url| Url::parse(&url).ok())
+                .is_some_and(|url| is_identity_login(&url));
+            // An operation signing the view in, or one whose page is the
+            // sign-in page, takes the Reload in; one only loading its target
+            // gives way to it.
+            let joins = state
+                .views
+                .get(&site)
+                .and_then(|view| view.op.as_ref())
+                .is_some_and(|op| op.covering || on_sign_in);
+            (joins, on_sign_in)
+        });
+        if joins {
+            return Ok(true);
+        }
+        if let Some(profile) =
+            site_profile(site).filter(|_| on_sign_in && self.0.sessions.seeds_web())
+        {
+            self.0.start(site, browser, profile, Start::Reload);
+            return Ok(true);
+        }
         let command = if self.0.capabilities.form_resubmission {
             BrowserAction::Reload
         } else {
@@ -579,7 +623,10 @@ impl SchoolBrowserEngine {
                     url: initial.to_string(),
                     navigation: None,
                     actions: HashMap::new(),
-                    intent: None,
+                    op: None,
+                    problem: None,
+                    covered: false,
+                    visit: Visit::default(),
                     popups: Vec::new(),
                     history: None,
                     failure: None,
@@ -707,10 +754,14 @@ impl Inner {
             popup.last_page = event.page.sequence;
             popup.url = Some(url);
             popup.failure = None;
+            popup.visit.arrived(&event.url);
             Some(())
         });
         if moved.is_some() {
             self.publish_page(browser.site);
+            if let Some(landing) = Landing::of(browser.site, &event.url) {
+                self.landed(browser, event.cause, landing);
+            }
         }
     }
 
@@ -746,6 +797,11 @@ impl Inner {
             view.navigation = None;
             view.url = safe_loaded.clone();
             view.failure = None;
+            view.visit.arrived(&event.url);
+            // Another page: what an operation left to say is over.
+            if view.op.is_none() {
+                view.problem = None;
+            }
             (
                 state
                     .customizations
@@ -766,7 +822,9 @@ impl Inner {
         if let (Some((path, epoch)), Some(official)) = (restore, official_loaded.as_ref()) {
             self.write_restore(path, epoch, event.page.browser.site, official.clone());
         }
-        self.landed(&event);
+        if let Some(landing) = Landing::of(event.page.browser.site, &event.url) {
+            self.landed(event.page.browser, event.cause, landing);
+        }
         // External browsing gets history/address updates, never school
         // scripts, customizations or a pending submission.
         if official_loaded.is_none() {
@@ -784,71 +842,6 @@ impl Inner {
         if let Some(guide) = guide {
             let _ = self.dispatch_eval(event.page.browser, guide, false);
         }
-    }
-
-    /// Where an App-initiated navigation landed. Off the identity provider
-    /// the navigation is done. On its sign-in page, once per navigation: if
-    /// the identity was written, Core signs in over HTTP (with the one
-    /// sign-in background reads share), writes the new identity and, while
-    /// the same view still shows that page in the same account generation,
-    /// opens the target again. A write that failed leaves the page to the
-    /// person, with a notice.
-    fn landed(self: &Arc<Self>, event: &PageLoaded) {
-        let browser = event.page.browser;
-        let sign_in = is_identity_login(&event.url);
-        let on_provider = event
-            .url
-            .host_str()
-            .and_then(SchoolAuthProfile::for_auth_host)
-            .is_some();
-        let intent = self.state.with(|state| {
-            let view = state.views.get_mut(&browser.site)?;
-            if view.id != browser {
-                return None;
-            }
-            let ours = view.intent.as_ref().is_some_and(|intent| {
-                intent.action.is_none() || event.cause.is_none() || event.cause == intent.action
-            });
-            if !ours {
-                view.intent = None;
-                return None;
-            }
-            if sign_in {
-                return view.intent.take();
-            }
-            // A provider's hand-off page is part of the trip.
-            if !on_provider {
-                view.intent = None;
-            }
-            None
-        });
-        let Some(intent) = intent else { return };
-        let seen = match intent.seeded {
-            Seeded::Written(generation) => generation,
-            Seeded::Nothing => 0,
-            Seeded::Failed => {
-                log::info!(target: "app_core::school_browser", "{:?} landed on the sign-in page without the identity", browser.site);
-                self.notice(browser.site, SchoolWebNotice::NotSeeded);
-                return;
-            }
-            Seeded::Unsupported => return,
-        };
-        let sequence = event.page.sequence;
-        let inner = self.clone();
-        self.tasks.spawn(async move {
-            if !inner.sessions.web_sign_in(intent.profile, seen).await {
-                return;
-            }
-            let still = inner.state.with(|state| {
-                state.views.get(&browser.site).is_some_and(|view| {
-                    view.id == browser && view.last_page == sequence && view.navigation.is_none()
-                })
-            }) && inner.sessions.account_generation(intent.profile) == intent.account;
-            if still {
-                log::info!(target: "app_core::school_browser", "{:?} reopened after signing in", browser.site);
-                let _ = inner.dispatch(browser, BrowserAction::Navigate(intent.target));
-            }
-        });
     }
 
     fn load_failed(&self, event: LoadFailed) {
@@ -895,10 +888,10 @@ impl Inner {
             }
             view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
-            view.intent = None;
             view.failure = Some(failure);
         });
         self.publish_page(browser.site);
+        self.landed(browser, event.cause, Landing::Failed);
     }
 
     fn notice(&self, site: SchoolSite, notice: SchoolWebNotice) {
@@ -947,7 +940,16 @@ impl Inner {
             return NavigationDecision::Deny(DenyReason::Closed);
         }
         match navigation_rule(&request) {
-            Verdict::Allow | Verdict::Popup => NavigationDecision::Allow,
+            Verdict::Allow | Verdict::Popup => {
+                if request.main_frame {
+                    self.state.with(|state| {
+                        if let Some(visit) = state.visit_mut(browser) {
+                            visit.request(&request);
+                        }
+                    });
+                }
+                NavigationDecision::Allow
+            }
             Verdict::External => {
                 log::info!(target: "app_core::school_browser", "to system browser site={:?} host={}", browser.site, request.url.host_str().unwrap_or("-"));
                 NavigationDecision::External(request.url)
@@ -1012,6 +1014,7 @@ impl Inner {
                         url: None,
                         history: None,
                         failure: None,
+                        visit: Visit::default(),
                     });
                     Some(())
                 });
@@ -1057,7 +1060,19 @@ impl Inner {
     /// Forgets a popup and the ones it opened. `dispose` also asks the host to
     /// close it; a host that reported the close itself has done so.
     fn popup_closed(&self, popup: BrowserId, dispose: bool) {
-        let removed = self.state.with(|state| state.remove_popup(popup));
+        let removed = self.state.with(|state| {
+            let removed = state.remove_popup(popup);
+            // An operation on a popup that closed ends with it.
+            if let Some(op) = state
+                .views
+                .get(&popup.site)
+                .and_then(|view| view.op.as_ref())
+                .filter(|op| removed.contains(&op.browser))
+            {
+                op.cancel();
+            }
+            removed
+        });
         if removed.is_empty() {
             return;
         }
@@ -1132,10 +1147,13 @@ impl Inner {
                 _ => None,
             }
         };
-        let Some(_view) = view else {
+        let Some(view) = view else {
             self.popup_closed(browser, false);
             return;
         };
+        if let Some(op) = &view.op {
+            op.cancel();
+        }
         // The host closes a view's popups with it.
         self.publish_page(browser.site);
     }
@@ -1156,6 +1174,17 @@ impl Inner {
         browser: BrowserId,
         command: BrowserAction,
     ) -> Result<ActionId, SchoolBrowserError> {
+        self.dispatch_for(browser, command, None)
+    }
+
+    /// Sends `command` to `browser`. A navigation that is not operation
+    /// `op`'s own supersedes the view's operation.
+    fn dispatch_for(
+        &self,
+        browser: BrowserId,
+        command: BrowserAction,
+        op: Option<u64>,
+    ) -> Result<ActionId, SchoolBrowserError> {
         let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
         let navigation = matches!(
             command,
@@ -1164,12 +1193,17 @@ impl Inner {
                 | BrowserAction::GoBack
                 | BrowserAction::GoForward
         );
+        let mut superseded = None;
         // A navigation Core sends leaves the failure it may fix behind.
         let cleared = navigation
             && self.state.with(|state| {
                 let Some(view) = state.views.get_mut(&browser.site) else {
                     return false;
                 };
+                if op.is_none() {
+                    superseded = view.op.take();
+                    view.problem = None;
+                }
                 let failure = if view.id == browser {
                     view.navigation = Some(action);
                     if view.actions.len() >= 64 {
@@ -1185,7 +1219,11 @@ impl Inner {
                 };
                 failure.take().is_some()
             });
-        if cleared {
+        if let Some(superseded) = &superseded {
+            superseded.cancel();
+            self.sync_cover(browser.site);
+        }
+        if cleared || superseded.is_some() {
             self.publish_page(browser.site);
         }
         self.sent(

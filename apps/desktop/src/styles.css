@@ -343,7 +343,8 @@ summary,
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
 }
 .schoolStatusAccount[data-state="checking"] > i,
-.schoolStatusAccount[data-state="signing-in"] > i {
+.schoolStatusAccount[data-state="signing-in"] > i,
+.schoolStatusAccount[data-state="verifying"] > i {
   background: var(--accent);
   animation: schoolStatusPulse 1.5s ease-in-out infinite;
 }
@@ -1514,6 +1515,7 @@ summary,
   /* Looping indicators would flicker at that length: they hold still. */
   .schoolStatusAccount[data-state="checking"] > i,
   .schoolStatusAccount[data-state="signing-in"] > i,
+  .schoolStatusAccount[data-state="verifying"] > i,
   .skeleton {
     animation: none !important;
   }

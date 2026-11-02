@@ -37,8 +37,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     enum class Notice {
         /** A reload was opened again without resending a form. */
         REOPENED,
-        /** Core could not pass the sign-in to the page before opening it. */
-        NOT_SEEDED,
     }
 
     /** The note each site shows, until its job hides it again. */
@@ -87,13 +85,13 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
                     SchoolWebPage(
                         site, row.optLong("revision").toULong(), row.text("url"), row.optLong("popups").toULong(),
                         step(row.optString("back")), step(row.optString("forward")), notice,
+                        access(row.optJSONObject("access")),
                     ),
                 )
             }
             "school-web-notice" -> {
                 val notice = when (row.optString("kind")) {
                     "reopened" -> Notice.REOPENED
-                    "not-seeded" -> Notice.NOT_SEEDED
                     else -> return
                 }
                 noticeJobs.remove(site)?.cancel()
@@ -196,6 +194,26 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
 
     fun reload(site: SchoolSite) {
         runCatching { session?.reloadSchool(site) }
+    }
+
+    /** "Cancel, I'll sign in myself" while Core signs `site`'s view in. */
+    fun cancelSignIn(site: SchoolSite) {
+        runCatching { session?.cancelSchoolSignIn(site) }
+    }
+
+    /** Core's `SchoolWebAccess` from its wire form. */
+    private fun access(row: JSONObject?): SchoolWebAccess? = when (row?.optString("kind")) {
+        "signing-in" -> SchoolWebAccess.SigningIn
+        "problem" -> SchoolWebAccess.Problem(
+            when (row.optString("problem")) {
+                "unreachable" -> SchoolWebProblem.UNREACHABLE
+                "rejected" -> SchoolWebProblem.REJECTED
+                "storage" -> SchoolWebProblem.STORAGE
+                "submission-unconfirmed" -> SchoolWebProblem.SUBMISSION_UNCONFIRMED
+                else -> SchoolWebProblem.STILL_SIGN_IN
+            },
+        )
+        else -> null
     }
 
     /** The notice's Reopen: the engine's reload of the failed entry, which

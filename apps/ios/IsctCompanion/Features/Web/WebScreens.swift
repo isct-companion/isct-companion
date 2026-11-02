@@ -284,9 +284,9 @@ struct WebPageScreen: View {
 
 /// What sits between the navigation bar and the page, outside the school
 /// page, all from Core's page of the site: the close bar of a popup the page
-/// opened over itself, a load that failed, and Core's one-time notes (a
-/// reload opened again without resending a form, a sign-in that could not be
-/// passed to the page).
+/// opened over itself, Core signing the view in or why it stopped, a load
+/// that failed, and Core's one-time note that a reload opened again without
+/// resending a form.
 private struct PageBars: View {
     let site: SchoolSite
     @Environment(WebRouter.self) private var web
@@ -320,6 +320,10 @@ private struct PageBars: View {
                 .padding(.vertical, 8)
                 Divider()
             }
+            if let access = web.pages[site]?.access {
+                signIn(access)
+                Divider()
+            }
             if let failure = web.failure(site) {
                 failed(failure)
                 Divider()
@@ -343,7 +347,43 @@ private struct PageBars: View {
     private static func label(_ notice: SchoolWebNotice) -> Label<Text, Image> {
         switch notice {
         case .reopened: Label(t("web.reopenedThisPageWithoutSending"), systemImage: "arrow.clockwise")
-        case .notSeeded: Label(t("web.signInCouldNotBePassed"), systemImage: "person.crop.circle.badge.exclamationmark")
+        }
+    }
+
+    /// Core signing the view in (the view is hidden meanwhile), or why it
+    /// stopped.
+    @ViewBuilder private func signIn(_ access: SchoolWebAccess) -> some View {
+        switch access {
+        case .signingIn:
+            HStack {
+                ProgressView()
+                Text(t("web.signIn.signingIn"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(t("web.signIn.cancel")) { web.cancelSignIn(site) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        case let .problem(problem):
+            Label(t(Self.problemText(problem)), systemImage: "person.crop.circle.badge.exclamationmark")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+        }
+    }
+
+    private static func problemText(_ problem: SchoolWebProblem) -> String {
+        switch problem {
+        case .unreachable: "web.signIn.unreachable"
+        case .rejected: "web.signIn.rejected"
+        case .storage: "web.signIn.storage"
+        case .stillSignIn: "web.signIn.stillSignIn"
+        case .submissionUnconfirmed: "web.signIn.submissionUnconfirmed"
         }
     }
 
