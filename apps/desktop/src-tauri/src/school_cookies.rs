@@ -1,6 +1,7 @@
 //! The school views' cookie store as Core's write-only `WebCookieSeed`: Core
 //! writes an account's verified identity cookies before a web operation
-//! opens a school page and clears an account's school websites when it goes.
+//! opens a school page and clears every school website, both accounts', when
+//! an account goes.
 //! Nothing here reads a cookie for Core, and nothing here decides: Core's
 //! queue runs the calls one at a time, drops stale writes and bounds the
 //! wait. A call answers once the platform confirmed it, however long that
@@ -17,18 +18,18 @@
 //!   parser keeps the dot, the path, HttpOnly, Secure and SameSite) into its
 //!   `WKHTTPCookieStore`, each write awaited through its completion handler;
 //!   a clear removes the website data records (cookies, storage, caches) of
-//!   the account's domains.
+//!   every school domain.
 //! - Windows: WebView2's `CookieManager`, with the leading dot of a Domain
 //!   attribute put back. `AddOrUpdateCookie` has no completion; it applies
 //!   in call order on the view's thread, before the navigation Core sends
-//!   after it. A clear removes the account's cookies.
+//!   after it. A clear removes every school cookie.
 //! - Linux: libsoup's `soup_cookie_parse` into WebKitGTK's cookie manager,
-//!   each write awaited through its callback. A clear removes the account's
-//!   cookies.
+//!   each write awaited through its callback. A clear removes every school
+//!   cookie.
 
 use app_core::{
     net::BoxFuture,
-    school_session::{WebClear, WebCookie, WebCookieSeed},
+    school_session::{is_school_domain, WebCookie, WebCookieSeed},
 };
 use tauri::AppHandle;
 #[cfg(not(target_os = "macos"))]
@@ -78,20 +79,16 @@ impl WebCookieSeed for DesktopWebCookies {
         })
     }
 
-    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>> {
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             self.app
-                .run_on_main_thread(move || native::clear(scope, sender))
+                .run_on_main_thread(move || native::clear(sender))
                 .map_err(|error| error.to_string())?;
             receiver
                 .await
                 .map_err(|_| "the school store went away".to_string())?
         })
-    }
-
-    fn clears_by_site(&self) -> bool {
-        true
     }
 }
 
@@ -113,27 +110,23 @@ impl WebCookieSeed for DesktopWebCookies {
         })
     }
 
-    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>> {
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             let app = self.app.clone();
             let existing = self.school_view();
             // Tauri's cookie calls must not run on the main thread, which
             // WebView2 needs free to answer them.
-            tauri::async_runtime::spawn_blocking(move || clear(&app, existing, &scope))
+            tauri::async_runtime::spawn_blocking(move || clear(&app, existing))
                 .await
                 .map_err(|error| error.to_string())?
         })
     }
-
-    fn clears_by_site(&self) -> bool {
-        true
-    }
 }
 
-/// Deletes the school store's cookies `scope` covers, through a temporary
+/// Deletes every school cookie of the school store, through a temporary
 /// view when no school view exists.
 #[cfg(not(target_os = "macos"))]
-fn clear(app: &AppHandle, existing: Option<Webview>, scope: &WebClear) -> Result<(), String> {
+fn clear(app: &AppHandle, existing: Option<Webview>) -> Result<(), String> {
     let (view, temporary) = match existing {
         Some(view) => (view, false),
         None => (store_view(app)?, true),
@@ -144,7 +137,7 @@ fn clear(app: &AppHandle, existing: Option<Webview>, scope: &WebClear) -> Result
         .and_then(|cookies| {
             for cookie in cookies
                 .into_iter()
-                .filter(|cookie| cookie.domain().is_some_and(|domain| scope.covers(domain)))
+                .filter(|cookie| cookie.domain().is_some_and(is_school_domain))
             {
                 view.delete_cookie(cookie)
                     .map_err(|error| format!("A school cookie could not be removed: {error}"))?;
@@ -178,7 +171,7 @@ fn store_view(app: &AppHandle) -> Result<Webview, String> {
 
 #[cfg(target_os = "macos")]
 mod native {
-    use super::{WebClear, WebCookie};
+    use super::{is_school_domain, WebCookie};
     use crate::school_browser_native::SCHOOL_DATA_STORE;
     use block2::RcBlock;
     use objc2::{rc::Retained, MainThreadMarker};
@@ -249,10 +242,9 @@ mod native {
         }
     }
 
-    /// Removes the website data records (cookies, storage, caches) of the
-    /// domains `scope` covers and answers once WebKit has. Runs on the main
-    /// thread.
-    pub(super) fn clear(scope: WebClear, done: Sender<Result<(), String>>) {
+    /// Removes the website data records (cookies, storage, caches) of every
+    /// school domain and answers once WebKit has. Runs on the main thread.
+    pub(super) fn clear(done: Sender<Result<(), String>>) {
         let Some(mtm) = MainThreadMarker::new() else {
             let _ = done.send(Err("the school store is reached on the main thread".into()));
             return;
@@ -270,7 +262,7 @@ mod native {
                 let chosen: Vec<Retained<WKWebsiteDataRecord>> = records
                     .iter()
                     // SAFETY: a record's display name is its registrable domain.
-                    .filter(|record| scope.covers(&unsafe { record.displayName() }.to_string()))
+                    .filter(|record| is_school_domain(&unsafe { record.displayName() }.to_string()))
                     .collect();
                 log::info!(
                     "[school-web] clearing {} school website records",

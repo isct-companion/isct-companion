@@ -215,7 +215,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
-| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_windows.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -269,7 +269,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
 | `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
-| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx |
+| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
 | `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
@@ -1798,7 +1798,7 @@ reading them from the snapshot is tested in the desktop suite.
 
 **Last recorded** never run
 
-### Reloading a postback page does not send its form again (`DESKTOP-SCHOOL-NO-RESUBMIT`)
+### Reload on a postback page reopens it with a GET and sends no form (`DESKTOP-SCHOOL-NO-RESUBMIT`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -1806,16 +1806,22 @@ reading them from the snapshot is tested in the desktop suite.
 
 **Preconditions**
 
-macOS desktop build of this commit, signed in to 教務Web.
+A macOS desktop build of this commit, and a Windows build when one is
+at hand, signed in to 教務Web.
 
 **Steps**
 
 1. On the 成績 list, switch the 学期 (a postback that changes nothing
    on the school's side), then press the app's Reload.
-   - *Why:* WebKit reloads a POST result by sending the form again, silently.
-     On a 申告 page that repeats an action; here it is harmless, which
-     is why this page is used. The reload must become a GET of the same
-     page with a short notice.
+   - *Why:* The engine's own reload of a POST result sends the form again; on a
+     申告 page that repeats an action, here it is harmless, which is why
+     this page is used. The app's Reload never asks the engine: Core
+     opens the last page with a GET on every platform, so nothing needs
+     to be refused and no notice appears.
+2. Do the same on the Windows build.
+   - *Why:* The Windows host reports no navigation facts at all; Reload must
+     still be the same GET, because it no longer depends on what a host
+     reports.
 
 **Where to look**
 
@@ -1823,18 +1829,19 @@ The line under the address after Reload, and the 成績 page itself.
 
 **Expected**
 
-The line "Reopened this page without sending the form again." shows
-for a few seconds and the page opens in its initial state (the 学期
-chosen before resets), without the 教務Web error page.
+On each build the page opens in its initial state (the 学期 chosen
+before resets), without the 教務Web error page, and no line appears
+under the address.
 
 **Why this is manual**
 
-Needs a real WebForms postback inside WebKit; the notice and the page
-are a glance. The resubmission rule is Core's and tested there.
+Needs a real WebForms postback inside WebKit and WebView2; the page is
+a glance. Which page Reload opens is Core's and tested there.
 
 **Covers**
 
 - `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_windows.rs`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 
 **Last recorded** never run
@@ -4692,7 +4699,9 @@ rules are in the Core suites, the live acceptance only here.
 **Preconditions**
 
 A macOS desktop build from this source with the Science Tokyo account
-connected, the LMS open in the Web page on a course page.
+connected, the LMS open in the Web page on a course page; an iPhone
+and an Android build from this source with the same account, the LMS
+open in ウェブ on a course page.
 
 **Steps**
 
@@ -4713,28 +4722,38 @@ connected, the LMS open in the Web page on a course page.
 4. On an assignment, start a submission, log out of Extic in another
    tab of the view if needed so that saving lands on the sign-in page,
    then press Reload.
-   - *Why:* The page came from a form: Core opens the visit's last safe page and
-     says the submission is unconfirmed instead of sending the form again.
-5. Copy the log.
+   - *Why:* The sign-in page came from a form. Reload signs in and then opens
+     the visit's last page, the submission page, with a GET, as a Reload
+     anywhere else does: the form is never sent again, and there is
+     nothing left to warn about.
+5. On the iPhone and on Android, log out of the LMS from its own menu,
+   then pick Reload (再読み込み) in the page menu.
+   - *Why:* Android used to open the sign-in page itself again after signing
+     in, since it reported no request method. Reload is now Core's one
+     behaviour, so both phones sign in and reopen the course page.
+6. Copy the log.
    - *Why:* `web operation … started` and `ended` lines, and at most one
      `signing in profile=` per operation, show the one-password rule.
 
 **Where to look**
 
-The LMS view, the line under the address, and the copied log.
+The LMS view, the line under the address (the bar on the phones), and
+the copied log.
 
 **Expected**
 
 Nothing happens until Reload. Each Reload reopens the course page signed
-in; Cancel gives the sign-in page back. The submission case shows "The
-sign-in had run out when the form was sent…" on a safe LMS page and
-sends nothing again. No operation has more than one `signing in` line.
+in, on the desktop and on both phones; Cancel gives the sign-in page
+back. The submission case reopens the submission page signed in, with
+no line under the address; the draft saved while signed out is not
+there and nothing was sent again. No operation has more than one
+`signing in` line.
 
 **Why this is manual**
 
 Needs a real LMS session to end and the real Extic sign-in page in
-WebKit; the trigger, the one-sign-in budget and the reopen rules are in
-the Core web operation suite.
+WebKit and Android WebView; the trigger, the one-sign-in budget and the
+page Reload reopens are in the Core web operation suite.
 
 **Covers**
 
@@ -4742,10 +4761,12 @@ the Core web operation suite.
 - `crates/app-core/src/school_browser/engine.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src/features/school-web/SchoolWebControls.tsx`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 
 **Last recorded** never run
 
-### Signing one account out clears only its school websites (`SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT`)
+### Signing one account out clears every school web sign-in, and the other account signs in again (`SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT`)
 
 **Area** school · **Persona** Two devices, interrupted work · **Result** —
 
@@ -4753,51 +4774,52 @@ the Core web operation suite.
 
 **Preconditions**
 
-A macOS desktop build and an Android build from this source, both with
-both school accounts connected and the LMS and 教務Web each opened once.
+A macOS desktop build, an Android build and an iPhone build from this
+source, each with both school accounts connected and the LMS and
+教務Web each opened once in the Web page.
 
 **Steps**
 
 1. On the desktop, delete the Science Tokyo credentials in Settings,
-   then open 教務Web and the LMS from the Web page.
-   - *Why:* Only `isct.ac.jp` and `ex-tic.com` data go: 教務Web must still open
-     signed in, and the LMS must show its sign-in page. 教務Web signed out
-     means the clear covered the other account.
-2. On Android, delete the Science Tokyo credentials, go back to
-   Settings, and read the card under School accounts.
-   - *Why:* WebView cannot clear one account's websites: the card must say a
-     signed-out account's web sign-in was kept and offer to clear every
-     school web sign-in, never clear both silently.
-3. Quit the app (swipe it away), reopen it, open the LMS in the Web tab,
-   then go back to Settings.
-   - *Why:* The LMS still opens signed in: the web sign-in survived on disk. Core
-     forgot that it kept it, so the reminder is gone, but "Clear all
-     school web sign-ins" must still be there under School accounts. A
-     missing button leaves only Reset, which also deletes the caches.
-4. Press "Clear all school web sign-ins", then open the LMS and
-   教務Web.
-   - *Why:* The person's choice clears both accounts' web sessions: the LMS shows
-     its sign-in page, and 教務Web signs in again through a web
-     operation, since Core's Tokyo Tech identity stays valid.
+   then open the LMS and 教務Web from the Web page.
+   - *Why:* Every platform clears every school site on a sign-out: the LMS must
+     show its sign-in page. 教務Web must open signed in without a
+     password prompt, because Core writes the Tokyo Tech identity into
+     its new view before the first page; a 教務Web sign-in page means
+     the remaining account's identity was not written back after the
+     clear.
+2. On the iPhone, delete the Science Tokyo credentials in Settings,
+   then open the LMS and 教務Web in the Web tab.
+   - *Why:* iOS used to clear one account's sites only; it must now behave as
+     the desktop does: the LMS signed out, 教務Web signed in again
+     without a prompt.
+3. On Android, delete the Science Tokyo credentials, read Settings ›
+   School accounts, then open the LMS and 教務Web in the Web tab.
+   - *Why:* The sign-out is the clear: no card offering to clear every school
+     web sign-in may remain. The LMS shows its sign-in page and 教務Web
+     opens signed in again without a prompt.
+4. Quit the Android app (swipe it away), reopen it and open the LMS.
+   - *Why:* The LMS still shows its sign-in page: the clear reached the
+     WebView's store on disk, not only its memory.
 
 **Where to look**
 
-The LMS and 教務Web views on both devices, and the School accounts
-section of Android's Settings before and after the relaunch.
+The LMS and 教務Web views on each device, and Settings › School
+accounts on Android.
 
 **Expected**
 
-The desktop LMS is signed out and 教務Web signed in. Android names the
-kept web sign-in, still offers the clear button after a relaunch (with
-its plain description instead of the reminder), clears both only when
-asked, and afterwards the LMS is signed out while 教務Web opens signed
-in without a password prompt.
+On every device the LMS is signed out after the sign-out and stays so
+after a relaunch, 教務Web opens signed in without a password prompt,
+and Android's Settings shows no separate clear button.
 
 **Why this is manual**
 
 Needs each platform's real website data store and the real school
-cookies' domains; the clear order and the domain table are in the Core
-suites.
+cookies' domains. The Core suites cover the order (views stopped, one
+clear of every school site) and that the remaining account's identity
+is written again on its next page; the platform stores are not
+reachable from them.
 
 **Covers**
 
@@ -7032,18 +7054,20 @@ The Android debug build of this commit on a phone, signed in to
 
 1. On the 成績 list, switch the 学期 (a postback that changes nothing
    on the school's side), then pick 再読み込み in the page menu.
-   - *Why:* WebView asks onFormResubmission before it resends a POST result.
-     The host reports it to Core, which refuses and opens the same page
-     with GET. On a 申告 page a resend repeats an action; here it is
-     harmless, which is why this page is used.
+   - *Why:* The app's Reload is Core's GET of the last page, as on the desktop
+     and iOS: WebView's own reload is never used, so it never gets to
+     resend the POST result and no notice is needed. On a 申告 page a
+     resend repeats an action; here it is harmless, which is why this
+     page is used.
 2. From that 成績 page, follow a link to another page, then press ‹
    (or system back).
    - *Why:* WebView never resends on back: a form result that is not cached
      fails with ERR_CACHE_MISS. Its own error page must not show; the
      app's notice covers it and offers このページを開き直す and 戻る.
 3. Press このページを開き直す.
-   - *Why:* It reloads the failed entry, which asks onFormResubmission again,
-     so Core opens the page with GET instead of sending the form.
+   - *Why:* It loads the failed entry's address with a GET, as Retry does on
+     iOS, so the form is not sent. It must not be the app's Reload,
+     which would open the last page that arrived, the one Back left.
 
 **Where to look**
 
@@ -7052,16 +7076,15 @@ The line under the bar after 再読み込み, the page area after ‹, and the
 
 **Expected**
 
-After 再読み込み, "フォームを再送信せずにこのページを開き直しました。"
-shows for a few seconds and the page opens in its initial state (the
-学期 resets) with no 教務Web error page. After ‹, the app's notice
-replaces WebView's "Webpage not available"; このページを開き直す opens
-成績 in its initial state.
+After 再読み込み the page opens in its initial state (the 学期 resets)
+with no 教務Web error page and no line under the bar. After ‹, the
+app's notice replaces WebView's "Webpage not available";
+このページを開き直す opens 成績 in its initial state.
 
 **Why this is manual**
 
 Needs a real WebForms postback inside Android WebView; the notice and
-the page are a glance. The resubmission rule is Core's and tested
+the page are a glance. Which page Reload opens is Core's and tested
 there.
 
 **Covers**
@@ -7092,8 +7115,8 @@ phone.
      WebView's error to Core's reason, and Core's notice must replace
      WebView's own error page.
 2. Switch the VPN on and press このページを開き直す.
-   - *Why:* The notice reloads the failed address; the page opening proves the
-     failure kept it.
+   - *Why:* The notice loads the failed address again with a GET; the page
+     opening proves the failure kept it.
 
 **Where to look**
 
@@ -9299,10 +9322,12 @@ An iPhone and an iPad build of this commit, signed in to 教務Web.
 1. On the 成績 list, switch the 学期 (a postback that changes nothing
    on the school's side), then choose Reload in the page menu, and once
    pull down to refresh.
-   - *Why:* WebKit reloads a POST result by sending the form again, silently,
-     as `.formResubmitted`. On a 申告 page that repeats an action; here
-     it is harmless, which is why this page is used. The reload must
-     become a GET of the same page with a short notice.
+   - *Why:* WebKit's own reload of a POST result sends the form again,
+     silently. On a 申告 page that repeats an action; here it is
+     harmless, which is why this page is used. Both the menu and the
+     pull are the app's Reload, which Core turns into a GET of the last
+     page on every platform, so WebKit never reloads and no notice is
+     needed.
 2. Switch the 学期 twice more, open another page, go to a third site
    in the picker and back, then press Back repeatedly.
    - *Why:* Switching sites lets WebKit drop the cached postback pages. Going
@@ -9317,16 +9342,17 @@ where each Back lands.
 
 **Expected**
 
-Reload shows "Reopened this page without sending the form again." for
-a few seconds and opens the page in its initial state, without the
-教務Web error page. Back either shows a cached page as it was or skips
+Reload and the pull open the page in its initial state, without the
+教務Web error page and with no line under the navigation bar. Back
+either shows a cached page as it was or skips
 past a postback page to the one before it; it never shows the 教務Web
 error page and never stalls on the same page.
 
 **Why this is manual**
 
 Needs real WebForms postbacks inside WebKit on a device, and WebKit's
-cache eviction. The resubmission rule is Core's and tested there.
+cache eviction. Which page Reload opens and the resubmission rule for
+history are Core's and tested there.
 
 **Covers**
 

@@ -185,7 +185,9 @@ pub(crate) enum Verdict {
     Deny(DenyReason),
     /// Cancel a back/forward resubmission and step past its history entry.
     SkipEntry,
-    /// Cancel a reload resubmission and load the same URL with GET.
+    /// Cancel a reload resubmission and load the same URL with GET. Only a
+    /// page's own `location.reload()` or the engine's (iOS reloads a view
+    /// whose content process ended) gets here, never the App's Reload.
     ReloadAsGet,
 }
 

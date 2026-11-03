@@ -36,7 +36,6 @@ export function schoolProfiles(
     problem: null,
     retryAt: null,
     maintenance: null,
-    webKept: false,
   });
   return { science: session(science), tokyoTech: session(tokyoTech) };
 }

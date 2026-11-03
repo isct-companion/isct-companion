@@ -140,17 +140,6 @@ impl State {
             .map(|popup| &popup.visit)
     }
 
-    fn visit_mut(&mut self, browser: BrowserId) -> Option<&mut Visit> {
-        let view = self.views.get_mut(&browser.site)?;
-        if view.id == browser {
-            return Some(&mut view.visit);
-        }
-        view.popups
-            .iter_mut()
-            .find(|popup| popup.id == browser)
-            .map(|popup| &mut popup.visit)
-    }
-
     /// The address Core last saw in the view or popup `browser`.
     fn known_url(&self, browser: BrowserId) -> Option<String> {
         let view = self.views.get(&browser.site)?;
@@ -445,17 +434,17 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
-    /// The app's Reload. On a known sign-in page of a site with an account
-    /// it starts a web operation for the page in front (`operation`), and a
-    /// Reload while one signs the view in joins it. Elsewhere a host that reports form
-    /// resubmission reloads natively, and the rule table turns a
-    /// resubmission into a GET; for one that cannot, Core loads the current
-    /// URL with GET itself.
+    /// The app's Reload, the same on every platform: it opens the last
+    /// school page of the view or popup in front again with a GET
+    /// (`Visit::reopen`), never the engine's reload, so no form is sent
+    /// twice. On a known sign-in page of a site with an account it starts a
+    /// web operation that signs in first and then opens that same page
+    /// (`operation`), and a Reload while one signs the view in joins it.
     pub fn reload(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
         let Ok(browser) = self.front(site) else {
             return Ok(false);
         };
-        let (joins, on_sign_in) = self.0.state.with(|state| {
+        let (joins, on_sign_in, reopen) = self.0.state.with(|state| {
             let on_sign_in = state
                 .known_url(browser)
                 .and_then(|url| Url::parse(&url).ok())
@@ -468,7 +457,12 @@ impl SchoolBrowserEngine {
                 .get(&site)
                 .and_then(|view| view.op.as_ref())
                 .is_some_and(|op| op.covering || on_sign_in);
-            (joins, on_sign_in)
+            let reopen = state
+                .visit(browser)
+                .cloned()
+                .unwrap_or_default()
+                .reopen(site);
+            (joins, on_sign_in, reopen)
         });
         if joins {
             return Ok(true);
@@ -479,15 +473,10 @@ impl SchoolBrowserEngine {
             self.0.start(site, browser, profile, Start::Reload);
             return Ok(true);
         }
-        let command = if self.0.capabilities.form_resubmission {
-            BrowserAction::Reload
-        } else {
-            match self.0.browser.current_url(browser)? {
-                Some(url) => BrowserAction::Navigate(url),
-                None => return Ok(false),
-            }
+        let Some(url) = reopen else {
+            return Ok(false);
         };
-        self.dispatch(browser, command)?;
+        self.dispatch(browser, BrowserAction::Navigate(url))?;
         Ok(true)
     }
 
@@ -943,16 +932,7 @@ impl Inner {
             return NavigationDecision::Deny(DenyReason::Closed);
         }
         match navigation_rule(&request) {
-            Verdict::Allow | Verdict::Popup => {
-                if request.main_frame {
-                    self.state.with(|state| {
-                        if let Some(visit) = state.visit_mut(browser) {
-                            visit.request(&request);
-                        }
-                    });
-                }
-                NavigationDecision::Allow
-            }
+            Verdict::Allow | Verdict::Popup => NavigationDecision::Allow,
             Verdict::External => {
                 log::info!(target: "app_core::school_browser", "to system browser site={:?} host={}", browser.site, request.url.host_str().unwrap_or("-"));
                 NavigationDecision::External(request.url)
@@ -1191,10 +1171,7 @@ impl Inner {
         let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
         let navigation = matches!(
             command,
-            BrowserAction::Navigate(_)
-                | BrowserAction::Reload
-                | BrowserAction::GoBack
-                | BrowserAction::GoForward
+            BrowserAction::Navigate(_) | BrowserAction::GoBack | BrowserAction::GoForward
         );
         let mut superseded = None;
         // A navigation Core sends leaves the failure it may fix behind.

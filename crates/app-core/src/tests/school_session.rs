@@ -270,24 +270,23 @@ impl Transport for School {
 pub(crate) struct WebStore {
     pub(crate) calls: Mutex<Vec<String>>,
     pub(crate) writes: Mutex<Vec<Vec<WebCookie>>>,
-    pub(crate) clears: Mutex<Vec<WebClear>>,
-    pub(crate) by_site: bool,
+    /// Clears of every school website.
+    pub(crate) clears: Mutex<usize>,
     gate: tokio::sync::Semaphore,
 }
 
 impl WebStore {
-    pub(crate) fn open(by_site: bool) -> Arc<Self> {
-        let store = Self::shut(by_site);
+    pub(crate) fn open() -> Arc<Self> {
+        let store = Self::shut();
         store.release();
         store
     }
 
-    fn shut(by_site: bool) -> Arc<Self> {
+    fn shut() -> Arc<Self> {
         Arc::new(Self {
             calls: Mutex::default(),
             writes: Mutex::default(),
             clears: Mutex::default(),
-            by_site,
             gate: tokio::sync::Semaphore::new(0),
         })
     }
@@ -313,16 +312,12 @@ impl WebCookieSeed for WebStore {
         })
     }
 
-    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>> {
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push("clear".into());
-            self.clears.lock().unwrap().push(scope);
+            *self.clears.lock().unwrap() += 1;
             Ok(())
         })
-    }
-
-    fn clears_by_site(&self) -> bool {
-        self.by_site
     }
 }
 
@@ -428,7 +423,7 @@ async fn a_verification_the_school_never_answers_ends_at_its_deadline() {
 // answers. A write queued before an account's admission closed is dropped.
 #[tokio::test(start_paused = true)]
 async fn the_web_queue_never_lets_a_later_call_overtake_an_unanswered_one() {
-    let store = WebStore::shut(true);
+    let store = WebStore::shut();
     let queue = WebQueue::default();
     assert!(queue.attach(store.clone()));
     let tasks = RuntimeTasks::default();
@@ -449,7 +444,7 @@ async fn the_web_queue_never_lets_a_later_call_overtake_an_unanswered_one() {
         "the caller stops waiting; the write stays queued"
     );
     queue.close_admission(&[SchoolAuthProfile::Science]);
-    let mut clear = queue.clear(&tasks, WebClear::account(SchoolAuthProfile::Science));
+    let mut clear = queue.clear(&tasks);
     tokio::time::sleep(WEB_STORE_LIMIT).await;
     assert!(!queue.usable(), "past its limit the store takes no write");
     let refused = queue.write(
@@ -465,7 +460,7 @@ async fn the_web_queue_never_lets_a_later_call_overtake_an_unanswered_one() {
             .is_err(),
         "the clear waits behind the unanswered write"
     );
-    assert!(store.clears.lock().unwrap().is_empty());
+    assert_eq!(*store.clears.lock().unwrap(), 0);
     store.release();
     assert_eq!(first.await.unwrap(), Ok(()));
     assert_eq!(clear.await.unwrap(), Ok(()));
@@ -498,7 +493,7 @@ async fn the_web_queue_never_lets_a_later_call_overtake_an_unanswered_one() {
 #[tokio::test(start_paused = true)]
 async fn the_web_queue_ends_with_core() {
     let idle = WebQueue::default();
-    idle.attach(WebStore::open(true));
+    idle.attach(WebStore::open());
     let tasks = RuntimeTasks::default();
     let written = idle.write(
         &tasks,
@@ -513,7 +508,7 @@ async fn the_web_queue_ends_with_core() {
     assert_eq!(started.elapsed(), Duration::ZERO);
 
     let busy = WebQueue::default();
-    busy.attach(WebStore::shut(true));
+    busy.attach(WebStore::shut());
     let tasks = RuntimeTasks::default();
     let _pending = busy.write(
         &tasks,
@@ -528,32 +523,23 @@ async fn the_web_queue_ends_with_core() {
     assert_eq!(started.elapsed(), WEB_STORE_LIMIT);
 }
 
-// An account's clear covers its own websites (adpt-isct's table) only.
+// A clear covers both accounts' websites (adpt-isct's table), and no
+// other site.
 #[test]
-fn a_clear_covers_its_accounts_websites_only() {
-    let science = WebClear::account(SchoolAuthProfile::Science);
-    let tokyo = WebClear::account(SchoolAuthProfile::TokyoTech);
+fn a_clear_covers_every_school_website_and_no_other() {
     for domain in [
         "lms.s.isct.ac.jp",
         ".isct.ac.jp",
         "isct.ac.jp",
         "isct.ex-tic.com",
-    ] {
-        assert!(science.covers(domain), "{domain}");
-        assert!(!tokyo.covers(domain), "{domain}");
-        assert!(WebClear::AllSchool.covers(domain), "{domain}");
-    }
-    for domain in [
         "portal.nap.gsic.titech.ac.jp",
         ".titech.ac.jp",
         "kyomu0.gakumu.titech.ac.jp",
     ] {
-        assert!(tokyo.covers(domain), "{domain}");
-        assert!(!science.covers(domain), "{domain}");
-        assert!(WebClear::AllSchool.covers(domain), "{domain}");
+        assert!(is_school_domain(domain), "{domain}");
     }
     for domain in ["notisct.ac.jp", "example.com", "ac.jp"] {
-        assert!(!WebClear::AllSchool.covers(domain), "{domain}");
+        assert!(!is_school_domain(domain), "{domain}");
     }
 }
 

@@ -75,7 +75,6 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                         problem: None,
                         retry_at: None,
                         maintenance: None,
-                        web_kept: false,
                     },
                     tokyo_tech: SchoolProfileSession {
                         state: SchoolSessionState::Refused,
@@ -85,14 +84,13 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                         }),
                         retry_at: None,
                         maintenance: None,
-                        web_kept: false,
                     },
                 },
             }),
             "school-session",
             json!({"revision":7,"profiles":{
-                "science":{"state":"normal","problem":null,"retryAt":null,"maintenance":null,"webKept":false},
-                "tokyoTech":{"state":"refused","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null,"webKept":false}
+                "science":{"state":"normal","problem":null,"retryAt":null,"maintenance":null},
+                "tokyoTech":{"state":"refused","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
             }}),
         ),
         (
@@ -108,11 +106,11 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     reason: LoadFailure::HostNotFound,
                 }),
                 access: Some(SchoolWebAccess::Problem {
-                    problem: SchoolWebProblem::SubmissionUnconfirmed,
+                    problem: SchoolWebProblem::StillSignIn,
                 }),
             }),
             "school-web-page",
-            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"submission-unconfirmed"}}),
+            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"still-sign-in"}}),
         ),
         (
             CoreEvent::SchoolWebNotice {

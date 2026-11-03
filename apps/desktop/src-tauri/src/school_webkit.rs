@@ -4,7 +4,7 @@
 //! their own methods and forward everything else; popups get the same shims
 //! with nothing underneath.
 //!
-//! - Navigation: `decidePolicyForNavigationAction` reports URL, method, frame,
+//! - Navigation: `decidePolicyForNavigationAction` reports URL, frame,
 //!   navigation type (`.formResubmitted` included) and gesture to Core and
 //!   applies Allow / External / Deny / SkipEntry. Main-frame load failures
 //!   are reported too: WebKit shows nothing and stays on the old page.
@@ -90,7 +90,6 @@ pub struct SavedData {
 /// A navigation as WebKit describes it, before the shell adds the page.
 pub struct Request {
     pub url: Url,
-    pub method: Option<String>,
     pub main_frame: bool,
     pub kind: NavigationKind,
     pub user_gesture: bool,
@@ -235,7 +234,6 @@ fn request(
         responds(action, gesture_selector) && unsafe { msg_send![action, _isUserInitiated] };
     Some(Request {
         url,
-        method: request.HTTPMethod().map(|method| method.to_string()),
         main_frame,
         kind,
         user_gesture,
@@ -1355,7 +1353,6 @@ pub fn popup_command(id: BrowserId, command: Command) -> bool {
 /// What the shell sends a popup, or a main view through its WKWebView.
 pub enum Command {
     Navigate(Url),
-    Reload,
     GoBack,
     GoForward,
     Evaluate(String),
@@ -1368,9 +1365,6 @@ fn run(web_view: &WKWebView, command: Command) {
                 if let Some(url) = NSURL::URLWithString(&NSString::from_str(url.as_str())) {
                     web_view.loadRequest(&NSURLRequest::requestWithURL(&url));
                 }
-            }
-            Command::Reload => {
-                web_view.reload();
             }
             Command::GoBack => {
                 web_view.goBack();

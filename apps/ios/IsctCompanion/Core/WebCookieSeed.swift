@@ -4,8 +4,8 @@ import WebKit
 
 /// `NativeWebCookies` over the store the school web views share. Core writes
 /// an account's verified sign-in cookies into it before it opens a school
-/// page for the person, and clears an account's school websites on sign-out
-/// and reset. Core never reads them back.
+/// page for the person, and clears every school website, both accounts', on
+/// sign-out and reset. Core never reads them back.
 ///
 /// Core runs the calls one at a time and drops stale writes; each call here
 /// answers once WebKit has called back, however long that takes.
@@ -27,24 +27,21 @@ final class WebCookieSeed: NativeWebCookies, @unchecked Sendable {
         }
     }
 
-    /// Removes every cookie of a domain `scope` covers, then the rest of
-    /// those sites' website data (storage, caches). Core decides which
-    /// domains those are (`webClearCovers`).
-    func clear(scope: WebClearScope) async throws {
+    /// Removes every school cookie, then the rest of the school sites'
+    /// website data (storage, caches). Core decides which domains are the
+    /// school's (`isSchoolDomain`).
+    func clear() async throws {
         await onMain {
             let data = WKWebsiteDataStore.default()
             let store = data.httpCookieStore
-            for cookie in await store.allCookies() where webClearCovers(scope: scope, domain: cookie.domain) {
+            for cookie in await store.allCookies() where isSchoolDomain(domain: cookie.domain) {
                 await store.deleteCookie(cookie)
             }
             let types = WKWebsiteDataStore.allWebsiteDataTypes()
-            let school = await data.dataRecords(ofTypes: types).filter { webClearCovers(scope: scope, domain: $0.displayName) }
+            let school = await data.dataRecords(ofTypes: types).filter { isSchoolDomain(domain: $0.displayName) }
             await data.removeData(ofTypes: types, for: school)
         }
     }
-
-    /// WebKit removes one site's data by its record.
-    func clearsBySite() -> Bool { true }
 
     /// Runs `work` on the main actor, where WebKit's store lives, and returns
     /// when it has.

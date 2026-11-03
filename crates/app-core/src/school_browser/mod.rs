@@ -30,12 +30,13 @@ pub struct SchoolWebTarget {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SchoolWebNotice {
-    /// A reload would have sent a form again; the page was opened with GET.
+    /// A reload the page or the engine started itself (never the App's
+    /// Reload) would have sent a form again; the page was opened with GET.
     Reopened { url: String },
 }
 
 /// Why a web operation (signing a view in, on an App link or on Reload at
-/// the sign-in page) stopped, or what it has to say about where it ended.
+/// the sign-in page) stopped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SchoolWebProblem {
@@ -49,10 +50,6 @@ pub enum SchoolWebProblem {
     /// The page still asks for a sign-in: Core signed in and the page did
     /// not take it, or the school wants the person on its own page.
     StillSignIn,
-    /// The page came from a form the person sent when the sign-in ran out;
-    /// a safe page opened instead, and whether the school received the form
-    /// is unknown.
-    SubmissionUnconfirmed,
 }
 
 /// The sign-in state of the visit in front of a site.

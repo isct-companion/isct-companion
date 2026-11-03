@@ -87,9 +87,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
     // NativeBrowser (Core worker threads)
 
-    /** `onFormResubmission` reports a reload that would resend a form, and
-     * popups show inside the web screen over their opener. */
-    override fun capabilities() = HostCapabilities(formResubmission = true, inlinePopups = true)
+    /** Popups show inside the web screen over their opener. */
+    override fun capabilities() = HostCapabilities(inlinePopups = true)
 
     override fun attach(events: BrowserEvents) {
         synchronized(lock) { this.events = events }
@@ -280,8 +279,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                     webView.loadUrl(action.url)
                 }
             }
-            // A page that would resend a form asks onFormResubmission first.
-            is BrowserAction.Reload -> webView.reload()
             is BrowserAction.GoBack -> webView.goBack()
             is BrowserAction.GoForward -> webView.goForward()
             // Scripts report through navigation relays.
@@ -383,7 +380,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 val navigation = NavigationRequest(
                     page,
                     request.url.toString(),
-                    request.method,
                     request.isForMainFrame,
                     if (request.isRedirect) NavigationKind.Other else NavigationKind.Unknown,
                     request.hasGesture(),
@@ -406,7 +402,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
             override fun onFormResubmission(view: WebView, dontResend: Message, resend: Message) {
                 val navigation = NavigationRequest(
-                    page, view.url.orEmpty(), "POST", true, NavigationKind.FormResubmit(fromHistory = false), false,
+                    page, view.url.orEmpty(), true, NavigationKind.FormResubmit(fromHistory = false), false,
                 )
                 // Core loads the page again with GET when it refuses.
                 if (decide(navigation) is NavigationDecision.Allow) resend.sendToTarget() else dontResend.sendToTarget()
@@ -469,7 +465,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             // navigation reaches Core from the popup like any other.
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
-                val request = NewWindowRequest(page, BLANK, null, NavigationKind.Unknown, isUserGesture, null, null, null)
+                val request = NewWindowRequest(page, BLANK, NavigationKind.Unknown, isUserGesture, null, null, null)
                 return when (val decision = runCatching { listener()?.newWindow(request) }.getOrNull()) {
                     is NewWindowDecision.Popup -> {
                         transport.webView = openPopup(decision.browser, this@Tab).webView
@@ -618,8 +614,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         /** WebView's main-frame error, in Core's terms. Chromium's net error
          * name is more precise than the code for a few, so it is read first.
          * ERR_CACHE_MISS (back or forward to a form result WebView will not
-         * resend) is `Other`: the notice's Retry reloads it, which asks
-         * onFormResubmission, and Core opens it again with GET. */
+         * resend) is `Other`: the notice's Reopen loads its address again
+         * with GET. */
         private fun failure(code: Int, detail: String): LoadFailure = when {
             "ERR_ABORTED" in detail -> LoadFailure.CANCELLED
             "ERR_INTERNET_DISCONNECTED" in detail -> LoadFailure.OFFLINE

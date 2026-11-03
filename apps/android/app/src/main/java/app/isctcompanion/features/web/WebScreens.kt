@@ -268,14 +268,12 @@ private fun PageFiles(host: SchoolBrowserHost) {
     }
 }
 
-/** What the line over the page says when Core's sign-in of the view stopped,
- * or ended with something to say. */
+/** What the line over the page says when Core's sign-in of the view stopped. */
 private fun problemText(problem: SchoolWebProblem): String = when (problem) {
     SchoolWebProblem.UNREACHABLE -> "web.signIn.unreachable"
     SchoolWebProblem.REJECTED -> "web.signIn.rejected"
     SchoolWebProblem.STORAGE -> "web.signIn.storage"
     SchoolWebProblem.STILL_SIGN_IN -> "web.signIn.stillSignIn"
-    SchoolWebProblem.SUBMISSION_UNCONFIRMED -> "web.signIn.submissionUnconfirmed"
 }
 
 @Composable

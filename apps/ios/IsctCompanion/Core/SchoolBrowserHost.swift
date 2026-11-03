@@ -11,7 +11,7 @@ import WebKit
 /// views, and keeps no rules of its own. Port methods arrive on Core workers
 /// and only enqueue main-thread work.
 ///
-/// - Navigation: `decidePolicyFor` reports URL, method, frame and navigation
+/// - Navigation: `decidePolicyFor` reports URL, frame and navigation
 ///   type (`.formResubmitted` with whether it travels through history) and
 ///   applies Allow / External / Deny / SkipEntry.
 /// - Popups: `createWebViewWith` returns a web view built from WebKit's own
@@ -57,7 +57,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     // MARK: NativeBrowser (Core worker threads)
 
     func capabilities() -> HostCapabilities {
-        HostCapabilities(formResubmission: true, inlinePopups: true)
+        HostCapabilities(inlinePopups: true)
     }
 
     func attach(events: BrowserEvents) throws {
@@ -254,9 +254,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
                 return
             }
             webView.load(URLRequest(url: url))
-        case .reload:
-            // A page that would resend a form asks again as `.formResubmitted`.
-            webView.reload()
         case .goBack:
             webView.goBack()
         case .goForward:
@@ -391,8 +388,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // which an App Store build does not call; Core counts links and forms
         // as the person's.
         return NavigationRequest(
-            page: page.page, url: url, method: action.request.httpMethod, mainFrame: mainFrame, kind: kind,
-            userGesture: false)
+            page: page.page, url: url, mainFrame: mainFrame, kind: kind, userGesture: false)
     }
 
     @MainActor fileprivate func decide(_ page: SchoolPage, _ action: WKNavigationAction) -> WKNavigationActionPolicy {
@@ -425,7 +421,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     ) -> WKWebView? {
         guard let facts = facts(opener, action), let listener = listener() else { return nil }
         let request = NewWindowRequest(
-            opener: opener.page, url: facts.url, method: facts.method, kind: facts.kind,
+            opener: opener.page, url: facts.url, kind: facts.kind,
             userGesture: facts.userGesture, name: nil, width: features.width?.doubleValue,
             height: features.height?.doubleValue)
         guard let decision = try? listener.newWindow(request: request) else { return nil }

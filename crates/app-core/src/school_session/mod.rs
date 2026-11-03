@@ -19,8 +19,10 @@
 //! operation the person started (`seed`, the one exit): only a verified
 //! generation, only while the account is usable. Core never reads them back,
 //! and a session someone signs in to by hand on a web page stays the web
-//! page's. Signing an account out clears its websites only, in a fixed order
-//! (`clear_web_of`).
+//! page's. Signing either account out clears every school website of the
+//! web view, both accounts' alike, in a fixed order (`clear_web`): the
+//! account still signed in has its identity written again by its next web
+//! operation, which opens a new view.
 //!
 //! Every change of an account goes through its owner (`owner`): permits
 //! stamped with the account generation, and the barrier that signing out
@@ -39,7 +41,7 @@ mod web;
 pub(crate) use identity::Ended;
 pub(crate) use owner::Permit;
 pub(crate) use site::{Attempt, OpError, Operation, RunError, Site};
-pub use web::{WebClear, WebCookie, WebCookieSeed};
+pub use web::{is_school_domain, WebCookie, WebCookieSeed};
 
 use self::{
     identity::{Checked, Identity},
@@ -182,10 +184,6 @@ pub struct SchoolProfileSession {
     pub retry_at: Option<DateTime<Utc>>,
     /// The account's site (LMS, 教務Web) is paused for maintenance.
     pub maintenance: Option<SchoolMaintenance>,
-    /// The account was signed out, and its school web sign-in is still in
-    /// the web view: the platform cannot clear one account's websites alone.
-    /// `clear_web` clears both accounts'.
-    pub web_kept: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -379,8 +377,6 @@ struct Inner {
     web: WebQueue,
     /// The web views a sign-out stops (the school browser engine).
     views: Mutex<Option<Weak<dyn AccountViews>>>,
-    /// Per account (Science, Tokyo Tech): `SchoolProfileSession::web_kept`.
-    web_kept: Mutex<[bool; 2]>,
     tasks: RuntimeTasks,
     revision: AtomicU64,
     published: Mutex<Option<SchoolSessionProfiles>>,
@@ -516,7 +512,6 @@ impl SchoolSessions {
             ],
             web: WebQueue::default(),
             views: Mutex::new(None),
-            web_kept: Mutex::new([false; 2]),
             tasks: RuntimeTasks::default(),
             revision: AtomicU64::new(1),
             published: Mutex::new(None),
@@ -632,9 +627,9 @@ impl SchoolSessions {
     /// behind the account barrier: admission closes, its sign-in and reads
     /// are stopped and waited for (a Connect the school already accepted
     /// included, until its vault write landed), and only then do the
-    /// credentials, Core's cookies, the LMS token and the school cookies of
-    /// the web view go. Returns whether the credentials were deleted; the
-    /// rest is cleaned up either way.
+    /// credentials, Core's cookies, the LMS token and every school website
+    /// of the web view (both accounts', `clear_web`) go. Returns whether the
+    /// credentials were deleted; the rest is cleaned up either way.
     pub async fn sign_out(&self, profile: SchoolAuthProfile) -> Result<bool, SchoolAuthError> {
         let (closed, deleted) = self.0.close(profile, true, true).await;
         drop(closed);
@@ -665,7 +660,7 @@ impl SchoolSessions {
             deleted = deleted.and(forgotten);
         }
         if web {
-            self.0.clear_web_of(&PROFILES).await;
+            self.0.clear_web().await;
         }
         for account in &self.0.accounts {
             account
@@ -676,15 +671,6 @@ impl SchoolSessions {
         log::info!(target: "app_core::school_session", "sessions reset");
         self.0.publish();
         deleted
-    }
-
-    /// Clears both accounts' school websites from the web view, the
-    /// person's choice where the platform cannot clear one account's alone
-    /// (`SchoolProfileSession::web_kept`). Core's identities stay: only the
-    /// web sessions go.
-    pub async fn clear_web(&self) {
-        self.0.clear_web_of(&PROFILES).await;
-        self.0.publish();
     }
 
     /// The shell's periodic wake: a pause that has run out goes, and shells
@@ -852,7 +838,6 @@ impl Inner {
             problem,
             retry_at,
             maintenance: self.maintenance(account),
-            web_kept: guard(&self.web_kept)[slot(profile)],
         }
     }
 
@@ -973,8 +958,9 @@ impl Inner {
     /// sign-in and reads and waits for every operation of it (writes run on
     /// to their end), and only then, still closed, deletes, in order: the credentials (with `credentials`), Core's
     /// identity and sites, the LMS token, the saved session and (with
-    /// `web`) the web view's school websites. It reopens, one generation
-    /// on, when the guard drops. The result is the credentials' deletion.
+    /// `web`) every school website of the web view. It reopens, one
+    /// generation on, when the guard drops. The result is the credentials'
+    /// deletion.
     async fn close(
         &self,
         profile: SchoolAuthProfile,
@@ -982,9 +968,10 @@ impl Inner {
         credentials: bool,
     ) -> (owner::Closed<'_>, Result<(), SchoolAuthError>) {
         let account = self.account(profile);
-        // No write of this account is admitted from here on.
+        // No web write is admitted from here on: the clear covers both
+        // accounts.
         if web {
-            self.web.close_admission(&[profile]);
+            self.web.close_admission(&PROFILES);
         }
         let closed = account.owner.close().await;
         account.identity.cancel_flight();
@@ -1017,50 +1004,33 @@ impl Inner {
             )),
         };
         if web {
-            self.clear_web_of(&[profile]).await;
+            self.clear_web().await;
         }
         (closed, forgotten)
     }
 
-    /// Clears the school websites of `profiles` from the web view, in order:
-    /// close their admission, stop their views, let the writes already
-    /// handed to the platform end (the queue runs them first), clear, and
-    /// wait for the platform's confirmation, after which the store moves one
-    /// generation on. The caller waits at most `WEB_STORE_LIMIT`; a clear
+    /// Clears every school website from the web view, both accounts', in
+    /// order: close both accounts' admission, stop both accounts' views, let
+    /// the writes already handed to the platform end (the queue runs them
+    /// first), clear, and wait for the platform's confirmation, after which
+    /// the store moves one generation on: a web operation begun before it
+    /// stops, and the account still signed in has its identity written by
+    /// its next one. The caller waits at most `WEB_STORE_LIMIT`; a clear
     /// still queued then runs once the store answers, and the queue admits
-    /// no write meanwhile. One account alone on a platform that cannot
-    /// clear by site is not cleared: the person is told (`web_kept`) and
-    /// chooses `clear_web`.
-    async fn clear_web_of(&self, profiles: &[SchoolAuthProfile]) {
+    /// no write meanwhile.
+    async fn clear_web(&self) {
         if !self.web.attached() {
             return;
         }
-        self.web.close_admission(profiles);
+        self.web.close_admission(&PROFILES);
         let views = guard(&self.views).as_ref().and_then(Weak::upgrade);
         if let Some(views) = views {
-            views.stop(profiles);
+            views.stop(&PROFILES);
         }
-        let scope = match profiles {
-            [profile] if !self.web.clears_by_site() => {
-                log::info!(target: "app_core::school_session", "web sign-in kept profile={profile:?}: the platform clears only every school site");
-                guard(&self.web_kept)[slot(*profile)] = true;
-                return;
-            }
-            [profile] => WebClear::account(*profile),
-            _ => WebClear::AllSchool,
-        };
-        let wait = self.web.clear(&self.tasks, scope);
+        let wait = self.web.clear(&self.tasks);
         match tokio::time::timeout(WEB_STORE_LIMIT, wait).await {
             Ok(Ok(Ok(()))) => {
-                let mut kept = guard(&self.web_kept);
-                if profiles.len() == PROFILES.len() {
-                    *kept = [false; 2];
-                } else {
-                    for profile in profiles {
-                        kept[slot(*profile)] = false;
-                    }
-                }
-                log::info!(target: "app_core::school_session", "school websites cleared profiles={profiles:?}");
+                log::info!(target: "app_core::school_session", "school websites cleared");
             }
             Ok(Ok(Err(error))) => {
                 log::warn!(target: "app_core::school_session", "school websites not cleared: {error}");

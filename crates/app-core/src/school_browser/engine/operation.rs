@@ -7,6 +7,10 @@
 //! that moves to the sign-in page by itself start nothing, and nothing
 //! watches a page once its operation ended.
 //!
+//! A Reload's operation, like the App's Reload anywhere else, opens the last
+//! school page of the visit with a GET (`Visit`), on every platform: no
+//! form is ever sent again.
+//!
 //! An operation carries its id, its view (or the popup in front, for a
 //! Reload), the account and storage generations it began in, and one
 //! deadline. A new navigation of the view, closing it, or a sign-out or
@@ -26,26 +30,14 @@ use crate::school_session::{
 use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 
-/// How a view's or popup's pages were reached, and the last one of the
-/// visit that is safe to open again.
+/// The last page of a view's or popup's visit that the App's Reload opens
+/// again.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Visit {
-    /// The method of the last main-frame navigation allowed; `Unknown` when
-    /// the host does not say (Android).
-    request: Method,
-    /// A form went out (a POST off the identity provider) since the last
-    /// page arrived.
-    submitted: bool,
-    /// The last school page reached with a GET, in restore-record form.
-    safe: Option<Url>,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-enum Method {
-    Get,
-    Post,
-    #[default]
-    Unknown,
+    /// The last school page that arrived, however it was reached, in
+    /// restore-record form. Reload opens it with a GET, so a page a form
+    /// produced is reopened by its address and the form is never sent again.
+    last: Option<Url>,
 }
 
 fn on_provider(url: &Url) -> bool {
@@ -55,31 +47,26 @@ fn on_provider(url: &Url) -> bool {
 }
 
 impl Visit {
-    /// A main-frame navigation the rule table allowed.
-    pub(super) fn request(&mut self, request: &NavigationRequest) {
-        self.request = match request.method.as_deref() {
-            Some(method) if method.eq_ignore_ascii_case("GET") => Method::Get,
-            Some(_) => Method::Post,
-            None => Method::Unknown,
-        };
-        if self.request == Method::Post && !on_provider(&request.url) {
-            self.submitted = true;
-        }
-    }
-
-    /// A page arrived. The identity provider's pages and sign-in routes
-    /// leave the visit as it was.
+    /// A main-frame page arrived. The identity provider's pages and sign-in
+    /// routes leave the visit as it was.
     pub(super) fn arrived(&mut self, url: &Url) {
         if on_provider(url) || is_login_url(url) {
             return;
         }
-        self.submitted = false;
-        if self.request == Method::Get {
-            if let Some(safe) = restore_record(url.as_str()).and_then(|safe| Url::parse(&safe).ok())
-            {
-                self.safe = Some(safe);
-            }
+        if let Some(last) = restore_record(url.as_str()).and_then(|last| Url::parse(&last).ok()) {
+            self.last = Some(last);
         }
+    }
+
+    /// Where the App's Reload opens: the last page recorded. While none is
+    /// (the view opened on the sign-in page, or only on pages the restore
+    /// record does not keep), it is `site`'s start page: the one address
+    /// known to open with a GET, where the engine's own reload might send a
+    /// form again.
+    pub(super) fn reopen(&self, site: SchoolSite) -> Option<Url> {
+        self.last
+            .clone()
+            .or_else(|| Url::parse(site.start_url()).ok())
     }
 }
 
@@ -131,16 +118,9 @@ impl WebOp {
 pub(super) enum Start {
     /// An App link to this target.
     Go(Url),
-    /// The App's Reload on a sign-in page.
+    /// The App's Reload on a sign-in page: it opens the visit's last page
+    /// (`Visit::reopen`).
     Reload,
-}
-
-/// Where an operation opens once the identity is written.
-enum Reopen {
-    Target(Url),
-    /// The page itself, again: the host does not report methods, so a page
-    /// of unknown origin is not replaced by another one.
-    Current,
 }
 
 struct Plan {
@@ -151,13 +131,12 @@ struct Plan {
     account: u64,
     storage: u64,
     deadline: Instant,
-    reopen: Reopen,
+    /// Where it opens, with a GET, once the identity is written.
+    target: Url,
     /// The person's Reload on the sign-in page: it may go through a pause
     /// after a failure, and it stops at once when the identity cannot be
     /// made ready.
     reload: bool,
-    /// The sign-in page came from a form the person sent.
-    submitted: bool,
 }
 
 fn problem(stop: WebStop) -> Option<SchoolWebProblem> {
@@ -188,21 +167,15 @@ impl Inner {
         // while the identity needs the school.
         let covering = reload || self.sessions.fresh(profile).is_none();
         let planned = self.state.with(|state| {
-            let visit = state.visit(browser).cloned().unwrap_or_default();
-            let view = state.views.get_mut(&site)?;
-            let (reopen, submitted) = match start {
-                Start::Go(url) => (Reopen::Target(url), false),
-                Start::Reload if visit.request == Method::Unknown => (Reopen::Current, false),
-                Start::Reload => (
-                    Reopen::Target(
-                        visit
-                            .safe
-                            .clone()
-                            .or_else(|| Url::parse(site.start_url()).ok())?,
-                    ),
-                    visit.submitted,
-                ),
+            let target = match start {
+                Start::Go(url) => url,
+                Start::Reload => state
+                    .visit(browser)
+                    .cloned()
+                    .unwrap_or_default()
+                    .reopen(site)?,
             };
+            let view = state.views.get_mut(&site)?;
             view.problem = None;
             let previous = view.op.replace(WebOp {
                 id,
@@ -212,9 +185,9 @@ impl Inner {
                 landed,
                 covering,
             });
-            Some((reopen, submitted, previous))
+            Some((target, previous))
         });
-        let Some((reopen, submitted, previous)) = planned else {
+        let Some((target, previous)) = planned else {
             return;
         };
         if let Some(previous) = previous {
@@ -229,9 +202,8 @@ impl Inner {
             account: self.sessions.account_generation(profile),
             storage: self.sessions.web_storage(),
             deadline: Instant::now() + WEB_OPERATION_DEADLINE,
-            reopen,
+            target,
             reload,
-            submitted,
         };
         self.sync_cover(site);
         self.publish_page(site);
@@ -325,12 +297,7 @@ impl Inner {
         }
         self.open_target(plan)?;
         match landed.recv().await.unwrap_or(Landing::Failed) {
-            Landing::Arrived => {
-                return plan
-                    .submitted
-                    .then_some(SchoolWebProblem::SubmissionUnconfirmed)
-            }
-            Landing::Failed => return None,
+            Landing::Arrived | Landing::Failed => return None,
             Landing::SignIn => {}
         }
         // ④ The page asks for a sign-in although the identity was written.
@@ -362,11 +329,8 @@ impl Inner {
         }
         self.open_target(plan)?;
         match landed.recv().await.unwrap_or(Landing::Failed) {
-            Landing::Arrived => plan
-                .submitted
-                .then_some(SchoolWebProblem::SubmissionUnconfirmed),
             Landing::SignIn => Some(SchoolWebProblem::StillSignIn),
-            Landing::Failed => None,
+            Landing::Arrived | Landing::Failed => None,
         }
     }
 
@@ -422,10 +386,7 @@ impl Inner {
     }
 
     fn open_target(&self, plan: &Plan) -> Option<()> {
-        let url = match &plan.reopen {
-            Reopen::Target(url) => url.clone(),
-            Reopen::Current => self.browser.current_url(plan.browser).ok()??,
-        };
+        let url = plan.target.clone();
         log::info!(target: "app_core::school_browser", "web operation {} opens host={}", plan.id, url.host_str().unwrap_or("-"));
         let action = self
             .dispatch_for(plan.browser, BrowserAction::Navigate(url), Some(plan.id))

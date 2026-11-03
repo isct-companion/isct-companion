@@ -267,7 +267,6 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 model.syncSource("kyomu")?.lastUpdated,
             ) { open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech)) }
         }
-        SchoolWebSignIns()
         Card(Modifier.padding(top = 16.dp)) {
             NavRow(
                 t("common.notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
@@ -566,48 +565,6 @@ private fun SessionStatus(
             maintenance?.let {
                 Text(AppModel.maintenanceText(profile, it), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.warn)
             }
-        }
-    }
-}
-
-/** Clears every school web sign-in, both accounts', from the web views.
- * WebView cannot clear one account's websites, so signing an account out
- * leaves its web sign-in on disk until the person clears both here. Core
- * knows that (`webKept`) only until the app quits, so the button is always
- * offered, even with no account saved; `webKept` only adds the reminder. */
-@Composable
-private fun SchoolWebSignIns() {
-    val model = LocalModel.current
-    val scope = rememberCoroutineScope()
-    var clearing by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val kept = model.sessions?.science?.webKept == true || model.sessions?.tokyoTech?.webKept == true
-    Card(Modifier.padding(top = 8.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (kept) {
-                Text(t("settings.schoolAccounts.webKept"), color = Theme.colors.ink)
-            } else {
-                Text(t("settings.schoolAccounts.clearAllWebDetail"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-            }
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        clearing = true
-                        error = null
-                        try {
-                            model.clearSchoolWeb()
-                        } catch (failure: Exception) {
-                            error = AppModel.describe(failure)
-                        }
-                        clearing = false
-                    }
-                },
-                enabled = !clearing,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(t("settings.schoolAccounts.clearAllWeb"))
-            }
-            error?.let { Text(it, color = Theme.colors.danger) }
         }
     }
 }

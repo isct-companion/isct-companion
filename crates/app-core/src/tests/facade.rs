@@ -306,7 +306,6 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         problem: None,
         retry_at: None,
         maintenance,
-        web_kept: false,
     };
     relay
         .emit(CoreEvent::SchoolSession(SchoolSessionSnapshot {

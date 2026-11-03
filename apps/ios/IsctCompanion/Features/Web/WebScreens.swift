@@ -383,7 +383,6 @@ private struct PageBars: View {
         case .rejected: "web.signIn.rejected"
         case .storage: "web.signIn.storage"
         case .stillSignIn: "web.signIn.stillSignIn"
-        case .submissionUnconfirmed: "web.signIn.submissionUnconfirmed"
         }
     }
 

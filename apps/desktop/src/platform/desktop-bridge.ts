@@ -153,9 +153,6 @@ export type SchoolProfileSession = {
   /** RFC 3339; only with `unavailable`. */
   retryAt: string | null;
   maintenance: SchoolMaintenance | null;
-  /** Signed out, with its web sign-in still in the web view: a platform
-   * that cannot clear one account's websites (Android). */
-  webKept: boolean;
 };
 /** Both accounts' sessions; every event carries the whole snapshot, and the
  * higher `revision` wins. */
@@ -297,8 +294,7 @@ export type SchoolWebNotice = {
   url: string;
 };
 
-/** Why Core's sign-in of a school view stopped, or what it has to say about
- * where it ended. */
+/** Why Core's sign-in of a school view stopped. */
 export type SchoolWebProblem =
   /** The school could not be reached; no password was sent. */
   | "unreachable"
@@ -307,10 +303,7 @@ export type SchoolWebProblem =
   /** The sign-in could not be written into the web view. */
   | "storage"
   /** The page still asks for a sign-in. */
-  | "still-sign-in"
-  /** A safe page opened instead of a form's result; whether the form was
-   * received is unknown. */
-  | "submission-unconfirmed";
+  | "still-sign-in";
 
 /** Core is signing the view in (the view is covered; the person may cancel),
  * or what its last sign-in left to say, until the view shows another page. */

@@ -246,7 +246,6 @@ final class WebRouter {
             case "unreachable": problem = .unreachable
             case "rejected": problem = .rejected
             case "storage": problem = .storage
-            case "submission-unconfirmed": problem = .submissionUnconfirmed
             default: problem = .stillSignIn
             }
             return .problem(problem: problem)

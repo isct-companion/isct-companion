@@ -223,18 +223,18 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
                 "unreachable" -> SchoolWebProblem.UNREACHABLE
                 "rejected" -> SchoolWebProblem.REJECTED
                 "storage" -> SchoolWebProblem.STORAGE
-                "submission-unconfirmed" -> SchoolWebProblem.SUBMISSION_UNCONFIRMED
                 else -> SchoolWebProblem.STILL_SIGN_IN
             },
         )
         else -> null
     }
 
-    /** The notice's Reopen: the engine's reload of the failed entry, which
-     * clears the failure in Core. A form result WebView would not show again
-     * asks onFormResubmission, and Core opens it with GET. */
+    /** The notice's Reopen: loads the page that failed again with GET, in the
+     * page the person sees, as on iOS; a form result is opened by its address,
+     * never sent again. The notice stays until Core hears how it went. */
     fun retry(site: SchoolSite) {
-        reload(site)
+        val url = pages[site]?.notice?.url ?: return
+        browser.front(site)?.loadUrl(url)
     }
 
     /** The close bar over a popup; Core hears it closed and closes its own. */
