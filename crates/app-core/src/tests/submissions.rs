@@ -14,7 +14,6 @@ use std::{
 };
 
 const ASSIGNMENT: &str = "lms-assignment:77";
-const ACCOUNT: &str = "science:24b00001";
 
 /// The LMS behind the port: one assignment and its submission, applied the
 /// way Moodle applies writes (a save replaces the whole file area and moves
@@ -212,7 +211,6 @@ impl Fixture {
         let lms = FakeLms(Arc::new(Lms {
             state: Mutex::new(LmsState {
                 identity: LmsIdentity {
-                    account: ACCOUNT.into(),
                     site: "https://lms.s.isct.ac.jp/2025".into(),
                     user_id: 9001,
                 },
@@ -592,40 +590,6 @@ async fn a_remote_change_after_prepare_is_a_conflict() {
     assert_eq!(fixture.calls(), (0, 0, 0));
 }
 
-// The account signed in changes between prepare and execute: the write was
-// confirmed for the other student, so it is refused. A write left unknown
-// is never settled from another account's LMS, however long it waits.
-#[tokio::test]
-async fn an_account_switch_after_prepare_is_refused() {
-    let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
-    let service = fixture.service();
-    let prepared = service
-        .prepare(ASSIGNMENT, SubmissionAction::Save)
-        .await
-        .unwrap();
-    fixture.lms().identity.account = "science:24b00002".into();
-    assert!(matches!(
-        service.execute(fixture.confirm(&prepared)).await,
-        Err(SubmissionError::AccountChanged)
-    ));
-    assert_eq!(fixture.calls(), (0, 0, 0));
-
-    fixture.lms().identity.account = ACCOUNT.into();
-    fixture.lms().save = SaveOutcome::LostBeforeApplying;
-    let unknown = service.execute(fixture.confirm(&prepared)).await.unwrap();
-    assert_eq!(unknown.state, OperationState::OutcomeUnknown);
-    fixture.lms().identity.account = "science:24b00002".into();
-    fixture.advance(SETTLE_AFTER);
-    assert_eq!(service.reconcile().await.unwrap(), 0);
-    fixture.lms().identity.account = ACCOUNT.into();
-    assert_eq!(service.reconcile().await.unwrap(), 1);
-    assert_eq!(
-        service.status(&unknown.id).await.unwrap().state,
-        OperationState::Failed
-    );
-}
-
 // While one write is on its way, a write of other content to the same
 // assignment is refused. Cancelling the one on its way does not claim to
 // undo it: its save was sent, and it runs to its end.
@@ -748,6 +712,83 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
         Some(ErrorCode::Timeout)
     );
     assert_eq!(fixture.calls(), (0, 0, 0));
+}
+
+/// A ledger of schema 1 in `data`, with a record of each kind and a
+/// snapshot, as an earlier release left it. Schema 1 kept the account on
+/// each write; a value it cannot parse now would fail any read of it.
+fn schema_one(data: &std::path::Path) {
+    let blobs = data.join("submissions");
+    std::fs::create_dir_all(&blobs).unwrap();
+    std::fs::write(blobs.join("0a1b2c"), b"%PDF-1 old").unwrap();
+    rusqlite::Connection::open(data.join("submissions.db"))
+        .unwrap()
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE preparations (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL);
+             CREATE TABLE operations (id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL, account TEXT NOT NULL,
+               site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
+               state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL);
+             CREATE INDEX operations_by_assignment ON operations(account, site, assign_id);
+             INSERT INTO preparations VALUES ('old', 4102444800, '{}');
+             INSERT INTO operations VALUES ('old', 'old', 'science:24b00001',
+               'https://lms.s.isct.ac.jp/2025', 77, 'k', 'saving', 1, '{}');
+             PRAGMA user_version=1;",
+        )
+        .unwrap();
+}
+
+// An upgrade from a ledger of an older schema starts empty instead of
+// leaving the service off: its records and the snapshots they named are
+// gone, and nothing of them is read. A newer schema is refused.
+#[tokio::test]
+async fn an_older_ledger_is_rebuilt_empty() {
+    let fixture = Fixture::new();
+    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
+    let blobs = data.join("submissions");
+    schema_one(&data);
+
+    let service = fixture.service();
+    assert!(service.ledger.unsettled(None).unwrap().is_empty());
+    assert!(service.ledger.preparation("old").unwrap().is_none());
+    assert!(!blobs.join("0a1b2c").exists());
+    fixture.put("report.pdf", b"%PDF-1 report");
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    assert!(service.ledger.intact(&prepared.files));
+    drop(service);
+
+    rusqlite::Connection::open(data.join("submissions.db"))
+        .unwrap()
+        .pragma_update(None, "user_version", 3)
+        .unwrap();
+    assert!(Ledger::open(&data).is_err());
+}
+
+// Two processes share the data folder (a dev build and the app) and both
+// find schema 1. The first upgrades and records a write; the second, whose
+// look at the version came before that, upgrades after it and finds the
+// new version under the lock: what the first recorded, its snapshot
+// included, stays.
+#[tokio::test]
+async fn a_second_upgrade_keeps_what_the_first_recorded_since() {
+    let fixture = Fixture::new();
+    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
+    schema_one(&data);
+    let mut late = ledger::connect(&data.join("submissions.db")).unwrap();
+    assert_eq!(ledger::version(&late).unwrap(), 1);
+
+    let service = fixture.service();
+    fixture.put("report.pdf", b"%PDF-1 report");
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    ledger::upgrade(&mut late, &data.join("submissions")).unwrap();
+    assert!(service.ledger.preparation(&prepared.id).unwrap().is_some());
+    assert!(service.ledger.intact(&prepared.files));
 }
 
 // The person's switch gates the write path itself: off, nothing is sent;

@@ -1,7 +1,7 @@
 //! Windows interim school-view host, until a WebView2 host takes the
 //! engine's own events. wry passes only a URL, so every request reaches Core
-//! as `NavigationKind::Unknown` with no method or gesture, and Core reloads
-//! with a GET (`HostCapabilities`). Popups are small separate windows Tauri
+//! as `NavigationKind::Unknown` with no gesture; the App's Reload is a GET of
+//! the last page here as everywhere. Popups are small separate windows Tauri
 //! creates in the opener's WebView2 environment (`NewWindowResponse::Create`),
 //! so `window.opener` and a posted form survive.
 //!
@@ -52,7 +52,6 @@ fn allowed(native: &Weak<NativeBrowser>, view: BrowserId, url: &Url) -> bool {
     match listener.decide_navigation(NavigationRequest {
         page,
         url: url.clone(),
-        method: None,
         main_frame: true,
         kind: NavigationKind::Unknown,
         user_gesture: false,
@@ -87,7 +86,6 @@ fn open(
     let decision = listener.new_window(NewWindowRequest {
         opener: page,
         url: url.clone(),
-        method: None,
         kind: NavigationKind::Unknown,
         user_gesture: false,
         name: None,
@@ -170,7 +168,6 @@ fn popup_window(
 pub(crate) fn popup_command(window: &WebviewWindow, command: BrowserAction) -> Result<(), String> {
     match command {
         BrowserAction::Navigate(url) => window.navigate(url),
-        BrowserAction::Reload => window.reload(),
         BrowserAction::GoBack => window.eval("history.back()"),
         BrowserAction::GoForward => window.eval("history.forward()"),
         BrowserAction::Eval(script) => window.eval(script),

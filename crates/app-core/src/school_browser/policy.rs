@@ -96,6 +96,56 @@ pub fn restore_record(raw: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+/// Query parameters a Reload never sends again: what makes a GET act
+/// (Moodle's `sesskey` and its `confirm`) and what carries a secret (tokens,
+/// tickets, SAML messages). Matched without case.
+const NOT_REOPENED: &[&str] = &[
+    "sesskey",
+    "confirm",
+    "wstoken",
+    "token",
+    "privatetoken",
+    "passport",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "code",
+    "client_secret",
+    "authorization_code",
+    "logintoken",
+    "ticket",
+    "samlrequest",
+    "samlresponse",
+    "relaystate",
+    "password",
+];
+
+/// The address the App's Reload opens again for a page the person visited:
+/// the school page as it was, its fragment and the `NOT_REOPENED`
+/// parameters dropped, so the page (a forum discussion's `d`, a search's
+/// filters) is the same and nothing acts or leaks. Held in memory only;
+/// what reaches the disk is `restore_record`.
+pub(crate) fn reopen_url(raw: &str) -> Option<Url> {
+    let mut url = automation_target(raw)?;
+    url.set_fragment(None);
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(key, _)| {
+            !NOT_REOPENED
+                .iter()
+                .any(|denied| key.eq_ignore_ascii_case(denied))
+        })
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    if kept.len() != url.query_pairs().count() {
+        url.set_query(None);
+        if !kept.is_empty() {
+            url.query_pairs_mut().extend_pairs(kept);
+        }
+    }
+    Some(url)
+}
+
 /// An address the person may type or open: HTTP or HTTPS without embedded
 /// credentials, query and fragment kept. This grants no automation authority
 /// (`automation_target`), and loading it still goes through the rule table.
@@ -185,7 +235,9 @@ pub(crate) enum Verdict {
     Deny(DenyReason),
     /// Cancel a back/forward resubmission and step past its history entry.
     SkipEntry,
-    /// Cancel a reload resubmission and load the same URL with GET.
+    /// Cancel a reload resubmission and load the same URL with GET. Only a
+    /// page's own `location.reload()` or the engine's (iOS reloads a view
+    /// whose content process ended) gets here, never the App's Reload.
     ReloadAsGet,
 }
 

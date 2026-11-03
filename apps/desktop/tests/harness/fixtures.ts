@@ -32,11 +32,11 @@ export function schoolProfiles(
   tokyoTech: SchoolSessionState,
 ): SchoolSessionSnapshot["profiles"] {
   const session = (state: SchoolSessionState) => ({
+    signOutPending: false,
     state,
     problem: null,
     retryAt: null,
     maintenance: null,
-    webKept: false,
   });
   return { science: session(science), tokyoTech: session(tokyoTech) };
 }

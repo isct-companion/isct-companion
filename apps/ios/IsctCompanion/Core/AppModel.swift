@@ -614,14 +614,15 @@ final class AppModel {
         syncHint(.refresh(scope: .everything))
     }
 
-    /// "Save and connect": Core keeps the entered details, signs in with
-    /// them and returns why the school turned them down, if it did.
-    func connect(_ profile: SchoolAuthProfile, _ credentials: SchoolCredentials) async throws -> SchoolConnectResult? {
+    /// "Save and connect": Core signs in with the entered details and keeps
+    /// them only when the school accepted them (`.connected`); any other
+    /// outcome saved nothing.
+    func connect(_ profile: SchoolAuthProfile, _ credentials: SchoolCredentials) async throws -> SchoolConnectOutcome? {
         guard let session else { return nil }
         let value = try await session.connectSchool(profile: profile, credentials: credentials).value()
         await refreshAccounts()
-        guard case let .schoolConnect(result) = value else { return nil }
-        return result
+        guard case let .schoolConnect(outcome) = value else { return nil }
+        return outcome
     }
 
     /// Retry: Core reads the synced credentials again and makes one sign-in
@@ -706,9 +707,16 @@ final class AppModel {
 
     /// Returns once Core has stopped the account's reads and removed its
     /// sign-in, the web views' school cookies included.
-    func deleteCredentials(_ profile: SchoolAuthProfile) async {
+    /// Throws when signing out did not finish: the account stays saved, and
+    /// signing out again redoes every step.
+    func deleteCredentials(_ profile: SchoolAuthProfile) async throws {
         guard let session else { return }
-        _ = try? await session.deleteCredentials(profile: profile).value()
+        do {
+            _ = try await session.deleteCredentials(profile: profile).value()
+        } catch {
+            await refreshAccounts()
+            throw error
+        }
         await refreshAccounts()
     }
 

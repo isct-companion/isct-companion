@@ -8,10 +8,19 @@
 //! losing a pending record would lift the single-flight guard and let a
 //! write whose outcome is unknown be sent again. Not a JSON file like the
 //! reminder log: a dev build and the app can share one data folder, and
-//! only SQLite's lock makes "one write per account and assignment" hold
+//! only SQLite's lock makes "one write per assignment" hold
 //! across processes. Every statement commits on its own, so no write
 //! transaction is ever held across a network wait. Snapshots live in
 //! `submissions/` beside it, named by their sha256.
+//!
+//! The single-flight guard holds within one schema version. A ledger of an
+//! older version starts empty, its snapshots gone: the person confirms their
+//! hand-ins before upgrading, and nothing of the old records is recovered or
+//! read. The upgrade runs in one exclusive transaction that reads the
+//! version again, so of two processes that both saw the old one, only the
+//! first rebuilds and cleans the snapshots, and the second finds the new
+//! version and leaves what the first recorded since. A newer version is
+//! refused.
 use super::{
     LmsIdentity, Operation, OperationState, Preparation, RemoteState, SnapshotFile,
     SubmissionError, UploadFile, RECEIPT_RETENTION,
@@ -29,7 +38,7 @@ use std::{
 
 const FILE: &str = "submissions.db";
 const BLOBS: &str = "submissions";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 /// A partial snapshot copy this old was left by a crash.
 const STALE_PARTIAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
@@ -38,11 +47,11 @@ CREATE TABLE IF NOT EXISTS preparations (
   id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
-  id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL, account TEXT NOT NULL,
+  id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL,
   site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
   state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS operations_by_assignment ON operations(account, site, assign_id);
+CREATE INDEX IF NOT EXISTS operations_by_assignment ON operations(site, assign_id);
 CREATE INDEX IF NOT EXISTS operations_by_key ON operations(key);
 CREATE INDEX IF NOT EXISTS operations_by_preparation ON operations(preparation_id);
 "#;
@@ -52,7 +61,7 @@ const SETTLED: &str = "('succeeded','failed')";
 
 pub(super) enum Claim {
     Claimed,
-    /// A write for the same account and assignment is not settled yet.
+    /// A write for the same assignment is not settled yet.
     Busy(Box<Operation>),
 }
 
@@ -63,25 +72,14 @@ pub(super) struct Ledger {
 
 impl Ledger {
     pub(super) fn open(directory: &Path) -> Result<Self, SubmissionError> {
-        let connection = Connection::open(directory.join(FILE))?;
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
-        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
-        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        match version {
-            0 => {
-                connection.execute_batch(SCHEMA)?;
-                connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-            }
-            SCHEMA_VERSION => {}
-            other => {
-                return Err(SubmissionError::Storage(format!(
-                    "{FILE} schema {other} is not supported"
-                )))
-            }
+        let blobs = directory.join(BLOBS);
+        let mut connection = connect(&directory.join(FILE))?;
+        if version(&connection)? != SCHEMA_VERSION {
+            upgrade(&mut connection, &blobs)?;
         }
         Ok(Self {
             connection: Mutex::new(connection),
-            blobs: directory.join(BLOBS),
+            blobs,
         })
     }
 
@@ -120,23 +118,19 @@ impl Ledger {
         Ok(())
     }
 
-    /// Records `operation` unless a write for its account and assignment is
-    /// not settled yet, in one IMMEDIATE transaction: the check and the
-    /// insert cannot interleave with another process's.
+    /// Records `operation` unless a write for its assignment is not settled
+    /// yet, in one IMMEDIATE transaction: the check and the insert cannot
+    /// interleave with another process's.
     pub(super) fn claim(&self, operation: &Operation) -> Result<Claim, SubmissionError> {
         let mut connection = self.lock()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut busy = operations(
             &transaction,
             &format!(
-                "SELECT value FROM operations WHERE account=?1 AND site=?2 AND assign_id=?3
+                "SELECT value FROM operations WHERE site=?1 AND assign_id=?2
                  AND state NOT IN {SETTLED} ORDER BY rowid"
             ),
-            params![
-                operation.identity.account,
-                operation.identity.site,
-                operation.assign_id as i64
-            ],
+            params![operation.identity.site, operation.assign_id as i64],
         )?;
         if !busy.is_empty() {
             // The same write, when it is among them, answers for itself.
@@ -144,12 +138,11 @@ impl Ledger {
             return Ok(Claim::Busy(Box::new(busy.swap_remove(same.unwrap_or(0)))));
         }
         transaction.execute(
-            "INSERT INTO operations (id, preparation_id, account, site, assign_id, key, state, updated_at, value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO operations (id, preparation_id, site, assign_id, key, state, updated_at, value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 operation.id,
                 operation.preparation_id,
-                operation.identity.account,
                 operation.identity.site,
                 operation.assign_id as i64,
                 operation.key,
@@ -221,8 +214,8 @@ impl Ledger {
         .pop())
     }
 
-    /// Writes not settled yet, oldest first; for one account and
-    /// assignment, or all of them.
+    /// Writes not settled yet, oldest first; for one assignment, or all of
+    /// them.
     pub(super) fn unsettled(
         &self,
         assignment: Option<(&LmsIdentity, u64)>,
@@ -232,10 +225,10 @@ impl Ledger {
             Some((identity, assign_id)) => operations(
                 &connection,
                 &format!(
-                    "SELECT value FROM operations WHERE account=?1 AND site=?2 AND assign_id=?3
+                    "SELECT value FROM operations WHERE site=?1 AND assign_id=?2
                      AND state NOT IN {SETTLED} ORDER BY rowid"
                 ),
-                params![identity.account, identity.site, assign_id as i64],
+                params![identity.site, assign_id as i64],
             ),
             None => operations(
                 &connection,
@@ -396,6 +389,52 @@ impl Ledger {
             })
             .collect()
     }
+}
+
+pub(super) fn connect(path: &Path) -> Result<Connection, SubmissionError> {
+    let connection = Connection::open(path)?;
+    connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+    Ok(connection)
+}
+
+pub(super) fn version(connection: &Connection) -> Result<i64, SubmissionError> {
+    Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+}
+
+/// Brings the ledger to `SCHEMA_VERSION` in one exclusive transaction, the
+/// lock every other process's upgrade and write waits for. The version is
+/// read again inside it: another process may have upgraded since this one
+/// looked, and then nothing happens. A new file gets the schema; an older
+/// one loses its tables and, still under the lock, the snapshots only its
+/// records named, before any record of the new schema can exist.
+pub(super) fn upgrade(connection: &mut Connection, blobs: &Path) -> Result<(), SubmissionError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+    match version(&transaction)? {
+        SCHEMA_VERSION => return Ok(()),
+        0 => {}
+        older if older < SCHEMA_VERSION => {
+            transaction.execute_batch(
+                "DROP TABLE IF EXISTS operations; DROP TABLE IF EXISTS preparations;",
+            )?;
+            match fs::remove_dir_all(blobs) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into())
+                }
+                _ => {}
+            }
+            log::info!(target: "app_core::submissions", "{FILE} of schema {older} was rebuilt empty");
+        }
+        newer => {
+            return Err(SubmissionError::Storage(format!(
+                "{FILE} schema {newer} is not supported"
+            )))
+        }
+    }
+    transaction.execute_batch(SCHEMA)?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 /// A file's sha256 and size.

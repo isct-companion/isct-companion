@@ -48,11 +48,10 @@ impl core::SecretVault for Vault {
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum BrowserAction {
+    /// Also the App's Reload, which opens the last page with a GET.
     Navigate {
         url: String,
     },
-    /// The engine's reload; sent only to hosts reporting form resubmission.
-    Reload,
     GoBack,
     GoForward,
     Evaluate {
@@ -96,7 +95,6 @@ impl From<NavigationKind> for browser::NavigationKind {
 pub struct NavigationRequest {
     pub page: PageId,
     pub url: String,
-    pub method: Option<String>,
     pub main_frame: bool,
     pub kind: NavigationKind,
     pub user_gesture: bool,
@@ -107,7 +105,6 @@ pub struct NavigationRequest {
 pub struct NewWindowRequest {
     pub opener: PageId,
     pub url: String,
-    pub method: Option<String>,
     pub kind: NavigationKind,
     pub user_gesture: bool,
     pub name: Option<String>,
@@ -168,8 +165,6 @@ pub enum NewWindowDecision {
 /// What the host reports; Core stands in for the rest.
 #[derive(Clone, Copy, Debug, uniffi::Record)]
 pub struct HostCapabilities {
-    /// Reports `NavigationKind::FormResubmit`.
-    pub form_resubmission: bool,
     /// Shows popups inside the web pane over their opener.
     pub inline_popups: bool,
 }
@@ -261,7 +256,6 @@ impl BrowserEvents {
             .decide_navigation(browser::NavigationRequest {
                 page: project_input(request.page)?,
                 url: parse_url(&request.url)?,
-                method: request.method,
                 main_frame: request.main_frame,
                 kind: request.kind.into(),
                 user_gesture: request.user_gesture,
@@ -281,7 +275,6 @@ impl BrowserEvents {
         let decision = self.listener()?.new_window(browser::NewWindowRequest {
             opener: project_input(request.opener)?,
             url: parse_url(&request.url)?,
-            method: request.method,
             kind: request.kind.into(),
             user_gesture: request.user_gesture,
             name: request.name,
@@ -346,7 +339,6 @@ impl browser::SchoolBrowser for Browser {
     fn capabilities(&self) -> browser::HostCapabilities {
         let capabilities = self.native.capabilities();
         browser::HostCapabilities {
-            form_resubmission: capabilities.form_resubmission,
             inline_popups: capabilities.inline_popups,
         }
     }
@@ -371,7 +363,6 @@ impl browser::SchoolBrowser for Browser {
     fn dispatch(&self, command: browser::BrowserCommand) -> Result<(), browser::BrowserError> {
         let action = match command.command {
             browser::BrowserAction::Navigate(url) => BrowserAction::Navigate { url: url.into() },
-            browser::BrowserAction::Reload => BrowserAction::Reload,
             browser::BrowserAction::GoBack => BrowserAction::GoBack,
             browser::BrowserAction::GoForward => BrowserAction::GoForward,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
@@ -460,41 +451,16 @@ pub struct WebCookie {
     pub set_cookie: String,
 }
 
-/// Which school website data a clear removes: cookies, storage and caches.
-#[derive(Clone, Debug, uniffi::Enum)]
-pub enum WebClearScope {
-    /// One account's websites, under these registrable domains.
-    Domains { domains: Vec<String> },
-    /// Both accounts' websites.
-    AllSchool,
-}
-
-impl WebClearScope {
-    fn of(scope: app_core::school_session::WebClear) -> Self {
-        match scope {
-            app_core::school_session::WebClear::Domains(domains) => Self::Domains { domains },
-            app_core::school_session::WebClear::AllSchool => Self::AllSchool,
-        }
-    }
-
-    fn core(self) -> app_core::school_session::WebClear {
-        match self {
-            Self::Domains { domains } => app_core::school_session::WebClear::Domains(domains),
-            Self::AllSchool => app_core::school_session::WebClear::AllSchool,
-        }
-    }
-}
-
-/// Whether a cookie's or a website data record's domain is one `scope`
-/// removes, for the shell's `NativeWebCookies::clear`.
+/// Whether a cookie's or a website data record's domain is a school
+/// website's, which the shell's `NativeWebCookies::clear` removes.
 #[uniffi::export]
-pub fn web_clear_covers(scope: WebClearScope, domain: String) -> bool {
-    scope.core().covers(&domain)
+pub fn is_school_domain(domain: String) -> bool {
+    app_core::school_session::is_school_domain(&domain)
 }
 
 /// The shell's web cookie store, written only. Core writes an account's
 /// verified identity cookies before it opens a school page for the person
-/// and clears an account's school websites when it goes; it never reads
+/// and clears every school website when an account goes; it never reads
 /// them back. Core runs the calls one at a time, in order, and decides which
 /// writes are stale: a shell answers each call once the platform's
 /// completion callback ran, however long that takes, and never gives up on
@@ -506,11 +472,9 @@ pub trait NativeWebCookies: Send + Sync {
     /// URL (never rebuilt from properties: that loses a Domain's leading
     /// dot).
     async fn write(&self, cookies: Vec<WebCookie>) -> Result<(), SdkError>;
-    /// Removes the website data `scope` covers (`web_clear_covers`).
-    async fn clear(&self, scope: WebClearScope) -> Result<(), SdkError>;
-    /// Whether `clear` can remove one account's websites alone. A platform
-    /// that cannot (Android) is only asked for `AllSchool`.
-    fn clears_by_site(&self) -> bool;
+    /// Removes every school website's data (`is_school_domain`), both
+    /// accounts' alike.
+    async fn clear(&self) -> Result<(), SdkError>;
 }
 
 pub(crate) struct WebCookies(pub Arc<dyn NativeWebCookies>);
@@ -536,20 +500,8 @@ impl app_core::school_session::WebCookieSeed for WebCookies {
         })
     }
 
-    fn clear(
-        &self,
-        scope: app_core::school_session::WebClear,
-    ) -> app_core::net::BoxFuture<'_, Result<(), String>> {
-        Box::pin(async move {
-            self.0
-                .clear(WebClearScope::of(scope))
-                .await
-                .map_err(|error| error.to_string())
-        })
-    }
-
-    fn clears_by_site(&self) -> bool {
-        self.0.clears_by_site()
+    fn clear(&self) -> app_core::net::BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move { self.0.clear().await.map_err(|error| error.to_string()) })
     }
 }
 

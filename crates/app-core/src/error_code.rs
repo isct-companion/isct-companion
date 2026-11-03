@@ -53,6 +53,7 @@ codes! {
     WriteDenied => "write-denied",
     TooLarge => "too-large",
     VaultUnavailable => "vault-unavailable",
+    SignOutIncomplete => "sign-out-incomplete",
     SignInRequired => "sign-in-required",
     SchoolMaintenance => "school-maintenance",
     SchoolSiteChanged => "school-site-changed",
@@ -96,7 +97,6 @@ codes! {
     SubmissionRemoteNotEmpty => "submission-remote-not-empty",
     SubmissionNothingToRemove => "submission-nothing-to-remove",
     SubmissionRemoteConflict => "submission-remote-conflict",
-    SubmissionAccountChanged => "submission-account-changed",
     SubmissionFilesChanged => "submission-files-changed",
     SubmissionConfirmationMismatch => "submission-confirmation-mismatch",
     SubmissionExpired => "submission-expired",
@@ -355,6 +355,7 @@ coded!(SchoolAuthError, |e| match e {
     SchoolAuthError::Vault(e) => e.code(),
     SchoolAuthError::Compatibility(_) => C::Compatibility,
     SchoolAuthError::Storage(_) => C::Storage,
+    SchoolAuthError::SignOutIncomplete(_) => C::SignOutIncomplete,
 });
 coded!(OtpImportError, |e| match e {
     OtpImportError::Invalid => C::OtpImportInvalid,
@@ -365,6 +366,7 @@ coded!(SchoolBrowserError, |e| match e {
     SchoolBrowserError::InvalidInput(_) => C::InvalidInput,
     SchoolBrowserError::Platform(_) => C::Platform,
     SchoolBrowserError::Storage(_) => C::Storage,
+    SchoolBrowserError::SignOutIncomplete => C::SignOutIncomplete,
     SchoolBrowserError::Stopped => C::Stopped,
 });
 coded!(BrowserError, |e| match e {
@@ -515,7 +517,6 @@ impl Coded for crate::submissions::SubmissionError {
             E::RemoteNotEmpty { .. } => C::SubmissionRemoteNotEmpty,
             E::NothingToRemove => C::SubmissionNothingToRemove,
             E::RemoteConflict => C::SubmissionRemoteConflict,
-            E::AccountChanged => C::SubmissionAccountChanged,
             E::FilesChanged => C::SubmissionFilesChanged,
             E::ConfirmationMismatch(_) => C::SubmissionConfirmationMismatch,
             E::Expired => C::SubmissionExpired,

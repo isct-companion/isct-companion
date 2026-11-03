@@ -19,13 +19,12 @@ const noticeText: Record<SchoolWebNotice["kind"], MessageKey> = {
 };
 
 /** What the line under the address says when Core's sign-in of the view
- * stopped, or ended with something to say. */
+ * stopped. */
 const problemText: Record<SchoolWebProblem, MessageKey> = {
   unreachable: "web.signIn.unreachable",
   rejected: "web.signIn.rejected",
   storage: "web.signIn.storage",
   "still-sign-in": "web.signIn.stillSignIn",
-  "submission-unconfirmed": "web.signIn.submissionUnconfirmed",
 };
 
 /** What the notice under the address says when a page did not load. */
@@ -90,14 +89,7 @@ export function SchoolWebNotices({
         </div>
       )}
       {access?.kind === "problem" && (
-        <div
-          className={
-            access.problem === "submission-unconfirmed"
-              ? "webNotice warning"
-              : "webNotice"
-          }
-          role="status"
-        >
+        <div className="webNotice" role="status">
           <span>{t(problemText[access.problem])}</span>
           {access.problem === "rejected" && routed && <OpenAccounts />}
         </div>

@@ -56,6 +56,12 @@ pub struct VaultItem {
 pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
     let suffix = match account {
         "school-accounts" => "passwords.school-accounts",
+        "school-sign-out-science"
+        | "school-sign-out-tokyo-tech"
+        | "school-accepted-science"
+        | "school-accepted-tokyo-tech" => return Ok(format!("{app_id}.passwords.{account}")),
+        "school-refusals" => "passwords.school-refusals",
+        // An earlier release's device item; Core only deletes it.
         "school-candidates" => "passwords.school-candidates",
         "google-drive" => "passwords.google-drive",
         "icloud" => "passwords.icloud",

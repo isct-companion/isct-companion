@@ -27,7 +27,6 @@
 use crate::{
     course_materials::purge_downloads,
     data::{DataError, DataStore, WorkspaceChangeSource},
-    school_auth::{SchoolAuthProfile, SchoolAuthService},
     school_session::SchoolSessions,
     sync_engine::{ResetReport, ResetScope, SyncEngine},
     Core,
@@ -38,8 +37,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-
-const PROFILES: [SchoolAuthProfile; 2] = [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech];
 
 /// How long a reset waits for commits that already started. A commit still
 /// running afterwards belongs to the old generation and is refused by the
@@ -175,7 +172,6 @@ impl Core {
         let run = ResetRun {
             scope,
             store: self.store.clone(),
-            auth: self.auth.clone(),
             engine: self.reset_engine(),
             sessions: self.sessions().clone(),
             device,
@@ -198,7 +194,6 @@ impl Core {
 struct ResetRun {
     scope: ResetScope,
     store: DataStore,
-    auth: Arc<SchoolAuthService>,
     engine: Arc<SyncEngine>,
     sessions: SchoolSessions,
     device: Option<Arc<dyn ResetDevice>>,
@@ -265,7 +260,6 @@ impl ResetRun {
             removed_rows: cleared.rows,
             freed_bytes: cleared.bytes,
         };
-        self.forget_secrets(everything).await?;
         if let ResetScope::SchoolCaches {
             delete_downloads: true,
             ..
@@ -284,29 +278,17 @@ impl ResetRun {
         }
         // Core's sessions and the LMS token are school caches: the next
         // read signs in again. A full reset is the first-launch state, so the
-        // web view's school cookies go too.
+        // web view's school cookies and the saved credentials go too, once
+        // every operation of both accounts has ended.
         let sign_out_web = match self.scope {
             ResetScope::SchoolCaches { sign_out_web, .. } => sign_out_web,
             ResetScope::Everything => true,
         };
-        self.sessions.reset(sign_out_web).await;
+        self.sessions
+            .reset(sign_out_web, everything)
+            .await
+            .map_err(|error| ResetError::Credentials(error.to_string()))?;
         Ok(report)
-    }
-
-    /// A full reset also removes the saved school credentials.
-    async fn forget_secrets(&self, everything: bool) -> Result<(), ResetError> {
-        if !everything {
-            return Ok(());
-        }
-        let auth = self.auth.clone();
-        blocking(move || {
-            for profile in PROFILES {
-                auth.delete(profile)
-                    .map_err(|error| ResetError::Credentials(error.to_string()))?;
-            }
-            Ok(())
-        })
-        .await
     }
 }
 

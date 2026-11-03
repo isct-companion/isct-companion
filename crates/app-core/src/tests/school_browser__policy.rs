@@ -112,6 +112,31 @@ fn restore_records_keep_only_bounded_domain_parameters() {
     assert!(restore_record("https://example.com/?id=1").is_none());
 }
 
+// Reload reopens the page the person was on: a forum discussion keeps its
+// `d`, which the restore record on disk drops, while the fragment and what
+// would act or leak (`sesskey`, `confirm`, tokens) go.
+#[test]
+fn a_reload_keeps_the_page_and_drops_what_acts_or_leaks() {
+    let discuss = "https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=77#p5";
+    assert_eq!(
+        reopen_url(discuss).unwrap().as_str(),
+        "https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=77"
+    );
+    assert_eq!(
+        restore_record(discuss).as_deref(),
+        Some("https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php")
+    );
+    assert_eq!(
+        reopen_url(
+            "https://lms.s.isct.ac.jp/2025/course/view.php?id=3&SessKey=abc&confirm=1&section=2&token=t&access_token=a&refresh_token=b&code=c"
+        )
+        .unwrap()
+        .as_str(),
+        "https://lms.s.isct.ac.jp/2025/course/view.php?id=3&section=2"
+    );
+    assert!(reopen_url("https://example.com/?d=1").is_none());
+}
+
 #[test]
 fn only_the_lms_assignment_draft_action_survives_in_a_restore_record() {
     let base = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100";

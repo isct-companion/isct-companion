@@ -1014,11 +1014,7 @@ describe("Tauri bridge contract", () => {
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
         case "connect_school":
-          return {
-            state: "rejected",
-            problem: { kind: "invalid-otp", message: "otp" },
-            verified: false,
-          };
+          return { kind: "refused", reason: "invalid-otp" };
         case "navigate_school_web":
         case "set_school_web_zoom":
         case "school_web_forward":
@@ -1026,12 +1022,12 @@ describe("Tauri bridge contract", () => {
         case "school_session_snapshot":
           return {
             revision: 4,
-            profiles: schoolProfiles("active", "idle"),
+            profiles: schoolProfiles("normal", "refused"),
           };
         case "retry_school":
           return {
             revision: 5,
-            profiles: schoolProfiles("active", "signing-in"),
+            profiles: schoolProfiles("normal", "signing-in"),
           };
         case "school_web_back":
           return false;
@@ -1058,16 +1054,16 @@ describe("Tauri bridge contract", () => {
       matrix: "A".repeat(70),
     };
 
-    await expect(
-      bridge.connectSchool("science", credentials),
-    ).resolves.toMatchObject({ state: "rejected", verified: false });
+    await expect(bridge.connectSchool("science", credentials)).resolves.toEqual(
+      { kind: "refused", reason: "invalid-otp" },
+    );
     await expect(bridge.schoolSessionSnapshot()).resolves.toEqual({
       revision: 4,
-      profiles: schoolProfiles("active", "idle"),
+      profiles: schoolProfiles("normal", "refused"),
     });
     await expect(bridge.retrySchool("tokyo-tech")).resolves.toEqual({
       revision: 5,
-      profiles: schoolProfiles("active", "signing-in"),
+      profiles: schoolProfiles("normal", "signing-in"),
     });
     await bridge.openSchoolSite(
       "science-portal",
@@ -1213,7 +1209,7 @@ describe("Tauri bridge contract", () => {
           return {
             revision: 2,
             profiles: {
-              ...schoolProfiles("active", "idle"),
+              ...schoolProfiles("normal", "normal"),
               science: { state: "failed", problem: null },
             },
           };
@@ -1259,13 +1255,16 @@ describe("Tauri bridge contract", () => {
       received.push(snapshot),
     );
 
-    const valid = { revision: 2, profiles: schoolProfiles("active", "idle") };
+    const valid = {
+      revision: 2,
+      profiles: schoolProfiles("normal", "normal"),
+    };
     seam.deliver(valid);
     // The pre-redesign per-profile event and states are refused outright.
     seam.deliver({ profile: "science", state: "active", revision: 3 });
     seam.deliver({
       revision: 4,
-      profiles: { ...valid.profiles, science: { state: "failed" } },
+      profiles: { ...valid.profiles, science: { state: "verifying" } },
     });
     seam.deliver({ revision: -1, profiles: valid.profiles });
     seam.deliver({

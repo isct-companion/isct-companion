@@ -326,25 +326,21 @@ summary,
   background: var(--muted);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent);
 }
-.schoolStatusAccount[data-state="active"] > i {
+.schoolStatusAccount[data-state="normal"] > i {
   background: #2f9e62;
   box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 14%, transparent);
-}
-.schoolStatusAccount[data-state="idle"] > i {
-  background: var(--accent);
 }
 .schoolStatusAccount[data-state="needs-web"] > i,
 .schoolStatusAccount[data-state="unavailable"] > i,
 .schoolStatusAccount[data-maintenance] > i {
   background: var(--color-warning, #d5a34f);
 }
-.schoolStatusAccount[data-state="rejected"] > i {
+.schoolStatusAccount[data-state="refused"] > i {
   background: var(--danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
 }
 .schoolStatusAccount[data-state="checking"] > i,
-.schoolStatusAccount[data-state="signing-in"] > i,
-.schoolStatusAccount[data-state="verifying"] > i {
+.schoolStatusAccount[data-state="signing-in"] > i {
   background: var(--accent);
   animation: schoolStatusPulse 1.5s ease-in-out infinite;
 }
@@ -1262,10 +1258,10 @@ summary,
 .schoolConnection[data-maintenance] {
   color: var(--warn);
 }
-.schoolConnection[data-state="rejected"] {
+.schoolConnection[data-state="refused"] {
   color: var(--danger);
 }
-/* Under Retry: why a rejected account may only need it once. */
+/* Under Retry: why a refused account may only need it once. */
 .schoolRetryHint {
   margin-top: 2px;
   text-align: right;
@@ -1515,7 +1511,6 @@ summary,
   /* Looping indicators would flicker at that length: they hold still. */
   .schoolStatusAccount[data-state="checking"] > i,
   .schoolStatusAccount[data-state="signing-in"] > i,
-  .schoolStatusAccount[data-state="verifying"] > i,
   .skeleton {
     animation: none !important;
   }

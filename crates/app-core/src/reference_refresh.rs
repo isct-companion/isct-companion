@@ -341,7 +341,7 @@ pub(crate) fn reference_due(
     } else {
         sync_state::ttl(Dataset::Reference, Term::Current)
     };
-    Ok(match sync_state::due(stored.state.as_ref(), ttl, "", now) {
+    Ok(match sync_state::due(stored.state.as_ref(), ttl, now) {
         Due::Fresh if stored.held.is_some() || stored.validator(index_url).is_none() => Due::Stale,
         due => due,
     })
@@ -533,11 +533,11 @@ impl ReferenceReader {
             let renewed = write(
                 None,
                 &mut |transaction: &Transaction<'_>| -> Result<Read, ReferenceError> {
-                    if !sync_state::renew(transaction, key, "", now)? {
+                    if !sync_state::renew(transaction, key, now)? {
                         return Ok(Read::Held);
                     }
                     // The published version is the stored one again.
-                    sync_state::set_cursor(transaction, key, "", None)?;
+                    sync_state::set_cursor(transaction, key, None)?;
                     record(transaction, RunOutcome::Unchanged, 0, index_url, None)?;
                     Ok(Read::Current(not_modified()))
                 },
@@ -579,12 +579,11 @@ impl ReferenceReader {
                     if next.rows > 0 && stored_rows(transaction, kind, year)? == 0 {
                         return Ok(Read::Held);
                     }
-                    sync_state::set_cursor(transaction, key, "", None)?;
+                    sync_state::set_cursor(transaction, key, None)?;
                     sync_state::commit(
                         transaction,
                         key,
                         Commit {
-                            account: "",
                             validator: Some(&encoded),
                             outcome: Outcome::Complete,
                             message: None,
@@ -618,8 +617,8 @@ impl ReferenceReader {
                     && pending.as_deref() != Some(fetched.remote_hash.as_str())
                 {
                     // Publish only when a later read returns this same version.
-                    sync_state::set_cursor(transaction, key, "", Some(&fetched.remote_hash))?;
-                    sync_state::fail(transaction, key, "", SUSPICIOUS_SHRINK, now)?;
+                    sync_state::set_cursor(transaction, key, Some(&fetched.remote_hash))?;
+                    sync_state::fail(transaction, key, SUSPICIOUS_SHRINK, now)?;
                     record(
                         transaction,
                         RunOutcome::Failed,
@@ -630,12 +629,11 @@ impl ReferenceReader {
                     return Ok(Read::Held);
                 }
                 let (changed, files) = payload.apply(transaction)?;
-                sync_state::set_cursor(transaction, key, "", None)?;
+                sync_state::set_cursor(transaction, key, None)?;
                 sync_state::commit(
                     transaction,
                     key,
                     Commit {
-                        account: "",
                         validator: Some(&encoded),
                         outcome: Outcome::Complete,
                         message: None,

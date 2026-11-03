@@ -162,12 +162,12 @@ mod backup {
     async fn the_password_is_kept_only_when_the_backup_agrees() {
         let files = MemoryFiles::default();
         let first_vault = MemoryVault::default();
-        let first_school = SchoolAuthService::new(MemoryVault::default());
+        let first_auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
         // A login the school accepted: the synchronized item holds it.
-        let staged = first_school
-            .stage(
+        first_auth
+            .promote(
                 SchoolAuthProfile::Science,
-                SchoolCredentials {
+                &SchoolCredentials {
                     username: "student".into(),
                     password: "password".into(),
                     otp_secret: "JBSWY3DPEHPK3PXP".into(),
@@ -175,9 +175,7 @@ mod backup {
                 },
             )
             .unwrap();
-        assert!(first_school
-            .promote(SchoolAuthProfile::Science, &staged)
-            .unwrap());
+        let first_school = SchoolSessions::new(None, first_auth);
         let first = CredentialBackup::new(&first_vault, &files);
 
         assert!(matches!(
@@ -201,7 +199,8 @@ mod backup {
         assert!(first.configured().unwrap());
 
         let second_vault = MemoryVault::default();
-        let second_school = SchoolAuthService::new(MemoryVault::default());
+        let second_auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
+        let second_school = SchoolSessions::new(None, second_auth.clone());
         let second = CredentialBackup::new(&second_vault, &files);
         let uploaded = files.backup();
         assert!(matches!(
@@ -218,7 +217,7 @@ mod backup {
             second.enable(NEW, &second_school).await.unwrap(),
             BackupOutcome::Restored
         );
-        assert!(second_school.status().unwrap().science.has_otp);
+        assert!(second_auth.status().unwrap().science.has_otp);
 
         files.offline.store(true, Ordering::SeqCst);
         assert!(first

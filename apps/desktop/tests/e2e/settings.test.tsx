@@ -248,8 +248,7 @@ describe("School accounts", () => {
               },
               { label: "School account", issuer: "School", setup },
             ];
-          if (command === "connect_school")
-            return { state: "active", problem: null, verified: true };
+          if (command === "connect_school") return { kind: "connected" };
           return undefined;
         },
       });
@@ -362,7 +361,7 @@ describe("School accounts", () => {
       await act(async () =>
         answer({
           revision: 1,
-          profiles: schoolProfiles("idle", "not-configured"),
+          profiles: schoolProfiles("normal", "not-configured"),
         }),
       );
       await wait(() =>
@@ -388,51 +387,82 @@ describe("School accounts", () => {
   );
 
   it(
-    "connects with the saved ID in one call that saves and signs in",
+    "connects in one call, keeps a draft the school refused or the vault did not save and clears it once connected",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
         tokyoTech: notConfigured(),
       };
+      const answers = [
+        { kind: "refused", reason: "invalid-otp" },
+        { kind: "not-saved" },
+        { kind: "connected" },
+      ];
       const mounted = await mountAccounts({
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
-          if (command === "connect_school")
-            return {
-              state: "rejected",
-              problem: { kind: "invalid-otp", message: "TOTP 401 twice" },
-              verified: false,
-            };
+          if (command === "connect_school") return answers.shift();
           return undefined;
         },
       });
 
       const science = account(mounted, "science");
+      const password = science.querySelector<HTMLInputElement>(
+        'input[autocomplete="current-password"]',
+      )!;
+      await typeInto(password, "new-secret");
       await clickButton(science, "Connect");
       await wait(() =>
         expect(mounted.core.commands("connect_school")).toHaveLength(1),
       );
       expect(mounted.core.commands("connect_school")[0].args).toMatchObject({
         profile: "science",
-        credentials: { username: "saved-id" },
+        credentials: { username: "saved-id", password: "new-secret" },
       });
-      // The answer is said by its kind; Core's diagnostic stays out of the text.
+      // The form says the outcome by its reason; nothing was saved, so the
+      // draft stays for another try.
       await wait(() =>
-        expect(document.body.textContent).toContain(
-          "The one-time password was not accepted.",
+        expect(science.textContent).toContain(
+          "The one-time password was not accepted. The entered credentials were not saved.",
         ),
       );
-      expect(document.body.textContent).not.toContain("TOTP 401 twice");
+      expect(password.value).toBe("new-secret");
       await wait(() =>
         expect(buttonIn(science, "Connect").disabled).toBe(false),
       );
+
+      // The school accepted it and the vault did not save it: that is the
+      // outcome too, and the draft stays.
+      await clickButton(science, "Connect");
+      await wait(() =>
+        expect(science.textContent).toContain(
+          "the system credential vault could not save them",
+        ),
+      );
+      expect(password.value).toBe("new-secret");
+      await wait(() =>
+        expect(buttonIn(science, "Connect").disabled).toBe(false),
+      );
+
+      // Only a connection saves the draft: the form empties and says so.
+      await clickButton(science, "Connect");
+      await wait(() =>
+        expect(science.textContent).toContain(
+          "Signed in. These credentials are saved and sync to your other devices.",
+        ),
+      );
+      expect(mounted.core.commands("connect_school")[2].args).toMatchObject({
+        credentials: { password: "new-secret" },
+      });
+      expect(password.value).toBe("");
+      expect(science.textContent).not.toContain("were not saved");
     },
     TIMEOUT,
   );
 
   it(
-    "follows Core's session snapshots and retries a rejected or web-only account once",
+    "follows Core's session snapshots and retries a refused or web-only account once",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
@@ -442,7 +472,7 @@ describe("School accounts", () => {
         revision: number,
         science: Partial<SchoolProfileSession>,
       ) => {
-        const profiles = schoolProfiles("idle", "not-configured");
+        const profiles = schoolProfiles("normal", "not-configured");
         return {
           revision,
           profiles: {
@@ -456,7 +486,7 @@ describe("School accounts", () => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
           if (command === "retry_school")
-            return snapshot(4, { state: "active" });
+            return snapshot(4, { state: "normal" });
           return undefined;
         },
       });
@@ -468,20 +498,25 @@ describe("School accounts", () => {
       await act(async () =>
         emitNative(mounted.core, "school-session", {
           revision: 1,
-          profiles: schoolProfiles("active", "not-configured"),
+          profiles: schoolProfiles("normal", "not-configured"),
         }),
       );
-      await wait(() => expect(science.textContent).toContain("Signed in"));
+      await wait(() =>
+        expect(science.textContent).toContain(
+          "Connected · signs in when needed",
+        ),
+      );
       expect(buttonByText(science, "Retry")).toBeFalsy();
 
-      // A rejection is said by its kind, with Retry and the other-device hint.
+      // A refusal is said by its kind, with Retry and the other-device hint;
+      // Core's diagnostic stays out of the text.
       await act(async () =>
         emitNative(
           mounted.core,
           "school-session",
           snapshot(2, {
-            state: "rejected",
-            problem: { kind: "invalid-credentials", message: "401" },
+            state: "refused",
+            problem: { kind: "invalid-credentials", message: "HTTP 401" },
           }),
         ),
       );
@@ -491,6 +526,7 @@ describe("School accounts", () => {
       expect(science.textContent).toContain(
         "The ID or password was not accepted.",
       );
+      expect(science.textContent).not.toContain("HTTP 401");
       expect(science.textContent).toContain(
         "If you changed the password on another device, use Retry.",
       );
@@ -505,7 +541,11 @@ describe("School accounts", () => {
       expect(mounted.core.commands("retry_school")[0].args).toEqual({
         profile: "science",
       });
-      await wait(() => expect(science.textContent).toContain("Signed in"));
+      await wait(() =>
+        expect(science.textContent).toContain(
+          "Connected · signs in when needed",
+        ),
+      );
       expect(mounted.core.commands("connect_school")).toHaveLength(0);
 
       // The web-only state sends the person to the portal page.
@@ -900,8 +940,7 @@ describe("Matrix scan and paste", () => {
               text: "A",
               confidence: index === 0 ? 0.96 : index === 1 ? 0.82 : 0.7,
             }));
-          if (command === "connect_school")
-            return { state: "active", problem: null, verified: true };
+          if (command === "connect_school") return { kind: "connected" };
           return undefined;
         },
       });

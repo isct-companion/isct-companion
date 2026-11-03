@@ -152,16 +152,30 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         setVisible(site)
     }
 
-    /** Opens `site` in its resident view. A site already open keeps its page
-     * unless a target is given. */
+    /** Opens `site` in its resident view. A site already open, or opening,
+     * keeps its page unless a target is given. */
     fun open(site: SchoolSite, target: String?, restore: Boolean = false) {
+        if (restore && target == null && (loading == site || site in opened && browser.webView(site) != null)) return
+        load(site) { it.openSchool(site, target) }
+    }
+
+    /** The ウェブ tab shows `site`'s start page as it is, signed in nowhere
+     * (`openSchoolUnsigned`): the Connect form's way to the Science Tokyo
+     * portal, where the person sets up App OTP by hand. */
+    fun openUnsigned(site: SchoolSite) {
+        tabSite = site
+        load(site) { it.openSchoolUnsigned(site) }
+    }
+
+    /** Runs Core's opening of `site`, then re-attaches its view and reads
+     * its page. */
+    private fun load(site: SchoolSite, opening: (Session) -> Operation) {
         val session = session ?: return
-        if (restore && target == null && site in opened && browser.webView(site) != null) return
         loading = site
         error = null
         scope.launch {
             try {
-                session.openSchool(site, target).value()
+                opening(session).value()
                 opened.add(site)
                 attachRevision++
                 readPage(site)
@@ -209,18 +223,18 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
                 "unreachable" -> SchoolWebProblem.UNREACHABLE
                 "rejected" -> SchoolWebProblem.REJECTED
                 "storage" -> SchoolWebProblem.STORAGE
-                "submission-unconfirmed" -> SchoolWebProblem.SUBMISSION_UNCONFIRMED
                 else -> SchoolWebProblem.STILL_SIGN_IN
             },
         )
         else -> null
     }
 
-    /** The notice's Reopen: the engine's reload of the failed entry, which
-     * clears the failure in Core. A form result WebView would not show again
-     * asks onFormResubmission, and Core opens it with GET. */
+    /** The notice's Reopen: loads the page that failed again with GET, in the
+     * page the person sees, as on iOS; a form result is opened by its address,
+     * never sent again. The notice stays until Core hears how it went. */
     fun retry(site: SchoolSite) {
-        reload(site)
+        val url = pages[site]?.notice?.url ?: return
+        browser.front(site)?.loadUrl(url)
     }
 
     /** The close bar over a popup; Core hears it closed and closes its own. */

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     ports::{SecretError, SecretVault},
-    school_auth::{MoodleToken, SchoolCredentials},
+    school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     sync_state::{self, Commit, Dataset, Due, Key, Outcome},
 };
 use rusqlite::params;
@@ -129,7 +129,6 @@ fn seed(fixture: &Fixture) {
             &connection,
             &Key::new(dataset, key),
             Commit {
-                account: "science:student",
                 validator: Some("etag"),
                 outcome: Outcome::Complete,
                 message: None,
@@ -166,9 +165,9 @@ fn seed(fixture: &Fixture) {
         .unwrap();
     fixture
         .auth
-        .stage(
+        .promote(
             SchoolAuthProfile::TokyoTech,
-            SchoolCredentials {
+            &SchoolCredentials {
                 username: "student".into(),
                 password: "password".into(),
                 otp_secret: String::new(),
@@ -213,7 +212,6 @@ fn commit_leased_at(core: &Core, generation: u64, key: &Key) -> bool {
                 transaction,
                 key,
                 Commit {
-                    account: "science:student",
                     validator: None,
                     outcome: Outcome::Complete,
                     message: None,
@@ -257,7 +255,7 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
         let state = sync_state::get(&connection, &Key::new(dataset, key)).unwrap();
         let ttl = sync_state::ttl(dataset, sync_state::Term::Current);
         assert_eq!(
-            sync_state::due(state.as_ref(), ttl, "science:student", chrono::Utc::now()),
+            sync_state::due(state.as_ref(), ttl, chrono::Utc::now()),
             Due::Missing,
             "{dataset:?}/{key}"
         );

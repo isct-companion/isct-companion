@@ -149,9 +149,8 @@ async fn science_flow(
             "the Science Tokyo ID or password is missing",
         ));
     }
-    if credentials.otp_secret.is_empty() {
-        return Err(Fail::Rejected(Kind::InvalidOtp, "no OTP setup is saved"));
-    }
+    // An empty OTP setup (a Connect before App OTP is set up) goes on: the
+    // school's pages decide whether an emailed code or the App OTP is next.
     let lms = url(LMS_HOME)?;
     let mut page = walk.get(lms.clone(), None).await?;
     let mut credentials_sent = false;
@@ -203,6 +202,12 @@ async fn science_flow(
                     return Err(Fail::Rejected(
                         Kind::InvalidOtp,
                         "the school did not accept the one-time password",
+                    ));
+                }
+                if credentials.otp_secret.is_empty() {
+                    return Err(Fail::Rejected(
+                        Kind::OtpNeeded,
+                        "the school asks for the App one-time password and none was entered",
                     ));
                 }
                 otp_attempts += 1;

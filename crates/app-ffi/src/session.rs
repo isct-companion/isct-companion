@@ -366,21 +366,21 @@ impl Session {
             })
         })
     }
-    /// Settings' "Save and connect": Core keeps the entered credentials as
-    /// this device's candidate, lifts any pause and signs in with them. The
-    /// result carries Core's reason when the school turned them down.
+    /// Settings' "Save and connect": Core signs in with the entered
+    /// credentials and saves them only once the school accepts them. The
+    /// outcome says what the Connect form shows.
     pub fn connect_school(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let result = i
+            let outcome = i
                 .core
                 .connect_school(project_input(profile)?, project_input(credentials)?)
                 .await?;
             Ok(OperationResult::SchoolConnect {
-                result: project(result)?,
+                outcome: project(outcome)?,
             })
         })
     }
@@ -394,11 +394,11 @@ impl Session {
         })
     }
     /// Forgets the account's credentials and signs it out of this device.
-    /// Waits for Core's account barrier: in-flight reads stop, Core's
-    /// session and the LMS token go, the account's school views close, and
-    /// `NativeWebCookies::clear` removes its websites (where the platform
-    /// cannot clear one account's alone, the session's `webKept` says so and
-    /// `clear_school_web` is the person's choice).
+    /// Waits for Core's account barrier: in-flight reads stop, then the
+    /// credentials, Core's session and the LMS token go, both accounts'
+    /// school views close, and `NativeWebCookies::clear` removes every
+    /// school website (the other account's web sign-in too; its next page
+    /// gets its identity written again).
     pub fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,
@@ -443,6 +443,25 @@ impl Session {
                     i.core
                         .school_browser()?
                         .open(project_input(site)?, WEB_SURFACE, entry)
+                        .await?,
+                )?,
+            })
+        })
+    }
+    /// Opens `site`'s start page as it is, with no sign-in: Core writes no
+    /// identity, so the person signs in on the page by hand (the Connect
+    /// form's App OTP entry for the Science Tokyo portal).
+    pub fn open_school_unsigned(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            Ok(OperationResult::SchoolWeb {
+                result: project(
+                    i.core
+                        .school_browser()?
+                        .open(
+                            project_input(site)?,
+                            WEB_SURFACE,
+                            app_core::school_browser::SchoolWebEntry::Unsigned,
+                        )
                         .await?,
                 )?,
             })

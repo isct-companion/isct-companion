@@ -11,6 +11,7 @@ use crate::{
     school_browser::{browsing_url, is_login_url, school_file_url},
     school_files::{self, SchoolFile, SchoolFileRequest},
     school_session::{Attempt, OpError, Operation, Permit, RunError, SchoolSessions, Site},
+    sync_engine::AccountWait,
 };
 pub use adpt_isct::lms::ResolvedResource;
 use adpt_isct::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page};
@@ -78,7 +79,8 @@ impl OpError for FetchError {
 fn run_error(error: RunError<FetchError>) -> FetchError {
     match error {
         RunError::Op(error) => error,
-        RunError::Session => FetchError::Login,
+        RunError::Blocked(AccountWait::Person) => FetchError::Login,
+        RunError::Blocked(_) => FetchError::Network,
         RunError::Net(error) => session_error(error),
         RunError::Cancelled => FetchError::Cancelled,
         RunError::Deadline => FetchError::Timeout,
@@ -225,10 +227,14 @@ impl HttpTransport {
         let mut current = url.clone();
         for _ in 0..=5 {
             // A public school page needs no session.
-            let cookie = session
-                .as_ref()
-                .and_then(|session| session.cookie_header(&current))
-                .unwrap_or_default();
+            let cookie = match session.as_ref() {
+                Some(session) => session
+                    .cookie_header(&current)
+                    .await
+                    .map_err(session_error)?,
+                None => None,
+            }
+            .unwrap_or_default();
             if cookie.trim().is_empty() && scope == Scope::Lms {
                 return Err(FetchError::Login);
             }
@@ -809,8 +815,8 @@ impl Downloader {
                 if target.is_file() {
                     return Ok(Fetched::Saved);
                 }
-                // An account change since the download began: the file is
-                // the old account's and does not land.
+                // A sign-out or reset since the download began: the file
+                // does not land.
                 if permit.is_cancelled() {
                     return Err(FetchError::Cancelled);
                 }

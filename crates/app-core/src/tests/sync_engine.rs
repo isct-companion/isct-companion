@@ -6,7 +6,6 @@ use crate::{
     net::Host,
     ports::{SecretError, SecretVault},
     school_auth::SchoolAuthService,
-    school_session::SchoolSessionState,
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome},
 };
 use chrono::Duration;
@@ -35,10 +34,7 @@ struct MemoryVault(std::sync::Mutex<HashMap<String, String>>);
 
 impl SecretVault for MemoryVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
-        self.0
-            .lock()
-            .unwrap()
-            .insert(account.into(), secret.into());
+        self.0.lock().unwrap().insert(account.into(), secret.into());
         Ok(())
     }
     fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
@@ -62,7 +58,6 @@ fn key(dataset: Dataset, key: &str) -> Key {
 fn stored(
     dataset: Dataset,
     name: &str,
-    account: &str,
     fetched: Option<DateTime<Utc>>,
     next_eligible: Option<DateTime<Utc>>,
 ) -> (Key, KeyState) {
@@ -71,7 +66,6 @@ fn stored(
         KeyState {
             dataset: dataset.name().into(),
             key: name.into(),
-            account: account.into(),
             fetched_at: fetched,
             validator: None,
             outcome: fetched.map(|_| sync_state::Outcome::Complete),
@@ -94,9 +88,6 @@ fn course(id: u64, year: i32, quarter: u8) -> StoredLmsCourse {
     }
 }
 
-const SCIENCE: &str = "science:student";
-const TOKYO: &str = "tokyotech:student";
-
 /// Both profiles signed in; every 教務 page read a day ago; no catalog year.
 fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
     let mut all: HashMap<Key, KeyState> = planner::kyomu_keys()
@@ -105,7 +96,6 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             stored(
                 Dataset::KyomuPage,
                 &page.key,
-                TOKYO,
                 Some(now() - Duration::days(1)),
                 None,
             )
@@ -120,8 +110,6 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             course(103, 2025, 1),
             course(104, 2026, 3),
         ],
-        science: Some(SCIENCE.into()),
-        tokyo: Some(TOKYO.into()),
         science_configured: true,
         tokyo_configured: true,
         allow_cellular: false,
@@ -131,27 +119,9 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
     }
 }
 
-fn session(state: SchoolSessionState) -> planner::SessionFact {
-    planner::SessionFact {
-        state,
-        retry_at: None,
-        maintenance: None,
-    }
-}
-
 fn facts() -> Facts {
     Facts {
         network: Network::Wifi,
-        sessions: HashMap::from([
-            (
-                SchoolAuthProfile::Science,
-                session(SchoolSessionState::Idle),
-            ),
-            (
-                SchoolAuthProfile::TokyoTech,
-                session(SchoolSessionState::Idle),
-            ),
-        ]),
         ..Facts::default()
     }
 }
@@ -175,20 +145,19 @@ fn position(plan: &[Candidate], wanted: &Key) -> usize {
 fn due_keys_are_planned_missing_first_within_each_tier() {
     let hours = |hours: i64| Some(now() - Duration::hours(hours));
     let inputs = inputs(vec![
-        stored(Dataset::LmsEnrolment, "all", SCIENCE, hours(1), None),
-        stored(Dataset::LmsDeadlines, "all", SCIENCE, hours(3), None),
-        stored(Dataset::LmsAssign, "101", SCIENCE, hours(1), None),
-        stored(Dataset::LmsCourse, "102", SCIENCE, hours(40 * 24), None),
+        stored(Dataset::LmsEnrolment, "all", hours(1), None),
+        stored(Dataset::LmsDeadlines, "all", hours(3), None),
+        stored(Dataset::LmsAssign, "101", hours(1), None),
+        stored(Dataset::LmsCourse, "102", hours(40 * 24), None),
         stored(
             Dataset::LmsAssign,
             "102",
-            SCIENCE,
             hours(40 * 24),
             Some(now() + Duration::minutes(10)),
         ),
-        stored(Dataset::LmsCourse, "103", SCIENCE, hours(400 * 24), None),
-        // Stored for another account: missing for this one.
-        stored(Dataset::KyomuPage, "gpa", "tokyotech:other", hours(1), None),
+        stored(Dataset::LmsCourse, "103", hours(400 * 24), None),
+        // Never read: missing.
+        stored(Dataset::KyomuPage, "gpa", None, None),
     ]);
     let plan = plan(&inputs, &facts(), &[], &[]);
     let at = |dataset, name| position(&plan, &key(dataset, name));
@@ -264,39 +233,25 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
 fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backoff() {
     let minutes = |minutes: i64| Some(now() - Duration::minutes(minutes));
     let inputs = inputs(vec![
-        stored(Dataset::LmsCourse, "101", SCIENCE, minutes(20), None),
-        stored(Dataset::LmsAssign, "101", SCIENCE, minutes(5), None),
-        stored(
-            Dataset::LmsCourse,
-            "103",
-            SCIENCE,
-            minutes(400 * 24 * 60),
-            None,
-        ),
-        stored(
-            Dataset::LmsAssign,
-            "103",
-            SCIENCE,
-            minutes(400 * 24 * 60),
-            None,
-        ),
+        stored(Dataset::LmsCourse, "101", minutes(20), None),
+        stored(Dataset::LmsAssign, "101", minutes(5), None),
+        stored(Dataset::LmsCourse, "103", minutes(400 * 24 * 60), None),
+        stored(Dataset::LmsAssign, "103", minutes(400 * 24 * 60), None),
         stored(
             Dataset::LmsCourse,
             "104",
-            SCIENCE,
             minutes(30),
             Some(now() + Duration::minutes(10)),
         ),
-        stored(Dataset::LmsCourse, "102", SCIENCE, minutes(60), None),
+        stored(Dataset::LmsCourse, "102", minutes(60), None),
         stored(
             Dataset::LmsAssign,
             "102",
-            SCIENCE,
             minutes(60),
             Some(now() + Duration::minutes(10)),
         ),
-        stored(Dataset::LmsEnrolment, "all", SCIENCE, minutes(1), None),
-        stored(Dataset::LmsDeadlines, "all", SCIENCE, minutes(1), None),
+        stored(Dataset::LmsEnrolment, "all", minutes(1), None),
+        stored(Dataset::LmsDeadlines, "all", minutes(1), None),
     ]);
     let opens = [
         View::Course { lms_course_id: 101 },
@@ -380,7 +335,6 @@ fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     let (state_key, state) = stored(
         Dataset::CatalogOfficial,
         &japanese.key,
-        "",
         Some(now() - Duration::days(8)),
         None,
     );
@@ -439,13 +393,9 @@ async fn a_course_page_opened_before_the_enrolment_list_waits_for_it() {
     // The list landed with the course: it is read now, its assignments
     // after its outline.
     let mut listed = empty.clone();
-    listed.states.extend([stored(
-        Dataset::LmsEnrolment,
-        "all",
-        SCIENCE,
-        Some(now()),
-        None,
-    )]);
+    listed
+        .states
+        .extend([stored(Dataset::LmsEnrolment, "all", Some(now()), None)]);
     listed.courses.push(course(12470, 2026, 3));
     let after = plan(&listed, &cellular, &opens, &[]);
     assert_eq!(held(&after, &outline), Some((Priority::Interactive, None)));
@@ -463,7 +413,7 @@ async fn a_course_page_opened_before_the_enrolment_list_waits_for_it() {
     let (engine, store) = engine("not-enrolled");
     engine
         .settle_for_test(
-            Lease::detached(&store, outline.clone(), SCIENCE),
+            Lease::detached(&store, outline.clone()),
             KeyEnd::NotEnrolled {
                 source: String::new(),
             },
@@ -493,7 +443,6 @@ fn held_reasons_follow_the_shell_facts() {
     let mut inputs = inputs(vec![stored(
         Dataset::LmsDeadlines,
         "all",
-        SCIENCE,
         Some(now()),
         None,
     )]);
@@ -569,33 +518,51 @@ fn held_reasons_follow_the_shell_facts() {
         Some(Some(Held::HostPaused { host, .. })) if host == Host::Kyomu.name()
     ));
     assert_eq!(held(&inputs, &paused, &deadlines), Some(None));
-    // Without saved credentials, automatic 教務 keys are not wanted and an
-    // asked-for LMS key waits for an account.
+    // Without saved credentials, automatic 教務 keys are not wanted; an
+    // asked-for LMS key is read, since nothing predicts what its read finds.
     let mut signed_out = inputs.clone();
+    signed_out.tokyo_configured = false;
+    assert_eq!(held(&signed_out, &facts(), &grades), None);
     signed_out.science_configured = false;
-    let nobody = with(&|facts| facts.sessions.clear());
-    assert_eq!(held(&signed_out, &nobody, &grades), None);
-    assert_eq!(
-        held(&signed_out, &nobody, &deadlines),
-        Some(Some(Held::Session {
-            profile: SchoolAuthProfile::Science,
-            state: SchoolSessionState::NotConfigured,
-        }))
-    );
-    // A refused account waits for the person, not for a backoff.
-    let rejected = with(&|facts| {
-        facts.sessions.insert(
-            SchoolAuthProfile::Science,
-            session(SchoolSessionState::Rejected),
-        );
+    assert_eq!(held(&signed_out, &facts(), &deadlines), Some(None));
+    // A read that could not reach the school holds every key of its account
+    // by what it said, never another account's, and never as a backoff.
+    let person = with(&|facts| {
+        facts
+            .blocked
+            .insert(SchoolAuthProfile::Science, AccountWait::Person);
     });
     assert_eq!(
-        held(&inputs, &rejected, &deadlines),
-        Some(Some(Held::Session {
+        held(&inputs, &person, &deadlines),
+        Some(Some(Held::Account {
             profile: SchoolAuthProfile::Science,
-            state: SchoolSessionState::Rejected,
+            wait: AccountWait::Person,
         }))
     );
+    assert_eq!(held(&inputs, &person, &grades), Some(None));
+    let until = now() + Duration::minutes(1);
+    let paused = with(&|facts| {
+        facts
+            .blocked
+            .insert(SchoolAuthProfile::TokyoTech, AccountWait::Paused { until });
+    });
+    assert_eq!(
+        held(&inputs, &paused, &grades),
+        Some(Some(Held::Account {
+            profile: SchoolAuthProfile::TokyoTech,
+            wait: AccountWait::Paused { until },
+        }))
+    );
+    // A pause that ran out holds nothing.
+    let over = with(&|facts| {
+        facts.blocked.insert(
+            SchoolAuthProfile::TokyoTech,
+            AccountWait::Paused {
+                until: now() - Duration::seconds(1),
+            },
+        );
+    });
+    assert_eq!(held(&inputs, &over, &grades), Some(None));
 }
 
 fn engine(name: &str) -> (SyncEngine, DataStore) {
@@ -615,9 +582,9 @@ fn engine_with(name: &str, auth: SchoolAuthService) -> (SyncEngine, DataStore) {
 /// An engine whose Tokyo Tech account is set up.
 fn tokyo_engine(name: &str) -> (SyncEngine, DataStore) {
     let auth = SchoolAuthService::new(MemoryVault::default());
-    auth.stage(
+    auth.promote(
         SchoolAuthProfile::TokyoTech,
-        crate::school_auth::SchoolCredentials {
+        &crate::school_auth::SchoolCredentials {
             username: "student".into(),
             password: "secret".into(),
             otp_secret: String::new(),
@@ -695,14 +662,13 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
 }
 
 #[tokio::test]
-async fn a_paused_host_or_an_unavailable_session_holds_keys_without_failing_them() {
+async fn a_paused_host_or_a_blocked_account_holds_keys_without_failing_them() {
     let (engine, store) = tokyo_engine("paused");
-    engine.set_session(SchoolAuthProfile::TokyoTech, SchoolSessionState::Idle);
     let page = key(Dataset::KyomuPage, "grades");
     let until = Utc::now() + Duration::minutes(5);
     engine
         .settle_for_test(
-            Lease::detached(&store, page.clone(), TOKYO),
+            Lease::detached(&store, page.clone()),
             KeyEnd::HostPaused {
                 host: Host::Kyomu,
                 until,
@@ -730,14 +696,17 @@ async fn a_paused_host_or_an_unavailable_session_holds_keys_without_failing_them
         .unwrap();
     assert_eq!((failures, error_kind.as_deref()), (0, Some("host-paused")));
 
-    // The session's own sign-in already ran and could not reach the school:
-    // the key waits for the session, without a failure of its own.
+    // The read could not reach the school (its sign-in was refused): every
+    // key of the account waits for the person, without a failure of its own,
+    // until the person's Retry, Connect or new credentials let it go.
+    let (engine, store) = tokyo_engine("blocked");
     let refused = key(Dataset::KyomuPage, "gpa");
     engine
         .settle_for_test(
-            Lease::detached(&store, refused.clone(), TOKYO),
-            KeyEnd::SessionUnavailable {
+            Lease::detached(&store, refused.clone()),
+            KeyEnd::Blocked {
                 profile: SchoolAuthProfile::TokyoTech,
+                wait: AccountWait::Person,
                 source: String::new(),
             },
         )
@@ -746,6 +715,94 @@ async fn a_paused_host_or_an_unavailable_session_holds_keys_without_failing_them
         .write(None, |transaction| sync_state::get(transaction, &refused))
         .unwrap();
     assert_eq!(state.map_or(0, |state| state.failures), 0);
+    let held_by_person = |plan: &[Candidate]| {
+        plan.iter()
+            .filter(|candidate| candidate.key.dataset == Dataset::KyomuPage)
+            .all(|candidate| {
+                candidate.held
+                    == Some(Held::Account {
+                        profile: SchoolAuthProfile::TokyoTech,
+                        wait: AccountWait::Person,
+                    })
+            })
+    };
+    assert!(held_by_person(&engine.evaluate_now().await));
+    assert!(engine.lease_for_test(Lane::Kyomu).is_none());
+    engine.unblock(SchoolAuthProfile::TokyoTech);
+    assert!(!held_by_person(&engine.evaluate_now().await));
+}
+
+// A read ends waiting for the person (the saved password was refused) and
+// is still recording its run when the person's Connect succeeds and lifts
+// the hold. The read's run is recorded, but it no longer decides whether
+// the account waits: holding it again would never be lifted. A read leased
+// after the lift still holds it. The same goes for a read that ended
+// waiting for the network against the network coming back, which leaves a
+// verdict about the person standing.
+#[tokio::test]
+async fn a_hold_lifted_while_a_read_ran_is_not_set_again_by_it() {
+    let blocked = |wait: AccountWait| KeyEnd::Blocked {
+        profile: SchoolAuthProfile::TokyoTech,
+        wait,
+        source: String::new(),
+    };
+    let held = |plan: &[Candidate], wait: AccountWait| {
+        plan.iter().any(|candidate| {
+            candidate.held
+                == Some(Held::Account {
+                    profile: SchoolAuthProfile::TokyoTech,
+                    wait: wait.clone(),
+                })
+        })
+    };
+    let runs = |store: &DataStore| -> i64 {
+        store
+            .write(None, |transaction| {
+                transaction
+                    .query_row(
+                        "SELECT COUNT(*) FROM sync_runs WHERE error_kind = 'sign-in'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(crate::data::DataError::from)
+            })
+            .unwrap()
+    };
+
+    let (engine, store) = tokyo_engine("lifted");
+    engine.evaluate_now().await;
+    let old = engine.lease_for_test(Lane::Kyomu).unwrap();
+    // The Connect lands between the read's start and its settling.
+    engine.unblock(SchoolAuthProfile::TokyoTech);
+    engine
+        .settle_for_test(old, blocked(AccountWait::Person))
+        .await;
+    assert_eq!(runs(&store), 1, "the old read's run is recorded");
+    assert!(!held(&engine.evaluate_now().await, AccountWait::Person));
+    let current = engine.lease_for_test(Lane::Kyomu).unwrap();
+    engine
+        .settle_for_test(current, blocked(AccountWait::Person))
+        .await;
+    assert!(held(&engine.evaluate_now().await, AccountWait::Person));
+
+    let (engine, _) = tokyo_engine("network");
+    engine.evaluate_now().await;
+    let person = engine.lease_for_test(Lane::Kyomu).unwrap();
+    engine.network_for_test(Network::Offline);
+    engine.network_for_test(Network::Wifi);
+    engine
+        .settle_for_test(person, blocked(AccountWait::Network))
+        .await;
+    assert!(!held(&engine.evaluate_now().await, AccountWait::Network));
+    let offline = engine.lease_for_test(Lane::Kyomu).unwrap();
+    engine.network_for_test(Network::Wifi);
+    engine
+        .settle_for_test(offline, blocked(AccountWait::Person))
+        .await;
+    assert!(
+        held(&engine.evaluate_now().await, AccountWait::Person),
+        "the network coming back says nothing about the person"
+    );
 }
 
 #[tokio::test]
@@ -772,7 +829,6 @@ async fn closed_admission_refuses_leases_and_commits_of_the_old_generation() {
             transaction,
             &lease.key,
             Commit {
-                account: "",
                 validator: None,
                 outcome: Outcome::Complete,
                 message: None,
@@ -799,7 +855,6 @@ async fn closed_admission_refuses_leases_and_commits_of_the_old_generation() {
                 transaction,
                 &fresh.key,
                 Commit {
-                    account: "",
                     validator: None,
                     outcome: Outcome::Complete,
                     message: None,

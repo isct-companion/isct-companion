@@ -23,6 +23,10 @@ pub enum SchoolAuthError {
     Compatibility(String),
     #[error("{0}")]
     Storage(String),
+    /// Signing out did not finish (what is left is named); the credentials
+    /// stay saved, and signing out again redoes every step.
+    #[error("Signing out did not finish: {0}")]
+    SignOutIncomplete(String),
 }
 
 impl SchoolAuthError {
@@ -47,6 +51,20 @@ pub enum SchoolAuthProfile {
 }
 
 impl SchoolAuthProfile {
+    fn pending_key(self) -> &'static str {
+        match self {
+            Self::Science => "school-sign-out-science",
+            Self::TokyoTech => "school-sign-out-tokyo-tech",
+        }
+    }
+
+    fn acceptance_key(self) -> &'static str {
+        match self {
+            Self::Science => "school-accepted-science",
+            Self::TokyoTech => "school-accepted-tokyo-tech",
+        }
+    }
+
     pub const fn start_site(self) -> SchoolSite {
         match self {
             Self::Science => SchoolSite::SciencePortal,
@@ -76,7 +94,23 @@ pub struct SchoolCredentials {
 }
 
 impl SchoolCredentials {
+    /// Credentials to keep: everything a sign-in on Core's own needs, the
+    /// Science Tokyo App OTP setup included. Only a sign-in the school
+    /// accepted saves them, and at Science Tokyo that one always sent it.
     fn validate(&mut self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
+        self.validate_input(profile)?;
+        if profile == SchoolAuthProfile::Science && self.otp_secret.is_empty() {
+            return Err(SchoolAuthError::invalid(
+                "Science Tokyo OTP setup link or secret is required.",
+            ));
+        }
+        Ok(())
+    }
+
+    /// What a Connect may send: the Science Tokyo OTP setup may be left
+    /// out, and the school's pages then say what they need (an emailed code
+    /// for an account without App OTP, the App OTP otherwise).
+    fn validate_input(&mut self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
         self.username = self.username.trim().to_string();
         self.otp_secret = self.otp_secret.trim().replace(' ', "");
         self.matrix = self
@@ -96,12 +130,9 @@ impl SchoolCredentials {
         }
         match profile {
             SchoolAuthProfile::Science => {
-                if self.otp_secret.is_empty() {
-                    return Err(SchoolAuthError::invalid(
-                        "Science Tokyo OTP setup link or secret is required.",
-                    ));
+                if !self.otp_secret.is_empty() {
+                    otp_config(&self.otp_secret)?;
                 }
-                otp_config(&self.otp_secret)?;
                 if !self.matrix.is_empty() {
                     return Err(SchoolAuthError::invalid(
                         "Matrix credentials belong to the Tokyo Tech account.",
@@ -203,14 +234,14 @@ impl std::fmt::Debug for MoodleToken {
     }
 }
 
-/// The vault record of a token: whose it is, so a token never outlives the
-/// account it was issued to. Device-only (see `ports::vault_item`).
+/// The vault record of a token. Device-only (see `ports::vault_item`).
 #[derive(Deserialize, Serialize)]
 struct StoredMoodleToken {
     version: u8,
-    account: String,
     token: String,
 }
+
+const MOODLE_TOKEN_VERSION: u8 = 2;
 
 /// Only the Science profile has an LMS.
 fn moodle_token_account(profile: SchoolAuthProfile) -> Option<&'static str> {
@@ -236,36 +267,36 @@ struct SchoolCredentialBundle {
     accounts: HashMap<SchoolAuthProfile, SchoolCredentials>,
 }
 
-/// Device-local credentials typed here that no sign-in has accepted yet,
-/// and the school's refusal of saved ones. They never sync: only what the
-/// school accepted does.
-const SCHOOL_CANDIDATE_ACCOUNT: &str = "school-candidates";
+/// Device-local: the school's refusal of one exact credentials value, kept
+/// so a relaunch never sends a refused password again. Never synchronized:
+/// another device hears it from the school itself.
+const SCHOOL_REFUSAL_ACCOUNT: &str = "school-refusals";
+const REFUSAL_VERSION: u8 = 1;
+/// The device item `school-refusals` replaced. It may still hold a typed
+/// password and OTP secret no sign-in accepted: deleted once per launch,
+/// with the first device-local read, and never read.
+const RETIRED_CANDIDATE_ACCOUNT: &str = "school-candidates";
 
 #[derive(Default, Deserialize, Serialize)]
-struct CandidateBundle {
+struct RefusalBundle {
     version: u8,
-    accounts: HashMap<SchoolAuthProfile, Candidate>,
+    accounts: HashMap<SchoolAuthProfile, Refusal>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-struct Candidate {
-    credentials: SchoolCredentials,
-    /// Digest of the verified credentials this candidate replaces. A different
-    /// verified value means another device changed them: the candidate goes.
-    base: String,
-    /// Why the school turned these down, kept so a relaunch does not submit
-    /// a rejected password again. A refusal of the verified credentials is a
-    /// candidate equal to them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    failure: Option<SchoolSignInProblem>,
+struct Refusal {
+    /// `digest` of the credentials the school refused; other credentials
+    /// (changed here or on another device) are not refused.
+    credentials: String,
+    problem: SchoolSignInProblem,
 }
 
-/// The credentials a sign-in uses on this device, and why the school turned
-/// them down if it already did.
+/// The verified credentials a sign-in on its own uses, and why the school
+/// turned them down if it already did.
 #[derive(Clone, Debug)]
 pub(crate) struct SignInCredentials {
     pub credentials: SchoolCredentials,
-    pub failure: Option<SchoolSignInProblem>,
+    pub refusal: Option<SchoolSignInProblem>,
 }
 
 #[derive(Default)]
@@ -275,35 +306,30 @@ struct Accounts {
     payload: Option<Option<String>>,
     verified: HashMap<SchoolAuthProfile, SchoolCredentials>,
     /// Read once: only this process writes the device-local item.
-    candidates: Option<HashMap<SchoolAuthProfile, Candidate>>,
+    refusals: Option<HashMap<SchoolAuthProfile, Refusal>>,
     /// Another device may have replaced the synchronized item since it was
     /// read (`refresh`).
     stale: bool,
 }
 
 impl Accounts {
-    fn candidates(&self) -> &HashMap<SchoolAuthProfile, Candidate> {
-        static EMPTY: std::sync::OnceLock<HashMap<SchoolAuthProfile, Candidate>> =
-            std::sync::OnceLock::new();
-        self.candidates
-            .as_ref()
-            .unwrap_or_else(|| EMPTY.get_or_init(HashMap::new))
+    fn refusals(&self) -> HashMap<SchoolAuthProfile, Refusal> {
+        self.refusals.clone().unwrap_or_default()
     }
 
-    /// What this device signs in with: its own untested input first.
-    fn active(&self, profile: SchoolAuthProfile) -> Option<&SchoolCredentials> {
-        self.candidates()
+    /// The refusal of the verified credentials, if one is kept.
+    fn refusal(&self, profile: SchoolAuthProfile) -> Option<&Refusal> {
+        let verified = self.verified.get(&profile)?;
+        self.refusals
+            .as_ref()?
             .get(&profile)
-            .map(|candidate| &candidate.credentials)
-            .or_else(|| self.verified.get(&profile))
+            .filter(|refusal| refusal.credentials == digest(verified))
     }
 }
 
-fn digest(credentials: Option<&SchoolCredentials>) -> String {
+fn digest(credentials: &SchoolCredentials) -> String {
     use sha2::{Digest, Sha256};
-    let text = credentials
-        .and_then(|credentials| serde_json::to_string(credentials).ok())
-        .unwrap_or_default();
+    let text = serde_json::to_string(credentials).unwrap_or_default();
     data_encoding::HEXLOWER.encode(&Sha256::digest(text.as_bytes()))
 }
 
@@ -311,6 +337,9 @@ pub struct SchoolAuthService {
     vault: Arc<dyn SecretVault>,
     // Only this native process holds unlocked credentials; never persisted here.
     accounts: Mutex<Accounts>,
+    /// The refusal each account shows, as the vault was last read. Never
+    /// locked across vault I/O, so drawing it never waits for the vault.
+    shown: Mutex<HashMap<SchoolAuthProfile, SchoolSignInProblem>>,
     status_path: Option<std::path::PathBuf>,
 }
 
@@ -320,6 +349,7 @@ impl SchoolAuthService {
         Self {
             vault: Arc::new(vault),
             accounts: Mutex::new(Accounts::default()),
+            shown: Mutex::default(),
             status_path: None,
         }
     }
@@ -328,9 +358,63 @@ impl SchoolAuthService {
         Self {
             vault: Arc::new(vault),
             accounts: Mutex::new(Accounts::default()),
+            shown: Mutex::default(),
             status_path: Some(path),
         }
     }
+    // The desktop and mobile shells have a local metadata directory. Pathless
+    // embedders keep these non-secret markers in their device-local vault.
+    fn marker(&self, key: &str) -> Result<bool, SchoolAuthError> {
+        match &self.status_path {
+            Some(path) => path
+                .with_file_name(key)
+                .try_exists()
+                .map_err(|error| SchoolAuthError::storage(error.to_string())),
+            None => Ok(self.vault.load(key)?.is_some()),
+        }
+    }
+
+    fn set_marker(&self, key: &str, present: bool) -> Result<(), SchoolAuthError> {
+        if let Some(path) = &self.status_path {
+            let path = path.with_file_name(key);
+            if present {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|error| SchoolAuthError::storage(error.to_string()))?;
+                }
+                return crate::storage::atomic_write(&path, b"1")
+                    .map_err(|error| SchoolAuthError::storage(error.to_string()));
+            }
+            return match std::fs::remove_file(path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    Err(SchoolAuthError::storage(error.to_string()))
+                }
+                _ => Ok(()),
+            };
+        }
+        if present {
+            self.vault.store(key, "1")?;
+        } else {
+            self.vault.delete(key)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn sign_out_pending(&self, profile: SchoolAuthProfile) -> bool {
+        self.marker(profile.pending_key()).unwrap_or_else(|error| {
+            log::warn!("Cannot read local sign-out state: {error}");
+            true
+        })
+    }
+
+    pub(crate) fn mark_sign_out(
+        &self,
+        profile: SchoolAuthProfile,
+        pending: bool,
+    ) -> Result<(), SchoolAuthError> {
+        self.set_marker(profile.pending_key(), pending)
+    }
+
     fn cached_status(&self) -> Option<SchoolCredentialStatus> {
         let path = self.status_path.as_ref()?;
         let text = std::fs::read_to_string(path).ok()?;
@@ -431,6 +515,26 @@ impl SchoolAuthService {
         Ok(())
     }
 
+    /// Keeps the refusals `refusal` shows in step with `accounts`: checked
+    /// against the verified credentials once those were read, as recorded
+    /// before that.
+    fn note(&self, accounts: &Accounts) {
+        let shown = [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]
+            .into_iter()
+            .filter_map(|profile| {
+                let refusal = if accounts.payload.is_some() {
+                    accounts.refusal(profile)
+                } else {
+                    accounts.refusals.as_ref()?.get(&profile)
+                };
+                Some((profile, refusal?.problem.clone()))
+            })
+            .collect();
+        if let Ok(mut current) = self.shown.lock() {
+            *current = shown;
+        }
+    }
+
     /// Takes `payload` as the synchronized item's content, read or just
     /// written: writes are never read back, since on the macOS login keychain
     /// a read can ask for the password.
@@ -465,55 +569,101 @@ impl SchoolAuthService {
             accounts.verified = verified;
             accounts.payload = Some(payload);
         }
-        if accounts.candidates.is_none() {
-            let mut candidates = match self.vault.load(SCHOOL_CANDIDATE_ACCOUNT)? {
-                Some(payload) => serde_json::from_str::<CandidateBundle>(&payload)
-                    .ok()
-                    .filter(|bundle| bundle.version == 1)
-                    .map(|bundle| bundle.accounts)
-                    .unwrap_or_default(),
-                None => HashMap::new(),
-            };
-            candidates
-                .retain(|profile, candidate| candidate.credentials.validate(*profile).is_ok());
-            accounts.candidates = Some(candidates);
-        }
-        // Newer verified credentials from another device replace what this
-        // device was still trying.
-        let stale: Vec<_> = accounts
-            .candidates()
-            .iter()
-            .filter(|(profile, candidate)| candidate.base != digest(accounts.verified.get(profile)))
-            .map(|(profile, _)| *profile)
-            .collect();
-        if !stale.is_empty() {
-            let mut candidates = accounts.candidates().clone();
-            for profile in &stale {
-                candidates.remove(profile);
-            }
-            self.write_candidates(&candidates)?;
-            accounts.candidates = Some(candidates);
+        self.read_refusals(accounts)?;
+        // A refusal of credentials that are no longer the verified ones
+        // says nothing any more.
+        let mut refusals = accounts.refusals();
+        let before = refusals.len();
+        refusals.retain(|profile, refusal| {
+            accounts
+                .verified
+                .get(profile)
+                .is_some_and(|verified| digest(verified) == refusal.credentials)
+        });
+        if refusals.len() != before {
+            self.drop_refusals(accounts, refusals);
         }
         Ok(())
     }
 
-    fn write_candidates(
+    /// Keeps `refusals`, fewer than before, in memory at once and writes
+    /// them. A failed write overturns nothing already saved and holds no
+    /// credentials back: what is left on disk is about other credentials,
+    /// or rewritten whole by the next write of the refusals (an accepted
+    /// Retry included).
+    fn drop_refusals(
         &self,
-        candidates: &HashMap<SchoolAuthProfile, Candidate>,
+        accounts: &mut Accounts,
+        refusals: HashMap<SchoolAuthProfile, Refusal>,
+    ) {
+        if let Err(error) = self.write_refusals(&refusals) {
+            log::warn!(target: "app_core::school_auth", "a refusal that no longer applies was not deleted: {error}");
+        }
+        accounts.refusals = Some(refusals);
+    }
+
+    fn read_refusals(&self, accounts: &mut Accounts) -> Result<(), SchoolAuthError> {
+        if accounts.refusals.is_some() {
+            return Ok(());
+        }
+        if let Err(error) = self.vault.delete(RETIRED_CANDIDATE_ACCOUNT) {
+            log::warn!(target: "app_core::school_auth", "the retired candidates item was not deleted: {error}");
+        }
+        // A record of another version is not read: the next refusal
+        // replaces it.
+        let refusals = match self.vault.load(SCHOOL_REFUSAL_ACCOUNT)? {
+            Some(payload) => serde_json::from_str::<RefusalBundle>(&payload)
+                .ok()
+                .filter(|bundle| bundle.version == REFUSAL_VERSION)
+                .map(|bundle| bundle.accounts)
+                .unwrap_or_default(),
+            None => HashMap::new(),
+        };
+        let mut active = refusals;
+        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+            if active.contains_key(&profile) && self.marker(profile.acceptance_key())? {
+                active.remove(&profile);
+            }
+        }
+        accounts.refusals = Some(active);
+        Ok(())
+    }
+
+    /// The matching credentials were accepted. If the refusal item cannot
+    /// be updated, persist the acceptance before reporting success.
+    fn accepted(
+        &self,
+        accounts: &mut Accounts,
+        profile: SchoolAuthProfile,
     ) -> Result<(), SchoolAuthError> {
-        if candidates.is_empty() {
+        let mut remaining = accounts.refusals();
+        if remaining.remove(&profile).is_some() {
+            if self.write_refusals(&remaining).is_err() {
+                self.set_marker(profile.acceptance_key(), true)?;
+            }
+            accounts.refusals = Some(remaining);
+        }
+        self.note(accounts);
+        Ok(())
+    }
+
+    fn write_refusals(
+        &self,
+        refusals: &HashMap<SchoolAuthProfile, Refusal>,
+    ) -> Result<(), SchoolAuthError> {
+        if refusals.is_empty() {
             return self
                 .vault
-                .delete(SCHOOL_CANDIDATE_ACCOUNT)
+                .delete(SCHOOL_REFUSAL_ACCOUNT)
                 .map_err(SchoolAuthError::from);
         }
-        let payload = serde_json::to_string(&CandidateBundle {
-            version: 1,
-            accounts: candidates.clone(),
+        let payload = serde_json::to_string(&RefusalBundle {
+            version: REFUSAL_VERSION,
+            accounts: refusals.clone(),
         })
-        .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))?;
+        .map_err(|_| SchoolAuthError::storage("The school's refusal could not be encoded."))?;
         self.vault
-            .store(SCHOOL_CANDIDATE_ACCOUNT, &payload)
+            .store(SCHOOL_REFUSAL_ACCOUNT, &payload)
             .map_err(SchoolAuthError::from)
     }
 
@@ -545,7 +695,10 @@ impl SchoolAuthService {
 
     /// Validates and replaces the native credential bundle after Rust has
     /// authenticated and decrypted it. No plaintext is returned to the UI.
-    pub fn import_sync_payload(&self, payload: &str) -> Result<usize, SchoolAuthError> {
+    pub(crate) fn import_sync_payload(
+        &self,
+        payload: &str,
+    ) -> Result<Vec<SchoolAuthProfile>, SchoolAuthError> {
         let mut bundle: SchoolCredentialBundle = serde_json::from_str(payload).map_err(|_| {
             SchoolAuthError::compatibility("Synced school credentials are invalid.")
         })?;
@@ -560,10 +713,11 @@ impl SchoolAuthService {
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
         let payload = self.write_accounts(&bundle.accounts)?;
-        // Drops the candidates the imported accounts replace.
+        // Drops the refusals of the credentials the import replaced.
         self.adopt(&mut accounts, Some(payload))?;
+        self.note(&accounts);
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-            let credentials = accounts.active(profile).cloned();
+            let credentials = accounts.verified.get(&profile).cloned();
             self.record_summary(
                 profile,
                 credentials.as_ref(),
@@ -574,160 +728,119 @@ impl SchoolAuthService {
                 },
             );
         }
-        Ok(bundle.accounts.len())
+        Ok(bundle.accounts.into_keys().collect())
     }
 
-    /// Keeps `credentials` (blank fields filled as `resolve` does) as this
-    /// device's candidate. Nothing reaches the synchronized item until a
-    /// sign-in with them succeeds (`promote`). Returns what was kept.
-    pub fn stage(
-        &self,
-        profile: SchoolAuthProfile,
-        credentials: SchoolCredentials,
-    ) -> Result<SchoolCredentials, SchoolAuthError> {
-        // Blank fields fill from what the vault holds now, not a stale copy.
-        self.refresh();
-        let credentials = self.resolve(profile, credentials)?;
-        let mut accounts = self.lock()?;
-        self.unlock_accounts(&mut accounts)?;
-        let mut candidates = accounts.candidates().clone();
-        let same = candidates
-            .get(&profile)
-            .is_some_and(|candidate| candidate.credentials == credentials);
-        if same {
-            // The same credentials again: their version, and any refusal of
-            // them, stay. The connect that follows is the person's retry.
-            return Ok(credentials);
-        }
-        if accounts.verified.get(&profile) == Some(&credentials) {
-            // Connect with the verified credentials must not rewrite Keychain.
-            if candidates.remove(&profile).is_none() {
-                return Ok(credentials);
-            }
-        } else {
-            candidates.insert(
-                profile,
-                Candidate {
-                    credentials: credentials.clone(),
-                    base: digest(accounts.verified.get(&profile)),
-                    failure: None,
-                },
-            );
-        }
-        self.write_candidates(&candidates)?;
-        accounts.candidates = Some(candidates);
-        self.record_summary(
-            profile,
-            Some(&credentials),
-            CredentialAvailability::Available,
-        );
-        Ok(credentials)
-    }
-
-    /// The school accepted `credentials`: when they are this device's
-    /// candidate, they become the verified, synchronized credentials.
+    /// The school accepted `credentials`: they become the verified,
+    /// synchronized credentials, and a refusal of the profile goes. Only the
+    /// credentials' write decides the result: a refusal that could not be
+    /// deleted is gone from memory all the same (`drop_refusals`).
     pub(crate) fn promote(
         &self,
         profile: SchoolAuthProfile,
         credentials: &SchoolCredentials,
-    ) -> Result<bool, SchoolAuthError> {
+    ) -> Result<(), SchoolAuthError> {
+        // Only what a later sign-in on its own can use is kept.
+        credentials.clone().validate(profile)?;
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
-        if accounts
-            .candidates()
-            .get(&profile)
-            .is_none_or(|candidate| &candidate.credentials != credentials)
-        {
-            return Ok(false);
-        }
-        let mut candidates = accounts.candidates().clone();
-        candidates.remove(&profile);
-        // A refusal kept for the verified credentials themselves: they stay
-        // as they are, only the refusal goes.
-        let payload = if accounts.verified.get(&profile) == Some(credentials) {
-            None
-        } else {
+        if accounts.verified.get(&profile) != Some(credentials) {
             let mut verified = accounts.verified.clone();
             verified.insert(profile, credentials.clone());
-            Some(self.write_accounts(&verified)?)
-        };
-        self.write_candidates(&candidates)?;
-        accounts.candidates = Some(candidates);
-        if let Some(payload) = payload {
+            let payload = self.write_accounts(&verified)?;
             self.adopt(&mut accounts, Some(payload))?;
         }
-        Ok(true)
-    }
-
-    /// The school turned `credentials` down, or wants the person on its page.
-    /// The reason is kept with exactly these credentials across launches: a
-    /// candidate keeps it, and a refusal of the verified credentials becomes
-    /// a candidate equal to them, on this device only. Other credentials
-    /// (changed here, or synced from another device) lift it.
-    pub(crate) fn record_failure(
-        &self,
-        profile: SchoolAuthProfile,
-        credentials: &SchoolCredentials,
-        failure: &SchoolSignInProblem,
-    ) -> Result<(), SchoolAuthError> {
-        let mut accounts = self.lock()?;
-        self.unlock_accounts(&mut accounts)?;
-        let mut candidates = accounts.candidates().clone();
-        match candidates.get_mut(&profile) {
-            Some(candidate) if &candidate.credentials == credentials => {
-                if candidate.failure.as_ref() == Some(failure) {
-                    return Ok(());
-                }
-                candidate.failure = Some(failure.clone());
-            }
-            Some(_) => return Ok(()),
-            None if accounts.verified.get(&profile) == Some(credentials) => {
-                candidates.insert(
-                    profile,
-                    Candidate {
-                        credentials: credentials.clone(),
-                        base: digest(accounts.verified.get(&profile)),
-                        failure: Some(failure.clone()),
-                    },
-                );
-            }
-            None => return Ok(()),
-        }
-        self.write_candidates(&candidates)?;
-        accounts.candidates = Some(candidates);
+        self.accepted(&mut accounts, profile)?;
+        self.record_summary(
+            profile,
+            Some(credentials),
+            CredentialAvailability::Available,
+        );
         Ok(())
     }
 
-    /// Whether `credentials` are the verified ones, which sync to the
-    /// person's other devices.
-    pub(crate) fn is_verified(
+    /// The school turned `credentials` down, or wants the person on its
+    /// page: kept with exactly these credentials across launches, while they
+    /// are the verified ones. Returns whether it was kept.
+    pub(crate) fn record_refusal(
         &self,
         profile: SchoolAuthProfile,
         credentials: &SchoolCredentials,
+        problem: &SchoolSignInProblem,
     ) -> Result<bool, SchoolAuthError> {
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
-        Ok(accounts.verified.get(&profile) == Some(credentials))
+        if accounts.verified.get(&profile) != Some(credentials) {
+            return Ok(false);
+        }
+        let mut refusals = accounts.refusals();
+        refusals.insert(
+            profile,
+            Refusal {
+                credentials: digest(credentials),
+                problem: problem.clone(),
+            },
+        );
+        if self.marker(profile.acceptance_key())? {
+            self.set_marker(profile.acceptance_key(), false)?;
+        }
+        self.write_refusals(&refusals)?;
+        accounts.refusals = Some(refusals);
+        self.note(&accounts);
+        Ok(true)
     }
 
+    /// The school accepted `credentials` without a Connect (a sign-in on its
+    /// own, a Retry): a refusal kept for exactly them goes.
+    pub(crate) fn clear_refusal(
+        &self,
+        profile: SchoolAuthProfile,
+        credentials: &SchoolCredentials,
+    ) -> Result<(), SchoolAuthError> {
+        let mut accounts = self.lock()?;
+        self.unlock_accounts(&mut accounts)?;
+        let refusals = accounts.refusals();
+        if refusals
+            .get(&profile)
+            .is_none_or(|refusal| refusal.credentials != digest(credentials))
+        {
+            return Ok(());
+        }
+        self.accepted(&mut accounts, profile)
+    }
+
+    /// The refusal of the profile's credentials, as the vault was last read.
+    /// Never touches the vault.
+    pub(crate) fn refusal(&self, profile: SchoolAuthProfile) -> Option<SchoolSignInProblem> {
+        self.shown.lock().ok()?.get(&profile).cloned()
+    }
+
+    /// Reads the device-local refusals, without the synchronized item.
+    pub(crate) fn load_refusals(&self) -> Result<(), SchoolAuthError> {
+        let mut accounts = self.lock()?;
+        self.read_refusals(&mut accounts)?;
+        self.note(&accounts);
+        Ok(())
+    }
+
+    /// The verified credentials and their refusal, read now.
     pub(crate) fn sign_in_credentials(
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<Option<SignInCredentials>, SchoolAuthError> {
         let credentials = self.load(profile)?;
         let accounts = self.lock()?;
+        self.note(&accounts);
         Ok(credentials.map(|credentials| SignInCredentials {
-            failure: accounts
-                .candidates()
-                .get(&profile)
-                .filter(|candidate| candidate.credentials == credentials)
-                .and_then(|candidate| candidate.failure.clone()),
+            refusal: accounts
+                .refusal(profile)
+                .map(|refusal| refusal.problem.clone()),
             credentials,
         }))
     }
 
-    /// Blank fields keep what this device signs in with now: its candidate,
-    /// else the verified credentials as the vault holds them at this moment.
+    /// Blank fields keep the verified credentials as the vault holds them at
+    /// this moment.
     pub fn resolve(
         &self,
         profile: SchoolAuthProfile,
@@ -765,11 +878,11 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
-        credentials.validate(profile)?;
+        credentials.validate_input(profile)?;
         Ok(credentials)
     }
 
-    /// The credentials this device signs in with (see `Accounts::active`).
+    /// The verified credentials.
     pub fn load(
         &self,
         profile: SchoolAuthProfile,
@@ -786,7 +899,7 @@ impl SchoolAuthService {
             self.record_summary(profile, None, CredentialAvailability::AccessDenied);
             return Err(error);
         }
-        let credentials = accounts.active(profile).cloned();
+        let credentials = accounts.verified.get(&profile).cloned();
         self.record_summary(
             profile,
             credentials.as_ref(),
@@ -807,12 +920,9 @@ impl SchoolAuthService {
         let mut verified = accounts.verified.clone();
         verified.remove(&profile);
         let payload = self.write_accounts(&verified)?;
-        let mut candidates = accounts.candidates().clone();
-        if candidates.remove(&profile).is_some() {
-            self.write_candidates(&candidates)?;
-        }
-        accounts.candidates = Some(candidates);
+        // Drops the profile's refusal with its credentials.
         self.adopt(&mut accounts, Some(payload))?;
+        self.note(&accounts);
         drop(accounts);
         // Signing out also forgets the LMS token; students cannot revoke it.
         let _ = self.delete_moodle_token(profile);
@@ -820,25 +930,10 @@ impl SchoolAuthService {
         Ok(true)
     }
 
-    /// Who a token belongs to: the saved username, or "" while the school
-    /// web session was signed in without saved credentials.
-    fn moodle_token_owner(&self, profile: SchoolAuthProfile) -> Result<String, SchoolAuthError> {
-        Ok(self
-            .load(profile)?
-            .map(|credentials| credentials.username)
-            .unwrap_or_default())
-    }
-
-    /// The account synced school data belongs to (`crate::sync_state::account`).
-    pub fn sync_account(&self, profile: SchoolAuthProfile) -> Result<String, SchoolAuthError> {
-        Ok(crate::sync_state::account(
-            profile,
-            &self.moodle_token_owner(profile)?,
-        ))
-    }
-
-    /// The stored token of this profile's current account. A record for
-    /// another account, or one this version cannot read, is deleted.
+    /// The profile's stored token. A record this version cannot read is
+    /// deleted, and so is one of an account with no saved credentials (a
+    /// sign-out that did not finish, a deletion on another device): a token
+    /// is never used for an account that is not saved.
     pub fn load_moodle_token(
         &self,
         profile: SchoolAuthProfile,
@@ -846,16 +941,19 @@ impl SchoolAuthService {
         let Some(account) = moodle_token_account(profile) else {
             return Ok(None);
         };
+        if !self.configured(profile) {
+            self.vault.delete(account)?;
+            return Ok(None);
+        }
         let Some(payload) = self.vault.load(account)? else {
             return Ok(None);
         };
         let stored = serde_json::from_str::<StoredMoodleToken>(&payload)
             .ok()
-            .filter(|stored| stored.version == 1 && !stored.token.is_empty());
-        let owner = self.moodle_token_owner(profile)?;
+            .filter(|stored| stored.version == MOODLE_TOKEN_VERSION && !stored.token.is_empty());
         match stored {
-            Some(stored) if stored.account == owner => Ok(Some(MoodleToken(stored.token))),
-            _ => {
+            Some(stored) => Ok(Some(MoodleToken(stored.token))),
+            None => {
                 self.vault.delete(account)?;
                 Ok(None)
             }
@@ -870,8 +968,7 @@ impl SchoolAuthService {
         let account = moodle_token_account(profile)
             .ok_or_else(|| SchoolAuthError::invalid("This school account has no LMS."))?;
         let payload = serde_json::to_string(&StoredMoodleToken {
-            version: 1,
-            account: self.moodle_token_owner(profile)?,
+            version: MOODLE_TOKEN_VERSION,
             token: token.0.clone(),
         })
         .map_err(|_| SchoolAuthError::storage("The LMS token could not be encoded."))?;
@@ -940,6 +1037,23 @@ impl SchoolAuthService {
         status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
         self.write_status(&status);
         Ok(status)
+    }
+
+    /// Whether the profile's credentials are saved, as `status` says. Only
+    /// metadata: reading it never unlocks the vault.
+    pub(crate) fn configured(&self, profile: SchoolAuthProfile) -> bool {
+        let Ok(status) = self.status() else {
+            return false;
+        };
+        let summary = match profile {
+            SchoolAuthProfile::Science => status.science,
+            SchoolAuthProfile::TokyoTech => status.tokyo_tech,
+        };
+        summary.saved
+            && !matches!(
+                summary.availability,
+                CredentialAvailability::NotConfigured | CredentialAvailability::Missing
+            )
     }
 
     /// Explicit export only. Native shells write the result directly to the

@@ -193,7 +193,6 @@ impl NativeBrowser {
                 let cause = Some(command.action);
                 let result = self.with_view(id, |view| match command.command {
                     BrowserAction::Navigate(url) => view.navigate(url).map_err(|e| e.to_string()),
-                    BrowserAction::Reload => view.reload().map_err(|e| e.to_string()),
                     BrowserAction::GoBack => crate::school_web::go(&view, true),
                     BrowserAction::GoForward => crate::school_web::go(&view, false),
                     BrowserAction::Eval(script) => view.eval(&script).map_err(|e| e.to_string()),
@@ -383,7 +382,6 @@ impl NativeBrowser {
             use crate::school_webkit::Command;
             let action = match command.command {
                 BrowserAction::Navigate(url) => Command::Navigate(url),
-                BrowserAction::Reload => Command::Reload,
                 BrowserAction::GoBack => Command::GoBack,
                 BrowserAction::GoForward => Command::GoForward,
                 BrowserAction::Eval(script) => Command::Evaluate(script),
@@ -644,11 +642,10 @@ impl NativeBrowser {
     }
 }
 impl SchoolBrowser for NativeBrowser {
-    /// macOS reports every navigation fact and shows popups in the pane.
-    /// The Windows interim reports neither: popups are separate windows.
+    /// macOS shows popups in the pane; in the Windows interim they are
+    /// separate windows.
     fn capabilities(&self) -> HostCapabilities {
         HostCapabilities {
-            form_resubmission: cfg!(target_os = "macos"),
             inline_popups: cfg!(target_os = "macos"),
         }
     }
@@ -878,7 +875,6 @@ impl crate::school_webkit::Host for WebKitHost {
         listener.decide_navigation(NavigationRequest {
             page,
             url: request.url,
-            method: request.method,
             main_frame: request.main_frame,
             kind: request.kind,
             user_gesture: request.user_gesture,
@@ -902,7 +898,6 @@ impl crate::school_webkit::Host for WebKitHost {
         let decision = listener.new_window(NewWindowRequest {
             opener: page,
             url: request.url,
-            method: request.method,
             kind: request.kind,
             user_gesture: request.user_gesture,
             name: None,

@@ -1,12 +1,18 @@
 //! The account owner: every change of an account's session passes it.
 //!
 //! An operation first takes a permit stamped with the account generation;
-//! it stores rows, saves jars, renames a download or promotes credentials
-//! only while it holds one. Switching accounts, signing out or a reset runs
-//! the barrier: stop issuing permits, cancel the reads (writes run on to
-//! their end), wait until every permit is back, clean up in a fixed order,
-//! and only then open the next generation. No lock spans the database, the
-//! vault and the platform's cookie store, so the order is the guarantee.
+//! it stores rows, saves jars, renames a download or writes the account's
+//! vault items (credentials, refusals, the saved session, the LMS token)
+//! only while it holds one. A write to the vault takes a permit of its own
+//! generation (`permit_of`) into the blocking task that runs it, so it holds
+//! until the write lands, even when the read that started it was cancelled
+//! and dropped; once a barrier began, it gets none. Signing out or a reset
+//! runs the barrier: stop issuing permits, cancel the reads (writes run on
+//! to their end), wait until every permit is back, and only then delete, in
+//! a fixed order, before the next generation opens. A write the platform
+//! was already handed lands before the delete; none begins after it. No
+//! lock spans the database, the vault and the platform's cookie store, so
+//! the order is the guarantee.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
@@ -15,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 struct State {
     generation: u64,
     open: bool,
+    sign_out_pending: bool,
     permits: usize,
     /// Cancelled by the barrier: the reads and the sign-in of this generation.
     cancel: CancellationToken,
@@ -89,12 +96,21 @@ impl Owner {
             state: Mutex::new(State {
                 generation: 1,
                 open: true,
+                sign_out_pending: false,
                 permits: 0,
                 cancel: CancellationToken::new(),
             }),
             returned: Notify::new(),
             turn: tokio::sync::Mutex::new(()),
         }))
+    }
+
+    pub(super) fn set_sign_out_pending(&self, pending: bool) {
+        self.0.state().sign_out_pending = pending;
+    }
+
+    pub(super) fn sign_out_pending(&self) -> bool {
+        self.0.state().sign_out_pending
     }
 
     pub(super) fn generation(&self) -> u64 {
@@ -104,7 +120,7 @@ impl Owner {
     /// A permit for the current generation; `None` while a barrier runs.
     pub(super) fn permit(&self) -> Option<Permit> {
         let mut state = self.0.state();
-        if !state.open {
+        if !state.open || state.sign_out_pending {
             return None;
         }
         state.permits += 1;
@@ -115,11 +131,31 @@ impl Owner {
         })
     }
 
+    /// A permit for `generation` only: `None` while a barrier runs and once
+    /// it closed that generation. Issued under the lock the barrier takes,
+    /// so a write that gets one is waited for, and one that does not never
+    /// lands after the barrier's delete.
+    pub(super) fn permit_of(&self, generation: u64) -> Option<Permit> {
+        self.permit()
+            .filter(|permit| permit.generation == generation)
+    }
+
     /// Stops issuing permits, cancels this generation's reads and sign-in,
     /// and waits until every permit is back. Writes are not cancelled: the
     /// wait lasts until they end.
     pub(super) async fn close(&self) -> Closed<'_> {
+        self.drain(self.0.turn.lock().await).await
+    }
+
+    pub(super) async fn close_generation(&self, generation: u64) -> Option<Closed<'_>> {
         let turn = self.0.turn.lock().await;
+        if self.generation() != generation || self.sign_out_pending() {
+            return None;
+        }
+        Some(self.drain(turn).await)
+    }
+
+    async fn drain<'a>(&'a self, turn: tokio::sync::MutexGuard<'a, ()>) -> Closed<'a> {
         {
             let mut state = self.0.state();
             state.open = false;

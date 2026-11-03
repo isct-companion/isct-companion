@@ -30,12 +30,13 @@ pub struct SchoolWebTarget {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SchoolWebNotice {
-    /// A reload would have sent a form again; the page was opened with GET.
+    /// A reload the page or the engine started itself (never the App's
+    /// Reload) would have sent a form again; the page was opened with GET.
     Reopened { url: String },
 }
 
 /// Why a web operation (signing a view in, on an App link or on Reload at
-/// the sign-in page) stopped, or what it has to say about where it ended.
+/// the sign-in page) stopped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SchoolWebProblem {
@@ -49,10 +50,6 @@ pub enum SchoolWebProblem {
     /// The page still asks for a sign-in: Core signed in and the page did
     /// not take it, or the school wants the person on its own page.
     StillSignIn,
-    /// The page came from a form the person sent when the sign-in ran out;
-    /// a safe page opened instead, and whether the school received the form
-    /// is unknown.
-    SubmissionUnconfirmed,
 }
 
 /// The sign-in state of the visit in front of a site.
@@ -126,6 +123,11 @@ pub enum SchoolWebEntry {
     /// Back to what the surface showed before: `Resume` when the surface was
     /// the last to present the view, `Go` when another one did meanwhile.
     Return { url: String },
+    /// The site's start page as it is: Core writes no identity and starts no
+    /// web operation, so the person signs in on the page by hand. The
+    /// Connect form offers it for the Science Tokyo portal when the school
+    /// sends its one-time password by email, to set up App OTP there.
+    Unsigned,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -151,6 +153,8 @@ pub enum SchoolBrowserError {
     Platform(String),
     #[error("{0}")]
     Storage(String),
+    #[error("School web sign-out has not finished.")]
+    SignOutIncomplete,
     #[error("The school browser has stopped.")]
     Stopped,
 }

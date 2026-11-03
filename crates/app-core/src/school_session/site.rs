@@ -8,26 +8,36 @@
 //! site at a time. Only an SSO that reaches the identity provider's sign-in
 //! page asks the identity to sign in.
 //!
+//! An attempt gets the site's instance only when it sends a request that
+//! needs cookies: a request that carries its own credentials (the LMS
+//! token REST service) goes out with no site session, so it never builds
+//! one, never goes through SSO and never signs in.
+//!
 //! A top-level `run` has one recovery: the operation gets this attempt's
 //! handle, never the site session, so it cannot start a nested run with a
 //! recovery of its own; a second loss of the session ends the call. Across
-//! calls the identity's cooldown bounds sign-ins.
+//! calls the identity's pause bounds sign-ins.
 
 use super::{
     guard,
     jar::{Cookies, Jar},
     login::{self, KYOMU_ENTRY, KYOMU_STUDENT, LMS_HOME},
     walk::{Page, Walk, WalkError},
-    Inner, Permit, Snapshot,
+    Ended, Inner, Permit, Snapshot, RETRY_NOT_BEFORE,
 };
 use crate::{
     net::{BoxFuture, Host, NetError, NetRequest, Response},
     school_auth::SchoolAuthProfile,
+    sync_engine::AccountWait,
 };
 use adpt_isct::login::SciencePage;
 use reqwest::header::COOKIE;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, PoisonError,
+};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 /// A website with its own session.
@@ -204,8 +214,9 @@ pub(crate) trait Operation: Send {
 pub(crate) enum RunError<E> {
     /// The operation's own error.
     Op(E),
-    /// The account cannot reach its school now; its state is in the snapshot.
-    Session,
+    /// The account cannot reach its school now, and what lets its reads go
+    /// on.
+    Blocked(AccountWait),
     /// The site's SSO failed on the network or a paused host.
     Net(NetError),
     /// The account's barrier stopped the read.
@@ -214,89 +225,197 @@ pub(crate) enum RunError<E> {
     Deadline,
 }
 
-/// One attempt's handle: the site instance it set out with.
-#[derive(Clone)]
-pub(crate) struct Attempt(Arc<AttemptInner>);
+/// Why getting a site's instance ended a call.
+#[derive(Clone, Debug)]
+enum Stop {
+    Blocked(AccountWait),
+    Net(NetError),
+    Cancelled,
+    Deadline,
+}
 
-struct AttemptInner {
+impl Stop {
+    /// What a request that needed the instance answers instead; `run`
+    /// returns the stop itself, whatever the operation made of it.
+    fn net(&self) -> NetError {
+        match self {
+            Self::Blocked(AccountWait::Person) => NetError::SignInRequired,
+            Self::Blocked(_) => NetError::Offline,
+            Self::Net(error) => error.clone(),
+            Self::Cancelled => NetError::Cancelled,
+            Self::Deadline => NetError::Deadline,
+        }
+    }
+}
+
+impl<E> From<Stop> for RunError<E> {
+    fn from(stop: Stop) -> Self {
+        match stop {
+            Stop::Blocked(wait) => Self::Blocked(wait),
+            Stop::Net(error) => Self::Net(error),
+            Stop::Cancelled => Self::Cancelled,
+            Stop::Deadline => Self::Deadline,
+        }
+    }
+}
+
+/// One call on a site: its deadline, the cancel of the permit it runs
+/// under, and its one sign-in.
+struct Call {
     site: Site,
-    instance: Arc<Instance>,
     sessions: Arc<Inner>,
     deadline: Instant,
     /// The account generation of the permit it runs under.
     account: u64,
+    cancel: CancellationToken,
+    signed_in: AtomicBool,
+    /// Why getting the instance ended the call, once it did.
+    stopped: Mutex<Option<Stop>>,
+}
+
+impl Call {
+    fn stopped(&self) -> Option<Stop> {
+        guard(&self.stopped).clone()
+    }
+}
+
+/// One attempt's handle: the call, and the site instance it reads with
+/// once a request needed one.
+#[derive(Clone)]
+pub(crate) struct Attempt(Arc<AttemptInner>);
+
+struct AttemptInner {
+    call: Arc<Call>,
+    instance: tokio::sync::OnceCell<Arc<Instance>>,
 }
 
 impl Attempt {
+    fn new(call: Arc<Call>) -> Self {
+        Self(Arc::new(AttemptInner {
+            call,
+            instance: tokio::sync::OnceCell::new(),
+        }))
+    }
+
     pub(crate) fn site(&self) -> Site {
-        self.0.site
+        self.0.call.site
     }
 
     /// The account generation it runs in; a cache of an account (the LMS
     /// token) is kept per generation.
     pub(crate) fn account_generation(&self) -> u64 {
-        self.0.account
+        self.0.call.account
     }
 
-    /// The instance this attempt reads with; a cache tied to an instance
-    /// compares it.
-    pub(crate) fn instance(&self) -> u64 {
-        self.0.instance.id
+    /// A token and a previously established cookie jar have the same local
+    /// admission requirement, even though only the latter needs site SSO.
+    pub(crate) fn authorize(&self) -> Result<(), NetError> {
+        let call = &self.0.call;
+        let account = call.sessions.account(call.site.profile());
+        if account.owner.sign_out_pending() || !account.identity.configured() {
+            let stop = Stop::Blocked(AccountWait::Person);
+            let error = stop.net();
+            *guard(&call.stopped) = Some(stop);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The site instance this attempt reads with: the current one, or a new
+    /// one taken through SSO, signing in once if the SSO reaches the sign-in
+    /// page. A failure ends the call (`run` returns it).
+    async fn ready(&self) -> Result<&Arc<Instance>, NetError> {
+        self.authorize()?;
+        let call = &self.0.call;
+        self.0
+            .instance
+            .get_or_try_init(|| async {
+                if let Some(stop) = call.stopped() {
+                    return Err(stop.net());
+                }
+                call.sessions.ready(call).await.map_err(|stop| {
+                    let net = stop.net();
+                    *guard(&call.stopped) = Some(stop);
+                    net
+                })
+            })
+            .await
+    }
+
+    /// A permit of this attempt's account generation for a vault write, to
+    /// hold until the write lands (`owner`): `None` once a sign-out or reset
+    /// closed the generation.
+    pub(crate) fn write_permit(&self) -> Option<Permit> {
+        let call = &self.0.call;
+        call.sessions
+            .account(call.site.profile())
+            .owner
+            .permit_of(call.account)
+    }
+
+    /// The instance this attempt reads with, got first if needed; a cache
+    /// tied to an instance compares it.
+    pub(crate) async fn instance(&self) -> Result<u64, NetError> {
+        Ok(self.ready().await?.id)
     }
 
     /// `request` with this instance's cookies; what the school sets is kept
     /// in this instance only. Redirects are returned, never followed.
     pub(crate) async fn send(&self, mut request: NetRequest) -> Result<Response, NetError> {
-        if let Some(cookie) = self.0.instance.header(&request.url) {
+        let instance = self.ready().await?.clone();
+        if let Some(cookie) = instance.header(&request.url) {
             request.headers.push((COOKIE, cookie));
         }
         let url = request.url.clone();
         let response = self.bare(request).await?;
         let set_cookies = response.set_cookies();
         if !set_cookies.is_empty() {
-            self.0.instance.store(&url, &set_cookies);
+            instance.store(&url, &set_cookies);
         }
         Ok(response)
     }
 
     /// `request` without cookies (the token REST service), within the
-    /// call's deadline.
+    /// call's deadline. It needs no site session.
     pub(crate) async fn bare(&self, request: NetRequest) -> Result<Response, NetError> {
-        tokio::time::timeout_at(self.0.deadline, self.0.sessions.transport.send(request))
+        self.authorize()?;
+        let call = &self.0.call;
+        tokio::time::timeout_at(call.deadline, call.sessions.transport.send(request))
             .await
             .map_err(|_| NetError::Deadline)?
     }
 
     /// The `Cookie` header for a file request the caller streams itself.
-    pub(crate) fn cookie_header(&self, url: &Url) -> Option<String> {
-        self.0.instance.header(url)
+    pub(crate) async fn cookie_header(&self, url: &Url) -> Result<Option<String>, NetError> {
+        Ok(self.ready().await?.header(url))
     }
 
     /// Keeps the `Set-Cookie` values of a response the caller streamed.
     pub(crate) fn store_cookies(&self, url: &Url, set_cookie: &[String]) {
-        self.0.instance.store(url, set_cookie);
+        if let Some(instance) = self.0.instance.get() {
+            instance.store(url, set_cookie);
+        }
     }
 
     /// The site showed a maintenance page: its host pauses, the notice is
     /// kept for the session snapshot, and the read ends as a paused host.
     pub(crate) fn maintenance(&self, notice: Option<String>) -> NetError {
-        let host = self.0.site.host();
-        self.0.sessions.transport.report_maintenance(host);
-        if let Some(session) = self
-            .0
+        let call = &self.0.call;
+        let host = call.site.host();
+        call.sessions.transport.report_maintenance(host);
+        if let Some(session) = call
             .sessions
-            .account(self.0.site.profile())
+            .account(call.site.profile())
             .sites
             .iter()
-            .find(|session| session.site == self.0.site)
+            .find(|session| session.site == call.site)
         {
             guard(&session.state).notice = notice.or_else(|| Some(String::new()));
         }
-        self.0.sessions.publish();
+        call.sessions.publish();
         NetError::HostPaused {
             host,
-            until_unix: self
-                .0
+            until_unix: call
                 .sessions
                 .transport
                 .paused_until(host)
@@ -307,25 +426,22 @@ impl Attempt {
     /// An attempt over `jar`, outside any session, for transport tests.
     #[cfg(test)]
     pub(crate) fn detached(sessions: &super::SchoolSessions, site: Site, jar: Jar) -> Self {
-        Self(Arc::new(AttemptInner {
+        let attempt = Self::new(Arc::new(Call {
             site,
-            instance: Arc::new(Instance {
-                id: 0,
-                identity: 0,
-                jar: Mutex::new(jar),
-            }),
             sessions: sessions.0.clone(),
             deadline: Instant::now() + std::time::Duration::from_secs(600),
             account: 0,
-        }))
+            cancel: CancellationToken::new(),
+            signed_in: AtomicBool::new(false),
+            stopped: Mutex::new(None),
+        }));
+        let _ = attempt.0.instance.set(Arc::new(Instance {
+            id: 0,
+            identity: 0,
+            jar: Mutex::new(jar),
+        }));
+        attempt
     }
-}
-
-/// What one call has used of its recovery.
-#[derive(Default)]
-struct Budget {
-    recovered: bool,
-    signed_in: bool,
 }
 
 /// How a verification's SSO ended.
@@ -345,6 +461,18 @@ enum Sso {
 }
 
 impl Inner {
+    fn call(self: &Arc<Self>, site: Site, permit: &Permit, deadline: Instant) -> Arc<Call> {
+        Arc::new(Call {
+            site,
+            sessions: self.clone(),
+            deadline,
+            account: permit.generation(),
+            cancel: permit.cancel().clone(),
+            signed_in: AtomicBool::new(false),
+            stopped: Mutex::new(None),
+        })
+    }
+
     pub(super) async fn run<O: Operation>(
         self: &Arc<Self>,
         site: Site,
@@ -355,60 +483,63 @@ impl Inner {
         let profile = site.profile();
         self.restore(profile).await;
         let session = self.site(site);
+        let call = self.call(site, permit, deadline);
         let _serial = match &session.serial {
-            Some(serial) => Some(bounded(permit, deadline, serial.lock()).await?),
+            Some(serial) => Some(bounded(&call.cancel, deadline, serial.lock()).await?),
             None => None,
         };
-        let mut budget = Budget::default();
+        let mut recovered = false;
         loop {
-            let instance = self.ready(site, permit, deadline, &mut budget).await?;
-            let attempt = Attempt(Arc::new(AttemptInner {
-                site,
-                instance: instance.clone(),
-                sessions: self.clone(),
-                deadline,
-                account: permit.generation(),
-            }));
-            let result = bounded(permit, deadline, operation.attempt(attempt)).await?;
+            let attempt = Attempt::new(call.clone());
+            let result =
+                bounded(&call.cancel, deadline, operation.attempt(attempt.clone())).await?;
+            // The instance could not be had: that ends the call, whatever
+            // the operation made of it.
+            if let Some(stop) = call.stopped() {
+                return Err(stop.into());
+            }
             match result {
                 Ok(value) => {
                     self.recovered(site);
                     return Ok(value);
                 }
                 Err(error) if error.signed_out() => {
-                    session.retire(&instance);
-                    if budget.recovered || budget.signed_in {
+                    let instance = attempt.0.instance.get();
+                    if let Some(instance) = instance {
+                        session.retire(instance);
+                    }
+                    if recovered || call.signed_in.load(Ordering::SeqCst) {
                         log::warn!(target: "app_core::school_session", "{site:?} refused a recovered session");
-                        self.account(profile).identity.anomaly(instance.identity);
+                        let identity = &self.account(profile).identity;
+                        identity.anomaly(
+                            instance.map_or_else(
+                                || identity.generation(),
+                                |instance| instance.identity,
+                            ),
+                        );
                         self.publish();
-                        return Err(RunError::Session);
+                        return Err(RunError::Blocked(self.paused(profile)));
                     }
                     log::info!(target: "app_core::school_session", "{site:?} session expired; rebuilding it");
-                    budget.recovered = true;
+                    recovered = true;
                 }
                 Err(error) => return Err(RunError::Op(error)),
             }
         }
     }
 
+    /// An attempt for a write: nothing has been sent yet, and the site's
+    /// session is got only if a request needs it. Never recovered or run
+    /// again.
     #[cfg(feature = "agent")]
     pub(super) async fn write_attempt(
         self: &Arc<Self>,
         site: Site,
         permit: &Permit,
         deadline: Instant,
-    ) -> Result<Attempt, RunError<NetError>> {
+    ) -> Attempt {
         self.restore(site.profile()).await;
-        let instance = self
-            .ready(site, permit, deadline, &mut Budget::default())
-            .await?;
-        Ok(Attempt(Arc::new(AttemptInner {
-            site,
-            instance,
-            sessions: self.clone(),
-            deadline,
-            account: permit.generation(),
-        })))
+        Attempt::new(self.call(site, permit, deadline))
     }
 
     /// A read succeeded: a maintenance notice the site showed is over.
@@ -424,71 +555,93 @@ impl Inner {
         }
     }
 
-    /// The site's ready instance: the current one, or a new one built from
-    /// the current snapshot and taken through SSO, signing in once if the
-    /// SSO reaches the sign-in page.
-    async fn ready<E>(
-        self: &Arc<Self>,
-        site: Site,
-        permit: &Permit,
-        deadline: Instant,
-        budget: &mut Budget,
-    ) -> Result<Arc<Instance>, RunError<E>> {
+    /// The site's ready instance for `call`: the current one, or a new one
+    /// built from the current snapshot and taken through SSO, signing in
+    /// once per call if the SSO reaches the sign-in page.
+    async fn ready(self: &Arc<Self>, call: &Call) -> Result<Arc<Instance>, Stop> {
+        let site = call.site;
         let profile = site.profile();
         let session = self.site(site);
+        let (cancel, deadline) = (&call.cancel, call.deadline);
         loop {
             if let Some(instance) = session.current() {
                 return Ok(instance);
             }
-            let _sso = bounded(permit, deadline, session.sso.lock()).await?;
+            let _sso = bounded(cancel, deadline, session.sso.lock()).await?;
             // Another call finished the SSO while this one waited.
             if let Some(instance) = session.current() {
                 return Ok(instance);
             }
             let identity = &self.account(profile).identity;
             let Some((snapshot, generation)) = identity.snapshot() else {
-                if budget.signed_in {
-                    return Err(RunError::Session);
+                if call.signed_in.swap(true, Ordering::SeqCst) {
+                    identity.anomaly(identity.generation());
+                    self.publish();
+                    return Err(Stop::Blocked(self.paused(profile)));
                 }
-                budget.signed_in = true;
                 let seen = identity.generation();
                 bounded(
-                    permit,
+                    cancel,
                     deadline,
                     self.sign_in(profile, seen, super::identity::How::Background),
                 )
                 .await?
-                .map_err(|_| RunError::Session)?;
+                .map_err(|ended| self.blocked(profile, ended))?;
                 continue;
             };
             let instance = session.build(snapshot.jar(), generation);
-            let outcome = bounded(permit, deadline, self.sso(site, &instance)).await?;
+            let outcome = bounded(cancel, deadline, self.sso(site, &instance)).await?;
             match outcome {
                 Sso::Ready => {
                     log::info!(target: "app_core::school_session", "{site:?} session ready instance={}", instance.id);
                     session.install(instance.clone());
-                    self.persist(profile).await;
+                    self.persist(profile, call.account).await;
                     return Ok(instance);
                 }
                 Sso::SignIn => {
-                    if budget.signed_in {
+                    if call.signed_in.swap(true, Ordering::SeqCst) {
                         log::warn!(target: "app_core::school_session", "{site:?} sent a fresh sign-in back to the sign-in page");
                         identity.anomaly(generation);
                         self.publish();
-                        return Err(RunError::Session);
+                        return Err(Stop::Blocked(self.paused(profile)));
                     }
-                    budget.signed_in = true;
                     identity.invalidate(generation);
                     bounded(
-                        permit,
+                        cancel,
                         deadline,
                         self.sign_in(profile, generation, super::identity::How::Background),
                     )
                     .await?
-                    .map_err(|_| RunError::Session)?;
+                    .map_err(|ended| self.blocked(profile, ended))?;
                 }
-                Sso::Failed(error) => return Err(RunError::Net(error)),
+                Sso::Failed(error) => return Err(Stop::Net(error)),
             }
+        }
+    }
+
+    /// What lets `profile`'s reads go on after a sign-in ended without an
+    /// identity.
+    fn blocked(&self, profile: SchoolAuthProfile, ended: Ended) -> Stop {
+        match ended {
+            Ended::NotConfigured | Ended::Refused(_) => Stop::Blocked(AccountWait::Person),
+            Ended::Offline => Stop::Blocked(AccountWait::Network),
+            Ended::Unavailable(_) => Stop::Blocked(self.paused(profile)),
+            // Only a Connect ends so; a read joins it as the identity it made.
+            Ended::NotSaved { .. } | Ended::Stopped => Stop::Cancelled,
+        }
+    }
+
+    /// The end of `profile`'s pause, as a wait.
+    fn paused(&self, profile: SchoolAuthProfile) -> AccountWait {
+        let left = self
+            .account(profile)
+            .identity
+            .pause_until()
+            .map_or(RETRY_NOT_BEFORE, |until| {
+                until.saturating_duration_since(Instant::now())
+            });
+        AccountWait::Paused {
+            until: chrono::Utc::now() + chrono::Duration::from_std(left).unwrap_or_default(),
         }
     }
 
@@ -567,15 +720,15 @@ impl Inner {
 }
 
 /// Races `work` against the barrier's cancel and the call's deadline.
-async fn bounded<T, E>(
-    permit: &Permit,
+async fn bounded<T>(
+    cancel: &CancellationToken,
     deadline: Instant,
     work: impl std::future::Future<Output = T>,
-) -> Result<T, RunError<E>> {
+) -> Result<T, Stop> {
     tokio::select! {
         biased;
-        _ = permit.cancel().cancelled() => Err(RunError::Cancelled),
-        done = tokio::time::timeout_at(deadline, work) => done.map_err(|_| RunError::Deadline),
+        _ = cancel.cancelled() => Err(Stop::Cancelled),
+        done = tokio::time::timeout_at(deadline, work) => done.map_err(|_| Stop::Deadline),
     }
 }
 

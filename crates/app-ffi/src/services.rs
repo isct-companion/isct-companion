@@ -174,17 +174,6 @@ impl Session {
             })
         })
     }
-    /// Clears both accounts' school web sign-ins from the web view: the
-    /// person's choice when an account was signed out on a platform that
-    /// cannot clear one account's websites (`SchoolProfileSession::web_kept`).
-    pub fn clear_school_web(&self) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            i.core.sessions().clear_web().await;
-            Ok(OperationResult::SchoolSession {
-                snapshot: project(i.core.school_session())?,
-            })
-        })
-    }
     pub fn back_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {

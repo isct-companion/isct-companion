@@ -108,8 +108,12 @@ function SettingsBody({
   section: Section;
   setSection: (s: Section) => void;
   notify: (s: string) => void;
-  /** Shows the account's school portal on the Web page. */
-  showLoginPage: (profile: SchoolAuthProfile) => void;
+  /** Shows the account's school portal on the Web page; `unsigned` opens its
+   * start page without signing in. */
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    options?: { unsigned: true },
+  ) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   /** Whether reference data can be checked now (the desktop app). */
   refreshReferences?: boolean;

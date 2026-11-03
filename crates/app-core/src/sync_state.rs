@@ -116,17 +116,6 @@ impl std::fmt::Display for Key {
     }
 }
 
-/// The account a key's content belongs to: `science:<username>`,
-/// `tokyotech:<username>`, or `""` for public data. A key stored for another
-/// account counts as missing.
-pub fn account(profile: crate::school_auth::SchoolAuthProfile, username: &str) -> String {
-    let prefix = match profile {
-        crate::school_auth::SchoolAuthProfile::Science => "science",
-        crate::school_auth::SchoolAuthProfile::TokyoTech => "tokyotech",
-    };
-    format!("{prefix}:{}", username.trim())
-}
-
 /// What the last complete read of a key found.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -152,7 +141,6 @@ impl Outcome {
 pub struct KeyState {
     pub dataset: String,
     pub key: String,
-    pub account: String,
     pub fetched_at: Option<DateTime<Utc>>,
     pub validator: Option<String>,
     pub outcome: Option<Outcome>,
@@ -167,8 +155,8 @@ pub struct KeyState {
 /// comes before stale content.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Due {
-    /// Never fetched, invalidated (gc, reset) or stored for another account.
-    /// Beats TTL, freezing and validators.
+    /// Never fetched, or invalidated (gc, reset). Beats TTL, freezing and
+    /// validators.
     Missing,
     Stale,
     Fresh,
@@ -184,19 +172,14 @@ impl Due {
 
 /// Automatic due check. Manual refresh ignores TTL and backoff and does not
 /// call this.
-pub fn due(
-    state: Option<&KeyState>,
-    ttl: Option<Duration>,
-    account: &str,
-    now: DateTime<Utc>,
-) -> Due {
+pub fn due(state: Option<&KeyState>, ttl: Option<Duration>, now: DateTime<Utc>) -> Due {
     let Some(state) = state else {
         return Due::Missing;
     };
     if let Some(until) = state.next_eligible.filter(|until| *until > now) {
         return Due::BackingOff(until);
     }
-    let Some(fetched) = state.fetched_at.filter(|_| state.account == account) else {
+    let Some(fetched) = state.fetched_at else {
         return Due::Missing;
     };
     match ttl {
@@ -214,7 +197,6 @@ pub fn backoff(failures: u32) -> Duration {
 
 /// A complete read of one key.
 pub struct Commit<'a> {
-    pub account: &'a str,
     /// ETag, content hash or index hash, when the source offers one.
     pub validator: Option<&'a str>,
     pub outcome: Outcome,
@@ -231,16 +213,15 @@ pub fn commit(
 ) -> Result<(), DataError> {
     connection
         .execute(
-            "INSERT INTO dataset_state(dataset,key,account,fetched_at,validator,outcome,message,failures)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,0)
-             ON CONFLICT(dataset,key) DO UPDATE SET account=excluded.account,
+            "INSERT INTO dataset_state(dataset,key,fetched_at,validator,outcome,message,failures)
+             VALUES(?1,?2,?3,?4,?5,?6,0)
+             ON CONFLICT(dataset,key) DO UPDATE SET
                fetched_at=excluded.fetched_at, validator=excluded.validator,
                outcome=excluded.outcome, message=excluded.message,
                failures=0, next_eligible=NULL, last_error=NULL",
             params![
                 key.dataset.name(),
                 key.key,
-                commit.account,
                 now.to_rfc3339(),
                 commit.validator,
                 commit.outcome.as_str(),
@@ -252,19 +233,14 @@ pub fn commit(
 }
 
 /// The source reported no change (304, same hash): renew `fetched_at` only.
-/// Returns false, and changes nothing, when the key has no stored content
-/// for `account`; the caller must then read the content in full.
-pub fn renew(
-    connection: &Connection,
-    key: &Key,
-    account: &str,
-    now: DateTime<Utc>,
-) -> Result<bool, DataError> {
+/// Returns false, and changes nothing, when the key has no stored content;
+/// the caller must then read the content in full.
+pub fn renew(connection: &Connection, key: &Key, now: DateTime<Utc>) -> Result<bool, DataError> {
     let renewed = connection
         .execute(
-            "UPDATE dataset_state SET fetched_at=?4, failures=0, next_eligible=NULL, last_error=NULL
-             WHERE dataset=?1 AND key=?2 AND account=?3 AND fetched_at IS NOT NULL",
-            params![key.dataset.name(), key.key, account, now.to_rfc3339()],
+            "UPDATE dataset_state SET fetched_at=?3, failures=0, next_eligible=NULL, last_error=NULL
+             WHERE dataset=?1 AND key=?2 AND fetched_at IS NOT NULL",
+            params![key.dataset.name(), key.key, now.to_rfc3339()],
         )
         .map_err(DataError::from)?;
     Ok(renewed > 0)
@@ -276,7 +252,6 @@ pub fn renew(
 pub fn fail(
     connection: &Connection,
     key: &Key,
-    account: &str,
     error_kind: &str,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, DataError> {
@@ -293,15 +268,14 @@ pub fn fail(
     let next = now + backoff(failures);
     connection
         .execute(
-            "INSERT INTO dataset_state(dataset,key,account,failures,next_eligible,last_error)
-             VALUES(?1,?2,?3,?4,?5,?6)
+            "INSERT INTO dataset_state(dataset,key,failures,next_eligible,last_error)
+             VALUES(?1,?2,?3,?4,?5)
              ON CONFLICT(dataset,key) DO UPDATE SET
                failures=excluded.failures, next_eligible=excluded.next_eligible,
                last_error=excluded.last_error",
             params![
                 key.dataset.name(),
                 key.key,
-                account,
                 failures,
                 next.to_rfc3339(),
                 error_kind,
@@ -339,7 +313,7 @@ pub fn touch(connection: &Connection, keys: &[Key], now: DateTime<Utc>) -> Resul
     Ok(())
 }
 
-const COLUMNS: &str = "dataset,key,account,fetched_at,validator,outcome,message,
+const COLUMNS: &str = "dataset,key,fetched_at,validator,outcome,message,
     failures,next_eligible,last_error,last_used";
 
 fn time(value: Option<String>) -> Option<DateTime<Utc>> {
@@ -352,19 +326,18 @@ fn key_state(row: &rusqlite::Row<'_>) -> rusqlite::Result<KeyState> {
     Ok(KeyState {
         dataset: row.get(0)?,
         key: row.get(1)?,
-        account: row.get(2)?,
-        fetched_at: time(row.get(3)?),
-        validator: row.get(4)?,
-        outcome: match row.get::<_, Option<String>>(5)?.as_deref() {
+        fetched_at: time(row.get(2)?),
+        validator: row.get(3)?,
+        outcome: match row.get::<_, Option<String>>(4)?.as_deref() {
             Some("complete") => Some(Outcome::Complete),
             Some("unavailable") => Some(Outcome::Unavailable),
             _ => None,
         },
-        message: row.get(6)?,
-        failures: row.get(7)?,
-        next_eligible: time(row.get(8)?),
-        last_error: row.get(9)?,
-        last_used: time(row.get(10)?),
+        message: row.get(5)?,
+        failures: row.get(6)?,
+        next_eligible: time(row.get(7)?),
+        last_error: row.get(8)?,
+        last_used: time(row.get(9)?),
     })
 }
 
@@ -429,7 +402,6 @@ pub struct RunRecord<'a> {
     /// Correlates the rows of one pull (the pull job id).
     pub run: &'a str,
     pub key: &'a Key,
-    pub account: &'a str,
     pub started_at: DateTime<Utc>,
     pub finished_at: DateTime<Utc>,
     pub outcome: RunOutcome,
@@ -445,13 +417,12 @@ pub struct RunRecord<'a> {
 pub fn record_run(connection: &Connection, run: &RunRecord<'_>) -> Result<(), DataError> {
     connection
         .execute(
-            "INSERT INTO sync_runs(run,dataset,key,account,started_at,finished_at,outcome,changed,requests,bytes,source,error_kind)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            "INSERT INTO sync_runs(run,dataset,key,started_at,finished_at,outcome,changed,requests,bytes,source,error_kind)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
             params![
                 run.run,
                 run.key.dataset.name(),
                 run.key.key,
-                run.account,
                 run.started_at.to_rfc3339(),
                 run.finished_at.to_rfc3339(),
                 run.outcome.as_str(),
@@ -495,14 +466,13 @@ pub fn cursor(connection: &Connection, key: &Key) -> Result<Option<String>, Data
 pub fn set_cursor(
     connection: &Connection,
     key: &Key,
-    account: &str,
     cursor: Option<&str>,
 ) -> Result<(), DataError> {
     match cursor {
         Some(cursor) => connection.execute(
-            "INSERT INTO dataset_state(dataset,key,account,cursor) VALUES(?1,?2,?3,?4)
+            "INSERT INTO dataset_state(dataset,key,cursor) VALUES(?1,?2,?3)
              ON CONFLICT(dataset,key) DO UPDATE SET cursor=excluded.cursor",
-            params![key.dataset.name(), key.key, account, cursor],
+            params![key.dataset.name(), key.key, cursor],
         ),
         None => connection.execute(
             "UPDATE dataset_state SET cursor=NULL WHERE dataset=?1 AND key=?2",

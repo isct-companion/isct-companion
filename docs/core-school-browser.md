@@ -39,7 +39,6 @@ frame navigation before it starts, main frame and subframes:
 | ------------- | ------------------------------------------------------------------------------------------------- |
 | `page`        | The view or popup asking, with the last page it reported                                          |
 | `url`         | The request URL, as the engine has it (`about:blank`, `blob:` and `data:` included)               |
-| `method`      | `GET`, `POST`, …; `null` when the engine does not say                                             |
 | `mainFrame`   | Whether the main frame navigates                                                                  |
 | `kind`        | `Link`, `FormSubmit`, `BackForward`, `Reload`, `FormResubmit { fromHistory }`, `Other`, `Unknown` |
 | `userGesture` | Whether the person caused it, when the engine says                                                |
@@ -53,7 +52,7 @@ the target) with the item of the last committed page.
 
 `BrowserEvents.newWindow(NewWindowRequest) -> NewWindowDecision`, for
 `window.open`, `target=_blank` and forms posted to a named window: the opener
-page, the first URL (`about:blank` for `window.open('')`), method, kind,
+page, the first URL (`about:blank` for `window.open('')`), kind,
 gesture, the window name when the engine exposes it, and the requested
 `width`/`height`.
 
@@ -89,8 +88,6 @@ A host keeps a closed popup's download running until the file is written.
 
 `capabilities() -> HostCapabilities`, read once when the engine starts:
 
-- `formResubmission`: the host reports `FormResubmit`. Without it Core sends a
-  GET of the current URL for the app's Reload instead of the engine's reload.
 - `inlinePopups`: popups appear inside the web pane over their opener, so the
   app's toolbar (address, Back, Forward, Reload, Close window) acts on the
   frontmost popup, on every surface that shows the view. Without it popups are
@@ -154,7 +151,10 @@ opener's role.
 
 A person's new POST (a button, a form, `__doPostBack`) is always allowed:
 教務Web pages, paging included, are postbacks. Only the engine resending an
-old form is stopped. Nothing relaxes App Transport Security or Android's
+old form is stopped: a page's own reload of a POST result
+(`location.reload()`), or Back and Forward onto one. The app's Reload never
+reaches these rows, since it never asks the engine to reload (Commands below).
+Nothing relaxes App Transport Security or Android's
 cleartext rule; plain HTTP files open in the system browser.
 
 The adapter sites are `SchoolSite::for_url`; the identity providers are
@@ -172,11 +172,12 @@ had a page, stays.
 
 ### Commands
 
-`dispatch(BrowserCommand)` with `Navigate { url }`, `Reload`, `GoBack`,
-`GoForward`, `Evaluate { script }` and `Stop { script }`, for a view or a
-popup. Back and Forward are the engine's own history; Core keeps only what the
-host reported about it (`historyChanged`), never entries of its own. `Reload`
-is sent only to a host with `formResubmission`. `Stop` goes only to views
+`dispatch(BrowserCommand)` with `Navigate { url }`, `GoBack`, `GoForward`,
+`Evaluate { script }` and `Stop { script }`, for a view or a popup. Back and
+Forward are the engine's own history; Core keeps only what the host reported
+about it (`historyChanged`), never entries of its own. There is no reload
+command: the engine's reload of a POST result would send its form again.
+`Stop` goes only to views
 Core's hidden work used. `dispose(browser)` closes a view or popup; Core
 disposes a view's popups before the view.
 
@@ -188,13 +189,21 @@ view (hosts with `inlinePopups`), the view itself otherwise.
 | Address bar, Retry | `Navigate` the page in front, as a browser loads a typed address in the window it was typed in             |
 | Back               | A popup at the start of a known history closes; history known to have no step: nothing; otherwise `GoBack` |
 | Forward            | History known to have no step: nothing; otherwise `GoForward`                                              |
-| Reload             | The engine's reload (with `formResubmission`), or a GET of the current URL                                 |
+| Reload             | `Navigate` the page in front to its last school page, on every host (below)                                |
 | Close window       | Closes the popup in front and every popup it opened                                                        |
 | `open(site, …)`    | See below                                                                                                  |
 
 Closing a popup at the start of its history is what Safari and Chrome do for
 a tab a page opened. "Unknown" is never taken as "no": the command goes to the
 engine, which does nothing if it cannot step.
+
+Reload opens, with a GET, the last page of the view or popup in front that
+arrived and is not on an identity provider or a sign-in route, in
+restore-record form, however it was reached: a page a form produced is opened
+by its address, so no form is ever sent again and no notice is needed. Until
+such a page arrived it opens the site's start page. On a known sign-in page of
+a site with an account it starts a web operation instead (below), which signs
+in first and then opens that same page.
 
 ## Surfaces and entries
 
@@ -248,7 +257,7 @@ and to the page sequence of the failure. It is set for a main-frame load the
 person sees fail (not cancellations, not hidden views) and for plain HTTP the
 rule table refused, and replaced by a later failure. It is cleared when that
 view or popup reports a later page, when Core sends it a navigation
-(`Navigate`, `Reload`, `GoBack`, `GoForward`: Retry, the address bar, an app
+(`Navigate`, `GoBack`, `GoForward`: Retry, Reload, the address bar, an app
 link), and when it closes. A popup's notice shows while the popup is in front;
 the view's own shows again once the popup closes. The app shows it next to the
 address with Retry (not for plain HTTP) and Open in browser. Because it lives
@@ -267,7 +276,8 @@ event nobody heard, so the order matters: on the desktop
 snapshot after their event stream is running.
 
 `school-web-notice` `{ site, kind: "reopened", url }` stays a one-time event:
-a reload would have resent a form, so the page was opened again with GET. The
+a page's own reload would have resent a form, so the page was opened again
+with GET. The
 app shows it for a few seconds; a surface that misses it loses nothing.
 
 ## Signing a view in (web operations)
@@ -289,17 +299,15 @@ generations of a usable account only), then opens the target. If the page
 still lands on the sign-in page and the operation has not signed in yet, it
 signs in once, writes and opens again; otherwise it stops. The network,
 maintenance and store failures never send a password; Reload goes through a
-pause after a failure but never through a refusal. Reload reopens the visit's
-last page reached with a GET, else the site's entry (`adpt_isct::urls::entry`);
-a sign-in page reached from a form says the submission is unconfirmed, and a
-host that does not report methods (Android) reloads the page itself.
+pause after a failure but never through a refusal. Reload's operation opens
+the same page a Reload elsewhere would: the visit's last page, with a GET,
+else the site's entry (`adpt_isct::urls::entry`), on every host.
 
 While it signs in, the page's `access` is `signing-in`: the host covers the
 view (`SchoolBrowser::cover`) and the surface offers "Cancel, I'll sign in
 myself"; the view comes back once a write already handed to the platform
 ended. Where it stopped, `access` is `problem` (`unreachable`, `rejected`,
-`storage`, `still-sign-in`, `submission-unconfirmed`) until the view shows
-another page.
+`storage`, `still-sign-in`) until the view shows another page.
 
 Nothing is injected into a school page to show these.
 
@@ -349,10 +357,10 @@ nothing:
 
 | Host                             | Facts                                                                                           | History  | Popups                                                    | Drag and drop              | Print, dialogs                                                                    |
 | -------------------------------- | ----------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------- |
-| macOS (`school_webkit.rs`)       | Full, `formResubmission`                                                                        | Reported | Inline, siblings of the view                              | Views and popups           | Done; file panel as above                                                         |
-| Windows (interim)                | URL only (`Unknown`, no method or gesture); no resubmission facts                               | Unknown  | Separate windows (`NewWindowResponse::Create`)            | WebView2's own, per window | WebView2's own                                                                    |
-| iOS (`SchoolBrowserHost.swift`)  | Full but gesture, `formResubmission`                                                            | Reported | Inline, siblings of the view                              | Views and popups (iPad)    | Done                                                                              |
-| Android (`SchoolBrowserHost.kt`) | URL, method, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure | Reported | `WebViewTransport`, inline, siblings in the `FrameLayout` | WebView's own              | Dialogs and file inputs done; print from the page menu (no `window.print()` hook) |
+| macOS (`school_webkit.rs`)       | Full                                                                                            | Reported | Inline, siblings of the view                              | Views and popups           | Done; file panel as above                                                         |
+| Windows (interim)                | URL only (`Unknown`, no gesture); no resubmission facts                                         | Unknown  | Separate windows (`NewWindowResponse::Create`)            | WebView2's own, per window | WebView2's own                                                                    |
+| iOS (`SchoolBrowserHost.swift`)  | Full but gesture                                                                                | Reported | Inline, siblings of the view                              | Views and popups (iPad)    | Done                                                                              |
+| Android (`SchoolBrowserHost.kt`) | URL, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure         | Reported | `WebViewTransport`, inline, siblings in the `FrameLayout` | WebView's own              | Dialogs and file inputs done; print from the page menu (no `window.print()` hook) |
 
 macOS popups are views of their own (`WKWebView` subclass in
 `school_webkit.rs`) with the capabilities of a main view: the file panel
@@ -370,8 +378,8 @@ own controls, so the popup rule never applies. It ends when
 
 Android never resends a form from history: back or forward to an uncached
 POST result fails with `ERR_CACHE_MISS`, reported as `Other`, and the
-notice's reopen reloads that entry, which asks `onFormResubmission` and so
-reaches Core's GET. `onCreateWindow` names no URL, so a popup is requested as
+notice's reopen loads that entry's address with a GET, as Retry does on iOS.
+`onCreateWindow` names no URL, so a popup is requested as
 `about:blank` and its first navigation is decided from inside it; a popup
 whose first page went to the system browser or was refused is closed.
 

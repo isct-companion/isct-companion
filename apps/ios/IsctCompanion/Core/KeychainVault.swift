@@ -6,10 +6,11 @@ import Security
 /// school login synchronized through iCloud Keychain from the Mac app is the
 /// same item here. Called on Core worker threads, never the main thread.
 final class KeychainVault: NativeVault, @unchecked Sendable {
-    /// Core's identity snapshot and site cookie jars of each school account:
-    /// kept on this device only, never synchronized, and readable after the
-    /// first unlock so a background wake can sign in.
-    private static let deviceOnly: Set<String> = ["school-session-science", "school-session-tokyo-tech"]
+    /// Core's identity snapshot and site cookie jars of each school account,
+    /// and the school's refusals of saved credentials: kept on this device
+    /// only, never synchronized, and readable after the first unlock so a
+    /// background wake can sign in.
+    private static let deviceOnly: Set<String> = ["school-session-science", "school-session-tokyo-tech", "school-refusals"]
 
     func load(account: String) throws -> String? {
         var query = try baseQuery(account)

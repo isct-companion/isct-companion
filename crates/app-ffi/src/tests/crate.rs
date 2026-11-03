@@ -861,7 +861,6 @@ struct BrowserFixture(Mutex<Option<Arc<crate::ports::BrowserEvents>>>);
 impl crate::ports::NativeBrowser for BrowserFixture {
     fn capabilities(&self) -> crate::ports::HostCapabilities {
         crate::ports::HostCapabilities {
-            form_resubmission: true,
             inline_popups: true,
         }
     }

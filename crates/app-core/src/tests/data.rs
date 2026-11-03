@@ -636,13 +636,8 @@ fn courses_merge_when_any_of_their_sources_is_written() {
     let ingest = || {
         store
             .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
-                crate::lms_ingest::apply_lms_enrolment(
-                    transaction,
-                    &enrolment,
-                    "science:student",
-                    Utc::now(),
-                )
-                .map_err(|error| DataError::from(error.to_string()))
+                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, Utc::now())
+                    .map_err(|error| DataError::from(error.to_string()))
             })
             .unwrap()
     };
@@ -963,7 +958,6 @@ fn a_freshness_commit_refreshes_only_the_views_that_read_it() {
     store
         .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
             let commit = Commit {
-                account: "",
                 validator: None,
                 outcome: Outcome::Complete,
                 message: None,

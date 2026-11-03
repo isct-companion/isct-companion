@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 166 checks must be re-run before the next release.**
+**8 of 169 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**158 checks have never been run or could not be run:**
+**161 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -180,6 +180,9 @@ an unverified area becomes an assumed-good one.
 - `IOS-SCHOOL-PRINT` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
+- `SCHOOL-CONNECT-OUTCOMES` — never verified
+- `SCHOOL-APP-OTP-ENTRY` — never verified
+- `SCHOOL-ACCOUNT-STATES` — never verified
 - `DESKTOP-ERROR-CODE-COPY` — never verified
 - `DESKTOP-WEEKLY-EVENTS` — never verified
 - `MOBILE-ERROR-CODE-COPY` — never verified
@@ -212,7 +215,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
-| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/policy.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_windows.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -266,7 +269,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
 | `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
-| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx |
+| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
 | `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
@@ -351,6 +354,9 @@ an unverified area becomes an assumed-good one.
 | `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/mod.rs |
+| `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
+| `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
@@ -491,11 +497,11 @@ it first if one is saved).
      web store before the view navigated. Landing on Extic's sign-in page
      means the cookies were not written, or were written host-only.
 3. Forget the account, connect again with one wrong character in the
-   password, then read the card. Press Retry once.
-   - *Why:* A refused password is sent once and kept refused: the card says the
-     school did not accept it and offers Retry, and nothing signs in
-     again by itself. Retry is one more attempt with what is saved; a
-     second refusal must not loop.
+   password, then read the form and the card.
+   - *Why:* A Connect the school refuses saves nothing: the form names the
+     reason and says nothing was saved, keeps what was typed, and the
+     card stays Not connected. A card that changes, or a draft that
+     empties, means the refused input was kept somewhere.
 4. Connect with the right password. Look over the window and the log
    for the student id, the password or any code.
    - *Why:* Credential material must never be rendered or logged; the log names
@@ -509,9 +515,8 @@ log in Settings → Diagnostics.
 **Expected**
 
 Connect ends on Signed in without any school page shown, and the LMS
-opens on the dashboard. The wrong password is refused once, the card
-names it with Retry, and Retry tries exactly once. No credential value
-appears anywhere.
+opens on the dashboard. The wrong password is refused once and only the
+form says so; nothing is saved. No credential value appears anywhere.
 
 **Why this is manual**
 
@@ -1793,7 +1798,7 @@ reading them from the snapshot is tested in the desktop suite.
 
 **Last recorded** never run
 
-### Reloading a postback page does not send its form again (`DESKTOP-SCHOOL-NO-RESUBMIT`)
+### Reload on a postback page reopens it with a GET and sends no form (`DESKTOP-SCHOOL-NO-RESUBMIT`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -1801,35 +1806,51 @@ reading them from the snapshot is tested in the desktop suite.
 
 **Preconditions**
 
-macOS desktop build of this commit, signed in to 教務Web.
+A macOS desktop build of this commit, and a Windows build when one is
+at hand, signed in to 教務Web.
 
 **Steps**
 
 1. On the 成績 list, switch the 学期 (a postback that changes nothing
    on the school's side), then press the app's Reload.
-   - *Why:* WebKit reloads a POST result by sending the form again, silently.
-     On a 申告 page that repeats an action; here it is harmless, which
-     is why this page is used. The reload must become a GET of the same
-     page with a short notice.
+   - *Why:* The engine's own reload of a POST result sends the form again; on a
+     申告 page that repeats an action, here it is harmless, which is why
+     this page is used. The app's Reload never asks the engine: Core
+     opens the last page with a GET on every platform, so nothing needs
+     to be refused and no notice appears.
+2. Do the same on the Windows build.
+   - *Why:* The Windows host reports no navigation facts at all; Reload must
+     still be the same GET, because it no longer depends on what a host
+     reports.
+3. Signed in to the LMS, open a forum discussion from a course's
+   announcements, then press the app's Reload.
+   - *Why:* Reload reopens the page the person was on, its discussion id
+     included: the forum's index, or a Moodle error about a missing
+     parameter, means Reload opened the narrower address kept on disk
+     for a relaunch instead.
 
 **Where to look**
 
-The line under the address after Reload, and the 成績 page itself.
+The line under the address after Reload, the 成績 page itself, and the
+discussion after its Reload.
 
 **Expected**
 
-The line "Reopened this page without sending the form again." shows
-for a few seconds and the page opens in its initial state (the 学期
-chosen before resets), without the 教務Web error page.
+On each build the 成績 page opens in its initial state (the 学期
+chosen before resets), without the 教務Web error page, and no line
+appears under the address; the forum discussion reopens as itself.
 
 **Why this is manual**
 
-Needs a real WebForms postback inside WebKit; the notice and the page
-are a glance. The resubmission rule is Core's and tested there.
+Needs a real WebForms postback inside WebKit and WebView2 and a real
+LMS discussion; each page is a glance. Which address Reload opens is
+Core's and tested there.
 
 **Covers**
 
+- `crates/app-core/src/school_browser/policy.rs`
 - `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_windows.rs`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 
 **Last recorded** never run
@@ -4642,9 +4663,9 @@ and the assignment page opened from the timetable was signed out.
 
 1. Clear the log, start the app, and before opening any school page,
    look at the Science Tokyo account in Settings.
-   - *Why:* The identity read back from the vault is only unverified now; a
-     card that says signed in (`active`) before the school confirmed
-     anything is the old behaviour that wrote an expired identity.
+   - *Why:* The identity read back from the vault is only unverified now; the
+     card shows the account as connected (`normal`) whatever the
+     snapshot's trust, and nothing is verified until a page needs it.
 2. Open an assignment from the timetable and press its LMS link.
    - *Why:* An App link is a web operation: Core verifies the identity with one
      SSO from its snapshot, writes it, and only then opens the page. The
@@ -4660,8 +4681,7 @@ The account card before and after, the LMS page, and the copied log.
 
 **Expected**
 
-The card reads "Connected · confirms the sign-in when a page opens"
-before, and signed in after. The assignment opens on the LMS signed in.
+The card reads "Connected · signs in when needed" before and after. The assignment opens on the LMS signed in.
 The log has one `identity checked` line and no `signing in profile=`.
 
 **Why this is manual**
@@ -4688,7 +4708,9 @@ rules are in the Core suites, the live acceptance only here.
 **Preconditions**
 
 A macOS desktop build from this source with the Science Tokyo account
-connected, the LMS open in the Web page on a course page.
+connected, the LMS open in the Web page on a course page; an iPhone
+and an Android build from this source with the same account, the LMS
+open in ウェブ on a course page.
 
 **Steps**
 
@@ -4709,28 +4731,38 @@ connected, the LMS open in the Web page on a course page.
 4. On an assignment, start a submission, log out of Extic in another
    tab of the view if needed so that saving lands on the sign-in page,
    then press Reload.
-   - *Why:* The page came from a form: Core opens the visit's last safe page and
-     says the submission is unconfirmed instead of sending the form again.
-5. Copy the log.
+   - *Why:* The sign-in page came from a form. Reload signs in and then opens
+     the visit's last page, the submission page, with a GET, as a Reload
+     anywhere else does: the form is never sent again, and there is
+     nothing left to warn about.
+5. On the iPhone and on Android, log out of the LMS from its own menu,
+   then pick Reload (再読み込み) in the page menu.
+   - *Why:* Android used to open the sign-in page itself again after signing
+     in, since it reported no request method. Reload is now Core's one
+     behaviour, so both phones sign in and reopen the course page.
+6. Copy the log.
    - *Why:* `web operation … started` and `ended` lines, and at most one
      `signing in profile=` per operation, show the one-password rule.
 
 **Where to look**
 
-The LMS view, the line under the address, and the copied log.
+The LMS view, the line under the address (the bar on the phones), and
+the copied log.
 
 **Expected**
 
 Nothing happens until Reload. Each Reload reopens the course page signed
-in; Cancel gives the sign-in page back. The submission case shows "The
-sign-in had run out when the form was sent…" on a safe LMS page and
-sends nothing again. No operation has more than one `signing in` line.
+in, on the desktop and on both phones; Cancel gives the sign-in page
+back. The submission case reopens the submission page signed in, with
+no line under the address; the draft saved while signed out is not
+there and nothing was sent again. No operation has more than one
+`signing in` line.
 
 **Why this is manual**
 
 Needs a real LMS session to end and the real Extic sign-in page in
-WebKit; the trigger, the one-sign-in budget and the reopen rules are in
-the Core web operation suite.
+WebKit and Android WebView; the trigger, the one-sign-in budget and the
+page Reload reopens are in the Core web operation suite.
 
 **Covers**
 
@@ -4738,10 +4770,12 @@ the Core web operation suite.
 - `crates/app-core/src/school_browser/engine.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src/features/school-web/SchoolWebControls.tsx`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 
 **Last recorded** never run
 
-### Signing one account out clears only its school websites (`SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT`)
+### Signing one account out clears every school web sign-in, and the other account signs in again (`SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT`)
 
 **Area** school · **Persona** Two devices, interrupted work · **Result** —
 
@@ -4749,40 +4783,61 @@ the Core web operation suite.
 
 **Preconditions**
 
-A macOS desktop build and an Android build from this source, both with
-both school accounts connected and the LMS and 教務Web each opened once.
+A macOS desktop build, an Android build and an iPhone build from this
+source, and a Windows build when one is at hand, each with both school
+accounts connected and the LMS and 教務Web each opened once in the Web
+page.
 
 **Steps**
 
-1. On the desktop, delete the Science Tokyo credentials in Settings,
-   then open 教務Web and the LMS from the Web page.
-   - *Why:* Only `isct.ac.jp` and `ex-tic.com` data go: 教務Web must still open
-     signed in, and the LMS must show its sign-in page. 教務Web signed out
-     means the clear covered the other account.
-2. On Android, delete the Science Tokyo credentials.
-   - *Why:* WebView cannot clear one account's websites: the account page must
-     say the web sign-in was kept and offer to clear every school web
-     sign-in, never clear both silently.
-3. Press "Clear all school web sign-ins", then open 教務Web.
-   - *Why:* The person's choice clears both accounts' web sessions; 教務Web then
-     signs in again through a web operation, since Core's Tokyo Tech
-     identity stays valid.
+1. On the desktop, visit the LMS inside the syllabus view before deleting
+   the Science Tokyo credentials. Check that this view also closes, then
+   open the LMS and 教務Web again from the Web page.
+   - *Why:* A public view shares the school cookie store and can display private
+     course content. It must close during sign-out. The LMS must
+     show its sign-in page. 教務Web must open signed in without a
+     password prompt, because Core writes the Tokyo Tech identity into
+     its new view before the first page; a 教務Web sign-in page means
+     the remaining account's identity was not written back after the
+     clear.
+2. On the Windows build, do the same.
+   - *Why:* Windows clears the school views' own WebView2 profile whole, not
+     only its cookies: the LMS shows its sign-in page, and 教務Web opens
+     signed in again without a prompt. An error under the account card
+     saying the sign-out did not finish means WebView2 refused the
+     clear.
+3. On the iPhone, delete the Science Tokyo credentials in Settings,
+   then open the LMS and 教務Web in the Web tab.
+   - *Why:* iOS used to clear one account's sites only; it must now behave as
+     the desktop does: the LMS signed out, 教務Web signed in again
+     without a prompt.
+4. On Android, delete the Science Tokyo credentials, read Settings ›
+   School accounts, then open the LMS and 教務Web in the Web tab.
+   - *Why:* The sign-out is the clear: no card offering to clear every school
+     web sign-in may remain. The LMS shows its sign-in page and 教務Web
+     opens signed in again without a prompt.
+5. Quit the Android app (swipe it away), reopen it and open the LMS.
+   - *Why:* The LMS still shows its sign-in page: the clear reached the
+     WebView's store on disk, not only its memory.
 
 **Where to look**
 
-The LMS and 教務Web views on both devices, and the Android account page.
+The LMS and 教務Web views on each device, and Settings › School
+accounts on Android.
 
 **Expected**
 
-The desktop LMS is signed out and 教務Web signed in. Android names the
-kept web sign-in, clears both only when asked, and 教務Web opens signed
-in afterwards without a password prompt.
+On every device the LMS is signed out after the sign-out and stays so
+after a relaunch, 教務Web opens signed in without a password prompt,
+and Android's Settings shows no separate clear button.
 
 **Why this is manual**
 
 Needs each platform's real website data store and the real school
-cookies' domains; the clear order and the domain table are in the Core
-suites.
+cookies' domains. The Core suites cover the order (views stopped, one
+clear of every school site) and that the remaining account's identity
+is written again on its next page; the platform stores are not
+reachable from them.
 
 **Covers**
 
@@ -7017,18 +7072,20 @@ The Android debug build of this commit on a phone, signed in to
 
 1. On the 成績 list, switch the 学期 (a postback that changes nothing
    on the school's side), then pick 再読み込み in the page menu.
-   - *Why:* WebView asks onFormResubmission before it resends a POST result.
-     The host reports it to Core, which refuses and opens the same page
-     with GET. On a 申告 page a resend repeats an action; here it is
-     harmless, which is why this page is used.
+   - *Why:* The app's Reload is Core's GET of the last page, as on the desktop
+     and iOS: WebView's own reload is never used, so it never gets to
+     resend the POST result and no notice is needed. On a 申告 page a
+     resend repeats an action; here it is harmless, which is why this
+     page is used.
 2. From that 成績 page, follow a link to another page, then press ‹
    (or system back).
    - *Why:* WebView never resends on back: a form result that is not cached
      fails with ERR_CACHE_MISS. Its own error page must not show; the
      app's notice covers it and offers このページを開き直す and 戻る.
 3. Press このページを開き直す.
-   - *Why:* It reloads the failed entry, which asks onFormResubmission again,
-     so Core opens the page with GET instead of sending the form.
+   - *Why:* It loads the failed entry's address with a GET, as Retry does on
+     iOS, so the form is not sent. It must not be the app's Reload,
+     which would open the last page that arrived, the one Back left.
 
 **Where to look**
 
@@ -7037,16 +7094,15 @@ The line under the bar after 再読み込み, the page area after ‹, and the
 
 **Expected**
 
-After 再読み込み, "フォームを再送信せずにこのページを開き直しました。"
-shows for a few seconds and the page opens in its initial state (the
-学期 resets) with no 教務Web error page. After ‹, the app's notice
-replaces WebView's "Webpage not available"; このページを開き直す opens
-成績 in its initial state.
+After 再読み込み the page opens in its initial state (the 学期 resets)
+with no 教務Web error page and no line under the bar. After ‹, the
+app's notice replaces WebView's "Webpage not available";
+このページを開き直す opens 成績 in its initial state.
 
 **Why this is manual**
 
 Needs a real WebForms postback inside Android WebView; the notice and
-the page are a glance. The resubmission rule is Core's and tested
+the page are a glance. Which page Reload opens is Core's and tested
 there.
 
 **Covers**
@@ -7077,8 +7133,8 @@ phone.
      WebView's error to Core's reason, and Core's notice must replace
      WebView's own error page.
 2. Switch the VPN on and press このページを開き直す.
-   - *Why:* The notice reloads the failed address; the page opening proves the
-     failure kept it.
+   - *Why:* The notice loads the failed address again with a GET; the page
+     opening proves the failure kept it.
 
 **Where to look**
 
@@ -9284,10 +9340,12 @@ An iPhone and an iPad build of this commit, signed in to 教務Web.
 1. On the 成績 list, switch the 学期 (a postback that changes nothing
    on the school's side), then choose Reload in the page menu, and once
    pull down to refresh.
-   - *Why:* WebKit reloads a POST result by sending the form again, silently,
-     as `.formResubmitted`. On a 申告 page that repeats an action; here
-     it is harmless, which is why this page is used. The reload must
-     become a GET of the same page with a short notice.
+   - *Why:* WebKit's own reload of a POST result sends the form again,
+     silently. On a 申告 page that repeats an action; here it is
+     harmless, which is why this page is used. Both the menu and the
+     pull are the app's Reload, which Core turns into a GET of the last
+     page on every platform, so WebKit never reloads and no notice is
+     needed.
 2. Switch the 学期 twice more, open another page, go to a third site
    in the picker and back, then press Back repeatedly.
    - *Why:* Switching sites lets WebKit drop the cached postback pages. Going
@@ -9302,16 +9360,17 @@ where each Back lands.
 
 **Expected**
 
-Reload shows "Reopened this page without sending the form again." for
-a few seconds and opens the page in its initial state, without the
-教務Web error page. Back either shows a cached page as it was or skips
+Reload and the pull open the page in its initial state, without the
+教務Web error page and with no line under the navigation bar. Back
+either shows a cached page as it was or skips
 past a postback page to the one before it; it never shows the 教務Web
 error page and never stalls on the same page.
 
 **Why this is manual**
 
 Needs real WebForms postbacks inside WebKit on a device, and WebKit's
-cache eviction. The resubmission rule is Core's and tested there.
+cache eviction. Which page Reload opens and the resubmission rule for
+history are Core's and tested there.
 
 **Covers**
 
@@ -9455,9 +9514,9 @@ account connected and working on both.
 
 1. On the iPad, change the password to a wrong one in 設定 → 学校アカウント
    → Science Tokyo and tap 保存して接続. Wait for the reason.
-   - *Why:* The wrong password stays a device-local candidate. Before, saving
-     wrote it into the synchronized Keychain item at once, so every
-     device started submitting it.
+   - *Why:* A Connect the school refuses saves nothing, on any device. Before,
+     saving wrote the input into the synchronized Keychain item at once,
+     so every device started submitting it.
 2. Wait five minutes with both apps open, then on the Mac quit and
    reopen the app and open the LMS in the Web page.
    - *Why:* iCloud Keychain needs time to sync; the Mac must still sign in with
@@ -9544,6 +9603,192 @@ school_auth tests.
 
 - `crates/app-core/src/school_auth.rs`
 - `crates/app-core/src/school_session/mod.rs`
+
+**Last recorded** never run
+
+### The Connect form says how each Connect ended, and only a success saves (`SCHOOL-CONNECT-OUTCOMES`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build, an iPhone build and an Android build from this
+commit, each with the Science Tokyo account connected and working.
+
+**Steps**
+
+1. On each device, in Settings → School accounts → Science Tokyo, type
+   a wrong password and press Connect. Read the form and the card.
+   - *Why:* A refusal of input that is not the saved credentials is the form's
+     only: it names the reason ("The ID or password was not accepted.")
+     and "The entered credentials were not saved.", keeps the typed
+     entry, and the card stays Connected. A card that turns refused
+     means the input touched the saved account.
+2. Turn the network off, press Connect again with the right password,
+   and read the form; turn the network back on.
+   - *Why:* No answer is not a refusal: the form says it could not reach the
+     school and saved nothing, and the card shows no retry time from it.
+3. Press Connect with the right password.
+   - *Why:* Only the school's acceptance saves: the form says signed in and
+     saved, the typed entry clears, and the card is Connected.
+
+**Where to look**
+
+The Science Tokyo form and card on each device.
+
+**Expected**
+
+Wrong password: reason plus "not saved", entry kept, card unchanged.
+Offline: "Couldn't reach the school … not saved". Right password:
+"Signed in. These credentials are saved…", entry cleared, card
+Connected.
+
+**Why this is manual**
+
+The outcome rules are Core's (`school_session` suite); what a person
+reads in each shell's form, and that the entry stays for a fix, is a
+glance in the real app on three platforms.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with a portal button (`SCHOOL-APP-OTP-ENTRY`)
+
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build, an iPhone build and an Android build from this
+commit, each freshly installed (or reset with everything), so no
+Science Tokyo credentials and no OTP setup are saved, and a Science
+Tokyo account that still uses the emailed one-time password (no App
+OTP registered).
+
+**Steps**
+
+1. Open Settings › Science Tokyo, enter the student id and password,
+   leave the OTP field empty, and press Connect.
+   - *Why:* The app must not refuse the empty OTP itself: the password goes to
+     the school, and the school asks for the emailed code, which the app
+     cannot answer. The form then explains that the app signs in by
+     itself only with App OTP and offers one button, "Open the Science
+     Tokyo portal". A local "OTP setup is required" error means the
+     first Connect never reached the school. Nothing is saved and the
+     card stays Not connected.
+2. Press the button.
+   - *Why:* The portal uses the web view's existing cookies. It may show a
+     signed-in page from a previous visit. Opening it must not start
+     an app sign-in or fill in credentials.
+3. Sign in there by hand (with the emailed code) and register App OTP.
+   Back in Settings, press Connect again with the OTP field still
+   empty.
+   - *Why:* Now the school asks for the App one-time password: the form says
+     the school asks for it and to enter its setup link or secret, and
+     nothing is saved. A "not accepted" message would blame a code the
+     person never entered.
+4. Paste the App OTP setup link or secret into the OTP field and press
+   Connect.
+   - *Why:* With App OTP the app signs in by itself and the account is saved.
+
+**Where to look**
+
+The Science Tokyo form, the Web page showing the portal, and the card.
+
+**Expected**
+
+The first Connect shows the emailed-code reason, the App OTP
+explanation and one portal button, and saves nothing; the portal opens
+with the existing web session; a Connect without the OTP after App OTP is registered asks
+for it and saves nothing; the last Connect ends Connected.
+
+**Why this is manual**
+
+Needs a live account still on the emailed code, the real Extic pages
+and the real portal in each platform's web view. That an empty OTP
+reaches the school and ends on its page is in the session suite, and
+that the unsigned entry starts no web operation in the school browser
+suite.
+
+**Covers**
+
+- `crates/app-core/src/school_auth.rs`
+- `crates/app-core/src/school_session/login.rs`
+- `crates/app-core/src/school_browser/engine.rs`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+
+**Last recorded** never run
+
+### The account card and the status line show the six account states (`SCHOOL-ACCOUNT-STATES`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build, an iPhone build and an Android build from this
+commit, the Science Tokyo account connected, and a way to make the
+school refuse the saved password (change it on the school's page).
+
+**Steps**
+
+1. Look at the card with no account saved, then while a Connect runs,
+   then once it is connected.
+   - *Why:* Not connected, Signing in…, and "Connected · signs in when needed":
+     a restored, unverified or verifying identity all read as connected.
+2. Turn the network off, open Today and refresh; read the card and the
+   status line.
+   - *Why:* A sign-in without a verdict shows "Couldn't reach the school ·
+     trying again at …", and the LMS line waits for the network instead
+     of failing.
+3. Change the password on the school's page, wait for the LMS session
+   to run out, and refresh. Read the card and the status line, then
+   refresh twice more and copy the log.
+   - *Why:* The school's refusal of the saved password shows "Not accepted by
+     the school" with Retry, the LMS line waits for the person, and no
+     further `signing in profile=` lines appear: nothing resends it.
+4. Enter the new password and press Connect.
+   - *Why:* The person's Connect lifts the wait and the account reads connected
+     again.
+
+**Where to look**
+
+The Science Tokyo card, the status line, and the copied log on each
+device.
+
+**Expected**
+
+Each state reads as described; refused shows Retry and sends no
+password again by itself; the status line follows the account.
+
+**Why this is manual**
+
+The derived states and the planner's holds are Core's suites; the
+labels, colours and Retry are a glance in each shell, and the refusal
+needs the live school.
+
+**Covers**
+
+- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 
 **Last recorded** never run
 

@@ -35,12 +35,17 @@ export type SyncHint =
   | { kind: "resume" }
   | { kind: "network"; network: SyncNetwork }
   | { kind: "power-saver"; on: boolean }
-  | { kind: "signed-in"; profile: SchoolAuthProfile }
   | { kind: "open"; view: SyncView }
   | { kind: "refresh"; scope: SyncScope };
 
 /** An i18n key plus arguments; Core never builds sentences. */
 export type SyncLabel = { key: string; args: Record<string, unknown> | null };
+
+/** What lets an account's reads go on after one could not reach its school:
+ * the person (Retry, Connect, changed credentials), the end of a pause, or
+ * the network. */
+export type AccountWait =
+  { kind: "person" } | { kind: "paused"; until: string } | { kind: "network" };
 
 export type SyncHeld =
   | { kind: "offline" }
@@ -49,8 +54,9 @@ export type SyncHeld =
   | { kind: "background" }
   | { kind: "backoff"; until: string }
   | { kind: "host-paused"; host: string; until: string }
-  /** The profile's reads wait for its session; not a failure, no backoff. */
-  | { kind: "session"; profile: SchoolAuthProfile; state: SchoolSessionState }
+  /** A read of the account could not reach its school: every key of the
+   * account waits for `wait`. Not a failure, no backoff. */
+  | { kind: "account"; profile: SchoolAuthProfile; wait: AccountWait }
   | { kind: "resetting" }
   | { kind: "prerequisite" };
 
@@ -84,8 +90,8 @@ export type SourceView = {
   running: boolean;
   held: SyncHeld | null;
   failure: SyncFailure | null;
-  /** School sign-in state (`active`, `signed-out`, `maintenance`, …). */
-  session: string | null;
+  /** The account's session state for school sources. */
+  session: SchoolSessionState | null;
   maintenance: string | null;
 };
 

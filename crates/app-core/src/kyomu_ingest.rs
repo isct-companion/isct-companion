@@ -249,11 +249,10 @@ fn grade_row_id(
 }
 
 /// Projects one 教務Web page inside the caller's transaction and marks its
-/// `kyomu.page/{kind}` key fresh for `account` in the same transaction.
+/// `kyomu.page/{kind}` key fresh in the same transaction.
 pub fn apply_kyomu_payload(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
-    account: &str,
 ) -> Result<usize, IngestError> {
     if payload.status != "ok" {
         return Err("教務 extraction is not ready".into());
@@ -496,30 +495,28 @@ pub fn apply_kyomu_payload(
         }
         _ => return Err("unsupported kyomu payload".into()),
     }
-    commit_page(tx, payload, account, Outcome::Complete, None)?;
+    commit_page(tx, payload, Outcome::Complete, None)?;
     Ok(changed)
 }
 
 /// Persists a positive observation that an approved 教務 page is not offered
-/// to this account. Existing page-owned rows remain untouched; the key reads
-/// as current with outcome `unavailable`, so the UI can tell retained data
-/// from a current result.
+/// to the student now. Existing page-owned rows remain untouched; the key
+/// reads as current with outcome `unavailable`, so the UI can tell retained
+/// data from a current result.
 pub fn record_kyomu_unavailable(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
-    account: &str,
 ) -> Result<(), IngestError> {
     if payload.status != "unavailable" {
         return Err("教務 page is not reported unavailable".into());
     }
     let message = Some(payload.message.as_str()).filter(|message| !message.is_empty());
-    commit_page(tx, payload, account, Outcome::Unavailable, message)
+    commit_page(tx, payload, Outcome::Unavailable, message)
 }
 
 fn commit_page(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
-    account: &str,
     outcome: Outcome,
     message: Option<&str>,
 ) -> Result<(), IngestError> {
@@ -530,7 +527,6 @@ fn commit_page(
         tx,
         &Key::new(Dataset::KyomuPage, payload.kind.as_str()),
         Commit {
-            account,
             validator: None,
             outcome,
             message,

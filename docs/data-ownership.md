@@ -55,9 +55,8 @@ syllabus:{academicYear}:offering:{offeringCode}
 reference:{dataset}:{version}:{recordId}
 ```
 
-`accountScope` is a stable, non-secret account identifier. Until multiple
-accounts are supported it is `default`; it must not contain a username or
-credential. User-created records use backend-generated UUIDv7 IDs.
+`accountScope` is `default`: only the device owner signs in, so it never
+names a username or credential. User-created records use backend-generated UUIDv7 IDs.
 
 Overlays reference `sourceKey`, not a device-local database ID. A missing
 school row hides its overlay from composed UI views but does not delete it.

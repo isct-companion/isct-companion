@@ -72,16 +72,37 @@ final class WebRouter {
         open(site, target: nil, restore: true)
     }
 
-    /// Opens `site` in its resident view. A site already open keeps its page
-    /// unless a target is given.
+    /// Opens `site` in its resident view. A site already open, or still
+    /// opening, keeps its page unless a target is given.
     func open(_ site: SchoolSite, target: String?, restore: Bool = false) {
         guard let session else { return }
-        if restore, target == nil, opened.contains(site), browser.webView(for: site) != nil { return }
+        if restore, target == nil, loading == site || (opened.contains(site) && browser.webView(for: site) != nil) { return }
         loading = site
         error = nil
         Task {
             do {
                 _ = try await session.openSchool(site: site, target: target).value()
+                opened.insert(site)
+                attachRevision += 1
+                await readPage(site)
+            } catch {
+                self.error = AppModel.describe(error)
+            }
+            if loading == site { loading = nil }
+        }
+    }
+
+    /// The ウェブ tab shows `site`'s start page as it is
+    /// (`openSchoolUnsigned`): Core writes no sign-in and signs in nowhere,
+    /// so the person signs in there themselves.
+    func showUnsigned(_ site: SchoolSite) {
+        guard let session else { return }
+        tabSite = site
+        loading = site
+        error = nil
+        Task {
+            do {
+                _ = try await session.openSchoolUnsigned(site: site).value()
                 opened.insert(site)
                 attachRevision += 1
                 await readPage(site)
@@ -225,7 +246,6 @@ final class WebRouter {
             case "unreachable": problem = .unreachable
             case "rejected": problem = .rejected
             case "storage": problem = .storage
-            case "submission-unconfirmed": problem = .submissionUnconfirmed
             default: problem = .stillSignIn
             }
             return .problem(problem: problem)

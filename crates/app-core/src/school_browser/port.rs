@@ -25,11 +25,9 @@ pub struct PageId {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BrowserAction {
+    /// Also the App's Reload: Core opens the last page again with a GET and
+    /// never asks the engine to reload, so the App never sends a form twice.
     Navigate(Url),
-    /// The engine's own reload. Only sent to hosts that report form
-    /// resubmission (`HostCapabilities::form_resubmission`), so a reload
-    /// that would resend a form reaches the rule table.
-    Reload,
     /// The engine's own history; a resubmission on the way is a
     /// `NavigationKind::FormResubmit { from_history: true }`.
     GoBack,
@@ -116,8 +114,6 @@ pub struct NavigationRequest {
     /// The view asking, with the last page it reported.
     pub page: PageId,
     pub url: Url,
-    /// `GET`, `POST`, …; `None` when the engine does not say.
-    pub method: Option<String>,
     pub main_frame: bool,
     pub kind: NavigationKind,
     pub user_gesture: bool,
@@ -138,7 +134,6 @@ pub struct NewWindowRequest {
     pub opener: PageId,
     /// The first URL; `about:blank` for `window.open('')`.
     pub url: Url,
-    pub method: Option<String>,
     pub kind: NavigationKind,
     pub user_gesture: bool,
     /// The target window name (`_blank` or a page-chosen name), when given.
@@ -194,9 +189,6 @@ pub enum NewWindowDecision {
 /// What a host can report, so Core can stand in for what it cannot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HostCapabilities {
-    /// The host reports `NavigationKind::FormResubmit`. Without it Core
-    /// reloads with a GET of the current URL instead of the engine's reload.
-    pub form_resubmission: bool,
     /// Popups appear inside the web pane over their opener, so the app's
     /// toolbar acts on the frontmost popup. Without it they are separate
     /// windows with their own controls.

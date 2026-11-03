@@ -2,7 +2,10 @@
 //! on the LMS site session's attempt (`school_session::Attempt`).
 //!
 //! [`rest::TokenTransport`] is the primary path: the official mobile web
-//! service with a token obtained by a cookie-authenticated `launch.php`.
+//! service with a token obtained by a cookie-authenticated `launch.php`. Its
+//! calls carry the token alone, so they need no site session: only a
+//! cookie request (a launch for a new token, the fallback, the timetable
+//! grids, files) gets one, and may go through SSO or a sign-in.
 //! [`ajax::CookieTransport`] is the fallback: AJAX `service.php` with the
 //! dashboard's sesskey, plus Rust HTML parsing of course and activity pages.
 //! A session found gone ends the attempt as `SignInRequired`; recovering it
@@ -240,11 +243,13 @@ fn sign_in_redirect(location: &str, base: &Url) -> bool {
         .is_ok_and(|url| !is_lms_origin(&url) || url.path().contains("/login/"))
 }
 
-/// The signed-in dashboard: its HTML (timetable block) and `M.cfg`.
+/// The signed-in dashboard: its HTML (timetable block) and `M.cfg`, and
+/// the site instance it was read on.
 pub(crate) struct Dashboard {
     html: String,
     url: Url,
     config: PageConfig,
+    instance: u64,
 }
 
 /// Reads LMS data for the signed-in Science account.
@@ -286,7 +291,7 @@ impl MoodleClient {
                     self.clone(),
                     reader::Transport::Cookie(transport),
                     language,
-                    Some((attempt.instance(), dashboard)),
+                    Some(dashboard),
                 ))
             }
             Err(error) => Err(KeyError::new(MoodleFunction::SiteInfo.name(), error)),
@@ -299,7 +304,7 @@ impl MoodleClient {
         attempt: &Attempt,
     ) -> Result<(ajax::CookieTransport, Dashboard), MoodleError> {
         let dashboard = Self::load_dashboard(attempt).await?;
-        let transport = ajax::CookieTransport::new(attempt, &dashboard)?;
+        let transport = ajax::CookieTransport::new(&dashboard)?;
         Ok((transport, dashboard))
     }
 
@@ -362,7 +367,13 @@ impl MoodleClient {
         if config.sesskey.is_none() {
             return Err(MoodleError::SignInRequired);
         }
-        Ok(Dashboard { html, url, config })
+        let instance = attempt.instance().await?;
+        Ok(Dashboard {
+            html,
+            url,
+            config,
+            instance,
+        })
     }
 
     /// The timetable grids: the dashboard's current one first, then every
@@ -458,11 +469,20 @@ impl MoodleClient {
         }
     }
 
-    async fn persist_token(&self, token: Option<MoodleToken>) {
+    /// Keeps `token` (or forgets it) in the vault. The write holds a permit
+    /// of `attempt`'s account generation until it lands, so a sign-out or
+    /// reset waits for it and a token never lands after it was deleted.
+    async fn persist_token(&self, attempt: &Attempt, token: Option<MoodleToken>) {
+        let Some(permit) = attempt.write_permit() else {
+            return;
+        };
         let auth = self.auth.clone();
-        let result = tokio::task::spawn_blocking(move || match token {
-            Some(token) => auth.store_moodle_token(SchoolAuthProfile::Science, &token),
-            None => auth.delete_moodle_token(SchoolAuthProfile::Science),
+        let result = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            match token {
+                Some(token) => auth.store_moodle_token(SchoolAuthProfile::Science, &token),
+                None => auth.delete_moodle_token(SchoolAuthProfile::Science),
+            }
         })
         .await;
         if let Ok(Err(error)) = result {
@@ -476,6 +496,7 @@ impl MoodleClient {
     pub(crate) async fn token(&self, attempt: &Attempt) -> Result<MoodleToken, MoodleError> {
         let generation = attempt.account_generation();
         let mut slot = self.token.lock().await;
+        attempt.authorize()?;
         if let Some((_, token)) = slot.as_ref().filter(|(owner, _)| *owner == generation) {
             return Ok(token.clone());
         }
@@ -484,7 +505,7 @@ impl MoodleClient {
             return Ok(token);
         }
         let token = self.launch(attempt).await?;
-        self.persist_token(Some(token.clone())).await;
+        self.persist_token(attempt, Some(token.clone())).await;
         *slot = Some((generation, token.clone()));
         Ok(token)
     }
@@ -499,6 +520,7 @@ impl MoodleClient {
     ) -> Result<MoodleToken, MoodleError> {
         let generation = attempt.account_generation();
         let mut slot = self.token.lock().await;
+        attempt.authorize()?;
         if let Some((_, current)) = slot
             .as_ref()
             .filter(|(owner, current)| *owner == generation && current != refused)
@@ -506,9 +528,9 @@ impl MoodleClient {
             return Ok(current.clone());
         }
         *slot = None;
-        self.persist_token(None).await;
+        self.persist_token(attempt, None).await;
         let token = self.launch(attempt).await?;
-        self.persist_token(Some(token.clone())).await;
+        self.persist_token(attempt, Some(token.clone())).await;
         *slot = Some((generation, token.clone()));
         Ok(token)
     }

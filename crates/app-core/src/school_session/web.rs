@@ -1,14 +1,18 @@
 //! The one way Core touches the web view's cookies: writing an account's
 //! verified identity before a web operation opens a school page, and
-//! clearing an account's school websites when it goes. Nothing is read back.
+//! clearing every school website when an account goes. Nothing is read
+//! back. A clear always covers every school site, on every platform: the
+//! account still signed in gets its identity written again by its next web
+//! operation.
 //!
 //! Every write and clear goes through one queue, in order, and the queue
 //! never moves past a call the platform has not answered: a write a caller
 //! stopped waiting for (`SEED_WAIT`) still lands before anything queued
 //! behind it, never after the clear that follows. The queue alone drops a
-//! stale write: a clear closes the admission of its accounts when it is
-//! queued, and a write queued under the old admission, or whose identity is
-//! no longer the one to write, is answered without reaching the platform.
+//! stale write: the caller closes both accounts' admission before it queues
+//! a clear, and a write queued under the old admission, or whose identity
+//! is no longer the one to write, is answered without reaching the
+//! platform.
 //! A call that runs past `WEB_STORE_LIMIT` makes the store unusable until it
 //! answers: no write is admitted meanwhile.
 
@@ -35,37 +39,11 @@ pub struct WebCookie {
     pub set_cookie: String,
 }
 
-/// Which school website data a clear removes: cookies, storage and caches.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum WebClear {
-    /// One account's websites, under these registrable domains.
-    Domains(Vec<String>),
-    /// Both accounts' websites.
-    AllSchool,
-}
-
-impl WebClear {
-    /// The websites of `profile`'s account (`adpt_isct::urls`).
-    pub(crate) fn account(profile: SchoolAuthProfile) -> Self {
-        let domains = match profile {
-            SchoolAuthProfile::Science => adpt_isct::urls::SCIENCE_DOMAINS,
-            SchoolAuthProfile::TokyoTech => adpt_isct::urls::TOKYO_TECH_DOMAINS,
-        };
-        Self::Domains(domains.iter().map(|domain| (*domain).to_owned()).collect())
-    }
-
-    /// Whether a cookie's or a website data record's domain
-    /// (`.lms.s.isct.ac.jp`, `isct.ac.jp`) is one this clear removes.
-    pub fn covers(&self, domain: &str) -> bool {
-        match self {
-            Self::Domains(domains) => domains
-                .iter()
-                .any(|registrable| domain_under(domain, registrable)),
-            Self::AllSchool => {
-                school_domains().any(|registrable| domain_under(domain, registrable))
-            }
-        }
-    }
+/// Whether a cookie's or a website data record's domain
+/// (`.lms.s.isct.ac.jp`, `isct.ac.jp`) is a school website's, which a clear
+/// removes.
+pub fn is_school_domain(domain: &str) -> bool {
+    school_domains().any(|registrable| domain_under(domain, registrable))
 }
 
 /// The shell's write-only port into its web cookie store. A call resolves
@@ -75,11 +53,12 @@ pub trait WebCookieSeed: Send + Sync {
     /// Writes `cookies` in order through the platform's own `Set-Cookie`
     /// parser and resolves once the store has committed every one.
     fn write(&self, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>>;
-    /// Removes the website data `scope` covers and resolves once done.
-    fn clear(&self, scope: WebClear) -> BoxFuture<'_, Result<(), String>>;
-    /// Whether `clear` can remove one account's websites alone. Android's
-    /// WebView cannot; Core then asks it only for `WebClear::AllSchool`.
-    fn clears_by_site(&self) -> bool;
+    /// Removes every school website's (`is_school_domain`) cookies and the
+    /// storage its pages keep, both accounts' alike, and resolves once the
+    /// platform confirmed it. That much every platform removes; a platform
+    /// whose store allows it removes the sites' caches too, which no
+    /// sign-in depends on.
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>>;
 }
 
 /// Why a write or clear did not happen.
@@ -87,7 +66,7 @@ pub trait WebCookieSeed: Send + Sync {
 pub(crate) enum WebError {
     /// The shell has no web cookie port.
     Unsupported,
-    /// An account change closed the admission it was queued under, or its
+    /// A sign-out or reset closed the admission it was queued under, or its
     /// identity is no longer the one to write.
     Stale,
     /// A call ran past `WEB_STORE_LIMIT` and has not answered, or the queue
@@ -101,7 +80,7 @@ impl std::fmt::Display for WebError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unsupported => formatter.write_str("the shell has no web cookie store"),
-            Self::Stale => formatter.write_str("an account change made the write stale"),
+            Self::Stale => formatter.write_str("a sign-out or reset made the write stale"),
             Self::Unavailable => formatter.write_str("the web cookie store is unavailable"),
             Self::Platform(message) => formatter.write_str(message),
         }
@@ -121,7 +100,6 @@ enum Command {
         done: oneshot::Sender<Result<(), WebError>>,
     },
     Clear {
-        scope: WebClear,
         done: oneshot::Sender<Result<(), WebError>>,
     },
 }
@@ -163,13 +141,6 @@ impl WebQueue {
 
     pub(super) fn attached(&self) -> bool {
         self.shared.seed.get().is_some()
-    }
-
-    pub(super) fn clears_by_site(&self) -> bool {
-        self.shared
-            .seed
-            .get()
-            .is_some_and(|seed| seed.clears_by_site())
     }
 
     /// Grows with every clear the platform confirmed.
@@ -270,13 +241,9 @@ impl WebQueue {
         wait
     }
 
-    /// Queues a clear of `scope` and returns the wait for its completion.
-    /// Close the admission of the accounts it covers first.
-    pub(super) fn clear(
-        &self,
-        tasks: &RuntimeTasks,
-        scope: WebClear,
-    ) -> oneshot::Receiver<Result<(), WebError>> {
+    /// Queues a clear of every school website and returns the wait for its
+    /// completion. Close both accounts' admission first.
+    pub(super) fn clear(&self, tasks: &RuntimeTasks) -> oneshot::Receiver<Result<(), WebError>> {
         let (done, wait) = oneshot::channel();
         if !self.attached() {
             let _ = done.send(Err(WebError::Unsupported));
@@ -284,8 +251,8 @@ impl WebQueue {
         }
         match self.sender(tasks) {
             Some(sender) => {
-                if let Err(mpsc::error::SendError(Command::Clear { done, .. })) =
-                    sender.send(Command::Clear { scope, done })
+                if let Err(mpsc::error::SendError(Command::Clear { done })) =
+                    sender.send(Command::Clear { done })
                 {
                     let _ = done.send(Err(WebError::Unavailable));
                 }
@@ -326,8 +293,8 @@ impl Shared {
                 let result = self.answer(seed.write(cookies), stop).await;
                 let _ = done.send(result);
             }
-            Command::Clear { scope, done } => {
-                let result = self.answer(seed.clear(scope), stop).await;
+            Command::Clear { done } => {
+                let result = self.answer(seed.clear(), stop).await;
                 if result.is_ok() {
                     guard(&self.state).storage += 1;
                 }

@@ -9,8 +9,8 @@ import kotlinx.coroutines.withContext
 
 /** `NativeWebCookies` over the process `CookieManager`, the store every
  * school `WebView` reads. Core writes an account's verified sign-in cookies
- * here before it opens a school page, and clears the school sign-ins on
- * reset or when the person chooses to; it never reads them back.
+ * here before it opens a school page, and clears every school sign-in, both
+ * accounts', on sign-out and reset; it never reads them back.
  *
  * Core runs the calls one at a time and drops stale writes; each call here
  * answers once `CookieManager` reported it done, however long that takes.
@@ -35,12 +35,10 @@ class WebCookieSeed : NativeWebCookies {
         }
     }
 
-    /** `CookieManager` names no cookie's domain, so it cannot single out one
-     * account's cookies ([clearsBySite]); every view in this app is a school
-     * view (other sites open in the browser), so clearing every school site
-     * clears the whole store, with the pages' storage. */
-    override suspend fun clear(scope: WebClearScope) {
-        if (scope !is WebClearScope.AllSchool) throw SdkException.Callback("WebView clears only every school site")
+    /** Every view in this app is a school view (other sites open in the
+     * browser), so clearing every school site clears the whole store, with
+     * the pages' storage. */
+    override suspend fun clear() {
         withContext(Dispatchers.Main) {
             val store = CookieManager.getInstance()
             suspendCancellableCoroutine<Unit> { done -> store.removeAllCookies { done.resume(Unit) } }
@@ -48,6 +46,4 @@ class WebCookieSeed : NativeWebCookies {
             store.flush()
         }
     }
-
-    override fun clearsBySite(): Boolean = false
 }

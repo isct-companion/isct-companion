@@ -4,7 +4,6 @@ use adpt_isct::lms::{validate_assign, validate_course, validate_deadlines, valid
 use chrono::TimeZone;
 use serde_json::json;
 
-const ACCOUNT: &str = "science:student";
 const ASSIGN_URL: &str = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7";
 
 fn database() -> Connection {
@@ -17,7 +16,7 @@ fn enrol(connection: &mut Connection) {
         "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=42"}], "timetables": []}))
     .unwrap();
     commit_on(connection, |tx| {
-        apply_lms_enrolment(tx, &enrolment, ACCOUNT, Utc::now())
+        apply_lms_enrolment(tx, &enrolment, Utc::now())
     })
     .unwrap();
 }
@@ -65,7 +64,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
                {"id": "8", "number": 8, "title": "Week", "visible": true}]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &first, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &first, Utc::now())
     })
     .unwrap();
     // The next read fetches details only for what changed.
@@ -93,7 +92,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
                {"id": "8", "number": 8, "title": "Week", "visible": true}]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &second, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &second, Utc::now())
     })
     .unwrap();
     let course = row(&connection, "lms_courses", "lms-course:42").unwrap();
@@ -113,14 +112,13 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
     let state = sync_state::get(&connection, &Key::new(Dataset::LmsCourse, "42"))
         .unwrap()
         .unwrap();
-    assert_eq!(state.account, ACCOUNT);
     assert!(state.fetched_at.is_some());
 
     // The same outline again finds nothing new: no record row or course
     // identity is written, only the key's freshness, so no view hears of a
     // change and cloud sync captures nothing.
     let (_, tables) = commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &second, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &second, Utc::now())
     })
     .unwrap();
     assert_eq!(
@@ -141,7 +139,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
         )
         .unwrap();
     let (_, tables) = commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &second, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &second, Utc::now())
     })
     .unwrap();
     assert!(tables.contains("lms_items"));
@@ -158,7 +156,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
     // missing; its stored sections are left to `lms.course`.
     let empty = validate_enrolment(json!({"courses": []})).unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_enrolment(tx, &empty, ACCOUNT, Utc::now())
+        apply_lms_enrolment(tx, &empty, Utc::now())
     })
     .unwrap();
     assert!(missing(&connection, "lms_courses", "lms-course:42"));
@@ -186,7 +184,6 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         commit_on(&mut missing_schema, |tx| apply_lms_course(
             tx,
             &content,
-            ACCOUNT,
             Utc::now()
         )),
         Err(IngestError::Storage(_))
@@ -197,7 +194,7 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
     let key = Key::new(Dataset::LmsCourse, "42");
     let fetched_at = Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &content, ACCOUNT, fetched_at)
+        apply_lms_course(tx, &content, fetched_at)
     })
     .unwrap();
     // A module whose link leaves the LMS rejects the key after another
@@ -213,16 +210,11 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         ],
     };
     assert!(matches!(
-        commit_on(&mut connection, |tx| apply_lms_course(
-            tx,
-            &bad,
-            ACCOUNT,
-            Utc::now()
-        )),
+        commit_on(&mut connection, |tx| apply_lms_course(tx, &bad, Utc::now())),
         Err(IngestError::InvalidPayload(_))
     ));
     commit_on(&mut connection, |tx| {
-        sync_state::fail(tx, &key, ACCOUNT, "parse", Utc::now())
+        sync_state::fail(tx, &key, "parse", Utc::now())
     })
     .unwrap();
     assert!(row(&connection, "lms_items", "lms-item:8").is_none());
@@ -242,7 +234,6 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         commit_on(&mut connection, |tx| apply_lms_course(
             tx,
             &other,
-            ACCOUNT,
             Utc::now()
         )),
         Err(IngestError::NotEnrolled(43))
@@ -274,7 +265,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
 
     // Open work of a course whose outline was not read yet gets its row.
     commit_on(&mut connection, |tx| {
-        apply_lms_deadlines(tx, &deadlines(true), ACCOUNT, Utc::now())
+        apply_lms_deadlines(tx, &deadlines(true), Utc::now())
     })
     .unwrap();
     let first = assignment(&connection);
@@ -289,7 +280,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
         json!([]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &course, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &course, Utc::now())
     })
     .unwrap();
     let renamed = assignment(&connection);
@@ -305,15 +296,15 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
     )
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_assign(tx, &graded, ACCOUNT, Utc::now())
+        apply_lms_assign(tx, &graded, Utc::now())
     })
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_deadlines(tx, &deadlines(true), ACCOUNT, Utc::now())
+        apply_lms_deadlines(tx, &deadlines(true), Utc::now())
     })
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &course, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &course, Utc::now())
     })
     .unwrap();
     let kept = assignment(&connection);
@@ -330,7 +321,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
     )
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_assign(tx, &reopened, ACCOUNT, Utc::now())
+        apply_lms_assign(tx, &reopened, Utc::now())
     })
     .unwrap();
     let open = assignment(&connection);
@@ -340,7 +331,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
 
     // Open work that left the list before its deadline was handed in.
     commit_on(&mut connection, |tx| {
-        apply_lms_deadlines(tx, &deadlines(false), ACCOUNT, Utc::now())
+        apply_lms_deadlines(tx, &deadlines(false), Utc::now())
     })
     .unwrap();
     assert_eq!(assignment(&connection)["submission"], "submitted");
@@ -356,7 +347,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
             .and_then(|state| state.fetched_at)
     };
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &course, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &course, Utc::now())
     })
     .unwrap();
     assert!(fetched(&connection).is_some());
@@ -369,7 +360,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
         json!([]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &grown, ACCOUNT, Utc::now())
+        apply_lms_course(tx, &grown, Utc::now())
     })
     .unwrap();
     assert!(fetched(&connection).is_none());

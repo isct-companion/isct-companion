@@ -116,7 +116,7 @@ const snapshotOf = (
   profiles: schoolProfiles(science, tokyoTech),
 });
 
-const INITIAL_SESSION = snapshotOf(1, "idle", "not-configured");
+const INITIAL_SESSION = snapshotOf(1, "normal", "not-configured");
 
 function sessionBridge(snapshot: SchoolSessionSnapshot = INITIAL_SESSION) {
   let emit: (snapshot: SchoolSessionSnapshot) => void = () => undefined;
@@ -183,25 +183,25 @@ describe("school session projection", () => {
     );
     schoolSessions.attach(native);
     await vi.waitFor(() => expect(native.onSchoolSession).toHaveBeenCalled());
-    native.emit(snapshotOf(3, "active", "signing-in"));
-    resolveSnapshot(snapshotOf(2, "rejected", "active"));
+    native.emit(snapshotOf(3, "normal", "signing-in"));
+    resolveSnapshot(snapshotOf(2, "refused", "normal"));
     // The read lands after every pending microtask has run.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(stateOf("science")).toBe("active");
+    expect(stateOf("science")).toBe("normal");
     expect(stateOf("tokyo-tech")).toBe("signing-in");
   });
 
   it("ignores stale and duplicate snapshot revisions", async () => {
-    const native = sessionBridge(snapshotOf(4, "active", "rejected"));
+    const native = sessionBridge(snapshotOf(4, "normal", "refused"));
     schoolSessions.attach(native);
-    await vi.waitFor(() => expect(stateOf("science")).toBe("active"));
-    native.emit(snapshotOf(3, "unavailable", "active"));
-    native.emit(snapshotOf(4, "unavailable", "active"));
-    expect(stateOf("science")).toBe("active");
-    expect(stateOf("tokyo-tech")).toBe("rejected");
-    native.emit(snapshotOf(5, "unavailable", "active"));
+    await vi.waitFor(() => expect(stateOf("science")).toBe("normal"));
+    native.emit(snapshotOf(3, "unavailable", "normal"));
+    native.emit(snapshotOf(4, "unavailable", "normal"));
+    expect(stateOf("science")).toBe("normal");
+    expect(stateOf("tokyo-tech")).toBe("refused");
+    native.emit(snapshotOf(5, "unavailable", "normal"));
     expect(stateOf("science")).toBe("unavailable");
-    expect(stateOf("tokyo-tech")).toBe("active");
+    expect(stateOf("tokyo-tech")).toBe("normal");
   });
 
   it("reference-counts consumers and cleans up before reconnecting", async () => {
@@ -224,60 +224,66 @@ describe("school session projection", () => {
   });
 
   it("rejects late events from an old bridge and accepts a new revision epoch", async () => {
-    const first = sessionBridge(snapshotOf(8, "active", "rejected"));
+    const first = sessionBridge(snapshotOf(8, "normal", "refused"));
     schoolSessions.attach(first);
-    await vi.waitFor(() => expect(stateOf("science")).toBe("active"));
+    await vi.waitFor(() => expect(stateOf("science")).toBe("normal"));
 
-    const second = sessionBridge(snapshotOf(0, "idle", "not-configured"));
+    const second = sessionBridge(
+      snapshotOf(0, "not-configured", "not-configured"),
+    );
     schoolSessions.attach(second);
-    await vi.waitFor(() => expect(stateOf("science")).toBe("idle"));
+    await vi.waitFor(() => expect(stateOf("science")).toBe("not-configured"));
     expect(stateOf("tokyo-tech")).toBe("not-configured");
 
-    first.emit(snapshotOf(99, "rejected", "rejected"));
-    expect(stateOf("science")).toBe("idle");
-    second.emit(snapshotOf(1, "active", "not-configured"));
-    expect(stateOf("science")).toBe("active");
+    first.emit(snapshotOf(99, "refused", "refused"));
+    expect(stateOf("science")).toBe("not-configured");
+    second.emit(snapshotOf(1, "normal", "not-configured"));
+    expect(stateOf("science")).toBe("normal");
   });
 
   it("preserves revisions across a brief reconnect to the same bridge", async () => {
-    const native = sessionBridge(snapshotOf(5, "rejected", "idle"));
+    const native = sessionBridge(snapshotOf(5, "refused", "normal"));
     const detach = schoolSessions.attach(native);
-    await vi.waitFor(() => expect(stateOf("science")).toBe("rejected"));
-    native.emit(snapshotOf(6, "active", "idle"));
+    await vi.waitFor(() => expect(stateOf("science")).toBe("refused"));
+    native.emit(snapshotOf(6, "normal", "normal"));
     detach();
     native.schoolSessionSnapshot.mockResolvedValue(
-      snapshotOf(0, "rejected", "rejected"),
+      snapshotOf(0, "refused", "refused"),
     );
 
     schoolSessions.attach(native);
     await vi.waitFor(() =>
       expect(native.schoolSessionSnapshot).toHaveBeenCalledTimes(2),
     );
-    expect(stateOf("science")).toBe("active");
+    expect(stateOf("science")).toBe("normal");
   });
 
   it("applies a Retry answer by revision, and only from the current bridge", async () => {
-    const native = sessionBridge(snapshotOf(2, "rejected", "idle"));
+    const native = sessionBridge(snapshotOf(2, "refused", "normal"));
     schoolSessions.attach(native);
-    await vi.waitFor(() => expect(stateOf("science")).toBe("rejected"));
+    await vi.waitFor(() => expect(stateOf("science")).toBe("refused"));
 
-    native.retrySchool.mockResolvedValueOnce(snapshotOf(3, "active", "idle"));
+    native.retrySchool.mockResolvedValueOnce(snapshotOf(3, "normal", "normal"));
     await schoolSessions.retry(native, "science");
     expect(native.retrySchool).toHaveBeenCalledWith("science");
-    expect(stateOf("science")).toBe("active");
+    expect(stateOf("science")).toBe("normal");
 
     // An answer older than an event already applied changes nothing.
-    native.retrySchool.mockResolvedValueOnce(snapshotOf(1, "rejected", "idle"));
+    native.retrySchool.mockResolvedValueOnce(
+      snapshotOf(1, "refused", "normal"),
+    );
     await schoolSessions.retry(native, "science");
-    expect(stateOf("science")).toBe("active");
+    expect(stateOf("science")).toBe("normal");
 
     // A bridge that is no longer attached cannot write into the store.
-    const replaced = sessionBridge(snapshotOf(0, "idle", "idle"));
+    const replaced = sessionBridge(
+      snapshotOf(0, "not-configured", "not-configured"),
+    );
     schoolSessions.attach(replaced);
-    await vi.waitFor(() => expect(stateOf("science")).toBe("idle"));
-    native.retrySchool.mockResolvedValueOnce(snapshotOf(9, "active", "idle"));
+    await vi.waitFor(() => expect(stateOf("science")).toBe("not-configured"));
+    native.retrySchool.mockResolvedValueOnce(snapshotOf(9, "normal", "normal"));
     await schoolSessions.retry(native, "science");
-    expect(stateOf("science")).toBe("idle");
+    expect(stateOf("science")).toBe("not-configured");
   });
 });
 /* ------------------------------------------------------------------ *

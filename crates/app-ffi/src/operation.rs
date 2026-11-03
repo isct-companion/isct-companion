@@ -37,7 +37,7 @@ pub enum OperationResult {
         page: SchoolWebPage,
     },
     SchoolConnect {
-        result: SchoolConnectResult,
+        outcome: SchoolConnectOutcome,
     },
     Sync {
         snapshot: SyncSnapshot,

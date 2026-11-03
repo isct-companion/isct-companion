@@ -5,9 +5,10 @@
 //! reads one leased key, records how it ended, and takes the next key of its
 //! lane, so an LMS worker keeps its transport open across keys.
 use super::{
-    planner::{self, Candidate, Depth, Facts, Group, Inputs, Lane, ReferenceWatch, SessionFact},
+    planner::{self, Candidate, Depth, Facts, Group, Inputs, Lane, ReferenceWatch},
     school::{self, SchoolReaders},
-    snapshot, Hint, Network, Priority, Scope, SyncSnapshot, View,
+    snapshot::{self, Shown},
+    AccountWait, Hint, Network, Priority, Scope, SyncSnapshot, View,
 };
 use crate::{
     data::{DataError, DataStore, WorkspaceChangeSource},
@@ -169,8 +170,6 @@ impl LeaseWriter {
 /// The right to read one key, with what its reader needs.
 pub(crate) struct Lease {
     pub(crate) key: Key,
-    /// The account the key's content belongs to (`sync_state::account`).
-    pub(crate) account: String,
     /// Correlates the `sync_runs` rows of one run in the snapshot.
     pub(crate) run: String,
     /// The Isct-Data index of a reference key.
@@ -181,6 +180,61 @@ pub(crate) struct Lease {
     pub(crate) deadline: tokio::time::Instant,
     pub(crate) cancel: CancellationToken,
     writer: LeaseWriter,
+    /// What decided the account holds when it was leased.
+    holds: HoldStamp,
+}
+
+/// Each decision an account hold rests on, with its own version: the
+/// account's (the person's credentials, Retry and Connect, a pause), moved
+/// by `unblock`, and the network's, moved when the shell reports it back.
+/// A read stamps them when it is leased and `settle` compares them under
+/// the state lock, the lock that moves them: a read that started before a
+/// move cannot set the hold it lifted. Network recovery leaves a person's
+/// verdict standing, and an unblock leaves a network verdict.
+#[derive(Default)]
+struct HoldVersions {
+    account: HashMap<SchoolAuthProfile, u64>,
+    network: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct HoldStamp {
+    science: u64,
+    tokyo_tech: u64,
+    network: u64,
+}
+
+impl HoldVersions {
+    fn account(&self, profile: SchoolAuthProfile) -> u64 {
+        self.account.get(&profile).copied().unwrap_or(0)
+    }
+
+    fn stamp(&self) -> HoldStamp {
+        HoldStamp {
+            science: self.account(SchoolAuthProfile::Science),
+            tokyo_tech: self.account(SchoolAuthProfile::TokyoTech),
+            network: self.network,
+        }
+    }
+
+    /// Moves the account's decision on.
+    fn lift(&mut self, profile: SchoolAuthProfile) {
+        *self.account.entry(profile).or_default() += 1;
+    }
+
+    /// Whether `wait`, read under `stamp`, still decides for `profile`.
+    fn current(&self, stamp: HoldStamp, profile: SchoolAuthProfile, wait: &AccountWait) -> bool {
+        match wait {
+            AccountWait::Network => stamp.network == self.network,
+            AccountWait::Person | AccountWait::Paused { .. } => {
+                let stamped = match profile {
+                    SchoolAuthProfile::Science => stamp.science,
+                    SchoolAuthProfile::TokyoTech => stamp.tokyo_tech,
+                };
+                stamped == self.account(profile)
+            }
+        }
+    }
 }
 
 impl Lease {
@@ -204,7 +258,6 @@ impl Lease {
         RunRecord {
             run: &self.run,
             key: &self.key,
-            account: &self.account,
             started_at: self.started,
             finished_at,
             outcome,
@@ -218,10 +271,9 @@ impl Lease {
 
     /// A lease outside any engine, for executor tests.
     #[cfg(test)]
-    pub(crate) fn detached(store: &DataStore, key: Key, account: &str) -> Self {
+    pub(crate) fn detached(store: &DataStore, key: Key) -> Self {
         Self {
             key,
-            account: account.into(),
             run: uuid::Uuid::new_v4().to_string(),
             locator: None,
             depth: Depth::Full,
@@ -233,6 +285,7 @@ impl Lease {
                 gate: Arc::new(Gate::default()),
                 generation: 0,
             },
+            holds: HoldStamp::default(),
         }
     }
 
@@ -261,10 +314,12 @@ pub(crate) enum KeyEnd {
     Refused {
         kind: String,
     },
-    /// The account's session is not available: the profile's keys wait for
-    /// it, without a backoff.
-    SessionUnavailable {
+    /// The read could not reach the account's school: every key of the
+    /// profile waits for `wait`, without a backoff, unless what decides that
+    /// wait moved on since the read started (`HoldVersions`).
+    Blocked {
         profile: SchoolAuthProfile,
+        wait: AccountWait,
         source: String,
     },
     /// The host's breaker paused it: every key of the host is held, and this
@@ -312,12 +367,11 @@ impl KeyEnd {
 }
 
 /// What the runner records for a read that wrote no rows: the key's
-/// backoff (unless the cause was not the key: the session, a paused host, a
+/// backoff (unless the cause was not the key: the account, a paused host, a
 /// cancel) and its `sync_runs` row, inside the lease's gate.
 pub(crate) struct Ending {
     writer: LeaseWriter,
     key: Key,
-    account: String,
     run: String,
     started: DateTime<Utc>,
     source: String,
@@ -331,14 +385,13 @@ impl Ending {
             let now = Utc::now();
             let written = self.writer.write(None, |transaction| {
                 if *backoff {
-                    sync_state::fail(transaction, &self.key, &self.account, kind, now)?;
+                    sync_state::fail(transaction, &self.key, kind, now)?;
                 }
                 sync_state::record_run(
                     transaction,
                     &RunRecord {
                         run: &self.run,
                         key: &self.key,
-                        account: &self.account,
                         started_at: self.started,
                         finished_at: now,
                         outcome: *outcome,
@@ -366,7 +419,7 @@ impl Lease {
     pub(crate) fn ending(&self, end: &KeyEnd) -> Ending {
         let source = match end {
             KeyEnd::Failed { source, .. }
-            | KeyEnd::SessionUnavailable { source, .. }
+            | KeyEnd::Blocked { source, .. }
             | KeyEnd::HostPaused { source, .. }
             | KeyEnd::Cancelled { source }
             | KeyEnd::NotEnrolled { source } => source.clone(),
@@ -380,9 +433,9 @@ impl Lease {
         let record = match end {
             KeyEnd::Done { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale => None,
             KeyEnd::Failed { kind, .. } => Some((RunOutcome::Failed, kind.clone(), true)),
-            // Waiting for the session is not the key's failure: the session
-            // snapshot holds the key until it changes.
-            KeyEnd::SessionUnavailable { .. } => {
+            // Waiting for the account is not the key's failure: the planner
+            // holds the account's keys until what the read said lets them go.
+            KeyEnd::Blocked { .. } => {
                 Some((RunOutcome::SignInRequired, "sign-in".to_string(), false))
             }
             KeyEnd::HostPaused { .. } => {
@@ -398,7 +451,6 @@ impl Lease {
         Ending {
             writer: self.writer(),
             key: self.key.clone(),
-            account: self.account.clone(),
             run: self.run.clone(),
             started: self.started,
             source,
@@ -468,6 +520,8 @@ enum ManualTarget {
 
 struct State {
     facts: Facts,
+    /// Each account as its session snapshot last said, for the status line.
+    sessions: HashMap<SchoolAuthProfile, Shown>,
     inputs: Inputs,
     plan: Vec<Candidate>,
     leases: HashMap<Key, LeaseEntry>,
@@ -478,6 +532,7 @@ struct State {
     manual: HashMap<Key, (Instant, Option<String>)>,
     /// When each key was last asked for by hand, for the 30 s join.
     last_manual: HashMap<Key, Instant>,
+    holds: HoldVersions,
     requests: Vec<(ManualTarget, Instant)>,
     /// Keys a page showed since the last evaluation; touched for gc.
     shown: Vec<Key>,
@@ -554,17 +609,16 @@ impl Drop for AdmissionGuard {
     }
 }
 
-/// The planner's view of the accounts' sessions.
-fn session_facts(snapshot: &SchoolSessionSnapshot) -> HashMap<SchoolAuthProfile, SessionFact> {
+/// The accounts as the status line shows them.
+fn shown(snapshot: &SchoolSessionSnapshot) -> HashMap<SchoolAuthProfile, Shown> {
     [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]
         .into_iter()
         .map(|profile| {
             let session = snapshot.profile(profile);
             (
                 profile,
-                SessionFact {
+                Shown {
                     state: session.state,
-                    retry_at: session.retry_at,
                     maintenance: session
                         .maintenance
                         .as_ref()
@@ -588,6 +642,7 @@ impl SyncEngine {
             school: Mutex::new(None),
             state: Mutex::new(State {
                 facts,
+                sessions: HashMap::new(),
                 inputs: Inputs::default(),
                 plan: Vec::new(),
                 leases: HashMap::new(),
@@ -596,6 +651,7 @@ impl SyncEngine {
                 opens: HashMap::new(),
                 manual: HashMap::new(),
                 last_manual: HashMap::new(),
+                holds: HoldVersions::default(),
                 requests: Vec::new(),
                 shown: Vec::new(),
                 follow_lms: None,
@@ -625,11 +681,11 @@ impl SyncEngine {
 
     /// The school sessions and clients LMS and 教務Web keys read with.
     pub(crate) fn attach_school(&self, readers: SchoolReaders) {
-        let facts = session_facts(&readers.sessions.snapshot());
+        let sessions = shown(&readers.sessions.snapshot());
         *guard(&self.0.school) = Some(readers);
         {
             let mut state = guard(&self.0.state);
-            state.facts.sessions = facts;
+            state.sessions = sessions;
             state.evaluate = true;
         }
         self.0.wake.notify_one();
@@ -639,6 +695,20 @@ impl SyncEngine {
     /// evaluate again on the next driver turn.
     pub(crate) fn reevaluate(&self) {
         guard(&self.0.state).evaluate = true;
+        self.0.wake.notify_one();
+    }
+
+    /// What a blocked account waited for happened (its credentials changed,
+    /// the person pressed Retry or Connect, or signed it out): its keys go
+    /// on, and a read finds out again whether the school can be reached. A
+    /// read already running can no longer hold the account (`HoldVersions`).
+    pub(crate) fn unblock(&self, profile: SchoolAuthProfile) {
+        {
+            let mut state = guard(&self.0.state);
+            state.holds.lift(profile);
+            state.facts.blocked.remove(&profile);
+            state.evaluate = true;
+        }
         self.0.wake.notify_one();
     }
 
@@ -700,11 +770,7 @@ impl SyncEngine {
                     state.facts.suspended = false;
                     true
                 }
-                Hint::Network { network } => {
-                    let changed = state.facts.network != network;
-                    state.facts.network = network;
-                    changed
-                }
+                Hint::Network { network } => report_network(&mut state, network),
                 Hint::PowerSaver { on } => {
                     let changed = state.facts.power_saver != on;
                     state.facts.power_saver = on;
@@ -735,21 +801,19 @@ impl SyncEngine {
         }
     }
 
-    /// Folds the session snapshot into the facts: a session that changed
-    /// plans again at once, so keys waiting for it go (or stay held). The
-    /// facade's event relay calls this for every event.
+    /// Folds the session snapshot into the status line; the planner never
+    /// reads it. The facade's event relay calls this for every event.
     pub fn observe(&self, event: &CoreEvent) {
         let CoreEvent::SchoolSession(snapshot) = event else {
             return;
         };
-        let facts = session_facts(snapshot);
+        let sessions = shown(snapshot);
         {
             let mut state = guard(&self.0.state);
-            if state.facts.sessions == facts {
+            if state.sessions == sessions {
                 return;
             }
-            state.facts.sessions = facts;
-            state.evaluate = true;
+            state.sessions = sessions;
         }
         self.0.wake.notify_one();
     }
@@ -766,6 +830,7 @@ impl SyncEngine {
             leased: &leased,
             plan: &state.plan,
             facts: &state.facts,
+            sessions: &state.sessions,
             inputs: &state.inputs,
             now: Utc::now(),
         })
@@ -785,6 +850,13 @@ impl SyncEngine {
             let mut state = guard(&self.0.state);
             state.closed += 1;
             self.0.gate.bump();
+            // A reset clears the sessions: a read finds out anew, and one
+            // still running holds nothing.
+            for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+                state.holds.lift(profile);
+            }
+            state.holds.network += 1;
+            state.facts.blocked.clear();
             for lease in state.leases.values() {
                 lease.cancel.cancel();
             }
@@ -960,6 +1032,10 @@ impl SyncEngine {
         }
         state.facts.resetting = state.closed > 0;
         state.facts.paused.retain(|_, until| *until > now);
+        state
+            .facts
+            .blocked
+            .retain(|_, wait| !matches!(wait, AccountWait::Paused { until } if *until <= now));
         let opens: Vec<View> = state.opens.keys().cloned().collect();
         let manual: HashMap<Key, Option<String>> = state
             .manual
@@ -1054,7 +1130,6 @@ impl SyncEngine {
         );
         Some(Lease {
             key: candidate.key,
-            account: candidate.account,
             run,
             locator: candidate.locator,
             depth: candidate.depth,
@@ -1066,6 +1141,7 @@ impl SyncEngine {
                 gate: self.0.gate.clone(),
                 generation: self.0.gate.generation(),
             },
+            holds: state.holds.stamp(),
         })
     }
 
@@ -1088,8 +1164,9 @@ impl SyncEngine {
         let mut lease = first;
         let Some(readers) = self.school() else {
             loop {
-                let end = KeyEnd::SessionUnavailable {
+                let end = KeyEnd::Blocked {
                     profile: SchoolAuthProfile::Science,
+                    wait: AccountWait::Person,
                     source: String::new(),
                 };
                 match self.finish(lease, end).await {
@@ -1122,8 +1199,9 @@ impl SyncEngine {
     }
 
     async fn execute(&self, lease: &Lease) -> KeyEnd {
-        let unattached = || KeyEnd::SessionUnavailable {
+        let unattached = || KeyEnd::Blocked {
             profile: SchoolAuthProfile::TokyoTech,
+            wait: AccountWait::Person,
             source: String::new(),
         };
         match lease.key.dataset {
@@ -1218,6 +1296,21 @@ fn request_manual(state: &mut State, key: Key, scope: Option<String>, at: Instan
     state.manual.insert(key, (at, scope));
 }
 
+/// The shell's network. Once it is back, a read that ended waiting for it
+/// no longer holds its account, nor does one still running (`HoldVersions`).
+fn report_network(state: &mut State, network: Network) -> bool {
+    let changed = state.facts.network != network;
+    state.facts.network = network;
+    if network != Network::Offline {
+        state.holds.network += 1;
+        state
+            .facts
+            .blocked
+            .retain(|_, wait| *wait != AccountWait::Network);
+    }
+    changed
+}
+
 /// Folds one finished key into the facts, the cache and its run.
 fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState>) {
     let key = &lease.key;
@@ -1245,9 +1338,18 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
                 state.evaluate = true;
             }
         }
-        KeyEnd::SessionUnavailable { profile, .. } => {
-            // Every other key of the profile waits the same way; the next
-            // plan holds them by the session snapshot.
+        // What lets the account go on changed while the read ran: its run
+        // is recorded, but it no longer decides whether the account waits.
+        KeyEnd::Blocked { profile, wait, .. }
+            if !state.holds.current(lease.holds, *profile, wait) =>
+        {
+            log::info!(target: "app_core::sync", "{key} ended waiting for {profile:?} ({wait:?}), decided anew since it started; no hold");
+            state.evaluate = true;
+        }
+        KeyEnd::Blocked { profile, wait, .. } => {
+            // Every other key of the profile waits the same way, by what
+            // this read said.
+            state.facts.blocked.insert(*profile, wait.clone());
             state
                 .plan
                 .retain(|candidate| planner::profile_of(candidate.key.dataset) != Some(*profile));
@@ -1299,7 +1401,7 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
                 batch.failed.insert(key.clone(), (kind.clone(), retry_at));
             }
             // Still due: the next plan holds or reads it again.
-            KeyEnd::SessionUnavailable { .. }
+            KeyEnd::Blocked { .. }
             | KeyEnd::HostPaused { .. }
             | KeyEnd::Cancelled { .. }
             | KeyEnd::NotEnrolled { .. }
@@ -1407,21 +1509,8 @@ fn load_inputs(
     let english = crate::schedule::content_language(&workspace) == "en";
     let year = crate::reference_refresh::academic_year(&workspace)
         .and_then(|year| u16::try_from(year).ok());
-    let account = |profile: SchoolAuthProfile| match auth.sync_account(profile) {
-        Ok(account) => Some(account),
-        Err(error) => {
-            crate::diagnostics::report("sync", &error);
-            None
-        }
-    };
-    let science = account(SchoolAuthProfile::Science);
-    let tokyo = account(SchoolAuthProfile::TokyoTech);
-    // `sync_state::account` of an empty username ends with the colon.
-    let configured = |account: &Option<String>| {
-        account
-            .as_deref()
-            .is_some_and(|account| !account.ends_with(':'))
-    };
+    let science_configured = auth.configured(SchoolAuthProfile::Science);
+    let tokyo_configured = auth.configured(SchoolAuthProfile::TokyoTech);
     let followed = crate::reference_refresh::followed(&workspace);
     store.write(None, |transaction| {
         let states = sync_state::list(transaction, None)?
@@ -1453,10 +1542,8 @@ fn load_inputs(
         Ok(Inputs {
             states,
             courses,
-            science_configured: configured(&science),
-            tokyo_configured: configured(&tokyo),
-            science,
-            tokyo,
+            science_configured,
+            tokyo_configured,
             allow_cellular,
             year,
             english,
@@ -1501,26 +1588,15 @@ impl SyncEngine {
         settle(&mut guard(&self.0.state), &lease, &end, after);
     }
 
+    /// `Hint::Network` without starting the driver.
+    pub(crate) fn network_for_test(&self, network: Network) {
+        report_network(&mut guard(&self.0.state), network);
+    }
+
     /// `Hint::Refresh` without starting the driver.
     pub(crate) fn refresh_for_test(&self, scope: Scope) {
         guard(&self.0.state)
             .requests
             .push((ManualTarget::Scope(scope), Instant::now()));
-    }
-
-    /// The account's session as a snapshot would report it.
-    pub(crate) fn set_session(
-        &self,
-        profile: SchoolAuthProfile,
-        state: crate::school_session::SchoolSessionState,
-    ) {
-        guard(&self.0.state).facts.sessions.insert(
-            profile,
-            SessionFact {
-                state,
-                retry_at: None,
-                maintenance: None,
-            },
-        );
     }
 }

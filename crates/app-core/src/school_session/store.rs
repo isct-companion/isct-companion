@@ -8,23 +8,20 @@ use super::{Site, WebCookie};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 
 #[derive(Deserialize, Serialize)]
 pub(super) struct Saved {
     version: u8,
-    /// The username the session belongs to.
-    pub(super) account: String,
     pub(super) identity: Vec<WebCookie>,
     /// Each site's jar, as `jar::Jar::save` wrote it.
     pub(super) sites: BTreeMap<String, String>,
 }
 
 impl Saved {
-    pub(super) fn new(account: String, identity: Vec<WebCookie>) -> Self {
+    pub(super) fn new(identity: Vec<WebCookie>) -> Self {
         Self {
             version: VERSION,
-            account,
             identity,
             sites: BTreeMap::new(),
         }

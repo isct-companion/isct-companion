@@ -7,7 +7,7 @@ use crate::{
     school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     school_session::{
         tests::{MemoryVault, School, WebStore},
-        SchoolSessions, WebClear,
+        SchoolSessions,
     },
 };
 use std::{
@@ -55,8 +55,7 @@ struct FakeBrowser {
     disposed: Mutex<Vec<BrowserId>>,
     /// Every `cover` Core sent.
     covers: Mutex<Vec<(BrowserId, bool)>>,
-    /// A host like the Windows interim: no resubmission facts, popups as
-    /// separate windows.
+    /// A host like the Windows interim: popups as separate windows.
     plain_host: AtomicBool,
 }
 
@@ -105,10 +104,8 @@ async fn settle(attempt: usize) {
 
 impl SchoolBrowser for FakeBrowser {
     fn capabilities(&self) -> HostCapabilities {
-        let full = !self.plain_host.load(Ordering::Acquire);
         HostCapabilities {
-            form_resubmission: full,
-            inline_popups: full,
+            inline_popups: !self.plain_host.load(Ordering::Acquire),
         }
     }
 
@@ -288,7 +285,6 @@ fn request(
     NavigationRequest {
         page,
         url: Url::parse(raw).unwrap(),
-        method: Some("GET".into()),
         main_frame,
         kind,
         user_gesture,
@@ -299,7 +295,6 @@ fn window(opener: PageId, raw: &str) -> NewWindowRequest {
     NewWindowRequest {
         opener,
         url: Url::parse(raw).unwrap(),
-        method: Some("GET".into()),
         kind: NavigationKind::Other,
         user_gesture: true,
         name: Some("picker".into()),
@@ -629,12 +624,9 @@ async fn a_popup_is_a_child_of_its_opener_and_closes_with_what_it_opened() {
     };
     assert_eq!(popups_open(&events), [0, 1, 2]);
     assert!(engine.reload(site).unwrap());
-    assert!(browser
-        .commands
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|command| command.browser == nested && command.command == BrowserAction::Reload));
+    assert!(browser.commands.lock().unwrap().iter().any(|command| {
+        command.browser == nested && matches!(command.command, BrowserAction::Navigate(_))
+    }));
     // window.close() in the picker closes it and the window it opened.
     listener.closed(popup);
     assert_eq!(*browser.disposed.lock().unwrap(), [nested]);
@@ -935,17 +927,21 @@ async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
     };
     let result = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/result.aspx";
     let post = |kind: NavigationKind, main_frame: bool| {
-        listener.decide_navigation(NavigationRequest {
-            method: Some("POST".into()),
-            ..request(page, &format!("{result}#top"), main_frame, kind, false)
-        })
+        listener.decide_navigation(request(
+            page,
+            &format!("{result}#top"),
+            main_frame,
+            kind,
+            false,
+        ))
     };
     assert_eq!(
         post(NavigationKind::FormSubmit, true),
         NavigationDecision::Allow
     );
-    // Reloading the postback result (the app's Reload, or the picker's
-    // `opener.location.reload()`) opens the page again with GET.
+    // A page's own reload of the postback result (the picker's
+    // `opener.location.reload()`) opens the page again with GET. The App's
+    // Reload never gets here: it always opens the last page with a GET.
     assert_eq!(
         post(
             NavigationKind::FormResubmit {
@@ -972,15 +968,10 @@ async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
         post(NavigationKind::FormResubmit { from_history: true }, false),
         NavigationDecision::Deny(DenyReason::Resubmission)
     );
-    // The app's Reload is the engine's, so the rule above applies to it.
-    assert!(engine.reload(SchoolSite::Kyomu).unwrap());
-    assert_eq!(
-        browser.commands.lock().unwrap().last().unwrap().command,
-        BrowserAction::Reload
-    );
     engine.shutdown().await;
 
-    // A host that cannot report resubmission gets a GET of the current URL.
+    // On a host whose popups are separate windows the toolbar stays on the
+    // view.
     let plain = FakeBrowser::default();
     plain.plain_host.store(true, Ordering::Release);
     let (engine, browser, _, _) = engine_on(Arc::new(SchoolAuthService::new(EmptyVault)), plain);
@@ -995,13 +986,6 @@ async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
         .await
         .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
-    browser.set_current_url(id, Url::parse(result).unwrap());
-    assert!(engine.reload(SchoolSite::Kyomu).unwrap());
-    assert_eq!(
-        browser.commands.lock().unwrap().last().unwrap().command,
-        BrowserAction::Navigate(Url::parse(result).unwrap())
-    );
-    // Its popups are separate windows: the toolbar stays on the view.
     let opener = PageId {
         browser: id,
         sequence: 0,
@@ -1187,9 +1171,9 @@ fn signed_engine(
     SchoolSessions,
 ) {
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
-    auth.stage(
+    auth.promote(
         SchoolAuthProfile::Science,
-        SchoolCredentials {
+        &SchoolCredentials {
             username: "user".into(),
             password: password.into(),
             otp_secret: "JBSWY3DPEHPK3PXP".into(),
@@ -1309,7 +1293,7 @@ fn target(command: &BrowserCommand) -> String {
 #[tokio::test]
 async fn an_app_link_writes_a_verified_identity_before_it_opens_and_nothing_else_starts_one() {
     let school = School::accepting("right");
-    let store = WebStore::open(true);
+    let store = WebStore::open();
     let (engine, browser, _, _) = signed_engine(&school, "right", &store);
     engine
         .open(
@@ -1352,14 +1336,22 @@ async fn an_app_link_writes_a_verified_identity_before_it_opens_and_nothing_else
     engine.shutdown().await;
 }
 
-// The person's Reload on the sign-in page writes the verified identity and
-// opens the visit's safe page again. When the page still refuses it, the
-// operation signs in once, writes and opens again; refused again, it stops
-// and says so. One password per operation, never more.
+// The App's Reload is one behaviour on every host: it opens the visit's last
+// page again with a GET, a page a form produced included, and never asks
+// the engine to reload (which could send the form again). On the sign-in
+// page it writes the verified identity first and then opens that same page.
+// When the page still refuses it, the operation signs in once, writes and
+// opens again; refused again, it stops and says so. One password per
+// operation, never more.
 #[tokio::test]
-async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
+async fn a_reload_reopens_the_last_page_and_on_the_sign_in_page_signs_in_at_most_once() {
+    // A form's result whose address carries what a Reload must not send
+    // again, and the part (`d`) the restore record would drop.
+    const FORM_RESULT: &str =
+        "https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=77&sesskey=s3cr3t#p5";
+    const REOPENED: &str = "https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=77";
     let school = School::accepting("right");
-    let store = WebStore::open(true);
+    let store = WebStore::open();
     let (engine, browser, _, _) = signed_engine(&school, "right", &store);
     engine
         .open(
@@ -1374,9 +1366,48 @@ async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
     let opened = navigated(&browser, 0).await;
     arrive(&browser, &opened, 1, LMS_PAGE);
     until("the link's operation ended", || access(&engine).is_none()).await;
+    // The person sends a form; its result is the visit's last page.
+    let listener = browser.listener();
+    let page = PageId {
+        browser: opened.browser,
+        sequence: 1,
+    };
+    assert_eq!(
+        listener.decide_navigation(request(
+            page,
+            FORM_RESULT,
+            true,
+            NavigationKind::FormSubmit,
+            true,
+        )),
+        NavigationDecision::Allow
+    );
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: opened.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(FORM_RESULT).unwrap(),
+    });
+    until("the form's result recorded", || {
+        engine.page(SchoolSite::ScienceLms).url.as_deref() == Some(FORM_RESULT)
+    })
+    .await;
+    assert!(engine.reload(SchoolSite::ScienceLms).unwrap());
+    let reloaded = navigated(&browser, 1).await;
+    assert_eq!(target(&reloaded), REOPENED, "opened again with a GET");
+    assert_eq!(
+        browser.commands.lock().unwrap().last(),
+        Some(&reloaded),
+        "the Reload sent only that navigation"
+    );
+    assert_eq!(access(&engine), None, "nothing to sign in, nothing to say");
+    assert_eq!(school.passwords(), 1);
+    arrive(&browser, &reloaded, 3, REOPENED);
     // Later the session runs out and the person's own link lands on the
     // sign-in page.
-    wander(&browser, opened.browser, 2, SIGN_IN_PAGE);
+    wander(&browser, opened.browser, 4, SIGN_IN_PAGE);
     until("the sign-in page recorded", || {
         engine.page(SchoolSite::ScienceLms).url.as_deref() == Some(SIGN_IN_PAGE)
     })
@@ -1386,8 +1417,12 @@ async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
     assert!(engine.reload(SchoolSite::ScienceLms).unwrap());
     // Repeated Reloads join the operation.
     assert!(engine.reload(SchoolSite::ScienceLms).unwrap());
-    let reopened = navigated(&browser, 1).await;
-    assert_eq!(target(&reopened), LMS_PAGE, "the visit's safe page");
+    let reopened = navigated(&browser, 2).await;
+    assert_eq!(
+        target(&reopened),
+        REOPENED,
+        "the visit's last page, as a Reload elsewhere opens it"
+    );
     assert_eq!(
         school.passwords(),
         1,
@@ -1395,15 +1430,16 @@ async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
     );
     assert_eq!(store.writes.lock().unwrap().len(), 2);
     assert_eq!(access(&engine), Some(SchoolWebAccess::SigningIn));
-    arrive(&browser, &reopened, 3, SIGN_IN_PAGE);
-    let again = navigated(&browser, 2).await;
+    arrive(&browser, &reopened, 5, SIGN_IN_PAGE);
+    let again = navigated(&browser, 3).await;
+    assert_eq!(target(&again), REOPENED);
     assert_eq!(
         school.passwords(),
         2,
         "the page refused it: the one sign-in"
     );
     assert_eq!(store.writes.lock().unwrap().len(), 3);
-    arrive(&browser, &again, 4, SIGN_IN_PAGE);
+    arrive(&browser, &again, 6, SIGN_IN_PAGE);
     until("the operation stopped", || {
         access(&engine).is_some_and(|access| access != SchoolWebAccess::SigningIn)
     })
@@ -1415,7 +1451,7 @@ async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
         })
     );
     assert_eq!(school.passwords(), 2);
-    assert_eq!(navigations(&browser), 3);
+    assert_eq!(navigations(&browser), 4);
     let covers = browser.covers.lock().unwrap().clone();
     assert_eq!(covers.first().map(|cover| cover.1), Some(true));
     assert_eq!(
@@ -1424,7 +1460,7 @@ async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
         "the view is given back"
     );
     // Another page clears what the operation said.
-    wander(&browser, again.browser, 5, LMS_PAGE);
+    wander(&browser, again.browser, 7, LMS_PAGE);
     until("the problem cleared", || access(&engine).is_none()).await;
     engine.shutdown().await;
 }
@@ -1436,7 +1472,7 @@ async fn a_reload_on_the_sign_in_page_sends_the_password_at_most_once() {
 #[tokio::test]
 async fn a_refusal_and_an_unreachable_school_send_no_password() {
     let school = School::accepting("right");
-    let store = WebStore::open(true);
+    let store = WebStore::open();
     let (engine, browser, _, _) = signed_engine(&school, "wrong", &store);
     engine
         .open(
@@ -1480,7 +1516,7 @@ async fn a_refusal_and_an_unreachable_school_send_no_password() {
 
     let down = School::accepting("right");
     down.state.lock().unwrap().down = true;
-    let store = WebStore::open(true);
+    let store = WebStore::open();
     let (engine, browser, _, _) = signed_engine(&down, "right", &store);
     engine
         .open(
@@ -1529,49 +1565,86 @@ async fn a_refusal_and_an_unreachable_school_send_no_password() {
     engine.shutdown().await;
 }
 
-// Signing an account out closes its views and clears its websites only,
-// after the view stopped; another account's views stay. A platform that
-// cannot clear one account's websites is not asked to: the account says its
-// web sign-in was kept until the person chooses to clear every school site.
+// Signing either account out stops every school view and clears every
+// school website, once, on every platform. A view of no account closes too:
+// it shares the cookie store and can show private pages. The account still
+// signed in loses its web sign-in with it, and its next page opens a new
+// view whose web operation writes its identity again, after the clear.
 #[tokio::test]
-async fn signing_an_account_out_closes_its_views_and_clears_its_websites_only() {
-    for by_site in [true, false] {
-        let school = School::accepting("right");
-        let store = WebStore::open(by_site);
-        let (engine, browser, _, sessions) = signed_engine(&school, "right", &store);
-        engine
-            .open(
-                SchoolSite::ScienceLms,
-                "assignment",
-                SchoolWebEntry::Go {
-                    url: LMS_PAGE.into(),
-                },
-            )
-            .await
-            .unwrap();
-        let lms = navigated(&browser, 0).await.browser;
-        engine
-            .open(SchoolSite::Syllabus, "syllabus", SchoolWebEntry::Resume)
-            .await
-            .unwrap();
-        sessions.sign_out(SchoolAuthProfile::Science).await;
-        // The syllabus has no account: its view stays.
-        assert_eq!(*browser.disposed.lock().unwrap(), [lms]);
-        let clears = store.clears.lock().unwrap().clone();
-        let kept = sessions.snapshot().profiles.science.web_kept;
-        if by_site {
-            assert_eq!(clears, [WebClear::account(SchoolAuthProfile::Science)]);
-            assert!(!kept);
-        } else {
-            assert!(
-                clears.is_empty(),
-                "never a silent clear of every school site"
-            );
-            assert!(kept);
-            sessions.clear_web().await;
-            assert_eq!(*store.clears.lock().unwrap(), [WebClear::AllSchool]);
-            assert!(!sessions.snapshot().profiles.science.web_kept);
-        }
-        engine.shutdown().await;
+async fn signing_an_account_out_clears_every_school_website() {
+    let school = School::accepting("right");
+    let store = WebStore::open();
+    let (engine, browser, _, sessions) = signed_engine(&school, "right", &store);
+    let lms_page = || SchoolWebEntry::Go {
+        url: LMS_PAGE.into(),
+    };
+    engine
+        .open(SchoolSite::ScienceLms, "assignment", lms_page())
+        .await
+        .unwrap();
+    let lms = navigated(&browser, 0).await.browser;
+    engine
+        .open(SchoolSite::Kyomu, "grades", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    let kyomu = navigated(&browser, 1).await.browser;
+    engine
+        .open(SchoolSite::Syllabus, "syllabus", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    assert_eq!(store.writes.lock().unwrap().len(), 1);
+
+    assert_eq!(
+        sessions.sign_out(SchoolAuthProfile::TokyoTech).await,
+        Ok(true)
+    );
+    let disposed = browser.disposed.lock().unwrap().clone();
+    assert_eq!(disposed.len(), 3, "the syllabus view closes too");
+    assert!(disposed.contains(&lms) && disposed.contains(&kyomu));
+    assert_eq!(*store.clears.lock().unwrap(), 1);
+
+    engine
+        .open(SchoolSite::ScienceLms, "assignment", lms_page())
+        .await
+        .unwrap();
+    let reopened = navigated(&browser, 2).await;
+    assert_ne!(reopened.browser, lms, "a new view");
+    assert_eq!(store.writes.lock().unwrap().len(), 2);
+    assert_eq!(
+        store.calls.lock().unwrap().as_slice(),
+        ["write", "clear", "write"]
+    );
+    engine.shutdown().await;
+}
+
+// The Connect form's App OTP entry opens the Science Tokyo portal as it is:
+// Core writes no identity, signs in nowhere and starts no web operation,
+// even with credentials saved, so the person signs in on the page by hand.
+#[tokio::test]
+async fn an_unsigned_entry_opens_the_portal_without_signing_in() {
+    let school = School::accepting("right");
+    let store = WebStore::open();
+    let (engine, browser, _, _) = signed_engine(&school, "right", &store);
+    let opened = engine
+        .open(
+            SchoolSite::SciencePortal,
+            "settings",
+            SchoolWebEntry::Unsigned,
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.url, adpt_isct::urls::entry::SCIENCE_PORTAL);
+    assert!(browser
+        .current
+        .lock()
+        .unwrap()
+        .values()
+        .any(|url| url.as_str() == adpt_isct::urls::entry::SCIENCE_PORTAL));
+    for attempt in 0..200 {
+        settle(attempt).await;
     }
+    assert_eq!((school.requests(), school.passwords()), (0, 0));
+    assert!(store.writes.lock().unwrap().is_empty());
+    assert_eq!(navigations(&browser), 0, "no web operation opened it");
+    engine.shutdown().await;
 }

@@ -46,13 +46,15 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::CloudConflict
         | C::CloudConflictExhausted
         | C::SubmissionRemoteConflict
-        | C::SubmissionAccountChanged
         | C::SubmissionFilesChanged
         | C::SubmissionExpired
         | C::SubmissionMismatch => SdkError::Conflict { detail },
-        C::Storage | C::WriteDenied | C::VaultUnavailable | C::ResetCredentials | C::ResetFiles => {
-            SdkError::Storage { detail }
-        }
+        C::Storage
+        | C::WriteDenied
+        | C::VaultUnavailable
+        | C::SignOutIncomplete
+        | C::ResetCredentials
+        | C::ResetFiles => SdkError::Storage { detail },
         C::Compatibility | C::CloudFormat | C::CloudVersionMissing => {
             SdkError::Compatibility { detail }
         }
