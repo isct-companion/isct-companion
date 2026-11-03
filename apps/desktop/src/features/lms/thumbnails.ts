@@ -21,11 +21,13 @@ export const loadThumbnail = (
 /** The URI can be retried by assigning it again after sign-in. */
 export const dropThumbnail = (_url: string) => undefined;
 
+/** Calls `retry` when the LMS account turns `normal` again: a sign-in
+ * finished, or what stood in its way was cleared. */
 export function onSignedIn(retry: () => void) {
-  let active = schoolSessions.get("science")?.state === "active";
+  let normal = schoolSessions.get("science")?.state === "normal";
   return schoolSessions.subscribe(() => {
-    const next = schoolSessions.get("science")?.state === "active";
-    if (next && !active) retry();
-    active = next;
+    const next = schoolSessions.get("science")?.state === "normal";
+    if (next && !normal) retry();
+    normal = next;
   });
 }

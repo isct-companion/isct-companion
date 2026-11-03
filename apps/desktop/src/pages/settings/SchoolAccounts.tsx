@@ -1,6 +1,10 @@
 import { errorText } from "../../app/shared";
 import { notify as appNotify } from "../../app/notify";
-import { sessionDetails, sessionText } from "../../app/sync-text";
+import {
+  sessionDetails,
+  sessionText,
+  signInProblemText,
+} from "../../app/sync-text";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -30,6 +34,7 @@ import {
 } from "../../lib/matrix-ocr";
 import type {
   SchoolAuthProfile,
+  SchoolConnectOutcome,
   SchoolCredentialStatus,
   SchoolCredentials,
   SchoolSessionState,
@@ -71,15 +76,41 @@ const CONFIDENCE_NOTE = {
 
 const SESSION_BADGE: Record<SchoolSessionState, string> = {
   "not-configured": "gray",
-  idle: "campus",
+  normal: "green",
   "signing-in": "campus",
-  unverified: "campus",
-  verifying: "campus",
-  active: "green",
-  rejected: "red",
+  refused: "red",
   "needs-web": "yellow",
   unavailable: "orange",
 };
+
+const OUTCOME_COLOR: Record<SchoolConnectOutcome["kind"], string> = {
+  connected: "green",
+  refused: "red",
+  "needs-web": "yellow",
+  unreachable: "orange",
+  stopped: "dimmed",
+};
+
+/** What the form says about its last Connect. Only `connected` saved the
+ * entered credentials; every other outcome says they were not saved. */
+function connectOutcomeText(outcome: SchoolConnectOutcome) {
+  switch (outcome.kind) {
+    case "connected":
+      return t("schoolSession.connect.connected");
+    case "refused":
+    case "needs-web":
+      return [
+        signInProblemText(outcome.reason),
+        t("schoolSession.connect.notSaved"),
+      ]
+        .filter(Boolean)
+        .join(" ");
+    case "unreachable":
+      return t("schoolSession.connect.unreachable");
+    case "stopped":
+      return t("schoolSession.connect.stopped");
+  }
+}
 
 const emptyDraft = (): Draft => ({
   username: "",
@@ -392,7 +423,10 @@ function Account({
   setDraft: (draft: Draft) => void;
   refresh: () => Promise<void>;
   notify: (message: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile) => void;
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    options?: { unsigned: true },
+  ) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
@@ -400,6 +434,12 @@ function Account({
   // A save that could not run at all (the vault, the command); the session
   // snapshot says nothing about it.
   const [error, setError] = useState("");
+  // The last Connect's outcome, until the next edit or Connect.
+  const [outcome, setOutcome] = useState<SchoolConnectOutcome | null>(null);
+  const edit = (next: Draft) => {
+    setOutcome(null);
+    setDraft(next);
+  };
   const [matrixReplacing, setMatrixReplacing] = useState(false);
   const [scanning, setScanning] = useState(false);
   // Core's session read model; nothing while the first snapshot is out.
@@ -410,7 +450,7 @@ function Account({
   // Retry re-reads the synced credentials and signs in once now; Core also
   // tries an unavailable school again by itself.
   const retryOffered =
-    session?.state === "rejected" ||
+    session?.state === "refused" ||
     session?.state === "needs-web" ||
     session?.state === "unavailable";
   const credentials = (): SchoolCredentials => ({
@@ -434,25 +474,18 @@ function Account({
     if (!desktopBridge || scanning || !validateMatrix()) return;
     setBusy(true);
     setError("");
+    setOutcome(null);
     try {
-      const result = await desktopBridge.connectSchool(profile, credentials());
-      setDraft({ ...emptyDraft(), username: draft.username.trim() });
-      setMatrixReplacing(false);
+      const next = await desktopBridge.connectSchool(profile, credentials());
+      // Only a connection saved the draft. Any other outcome keeps it, so
+      // the person can correct it (or add the OTP setup) and connect again.
+      if (next.kind === "connected") {
+        setDraft({ ...emptyDraft(), username: draft.username.trim() });
+        setMatrixReplacing(false);
+      }
+      // The card follows Core's session; the form says what this click did.
+      setOutcome(next);
       await refresh();
-      // The card follows Core's session; the answer to this click is said
-      // once, since new credentials may not be what the session shows yet.
-      const answer = {
-        ...result,
-        retryAt: null,
-        maintenance: null,
-        webKept: false,
-      };
-      notify(
-        result.verified
-          ? t("common.signedIn")
-          : sessionDetails(profile, answer, i18n.language).join(" ") ||
-              sessionText(answer, i18n.language),
-      );
     } catch (reason) {
       setError(
         errorText(reason) ?? t("settings.schoolAccounts.signInCouldNotStart"),
@@ -503,6 +536,7 @@ function Account({
     try {
       await desktopBridge.deleteSchoolCredentials(profile);
       setError("");
+      setOutcome(null);
       setDraft(emptyDraft());
       setMatrixReplacing(false);
       await refresh();
@@ -560,7 +594,7 @@ function Account({
           )}
         </div>
       )}
-      {session?.state === "rejected" && (
+      {session?.state === "refused" && (
         <Text size="xs" c="dimmed" className="schoolRetryHint">
           {t("schoolSession.retry.otherDevice")}
         </Text>
@@ -586,9 +620,7 @@ function Account({
           value={draft.username}
           autoCapitalize="none"
           autoComplete="username"
-          onChange={(event) =>
-            setDraft({ ...draft, username: event.target.value })
-          }
+          onChange={(event) => edit({ ...draft, username: event.target.value })}
         />
         {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
         <TextInput
@@ -597,9 +629,7 @@ function Account({
           value={draft.password}
           placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
-          onChange={(event) =>
-            setDraft({ ...draft, password: event.target.value })
-          }
+          onChange={(event) => edit({ ...draft, password: event.target.value })}
         />
         {profile === "science" && (
           <OtpSetupInput
@@ -607,7 +637,7 @@ function Account({
             saved={summary.hasOtp}
             disabled={busy}
             onScanState={setScanning}
-            onChange={(otpSecret) => setDraft({ ...draft, otpSecret })}
+            onChange={(otpSecret) => edit({ ...draft, otpSecret })}
           />
         )}
       </div>
@@ -618,7 +648,7 @@ function Account({
           value={draft.matrix}
           masked={summary.hasMatrix && !matrixReplacing}
           onBeginEdit={() => setMatrixReplacing(true)}
-          onChange={(matrix) => setDraft({ ...draft, matrix })}
+          onChange={(matrix) => edit({ ...draft, matrix })}
           notify={notify}
           onCopy={() => void copyMatrix()}
           matrixOcrAvailable={matrixOcrAvailable}
@@ -643,6 +673,27 @@ function Account({
           </Button>
         )}
       </div>
+      {outcome && (
+        <Text size="sm" c={OUTCOME_COLOR[outcome.kind]} role="status">
+          {connectOutcomeText(outcome)}
+        </Text>
+      )}
+      {/* The app signs in to the portal by itself only with App OTP: the
+          person sets it up on the portal, signed in by hand there. */}
+      {profile === "science" &&
+        outcome?.kind === "needs-web" &&
+        outcome.reason === "email-otp" && (
+          <div className="schoolConnection">
+            <span>{t("schoolSession.appOtp.explain")}</span>
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              onClick={() => showLoginPage(profile, { unsigned: true })}
+            >
+              {t("schoolSession.appOtp.openPortal")}
+            </Button>
+          </div>
+        )}
     </Paper>
   );
 }
@@ -656,7 +707,10 @@ export function SchoolAccounts({
   matrixOcrAvailable,
 }: {
   notify: (message: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile) => void;
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    options?: { unsigned: true },
+  ) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);

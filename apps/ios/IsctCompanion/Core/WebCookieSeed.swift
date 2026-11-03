@@ -4,8 +4,8 @@ import WebKit
 
 /// `NativeWebCookies` over the store the school web views share. Core writes
 /// an account's verified sign-in cookies into it before it opens a school
-/// page for the person, and clears an account's school websites on sign-out,
-/// account switch and reset. Core never reads them back.
+/// page for the person, and clears an account's school websites on sign-out
+/// and reset. Core never reads them back.
 ///
 /// Core runs the calls one at a time and drops stale writes; each call here
 /// answers once WebKit has called back, however long that takes.

@@ -126,6 +126,11 @@ pub enum SchoolWebEntry {
     /// Back to what the surface showed before: `Resume` when the surface was
     /// the last to present the view, `Go` when another one did meanwhile.
     Return { url: String },
+    /// The site's start page as it is: Core writes no identity and starts no
+    /// web operation, so the person signs in on the page by hand. The
+    /// Connect form offers it for the Science Tokyo portal when the school
+    /// sends its one-time password by email, to set up App OTP there.
+    Unsigned,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

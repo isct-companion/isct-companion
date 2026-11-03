@@ -127,9 +127,9 @@ async fn forgetting_an_account_works_without_a_school_browser() {
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
     let core = Core::new(store, auth.clone());
     let profile = SchoolAuthProfile::TokyoTech;
-    auth.stage(
+    auth.promote(
         profile,
-        SchoolCredentials {
+        &SchoolCredentials {
             username: "student".into(),
             password: "secret".into(),
             otp_secret: String::new(),
@@ -275,7 +275,6 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
                 transaction,
                 &Key::new(Dataset::LmsDeadlines, "all"),
                 Commit {
-                    account: "science:student",
                     validator: None,
                     outcome: Outcome::Complete,
                     message: None,
@@ -286,9 +285,9 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         .unwrap();
     let recorded = Arc::new(RecordedEvents::default());
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
-    auth.stage(
+    auth.promote(
         SchoolAuthProfile::Science,
-        SchoolCredentials {
+        &SchoolCredentials {
             username: "student".into(),
             password: "secret".into(),
             otp_secret: "JBSWY3DPEHPK3PXP".into(),
@@ -313,9 +312,9 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         .emit(CoreEvent::SchoolSession(SchoolSessionSnapshot {
             revision: 1,
             profiles: SchoolSessionProfiles {
-                science: session(SchoolSessionState::Active, None),
+                science: session(SchoolSessionState::Normal, None),
                 tokyo_tech: session(
-                    SchoolSessionState::Idle,
+                    SchoolSessionState::Normal,
                     Some(SchoolMaintenance {
                         notice: Some("閉局中".into()),
                         until: "2026-10-19T06:00:00Z".parse().unwrap(),
@@ -357,7 +356,7 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         .collect();
     assert_eq!(names[0], "school-session");
     assert_eq!(sent["sources"][0]["source"], "lms");
-    assert_eq!(sent["sources"][0]["session"], "active");
+    assert_eq!(sent["sources"][0]["session"], "normal");
     assert_eq!(sent["sources"][0]["lastUpdated"], "2026-10-19T02:46:13Z");
     assert_eq!(sent["sources"][1]["maintenance"], "閉局中");
     // Offline holds the signed-in profile's due keys without failing them.
@@ -616,7 +615,6 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
             transaction,
             &Key::new(Dataset::LmsDeadlines, "all"),
             Commit {
-                account: "science:student",
                 validator: None,
                 outcome: Outcome::Complete,
                 message: None,
@@ -776,9 +774,9 @@ fn seeded_store(name: &str) -> DataStore {
     store
         .write(Some(WorkspaceChangeSource::SchoolPull), |tx| {
             let now = chrono::Utc::now();
-            crate::lms_ingest::apply_lms_enrolment(tx, &enrolment, "science:student", now)?;
-            crate::lms_ingest::apply_lms_course(tx, &outline, "science:student", now)?;
-            crate::lms_ingest::apply_lms_deadlines(tx, &deadlines, "science:student", now)?;
+            crate::lms_ingest::apply_lms_enrolment(tx, &enrolment, now)?;
+            crate::lms_ingest::apply_lms_course(tx, &outline, now)?;
+            crate::lms_ingest::apply_lms_deadlines(tx, &deadlines, now)?;
             for (id, date, kind) in [
                 ("calendar:2026:quarter-start:3Q", "2026-09-28", "quarter-start"),
                 ("calendar:2026:quarter-end:3Q", "2026-12-02", "quarter-end"),

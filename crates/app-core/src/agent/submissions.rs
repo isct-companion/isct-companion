@@ -126,7 +126,7 @@ pub(super) struct SubmissionSave;
 
 impl Tool for SubmissionSave {
     const NAME: &'static str = "submission_save";
-    const DESCRIPTION: &'static str = "Hand the prepared files in to the LMS. At this school saving is submitting: the files replace the submission's file area and count as handed in. Pass the preparation id and the summary from submission_prepare unchanged; the person confirms it in their client. Core refuses a changed summary, files changed since the preparation, another account, and a submission changed on the LMS meanwhile, and needs \"Allow AI agents to write to LMS\" in Settings. Core sends the write at most once: the same call again answers with the same operation, the result is read back from the LMS, and a write whose answer was lost stays outcome_unknown until Core settles it by reading. Never retry a failed write without asking the person.";
+    const DESCRIPTION: &'static str = "Hand the prepared files in to the LMS. At this school saving is submitting: the files replace the submission's file area and count as handed in. Pass the preparation id and the summary from submission_prepare unchanged; the person confirms it in their client. Core refuses a changed summary, files changed since the preparation, and a submission changed on the LMS meanwhile, and needs \"Allow AI agents to write to LMS\" in Settings. Core sends the write at most once: the same call again answers with the same operation, the result is read back from the LMS, and a write whose answer was lost stays outcome_unknown until Core settles it by reading. Never retry a failed write without asking the person.";
     const EFFECT: Effect = Effect::LmsWrite;
     type Args = WriteArgs;
     type Output = SubmissionOperation;

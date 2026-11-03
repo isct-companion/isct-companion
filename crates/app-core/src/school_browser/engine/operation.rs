@@ -9,8 +9,8 @@
 //!
 //! An operation carries its id, its view (or the popup in front, for a
 //! Reload), the account and storage generations it began in, and one
-//! deadline. A new navigation of the view, closing it, or an account change
-//! supersede it; repeated Reloads join it. It sends the password at most
+//! deadline. A new navigation of the view, closing it, or a sign-out or
+//! reset supersede it; repeated Reloads join it. It sends the password at most
 //! once: getting the identity ready may sign in, and then it never signs in
 //! again; only when a verified identity was written and the page still
 //! lands on the sign-in page does it sign in, write and open the target

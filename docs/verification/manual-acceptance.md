@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 166 checks must be re-run before the next release.**
+**8 of 169 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**158 checks have never been run or could not be run:**
+**161 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -180,6 +180,9 @@ an unverified area becomes an assumed-good one.
 - `IOS-SCHOOL-PRINT` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
+- `SCHOOL-CONNECT-OUTCOMES` — never verified
+- `SCHOOL-APP-OTP-ENTRY` — never verified
+- `SCHOOL-ACCOUNT-STATES` — never verified
 - `DESKTOP-ERROR-CODE-COPY` — never verified
 - `DESKTOP-WEEKLY-EVENTS` — never verified
 - `MOBILE-ERROR-CODE-COPY` — never verified
@@ -351,6 +354,9 @@ an unverified area becomes an assumed-good one.
 | `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/mod.rs |
+| `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
+| `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
@@ -491,11 +497,11 @@ it first if one is saved).
      web store before the view navigated. Landing on Extic's sign-in page
      means the cookies were not written, or were written host-only.
 3. Forget the account, connect again with one wrong character in the
-   password, then read the card. Press Retry once.
-   - *Why:* A refused password is sent once and kept refused: the card says the
-     school did not accept it and offers Retry, and nothing signs in
-     again by itself. Retry is one more attempt with what is saved; a
-     second refusal must not loop.
+   password, then read the form and the card.
+   - *Why:* A Connect the school refuses saves nothing: the form names the
+     reason and says nothing was saved, keeps what was typed, and the
+     card stays Not connected. A card that changes, or a draft that
+     empties, means the refused input was kept somewhere.
 4. Connect with the right password. Look over the window and the log
    for the student id, the password or any code.
    - *Why:* Credential material must never be rendered or logged; the log names
@@ -509,9 +515,8 @@ log in Settings → Diagnostics.
 **Expected**
 
 Connect ends on Signed in without any school page shown, and the LMS
-opens on the dashboard. The wrong password is refused once, the card
-names it with Retry, and Retry tries exactly once. No credential value
-appears anywhere.
+opens on the dashboard. The wrong password is refused once and only the
+form says so; nothing is saved. No credential value appears anywhere.
 
 **Why this is manual**
 
@@ -4642,9 +4647,9 @@ and the assignment page opened from the timetable was signed out.
 
 1. Clear the log, start the app, and before opening any school page,
    look at the Science Tokyo account in Settings.
-   - *Why:* The identity read back from the vault is only unverified now; a
-     card that says signed in (`active`) before the school confirmed
-     anything is the old behaviour that wrote an expired identity.
+   - *Why:* The identity read back from the vault is only unverified now; the
+     card shows the account as connected (`normal`) whatever the
+     snapshot's trust, and nothing is verified until a page needs it.
 2. Open an assignment from the timetable and press its LMS link.
    - *Why:* An App link is a web operation: Core verifies the identity with one
      SSO from its snapshot, writes it, and only then opens the page. The
@@ -4660,8 +4665,7 @@ The account card before and after, the LMS page, and the copied log.
 
 **Expected**
 
-The card reads "Connected · confirms the sign-in when a page opens"
-before, and signed in after. The assignment opens on the LMS signed in.
+The card reads "Connected · signs in when needed" before and after. The assignment opens on the LMS signed in.
 The log has one `identity checked` line and no `signing in profile=`.
 
 **Why this is manual**
@@ -9455,9 +9459,9 @@ account connected and working on both.
 
 1. On the iPad, change the password to a wrong one in 設定 → 学校アカウント
    → Science Tokyo and tap 保存して接続. Wait for the reason.
-   - *Why:* The wrong password stays a device-local candidate. Before, saving
-     wrote it into the synchronized Keychain item at once, so every
-     device started submitting it.
+   - *Why:* A Connect the school refuses saves nothing, on any device. Before,
+     saving wrote the input into the synchronized Keychain item at once,
+     so every device started submitting it.
 2. Wait five minutes with both apps open, then on the Mac quit and
    reopen the app and open the LMS in the Web page.
    - *Why:* iCloud Keychain needs time to sync; the Mac must still sign in with
@@ -9544,6 +9548,177 @@ school_auth tests.
 
 - `crates/app-core/src/school_auth.rs`
 - `crates/app-core/src/school_session/mod.rs`
+
+**Last recorded** never run
+
+### The Connect form says how each Connect ended, and only a success saves (`SCHOOL-CONNECT-OUTCOMES`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build, an iPhone build and an Android build from this
+commit, each with the Science Tokyo account connected and working.
+
+**Steps**
+
+1. On each device, in Settings → School accounts → Science Tokyo, type
+   a wrong password and press Connect. Read the form and the card.
+   - *Why:* A refusal of input that is not the saved credentials is the form's
+     only: it names the reason ("The ID or password was not accepted.")
+     and "The entered credentials were not saved.", keeps the typed
+     entry, and the card stays Connected. A card that turns refused
+     means the input touched the saved account.
+2. Turn the network off, press Connect again with the right password,
+   and read the form; turn the network back on.
+   - *Why:* No answer is not a refusal: the form says it could not reach the
+     school and saved nothing, and the card shows no retry time from it.
+3. Press Connect with the right password.
+   - *Why:* Only the school's acceptance saves: the form says signed in and
+     saved, the typed entry clears, and the card is Connected.
+
+**Where to look**
+
+The Science Tokyo form and card on each device.
+
+**Expected**
+
+Wrong password: reason plus "not saved", entry kept, card unchanged.
+Offline: "Couldn't reach the school … not saved". Right password:
+"Signed in. These credentials are saved…", entry cleared, card
+Connected.
+
+**Why this is manual**
+
+The outcome rules are Core's (`school_session` suite); what a person
+reads in each shell's form, and that the entry stays for a fix, is a
+glance in the real app on three platforms.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### An emailed code ends Connect with the App OTP explanation and a portal button that opens unsigned (`SCHOOL-APP-OTP-ENTRY`)
+
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build, an iPhone build and an Android build from this
+commit, a Science Tokyo account that still uses the emailed one-time
+password (no App OTP registered), and no Science Tokyo account saved
+in the app.
+
+**Steps**
+
+1. Enter the student id and password, leave the OTP field empty, and
+   press Connect.
+   - *Why:* The school asks for the emailed code, which the app cannot answer:
+     the form explains that the app signs in by itself only with App OTP
+     and offers one button, "Open the Science Tokyo portal". Nothing is
+     saved and the card stays Not connected.
+2. Press the button.
+   - *Why:* The in-app web view opens the portal's own sign-in page with nothing
+     typed into it: the app writes no sign-in and reads nothing there. A
+     page already signed in by the app, or filled fields, mean a sign-in
+     was handed off.
+3. Sign in there by hand (with the emailed code), register App OTP,
+   paste its setup link or secret into the OTP field, and press Connect.
+   - *Why:* With App OTP the app signs in by itself and the account is saved.
+
+**Where to look**
+
+The Science Tokyo form, the Web page showing the portal, and the card.
+
+**Expected**
+
+The first Connect shows the emailed-code reason, the App OTP
+explanation and one portal button, and saves nothing; the portal opens
+unsigned; the last Connect ends Connected.
+
+**Why this is manual**
+
+Needs a live account still on the emailed code and the real portal in
+each platform's web view. That the unsigned entry starts no web
+operation is in the school browser suite.
+
+**Covers**
+
+- `crates/app-core/src/school_browser/engine.rs`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+
+**Last recorded** never run
+
+### The account card and the status line show the six account states (`SCHOOL-ACCOUNT-STATES`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build, an iPhone build and an Android build from this
+commit, the Science Tokyo account connected, and a way to make the
+school refuse the saved password (change it on the school's page).
+
+**Steps**
+
+1. Look at the card with no account saved, then while a Connect runs,
+   then once it is connected.
+   - *Why:* Not connected, Signing in…, and "Connected · signs in when needed":
+     a restored, unverified or verifying identity all read as connected.
+2. Turn the network off, open Today and refresh; read the card and the
+   status line.
+   - *Why:* A sign-in without a verdict shows "Couldn't reach the school ·
+     trying again at …", and the LMS line waits for the network instead
+     of failing.
+3. Change the password on the school's page, wait for the LMS session
+   to run out, and refresh. Read the card and the status line, then
+   refresh twice more and copy the log.
+   - *Why:* The school's refusal of the saved password shows "Not accepted by
+     the school" with Retry, the LMS line waits for the person, and no
+     further `signing in profile=` lines appear: nothing resends it.
+4. Enter the new password and press Connect.
+   - *Why:* The person's Connect lifts the wait and the account reads connected
+     again.
+
+**Where to look**
+
+The Science Tokyo card, the status line, and the copied log on each
+device.
+
+**Expected**
+
+Each state reads as described; refused shows Retry and sends no
+password again by itself; the status line follows the account.
+
+**Why this is manual**
+
+The derived states and the planner's holds are Core's suites; the
+labels, colours and Retry are a glance in each shell, and the refusal
+needs the live school.
+
+**Covers**
+
+- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 
 **Last recorded** never run
 

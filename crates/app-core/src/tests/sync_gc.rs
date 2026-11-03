@@ -8,7 +8,6 @@ fn commit(connection: &Connection, key: &Key, at: DateTime<Utc>) {
         connection,
         key,
         Commit {
-            account: "science:student",
             validator: None,
             outcome: Outcome::Complete,
             message: None,
@@ -117,7 +116,7 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
             .unwrap()
     };
     let missing = |dataset: Dataset, key: &str| {
-        sync_state::due(Some(&state(dataset, key)), None, "science:student", now) == Due::Missing
+        sync_state::due(Some(&state(dataset, key)), None, now) == Due::Missing
     };
     assert!(missing(Dataset::LmsCourse, "7"));
 

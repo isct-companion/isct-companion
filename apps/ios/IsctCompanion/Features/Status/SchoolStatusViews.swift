@@ -54,9 +54,18 @@ enum SyncText {
         case .background: return t("syncStatus.resumesWhenTheAppIs")
         case let .backoff(until): return retry(at: until)
         case let .hostPaused(host, until): return t("syncStatus.hostIsPausedUntilTime", ["host": host, "time": Format.due(until)])
-        case let .session(_, state): return SchoolSessionText.state(state)
+        case let .account(_, wait): return account(wait)
         case .resetting: return t("syncStatus.resetting")
         case .prerequisite: return t("syncStatus.waitingForTheDataIt")
+        }
+    }
+
+    /// What an account's reads wait for after one could not reach its school.
+    static func account(_ wait: AccountWait) -> String {
+        switch wait {
+        case .person: return t("syncStatus.held.person")
+        case let .paused(until): return SchoolSessionText.line(.unavailable, problem: nil, retryAt: until)
+        case .network: return t("syncStatus.waitingForAConnection")
         }
     }
 
@@ -97,30 +106,37 @@ enum SyncText {
 /// decides the state, why an account is stuck and when it tries again; these
 /// only name it. Core's `message` is a diagnostic and never shown.
 enum SchoolSessionText {
-    /// The state alone, where only it is known (a read waiting for its session).
+    /// The state alone, where only it is known.
     static func state(_ state: SchoolSessionState) -> String {
         switch state {
         case .notConfigured: return t("common.notConnected")
-        case .idle: return t("schoolSession.state.idle")
+        case .normal: return t("schoolSession.state.normal")
         case .signingIn: return t("common.signingIn")
-        case .unverified: return t("schoolSession.state.unverified")
-        case .verifying: return t("schoolSession.state.verifying")
-        case .active: return t("settings.main.connected")
-        case .rejected: return t("schoolSession.state.rejected")
+        case .refused: return t("schoolSession.state.refused")
         case .needsWeb: return t("schoolSession.state.needsWeb")
         case .unavailable: return t("schoolSession.state.unavailable")
         }
     }
 
+    /// Why the school refused a sign-in or wants its own page, for the
+    /// account's line and Connect's outcome.
+    static func reason(_ kind: SchoolSignInProblemKind) -> String? {
+        switch kind {
+        case .invalidCredentials: return t("failure.theIDOrPasswordWas")
+        case .invalidOtp: return t("failure.theOneTimePasswordWas")
+        case .invalidMatrix: return t("failure.theMatrixAnswerWasNot")
+        case .emailOtp: return t("schoolSession.problem.emailOtp")
+        case .passwordChange: return t("schoolSession.problem.passwordChange")
+        case .unknownPage: return t("schoolSession.problem.unknownPage")
+        case .network, .unanswered, .anomaly: return nil
+        }
+    }
+
     /// The state with why, and when Core tries again (`retryAt`).
     static func line(_ state: SchoolSessionState, problem: SchoolSignInProblem?, retryAt: String?) -> String {
-        switch (state, problem?.kind) {
-        case (.rejected, .invalidCredentials?): return t("failure.theIDOrPasswordWas")
-        case (.rejected, .invalidOtp?): return t("failure.theOneTimePasswordWas")
-        case (.rejected, .invalidMatrix?): return t("failure.theMatrixAnswerWasNot")
-        case (.needsWeb, .emailOtp?): return "\(t("schoolSession.problem.emailOtp")) · \(Self.state(state))"
-        case (.needsWeb, .passwordChange?): return "\(t("schoolSession.problem.passwordChange")) · \(Self.state(state))"
-        case (.needsWeb, .unknownPage?): return "\(t("schoolSession.problem.unknownPage")) · \(Self.state(state))"
+        switch (state, problem.flatMap { reason($0.kind) }) {
+        case let (.refused, reason?): return reason
+        case let (.needsWeb, reason?): return "\(reason) · \(Self.state(state))"
         case (.unavailable, _):
             guard let at = Format.date(retryAt) else { return Self.state(state) }
             return t("schoolSession.state.unavailableRetry", ["time": Format.time(at)])
@@ -177,11 +193,11 @@ extension SyncSnapshot {
     }
 
     var problem: SyncProblem? {
-        // A read waiting for its session is no failure, but one the school
-        // turned down or that needs the web page waits for the person.
+        // A read waiting on its account is no failure, but one that waits
+        // for the person (Retry, Connect, other credentials) needs them.
         let held = runs.compactMap(\.held) + sources.compactMap(\.held)
-        for case let .session(profile, state) in held where state == .rejected || state == .needsWeb {
-            return SyncProblem(text: SchoolSessionText.state(state), retry: nil, signIn: profile)
+        for case let .account(profile, .person) in held {
+            return SyncProblem(text: SyncText.account(.person), retry: nil, signIn: profile)
         }
         if let run = runs.first(where: { $0.failure != nil }), let failure = run.failure {
             return SyncProblem(

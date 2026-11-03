@@ -28,8 +28,8 @@ const USER_WITH_PLANS_VERSION: i64 = 2;
 pub const CACHE_SCHEMA_VERSION: i64 = 5;
 /// cache.db before merged courses: upgraded in place (`MERGED_SCHEMA`).
 const CACHE_WITHOUT_MERGE_VERSION: i64 = 4;
-pub const SYNC_SCHEMA_VERSION: i64 = 1;
-/// cache.db with the sync bookkeeping still inside: moved to sync.db once.
+pub const SYNC_SCHEMA_VERSION: i64 = 2;
+/// cache.db with the sync bookkeeping still inside: dropped once.
 const CACHE_WITH_SYNC_VERSION: i64 = 3;
 
 /// The single file of schemas 6–8, before the split.
@@ -350,7 +350,7 @@ CREATE TABLE IF NOT EXISTS cache.merge_state (built INTEGER NOT NULL);
 /// Freshness per (dataset, key) and one row per read: see `crate::sync_state`.
 const SYNC_SCHEMA: &str = r#"
 CREATE TABLE sync.dataset_state (
-  dataset TEXT NOT NULL, key TEXT NOT NULL, account TEXT NOT NULL DEFAULT '',
+  dataset TEXT NOT NULL, key TEXT NOT NULL,
   fetched_at TEXT, validator TEXT, outcome TEXT, message TEXT,
   failures INTEGER NOT NULL DEFAULT 0, next_eligible TEXT, cursor TEXT,
   last_error TEXT, last_used TEXT,
@@ -358,7 +358,7 @@ CREATE TABLE sync.dataset_state (
 );
 CREATE TABLE sync.sync_runs (
   id INTEGER PRIMARY KEY, run TEXT NOT NULL, dataset TEXT NOT NULL, key TEXT NOT NULL,
-  account TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, finished_at TEXT NOT NULL,
+  started_at TEXT NOT NULL, finished_at TEXT NOT NULL,
   outcome TEXT NOT NULL, changed INTEGER NOT NULL DEFAULT 0, requests INTEGER,
   bytes INTEGER, source TEXT, error_kind TEXT
 );
@@ -434,8 +434,9 @@ pub(super) fn attach(connection: &Connection, cache: &Path, sync: &Path) -> Resu
 /// Attaches cache.db and sync.db to the write connection. A file of another
 /// schema version, or one SQLite cannot read, is deleted and created again:
 /// its rows are fetched again, and with no freshness rows every key reads as
-/// missing. A cache.db of schema 3 moves its bookkeeping into sync.db
-/// instead. Returns whether a schema was created.
+/// missing. A cache.db of schema 3 keeps its rows and drops the bookkeeping
+/// it still holds: sync.db does not read that format, so its keys read as
+/// missing. Returns whether a schema was created.
 pub(super) fn attach_caches(
     connection: &mut Connection,
     cache: &Path,
@@ -465,14 +466,6 @@ pub(super) fn attach_caches(
             sync_created == Attached::Created
         }
         Attached::Old => {
-            if sync_created == Attached::Created {
-                // `SELECT *` matches: the bookkeeping kept its columns.
-                for table in SYNC_TABLES {
-                    transaction.execute_batch(&format!(
-                        "INSERT INTO sync.{table} SELECT * FROM cache.{table};"
-                    ))?;
-                }
-            }
             for table in SYNC_TABLES {
                 transaction.execute_batch(&format!("DROP TABLE cache.{table};"))?;
             }
@@ -480,7 +473,7 @@ pub(super) fn attach_caches(
             transaction.execute_batch(&format!(
                 "PRAGMA cache.user_version={CACHE_SCHEMA_VERSION};"
             ))?;
-            log::info!(target: "app_core::data", "Moved the sync bookkeeping of cache.db into sync.db");
+            log::info!(target: "app_core::data", "Dropped the sync bookkeeping of cache.db");
             sync_created == Attached::Created
         }
     };
@@ -491,7 +484,7 @@ pub(super) fn attach_caches(
 #[derive(Clone, Copy, PartialEq)]
 enum Attached {
     Current,
-    /// cache.db of schema 3: its bookkeeping moves to sync.db.
+    /// cache.db of schema 3: its rows stay, its bookkeeping goes.
     Old,
     /// cache.db of schema 4: its school rows stay and merged courses are
     /// added; they are merged on the store's first write.

@@ -87,7 +87,7 @@ pub trait WebCookieSeed: Send + Sync {
 pub(crate) enum WebError {
     /// The shell has no web cookie port.
     Unsupported,
-    /// An account change closed the admission it was queued under, or its
+    /// A sign-out or reset closed the admission it was queued under, or its
     /// identity is no longer the one to write.
     Stale,
     /// A call ran past `WEB_STORE_LIMIT` and has not answered, or the queue
@@ -101,7 +101,7 @@ impl std::fmt::Display for WebError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unsupported => formatter.write_str("the shell has no web cookie store"),
-            Self::Stale => formatter.write_str("an account change made the write stale"),
+            Self::Stale => formatter.write_str("a sign-out or reset made the write stale"),
             Self::Unavailable => formatter.write_str("the web cookie store is unavailable"),
             Self::Platform(message) => formatter.write_str(message),
         }

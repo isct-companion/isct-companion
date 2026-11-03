@@ -118,7 +118,7 @@ const KYOMU_GPA =
 const connectedSession = (session: SchoolProfileSession | undefined) =>
   session !== undefined &&
   session.state !== "not-configured" &&
-  session.state !== "rejected";
+  session.state !== "refused";
 
 /** One account in the footer: a dot by state, its label, the reason on
  * hover, and Retry while the account waits on the person. */
@@ -166,13 +166,13 @@ function SchoolStatusAccount({
         <b>{name}</b>
         <small>{label}</small>
       </span>
-      {(session?.state === "rejected" || session?.state === "needs-web") && (
+      {(session?.state === "refused" || session?.state === "needs-web") && (
         <UiButton
           type="button"
           className="textButton"
           disabled={retrying}
           title={
-            session.state === "rejected"
+            session.state === "refused"
               ? t("schoolSession.retry.otherDevice")
               : undefined
           }
@@ -1207,11 +1207,12 @@ export function WorkspaceApp() {
       }
       refreshReferences={syncAvailable()}
       matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
-      showLoginPage={(profile) => {
-        sessionStorage.setItem(
-          "isct-companion-active-school-site",
-          profile === "science" ? "science-portal" : "tokyo-portal",
-        );
+      showLoginPage={(profile, options) => {
+        const site = profile === "science" ? "science-portal" : "tokyo-portal";
+        sessionStorage.setItem("isct-companion-active-school-site", site);
+        // The Web page opens the start page without a sign-in once.
+        if (options?.unsigned)
+          sessionStorage.setItem("isct-companion-unsigned-school-site", site);
         void navigate(paths.web());
       }}
     />

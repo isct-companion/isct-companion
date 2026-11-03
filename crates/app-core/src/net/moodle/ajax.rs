@@ -39,14 +39,14 @@ pub(super) struct CookieTransport {
 }
 
 impl CookieTransport {
-    pub(super) fn new(attempt: &Attempt, dashboard: &Dashboard) -> Result<Self, MoodleError> {
+    pub(super) fn new(dashboard: &Dashboard) -> Result<Self, MoodleError> {
         let sesskey = dashboard
             .config
             .sesskey
             .clone()
             .ok_or(MoodleError::SignInRequired)?;
         Ok(Self {
-            sesskey: tokio::sync::Mutex::new((attempt.instance(), sesskey)),
+            sesskey: tokio::sync::Mutex::new((dashboard.instance, sesskey)),
         })
     }
 
@@ -74,7 +74,7 @@ impl CookieTransport {
     /// This instance's sesskey.
     async fn sesskey(&self, attempt: &Attempt) -> Result<String, MoodleError> {
         let current = self.sesskey.lock().await.clone();
-        if current.0 == attempt.instance() {
+        if current.0 == attempt.instance().await? {
             return Ok(current.1);
         }
         self.refresh(attempt, &current.1).await
@@ -83,7 +83,7 @@ impl CookieTransport {
     /// A new sesskey from the dashboard, once per stale key.
     async fn refresh(&self, attempt: &Attempt, stale: &str) -> Result<String, MoodleError> {
         let mut slot = self.sesskey.lock().await;
-        if slot.0 == attempt.instance() && slot.1 != stale {
+        if slot.0 == attempt.instance().await? && slot.1 != stale {
             return Ok(slot.1.clone());
         }
         let dashboard = MoodleClient::load_dashboard(attempt).await?;
@@ -91,7 +91,7 @@ impl CookieTransport {
             .config
             .sesskey
             .ok_or(MoodleError::SignInRequired)?;
-        *slot = (attempt.instance(), fresh.clone());
+        *slot = (dashboard.instance, fresh.clone());
         Ok(fresh)
     }
 

@@ -215,14 +215,12 @@ fn commit_key(
     tx: &Transaction<'_>,
     dataset: Dataset,
     key: impl Into<String>,
-    account: &str,
     now: DateTime<Utc>,
 ) -> Result<(), IngestError> {
     sync_state::commit(
         tx,
         &Key::new(dataset, key),
         Commit {
-            account,
             validator: None,
             outcome: Outcome::Complete,
             message: None,
@@ -364,7 +362,6 @@ impl Assignment {
 pub fn apply_lms_enrolment(
     tx: &Transaction<'_>,
     enrolment: &LmsEnrolment,
-    account: &str,
     now: DateTime<Utc>,
 ) -> Result<usize, IngestError> {
     let mut changed = 0;
@@ -419,7 +416,7 @@ pub fn apply_lms_enrolment(
         [],
         &live,
     )?;
-    commit_key(tx, Dataset::LmsEnrolment, "all", account, now)?;
+    commit_key(tx, Dataset::LmsEnrolment, "all", now)?;
     Ok(changed)
 }
 
@@ -429,7 +426,6 @@ pub fn apply_lms_enrolment(
 pub fn apply_lms_course(
     tx: &Transaction<'_>,
     content: &LmsCourseContent,
-    account: &str,
     now: DateTime<Utc>,
 ) -> Result<usize, IngestError> {
     let course_id = content.course_id;
@@ -550,23 +546,22 @@ pub fn apply_lms_course(
     if new_assignment {
         sync_state::invalidate(tx, &Key::new(Dataset::LmsAssign, course_id.to_string()))?;
     }
-    commit_key(tx, Dataset::LmsCourse, course_id.to_string(), account, now)?;
+    commit_key(tx, Dataset::LmsCourse, course_id.to_string(), now)?;
     Ok(changed)
 }
 
-/// Whether `lms.assign/{lms_course}` is stored for `account`, so it owns
-/// the course's submission states. Cached per apply.
+/// Whether `lms.assign/{lms_course}` is stored, so it owns the course's
+/// submission states. Cached per apply.
 fn assign_owns(
     tx: &Transaction<'_>,
     lms_course: u64,
-    account: &str,
     cache: &mut HashMap<u64, bool>,
 ) -> Result<bool, IngestError> {
     if let Some(known) = cache.get(&lms_course) {
         return Ok(*known);
     }
     let known = sync_state::get(tx, &Key::new(Dataset::LmsAssign, lms_course.to_string()))?
-        .is_some_and(|state| state.fetched_at.is_some() && state.account == account);
+        .is_some_and(|state| state.fetched_at.is_some());
     cache.insert(lms_course, known);
     Ok(known)
 }
@@ -579,7 +574,6 @@ fn assign_owns(
 pub fn apply_lms_deadlines(
     tx: &Transaction<'_>,
     deadlines: &LmsDeadlines,
-    account: &str,
     now: DateTime<Utc>,
 ) -> Result<usize, IngestError> {
     let mut changed = 0;
@@ -670,7 +664,7 @@ pub fn apply_lms_deadlines(
         if let Some(due) = due_of(cmid) {
             row.set_due(due);
         }
-        let owned = assign_owns(tx, row.lms_course, account, &mut assign_owned)?;
+        let owned = assign_owns(tx, row.lms_course, &mut assign_owned)?;
         if event.is_some() {
             if !owned {
                 row.submission = "open".into();
@@ -688,7 +682,7 @@ pub fn apply_lms_deadlines(
     for lms_course in stateless {
         sync_state::invalidate(tx, &Key::new(Dataset::LmsAssign, lms_course.to_string()))?;
     }
-    commit_key(tx, Dataset::LmsDeadlines, "all", account, now)?;
+    commit_key(tx, Dataset::LmsDeadlines, "all", now)?;
     Ok(changed)
 }
 
@@ -697,7 +691,6 @@ pub fn apply_lms_deadlines(
 pub fn apply_lms_assign(
     tx: &Transaction<'_>,
     states: &LmsAssignStates,
-    account: &str,
     now: DateTime<Utc>,
 ) -> Result<usize, IngestError> {
     let mut changed = 0;
@@ -716,13 +709,7 @@ pub fn apply_lms_assign(
         row.accepts_submission = state.accepts_submission;
         changed += usize::from(row.write(tx)?);
     }
-    commit_key(
-        tx,
-        Dataset::LmsAssign,
-        states.course_id.to_string(),
-        account,
-        now,
-    )?;
+    commit_key(tx, Dataset::LmsAssign, states.course_id.to_string(), now)?;
     Ok(changed)
 }
 
@@ -732,7 +719,6 @@ pub fn apply_lms_assign(
 pub fn apply_lms_history(
     tx: &Transaction<'_>,
     month: &LmsHistoryMonth,
-    account: &str,
     now: DateTime<Utc>,
 ) -> Result<usize, IngestError> {
     let mut changed = 0;
@@ -761,7 +747,7 @@ pub fn apply_lms_history(
         row.set_due(due);
         changed += usize::from(row.write(tx)?);
     }
-    commit_key(tx, Dataset::LmsHistory, month.month.clone(), account, now)?;
+    commit_key(tx, Dataset::LmsHistory, month.month.clone(), now)?;
     Ok(changed)
 }
 

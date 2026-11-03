@@ -247,10 +247,6 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
     fs::remove_dir_all(directory).unwrap();
 }
 
-/// A cache.db of schema 3 held the sync bookkeeping itself. Opening it moves
-/// freshness and run records into sync.db once and keeps every school row,
-/// so an existing data folder is not fetched again; a lost sync.db alone
-/// only makes every key read as missing.
 /// A folder from before course keys and merged courses (user.db 1 with its
 /// identity map, cache.db 4) upgrades in place: the course keeps the id the
 /// map gave it, records that name it still do, the school rows stay, and its
@@ -324,43 +320,51 @@ fn a_folder_from_before_course_keys_upgrades_in_place() {
     fs::remove_dir_all(directory).unwrap();
 }
 
+/// A cache.db of schema 3 held the sync bookkeeping itself, in a format
+/// sync.db no longer reads. Opening it keeps every school row and drops the
+/// bookkeeping once, so every key reads as missing; a lost sync.db alone
+/// does the same.
 #[test]
-fn a_cache_db_with_its_bookkeeping_moves_it_into_sync_db_once() {
+fn a_cache_db_with_its_bookkeeping_keeps_its_rows_and_drops_the_bookkeeping() {
     let directory = scratch("cache-v3");
     drop(DataStore::initialize_dir(directory.clone()).unwrap());
     fs::remove_file(directory.join(SYNC_FILE)).unwrap();
     let cache = Connection::open(directory.join(CACHE_FILE)).unwrap();
     cache
-        .execute_batch(&format!(
-            "{}
+        .execute_batch(
+            "CREATE TABLE dataset_state (
+               dataset TEXT NOT NULL, key TEXT NOT NULL, account TEXT NOT NULL DEFAULT '',
+               fetched_at TEXT, PRIMARY KEY (dataset, key));
+             CREATE TABLE sync_runs (
+               id INTEGER PRIMARY KEY, run TEXT NOT NULL, dataset TEXT NOT NULL, key TEXT NOT NULL,
+               account TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL,
+               finished_at TEXT NOT NULL, outcome TEXT NOT NULL);
              INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
-               VALUES('lms-course:42','{{\"id\":\"lms-course:42\",\"lmsId\":42}}','hash','2026-10-01T00:00:00Z','school',1);
-             INSERT INTO dataset_state(dataset,key,fetched_at)
-               VALUES('lms.course','42','2026-10-01T00:00:00Z');
-             INSERT INTO sync_runs(run,dataset,key,started_at,finished_at,outcome)
-               VALUES('run-1','lms.course','42','2026-10-01T00:00:00Z','2026-10-01T00:00:01Z','complete');
+               VALUES('lms-course:42','{\"id\":\"lms-course:42\",\"lmsId\":42}','hash','2026-10-01T00:00:00Z','school',1);
+             INSERT INTO dataset_state(dataset,key,account,fetched_at)
+               VALUES('lms.course','42','science:student','2026-10-01T00:00:00Z');
+             INSERT INTO sync_runs(run,dataset,key,account,started_at,finished_at,outcome)
+               VALUES('run-1','lms.course','42','science:student','2026-10-01T00:00:00Z','2026-10-01T00:00:01Z','complete');
              PRAGMA user_version=3;",
-            SYNC_SCHEMA.replace("sync.", "")
-        ))
+        )
         .unwrap();
     drop(cache);
 
     let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
     assert!(changed);
     assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
-    assert_eq!(store.freshness(None).unwrap().len(), 1);
+    assert!(store.freshness(None).unwrap().is_empty());
     let connection = store.test_connection();
     assert_eq!(tables_of(&connection, "cache"), listed(CACHE_TABLES));
     let runs: i64 = connection
         .query_row("SELECT COUNT(*) FROM sync.sync_runs", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(runs, 1);
+    assert_eq!(runs, 0);
     drop(connection);
     drop(store);
 
     let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
     assert!(!changed);
-    assert_eq!(store.freshness(None).unwrap().len(), 1);
     drop(store);
     fs::remove_file(directory.join(SYNC_FILE)).unwrap();
     let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();

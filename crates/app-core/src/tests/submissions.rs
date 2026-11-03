@@ -14,7 +14,6 @@ use std::{
 };
 
 const ASSIGNMENT: &str = "lms-assignment:77";
-const ACCOUNT: &str = "science:24b00001";
 
 /// The LMS behind the port: one assignment and its submission, applied the
 /// way Moodle applies writes (a save replaces the whole file area and moves
@@ -212,7 +211,6 @@ impl Fixture {
         let lms = FakeLms(Arc::new(Lms {
             state: Mutex::new(LmsState {
                 identity: LmsIdentity {
-                    account: ACCOUNT.into(),
                     site: "https://lms.s.isct.ac.jp/2025".into(),
                     user_id: 9001,
                 },
@@ -590,40 +588,6 @@ async fn a_remote_change_after_prepare_is_a_conflict() {
         Err(SubmissionError::Expired)
     ));
     assert_eq!(fixture.calls(), (0, 0, 0));
-}
-
-// The account signed in changes between prepare and execute: the write was
-// confirmed for the other student, so it is refused. A write left unknown
-// is never settled from another account's LMS, however long it waits.
-#[tokio::test]
-async fn an_account_switch_after_prepare_is_refused() {
-    let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
-    let service = fixture.service();
-    let prepared = service
-        .prepare(ASSIGNMENT, SubmissionAction::Save)
-        .await
-        .unwrap();
-    fixture.lms().identity.account = "science:24b00002".into();
-    assert!(matches!(
-        service.execute(fixture.confirm(&prepared)).await,
-        Err(SubmissionError::AccountChanged)
-    ));
-    assert_eq!(fixture.calls(), (0, 0, 0));
-
-    fixture.lms().identity.account = ACCOUNT.into();
-    fixture.lms().save = SaveOutcome::LostBeforeApplying;
-    let unknown = service.execute(fixture.confirm(&prepared)).await.unwrap();
-    assert_eq!(unknown.state, OperationState::OutcomeUnknown);
-    fixture.lms().identity.account = "science:24b00002".into();
-    fixture.advance(SETTLE_AFTER);
-    assert_eq!(service.reconcile().await.unwrap(), 0);
-    fixture.lms().identity.account = ACCOUNT.into();
-    assert_eq!(service.reconcile().await.unwrap(), 1);
-    assert_eq!(
-        service.status(&unknown.id).await.unwrap().state,
-        OperationState::Failed
-    );
 }
 
 // While one write is on its way, a write of other content to the same

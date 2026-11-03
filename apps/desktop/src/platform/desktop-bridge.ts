@@ -102,18 +102,12 @@ export type SchoolCredentialStatus = {
 export type SchoolSessionState =
   /** No saved credentials. */
   | "not-configured"
-  /** Credentials, no identity yet; the next read signs in. */
-  | "idle"
+  /** Nothing stands in the way: Core signs in when it needs to. */
+  | "normal"
   | "signing-in"
-  /** An identity read back at launch that the school has not confirmed
-   * since; the next school page the App opens verifies it. */
-  | "unverified"
-  /** The identity is being verified (no password is sent). */
-  | "verifying"
-  /** A verified identity. */
-  | "active"
-  /** The school turned these credentials down; waits for new ones or Retry. */
-  | "rejected"
+  /** The school refused the saved credentials; Core does not sign in with
+   * them on its own until they change or the person retries. */
+  | "refused"
   /** The person signs in on the school page (email code, password change,
    * a page Core does not know). */
   | "needs-web"
@@ -121,17 +115,14 @@ export type SchoolSessionState =
   | "unavailable";
 const SCHOOL_SESSION_STATES: readonly unknown[] = [
   "not-configured",
-  "idle",
+  "normal",
   "signing-in",
-  "unverified",
-  "verifying",
-  "active",
-  "rejected",
+  "refused",
   "needs-web",
   "unavailable",
 ] satisfies SchoolSessionState[];
 export type SchoolSignInProblemKind =
-  /** With `rejected`. */
+  /** With `refused`. */
   | "invalid-credentials"
   | "invalid-otp"
   | "invalid-matrix"
@@ -175,12 +166,19 @@ export type SchoolSessionSnapshot = {
     tokyoTech: SchoolProfileSession;
   };
 };
-/** What "Save and connect" ended with; `verified` credentials now sync. */
-export type SchoolConnectResult = {
-  state: SchoolSessionState;
-  problem: SchoolSignInProblem | null;
-  verified: boolean;
-};
+/** How Connect ended. Only `connected` saved anything: the entered
+ * credentials are the verified ones now and sync to the other devices. */
+export type SchoolConnectOutcome =
+  | { kind: "connected" }
+  /** The school refused the ID or password, the one-time password or the
+   * Matrix (`reason`). */
+  | { kind: "refused"; reason: SchoolSignInProblemKind }
+  /** The school wants the person on its own page (`reason`). */
+  | { kind: "needs-web"; reason: SchoolSignInProblemKind }
+  /** No verdict: offline, the network, out of time. */
+  | { kind: "unreachable" }
+  /** A newer Connect, a sign-out or a reset stopped it. */
+  | { kind: "stopped" };
 const isSchoolSessionSnapshot = (
   value: unknown,
 ): value is SchoolSessionSnapshot => {
@@ -345,7 +343,10 @@ export type SchoolWebPage = {
 export type SchoolWebEntry =
   | { kind: "resume" }
   | { kind: "go"; url: string }
-  | { kind: "return"; url: string };
+  | { kind: "return"; url: string }
+  /** The site's start page as it is: Core writes no identity and signs in
+   * nowhere, so the person signs in on the page by hand. */
+  | { kind: "unsigned" };
 
 export type SchoolWebBounds = {
   x: number;
@@ -515,11 +516,12 @@ export interface DesktopBridge {
     callback: (event: { year: number; version: number }) => void,
   ): () => void;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
-  /** Keeps the entered credentials, then signs in with them. */
+  /** Signs in with the entered credentials; saves them only when the school
+   * accepts them. */
   connectSchool(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
-  ): Promise<SchoolConnectResult>;
+  ): Promise<SchoolConnectOutcome>;
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
   /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
   copySchoolMatrix(): Promise<boolean>;

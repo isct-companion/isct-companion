@@ -8,7 +8,7 @@
 //! losing a pending record would lift the single-flight guard and let a
 //! write whose outcome is unknown be sent again. Not a JSON file like the
 //! reminder log: a dev build and the app can share one data folder, and
-//! only SQLite's lock makes "one write per account and assignment" hold
+//! only SQLite's lock makes "one write per assignment" hold
 //! across processes. Every statement commits on its own, so no write
 //! transaction is ever held across a network wait. Snapshots live in
 //! `submissions/` beside it, named by their sha256.
@@ -29,7 +29,7 @@ use std::{
 
 const FILE: &str = "submissions.db";
 const BLOBS: &str = "submissions";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 /// A partial snapshot copy this old was left by a crash.
 const STALE_PARTIAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
@@ -38,11 +38,11 @@ CREATE TABLE IF NOT EXISTS preparations (
   id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
-  id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL, account TEXT NOT NULL,
+  id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL,
   site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
   state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS operations_by_assignment ON operations(account, site, assign_id);
+CREATE INDEX IF NOT EXISTS operations_by_assignment ON operations(site, assign_id);
 CREATE INDEX IF NOT EXISTS operations_by_key ON operations(key);
 CREATE INDEX IF NOT EXISTS operations_by_preparation ON operations(preparation_id);
 "#;
@@ -52,7 +52,7 @@ const SETTLED: &str = "('succeeded','failed')";
 
 pub(super) enum Claim {
     Claimed,
-    /// A write for the same account and assignment is not settled yet.
+    /// A write for the same assignment is not settled yet.
     Busy(Box<Operation>),
 }
 
@@ -120,23 +120,19 @@ impl Ledger {
         Ok(())
     }
 
-    /// Records `operation` unless a write for its account and assignment is
-    /// not settled yet, in one IMMEDIATE transaction: the check and the
-    /// insert cannot interleave with another process's.
+    /// Records `operation` unless a write for its assignment is not settled
+    /// yet, in one IMMEDIATE transaction: the check and the insert cannot
+    /// interleave with another process's.
     pub(super) fn claim(&self, operation: &Operation) -> Result<Claim, SubmissionError> {
         let mut connection = self.lock()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut busy = operations(
             &transaction,
             &format!(
-                "SELECT value FROM operations WHERE account=?1 AND site=?2 AND assign_id=?3
+                "SELECT value FROM operations WHERE site=?1 AND assign_id=?2
                  AND state NOT IN {SETTLED} ORDER BY rowid"
             ),
-            params![
-                operation.identity.account,
-                operation.identity.site,
-                operation.assign_id as i64
-            ],
+            params![operation.identity.site, operation.assign_id as i64],
         )?;
         if !busy.is_empty() {
             // The same write, when it is among them, answers for itself.
@@ -144,12 +140,11 @@ impl Ledger {
             return Ok(Claim::Busy(Box::new(busy.swap_remove(same.unwrap_or(0)))));
         }
         transaction.execute(
-            "INSERT INTO operations (id, preparation_id, account, site, assign_id, key, state, updated_at, value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO operations (id, preparation_id, site, assign_id, key, state, updated_at, value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 operation.id,
                 operation.preparation_id,
-                operation.identity.account,
                 operation.identity.site,
                 operation.assign_id as i64,
                 operation.key,
@@ -221,8 +216,8 @@ impl Ledger {
         .pop())
     }
 
-    /// Writes not settled yet, oldest first; for one account and
-    /// assignment, or all of them.
+    /// Writes not settled yet, oldest first; for one assignment, or all of
+    /// them.
     pub(super) fn unsettled(
         &self,
         assignment: Option<(&LmsIdentity, u64)>,
@@ -232,10 +227,10 @@ impl Ledger {
             Some((identity, assign_id)) => operations(
                 &connection,
                 &format!(
-                    "SELECT value FROM operations WHERE account=?1 AND site=?2 AND assign_id=?3
+                    "SELECT value FROM operations WHERE site=?1 AND assign_id=?2
                      AND state NOT IN {SETTLED} ORDER BY rowid"
                 ),
-                params![identity.account, identity.site, assign_id as i64],
+                params![identity.site, assign_id as i64],
             ),
             None => operations(
                 &connection,

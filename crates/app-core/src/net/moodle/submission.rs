@@ -24,6 +24,7 @@ use crate::{
         LmsIdentity, LmsModule, RemoteFile, RemoteState, RemoteStatus, RemoteSubmission,
         SubmissionRules, SubmissionTransport, TransportError, UploadFile, WriteGrant,
     },
+    sync_engine::AccountWait,
 };
 use adpt_isct::lms::{id_of, LMS_WWWROOT};
 use reqwest::Method;
@@ -106,9 +107,10 @@ impl Operation for ReadUser<'_> {
 fn run_error(error: RunError<MoodleError>) -> TransportError {
     match error {
         RunError::Op(error) => read_error(error),
-        RunError::Session => TransportError::SignInRequired,
+        RunError::Blocked(AccountWait::Person) => TransportError::SignInRequired,
+        RunError::Blocked(_) => TransportError::NotSent("the school cannot be reached now".into()),
         RunError::Net(error) => TransportError::NotSent(error.to_string()),
-        RunError::Cancelled => TransportError::NotSent("the account changed".into()),
+        RunError::Cancelled => TransportError::NotSent("signed out or reset".into()),
         RunError::Deadline => TransportError::NotSent("timed out".into()),
     }
 }
@@ -121,11 +123,12 @@ impl LmsSubmissions {
     fn permit(&self) -> Result<Permit, TransportError> {
         self.sessions
             .permit(SchoolAuthProfile::Science)
-            .ok_or_else(|| TransportError::NotSent("the account is changing".into()))
+            .ok_or_else(|| TransportError::NotSent("signing out or resetting".into()))
     }
 
-    /// A write's attempt: the session made ready, nothing sent yet.
-    async fn write_attempt(&self, permit: &Permit) -> Result<Attempt, TransportError> {
+    /// A write's attempt: nothing sent yet. Its token writes need no site
+    /// session; only a token launch gets one.
+    async fn write_attempt(&self, permit: &Permit) -> Attempt {
         self.sessions
             .write_attempt(
                 Site::Lms,
@@ -133,18 +136,9 @@ impl LmsSubmissions {
                 tokio::time::Instant::now() + WRITE_DEADLINE,
             )
             .await
-            .map_err(|error| match error {
-                RunError::Session => TransportError::SignInRequired,
-                RunError::Op(error) | RunError::Net(error) => {
-                    TransportError::NotSent(error.to_string())
-                }
-                RunError::Cancelled => TransportError::NotSent("the account changed".into()),
-                RunError::Deadline => TransportError::NotSent("timed out".into()),
-            })
     }
 
-    /// The account, the assignment's settings and its current submission,
-    /// read as the account the token belongs to now.
+    /// The site, the assignment's settings and its current submission.
     async fn read_submission(
         &self,
         attempt: &Attempt,
@@ -164,7 +158,6 @@ impl LmsSubmissions {
             .unwrap_or(LMS_WWWROOT)
             .trim_end_matches('/')
             .to_string();
-        let account = self.account().await?;
         let listed = transport
             .call_bulk(
                 attempt,
@@ -202,25 +195,12 @@ impl LmsSubmissions {
             return Err(MoodleError::Partial);
         }
         Ok(RemoteSubmission {
-            identity: LmsIdentity {
-                account,
-                site,
-                user_id,
-            },
+            identity: LmsIdentity { site, user_id },
             assign_id,
             cmid: module.cmid,
             state: remote_state(&status)?,
             rules: rules(assignment, &status, &info),
         })
-    }
-
-    /// `science:<username>`, as the token's vault record names its owner.
-    async fn account(&self) -> Result<String, MoodleError> {
-        let auth = self.client.auth.clone();
-        tokio::task::spawn_blocking(move || auth.sync_account(SchoolAuthProfile::Science))
-            .await
-            .map_err(|_| MoodleError::Malformed("account"))?
-            .map_err(|_| MoodleError::SignInRequired)
     }
 
     /// Each file into one new draft area: the first with item id 0, the
@@ -231,7 +211,7 @@ impl LmsSubmissions {
         files: &[UploadFile],
     ) -> Result<u64, TransportError> {
         let permit = self.permit()?;
-        let attempt = self.write_attempt(&permit).await?;
+        let attempt = self.write_attempt(&permit).await;
         let token = self.client.token(&attempt).await.map_err(read_error)?;
         let url = lms_url(MoodleWrite::UploadDraftFile.name()).map_err(read_error)?;
         let mut draft = 0_u64;
@@ -309,7 +289,7 @@ impl LmsSubmissions {
         args: &Value,
     ) -> Result<Value, TransportError> {
         let permit = self.permit()?;
-        let attempt = self.write_attempt(&permit).await?;
+        let attempt = self.write_attempt(&permit).await;
         let token = self.client.token(&attempt).await.map_err(read_error)?;
         let mut form = vec![
             ("wstoken".to_string(), token.expose().to_string()),

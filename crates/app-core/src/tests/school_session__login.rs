@@ -118,18 +118,17 @@ async fn connect_and_read(
 ) -> String {
     install_logger();
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
-    let staged = auth.stage(profile, credentials).unwrap();
+    let credentials = auth.resolve(profile, credentials).unwrap();
     let sessions = SchoolSessions::new(Some(Http::new().unwrap()), auth.clone());
-    let result = sessions.connect(profile, staged).await;
+    let outcome = sessions.connect(profile, credentials.clone()).await;
     assert_eq!(
-        result.state,
-        crate::school_session::SchoolSessionState::Active,
-        "{:?}",
-        result.problem
+        outcome,
+        crate::school_session::SchoolConnectOutcome::Connected
     );
-    assert!(
-        result.verified,
-        "the school's acceptance promotes the credentials"
+    assert_eq!(
+        auth.load(profile).unwrap(),
+        Some(credentials),
+        "the school's acceptance saves the credentials"
     );
     let permit = sessions.permit(profile).unwrap();
     let deadline = tokio::time::Instant::now() + crate::sync_engine::KEY_DEADLINE;

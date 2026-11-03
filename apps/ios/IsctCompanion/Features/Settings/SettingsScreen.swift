@@ -233,7 +233,7 @@ struct SettingsScreen: View {
         let session = model.profileSession(profile)
         let state = session?.state ?? .notConfigured
         let text: String =
-            if state == .active, let lastRun {
+            if state == .normal, let lastRun {
                 t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)])
             } else if let session {
                 SchoolSessionText.line(session)
@@ -257,10 +257,10 @@ struct SettingsScreen: View {
     private static func tint(_ state: SchoolSessionState) -> Color {
         switch state {
         case .notConfigured: Theme.line
-        case .signingIn, .verifying: Theme.muted
-        case .idle, .unverified, .active: Theme.ok
-        case .unavailable: Theme.warn
-        case .rejected, .needsWeb: Theme.danger
+        case .signingIn: Theme.muted
+        case .normal: Theme.ok
+        case .needsWeb, .unavailable: Theme.warn
+        case .refused: Theme.danger
         }
     }
 }
@@ -284,12 +284,15 @@ private struct SettingsIcon: View {
 }
 
 /// Sign in, change or forget a school account. The password goes straight to
-/// Core, which stores it in the Keychain and signs in with it. While the
-/// account is stuck, the page says why and offers Core's Retry.
+/// Core, which signs in with it and stores it in the Keychain only once the
+/// school accepted it. While the account is stuck, the page says why and
+/// offers Core's Retry.
 private struct AccountScreen: View {
     let profile: SchoolAuthProfile
     let name: String
     @Environment(AppModel.self) private var model
+    @Environment(WebRouter.self) private var web
+    @Environment(Navigator.self) private var navigator
     @Environment(\.dismiss) private var dismiss
     @State private var username = ""
     @State private var password = ""
@@ -299,6 +302,8 @@ private struct AccountScreen: View {
     @State private var retrying = false
     @State private var removing = false
     @State private var error: String?
+    /// What the last Connect did, shown until the next one.
+    @State private var outcome: SchoolConnectOutcome?
 
     private var summary: CredentialSummary? {
         profile == .science ? model.credentials?.science : model.credentials?.tokyoTech
@@ -308,7 +313,7 @@ private struct AccountScreen: View {
 
     /// The states that wait for the person or for Core's next try, where
     /// Retry makes one attempt now with the synced credentials.
-    private static let stuck: [SchoolSessionState] = [.rejected, .needsWeb, .unavailable]
+    private static let stuck: [SchoolSessionState] = [.refused, .needsWeb, .unavailable]
 
     var body: some View {
         Form {
@@ -336,6 +341,8 @@ private struct AccountScreen: View {
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(Theme.danger) }
+                } else if let outcome {
+                    connectOutcome(outcome)
                 } else if !saving, let session, Self.stuck.contains(session.state) {
                     status(session)
                 }
@@ -374,12 +381,43 @@ private struct AccountScreen: View {
         .onAppear { username = summary?.username ?? "" }
     }
 
+    /// What Connect did. Only `.connected` saved the entries; after anything
+    /// else they stay in the form to be fixed and sent again. When the
+    /// Science account wants an emailed code, the way on is App OTP: the
+    /// portal opens as it is, the person sets it up there and pastes its
+    /// secret into the OTP field.
+    private func connectOutcome(_ outcome: SchoolConnectOutcome) -> some View {
+        Section {
+            switch outcome {
+            case .connected:
+                Text(t("schoolSession.connect.connected")).foregroundStyle(Theme.ok)
+            case let .refused(reason):
+                Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.refused)).foregroundStyle(Theme.danger)
+                Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
+            case let .needsWeb(reason):
+                Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.needsWeb)).foregroundStyle(Theme.warn)
+                Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
+                if reason == .emailOtp {
+                    Text(t("schoolSession.appOtp.explain")).font(.footnote).foregroundStyle(Theme.muted)
+                    Button(t("schoolSession.appOtp.openPortal")) {
+                        web.showUnsigned(.sciencePortal)
+                        navigator.tab = .web
+                    }
+                }
+            case .unreachable:
+                Text(t("schoolSession.connect.unreachable")).foregroundStyle(Theme.warn)
+            case .stopped:
+                Text(t("schoolSession.connect.stopped")).foregroundStyle(Theme.warn)
+            }
+        }
+    }
+
     /// Why the account is stuck, then Retry. Needs-web says the person signs
-    /// in on the school page; rejected says when Retry helps.
+    /// in on the school page; refused says when Retry helps.
     private func status(_ session: SchoolProfileSession) -> some View {
         Section {
             Text(SchoolSessionText.line(session))
-                .foregroundStyle(session.state == .unavailable ? Theme.warn : Theme.danger)
+                .foregroundStyle(session.state == .refused ? Theme.danger : Theme.warn)
             if session.state == .needsWeb {
                 Text(t("schoolSession.needsWeb.signInYourself")).font(.footnote).foregroundStyle(Theme.muted)
             }
@@ -390,7 +428,7 @@ private struct AccountScreen: View {
             }
             .disabled(retrying)
         } footer: {
-            if session.state == .rejected { Text(t("schoolSession.retry.otherDevice")) }
+            if session.state == .refused { Text(t("schoolSession.retry.otherDevice")) }
         }
     }
 
@@ -408,16 +446,17 @@ private struct AccountScreen: View {
         saving = true
         defer { saving = false }
         error = nil
+        outcome = nil
         do {
-            let result = try await model.connect(
+            outcome = try await model.connect(
                 profile,
                 SchoolCredentials(username: username, password: password, otpSecret: otpSecret, matrix: matrix))
-            // Stay on the page with the reason, so the person can correct it.
-            if let result, Self.stuck.contains(result.state) {
-                error = SchoolSessionText.line(result.state, problem: result.problem, retryAt: nil)
-                return
+            // The secrets are saved now; the fields go back to "enter only to change".
+            if case .connected = outcome {
+                password = ""
+                otpSecret = ""
+                matrix = ""
             }
-            dismiss()
         } catch {
             self.error = AppModel.describe(error)
         }

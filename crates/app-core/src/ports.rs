@@ -56,7 +56,7 @@ pub struct VaultItem {
 pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
     let suffix = match account {
         "school-accounts" => "passwords.school-accounts",
-        "school-candidates" => "passwords.school-candidates",
+        "school-refusals" => "passwords.school-refusals",
         "google-drive" => "passwords.google-drive",
         "icloud" => "passwords.icloud",
         "cloud-credential-sync" => "passwords.cloud-credential-sync",

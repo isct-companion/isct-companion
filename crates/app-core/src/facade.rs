@@ -3,7 +3,7 @@
 use crate::agent::AgentService;
 use crate::school_browser::{SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError};
 use crate::school_session::{
-    SchoolConnectResult, SchoolSessionSnapshot, SchoolSessions, WebCookieSeed,
+    SchoolConnectOutcome, SchoolSessionSnapshot, SchoolSessions, WebCookieSeed,
 };
 use crate::{
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
@@ -377,30 +377,36 @@ impl Core {
             .ok_or_else(|| SchoolBrowserError::Platform("School browser is unavailable.".into()))
     }
 
-    /// The one way a shell connects a school account: keep the entered
-    /// credentials as this device's candidate (blank fields keep what is
-    /// saved) and sign in with them over HTTP, through any refusal on record.
-    /// They reach the synchronized Keychain item and cloud sync only once
-    /// the school accepts them.
+    /// The one way a shell connects a school account: sign in over HTTP
+    /// with the entered credentials (blank fields keep what is saved),
+    /// through any refusal on record and in place of a sign-in running. They
+    /// are saved, and reach the synchronized Keychain item and cloud sync,
+    /// only once the school accepts them; anything else is the Connect
+    /// form's to show and changes nothing.
     pub async fn connect_school(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
-    ) -> Result<SchoolConnectResult, CredentialMutationError> {
+    ) -> Result<SchoolConnectOutcome, CredentialMutationError> {
         let auth = self.auth.clone();
-        let credentials = tokio::task::spawn_blocking(move || auth.stage(profile, credentials))
-            .await
-            .map_err(|_| SchoolBrowserError::Stopped)??;
-        let result = self.sessions.connect(profile, credentials).await;
-        // The account keys belong to may have changed.
-        self.sync.reevaluate();
-        Ok(result)
+        let credentials = tokio::task::spawn_blocking(move || {
+            // Blank fields fill from what the vault holds now.
+            auth.refresh();
+            auth.resolve(profile, credentials)
+        })
+        .await
+        .map_err(|_| SchoolBrowserError::Stopped)??;
+        let outcome = self.sessions.connect(profile, credentials).await;
+        self.sync.unblock(profile);
+        Ok(outcome)
     }
 
     /// The person's Retry: one sign-in with the credentials saved now, read
     /// again first.
     pub async fn retry_school(&self, profile: SchoolAuthProfile) -> SchoolSessionSnapshot {
-        self.sessions.retry(profile).await
+        let snapshot = self.sessions.retry(profile).await;
+        self.sync.unblock(profile);
+        snapshot
     }
 
     /// Both accounts' sessions as shells render them.
@@ -420,17 +426,18 @@ impl Core {
             .await
             .map_err(|_| SchoolBrowserError::Stopped)??;
         self.sessions.sign_out(profile).await;
-        self.sync.reevaluate();
+        self.sync.unblock(profile);
         Ok(deleted)
     }
 
     /// A credential file was imported: both accounts read their saved
-    /// credentials again, which lifts a refusal of credentials it replaced.
+    /// credentials again; a refusal of credentials it replaced no longer
+    /// applies.
     pub fn credentials_imported(&self) {
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
             self.sessions.credentials_changed(profile);
+            self.sync.unblock(profile);
         }
-        self.sync.reevaluate();
     }
 
     /// Ports are scoped to operations, so completed work releases native handles.

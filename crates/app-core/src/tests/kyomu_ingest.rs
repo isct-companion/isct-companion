@@ -1,9 +1,6 @@
 use super::*;
 use uuid::Uuid;
 
-const ACCOUNT: &str = "tokyotech:student";
-const LMS_ACCOUNT: &str = "science:24B00001";
-
 /// The internal id of the workspace course whose `field` is `value`.
 fn course_with(workspace: &Value, field: &str, value: Value) -> String {
     workspace["courses"]
@@ -64,7 +61,7 @@ fn duplicate_graduate_grade_identity_rolls_back_the_page() {
             message: String::new(),
         };
     assert!(store
-        .write(None, |tx| apply_kyomu_payload(tx, &payload, ACCOUNT))
+        .write(None, |tx| apply_kyomu_payload(tx, &payload))
         .is_err());
     assert!(store.table_rows("grades").unwrap().is_empty());
     // The rolled-back page is not marked fresh either.
@@ -146,7 +143,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     })).unwrap();
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &payload, LMS_ACCOUNT, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, chrono::Utc::now())
         })
         .unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
@@ -184,7 +181,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!([{
         "offeringId":"202602431","code":"CSC.T273","title":"Official course","instructor":"Teacher",
         "schedule":[{"quarter":"3Q","day":"月","periods":[3,4],"room":"Official room"}]
-    }])), ACCOUNT)).unwrap();
+    }])))).unwrap();
     let workspace = store.load_workspace().unwrap();
     let current = crate::schedule::scheduled_courses(&workspace, "2026-3Q");
     assert_eq!(current.len(), 1);
@@ -195,9 +192,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     assert_eq!(current[0]["meetings"][0]["days"], json!([5]));
     assert!(crate::schedule::scheduled_courses(&workspace, "2026-4Q").is_empty());
     store
-        .write(None, |tx| {
-            apply_kyomu_payload(tx, &registration(json!([])), ACCOUNT)
-        })
+        .write(None, |tx| apply_kyomu_payload(tx, &registration(json!([]))))
         .unwrap();
     assert_eq!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-3Q").len(),
@@ -212,7 +207,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     }];
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &payload, LMS_ACCOUNT, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, chrono::Utc::now())
         })
         .unwrap();
     assert!(
@@ -234,11 +229,10 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
         message: String::new(),
     };
     store
-        .write(None, |tx| apply_kyomu_payload(tx, &payload, ACCOUNT))
+        .write(None, |tx| apply_kyomu_payload(tx, &payload))
         .unwrap();
     // The page's rows and its freshness key commit together.
     let state = page_state(&store, "profile").unwrap();
-    assert_eq!(state.account, ACCOUNT);
     assert_eq!(state.outcome, Some(Outcome::Complete));
     assert!(state.fetched_at.is_some());
     let initial = store.load_workspace().unwrap();
@@ -257,7 +251,7 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
         .put_workspace_setting("academicProfile", profile)
         .unwrap();
     store
-        .write(None, |tx| apply_kyomu_payload(tx, &payload, ACCOUNT))
+        .write(None, |tx| apply_kyomu_payload(tx, &payload))
         .unwrap();
     let updated = store.load_workspace().unwrap();
     assert_eq!(updated["settings"]["departmentId"], "mcs");
@@ -279,7 +273,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     };
     store
         .write(None, |tx| {
-            apply_kyomu_payload(tx, &registration(json!(["3Q", "4Q"]), json!([])), ACCOUNT)
+            apply_kyomu_payload(tx, &registration(json!(["3Q", "4Q"]), json!([])))
         })
         .unwrap();
     let raw = json!({
@@ -298,7 +292,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert_eq!(lms.timetables.len(), 2);
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &lms, LMS_ACCOUNT, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
         })
         .unwrap();
     lms.timetables = vec![adpt_isct::lms::LmsTimetable {
@@ -308,7 +302,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     }];
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &lms, LMS_ACCOUNT, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
         })
         .unwrap();
     let workspace = store.load_workspace().unwrap();
@@ -357,7 +351,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         .unwrap();
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &lms, LMS_ACCOUNT, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
         })
         .unwrap();
     assert!(
@@ -367,7 +361,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
         "schedule":[{"quarter":"1Q","day":"木","periods":[1,2],"room":"Official room"}]
-    }])), ACCOUNT)).unwrap();
+    }])))).unwrap();
     let upgraded = store.load_workspace().unwrap();
     let first = crate::schedule::scheduled_courses(&upgraded, "2026-1Q");
     assert_eq!(first.len(), 1);
@@ -382,7 +376,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
         "schedule":[{"quarter":"1Q","day":"月","periods":[3,4],"room":"Official room"}]
-    }])), ACCOUNT)).unwrap();
+    }])))).unwrap();
     let first = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
     assert_eq!(first[0]["meetings"][0]["room"], "Official room");
     assert_eq!(first[0]["meetings"][0]["startTime"], "10:45");
@@ -391,14 +385,12 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     unavailable.status = "unavailable".into();
     unavailable.message = "Registration is closed".into();
     assert!(store
-        .write(None, |tx| apply_kyomu_payload(tx, &unavailable, ACCOUNT))
+        .write(None, |tx| apply_kyomu_payload(tx, &unavailable))
         .is_err());
     // Recorded instead, the page is current but unavailable and its rows
     // stay; the views show both under the keys the shells read.
     store
-        .write(None, |tx| {
-            record_kyomu_unavailable(tx, &unavailable, ACCOUNT)
-        })
+        .write(None, |tx| record_kyomu_unavailable(tx, &unavailable))
         .unwrap();
     let records = store
         .view(&["freshness", "pageAvailability"].into_iter().collect())

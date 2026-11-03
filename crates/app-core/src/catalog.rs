@@ -235,9 +235,8 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
         return KeyEnd::failed("truncated", source);
     }
     let writer = lease.writer();
-    let (key, account, run, started, record_source) = (
+    let (key, run, started, record_source) = (
         lease.key.clone(),
-        lease.account.clone(),
         lease.run.clone(),
         lease.started,
         source.clone(),
@@ -258,7 +257,6 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
                 transaction,
                 &key,
                 Commit {
-                    account: &account,
                     validator: None,
                     outcome,
                     message: None,
@@ -270,7 +268,6 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
                 &RunRecord {
                     run: &run,
                     key: &key,
-                    account: &account,
                     started_at: started,
                     finished_at: now,
                     outcome: if outcome == Outcome::Unavailable {

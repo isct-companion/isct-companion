@@ -10,6 +10,7 @@ import type {
   SchoolSignInProblemKind,
 } from "../platform/desktop-bridge";
 import type {
+  AccountWait,
   RunView,
   SyncFailure,
   SyncHeld,
@@ -68,6 +69,20 @@ const clock = (at: string, locale: string) =>
     minute: "2-digit",
   });
 
+/** What an account's reads wait for after one could not reach its school. */
+function accountWaitText(wait: AccountWait, locale: string) {
+  switch (wait.kind) {
+    case "person":
+      return t("syncStatus.held.person");
+    case "paused":
+      return t("schoolSession.state.unavailableRetry", {
+        time: clock(wait.until, locale),
+      });
+    case "network":
+      return t("syncStatus.waitingForAConnection");
+  }
+}
+
 export function heldText(held: SyncHeld, locale: string) {
   switch (held.kind) {
     case "offline":
@@ -87,8 +102,8 @@ export function heldText(held: SyncHeld, locale: string) {
         host: held.host,
         time: clock(held.until, locale),
       });
-    case "session":
-      return sessionStateText(held.state);
+    case "account":
+      return accountWaitText(held.wait, locale);
     case "resetting":
       return t("app.resetting");
     case "prerequisite":
@@ -146,12 +161,9 @@ export function ageText(at: string | null, now: string, locale: string) {
 /** One short label per session state: badges, the footer and a held read. */
 const SESSION_STATES: Record<SchoolSessionState, MessageKey> = {
   "not-configured": "common.notConnected",
-  idle: "schoolSession.state.idle",
+  normal: "schoolSession.state.normal",
   "signing-in": "common.signingIn",
-  unverified: "schoolSession.state.unverified",
-  verifying: "schoolSession.state.verifying",
-  active: "common.signedIn",
-  rejected: "schoolSession.state.rejected",
+  refused: "schoolSession.state.refused",
   "needs-web": "schoolSession.state.needsWeb",
   unavailable: "schoolSession.state.unavailable",
 };
@@ -174,8 +186,9 @@ const MAINTENANCE_SOURCES: Record<SchoolAuthProfile, MessageKey> = {
   "tokyo-tech": "syncStatus.source.kyomu",
 };
 
-export const sessionStateText = (state: SchoolSessionState) =>
-  t(SESSION_STATES[state]);
+/** The reason by kind; undefined for a kind this build does not know yet. */
+export const signInProblemText = (kind: SchoolSignInProblemKind) =>
+  SIGN_IN_PROBLEMS[kind] ? t(SIGN_IN_PROBLEMS[kind]) : undefined;
 
 /** The state's label; `unavailable` adds when Core tries again. */
 export function sessionText(session: SchoolProfileSession, locale: string) {
@@ -183,7 +196,7 @@ export function sessionText(session: SchoolProfileSession, locale: string) {
     return t("schoolSession.state.unavailableRetry", {
       time: clock(session.retryAt, locale),
     });
-  return sessionStateText(session.state);
+  return t(SESSION_STATES[session.state]);
 }
 
 /** The sentences under the label: the reason by kind, what the person can
@@ -196,12 +209,7 @@ export function sessionDetails(
   const lines: string[] = [];
   // A kind this build does not know yet shows Core's own diagnostic.
   const problem = session.problem;
-  if (problem)
-    lines.push(
-      SIGN_IN_PROBLEMS[problem.kind]
-        ? t(SIGN_IN_PROBLEMS[problem.kind])
-        : problem.message,
-    );
+  if (problem) lines.push(signInProblemText(problem.kind) ?? problem.message);
   if (session.state === "needs-web")
     lines.push(t("schoolSession.needsWeb.signInYourself"));
   if (session.maintenance)

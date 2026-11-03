@@ -22,13 +22,12 @@ fun main(args:Array<String>) = runBlocking {
     check(logs.startsWith("smoke\n") && logs.contains("Application started")) { "Opening a session must install Core's logger" }
     val credentials=SchoolCredentials("fixture","not-a-real-password","","A".repeat(70))
     vault.failNextStore()
-    try {session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing callback error")}
+    try {session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value();error("Missing callback error")}
     catch(_:SdkException.Callback) {}
-    // The session is offline: connecting keeps the credentials and sends nothing.
-    val offline=(session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value() as OperationResult.SchoolConnect).result
-    check(offline.state==SchoolSessionState.UNAVAILABLE && !offline.verified) { "An offline connect must not sign in" }
-    check((session.credentialStatus().value() as OperationResult.Credentials).status.tokyoTech.saved)
-    session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value()
+    // The session is offline: connecting sends nothing and saves nothing.
+    val offline=(session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value() as OperationResult.SchoolConnect).outcome
+    check(offline is SchoolConnectOutcome.Unreachable) { "An offline connect must not sign in" }
+    check(!(session.credentialStatus().value() as OperationResult.Credentials).status.tokyoTech.saved)
     val stream=session.subscribe()
     val first=(session.workspaceRevision().value() as OperationResult.Text).value
     val op=session.mutateCommit(WorkspaceMutation(first,WorkspaceIntent.SetAdmissionYear(2026)))

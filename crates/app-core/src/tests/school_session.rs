@@ -1,6 +1,7 @@
 //! The session rules: the jar, the identity snapshot, the account barrier,
-//! verification and the web cookie queue, over a scripted Science Tokyo
-//! (`School`, which the web operation suite uses too). The real sign-in
+//! verification, sign-ins and the Connect rules, and the web cookie queue,
+//! over a scripted Science Tokyo (`School`, which the web operation suite
+//! uses too). The real sign-in
 //! flows run against the real schools (`school_session__login.rs`, ignored
 //! by default).
 use super::*;
@@ -91,6 +92,8 @@ pub(crate) struct School {
     pub(crate) state: Mutex<SchoolState>,
     /// Every request waits forever while set: a school that never answers.
     pub(crate) hang: AtomicBool,
+    /// Requests left waiting by `hang`.
+    pub(crate) hung: std::sync::atomic::AtomicUsize,
 }
 
 #[derive(Default)]
@@ -105,6 +108,8 @@ pub(crate) struct SchoolState {
     pub(crate) requests: usize,
     /// Every request fails as offline.
     pub(crate) down: bool,
+    /// An accepted password is answered with the emailed code's page.
+    pub(crate) email_otp: bool,
 }
 
 impl School {
@@ -173,10 +178,12 @@ impl School {
             }
             ("isct.ex-tic.com", true, "/auth/session") => {
                 school.passwords += 1;
-                if field("password").as_deref() == Some(school.password.as_str()) {
-                    page(&url, TOTP_FORM, Some("_pending=1; path=/; secure"))
-                } else {
+                if field("password").as_deref() != Some(school.password.as_str()) {
                     status(&url, 401)
+                } else if school.email_otp {
+                    page(&url, EMAIL_OTP_FORM, Some("_pending=1; path=/; secure"))
+                } else {
+                    page(&url, TOTP_FORM, Some("_pending=1; path=/; secure"))
                 }
             }
             ("isct.ex-tic.com", true, "/auth/session/second_factor") => {
@@ -194,6 +201,8 @@ impl School {
 const EXTIC_SESSION: &str = "https://isct.ex-tic.com/auth/session";
 const LOGIN_FORM: &str = r#"<form id="login" method="post" action="https://isct.ex-tic.com/auth/session"><input name="identifier"><input name="password" type="password"></form>"#;
 const TOTP_FORM: &str = r#"<form id="totp-form" method="post" action="https://isct.ex-tic.com/auth/session/second_factor"><input name="totp"></form>"#;
+const EMAIL_OTP_FORM: &str =
+    r#"<div id="emailotp-form-wrapper"><form><input name="code"></form></div>"#;
 const SAML_FORM: &str = r#"<form method="post" action="https://lms.s.isct.ac.jp/auth/saml2/sp/saml2-acs.php/lms.s.isct.ac.jp"><input type="hidden" name="SAMLResponse" value="assertion"></form>"#;
 
 fn response(url: &Url, code: u16, cookie: Option<&str>) -> Response {
@@ -235,6 +244,7 @@ impl Transport for School {
     fn send(&self, request: NetRequest) -> BoxFuture<'_, Result<Response, NetError>> {
         Box::pin(async move {
             if self.hang.load(Ordering::SeqCst) {
+                self.hung.fetch_add(1, Ordering::SeqCst);
                 std::future::pending::<()>().await;
             }
             self.answer(&request)
@@ -315,15 +325,12 @@ fn restored(sessions: &SchoolSessions, session: &str) -> u64 {
         .0
         .account(SchoolAuthProfile::Science)
         .identity
-        .restore(
-            Snapshot {
-                cookies: vec![WebCookie {
-                    url: EXTIC_SESSION.into(),
-                    set_cookie: format!("_idp={session}; path=/; secure"),
-                }],
-            },
-            "user".into(),
-        )
+        .restore(Snapshot {
+            cookies: vec![WebCookie {
+                url: EXTIC_SESSION.into(),
+                set_cookie: format!("_idp={session}; path=/; secure"),
+            }],
+        })
         .unwrap()
 }
 
@@ -342,7 +349,7 @@ async fn a_verification_is_one_sso_from_the_snapshot_and_sends_no_password() {
     let auth = science_auth();
     let sessions = SchoolSessions::with_transport(school.clone(), auth.clone());
     let restored_generation = restored(&sessions, "t9");
-    assert_eq!(science_state(&sessions), SchoolSessionState::Unverified);
+    assert_eq!(science_state(&sessions), SchoolSessionState::Normal);
     assert_eq!(sessions.fresh(SchoolAuthProfile::Science), None);
     let checked = sessions.0.verify(SchoolAuthProfile::Science).await;
     let Checked::Verified(generation) = checked else {
@@ -352,7 +359,6 @@ async fn a_verification_is_one_sso_from_the_snapshot_and_sends_no_password() {
         generation > restored_generation,
         "a new verified generation"
     );
-    assert_eq!(science_state(&sessions), SchoolSessionState::Active);
     assert_eq!(sessions.fresh(SchoolAuthProfile::Science), Some(generation));
     // Fresh: used as it is, without asking the school again.
     let asked = school.requests();
@@ -370,7 +376,6 @@ async fn a_verification_is_one_sso_from_the_snapshot_and_sends_no_password() {
         expired.0.verify(SchoolAuthProfile::Science).await,
         Checked::Expired
     );
-    assert_eq!(science_state(&expired), SchoolSessionState::Idle);
     assert!(expired
         .0
         .account(SchoolAuthProfile::Science)
@@ -386,7 +391,7 @@ async fn a_verification_is_one_sso_from_the_snapshot_and_sends_no_password() {
         offline.0.verify(SchoolAuthProfile::Science).await,
         Checked::Unconfirmed
     );
-    assert_eq!(science_state(&offline), SchoolSessionState::Unverified);
+    assert_eq!(offline.fresh(SchoolAuthProfile::Science), None);
     assert_eq!(
         school.passwords(),
         0,
@@ -407,7 +412,7 @@ async fn a_verification_the_school_never_answers_ends_at_its_deadline() {
         Checked::Unconfirmed
     );
     assert_eq!(started.elapsed(), VERIFY_DEADLINE);
-    assert_eq!(science_state(&sessions), SchoolSessionState::Unverified);
+    assert_eq!(sessions.fresh(SchoolAuthProfile::Science), None);
 }
 
 // The queue never moves past a call the platform has not answered: the
@@ -564,18 +569,403 @@ impl crate::ports::SecretVault for MemoryVault {
     }
 }
 
-/// A school auth service with the Science Tokyo account saved.
+/// Science Tokyo credentials with `password`.
+pub(crate) fn science_credentials(password: &str) -> SchoolCredentials {
+    SchoolCredentials {
+        username: "user".into(),
+        password: password.into(),
+        otp_secret: "JBSWY3DPEHPK3PXP".into(),
+        matrix: String::new(),
+    }
+}
+
+/// A school auth service with the Science Tokyo account saved (verified)
+/// with password `right`.
 fn science_auth() -> Arc<SchoolAuthService> {
+    saved_auth("right")
+}
+
+/// A school auth service with the Science Tokyo account saved (verified)
+/// with `password`.
+pub(crate) fn saved_auth(password: &str) -> Arc<SchoolAuthService> {
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
-    auth.stage(
-        SchoolAuthProfile::Science,
-        SchoolCredentials {
-            username: "user".into(),
-            password: "right".into(),
-            otp_secret: "JBSWY3DPEHPK3PXP".into(),
-            matrix: String::new(),
-        },
+    auth.promote(SchoolAuthProfile::Science, &science_credentials(password))
+        .unwrap();
+    auth
+}
+
+/// A sign-in on Core's own, as a read that found no identity starts it.
+async fn background(sessions: &SchoolSessions) -> Result<u64, Ended> {
+    sessions
+        .0
+        .sign_in(SchoolAuthProfile::Science, 0, identity::How::Background)
+        .await
+}
+
+fn science(sessions: &SchoolSessions) -> SchoolProfileSession {
+    sessions.snapshot().profiles.science
+}
+
+// The person's Connect is authoritative: it replaces a sign-in already
+// running at once, the replaced sign-in's result changes nothing, and a
+// caller waiting for it waits for the Connect's instead. The school's
+// acceptance makes the input the verified credentials.
+#[tokio::test(start_paused = true)]
+async fn a_connect_replaces_the_running_sign_in_and_only_its_own_result_applies() {
+    let school = School::accepting("new");
+    let auth = science_auth();
+    let sessions = SchoolSessions::with_transport(school.clone(), auth.clone());
+    school.hang.store(true, Ordering::SeqCst);
+    let waiting = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move { background(&sessions).await })
+    };
+    while school.hung.load(Ordering::SeqCst) == 0 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(science_state(&sessions), SchoolSessionState::SigningIn);
+    school.hang.store(false, Ordering::SeqCst);
+    let outcome = sessions
+        .connect(SchoolAuthProfile::Science, science_credentials("new"))
+        .await;
+    assert_eq!(outcome, SchoolConnectOutcome::Connected);
+    let generation = waiting.await.unwrap().expect("the Connect's identity");
+    assert_eq!(sessions.fresh(SchoolAuthProfile::Science), Some(generation));
+    assert_eq!(school.passwords(), 1, "only the Connect sent a password");
+    assert_eq!(
+        auth.load(SchoolAuthProfile::Science)
+            .unwrap()
+            .unwrap()
+            .password,
+        "new"
+    );
+    assert_eq!(science_state(&sessions), SchoolSessionState::Normal);
+}
+
+// The school's refusal of the saved credentials is kept with exactly them,
+// across launches: Core sends them no more on its own, and the account
+// shows it, until the person retries or the credentials change. The
+// identity and token Core already holds are not touched.
+#[tokio::test(start_paused = true)]
+async fn a_refusal_of_the_saved_credentials_is_kept_with_them() {
+    let school = School::accepting("right");
+    let vault = MemoryVault::default();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(SchoolAuthProfile::Science, &science_credentials("old"))
+        .unwrap();
+    let sessions = SchoolSessions::with_transport(school.clone(), auth);
+    let refused = background(&sessions).await;
+    assert!(
+        matches!(&refused, Err(Ended::Refused(problem)) if problem.kind == SchoolSignInProblemKind::InvalidCredentials),
+        "{refused:?}"
+    );
+    assert_eq!(science_state(&sessions), SchoolSessionState::Refused);
+    assert_eq!(background(&sessions).await, refused);
+    assert_eq!(
+        school.passwords(),
+        1,
+        "a refused password is not sent again"
+    );
+
+    // A relaunch reads the refusal back and still sends nothing.
+    let auth = Arc::new(SchoolAuthService::new(vault));
+    let relaunched = SchoolSessions::with_transport(school.clone(), auth.clone());
+    relaunched.0.restore(SchoolAuthProfile::Science).await;
+    assert_eq!(science_state(&relaunched), SchoolSessionState::Refused);
+    assert!(matches!(
+        background(&relaunched).await,
+        Err(Ended::Refused(_))
+    ));
+    assert_eq!(school.passwords(), 1);
+
+    // Retry sends them once more, through the refusal.
+    let retried = relaunched.retry(SchoolAuthProfile::Science).await;
+    assert_eq!(retried.profiles.science.state, SchoolSessionState::Refused);
+    assert_eq!(school.passwords(), 2);
+
+    // Other credentials (here imported from another device) are not
+    // refused: the account is normal, and the next sign-in uses them.
+    auth.import_sync_payload(
+        &serde_json::json!({"version": 1, "accounts": {"science": science_credentials("right")}})
+            .to_string(),
     )
     .unwrap();
-    auth
+    relaunched.credentials_changed(SchoolAuthProfile::Science);
+    assert_eq!(science_state(&relaunched), SchoolSessionState::Normal);
+    assert!(background(&relaunched).await.is_ok());
+    assert_eq!(school.passwords(), 3);
+}
+
+// A Connect with credentials other than the saved ones that the school
+// refuses, or that hits a page needing the person, or that gets no answer,
+// is the Connect form's to show: the saved credentials, the account's
+// state and every fact stay as they were. Connect with the saved
+// credentials themselves, refused, keeps the refusal on them.
+#[tokio::test(start_paused = true)]
+async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credentials() {
+    let school = School::accepting("right");
+    let auth = science_auth();
+    let sessions = SchoolSessions::with_transport(school.clone(), auth.clone());
+    let saved = || auth.load(SchoolAuthProfile::Science).unwrap().unwrap();
+
+    let refused = sessions
+        .connect(SchoolAuthProfile::Science, science_credentials("typo"))
+        .await;
+    assert_eq!(
+        refused,
+        SchoolConnectOutcome::Refused {
+            reason: SchoolSignInProblemKind::InvalidCredentials
+        }
+    );
+    assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
+    assert_eq!(saved().password, "right");
+    assert_eq!(auth.refusal(SchoolAuthProfile::Science), None);
+
+    school.state.lock().unwrap().email_otp = true;
+    let emailed = sessions
+        .connect(SchoolAuthProfile::Science, science_credentials("right"))
+        .await;
+    assert_eq!(
+        emailed,
+        SchoolConnectOutcome::NeedsWeb {
+            reason: SchoolSignInProblemKind::EmailOtp
+        }
+    );
+    assert_eq!(
+        science(&sessions).state,
+        SchoolSessionState::Normal,
+        "only a sign-in on Core's own makes the account need the web"
+    );
+    school.state.lock().unwrap().email_otp = false;
+
+    sessions.network(crate::sync_engine::Network::Offline);
+    let offline = sessions
+        .connect(SchoolAuthProfile::Science, science_credentials("right"))
+        .await;
+    assert_eq!(offline, SchoolConnectOutcome::Unreachable);
+    assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
+    assert_eq!(science(&sessions).retry_at, None, "a Connect never pauses");
+    sessions.network(crate::sync_engine::Network::Wifi);
+
+    // The school no longer takes the saved password: Connect with it is
+    // refused, and the refusal stays with it.
+    school.state.lock().unwrap().password = "changed".into();
+    let stale = sessions
+        .connect(SchoolAuthProfile::Science, science_credentials("right"))
+        .await;
+    assert!(matches!(stale, SchoolConnectOutcome::Refused { .. }));
+    assert_eq!(science(&sessions).state, SchoolSessionState::Refused);
+    assert_eq!(saved().password, "right");
+
+    // Connect with what the school takes now replaces them.
+    let connected = sessions
+        .connect(SchoolAuthProfile::Science, science_credentials("changed"))
+        .await;
+    assert_eq!(connected, SchoolConnectOutcome::Connected);
+    assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
+    assert_eq!(saved().password, "changed");
+}
+
+// A sign-in on Core's own that hits a page needing the person makes the
+// account need the web, kept with the saved credentials; one without a
+// verdict pauses sign-ins on Core's own until its retry time, which only
+// the person's Retry (or Reload on the sign-in page) goes through, and the
+// shell's wake after it lifts.
+#[tokio::test(start_paused = true)]
+async fn a_sign_in_on_cores_own_needs_the_web_or_pauses() {
+    let school = School::accepting("right");
+    school.state.lock().unwrap().email_otp = true;
+    let sessions = SchoolSessions::with_transport(school.clone(), science_auth());
+    assert!(matches!(
+        background(&sessions).await,
+        Err(Ended::Refused(_))
+    ));
+    let session = science(&sessions);
+    assert_eq!(session.state, SchoolSessionState::NeedsWeb);
+    assert_eq!(
+        session.problem.map(|problem| problem.kind),
+        Some(SchoolSignInProblemKind::EmailOtp)
+    );
+
+    let school = School::accepting("right");
+    school.state.lock().unwrap().down = true;
+    let sessions = SchoolSessions::with_transport(school.clone(), science_auth());
+    assert!(matches!(
+        background(&sessions).await,
+        Err(Ended::Unavailable(_))
+    ));
+    let session = science(&sessions);
+    assert_eq!(session.state, SchoolSessionState::Unavailable);
+    assert!(session.retry_at.is_some());
+    let asked = school.requests();
+    assert!(matches!(
+        background(&sessions).await,
+        Err(Ended::Unavailable(_))
+    ));
+    assert_eq!(school.requests(), asked, "the pause holds it back");
+
+    school.state.lock().unwrap().down = false;
+    tokio::time::advance(RETRY_NOT_BEFORE).await;
+    sessions.wake();
+    assert_eq!(science_state(&sessions), SchoolSessionState::Normal);
+    assert!(background(&sessions).await.is_ok());
+}
+
+/// One request to the LMS home: with the site session's cookies, or bare,
+/// as the token REST service sends its own credentials.
+struct Home {
+    cookies: bool,
+}
+
+impl Operation for Home {
+    type Output = u16;
+    type Error = NetError;
+
+    fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<u16, NetError>> {
+        let cookies = self.cookies;
+        Box::pin(async move {
+            let request = NetRequest::get(Host::Moodle, Url::parse(login::LMS_HOME).unwrap());
+            let response = if cookies {
+                attempt.send(request).await?
+            } else {
+                attempt.bare(request).await?
+            };
+            Ok(response.status)
+        })
+    }
+}
+
+async fn read_home(sessions: &SchoolSessions, cookies: bool) -> Result<u16, RunError<NetError>> {
+    let permit = sessions.permit(SchoolAuthProfile::Science).unwrap();
+    let deadline = tokio::time::Instant::now() + crate::sync_engine::KEY_DEADLINE;
+    sessions
+        .run(Site::Lms, &permit, deadline, &mut Home { cookies })
+        .await
+}
+
+// A read whose requests carry their own credentials (the LMS token) needs
+// no site session: it builds none, takes no SSO and signs in nowhere, even
+// for an account the school refused. Only a request that needs cookies gets
+// the instance; when the account cannot sign in, that read ends with what
+// lets the account's reads go on: the person, a pause, the network.
+#[tokio::test(start_paused = true)]
+async fn a_read_gets_the_site_session_only_when_a_request_needs_cookies() {
+    use crate::sync_engine::AccountWait;
+    let school = School::accepting("right");
+    let sessions = SchoolSessions::with_transport(school.clone(), saved_auth("old"));
+    assert_eq!(read_home(&sessions, false).await.unwrap(), 302);
+    assert_eq!((school.requests(), school.passwords()), (1, 0));
+    assert!(matches!(
+        read_home(&sessions, true).await,
+        Err(RunError::Blocked(AccountWait::Person))
+    ));
+    assert_eq!(school.passwords(), 1, "no identity: one sign-in, refused");
+    assert!(matches!(
+        read_home(&sessions, true).await,
+        Err(RunError::Blocked(AccountWait::Person))
+    ));
+    assert_eq!(school.passwords(), 1, "the refusal holds the next one back");
+    assert_eq!(read_home(&sessions, false).await.unwrap(), 302);
+
+    let down = School::accepting("right");
+    down.state.lock().unwrap().down = true;
+    let paused = SchoolSessions::with_transport(down, science_auth());
+    assert!(matches!(
+        read_home(&paused, true).await,
+        Err(RunError::Blocked(AccountWait::Paused { .. }))
+    ));
+
+    let offline = SchoolSessions::with_transport(School::accepting("right"), science_auth());
+    offline.network(crate::sync_engine::Network::Offline);
+    assert!(matches!(
+        read_home(&offline, true).await,
+        Err(RunError::Blocked(AccountWait::Network))
+    ));
+}
+
+/// A vault whose writes of a saved session wait while it holds them.
+#[derive(Clone, Default)]
+struct HeldVault {
+    inner: MemoryVault,
+    /// (holding, a write is waiting)
+    gate: Arc<(Mutex<(bool, bool)>, std::sync::Condvar)>,
+}
+
+impl HeldVault {
+    fn hold(&self, holding: bool) {
+        let (lock, signal) = &*self.gate;
+        lock.lock().unwrap().0 = holding;
+        signal.notify_all();
+    }
+
+    fn wait_for_a_write(&self) {
+        let (lock, signal) = &*self.gate;
+        let mut gate = lock.lock().unwrap();
+        while !gate.1 {
+            gate = signal.wait(gate).unwrap();
+        }
+    }
+}
+
+impl crate::ports::SecretVault for HeldVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+        if account.starts_with("school-session") {
+            let (lock, signal) = &*self.gate;
+            let mut gate = lock.lock().unwrap();
+            gate.1 = true;
+            signal.notify_all();
+            while gate.0 {
+                gate = signal.wait(gate).unwrap();
+            }
+        }
+        self.inner.store(account, secret)
+    }
+
+    fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        self.inner.load(account)
+    }
+
+    fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+        self.inner.delete(account)
+    }
+}
+
+// A vault write a read started holds the account's permit until it lands,
+// even once the read was cancelled and dropped: signing out waits for it,
+// and its clean-up comes after it, so nothing of the account is left.
+#[tokio::test]
+async fn a_vault_write_of_a_cancelled_read_lands_before_the_sign_out_cleans_up() {
+    let vault = HeldVault::default();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(SchoolAuthProfile::Science, &science_credentials("right"))
+        .unwrap();
+    let sessions = SchoolSessions::with_transport(School::accepting("right"), auth);
+    restored(&sessions, "t9");
+    vault.hold(true);
+    let read = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move { sessions.0.persist(SchoolAuthProfile::Science).await })
+    };
+    let waiting = vault.clone();
+    tokio::task::spawn_blocking(move || waiting.wait_for_a_write())
+        .await
+        .unwrap();
+    read.abort();
+    let signing_out = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move { sessions.sign_out(SchoolAuthProfile::Science).await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !signing_out.is_finished(),
+        "the sign-out waits for the write"
+    );
+    vault.hold(false);
+    signing_out.await.unwrap();
+    assert!(
+        crate::ports::SecretVault::load(&vault.inner, "school-session-science")
+            .unwrap()
+            .is_none(),
+        "the sign-out's delete came after the write"
+    );
 }

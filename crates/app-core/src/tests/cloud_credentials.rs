@@ -164,10 +164,10 @@ mod backup {
         let first_vault = MemoryVault::default();
         let first_school = SchoolAuthService::new(MemoryVault::default());
         // A login the school accepted: the synchronized item holds it.
-        let staged = first_school
-            .stage(
+        first_school
+            .promote(
                 SchoolAuthProfile::Science,
-                SchoolCredentials {
+                &SchoolCredentials {
                     username: "student".into(),
                     password: "password".into(),
                     otp_secret: "JBSWY3DPEHPK3PXP".into(),
@@ -175,9 +175,6 @@ mod backup {
                 },
             )
             .unwrap();
-        assert!(first_school
-            .promote(SchoolAuthProfile::Science, &staged)
-            .unwrap());
         let first = CredentialBackup::new(&first_vault, &files);
 
         assert!(matches!(

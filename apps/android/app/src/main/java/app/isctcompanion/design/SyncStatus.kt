@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
+import app.isctcompanion.core.AccountWait
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.Held
 import app.isctcompanion.core.RunView
@@ -106,8 +107,13 @@ fun heldText(held: Held): String = when (held) {
     is Held.Background -> t("syncStatus.resumesWhenTheAppIs")
     is Held.Backoff -> retryAt(held.until)
     is Held.HostPaused -> t("syncStatus.hostIsPausedUntilTime", "host" to held.host, "time" to Format.due(held.until))
-    // Waits for its account's session; not a failure.
-    is Held.Session -> AppModel.sessionText(held.state)
+    // A read could not reach its account's school; not a failure.
+    is Held.Account -> when (val wait = held.wait) {
+        is AccountWait.Person -> t("syncStatus.held.person")
+        // A pause after a sign-in without a verdict, said as the account row says it.
+        is AccountWait.Paused -> AppModel.sessionText(SchoolSessionState.UNAVAILABLE, retryAt = wait.until)
+        is AccountWait.Network -> t("syncStatus.waitingForAConnection")
+    }
     is Held.Resetting -> t("syncStatus.resetting")
     is Held.Prerequisite -> t("syncStatus.waitingForTheDataIt")
 }
@@ -174,12 +180,12 @@ val SyncSnapshot.indicator: SyncIndicator?
 
 val SyncSnapshot.problem: SyncProblem?
     get() {
-        // Reads waiting on a session are a problem only while that session
-        // waits for the person: turned down, or asking for the school page.
+        // Reads held on an account are a problem only while they wait for the
+        // person: no credentials, turned down, or asking for the school page.
         val held = runs.mapNotNull { it.held } + sources.mapNotNull { it.held }
-        held.filterIsInstance<Held.Session>()
-            .firstOrNull { it.state == SchoolSessionState.REJECTED || it.state == SchoolSessionState.NEEDS_WEB }
-            ?.let { return SyncProblem(AppModel.sessionText(it.state), null, it.profile) }
+        held.filterIsInstance<Held.Account>()
+            .firstOrNull { it.wait is AccountWait.Person }
+            ?.let { return SyncProblem(t("syncStatus.held.person"), null, it.profile) }
         runs.firstOrNull { it.failure != null }?.let { run ->
             return SyncProblem(failureText(run.failure!!, label(run.label)), retryScope(run), null)
         }

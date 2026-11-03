@@ -23,8 +23,8 @@
 //! (`clear_web_of`).
 //!
 //! Every change of an account goes through its owner (`owner`): permits
-//! stamped with the account generation, and the barrier that switching
-//! accounts, signing out and resetting run.
+//! stamped with the account generation, and the barrier that signing out
+//! and resetting run.
 
 mod identity;
 mod jar;
@@ -35,6 +35,7 @@ mod store;
 mod walk;
 mod web;
 
+pub(crate) use identity::Ended;
 pub(crate) use owner::Permit;
 pub(crate) use site::{Attempt, OpError, Operation, RunError, Site};
 pub use web::{WebClear, WebCookie, WebCookieSeed};
@@ -52,9 +53,7 @@ use crate::{
     net::{BoxFuture, Host, Http, Limits, NetError, NetRequest, Response},
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_auth::{
-        CredentialAvailability, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
-    },
+    school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -106,28 +105,23 @@ const _: () = assert!(
         <= crate::sync_engine::KEY_DEADLINE.as_secs()
 );
 
+/// One account as shells show it, derived from what Core keeps about it
+/// (`identity::Identity::view`).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SchoolSessionState {
     /// No credentials are saved.
     NotConfigured,
-    /// Credentials, but no identity yet: the next read signs in.
-    Idle,
+    /// Nothing stands in the way: Core signs in when it needs to.
+    Normal,
     SigningIn,
-    /// An identity read back from the vault that the school has not
-    /// confirmed since: the next web page the App opens verifies it.
-    Unverified,
-    /// The identity is being verified (no password is sent).
-    Verifying,
-    /// A verified identity is held.
-    Active,
-    /// The school turned these credentials down; waits for new ones or a
-    /// retry.
-    Rejected,
-    /// The school wants a person on its own page (an emailed code, a new
+    /// The school refused the saved credentials: Core does not sign in with
+    /// them on its own until they change or the person retries.
+    Refused,
+    /// The school wants the person on its own page (an emailed code, a new
     /// password, a page Core does not know).
     NeedsWeb,
-    /// No verdict (network, timeout, server error, anomaly); Core tries
+    /// No verdict (network, an unanswered sign-in, an anomaly); Core tries
     /// again after `retry_at`.
     Unavailable,
 }
@@ -149,22 +143,18 @@ pub enum SchoolSignInProblemKind {
 }
 
 impl SchoolSignInProblemKind {
-    fn state(self) -> SchoolSessionState {
-        match self {
-            Self::InvalidCredentials | Self::InvalidOtp | Self::InvalidMatrix => {
-                SchoolSessionState::Rejected
-            }
-            Self::EmailOtp | Self::PasswordChange | Self::UnknownPage => {
-                SchoolSessionState::NeedsWeb
-            }
-            Self::Network | Self::Unanswered | Self::Anomaly => SchoolSessionState::Unavailable,
-        }
+    /// The school wants the person on its own page, not other credentials.
+    pub(crate) fn needs_web(self) -> bool {
+        matches!(
+            self,
+            Self::EmailOtp | Self::PasswordChange | Self::UnknownPage
+        )
     }
 }
 
-/// Why an account is not signed in. Kept with the credentials it is about
-/// (`school_auth`'s candidate record), so a relaunch never sends a refused
-/// password again.
+/// Why an account is not signed in. A refusal is kept with the credentials
+/// it is about (`school_auth`'s refusal record), so a relaunch never sends
+/// a refused password again.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolSignInProblem {
@@ -222,21 +212,27 @@ impl SchoolSessionSnapshot {
     }
 }
 
-/// What `Core::connect_school` ended with. `verified` says the school
-/// accepted exactly these credentials, so they now sync to other devices.
+/// How `Core::connect_school` ended, for the Connect form. Only `Connected`
+/// saved anything: the entered credentials are the verified ones now and
+/// sync to the person's other devices.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolConnectResult {
-    pub state: SchoolSessionState,
-    pub problem: Option<SchoolSignInProblem>,
-    pub verified: bool,
-}
-
-/// The account cannot reach its school now, and why.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Unavailable {
-    pub(crate) profile: SchoolAuthProfile,
-    pub(crate) state: SchoolSessionState,
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SchoolConnectOutcome {
+    Connected,
+    /// The school refused these credentials: the ID or password, the
+    /// one-time password or the Matrix (`reason`).
+    Refused {
+        reason: SchoolSignInProblemKind,
+    },
+    /// The school wants the person on its own page: an emailed code, a new
+    /// password, a page Core does not know (`reason`).
+    NeedsWeb {
+        reason: SchoolSignInProblemKind,
+    },
+    /// No verdict: offline, the network, out of time.
+    Unreachable,
+    /// A newer Connect, a sign-out or a reset stopped it.
+    Stopped,
 }
 
 /// The identity cookies of one sign-in, as the providers sent them.
@@ -415,19 +411,19 @@ pub(crate) enum WebStop {
     NotConfigured,
     /// The web cookie store failed or is unusable.
     Storage,
-    /// An account change, or a newer identity, made it stale.
+    /// A sign-out or reset, or a newer identity, made it stale.
     Stale,
     /// The shell has no web cookie port.
     Unsupported,
 }
 
 impl WebStop {
-    fn of(state: SchoolSessionState) -> Self {
-        match state {
-            SchoolSessionState::Rejected => Self::Rejected,
-            SchoolSessionState::NeedsWeb => Self::NeedsWeb,
-            SchoolSessionState::NotConfigured => Self::NotConfigured,
-            _ => Self::Unreachable,
+    fn of(ended: &Ended) -> Self {
+        match ended {
+            Ended::Refused(problem) if problem.kind.needs_web() => Self::NeedsWeb,
+            Ended::Refused(_) => Self::Rejected,
+            Ended::NotConfigured => Self::NotConfigured,
+            Ended::Unavailable(_) | Ended::Offline | Ended::Stopped => Self::Unreachable,
         }
     }
 }
@@ -485,11 +481,11 @@ impl SchoolSessions {
         transport: Arc<dyn Transport>,
         auth: Arc<SchoolAuthService>,
     ) -> Self {
-        let configured = configured_profiles(&auth);
+        let configured = PROFILES.map(|profile| auth.configured(profile));
         let account = |profile: SchoolAuthProfile, sites: Vec<SiteSession>| Account {
             profile,
             owner: Owner::new(),
-            identity: Identity::new(configured.contains(&profile)),
+            identity: Identity::new(configured[slot(profile)]),
             sites,
             restored: tokio::sync::OnceCell::new(),
         };
@@ -561,50 +557,40 @@ impl SchoolSessions {
         }
     }
 
-    /// Signs in with `credentials`, the person's own request. A refusal on
-    /// record does not hold it back: entering credentials is the retry.
+    /// Signs in with `credentials` (blank fields already filled from the
+    /// saved ones), the person's authoritative input: it replaces a sign-in
+    /// that is running, goes through a refusal or a pause, and only an
+    /// acceptance saves anything (`identity::Inner::finish_sign_in`).
     pub async fn connect(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
-    ) -> SchoolConnectResult {
+    ) -> SchoolConnectOutcome {
         let inner = &self.0;
         inner.restore(profile).await;
-        // Another account under the same profile: the old one's session goes
-        // first, behind the barrier.
-        let switched = inner
-            .stored_account(profile)
+        let seen = inner.account(profile).identity.generation();
+        match inner
+            .sign_in(profile, seen, identity::How::Connect(credentials))
             .await
-            .is_some_and(|account| account != credentials.username);
-        if switched {
-            inner.barrier(profile, true).await;
-        }
-        let account = inner.account(profile);
-        account.identity.configured(true);
-        let generation = account.identity.generation();
-        let signed_in = inner
-            .sign_in(
-                profile,
-                generation,
-                identity::How::Connect(credentials.clone()),
-            )
-            .await;
-        let session = inner.profile(profile);
-        let verified = signed_in.is_ok() && {
-            let auth = inner.auth.clone();
-            tokio::task::spawn_blocking(move || auth.is_verified(profile, &credentials))
-                .await
-                .is_ok_and(|verified| verified.unwrap_or(false))
-        };
-        SchoolConnectResult {
-            state: session.state,
-            problem: session.problem,
-            verified,
+        {
+            Ok(_) => SchoolConnectOutcome::Connected,
+            Err(Ended::Refused(problem)) if problem.kind.needs_web() => {
+                SchoolConnectOutcome::NeedsWeb {
+                    reason: problem.kind,
+                }
+            }
+            Err(Ended::Refused(problem)) => SchoolConnectOutcome::Refused {
+                reason: problem.kind,
+            },
+            Err(Ended::Stopped) => SchoolConnectOutcome::Stopped,
+            Err(Ended::Unavailable(_) | Ended::Offline | Ended::NotConfigured) => {
+                SchoolConnectOutcome::Unreachable
+            }
         }
     }
 
     /// One foreground attempt with the credentials saved now, through a
-    /// refusal on record. Saved credentials are read again first, so a
+    /// refusal or a pause. Saved credentials are read again first, so a
     /// password changed on another device is found here.
     pub async fn retry(&self, profile: SchoolAuthProfile) -> SchoolSessionSnapshot {
         let inner = &self.0;
@@ -613,7 +599,7 @@ impl SchoolSessions {
         let account = inner.account(profile);
         account
             .identity
-            .configured(configured_profiles(&inner.auth).contains(&profile));
+            .set_configured(inner.auth.configured(profile));
         let generation = account.identity.generation();
         let _ = inner
             .sign_in(profile, generation, identity::How::Retry)
@@ -622,12 +608,14 @@ impl SchoolSessions {
     }
 
     /// Saved credentials changed outside a connect (imported, synced,
-    /// deleted). A refusal stays only while it is about the credentials
-    /// saved now: the next sign-in reads them again.
+    /// deleted). A refusal is kept with the credentials it is about, so
+    /// there is nothing to lift: the next sign-in reads them again.
     pub fn credentials_changed(&self, profile: SchoolAuthProfile) {
         self.0.auth.refresh();
-        let configured = configured_profiles(&self.0.auth).contains(&profile);
-        self.0.account(profile).identity.lift(configured);
+        self.0
+            .account(profile)
+            .identity
+            .set_configured(self.0.auth.configured(profile));
         self.0.publish();
     }
 
@@ -636,7 +624,10 @@ impl SchoolSessions {
     /// cookies of the web view.
     pub async fn sign_out(&self, profile: SchoolAuthProfile) {
         self.0.barrier(profile, true).await;
-        self.0.account(profile).identity.configured(false);
+        self.0
+            .account(profile)
+            .identity
+            .set_configured(self.0.auth.configured(profile));
         self.0.publish();
     }
 
@@ -656,8 +647,9 @@ impl SchoolSessions {
             self.0.clear_web_of(&PROFILES).await;
         }
         for account in &self.0.accounts {
-            let configured = configured_profiles(&self.0.auth).contains(&account.profile);
-            account.identity.configured(configured);
+            account
+                .identity
+                .set_configured(self.0.auth.configured(account.profile));
         }
         drop(closed);
         log::info!(target: "app_core::school_session", "sessions reset");
@@ -673,8 +665,8 @@ impl SchoolSessions {
         self.0.publish();
     }
 
-    /// The shell's periodic wake: a pause after a failure that has run out
-    /// lifts, and the planner sees it.
+    /// The shell's periodic wake: a pause that has run out goes, and shells
+    /// see it.
     pub fn wake(&self) {
         let mut changed = false;
         for account in &self.0.accounts {
@@ -686,7 +678,7 @@ impl SchoolSessions {
     }
 
     /// The network the shell reports (`Hint::Network`). While it is
-    /// offline a sign-in ends as unavailable without sending anything.
+    /// offline a sign-in ends without sending anything.
     pub(crate) fn network(&self, network: crate::sync_engine::Network) {
         self.0.offline.store(
             network == crate::sync_engine::Network::Offline,
@@ -718,15 +710,16 @@ impl SchoolSessions {
         self.0.run(site, permit, deadline, operation).await
     }
 
-    /// An attempt for a write: the site's session made ready (signing in if
-    /// needed, nothing has been sent yet), never recovered or run again.
+    /// An attempt for a write: nothing has been sent yet, and the site's
+    /// session is got (signing in if needed) only when a request needs
+    /// cookies. Never recovered or run again.
     #[cfg(feature = "agent")]
     pub(crate) async fn write_attempt(
         &self,
         site: Site,
         permit: &Permit,
         deadline: tokio::time::Instant,
-    ) -> Result<Attempt, RunError<NetError>> {
+    ) -> Attempt {
         self.0.write_attempt(site, permit, deadline).await
     }
 
@@ -734,7 +727,7 @@ impl SchoolSessions {
     /// `VERIFIED_FRESH` ago, the account usable. `None` when getting one
     /// needs the school.
     pub(crate) fn fresh(&self, profile: SchoolAuthProfile) -> Option<u64> {
-        self.0.account(profile).identity.fresh()
+        self.0.fresh(profile)
     }
 
     /// Gets `profile`'s identity ready for a web operation: a fresh one as
@@ -763,13 +756,13 @@ impl SchoolSessions {
         self.0
             .sign_in(profile, seen, identity::How::Web { past_pause })
             .await
-            .map_err(|unavailable| WebStop::of(unavailable.state))
+            .map_err(|ended| WebStop::of(&ended))
     }
 
     /// The one exit of an identity into the web view: queues the cookies of
     /// `profile`'s verified generation `identity`, while the account is
-    /// usable. The queue drops them if, by their turn, the account changed or
-    /// that generation is no longer the one to write.
+    /// usable. The queue drops them if, by their turn, the account was signed
+    /// out or reset or that generation is no longer the one to write.
     pub(crate) fn seed(
         &self,
         profile: SchoolAuthProfile,
@@ -810,28 +803,6 @@ fn slot(profile: SchoolAuthProfile) -> usize {
     }
 }
 
-/// The profiles whose credentials the status cache says are saved. Only
-/// metadata: reading it never unlocks the vault.
-fn configured_profiles(auth: &SchoolAuthService) -> HashSet<SchoolAuthProfile> {
-    let Ok(status) = auth.status() else {
-        return HashSet::new();
-    };
-    [
-        (SchoolAuthProfile::Science, status.science),
-        (SchoolAuthProfile::TokyoTech, status.tokyo_tech),
-    ]
-    .into_iter()
-    .filter(|(_, summary)| {
-        summary.saved
-            && !matches!(
-                summary.availability,
-                CredentialAvailability::NotConfigured | CredentialAvailability::Missing
-            )
-    })
-    .map(|(profile, _)| profile)
-    .collect()
-}
-
 impl Inner {
     fn account(&self, profile: SchoolAuthProfile) -> &Account {
         match profile {
@@ -851,7 +822,7 @@ impl Inner {
 
     fn profile(&self, profile: SchoolAuthProfile) -> SchoolProfileSession {
         let account = self.account(profile);
-        let (state, problem, retry_at) = account.identity.view();
+        let (state, problem, retry_at) = account.identity.view(self.auth.refusal(profile));
         SchoolProfileSession {
             state,
             problem,
@@ -903,8 +874,8 @@ impl Inner {
         }
     }
 
-    /// Reads the account's vault item once: its identity and the sites'
-    /// jars, if it belongs to the account the credentials name now.
+    /// Reads the account's vault items once: its identity, the sites' jars
+    /// and the refusals kept on this device.
     async fn restore(&self, profile: SchoolAuthProfile) {
         let account = self.account(profile);
         account
@@ -912,13 +883,11 @@ impl Inner {
             .get_or_init(|| async {
                 let auth = self.auth.clone();
                 let loaded = tokio::task::spawn_blocking(move || {
-                    let username = auth.status().ok().map(|status| match profile {
-                        SchoolAuthProfile::Science => status.science.username,
-                        SchoolAuthProfile::TokyoTech => status.tokyo_tech.username,
-                    });
+                    if let Err(error) = auth.load_refusals() {
+                        log::warn!(target: "app_core::school_session", "refusals not read: {error}");
+                    }
                     let saved = auth.load_session(profile).ok().flatten()?;
-                    let saved = Saved::decode(&saved)?;
-                    (username.as_deref() == Some(saved.account.as_str())).then_some(saved)
+                    Saved::decode(&saved)
                 })
                 .await
                 .ok()
@@ -927,8 +896,7 @@ impl Inner {
                 let snapshot = Snapshot {
                     cookies: saved.identity.clone(),
                 };
-                let Some(generation) = account.identity.restore(snapshot, saved.account.clone())
-                else {
+                let Some(generation) = account.identity.restore(snapshot) else {
                     return;
                 };
                 for site in &account.sites {
@@ -942,25 +910,29 @@ impl Inner {
         self.publish();
     }
 
-    /// The username the account's session belongs to, read back if needed.
-    async fn stored_account(&self, profile: SchoolAuthProfile) -> Option<String> {
-        self.restore(profile).await;
-        self.account(profile).identity.account()
-    }
-
-    /// Saves the identity and every site's jar of the account.
+    /// Saves the identity and every site's jar of the account. The write
+    /// holds a permit of its own until it lands, however the caller ends: a
+    /// barrier waits for it, so it never lands after the barrier deleted
+    /// the item.
     async fn persist(&self, profile: SchoolAuthProfile) {
         let account = self.account(profile);
-        let Some((snapshot, username)) = account.identity.persisted() else {
+        let Some(permit) = account.owner.permit() else {
             return;
         };
-        let mut saved = Saved::new(username, snapshot.cookies.clone());
+        let Some(snapshot) = account.identity.persisted() else {
+            return;
+        };
+        let mut saved = Saved::new(snapshot.cookies.clone());
         for site in &account.sites {
             saved = saved.with_site(site.site, site.saved_jar());
         }
         let Some(text) = saved.encode() else { return };
         let auth = self.auth.clone();
-        let stored = tokio::task::spawn_blocking(move || auth.store_session(profile, &text)).await;
+        let stored = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            auth.store_session(profile, &text)
+        })
+        .await;
         if let Ok(Err(error)) = stored {
             log::warn!(target: "app_core::school_session", "session not saved profile={profile:?}: {error}");
         }
@@ -1061,44 +1033,62 @@ impl Inner {
         }
     }
 
+    /// Whether nothing stands in the way of the account's identity: its
+    /// derived state is normal.
+    fn usable(&self, profile: SchoolAuthProfile) -> bool {
+        self.profile(profile).state == SchoolSessionState::Normal
+    }
+
+    fn fresh(&self, profile: SchoolAuthProfile) -> Option<u64> {
+        self.account(profile)
+            .identity
+            .fresh()
+            .filter(|_| self.usable(profile))
+    }
+
+    /// The snapshot a web view may be given: `generation` verified, the
+    /// account usable.
+    fn writable(&self, profile: SchoolAuthProfile, generation: u64) -> Option<Arc<Snapshot>> {
+        self.account(profile)
+            .identity
+            .verified(generation)
+            .filter(|_| self.usable(profile))
+    }
+
     async fn prepare_web(
         self: &Arc<Self>,
         profile: SchoolAuthProfile,
         past_pause: bool,
     ) -> Result<Prepared, WebStop> {
         self.restore(profile).await;
-        let identity = &self.account(profile).identity;
-        match identity.state() {
-            state @ (SchoolSessionState::NotConfigured
-            | SchoolSessionState::Rejected
-            | SchoolSessionState::NeedsWeb) => return Err(WebStop::of(state)),
-            SchoolSessionState::Unavailable if identity.paused() && !past_pause => {
-                return Err(WebStop::Unreachable)
-            }
+        match self.profile(profile).state {
+            SchoolSessionState::NotConfigured => return Err(WebStop::NotConfigured),
+            SchoolSessionState::Refused => return Err(WebStop::Rejected),
+            SchoolSessionState::NeedsWeb => return Err(WebStop::NeedsWeb),
+            SchoolSessionState::Unavailable if !past_pause => return Err(WebStop::Unreachable),
             _ => {}
         }
-        if let Some(generation) = identity.fresh() {
+        if let Some(generation) = self.fresh(profile) {
             return Ok(Prepared {
                 identity: generation,
                 signed_in: false,
             });
         }
         match self.verify(profile).await {
-            Checked::Verified(generation) if identity.writable(generation).is_some() => {
+            Checked::Verified(generation) if self.writable(profile, generation).is_some() => {
                 return Ok(Prepared {
                     identity: generation,
                     signed_in: false,
                 })
             }
-            Checked::Verified(_) => return Err(WebStop::of(identity.state())),
-            Checked::Unconfirmed => return Err(WebStop::Unreachable),
+            Checked::Verified(_) | Checked::Unconfirmed => return Err(WebStop::Unreachable),
             Checked::Expired => {}
         }
-        let seen = identity.generation();
+        let seen = self.account(profile).identity.generation();
         let generation = self
             .sign_in(profile, seen, identity::How::Web { past_pause })
             .await
-            .map_err(|unavailable| WebStop::of(unavailable.state))?;
+            .map_err(|ended| WebStop::of(&ended))?;
         Ok(Prepared {
             identity: generation,
             signed_in: true,
@@ -1117,7 +1107,7 @@ impl Inner {
         let Some(_permit) = account.owner.permit() else {
             return Err(WebStop::Stale);
         };
-        let Some(snapshot) = account.identity.writable(identity) else {
+        let Some(snapshot) = self.writable(profile, identity) else {
             return Err(WebStop::Stale);
         };
         if !self.web.usable() {
@@ -1125,13 +1115,9 @@ impl Inner {
         }
         let sessions = Arc::downgrade(self);
         let valid = Box::new(move || {
-            sessions.upgrade().is_some_and(|sessions| {
-                sessions
-                    .account(profile)
-                    .identity
-                    .writable(identity)
-                    .is_some()
-            })
+            sessions
+                .upgrade()
+                .is_some_and(|sessions| sessions.writable(profile, identity).is_some())
         });
         Ok(WebWrite {
             wait: self

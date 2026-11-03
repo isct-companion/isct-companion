@@ -73,8 +73,8 @@ pub fn gc(connection: &Connection, now: DateTime<Utc>) -> Result<GcReport, DataE
     let at = now.to_rfc3339();
     connection
         .execute(
-            "INSERT INTO sync_runs(run,dataset,key,account,started_at,finished_at,outcome,changed,source)
-             VALUES(?1,?2,'all','',?3,?3,'complete',?4,'sync_gc')",
+            "INSERT INTO sync_runs(run,dataset,key,started_at,finished_at,outcome,changed,source)
+             VALUES(?1,?2,'all',?3,?3,'complete',?4,'sync_gc')",
             params![
                 uuid::Uuid::now_v7().simple().to_string(),
                 GC_RUN,

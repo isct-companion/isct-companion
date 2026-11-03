@@ -1,7 +1,7 @@
 //! Executors of leased LMS and 教務Web keys. Each key is one read operation
 //! of its site session (`school_session::run`): the session is recovered at
-//! most once inside the call, and a session that stays unavailable ends the
-//! key as a wait, never as a failure. A complete key commits its rows, its
+//! most once inside the call, and a read that cannot reach the school ends
+//! the key as a wait for what it said lets it go on, never as a failure. A complete key commits its rows, its
 //! freshness and its `sync_runs` row in one transaction inside the lease's
 //! write gate, while the account's permit holds; any other ending is
 //! returned to the runner, which records it.
@@ -57,7 +57,11 @@ pub(crate) fn session_end<E>(
 ) -> KeyEnd {
     match error {
         RunError::Op(error) => op(error),
-        RunError::Session => KeyEnd::SessionUnavailable { profile, source },
+        RunError::Blocked(wait) => KeyEnd::Blocked {
+            profile,
+            wait,
+            source,
+        },
         RunError::Net(error) => net_end(error, source),
         RunError::Cancelled => KeyEnd::Cancelled { source },
         RunError::Deadline => KeyEnd::failed("timeout", source),
@@ -177,7 +181,7 @@ pub(crate) async fn read_lms_key(
         Ok(_) if lease.is_cancelled() || permit.is_cancelled() => KeyEnd::Cancelled {
             source: source.into(),
         },
-        // Committed while the permit holds: an account switch waits for it.
+        // Committed while the permit holds: a sign-out or reset waits for it.
         Ok(read) => lms_commit(lease, read).await,
         Err(error) => session_end(error, SchoolAuthProfile::Science, source.into(), |error| {
             lms_end(key, &error)
@@ -279,9 +283,8 @@ pub(crate) async fn read_kyomu_page(
     let unavailable = payload.status == "unavailable";
     let message = payload.message.clone();
     let writer = lease.writer();
-    let (key, account, run, started, record_source) = (
+    let (key, run, started, record_source) = (
         lease.key.clone(),
-        lease.account.clone(),
         lease.run.clone(),
         lease.started,
         source.clone(),
@@ -289,16 +292,15 @@ pub(crate) async fn read_kyomu_page(
     let applied = tokio::task::spawn_blocking(move || {
         writer.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
             let changed = if unavailable {
-                record_kyomu_unavailable(transaction, &payload, &account).map(|()| 0)?
+                record_kyomu_unavailable(transaction, &payload).map(|()| 0)?
             } else {
-                apply_kyomu_payload(transaction, &payload, &account)?
+                apply_kyomu_payload(transaction, &payload)?
             };
             sync_state::record_run(
                 transaction,
                 &RunRecord {
                     run: &run,
                     key: &key,
-                    account: &account,
                     started_at: started,
                     finished_at: Utc::now(),
                     outcome: if unavailable {
@@ -343,28 +345,22 @@ pub(crate) async fn read_kyomu_page(
 async fn lms_commit(lease: &Lease, read: LmsRead) -> KeyEnd {
     let source = moodle::source(lease.key.dataset);
     let writer = lease.writer();
-    let (key, account, run, started) = (
-        lease.key.clone(),
-        lease.account.clone(),
-        lease.run.clone(),
-        lease.started,
-    );
+    let (key, run, started) = (lease.key.clone(), lease.run.clone(), lease.started);
     let applied = tokio::task::spawn_blocking(move || {
         writer.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
             let now = Utc::now();
             let changed = match &read {
-                LmsRead::Enrolment(read) => apply_lms_enrolment(transaction, read, &account, now),
-                LmsRead::Deadlines(read) => apply_lms_deadlines(transaction, read, &account, now),
-                LmsRead::Course(read) => apply_lms_course(transaction, read, &account, now),
-                LmsRead::Assign(read) => apply_lms_assign(transaction, read, &account, now),
-                LmsRead::History(read) => apply_lms_history(transaction, read, &account, now),
+                LmsRead::Enrolment(read) => apply_lms_enrolment(transaction, read, now),
+                LmsRead::Deadlines(read) => apply_lms_deadlines(transaction, read, now),
+                LmsRead::Course(read) => apply_lms_course(transaction, read, now),
+                LmsRead::Assign(read) => apply_lms_assign(transaction, read, now),
+                LmsRead::History(read) => apply_lms_history(transaction, read, now),
             }?;
             sync_state::record_run(
                 transaction,
                 &RunRecord {
                     run: &run,
                     key: &key,
-                    account: &account,
                     started_at: started,
                     finished_at: now,
                     outcome: RunOutcome::Complete,

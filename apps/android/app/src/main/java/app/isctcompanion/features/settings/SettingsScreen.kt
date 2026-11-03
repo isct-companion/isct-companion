@@ -76,6 +76,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -98,10 +100,13 @@ import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CredentialAvailability
 import app.isctcompanion.core.CredentialSummary
 import app.isctcompanion.core.SchoolAuthProfile
+import app.isctcompanion.core.SchoolConnectOutcome
 import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolProfileSession
 import app.isctcompanion.core.SchoolSessionState
+import app.isctcompanion.core.SchoolSignInProblemKind
+import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SyncState
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.exportApplicationLogs
@@ -482,10 +487,10 @@ private fun WebCard() {
  * the network. */
 @Composable
 private fun stateColor(state: SchoolSessionState): Color = when (state) {
-    SchoolSessionState.IDLE, SchoolSessionState.UNVERIFIED, SchoolSessionState.ACTIVE -> Theme.colors.ok
-    SchoolSessionState.REJECTED -> Theme.colors.danger
+    SchoolSessionState.NORMAL -> Theme.colors.ok
+    SchoolSessionState.REFUSED -> Theme.colors.danger
     SchoolSessionState.NEEDS_WEB, SchoolSessionState.UNAVAILABLE -> Theme.colors.warn
-    SchoolSessionState.NOT_CONFIGURED, SchoolSessionState.SIGNING_IN, SchoolSessionState.VERIFYING -> Theme.colors.muted
+    SchoolSessionState.NOT_CONFIGURED, SchoolSessionState.SIGNING_IN -> Theme.colors.muted
 }
 
 @Composable
@@ -502,8 +507,8 @@ private fun AccountRow(
     val (label, color) = when {
         !connected -> t("common.notConnected") to Theme.colors.muted
         session == null -> t("settings.main.checking") to Theme.colors.muted
-        session.state == SchoolSessionState.ACTIVE -> (
-            lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: t("settings.main.connected")
+        session.state == SchoolSessionState.NORMAL -> (
+            lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: AppModel.sessionText(session.state)
             ) to Theme.colors.ok
         else -> AppModel.sessionText(session.state, session.problem, session.retryAt) to stateColor(session.state)
     }
@@ -536,7 +541,7 @@ private fun SessionStatus(
     retry: () -> Unit,
 ) {
     val state = session.state
-    val retryable = state == SchoolSessionState.REJECTED || state == SchoolSessionState.NEEDS_WEB ||
+    val retryable = state == SchoolSessionState.REFUSED || state == SchoolSessionState.NEEDS_WEB ||
         state == SchoolSessionState.UNAVAILABLE
     val maintenance = session.maintenance
     if (!retryable && maintenance == null) return
@@ -545,7 +550,7 @@ private fun SessionStatus(
             if (retryable) {
                 // The kind says what the school page asks for; signing in there
                 // is the person's own and serves only that page.
-                val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let(AppModel::reason) else null
+                val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let { AppModel.reason(it.kind) } else null
                 Text(headline ?: AppModel.sessionText(state, session.problem, session.retryAt), color = stateColor(state))
                 if (state == SchoolSessionState.NEEDS_WEB) {
                     Text(t("schoolSession.needsWeb.signInYourself"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
@@ -553,7 +558,7 @@ private fun SessionStatus(
                 OutlinedButton(onClick = retry, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                     if (retrying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("common.retry"))
                 }
-                if (state == SchoolSessionState.REJECTED) {
+                if (state == SchoolSessionState.REFUSED) {
                     Text(t("schoolSession.retry.otherDevice"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
                 }
             }
@@ -580,7 +585,8 @@ private fun WebKept(enabled: Boolean, clear: () -> Unit) {
 }
 
 /** Sign in, change or forget a school account. The password goes straight to
- * Core, which stores it in the Keystore vault and signs in with it. */
+ * Core, which signs in with it and stores it in the Keystore vault only when
+ * the school accepted it. */
 @Composable
 private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val model = LocalModel.current
@@ -594,6 +600,10 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     var retrying by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var outcome by remember { mutableStateOf<SchoolConnectOutcome?>(null) }
+    // Bumped when a Connect saved the entries, which clears the OTP and
+    // Matrix sections' own state along with the fields.
+    var entries by remember { mutableIntStateOf(0) }
     val busy = saving || retrying || removing
     val saved = summary?.saved == true
     val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
@@ -634,26 +644,33 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
         )
         Secret(password, { password = it }, if (saved) t("settings.main.passwordEnterOnlyToChange") else t("settings.main.password"), login = true)
         Footer(t("settings.main.thePasswordIsEncryptedIn"))
-        if (profile == SchoolAuthProfile.SCIENCE) {
-            SectionLabel(t("settings.main.oneTimePassword"))
-            OtpImportField(summary?.hasOtp == true, otpSecret) { otpSecret = it }
-        } else {
-            SectionLabel(t("settings.main.matrixCard"))
-            MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
+        key(entries) {
+            if (profile == SchoolAuthProfile.SCIENCE) {
+                SectionLabel(t("settings.main.oneTimePassword"))
+                OtpImportField(summary?.hasOtp == true, otpSecret) { otpSecret = it }
+            } else {
+                SectionLabel(t("settings.main.matrixCard"))
+                MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
+            }
         }
+        outcome?.let { ConnectOutcome(profile, it) }
         error?.let { Footer(it, Theme.colors.danger) }
         Button(
             onClick = {
                 scope.launch {
                     saving = true
                     error = null
+                    outcome = null
                     try {
-                        val result = model.connect(profile, SchoolCredentials(username, password, otpSecret, matrix))
-                        // Stay on the page with the reason, so the person can correct it.
-                        if (result != null && result.state != SchoolSessionState.ACTIVE) {
-                            error = result.problem?.let(AppModel::reason) ?: AppModel.sessionText(result.state)
-                        } else {
-                            done()
+                        outcome = model.connect(profile, SchoolCredentials(username, password, otpSecret, matrix))
+                        // Only Connected saved the entries; after any other
+                        // outcome they stay, so the person can fix them and
+                        // press Connect again.
+                        if (outcome is SchoolConnectOutcome.Connected) {
+                            password = ""
+                            otpSecret = ""
+                            matrix = ""
+                            entries++
                         }
                     } catch (failure: Exception) {
                         error = AppModel.describe(failure)
@@ -692,6 +709,40 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                     Text(t("settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger)
                 }
             }
+        }
+    }
+}
+
+/** What a Connect ended with, under the form. Every outcome but Connected
+ * saved nothing, and says so. When the Science Tokyo account asks for an
+ * emailed code, the app can sign in by itself only with App OTP: the portal
+ * opens in the ウェブ tab as it is, the person sets App OTP up there, enters it
+ * in the OTP field and presses Connect again. */
+@Composable
+private fun ConnectOutcome(profile: SchoolAuthProfile, outcome: SchoolConnectOutcome) {
+    val model = LocalModel.current
+    val navigator = LocalNavigator.current
+    val notSaved = t("schoolSession.connect.notSaved")
+    val (text, color) = when (outcome) {
+        is SchoolConnectOutcome.Connected -> t("schoolSession.connect.connected") to Theme.colors.ok
+        is SchoolConnectOutcome.Refused -> "${AppModel.reason(outcome.reason)}\n$notSaved" to Theme.colors.danger
+        is SchoolConnectOutcome.NeedsWeb -> "${AppModel.reason(outcome.reason)}\n$notSaved" to Theme.colors.warn
+        is SchoolConnectOutcome.Unreachable -> t("schoolSession.connect.unreachable") to Theme.colors.warn
+        is SchoolConnectOutcome.Stopped -> t("schoolSession.connect.stopped") to Theme.colors.muted
+    }
+    Footer(text, color)
+    if (profile == SchoolAuthProfile.SCIENCE && outcome is SchoolConnectOutcome.NeedsWeb &&
+        outcome.reason == SchoolSignInProblemKind.EMAIL_OTP
+    ) {
+        Footer(t("schoolSession.appOtp.explain"))
+        OutlinedButton(
+            onClick = {
+                model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
+                navigator.openTab("tab/web")
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(t("schoolSession.appOtp.openPortal"))
         }
     }
 }

@@ -100,7 +100,7 @@ impl DataStore {
         let setting = search_options_setting(year);
         self.catalog_write(year, |transaction| {
             if read_setting(transaction, &setting)?.as_ref() == Some(options)
-                && crate::sync_state::renew(transaction, &key, "", now)?
+                && crate::sync_state::renew(transaction, &key, now)?
             {
                 return Ok(());
             }
@@ -109,7 +109,6 @@ impl DataStore {
                 transaction,
                 &key,
                 crate::sync_state::Commit {
-                    account: "",
                     validator: Some(&content_hash(options)?),
                     outcome: crate::sync_state::Outcome::Complete,
                     message: None,

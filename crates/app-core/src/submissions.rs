@@ -7,10 +7,10 @@
 //! returns an immutable [`Preparation`]; the same content against the same
 //! LMS state gives the same preparation. `execute` takes the preparation's
 //! id with an echo of its summary, the one the MCP client showed the person,
-//! and refuses any difference. It re-reads the LMS, refuses when the account
-//! or what the LMS holds moved, and uploads only the snapshot. Core derives
-//! the idempotency key itself; anything a caller passes is only a handle.
-//! One write per account and assignment runs at a time, its record is stored
+//! and refuses any difference. It re-reads the LMS, refuses when what the
+//! LMS holds moved, and uploads only the snapshot. Core derives the
+//! idempotency key itself; anything a caller passes is only a handle.
+//! One write per assignment runs at a time, its record is stored
 //! before anything is sent, and a write whose outcome is unknown is settled
 //! by reading the LMS, never by sending it again.
 //!
@@ -46,15 +46,13 @@ const RECEIPT_RETENTION: i64 = PREPARATION_TTL;
 /// Hex characters of each sha256 the confirmation shows.
 const DIGEST_PREFIX: usize = 12;
 
-/// The account and site the transport reads and writes as.
+/// The site and user the transport reads and writes as.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LmsIdentity {
-    /// As `sync_state::account` writes it, e.g. `science:<username>`.
-    pub account: String,
     /// The Moodle site root.
     pub site: String,
-    /// The Moodle user id the site reports for the account.
+    /// The Moodle user id the site reports.
     pub user_id: u64,
 }
 
@@ -177,7 +175,7 @@ static GRANT: WriteGrant = WriteGrant { _sealed: () };
 /// read-only, and each write takes a [`WriteGrant`], which only
 /// [`SubmissionService`] holds.
 pub trait SubmissionTransport: Send + Sync {
-    /// One assignment's submission, read as the account signed in now.
+    /// One assignment's submission, as the LMS holds it now.
     fn read(&self, module: LmsModule) -> BoxFuture<'_, Result<RemoteSubmission, TransportError>>;
     /// Uploads `files` into one new draft area and returns its item id.
     fn upload<'a>(
@@ -322,11 +320,10 @@ impl Preparation {
     }
 
     /// The write's identity, from what Core recorded and nothing a caller
-    /// passed: account, assignment, attempt, action and snapshot.
+    /// passed: site, user, assignment, attempt, action and snapshot.
     fn key(&self) -> String {
         let mut material = format!(
-            "submission-v1\n{:?}\n{:?}\n{}\n{}\n{}\n{}\n",
-            self.identity.account,
+            "submission-v2\n{:?}\n{}\n{}\n{}\n{}\n",
             self.identity.site,
             self.identity.user_id,
             self.assign_id,
@@ -594,8 +591,6 @@ pub enum SubmissionError {
     NothingToRemove,
     #[error("The LMS submission changed after it was prepared")]
     RemoteConflict,
-    #[error("The LMS account changed after the submission was prepared")]
-    AccountChanged,
     #[error("The files to hand in changed after they were prepared")]
     FilesChanged,
     #[error("The confirmation does not match the prepared submission ({0})")]
@@ -1064,9 +1059,6 @@ impl SubmissionService {
         operation: &Operation,
         remote: &RemoteSubmission,
     ) -> Result<Option<Operation>, SubmissionError> {
-        if remote.identity != preparation.identity {
-            return Err(SubmissionError::AccountChanged);
-        }
         if remote.assign_id != preparation.assign_id || remote.cmid != preparation.module.cmid {
             return Err(SubmissionError::RemoteConflict);
         }
@@ -1115,10 +1107,8 @@ impl SubmissionService {
     ) -> Result<Operation, SubmissionError> {
         let from = operation.state;
         let now = self.now();
-        let readable =
-            remote.identity == operation.identity && remote.assign_id == operation.assign_id;
-        let verdict = if !readable {
-            // Another account's LMS says nothing about this write.
+        let verdict = if remote.assign_id != operation.assign_id {
+            // Another assignment says nothing about this write.
             None
         } else if operation.applied(&remote.state) {
             Some((OperationState::Succeeded, None))

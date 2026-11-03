@@ -81,10 +81,9 @@ pub(super) fn remove_detail(state: &mut Value, list: &str, id: u64, key: &str) {
 pub(crate) struct LmsReader {
     client: Arc<MoodleClient>,
     transport: Transport,
-    /// The signed-in dashboard once read, and the site instance it was read
-    /// on: the cookie path opens with it and the timetable grids come from
-    /// it.
-    dashboard: Option<(u64, Dashboard)>,
+    /// The signed-in dashboard once read: the cookie path opens with it and
+    /// the timetable grids come from it.
+    dashboard: Option<Dashboard>,
     language: String,
 }
 
@@ -93,7 +92,7 @@ impl LmsReader {
         client: Arc<MoodleClient>,
         transport: Transport,
         language: String,
-        dashboard: Option<(u64, Dashboard)>,
+        dashboard: Option<Dashboard>,
     ) -> Self {
         Self {
             client,
@@ -121,7 +120,7 @@ impl LmsReader {
                     self.language = dashboard.config.language.clone();
                 }
                 self.transport = Transport::Cookie(transport);
-                self.dashboard = Some((attempt.instance(), dashboard));
+                self.dashboard = Some(dashboard);
                 true
             }
             Err(error) => {
@@ -197,12 +196,16 @@ impl LmsReader {
         years: &BTreeSet<i32>,
     ) -> Result<Vec<Value>, KeyError> {
         // A dashboard of another site instance is not this session's page.
+        let instance = attempt
+            .instance()
+            .await
+            .map_err(|error| KeyError::new("my/", error.into()).on_cookie())?;
         let dashboard = match self
             .dashboard
             .take()
-            .filter(|(instance, _)| *instance == attempt.instance())
+            .filter(|dashboard| dashboard.instance == instance)
         {
-            Some((_, dashboard)) => dashboard,
+            Some(dashboard) => dashboard,
             None => MoodleClient::load_dashboard(attempt)
                 .await
                 .map_err(|error| KeyError::new("my/", error).on_cookie())?,
@@ -211,7 +214,7 @@ impl LmsReader {
             self.language = dashboard.config.language.clone();
         }
         let grids = self.client.timetables(attempt, &dashboard, years).await;
-        self.dashboard = Some((attempt.instance(), dashboard));
+        self.dashboard = Some(dashboard);
         grids.map_err(KeyError::on_cookie)
     }
 

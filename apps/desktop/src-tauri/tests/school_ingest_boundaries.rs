@@ -10,8 +10,6 @@ use app_core::lms_ingest::{apply_lms_course, apply_lms_deadlines, apply_lms_enro
 
 use serde_json::{json, Value};
 
-const ACCOUNT: &str = "science:24B00001";
-
 #[test]
 fn validated_lms_keys_project_to_workspace_course_material_and_assignment() {
     // Synthetic, non-personal input exercises only the deterministic projection
@@ -94,9 +92,9 @@ fn validated_lms_keys_project_to_workspace_course_material_and_assignment() {
         .unwrap();
     let transaction = connection.transaction().unwrap();
     let now = chrono::Utc::now();
-    apply_lms_enrolment(&transaction, &enrolment, ACCOUNT, now).expect("enrolment key");
-    apply_lms_course(&transaction, &outline, ACCOUNT, now).expect("course key");
-    apply_lms_deadlines(&transaction, &deadlines, ACCOUNT, now).expect("deadlines key");
+    apply_lms_enrolment(&transaction, &enrolment, now).expect("enrolment key");
+    apply_lms_course(&transaction, &outline, now).expect("course key");
+    apply_lms_deadlines(&transaction, &deadlines, now).expect("deadlines key");
     transaction.commit().unwrap();
 
     let row = |table: &str, id: &str| -> Value {
@@ -243,8 +241,8 @@ fn real_moodle_shapes_keep_odd_course_records_and_aggregate_everything() {
     let mut connection = data::migrations::open_in_memory().expect("both schemas");
     let transaction = connection.transaction().unwrap();
     let now = chrono::Utc::now();
-    apply_lms_enrolment(&transaction, &enrolment, ACCOUNT, now).expect("enrolment");
-    apply_lms_deadlines(&transaction, &deadlines, ACCOUNT, now).expect("deadlines");
+    apply_lms_enrolment(&transaction, &enrolment, now).expect("enrolment");
+    apply_lms_deadlines(&transaction, &deadlines, now).expect("deadlines");
     transaction.commit().unwrap();
     let value = |table: &str, id: &str| -> Value {
         let raw: String = connection

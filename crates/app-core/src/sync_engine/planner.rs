@@ -1,13 +1,12 @@
 //! What is due, in which order, and why due work waits. Pure over the
 //! stored facts ([`Inputs`]) and the shell's facts ([`Facts`]), so the rules
 //! can be read (and tested) without a runner.
-use super::{Held, Network, Priority, Scope, View};
+use super::{AccountWait, Held, Network, Priority, Scope, View};
 use crate::{
     lifecycle::SchoolSite,
     lms_ingest::{current_lms_term, lms_course_term, StoredLmsCourse},
     net::Host,
     school_auth::SchoolAuthProfile,
-    school_session::SchoolSessionState,
     sync_state::{self, Dataset, Due, Key, KeyState, Term},
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
@@ -86,10 +85,7 @@ pub(crate) struct ReferenceWatch {
 pub(crate) struct Inputs {
     pub(crate) states: HashMap<Key, KeyState>,
     pub(crate) courses: Vec<StoredLmsCourse>,
-    /// `SchoolAuthService::sync_account`; `None` when it could not be read.
-    pub(crate) science: Option<String>,
-    pub(crate) tokyo: Option<String>,
-    /// Saved credentials exist, so a read may sign in on its own.
+    /// Saved credentials exist, so Core reads the account's data on its own.
     pub(crate) science_configured: bool,
     pub(crate) tokyo_configured: bool,
     pub(crate) allow_cellular: bool,
@@ -102,16 +98,6 @@ pub(crate) struct Inputs {
 }
 
 impl Inputs {
-    fn account(&self, dataset: Dataset) -> Option<String> {
-        match profile_of(dataset) {
-            // 教務 course search rows are public; the session only reads them.
-            Some(_) if dataset == Dataset::CatalogOfficial => Some(String::new()),
-            Some(SchoolAuthProfile::Science) => self.science.clone(),
-            Some(SchoolAuthProfile::TokyoTech) => self.tokyo.clone(),
-            None => Some(String::new()),
-        }
-    }
-
     fn configured(&self, profile: SchoolAuthProfile) -> bool {
         match profile {
             SchoolAuthProfile::Science => self.science_configured,
@@ -132,9 +118,9 @@ pub(crate) struct Facts {
     pub(crate) suspended: bool,
     pub(crate) power_saver: bool,
     pub(crate) resetting: bool,
-    /// Each account's session as its snapshot last said; empty until the
-    /// school readers are attached.
-    pub(crate) sessions: HashMap<SchoolAuthProfile, SessionFact>,
+    /// Accounts whose last read could not reach the school, and what lets
+    /// their reads go on (`KeyEnd::Blocked`).
+    pub(crate) blocked: HashMap<SchoolAuthProfile, AccountWait>,
     /// Hosts the circuit breaker paused, until when.
     pub(crate) paused: HashMap<Host, DateTime<Utc>>,
 }
@@ -147,57 +133,29 @@ impl Default for Facts {
             suspended: false,
             power_saver: false,
             resetting: false,
-            sessions: HashMap::new(),
+            blocked: HashMap::new(),
             paused: HashMap::new(),
         }
     }
 }
 
-/// One account's session, as the session snapshot gives it.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SessionFact {
-    pub(crate) state: SchoolSessionState,
-    pub(crate) retry_at: Option<DateTime<Utc>>,
-    pub(crate) maintenance: Option<String>,
-}
-
 impl Facts {
-    /// Whether Core reads the account's school data on its own: it is
-    /// connected, and the school has not turned it down or asked for the
-    /// person on its page.
-    fn reads(&self, inputs: &Inputs, profile: SchoolAuthProfile) -> bool {
-        inputs.configured(profile)
-            && self.sessions.get(&profile).is_some_and(|fact| {
-                !matches!(
-                    fact.state,
-                    SchoolSessionState::NotConfigured
-                        | SchoolSessionState::Rejected
-                        | SchoolSessionState::NeedsWeb
-                )
-            })
-    }
-
-    /// Why the account's reads wait for its session now, if they do.
-    pub(crate) fn session_hold(
+    /// Why the account's reads wait now: what the last read that could not
+    /// reach its school said, while it still holds. Nothing is predicted
+    /// from the account's state.
+    pub(crate) fn account_hold(
         &self,
-        inputs: &Inputs,
         profile: SchoolAuthProfile,
         now: DateTime<Utc>,
     ) -> Option<Held> {
-        let state = match self.sessions.get(&profile) {
-            None => SchoolSessionState::NotConfigured,
-            Some(_) if !inputs.configured(profile) => SchoolSessionState::NotConfigured,
-            Some(fact) => match fact.state {
-                SchoolSessionState::Unavailable if fact.retry_at.is_none_or(|at| at > now) => {
-                    SchoolSessionState::Unavailable
-                }
-                state @ (SchoolSessionState::NotConfigured
-                | SchoolSessionState::Rejected
-                | SchoolSessionState::NeedsWeb) => state,
-                _ => return None,
-            },
-        };
-        Some(Held::Session { profile, state })
+        let wait = self.blocked.get(&profile)?;
+        if matches!(wait, AccountWait::Paused { until } if *until <= now) {
+            return None;
+        }
+        Some(Held::Account {
+            profile,
+            wait: wait.clone(),
+        })
     }
 }
 
@@ -229,7 +187,6 @@ pub(crate) struct Candidate {
     pub(crate) priority: Priority,
     /// 0 missing, 1 stale; lower is leased first within a priority.
     pub(crate) rank: u8,
-    pub(crate) account: String,
     pub(crate) held: Option<Held>,
     pub(crate) group: Group,
     /// The course title, page or department the key reads, for progress.
@@ -254,7 +211,6 @@ struct Watch {
     priority: Priority,
     rule: Rule,
     term: Term,
-    account: String,
     scope: Option<String>,
     title: Option<String>,
     locator: Option<String>,
@@ -322,7 +278,7 @@ pub(crate) fn japanese_key(key: &Key) -> Option<Key> {
 }
 
 /// The one table of read order: the key whose stored rows a read of `key`
-/// lands on. Until that key is read for the same account, `key` waits
+/// lands on. Until that key is read, `key` waits
 /// ([`Held::Prerequisite`]) and the plan wants the prerequisite at `key`'s
 /// priority.
 pub(crate) fn prerequisite(key: &Key) -> Option<Key> {
@@ -342,17 +298,17 @@ pub(crate) fn prerequisite(key: &Key) -> Option<Key> {
     }
 }
 
-/// Whether `key` was read for the account that reads its dataset now.
-fn read_for_account(key: &Key, inputs: &Inputs) -> bool {
-    let account = inputs.account(key.dataset);
-    inputs.states.get(key).is_some_and(|state| {
-        state.fetched_at.is_some() && account.as_deref() == Some(state.account.as_str())
-    })
+/// Whether `key` was read.
+fn read(key: &Key, inputs: &Inputs) -> bool {
+    inputs
+        .states
+        .get(key)
+        .is_some_and(|state| state.fetched_at.is_some())
 }
 
 /// `key`'s prerequisite, while it is not read.
 fn missing_prerequisite(key: &Key, inputs: &Inputs) -> Option<Key> {
-    prerequisite(key).filter(|prerequisite| !read_for_account(prerequisite, inputs))
+    prerequisite(key).filter(|prerequisite| !read(prerequisite, inputs))
 }
 
 /// A year's whole catalog: its official departments.
@@ -509,15 +465,13 @@ fn first_read(view: &View, key: &Key, inputs: &Inputs) -> bool {
             .is_none_or(|state| state.fetched_at.is_none())
 }
 
-/// The base attributes of `key`, or `None` when nothing can read it (an
-/// account that could not be read, a reference kind that is off).
+/// The base attributes of `key`, or `None` when nothing can read it (a
+/// course no longer listed, a reference kind that is off).
 fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
-    let account = inputs.account(key.dataset)?;
     let mut watch = Watch {
         priority: Priority::Background,
         rule: Rule::Ttl,
         term: Term::Current,
-        account,
         scope: match key.dataset {
             Dataset::CatalogOfficial => key.key.split('/').next().map(str::to_owned),
             _ => None,
@@ -537,7 +491,7 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
                 // The stored enrolment list lacks it: not (or no longer) the
                 // person's course, so the ingest would refuse its rows. It is
                 // wanted again once a list that holds it lands.
-                None if read_for_account(&Key::new(Dataset::LmsEnrolment, "all"), inputs) => {
+                None if read(&Key::new(Dataset::LmsEnrolment, "all"), inputs) => {
                     return None;
                 }
                 None => {}
@@ -563,10 +517,11 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
     Some(watch)
 }
 
-/// Keys Core keeps current without being asked, with their priority.
-fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Key, Priority)> {
+/// Keys Core keeps current without being asked, with their priority: an
+/// account's once its credentials are saved.
+fn automatic_keys(inputs: &Inputs, now: DateTime<Utc>) -> Vec<(Key, Priority)> {
     let mut keys = Vec::new();
-    if facts.reads(inputs, SchoolAuthProfile::Science) {
+    if inputs.configured(SchoolAuthProfile::Science) {
         keys.extend(lms_all().map(|key| (key, Priority::Visible)));
         let current = current_lms_term(now);
         for course in &inputs.courses {
@@ -592,7 +547,7 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
             ));
         }
     }
-    if facts.reads(inputs, SchoolAuthProfile::TokyoTech) {
+    if inputs.configured(SchoolAuthProfile::TokyoTech) {
         keys.extend(kyomu_keys().into_iter().map(|key| (key, Priority::Visible)));
         if let Some(year) = inputs.year {
             keys.extend(
@@ -647,15 +602,13 @@ fn evaluate(
     now: DateTime<Utc>,
 ) -> Option<(u8, Option<Held>)> {
     let ttl = sync_state::ttl(key.dataset, watch.term);
-    let fetched = state
-        .filter(|state| state.account == watch.account)
-        .and_then(|state| state.fetched_at);
+    let fetched = state.and_then(|state| state.fetched_at);
     if watch.rule == Rule::Manual {
         return Some((u8::from(fetched.is_some()), None));
     }
     let due = watch
         .due
-        .unwrap_or_else(|| sync_state::due(state, ttl, &watch.account, now));
+        .unwrap_or_else(|| sync_state::due(state, ttl, now));
     match due {
         Due::Missing => Some((0, None)),
         Due::Stale => Some((1, None)),
@@ -697,9 +650,7 @@ pub(crate) fn hold(
             until: *until,
         });
     }
-    if let Some(held) =
-        profile_of(dataset).and_then(|profile| facts.session_hold(inputs, profile, now))
-    {
+    if let Some(held) = profile_of(dataset).and_then(|profile| facts.account_hold(profile, now)) {
         return Some(held);
     }
     if facts.suspended {
@@ -728,7 +679,7 @@ pub(crate) fn plan(
     now: DateTime<Utc>,
 ) -> Vec<Candidate> {
     let mut watched = BTreeMap::new();
-    for (key, priority) in automatic_keys(inputs, facts, now) {
+    for (key, priority) in automatic_keys(inputs, now) {
         want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
     }
     for view in opens {
@@ -787,7 +738,6 @@ pub(crate) fn plan(
                 lane: Lane::of(key.dataset),
                 priority: watch.priority,
                 rank,
-                account: watch.account,
                 held,
                 group,
                 title: watch.title,

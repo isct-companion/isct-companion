@@ -339,10 +339,12 @@ impl SchoolBrowserEngine {
         let already_open = view.is_some();
         // A surface coming back finds the view as it left it, unless another
         // surface showed it meanwhile.
+        let unsigned = entry == SchoolWebEntry::Unsigned;
         let target = match entry {
             SchoolWebEntry::Resume => None,
             SchoolWebEntry::Return { .. } if presenter.as_deref() == Some(surface) => None,
             SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
+            SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
         };
         let explicit_target = target.is_some();
         let target = target
@@ -360,8 +362,9 @@ impl SchoolBrowserEngine {
             }
         };
         // Where the account's identity is written first, a web operation
-        // opens the target (`operation`).
-        let operation = site_profile(site).filter(|_| navigates && self.0.sessions.seeds_web());
+        // opens the target (`operation`); an unsigned entry never does.
+        let operation =
+            site_profile(site).filter(|_| navigates && !unsigned && self.0.sessions.seeds_web());
         self.user_browsing(Some(site))?;
         // A new view that gets the account's identity starts blank: its
         // store exists before the cookies are written, and its first page

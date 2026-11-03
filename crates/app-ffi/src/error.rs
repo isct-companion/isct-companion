@@ -46,7 +46,6 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::CloudConflict
         | C::CloudConflictExhausted
         | C::SubmissionRemoteConflict
-        | C::SubmissionAccountChanged
         | C::SubmissionFilesChanged
         | C::SubmissionExpired
         | C::SubmissionMismatch => SdkError::Conflict { detail },

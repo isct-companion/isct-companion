@@ -29,15 +29,15 @@ pub(crate) async fn school_credential_status(
     with_credentials(service.inner().clone(), |service| service.status()).await
 }
 
-/// Settings' "Save and connect": Core keeps the entered credentials, signs
-/// in with them and says why if the school turned them down.
+/// Settings' "Save and connect": Core signs in with the entered credentials,
+/// saves them once the school accepts them, and says how it ended.
 #[tauri::command]
 pub(crate) async fn connect_school(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
-) -> Result<app_core::school_session::SchoolConnectResult, CommandError> {
+) -> Result<app_core::school_session::SchoolConnectOutcome, CommandError> {
     require_local_main(&webview)?;
     let core = crate::core_ports::core(&app);
     crate::core_ports::runtime(&app)

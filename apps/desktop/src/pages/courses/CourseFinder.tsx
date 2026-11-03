@@ -16,8 +16,8 @@ import type { FinderRowView } from "../../platform/finder-query";
 import type { CourseEligibility } from "../../generated/persistence";
 import { runsFor } from "../../platform/sync";
 import { useSync } from "../../app/useSync";
-import { sessionStateText } from "../../app/sync-text";
-import { t, type MessageKey } from "../../i18n";
+import { heldText } from "../../app/sync-text";
+import i18n, { t, type MessageKey } from "../../i18n";
 import type { Finder } from "./useFinder";
 
 /** Core names the official filter groups in English; this table gives each
@@ -169,15 +169,13 @@ export function CourseFinder({
   // (`catalog.official`); the finder re-reads it when it lands.
   const sync = useSync();
   const catalogRuns = runsFor(sync, ["catalog.official"], String(year));
-  // The catalog is the 教務 course search: it waits for the 教務 session.
-  const sessionHeld = catalogRuns.flatMap((run) =>
-    run.held?.kind === "session" ? [run.held] : [],
+  // The catalog is the 教務 course search: it waits when a read could not
+  // reach the 教務 account.
+  const accountHeld = catalogRuns.flatMap((run) =>
+    run.held?.kind === "account" ? [run.held] : [],
   )[0];
-  // Only these wait on the person; the rest Core resolves by itself.
-  const signInNeeded =
-    sessionHeld?.state === "not-configured" ||
-    sessionHeld?.state === "rejected" ||
-    sessionHeld?.state === "needs-web";
+  // Only this waits on the person; Core resolves the rest by itself.
+  const signInNeeded = accountHeld?.wait.kind === "person";
   const downloading = catalogRuns.some((run) => !run.failure && !run.held);
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
@@ -707,8 +705,8 @@ export function CourseFinder({
               ? t("courses.downloadingTheYearCourseCatalogResults", { year })
               : stored === 0 && signInNeeded
                 ? t("courses.signInToSearchCourses")
-                : stored === 0 && sessionHeld
-                  ? sessionStateText(sessionHeld.state)
+                : stored === 0 && accountHeld
+                  ? heldText(accountHeld, i18n.language)
                   : stored === 0
                     ? t("courses.noYearCourseCatalogIs", { year })
                     : t("courses.noMatchingCoursesRemoveA")}

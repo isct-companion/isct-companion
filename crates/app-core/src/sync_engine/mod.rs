@@ -139,18 +139,31 @@ pub enum Held {
         host: String,
         until: DateTime<Utc>,
     },
-    /// The account's session is not available now (signing in, refused,
-    /// waiting for the person on the web page, or for its retry time). Not a
-    /// failure: no backoff, and the key reads once the session changes.
-    Session {
+    /// A read of the account could not reach its school
+    /// (`school_session::run`): every key of the account waits for what
+    /// that read said lets it go on. Not a failure: no backoff.
+    Account {
         profile: SchoolAuthProfile,
-        state: SchoolSessionState,
+        wait: AccountWait,
     },
     Resetting,
     /// Reads once the data it lands on is stored (`planner::prerequisite`):
     /// a course after the enrolment list, its assignments after the course.
     /// Not a failure.
     Prerequisite,
+}
+
+/// What lets an account's reads go on after one could not reach its school.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AccountWait {
+    /// The person: no credentials, the school refused them or wants its own
+    /// page. Until the credentials change, or the person's Retry or Connect.
+    Person,
+    /// A pause after a sign-in without a verdict, until `until`.
+    Paused { until: DateTime<Utc> },
+    /// The shell reports no network: until it returns.
+    Network,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

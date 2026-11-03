@@ -177,6 +177,11 @@ function WebBody({
       setSite(requested as SchoolSite);
       return;
     }
+    // Settings → "Open the Science Tokyo portal" asks once for the site's
+    // start page without a sign-in (`SchoolWebEntry` `unsigned`).
+    const unsigned =
+      !target &&
+      sessionStorage.getItem("isct-companion-unsigned-school-site") === site;
     let cancelled = false;
     let ready = false;
     const { css, js } = customization(site);
@@ -203,7 +208,9 @@ function WebBody({
             surface,
             resolved.url
               ? { kind: "go", url: resolved.url }
-              : { kind: "resume" },
+              : unsigned
+                ? { kind: "unsigned" }
+                : { kind: "resume" },
           );
         });
       })
@@ -211,6 +218,8 @@ function WebBody({
         if (cancelled || !state) return;
         ready = true;
         openedRequest.current = requestKey;
+        if (unsigned)
+          sessionStorage.removeItem("isct-companion-unsigned-school-site");
         if (!editingAddress.current) setAddress(state.url);
         setStatus("");
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);

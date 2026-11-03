@@ -756,16 +756,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh(SyncScope.Everything)
     }
 
-    /** "Save and connect": Core keeps the entered details, signs in with
-     * them and returns why the school turned them down, if it did. */
-    suspend fun connect(profile: SchoolAuthProfile, credentials: SchoolCredentials): SchoolConnectResult? {
+    /** "Save and connect": Core signs in with the entered details and keeps
+     * them only when the school accepted them (`Connected`); every other
+     * outcome saved nothing. */
+    suspend fun connect(profile: SchoolAuthProfile, credentials: SchoolCredentials): SchoolConnectOutcome? {
         val session = session ?: return null
         val value = session.connectSchool(profile, credentials).value()
         refreshAccounts()
-        return (value as? OperationResult.SchoolConnect)?.result
+        return (value as? OperationResult.SchoolConnect)?.outcome
     }
 
-    /** Retry on an account Core holds (`rejected`, `needs-web`) or waits on
+    /** Retry on an account Core holds (`refused`, `needs-web`) or waits on
      * (`unavailable`): Core reads the synced credentials again and signs in
      * once in front; the credentials stay as they are. */
     suspend fun retrySchool(profile: SchoolAuthProfile) {
@@ -935,7 +936,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     companion object {
         /** Core's sign-in problem in the person's words, chosen by its kind.
          * Core's `message` is a diagnostic for the log, never shown. */
-        fun reason(problem: SchoolSignInProblem): String = when (problem.kind) {
+        fun reason(kind: SchoolSignInProblemKind): String = when (kind) {
             SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
             SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
             SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
@@ -952,12 +953,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
             when (state) {
                 SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
-                SchoolSessionState.IDLE -> t("schoolSession.state.idle")
+                SchoolSessionState.NORMAL -> t("schoolSession.state.normal")
                 SchoolSessionState.SIGNING_IN -> t("common.signingIn")
-                SchoolSessionState.UNVERIFIED -> t("schoolSession.state.unverified")
-                SchoolSessionState.VERIFYING -> t("schoolSession.state.verifying")
-                SchoolSessionState.ACTIVE -> t("settings.main.connected")
-                SchoolSessionState.REJECTED -> problem?.let(::reason) ?: t("schoolSession.state.rejected")
+                SchoolSessionState.REFUSED -> problem?.let { reason(it.kind) } ?: t("schoolSession.state.refused")
                 SchoolSessionState.NEEDS_WEB -> t("schoolSession.state.needsWeb")
                 SchoolSessionState.UNAVAILABLE -> Format.date(retryAt)
                     ?.let { t("schoolSession.state.unavailableRetry", "time" to Format.time(it)) }

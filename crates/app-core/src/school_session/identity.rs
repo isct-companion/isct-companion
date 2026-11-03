@@ -1,5 +1,13 @@
-//! An account's identity: its state, its snapshot, the one sign-in and the
-//! one verification that may run for it.
+//! An account's identity: the facts Core keeps about it, the one sign-in
+//! and the one verification that may run for it, and the state shells see,
+//! derived from those facts.
+//!
+//! The facts: whether credentials are saved (and the school's refusal of
+//! exact credentials, which `school_auth` keeps with them); a pause after a
+//! sign-in that got no verdict; the identity cookie snapshot, whether the
+//! school found it invalid and when it last confirmed it; and the running
+//! sign-in. No state is stored and moved from one value to another: `view`
+//! derives what shells render.
 //!
 //! A snapshot is trusted in generations. One read back from the vault is
 //! unverified; a sign-in makes a verified one; a verification (a bounded
@@ -10,18 +18,20 @@
 //! sign-in page says nothing about the identity, and a read that reused a
 //! site's instance verifies nothing.
 //!
-//! Only the identity changes its state. The sign-in belongs to the identity,
-//! not to whoever asked: a caller that stops waiting leaves it running for
-//! the others; signing out, a reset, an account switch, Core's shutdown and
-//! the system taking the background time back end it. Passwords go out only
-//! when the identity provider shows its sign-in page, and a refusal is kept
-//! with the credentials it is about, so they are not sent again until they
-//! change or the person retries.
+//! The sign-in belongs to the identity, not to whoever asked: a caller that
+//! stops waiting leaves it running for the others; signing out, a reset,
+//! Core's shutdown and the system taking the background time back end it,
+//! and the person's Connect replaces it. A sign-in's result applies only to
+//! its own credentials, and only while it is still the account's sign-in: a
+//! replaced one changes nothing. Passwords go out only when the identity
+//! provider shows its sign-in page, and a refusal is kept with the
+//! credentials it is about, so Core does not send them again on its own
+//! until they change or the person retries.
 
 use super::{
     guard, login, site::Walked, Inner, Permit, SchoolSessionState, SchoolSignInProblem,
-    SchoolSignInProblemKind as Kind, Snapshot, Unavailable, RETRY_NOT_BEFORE, SIGN_IN_DEADLINE,
-    VERIFIED_FRESH, VERIFY_DEADLINE,
+    SchoolSignInProblemKind as Kind, Snapshot, RETRY_NOT_BEFORE, SIGN_IN_DEADLINE, VERIFIED_FRESH,
+    VERIFY_DEADLINE,
 };
 use crate::school_auth::{SchoolAuthProfile, SchoolCredentials};
 use chrono::{DateTime, Utc};
@@ -31,39 +41,6 @@ use std::sync::{
 };
 use tokio::{sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Phase {
-    NotConfigured,
-    Idle,
-    SigningIn,
-    /// A snapshot no sign-in or verification has confirmed yet.
-    Unverified,
-    Verifying,
-    /// A verified snapshot.
-    Active,
-    Rejected,
-    NeedsWeb,
-    Unavailable {
-        not_before: Instant,
-    },
-}
-
-impl Phase {
-    fn state(self) -> SchoolSessionState {
-        match self {
-            Self::NotConfigured => SchoolSessionState::NotConfigured,
-            Self::Idle => SchoolSessionState::Idle,
-            Self::SigningIn => SchoolSessionState::SigningIn,
-            Self::Unverified => SchoolSessionState::Unverified,
-            Self::Verifying => SchoolSessionState::Verifying,
-            Self::Active => SchoolSessionState::Active,
-            Self::Rejected => SchoolSessionState::Rejected,
-            Self::NeedsWeb => SchoolSessionState::NeedsWeb,
-            Self::Unavailable { .. } => SchoolSessionState::Unavailable,
-        }
-    }
-}
 
 /// How far a snapshot is trusted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,10 +59,10 @@ pub(super) enum How {
     /// A read or a download found the identity gone.
     Background,
     /// A web operation's one sign-in. `past_pause`: the person's Reload on
-    /// the sign-in page, which may go through a pause after a failure, never
-    /// through a refusal.
+    /// the sign-in page, which may go through a pause, never through a
+    /// refusal.
     Web { past_pause: bool },
-    /// The person's Retry: once through a refusal on record.
+    /// The person's Retry: once through a refusal or a pause.
     Retry,
     /// The person's Connect with these credentials.
     Connect(SchoolCredentials),
@@ -101,6 +78,24 @@ impl How {
     }
 }
 
+/// Why a sign-in gave no identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Ended {
+    /// No credentials are saved.
+    NotConfigured,
+    /// The school refused the credentials, or wants the person on its page
+    /// (`SchoolSignInProblemKind::needs_web`).
+    Refused(SchoolSignInProblem),
+    /// No verdict: the network, an unanswered password, an anomaly. A
+    /// sign-in other than a Connect then pauses (`Identity::pause_until`).
+    Unavailable(SchoolSignInProblem),
+    /// The shell reports no network: nothing was sent.
+    Offline,
+    /// A Connect replaced it, or a sign-out, a reset or the system stopped
+    /// it, before the school's verdict.
+    Stopped,
+}
+
 /// How a verification ended.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Checked {
@@ -113,24 +108,48 @@ pub(super) enum Checked {
     Unconfirmed,
 }
 
+/// No sign-in on Core's own before `until`, and why.
+#[derive(Clone)]
+struct Pause {
+    until: Instant,
+    problem: SchoolSignInProblem,
+}
+
 struct State {
-    phase: Phase,
-    problem: Option<SchoolSignInProblem>,
+    /// Saved credentials exist (the status metadata).
+    configured: bool,
     snapshot: Option<Arc<Snapshot>>,
     trust: Trust,
-    /// The username the snapshot belongs to.
-    account: Option<String>,
     /// Grows with every new snapshot. A site that finds its copy refused
     /// signs in only while this has not moved since it copied it.
     generation: u64,
+    pause: Option<Pause>,
     flight: Option<Flight>,
+    /// Numbers the sign-ins, so one applies its result only while it is
+    /// still the account's.
+    flights: u64,
     /// The one running verification.
     check: Option<watch::Receiver<Option<Checked>>>,
 }
 
+impl State {
+    fn current(&self, flight: u64) -> bool {
+        self.flight
+            .as_ref()
+            .is_some_and(|running| running.id == flight)
+    }
+
+    fn paused(&self) -> Option<&Pause> {
+        self.pause
+            .as_ref()
+            .filter(|pause| Instant::now() < pause.until)
+    }
+}
+
 /// The one running sign-in.
 struct Flight {
-    done: watch::Receiver<Option<Result<u64, Unavailable>>>,
+    id: u64,
+    done: watch::Receiver<Option<Result<u64, Ended>>>,
     cancel: CancellationToken,
 }
 
@@ -142,17 +161,13 @@ impl Identity {
     pub(super) fn new(configured: bool) -> Self {
         Self {
             state: Mutex::new(State {
-                phase: if configured {
-                    Phase::Idle
-                } else {
-                    Phase::NotConfigured
-                },
-                problem: None,
+                configured,
                 snapshot: None,
                 trust: Trust::Unverified,
-                account: None,
                 generation: 0,
+                pause: None,
                 flight: None,
+                flights: 0,
                 check: None,
             }),
         }
@@ -162,8 +177,10 @@ impl Identity {
         guard(&self.state).generation
     }
 
-    pub(super) fn account(&self) -> Option<String> {
-        guard(&self.state).account.clone()
+    /// Whether credentials are saved, as the caller read the status
+    /// metadata.
+    pub(super) fn set_configured(&self, configured: bool) {
+        guard(&self.state).configured = configured;
     }
 
     /// The current snapshot and its generation, unless the school found it
@@ -177,144 +194,103 @@ impl Identity {
             .map(|snapshot| (snapshot, state.generation))
     }
 
-    /// The snapshot a web view may be given: verified, of `generation`, with
-    /// the account usable (not refused, waiting for the web, unconfigured,
-    /// paused or signing in).
-    pub(super) fn writable(&self, generation: u64) -> Option<Arc<Snapshot>> {
+    /// The snapshot of `generation`, while it is the verified one.
+    pub(super) fn verified(&self, generation: u64) -> Option<Arc<Snapshot>> {
         let state = guard(&self.state);
-        (state.generation == generation
-            && state.phase == Phase::Active
-            && matches!(state.trust, Trust::Verified(_)))
-        .then(|| state.snapshot.clone())
-        .flatten()
+        (state.generation == generation && matches!(state.trust, Trust::Verified(_)))
+            .then(|| state.snapshot.clone())
+            .flatten()
     }
 
-    /// The verified generation a web operation may use as it is: verified
-    /// less than `VERIFIED_FRESH` ago, with the account usable.
+    /// The generation verified less than `VERIFIED_FRESH` ago.
     pub(super) fn fresh(&self) -> Option<u64> {
         let state = guard(&self.state);
         match state.trust {
-            Trust::Verified(at)
-                if state.phase == Phase::Active
-                    && state.snapshot.is_some()
-                    && at.elapsed() < VERIFIED_FRESH =>
-            {
+            Trust::Verified(at) if state.snapshot.is_some() && at.elapsed() < VERIFIED_FRESH => {
                 Some(state.generation)
             }
             _ => None,
         }
     }
 
-    /// The state a web operation reads before it decides anything.
-    pub(super) fn state(&self) -> SchoolSessionState {
-        guard(&self.state).phase.state()
-    }
-
-    /// Whether a pause after a failure is still running.
-    pub(super) fn paused(&self) -> bool {
-        matches!(guard(&self.state).phase, Phase::Unavailable { not_before } if Instant::now() < not_before)
+    /// When a pause still running ends.
+    pub(super) fn pause_until(&self) -> Option<Instant> {
+        guard(&self.state).paused().map(|pause| pause.until)
     }
 
     /// The school sent `generation` to its sign-in page: it is no identity
     /// any more, and the next use signs in.
     pub(super) fn invalidate(&self, generation: u64) {
         let mut state = guard(&self.state);
-        if state.generation != generation || state.trust == Trust::Invalid {
-            return;
-        }
-        state.trust = Trust::Invalid;
-        if matches!(
-            state.phase,
-            Phase::Active | Phase::Unverified | Phase::Verifying
-        ) {
-            state.phase = Phase::Idle;
+        if state.generation == generation {
+            state.trust = Trust::Invalid;
         }
     }
 
-    /// What `store` keeps: the snapshot and whose it is.
-    pub(super) fn persisted(&self) -> Option<(Arc<Snapshot>, String)> {
-        let state = guard(&self.state);
-        Some((state.snapshot.clone()?, state.account.clone()?))
+    /// What `store` keeps: the snapshot.
+    pub(super) fn persisted(&self) -> Option<Arc<Snapshot>> {
+        guard(&self.state).snapshot.clone()
     }
 
+    /// The state shells render, from the facts: a running sign-in first,
+    /// then missing credentials, the school's `refusal` of the saved ones,
+    /// a pause still running, and otherwise normal.
     pub(super) fn view(
         &self,
+        refusal: Option<SchoolSignInProblem>,
     ) -> (
         SchoolSessionState,
         Option<SchoolSignInProblem>,
         Option<DateTime<Utc>>,
     ) {
         let state = guard(&self.state);
-        let retry_at = match state.phase {
-            Phase::Unavailable { not_before } => Some(
-                Utc::now()
-                    + chrono::Duration::from_std(
-                        not_before.saturating_duration_since(Instant::now()),
-                    )
-                    .unwrap_or_default(),
-            ),
-            _ => None,
-        };
-        (state.phase.state(), state.problem.clone(), retry_at)
+        if state.flight.is_some() {
+            return (SchoolSessionState::SigningIn, None, None);
+        }
+        if !state.configured {
+            return (SchoolSessionState::NotConfigured, None, None);
+        }
+        if let Some(problem) = refusal {
+            let shown = if problem.kind.needs_web() {
+                SchoolSessionState::NeedsWeb
+            } else {
+                SchoolSessionState::Refused
+            };
+            return (shown, Some(problem), None);
+        }
+        if let Some(pause) = state.paused() {
+            let left = pause.until.saturating_duration_since(Instant::now());
+            let retry_at = Utc::now() + chrono::Duration::from_std(left).unwrap_or_default();
+            return (
+                SchoolSessionState::Unavailable,
+                Some(pause.problem.clone()),
+                Some(retry_at),
+            );
+        }
+        (SchoolSessionState::Normal, None, None)
     }
 
     /// A snapshot read back from the vault, unverified. `None` when a
     /// sign-in already made a newer one.
-    pub(super) fn restore(&self, snapshot: Snapshot, account: String) -> Option<u64> {
+    pub(super) fn restore(&self, snapshot: Snapshot) -> Option<u64> {
         let mut state = guard(&self.state);
-        if state.snapshot.is_some() || state.phase == Phase::NotConfigured {
+        if state.snapshot.is_some() {
             return None;
         }
         state.generation += 1;
         state.snapshot = Some(Arc::new(snapshot));
         state.trust = Trust::Unverified;
-        state.account = Some(account);
-        if state.phase == Phase::Idle {
-            state.phase = Phase::Unverified;
-        }
         Some(state.generation)
     }
 
-    /// Credentials are saved (or not) now.
-    pub(super) fn configured(&self, configured: bool) {
-        let mut state = guard(&self.state);
-        if !configured {
-            state.phase = Phase::NotConfigured;
-            state.problem = None;
-        } else if state.phase == Phase::NotConfigured {
-            state.phase = rest(&state);
-        }
-    }
-
-    /// The saved credentials changed: a refusal no longer holds until the
-    /// next sign-in reads them again.
-    pub(super) fn lift(&self, configured: bool) {
-        let mut state = guard(&self.state);
-        if !configured {
-            state.phase = Phase::NotConfigured;
-            state.problem = None;
-            return;
-        }
-        if matches!(
-            state.phase,
-            Phase::NotConfigured | Phase::Rejected | Phase::NeedsWeb | Phase::Unavailable { .. }
-        ) {
-            state.phase = rest(&state);
-            state.problem = None;
-        }
-    }
-
-    /// Lifts a pause that ran out. `true` when it did.
+    /// Drops a pause that ran out. `true` when it did.
     pub(super) fn expire_pause(&self, now: Instant) -> bool {
         let mut state = guard(&self.state);
-        match state.phase {
-            Phase::Unavailable { not_before } if now >= not_before => {
-                state.phase = rest(&state);
-                state.problem = None;
-                true
-            }
-            _ => false,
+        if state.pause.as_ref().is_some_and(|pause| now >= pause.until) {
+            state.pause = None;
+            return true;
         }
+        false
     }
 
     /// Drops the account's identity (the barrier).
@@ -322,14 +298,10 @@ impl Identity {
         let mut state = guard(&self.state);
         state.snapshot = None;
         state.trust = Trust::Unverified;
-        state.account = None;
-        state.problem = None;
+        state.pause = None;
         state.flight = None;
         state.check = None;
         state.generation += 1;
-        if state.phase != Phase::NotConfigured {
-            state.phase = Phase::Idle;
-        }
     }
 
     pub(super) fn cancel_flight(&self) {
@@ -349,36 +321,59 @@ impl Identity {
     }
 
     /// The fresh snapshot of `generation` was sent straight back to the
-    /// sign-in page: no further sign-in until the pause ends.
-    pub(super) fn anomaly(&self, generation: u64) -> bool {
+    /// sign-in page: no further sign-in on Core's own until the pause ends.
+    pub(super) fn anomaly(&self, generation: u64) {
         let mut state = guard(&self.state);
-        if state.generation != generation || matches!(state.phase, Phase::Unavailable { .. }) {
-            return false;
+        if state.generation != generation || state.paused().is_some() {
+            return;
         }
-        state.phase = Phase::Unavailable {
-            not_before: Instant::now() + RETRY_NOT_BEFORE,
-        };
-        state.problem = Some(problem(
-            Kind::Anomaly,
-            "the school sent a fresh sign-in back to the sign-in page",
-        ));
-        true
+        state.pause = Some(Pause {
+            until: Instant::now() + RETRY_NOT_BEFORE,
+            problem: problem(
+                Kind::Anomaly,
+                "the school sent a fresh sign-in back to the sign-in page",
+            ),
+        });
     }
 
-    fn unavailable(&self, profile: SchoolAuthProfile) -> Unavailable {
-        Unavailable {
-            profile,
-            state: guard(&self.state).phase.state(),
+    /// Applies sign-in `id`'s end to the identity, while it is still the
+    /// account's sign-in; `None` once another replaced it. Only a sign-in
+    /// on Core's own (not a Connect) pauses after no verdict.
+    fn apply(&self, id: u64, connect: bool, end: End) -> Option<Result<u64, Ended>> {
+        let mut state = guard(&self.state);
+        if !state.current(id) {
+            return None;
         }
+        Some(match end {
+            End::SignedIn(snapshot) => {
+                state.generation += 1;
+                state.snapshot = Some(Arc::new(snapshot));
+                state.trust = Trust::Verified(Instant::now());
+                state.pause = None;
+                Ok(state.generation)
+            }
+            End::Refused { problem, .. } => Err(Ended::Refused(problem)),
+            End::Unavailable(problem) => {
+                if !connect {
+                    state.pause = Some(Pause {
+                        until: Instant::now() + RETRY_NOT_BEFORE,
+                        problem: problem.clone(),
+                    });
+                }
+                Err(Ended::Unavailable(problem))
+            }
+            End::NotConfigured => Err(Ended::NotConfigured),
+            End::Offline => Err(Ended::Offline),
+            End::Stopped => Err(Ended::Stopped),
+        })
     }
-}
 
-/// Where an identity rests when nothing is wrong.
-fn rest(state: &State) -> Phase {
-    match (&state.snapshot, state.trust) {
-        (None, _) | (Some(_), Trust::Invalid) => Phase::Idle,
-        (Some(_), Trust::Unverified) => Phase::Unverified,
-        (Some(_), Trust::Verified(_)) => Phase::Active,
+    /// Sign-in `id` is over: it is the account's no longer.
+    fn land(&self, id: u64) {
+        let mut state = guard(&self.state);
+        if state.current(id) {
+            state.flight = None;
+        }
     }
 }
 
@@ -389,19 +384,19 @@ fn problem(kind: Kind, message: impl Into<String>) -> SchoolSignInProblem {
     }
 }
 
-/// How a sign-in task ended.
+/// How a sign-in task's flow ended, before it is applied.
 enum End {
-    SignedIn {
-        snapshot: Snapshot,
-        credentials: SchoolCredentials,
-    },
+    SignedIn(Snapshot),
+    /// No credentials are saved.
+    NotConfigured,
+    /// The school refused the credentials or wants the person on its page;
+    /// `sent` is false when a refusal kept with them held them back.
     Refused {
         problem: SchoolSignInProblem,
-        /// The credentials the refusal is about, to keep it with them.
-        credentials: Option<SchoolCredentials>,
+        sent: bool,
     },
     Unavailable(SchoolSignInProblem),
-    NotConfigured,
+    Offline,
     /// Stopped before the school's verdict, the password not yet sent.
     Stopped,
 }
@@ -409,97 +404,115 @@ enum End {
 impl Inner {
     /// Makes sure `profile` has an identity newer than `seen`: one that
     /// appeared meanwhile is used as it is; otherwise this joins the running
-    /// sign-in or starts one, if the identity's state lets it.
+    /// sign-in or starts one, unless the facts hold it back (no credentials,
+    /// a refusal of them, a pause). The person's Connect never joins: it
+    /// replaces the running sign-in with its own at once.
     pub(super) async fn sign_in(
         self: &Arc<Self>,
         profile: SchoolAuthProfile,
         seen: u64,
         how: How,
-    ) -> Result<u64, Unavailable> {
+    ) -> Result<u64, Ended> {
         let account = self.account(profile);
         let identity = &account.identity;
-        let mut done = {
-            let mut state = guard(&identity.state);
-            if state.generation > seen
-                && state.snapshot.is_some()
-                && state.trust != Trust::Invalid
-                && !how.lifts_refusal()
-            {
-                return Ok(state.generation);
-            }
-            if let Some(flight) = &state.flight {
-                flight.done.clone()
-            } else {
-                let held = match state.phase {
-                    Phase::NotConfigured => !matches!(how, How::Connect(_)),
-                    Phase::Rejected | Phase::NeedsWeb => !how.lifts_refusal(),
-                    Phase::Unavailable { not_before } => {
-                        !how.lifts_pause() && Instant::now() < not_before
+        let joins = !matches!(how, How::Connect(_));
+        loop {
+            let mut done = {
+                let mut state = guard(&identity.state);
+                let newer = state.generation > seen
+                    && state.snapshot.is_some()
+                    && state.trust != Trust::Invalid;
+                if newer && !how.lifts_refusal() {
+                    return Ok(state.generation);
+                }
+                let running = state
+                    .flight
+                    .as_ref()
+                    .filter(|_| joins)
+                    .map(|flight| flight.done.clone());
+                match running {
+                    Some(done) => done,
+                    None => {
+                        match &state.flight {
+                            Some(replaced) => replaced.cancel.cancel(),
+                            None if joins => self.held(profile, &state, &how)?,
+                            None => {}
+                        }
+                        let Some(permit) = account.owner.permit() else {
+                            return Err(Ended::Stopped);
+                        };
+                        state.flights += 1;
+                        let id = state.flights;
+                        let (sender, done) = watch::channel(None);
+                        let cancel = permit.cancel().child_token();
+                        let previous = state.flight.replace(Flight {
+                            id,
+                            done: done.clone(),
+                            cancel: cancel.clone(),
+                        });
+                        let inner = self.clone();
+                        let how = how.clone();
+                        let started = self.tasks.spawn(async move {
+                            let result = inner.signing_in(profile, id, how, permit, cancel).await;
+                            let _ = sender.send(Some(result));
+                        });
+                        if !started {
+                            state.flight = previous;
+                            return Err(Ended::Stopped);
+                        }
+                        done
                     }
-                    Phase::Idle
-                    | Phase::Unverified
-                    | Phase::Verifying
-                    | Phase::Active
-                    | Phase::SigningIn => false,
-                };
-                if held {
-                    return Err(Unavailable {
-                        profile,
-                        state: state.phase.state(),
-                    });
                 }
-                let Some(permit) = account.owner.permit() else {
-                    return Err(Unavailable {
-                        profile,
-                        state: state.phase.state(),
-                    });
-                };
-                let (sender, done) = watch::channel(None);
-                let cancel = permit.cancel().child_token();
-                state.flight = Some(Flight {
-                    done: done.clone(),
-                    cancel: cancel.clone(),
-                });
-                state.phase = Phase::SigningIn;
-                let inner = self.clone();
-                let started = self.tasks.spawn(async move {
-                    let result = inner.signing_in(profile, how, permit, cancel).await;
-                    let _ = sender.send(Some(result));
-                });
-                if !started {
-                    state.flight = None;
-                    state.phase = rest(&state);
-                    return Err(Unavailable {
-                        profile,
-                        state: state.phase.state(),
-                    });
-                }
-                done
+            };
+            self.publish();
+            let ended = match done.wait_for(Option::is_some).await {
+                Ok(result) => result.clone(),
+                Err(_) => None,
+            };
+            match ended.unwrap_or(Err(Ended::Stopped)) {
+                // A Connect replaced the sign-in this waited for: wait for
+                // the Connect's.
+                Err(Ended::Stopped) if joins && guard(&identity.state).flight.is_some() => {}
+                result => return result,
             }
-        };
-        self.publish();
-        let ended = match done.wait_for(Option::is_some).await {
-            Ok(result) => result.clone(),
-            Err(_) => None,
-        };
-        ended.unwrap_or_else(|| Err(identity.unavailable(profile)))
+        }
+    }
+
+    /// Why a sign-in on Core's own (or a web operation's) may not start now.
+    fn held(&self, profile: SchoolAuthProfile, state: &State, how: &How) -> Result<(), Ended> {
+        if !state.configured {
+            return Err(Ended::NotConfigured);
+        }
+        if !how.lifts_refusal() {
+            if let Some(problem) = self.auth.refusal(profile) {
+                return Err(Ended::Refused(problem));
+            }
+        }
+        match state.paused() {
+            Some(pause) if !how.lifts_pause() => Err(Ended::Unavailable(pause.problem.clone())),
+            _ => Ok(()),
+        }
     }
 
     /// The sign-in task: runs the flow within `SIGN_IN_DEADLINE`, then
-    /// records what it found while still holding the permit.
+    /// applies what it found while still holding the permit.
     async fn signing_in(
         self: Arc<Self>,
         profile: SchoolAuthProfile,
+        id: u64,
         how: How,
         permit: Permit,
         cancel: CancellationToken,
-    ) -> Result<u64, Unavailable> {
+    ) -> Result<u64, Ended> {
         let submitted = AtomicBool::new(false);
-        let flow = self.sign_in_flow(profile, &how, &submitted);
-        let end = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => None,
-            end = tokio::time::timeout(SIGN_IN_DEADLINE, flow) => Some(end.ok()),
+        let mut used = None;
+        let end = {
+            let flow = self.sign_in_flow(profile, &how, &submitted, &mut used);
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => None,
+                end = tokio::time::timeout(SIGN_IN_DEADLINE, flow) => Some(end.ok()),
+            }
         };
         let end = match end {
             Some(Some(end)) => end,
@@ -519,29 +532,38 @@ impl Inner {
                 }
             }
         };
-        let result = self.finish_sign_in(profile, end, &permit).await;
-        {
-            let mut state = guard(&self.account(profile).identity.state);
-            state.flight = None;
-        }
+        let result = self.finish_sign_in(profile, id, &how, used, end).await;
+        self.account(profile).identity.land(id);
         drop(permit);
         self.publish();
         result
     }
 
+    /// Reads the credentials `how` signs in with (into `used`) and signs in.
     async fn sign_in_flow(
         &self,
         profile: SchoolAuthProfile,
         how: &How,
         submitted: &AtomicBool,
+        used: &mut Option<SchoolCredentials>,
     ) -> End {
-        let saved = match how {
-            How::Connect(credentials) => Some((credentials.clone(), None)),
+        let credentials = match how {
+            How::Connect(credentials) => credentials.clone(),
             How::Background | How::Web { .. } | How::Retry => {
                 let auth = self.auth.clone();
                 match tokio::task::spawn_blocking(move || auth.sign_in_credentials(profile)).await {
-                    Ok(Ok(Some(saved))) => Some((saved.credentials, saved.failure)),
-                    Ok(Ok(None)) => None,
+                    Ok(Ok(Some(saved))) => {
+                        // A refusal kept with exactly these credentials holds
+                        // them back.
+                        if let Some(refusal) = saved.refusal.filter(|_| !how.lifts_refusal()) {
+                            return End::Refused {
+                                problem: refusal,
+                                sent: false,
+                            };
+                        }
+                        saved.credentials
+                    }
+                    Ok(Ok(None)) => return End::NotConfigured,
                     Ok(Err(error)) => {
                         return End::Unavailable(problem(
                             Kind::Network,
@@ -552,18 +574,9 @@ impl Inner {
                 }
             }
         };
-        let Some((credentials, failure)) = saved else {
-            return End::NotConfigured;
-        };
-        // A refusal kept with exactly these credentials holds them back.
-        if let Some(failure) = failure.filter(|_| !how.lifts_refusal()) {
-            return End::Refused {
-                problem: failure,
-                credentials: None,
-            };
-        }
+        *used = Some(credentials.clone());
         if self.offline.load(Ordering::SeqCst) {
-            return End::Unavailable(problem(Kind::Network, "the device is offline"));
+            return End::Offline;
         }
         log::info!(target: "app_core::school_session", "signing in profile={profile:?}");
         let end = match profile {
@@ -575,110 +588,78 @@ impl Inner {
             }
         };
         match end {
-            login::LoginEnd::SignedIn(snapshot) => End::SignedIn {
-                snapshot,
-                credentials,
-            },
+            login::LoginEnd::SignedIn(snapshot) => End::SignedIn(snapshot),
             login::LoginEnd::Rejected(kind, message) | login::LoginEnd::NeedsWeb(kind, message) => {
                 End::Refused {
                     problem: problem(kind, message),
-                    credentials: Some(credentials),
+                    sent: true,
                 }
             }
             login::LoginEnd::Unavailable(kind, message) => End::Unavailable(problem(kind, message)),
         }
     }
 
-    /// Applies a sign-in's end to the identity and to what is kept of it.
+    /// Applies a sign-in's end (`Identity::apply`), then what is kept of it,
+    /// only for the credentials it `used`: the person's Connect input becomes
+    /// the verified credentials once the school accepts it, a sign-in with
+    /// the saved ones that the school accepts drops their refusal, and a
+    /// refusal is kept only for credentials that are the verified ones. A
+    /// Connect keeps no page that needs the person; one that fails leaves
+    /// every fact as it was.
     async fn finish_sign_in(
         &self,
         profile: SchoolAuthProfile,
+        id: u64,
+        how: &How,
+        used: Option<SchoolCredentials>,
         end: End,
-        _permit: &Permit,
-    ) -> Result<u64, Unavailable> {
+    ) -> Result<u64, Ended> {
         let identity = &self.account(profile).identity;
-        match end {
-            End::SignedIn {
-                snapshot,
-                credentials,
-            } => {
-                let generation = {
-                    let mut state = guard(&identity.state);
-                    state.generation += 1;
-                    state.snapshot = Some(Arc::new(snapshot));
-                    state.trust = Trust::Verified(Instant::now());
-                    state.account = Some(credentials.username.clone());
-                    state.phase = Phase::Active;
-                    state.problem = None;
-                    state.generation
-                };
+        let connect = matches!(how, How::Connect(_));
+        let sent = matches!(end, End::Refused { sent: true, .. });
+        let Some(result) = identity.apply(id, connect, end) else {
+            log::info!(target: "app_core::school_session", "a replaced sign-in ended profile={profile:?}");
+            return Err(Ended::Stopped);
+        };
+        match (&result, used) {
+            (Ok(generation), Some(credentials)) => {
                 log::info!(target: "app_core::school_session", "signed in profile={profile:?} generation={generation}");
-                // The school saw every secret these credentials hold: they
-                // become the verified, synchronized ones.
+                // The school saw every secret these credentials hold.
                 let auth = self.auth.clone();
-                let promoted =
-                    tokio::task::spawn_blocking(move || auth.promote(profile, &credentials)).await;
-                if let Ok(Err(error)) = promoted {
+                let saved = tokio::task::spawn_blocking(move || {
+                    if connect {
+                        auth.promote(profile, &credentials)
+                    } else {
+                        auth.clear_refusal(profile, &credentials)
+                    }
+                })
+                .await;
+                if let Ok(Err(error)) = saved {
                     log::warn!(target: "app_core::school_session", "verified credentials not saved profile={profile:?}: {error}");
                 }
+                identity.set_configured(self.auth.configured(profile));
                 self.persist(profile).await;
-                Ok(generation)
             }
-            End::Refused {
-                problem,
-                credentials,
-            } => {
+            (Err(Ended::Refused(problem)), Some(credentials))
+                if sent && !(connect && problem.kind.needs_web()) =>
+            {
                 log::info!(target: "app_core::school_session", "sign-in refused profile={profile:?} kind={:?}", problem.kind);
-                {
-                    let mut state = guard(&identity.state);
-                    state.phase = match problem.kind.state() {
-                        SchoolSessionState::NeedsWeb => Phase::NeedsWeb,
-                        _ => Phase::Rejected,
-                    };
-                    state.problem = Some(problem.clone());
+                let auth = self.auth.clone();
+                let kept = problem.clone();
+                let recorded = tokio::task::spawn_blocking(move || {
+                    auth.record_refusal(profile, &credentials, &kept)
+                })
+                .await;
+                if let Ok(Err(error)) = recorded {
+                    log::warn!(target: "app_core::school_session", "refusal not kept profile={profile:?}: {error}");
                 }
-                if let Some(credentials) = credentials {
-                    let auth = self.auth.clone();
-                    let recorded = tokio::task::spawn_blocking(move || {
-                        auth.record_failure(profile, &credentials, &problem)
-                    })
-                    .await;
-                    if let Ok(Err(error)) = recorded {
-                        log::warn!(target: "app_core::school_session", "refusal not kept profile={profile:?}: {error}");
-                    }
-                }
-                Err(identity.unavailable(profile))
             }
-            End::Unavailable(problem) => {
-                log::info!(target: "app_core::school_session", "sign-in unavailable profile={profile:?} kind={:?}: {}", problem.kind, problem.message);
-                let mut state = guard(&identity.state);
-                state.phase = Phase::Unavailable {
-                    not_before: Instant::now() + RETRY_NOT_BEFORE,
-                };
-                state.problem = Some(problem);
-                Err(Unavailable {
-                    profile,
-                    state: SchoolSessionState::Unavailable,
-                })
+            (Err(ended), _) => {
+                log::info!(target: "app_core::school_session", "sign-in ended profile={profile:?}: {ended:?}");
             }
-            End::NotConfigured => {
-                let mut state = guard(&identity.state);
-                state.phase = Phase::NotConfigured;
-                state.problem = None;
-                Err(Unavailable {
-                    profile,
-                    state: SchoolSessionState::NotConfigured,
-                })
-            }
-            End::Stopped => {
-                let mut state = guard(&identity.state);
-                state.phase = rest(&state);
-                Err(Unavailable {
-                    profile,
-                    state: state.phase.state(),
-                })
-            }
+            (Ok(_), None) => {}
         }
+        result
     }
 }
 
@@ -717,9 +698,6 @@ impl Inner {
                 let generation = state.generation;
                 let (sender, done) = watch::channel(None);
                 state.check = Some(done.clone());
-                if matches!(state.phase, Phase::Unverified | Phase::Active) {
-                    state.phase = Phase::Verifying;
-                }
                 let inner = self.clone();
                 let started = self.tasks.spawn(async move {
                     let checked = inner.checking(profile, snapshot, generation, permit).await;
@@ -727,15 +705,11 @@ impl Inner {
                 });
                 if !started {
                     state.check = None;
-                    if state.phase == Phase::Verifying {
-                        state.phase = rest(&state);
-                    }
                     return Checked::Unconfirmed;
                 }
                 done
             }
         };
-        self.publish();
         let checked = match done.wait_for(Option::is_some).await {
             Ok(checked) => checked.unwrap_or(Checked::Unconfirmed),
             Err(_) => Checked::Unconfirmed,
@@ -781,25 +755,14 @@ impl Inner {
                         state.snapshot = Some(Arc::new(fresh));
                         state.trust = Trust::Verified(Instant::now());
                         // The school answered: a pause after a failure is over.
-                        if matches!(state.phase, Phase::Verifying | Phase::Unavailable { .. }) {
-                            state.phase = Phase::Active;
-                            state.problem = None;
-                        }
+                        state.pause = None;
                         Checked::Verified(state.generation)
                     }
                     Some(Walked::SignIn) => {
                         state.trust = Trust::Invalid;
-                        if state.phase == Phase::Verifying {
-                            state.phase = Phase::Idle;
-                        }
                         Checked::Expired
                     }
-                    Some(Walked::Failed) | None => {
-                        if state.phase == Phase::Verifying {
-                            state.phase = rest(&state);
-                        }
-                        Checked::Unconfirmed
-                    }
+                    Some(Walked::Failed) | None => Checked::Unconfirmed,
                 }
             }
         };

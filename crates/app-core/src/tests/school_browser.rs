@@ -1187,9 +1187,9 @@ fn signed_engine(
     SchoolSessions,
 ) {
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
-    auth.stage(
+    auth.promote(
         SchoolAuthProfile::Science,
-        SchoolCredentials {
+        &SchoolCredentials {
             username: "user".into(),
             password: password.into(),
             otp_secret: "JBSWY3DPEHPK3PXP".into(),
@@ -1574,4 +1574,36 @@ async fn signing_an_account_out_closes_its_views_and_clears_its_websites_only() 
         }
         engine.shutdown().await;
     }
+}
+
+// The Connect form's App OTP entry opens the Science Tokyo portal as it is:
+// Core writes no identity, signs in nowhere and starts no web operation,
+// even with credentials saved, so the person signs in on the page by hand.
+#[tokio::test]
+async fn an_unsigned_entry_opens_the_portal_without_signing_in() {
+    let school = School::accepting("right");
+    let store = WebStore::open(true);
+    let (engine, browser, _, _) = signed_engine(&school, "right", &store);
+    let opened = engine
+        .open(
+            SchoolSite::SciencePortal,
+            "settings",
+            SchoolWebEntry::Unsigned,
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.url, adpt_isct::urls::entry::SCIENCE_PORTAL);
+    assert!(browser
+        .current
+        .lock()
+        .unwrap()
+        .values()
+        .any(|url| url.as_str() == adpt_isct::urls::entry::SCIENCE_PORTAL));
+    for attempt in 0..200 {
+        settle(attempt).await;
+    }
+    assert_eq!((school.requests(), school.passwords()), (0, 0));
+    assert!(store.writes.lock().unwrap().is_empty());
+    assert_eq!(navigations(&browser), 0, "no web operation opened it");
+    engine.shutdown().await;
 }

@@ -2,10 +2,12 @@
 //!
 //! An operation first takes a permit stamped with the account generation;
 //! it stores rows, saves jars, renames a download or promotes credentials
-//! only while it holds one. Switching accounts, signing out or a reset runs
-//! the barrier: stop issuing permits, cancel the reads (writes run on to
-//! their end), wait until every permit is back, clean up in a fixed order,
-//! and only then open the next generation. No lock spans the database, the
+//! only while it holds one. A write to the vault takes a permit of its own
+//! into the blocking task that runs it, so it holds until the write lands,
+//! even when the read that started it was cancelled and dropped. Signing out or a reset runs the barrier: stop
+//! issuing permits, cancel the reads (writes run on to their end), wait
+//! until every permit is back, clean up in a fixed order, and only then
+//! open the next generation. No lock spans the database, the
 //! vault and the platform's cookie store, so the order is the guarantee.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -113,6 +115,12 @@ impl Owner {
             generation: state.generation,
             cancel: state.cancel.clone(),
         })
+    }
+
+    /// A permit for `generation` only: `None` once a barrier closed it.
+    pub(super) fn permit_of(&self, generation: u64) -> Option<Permit> {
+        self.permit()
+            .filter(|permit| permit.generation == generation)
     }
 
     /// Stops issuing permits, cancels this generation's reads and sign-in,

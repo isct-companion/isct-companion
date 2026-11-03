@@ -103,9 +103,8 @@ func require(_ condition: Bool, _ detail: String) throws {
         } catch is CancellationError { }
         try require(waitingOperation.wasDetached(), "Swift cancellation did not detach the active waiter")
 
-        let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
         vault.blockNextStore()
-        let cancelledOperation = try session.connectSchool(profile: .tokyoTech, credentials: credentials)
+        let cancelledOperation = try session.deleteCredentials(profile: .tokyoTech)
         try require(vault.waitUntilStoreBlocked(), "Credential save did not reach the vault")
         try cancelledOperation.detach()
         do {
@@ -123,13 +122,7 @@ func require(_ condition: Bool, _ detail: String) throws {
             case .pending:
                 try require(completionClock.now < completionDeadline, "Detached credential save did not settle")
                 await Task.yield()
-            // The session is offline: connecting keeps the credentials and sends nothing.
-            case .completed(.schoolConnect(let result)):
-                try require(result.state == .unavailable && !result.verified, "An offline connect must not sign in")
-                guard case let .credentials(status) = try await session.credentialStatus().value() else {
-                    throw NSError(domain: "credential-status", code: 1)
-                }
-                try require(status.tokyoTech.saved, "Detached credential save did not complete")
+            case .completed(.flag):
                 break operationCompletion
             case .completed:
                 throw NSError(domain: "connect-result", code: 1)
@@ -140,17 +133,23 @@ func require(_ condition: Bool, _ detail: String) throws {
         if CommandLine.arguments.contains("--require-ocr") {
             try require(try session.capabilities().ocr, "Packaged iOS SDK must expose OCR")
         }
-        let updatedCredentials = SchoolCredentials(username: "fixture", password: "changed-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
+        let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
         vault.failNextStore()
         do {
-            _ = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value()
+            _ = try await session.deleteCredentials(profile: .tokyoTech).value()
             throw NSError(domain: "missing-callback-error", code: 1)
         } catch SdkError.Callback { }
-        guard case let .schoolConnect(offline) = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value() else {
+        // The session is offline: connecting sends nothing and saves nothing.
+        guard case let .schoolConnect(offline) = try await session.connectSchool(profile: .tokyoTech, credentials: credentials).value() else {
             throw NSError(domain: "connect-result", code: 1)
         }
-        try require(offline.state == .unavailable, "An offline connect must not sign in")
-        _ = try await session.deleteCredentials(profile: .tokyoTech).value()
+        guard case .unreachable = offline else {
+            throw NSError(domain: "offline-connect-signed-in", code: 1)
+        }
+        guard case let .credentials(status) = try await session.credentialStatus().value() else {
+            throw NSError(domain: "credential-status", code: 1)
+        }
+        try require(!status.tokyoTech.saved, "An offline connect must save nothing")
         let stream = try session.subscribe()
         guard case let .text(first) = try await session.workspaceRevision().value() else { throw NSError(domain:"revision",code:1) }
         let write = try session.mutateCommit(mutation: WorkspaceMutation(expectedRevision: first, intent: .setAdmissionYear(admissionYear: 2026)))

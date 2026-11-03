@@ -123,7 +123,7 @@ async fn read(
     kind: &str,
     year: i32,
 ) -> KeyEnd {
-    let lease = Lease::detached(store, reference_key(kind, year), "").with_locator(INDEX);
+    let lease = Lease::detached(store, reference_key(kind, year)).with_locator(INDEX);
     let end = reader.read(&lease, probes).await;
     lease.ending(&end).write();
     end
@@ -413,7 +413,6 @@ async fn validator_without_stored_rows_reads_the_file_in_full() {
                     transaction,
                     &reference_key("calendar", stored_year),
                     Commit {
-                        account: "",
                         validator: Some(&format!("index-v1:remote-v1:8@{INDEX}")),
                         outcome: Outcome::Complete,
                         message: None,
@@ -633,7 +632,7 @@ impl ReferenceTransport for CancellingTransport {
 #[tokio::test]
 async fn cancellation_before_applying_writes_no_data_or_metadata() {
     let store = store("cancel");
-    let lease = Lease::detached(&store, reference_key("calendar", 2026), "").with_locator(INDEX);
+    let lease = Lease::detached(&store, reference_key("calendar", 2026)).with_locator(INDEX);
     let reader = reader(Arc::new(CancellingTransport {
         cancel: lease.cancel.clone(),
     }));

@@ -2047,7 +2047,6 @@ export type ErrorCode =
   | "submission-remote-not-empty"
   | "submission-nothing-to-remove"
   | "submission-remote-conflict"
-  | "submission-account-changed"
   | "submission-files-changed"
   | "submission-confirmation-mismatch"
   | "submission-expired"
