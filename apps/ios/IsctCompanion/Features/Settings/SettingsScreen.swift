@@ -406,6 +406,8 @@ private struct AccountScreen: View {
                 }
             case .unreachable:
                 Text(t("schoolSession.connect.unreachable")).foregroundStyle(Theme.warn)
+            case .notSaved:
+                Text(t("schoolSession.connect.saveFailed")).foregroundStyle(Theme.danger)
             case .stopped:
                 Text(t("schoolSession.connect.stopped")).foregroundStyle(Theme.warn)
             }

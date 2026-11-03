@@ -289,6 +289,49 @@ fn a_refusal_stays_local_and_holds_only_the_credentials_it_is_about() {
     );
 }
 
+// The device item of an earlier release may still hold a typed password and
+// OTP secret no sign-in accepted. The first device-local read of a launch
+// (the restore at startup, or the first unlock) deletes it without reading
+// it, and every shell's vault can still name it.
+#[test]
+fn the_retired_candidates_item_is_deleted_unread_at_startup() {
+    #[derive(Clone, Default)]
+    struct Watched(MemoryVault, Arc<Mutex<Vec<String>>>);
+    impl SecretVault for Watched {
+        fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+            self.0.store(account, secret)
+        }
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
+            self.1.lock().unwrap().push(account.to_owned());
+            self.0.load(account)
+        }
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
+            self.0.delete(account)
+        }
+    }
+    let candidates = r#"{"version":1,"accounts":{"science":{"credentials":{"username":"student","password":"typed","otpSecret":"JBSWY3DPEHPK3PXP"},"base":""}}}"#;
+    assert!(crate::ports::vault_item(RETIRED_CANDIDATE_ACCOUNT).is_ok());
+
+    for unlock in [false, true] {
+        let vault = Watched::default();
+        vault.store(RETIRED_CANDIDATE_ACCOUNT, candidates).unwrap();
+        let service = SchoolAuthService::new(vault.clone());
+        if unlock {
+            assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
+        } else {
+            service.load_refusals().unwrap();
+        }
+        assert!(vault.0.load(RETIRED_CANDIDATE_ACCOUNT).unwrap().is_none());
+        assert!(!vault
+            .1
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|account| account == RETIRED_CANDIDATE_ACCOUNT));
+        assert_eq!(service.refusal(SchoolAuthProfile::Science), None);
+    }
+}
+
 /// A Keychain item iCloud Keychain may replace from another device.
 #[derive(Clone, Default)]
 struct SyncedVault(MemoryVault);

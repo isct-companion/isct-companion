@@ -732,6 +732,79 @@ async fn a_paused_host_or_a_blocked_account_holds_keys_without_failing_them() {
     assert!(!held_by_person(&engine.evaluate_now().await));
 }
 
+// A read ends waiting for the person (the saved password was refused) and
+// is still recording its run when the person's Connect succeeds and lifts
+// the hold. The read's run is recorded, but it no longer decides whether
+// the account waits: holding it again would never be lifted. A read leased
+// after the lift still holds it. The same goes for a read that ended
+// waiting for the network against the network coming back, which leaves a
+// verdict about the person standing.
+#[tokio::test]
+async fn a_hold_lifted_while_a_read_ran_is_not_set_again_by_it() {
+    let blocked = |wait: AccountWait| KeyEnd::Blocked {
+        profile: SchoolAuthProfile::TokyoTech,
+        wait,
+        source: String::new(),
+    };
+    let held = |plan: &[Candidate], wait: AccountWait| {
+        plan.iter().any(|candidate| {
+            candidate.held
+                == Some(Held::Account {
+                    profile: SchoolAuthProfile::TokyoTech,
+                    wait: wait.clone(),
+                })
+        })
+    };
+    let runs = |store: &DataStore| -> i64 {
+        store
+            .write(None, |transaction| {
+                transaction
+                    .query_row(
+                        "SELECT COUNT(*) FROM sync_runs WHERE error_kind = 'sign-in'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(crate::data::DataError::from)
+            })
+            .unwrap()
+    };
+
+    let (engine, store) = tokyo_engine("lifted");
+    engine.evaluate_now().await;
+    let old = engine.lease_for_test(Lane::Kyomu).unwrap();
+    // The Connect lands between the read's start and its settling.
+    engine.unblock(SchoolAuthProfile::TokyoTech);
+    engine
+        .settle_for_test(old, blocked(AccountWait::Person))
+        .await;
+    assert_eq!(runs(&store), 1, "the old read's run is recorded");
+    assert!(!held(&engine.evaluate_now().await, AccountWait::Person));
+    let current = engine.lease_for_test(Lane::Kyomu).unwrap();
+    engine
+        .settle_for_test(current, blocked(AccountWait::Person))
+        .await;
+    assert!(held(&engine.evaluate_now().await, AccountWait::Person));
+
+    let (engine, _) = tokyo_engine("network");
+    engine.evaluate_now().await;
+    let person = engine.lease_for_test(Lane::Kyomu).unwrap();
+    engine.network_for_test(Network::Offline);
+    engine.network_for_test(Network::Wifi);
+    engine
+        .settle_for_test(person, blocked(AccountWait::Network))
+        .await;
+    assert!(!held(&engine.evaluate_now().await, AccountWait::Network));
+    let offline = engine.lease_for_test(Lane::Kyomu).unwrap();
+    engine.network_for_test(Network::Wifi);
+    engine
+        .settle_for_test(offline, blocked(AccountWait::Person))
+        .await;
+    assert!(
+        held(&engine.evaluate_now().await, AccountWait::Person),
+        "the network coming back says nothing about the person"
+    );
+}
+
 #[tokio::test]
 async fn closed_admission_refuses_leases_and_commits_of_the_old_generation() {
     let (engine, store) = engine("admission");

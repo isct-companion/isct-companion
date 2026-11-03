@@ -915,8 +915,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Forgets an account. Returns once Core's account barrier passed: its
      * reads stopped and its cookies and LMS token are gone. WebView cannot
-     * clear one account's websites, so its web sign-in stays until the person
-     * chooses [clearSchoolWeb] (the account's `webKept`). */
+     * clear one account's websites, so its web sign-in stays on disk until the
+     * person chooses [clearSchoolWeb], which Settings always offers (Core's
+     * `webKept` only lasts until the app quits). */
     suspend fun deleteCredentials(profile: SchoolAuthProfile) {
         val session = session ?: return
         try {
@@ -927,7 +928,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     /** Clears both accounts' school web sign-ins from the web views, the
-     * person's choice after signing an account out. */
+     * person's choice at any time, after a sign-out or a relaunch alike. */
     suspend fun clearSchoolWeb() {
         val session = session ?: return
         (session.clearSchoolWeb().value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }

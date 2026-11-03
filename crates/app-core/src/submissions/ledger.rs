@@ -12,6 +12,11 @@
 //! across processes. Every statement commits on its own, so no write
 //! transaction is ever held across a network wait. Snapshots live in
 //! `submissions/` beside it, named by their sha256.
+//!
+//! The single-flight guard holds within one schema version. A file of an
+//! older version is deleted with its snapshots and the ledger starts empty:
+//! the person confirms their hand-ins before upgrading, and nothing of the
+//! old records is recovered or read. A newer version is refused.
 use super::{
     LmsIdentity, Operation, OperationState, Preparation, RemoteState, SnapshotFile,
     SubmissionError, UploadFile, RECEIPT_RETENTION,
@@ -63,10 +68,16 @@ pub(super) struct Ledger {
 
 impl Ledger {
     pub(super) fn open(directory: &Path) -> Result<Self, SubmissionError> {
-        let connection = Connection::open(directory.join(FILE))?;
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
-        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
-        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let path = directory.join(FILE);
+        let blobs = directory.join(BLOBS);
+        let mut connection = connect(&path)?;
+        let mut version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if (1..SCHEMA_VERSION).contains(&version) {
+            drop(connection);
+            rebuild(&path, &blobs)?;
+            connection = connect(&path)?;
+            version = 0;
+        }
         match version {
             0 => {
                 connection.execute_batch(SCHEMA)?;
@@ -81,7 +92,7 @@ impl Ledger {
         }
         Ok(Self {
             connection: Mutex::new(connection),
-            blobs: directory.join(BLOBS),
+            blobs,
         })
     }
 
@@ -391,6 +402,30 @@ impl Ledger {
             })
             .collect()
     }
+}
+
+fn connect(path: &Path) -> Result<Connection, SubmissionError> {
+    let connection = Connection::open(path)?;
+    connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+    Ok(connection)
+}
+
+/// Deletes a ledger of an older schema: the file, its `-wal` and `-shm`,
+/// and the snapshots only its records named.
+fn rebuild(path: &Path, blobs: &Path) -> Result<(), SubmissionError> {
+    let gone = |result: std::io::Result<()>| match result {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    };
+    for suffix in ["", "-wal", "-shm"] {
+        let mut file = path.as_os_str().to_owned();
+        file.push(suffix);
+        gone(fs::remove_file(PathBuf::from(file)))?;
+    }
+    gone(fs::remove_dir_all(blobs))?;
+    log::info!(target: "app_core::submissions", "{FILE} of an older schema was rebuilt empty");
+    Ok(())
 }
 
 /// A file's sha256 and size.

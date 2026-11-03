@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     ports::{SecretError, SecretVault},
-    school_auth::{MoodleToken, SchoolCredentials},
+    school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     sync_state::{self, Commit, Dataset, Due, Key, Outcome},
 };
 use rusqlite::params;

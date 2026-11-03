@@ -180,6 +180,61 @@ pub(crate) struct Lease {
     pub(crate) deadline: tokio::time::Instant,
     pub(crate) cancel: CancellationToken,
     writer: LeaseWriter,
+    /// What decided the account holds when it was leased.
+    holds: HoldStamp,
+}
+
+/// Each decision an account hold rests on, with its own version: the
+/// account's (the person's credentials, Retry and Connect, a pause), moved
+/// by `unblock`, and the network's, moved when the shell reports it back.
+/// A read stamps them when it is leased and `settle` compares them under
+/// the state lock, the lock that moves them: a read that started before a
+/// move cannot set the hold it lifted. Network recovery leaves a person's
+/// verdict standing, and an unblock leaves a network verdict.
+#[derive(Default)]
+struct HoldVersions {
+    account: HashMap<SchoolAuthProfile, u64>,
+    network: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct HoldStamp {
+    science: u64,
+    tokyo_tech: u64,
+    network: u64,
+}
+
+impl HoldVersions {
+    fn account(&self, profile: SchoolAuthProfile) -> u64 {
+        self.account.get(&profile).copied().unwrap_or(0)
+    }
+
+    fn stamp(&self) -> HoldStamp {
+        HoldStamp {
+            science: self.account(SchoolAuthProfile::Science),
+            tokyo_tech: self.account(SchoolAuthProfile::TokyoTech),
+            network: self.network,
+        }
+    }
+
+    /// Moves the account's decision on.
+    fn lift(&mut self, profile: SchoolAuthProfile) {
+        *self.account.entry(profile).or_default() += 1;
+    }
+
+    /// Whether `wait`, read under `stamp`, still decides for `profile`.
+    fn current(&self, stamp: HoldStamp, profile: SchoolAuthProfile, wait: &AccountWait) -> bool {
+        match wait {
+            AccountWait::Network => stamp.network == self.network,
+            AccountWait::Person | AccountWait::Paused { .. } => {
+                let stamped = match profile {
+                    SchoolAuthProfile::Science => stamp.science,
+                    SchoolAuthProfile::TokyoTech => stamp.tokyo_tech,
+                };
+                stamped == self.account(profile)
+            }
+        }
+    }
 }
 
 impl Lease {
@@ -230,6 +285,7 @@ impl Lease {
                 gate: Arc::new(Gate::default()),
                 generation: 0,
             },
+            holds: HoldStamp::default(),
         }
     }
 
@@ -259,7 +315,8 @@ pub(crate) enum KeyEnd {
         kind: String,
     },
     /// The read could not reach the account's school: every key of the
-    /// profile waits for `wait`, without a backoff.
+    /// profile waits for `wait`, without a backoff, unless what decides that
+    /// wait moved on since the read started (`HoldVersions`).
     Blocked {
         profile: SchoolAuthProfile,
         wait: AccountWait,
@@ -475,6 +532,7 @@ struct State {
     manual: HashMap<Key, (Instant, Option<String>)>,
     /// When each key was last asked for by hand, for the 30 s join.
     last_manual: HashMap<Key, Instant>,
+    holds: HoldVersions,
     requests: Vec<(ManualTarget, Instant)>,
     /// Keys a page showed since the last evaluation; touched for gc.
     shown: Vec<Key>,
@@ -593,6 +651,7 @@ impl SyncEngine {
                 opens: HashMap::new(),
                 manual: HashMap::new(),
                 last_manual: HashMap::new(),
+                holds: HoldVersions::default(),
                 requests: Vec::new(),
                 shown: Vec::new(),
                 follow_lms: None,
@@ -641,10 +700,12 @@ impl SyncEngine {
 
     /// What a blocked account waited for happened (its credentials changed,
     /// the person pressed Retry or Connect, or signed it out): its keys go
-    /// on, and a read finds out again whether the school can be reached.
+    /// on, and a read finds out again whether the school can be reached. A
+    /// read already running can no longer hold the account (`HoldVersions`).
     pub(crate) fn unblock(&self, profile: SchoolAuthProfile) {
         {
             let mut state = guard(&self.0.state);
+            state.holds.lift(profile);
             state.facts.blocked.remove(&profile);
             state.evaluate = true;
         }
@@ -709,17 +770,7 @@ impl SyncEngine {
                     state.facts.suspended = false;
                     true
                 }
-                Hint::Network { network } => {
-                    let changed = state.facts.network != network;
-                    state.facts.network = network;
-                    if network != Network::Offline {
-                        state
-                            .facts
-                            .blocked
-                            .retain(|_, wait| *wait != AccountWait::Network);
-                    }
-                    changed
-                }
+                Hint::Network { network } => report_network(&mut state, network),
                 Hint::PowerSaver { on } => {
                     let changed = state.facts.power_saver != on;
                     state.facts.power_saver = on;
@@ -799,7 +850,12 @@ impl SyncEngine {
             let mut state = guard(&self.0.state);
             state.closed += 1;
             self.0.gate.bump();
-            // A reset clears the sessions: a read finds out anew.
+            // A reset clears the sessions: a read finds out anew, and one
+            // still running holds nothing.
+            for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+                state.holds.lift(profile);
+            }
+            state.holds.network += 1;
             state.facts.blocked.clear();
             for lease in state.leases.values() {
                 lease.cancel.cancel();
@@ -1085,6 +1141,7 @@ impl SyncEngine {
                 gate: self.0.gate.clone(),
                 generation: self.0.gate.generation(),
             },
+            holds: state.holds.stamp(),
         })
     }
 
@@ -1239,6 +1296,21 @@ fn request_manual(state: &mut State, key: Key, scope: Option<String>, at: Instan
     state.manual.insert(key, (at, scope));
 }
 
+/// The shell's network. Once it is back, a read that ended waiting for it
+/// no longer holds its account, nor does one still running (`HoldVersions`).
+fn report_network(state: &mut State, network: Network) -> bool {
+    let changed = state.facts.network != network;
+    state.facts.network = network;
+    if network != Network::Offline {
+        state.holds.network += 1;
+        state
+            .facts
+            .blocked
+            .retain(|_, wait| *wait != AccountWait::Network);
+    }
+    changed
+}
+
 /// Folds one finished key into the facts, the cache and its run.
 fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState>) {
     let key = &lease.key;
@@ -1265,6 +1337,14 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
             {
                 state.evaluate = true;
             }
+        }
+        // What lets the account go on changed while the read ran: its run
+        // is recorded, but it no longer decides whether the account waits.
+        KeyEnd::Blocked { profile, wait, .. }
+            if !state.holds.current(lease.holds, *profile, wait) =>
+        {
+            log::info!(target: "app_core::sync", "{key} ended waiting for {profile:?} ({wait:?}), decided anew since it started; no hold");
+            state.evaluate = true;
         }
         KeyEnd::Blocked { profile, wait, .. } => {
             // Every other key of the profile waits the same way, by what
@@ -1506,6 +1586,11 @@ impl SyncEngine {
             .ok()
             .flatten();
         settle(&mut guard(&self.0.state), &lease, &end, after);
+    }
+
+    /// `Hint::Network` without starting the driver.
+    pub(crate) fn network_for_test(&self, network: Network) {
+        report_network(&mut guard(&self.0.state), network);
     }
 
     /// `Hint::Refresh` without starting the driver.

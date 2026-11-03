@@ -23,10 +23,11 @@
 //! Core's shutdown and the system taking the background time back end it,
 //! and the person's Connect replaces it. A sign-in's result applies only to
 //! its own credentials, and only while it is still the account's sign-in: a
-//! replaced one changes nothing. Passwords go out only when the identity
-//! provider shows its sign-in page, and a refusal is kept with the
-//! credentials it is about, so Core does not send them again on its own
-//! until they change or the person retries.
+//! replaced one changes nothing. It holds its permit from its start until
+//! its vault writes landed, so signing out deletes only after them.
+//! Passwords go out only when the identity provider shows its sign-in page,
+//! and a refusal is kept with the credentials it is about, so Core does not
+//! send them again on its own until they change or the person retries.
 
 use super::{
     guard, login, site::Walked, Inner, Permit, SchoolSessionState, SchoolSignInProblem,
@@ -94,6 +95,10 @@ pub(crate) enum Ended {
     /// A Connect replaced it, or a sign-out, a reset or the system stopped
     /// it, before the school's verdict.
     Stopped,
+    /// A Connect the school accepted made identity `generation`, and the
+    /// vault did not save its credentials. Only the Connect hears it: a
+    /// caller that joined it gets the identity.
+    NotSaved { generation: u64 },
 }
 
 /// How a verification ended.
@@ -473,6 +478,7 @@ impl Inner {
                 // A Connect replaced the sign-in this waited for: wait for
                 // the Connect's.
                 Err(Ended::Stopped) if joins && guard(&identity.state).flight.is_some() => {}
+                Err(Ended::NotSaved { generation }) if joins => return Ok(generation),
                 result => return result,
             }
         }
@@ -532,7 +538,9 @@ impl Inner {
                 }
             }
         };
-        let result = self.finish_sign_in(profile, id, &how, used, end).await;
+        let result = self
+            .finish_sign_in(profile, id, permit.generation(), &how, used, end)
+            .await;
         self.account(profile).identity.land(id);
         drop(permit);
         self.publish();
@@ -603,17 +611,24 @@ impl Inner {
     /// only for the credentials it `used`: the person's Connect input becomes
     /// the verified credentials once the school accepts it, a sign-in with
     /// the saved ones that the school accepts drops their refusal, and a
-    /// refusal is kept only for credentials that are the verified ones. A
-    /// Connect keeps no page that needs the person; one that fails leaves
-    /// every fact as it was.
+    /// refusal is kept only for credentials that are the verified ones. Each
+    /// vault write takes a permit of the sign-in's account generation
+    /// `account` (`Owner::permit_of`), atomically with the barrier: one
+    /// begun is waited for by a sign-out, and none begins once a sign-out
+    /// started. A Connect whose credentials the vault did not save ends
+    /// `NotSaved`, and one a sign-out overtook before they were saved ends
+    /// `Stopped`. A Connect keeps no page that needs the person; one that
+    /// fails leaves every fact as it was.
     async fn finish_sign_in(
         &self,
         profile: SchoolAuthProfile,
         id: u64,
+        account: u64,
         how: &How,
         used: Option<SchoolCredentials>,
         end: End,
     ) -> Result<u64, Ended> {
+        let owner = &self.account(profile).owner;
         let identity = &self.account(profile).identity;
         let connect = matches!(how, How::Connect(_));
         let sent = matches!(end, End::Refused { sent: true, .. });
@@ -621,37 +636,63 @@ impl Inner {
             log::info!(target: "app_core::school_session", "a replaced sign-in ended profile={profile:?}");
             return Err(Ended::Stopped);
         };
-        match (&result, used) {
+        let mut result = result;
+        match (result.clone(), used) {
             (Ok(generation), Some(credentials)) => {
                 log::info!(target: "app_core::school_session", "signed in profile={profile:?} generation={generation}");
-                // The school saw every secret these credentials hold.
-                let auth = self.auth.clone();
-                let saved = tokio::task::spawn_blocking(move || {
-                    if connect {
-                        auth.promote(profile, &credentials)
-                    } else {
-                        auth.clear_refusal(profile, &credentials)
+                // The school saw every secret these credentials hold. The
+                // write holds a permit of the generation until it lands: a
+                // sign-out begun meanwhile deletes after it, and one begun
+                // before leaves it none.
+                match owner.permit_of(account) {
+                    Some(permit) => {
+                        let auth = self.auth.clone();
+                        let saved = tokio::task::spawn_blocking(move || {
+                            let _permit = permit;
+                            if connect {
+                                auth.promote(profile, &credentials)
+                            } else {
+                                auth.clear_refusal(profile, &credentials)
+                            }
+                        })
+                        .await;
+                        let failure = match saved {
+                            Ok(Ok(())) => None,
+                            Ok(Err(error)) => Some(error.to_string()),
+                            Err(_) => Some("the vault write did not finish".to_owned()),
+                        };
+                        if let Some(error) = failure {
+                            log::warn!(target: "app_core::school_session", "verified credentials not saved profile={profile:?}: {error}");
+                            if connect {
+                                result = Err(Ended::NotSaved { generation });
+                            }
+                        }
                     }
-                })
-                .await;
-                if let Ok(Err(error)) = saved {
-                    log::warn!(target: "app_core::school_session", "verified credentials not saved profile={profile:?}: {error}");
+                    None => {
+                        log::info!(target: "app_core::school_session", "verified credentials not saved profile={profile:?}: a sign-out began");
+                        if connect {
+                            result = Err(Ended::Stopped);
+                        }
+                    }
                 }
                 identity.set_configured(self.auth.configured(profile));
-                self.persist(profile).await;
+                self.persist(profile, account).await;
             }
             (Err(Ended::Refused(problem)), Some(credentials))
                 if sent && !(connect && problem.kind.needs_web()) =>
             {
                 log::info!(target: "app_core::school_session", "sign-in refused profile={profile:?} kind={:?}", problem.kind);
-                let auth = self.auth.clone();
-                let kept = problem.clone();
-                let recorded = tokio::task::spawn_blocking(move || {
-                    auth.record_refusal(profile, &credentials, &kept)
-                })
-                .await;
-                if let Ok(Err(error)) = recorded {
-                    log::warn!(target: "app_core::school_session", "refusal not kept profile={profile:?}: {error}");
+                if let Some(permit) = owner.permit_of(account) {
+                    let auth = self.auth.clone();
+                    let kept = problem.clone();
+                    let recorded = tokio::task::spawn_blocking(move || {
+                        let _permit = permit;
+                        auth.record_refusal(profile, &credentials, &kept)
+                    })
+                    .await;
+                    if let Ok(Err(error)) = recorded {
+                        log::warn!(target: "app_core::school_session", "refusal not kept profile={profile:?}: {error}");
+                    }
                 }
             }
             (Err(ended), _) => {
@@ -736,6 +777,7 @@ impl Inner {
                 walked = tokio::time::timeout(VERIFY_DEADLINE, self.check_sso(profile, &snapshot)) => walked.ok(),
             }
         };
+        let account = permit.generation();
         let identity = &self.account(profile).identity;
         let checked = {
             let mut state = guard(&identity.state);
@@ -768,7 +810,7 @@ impl Inner {
         };
         log::info!(target: "app_core::school_session", "identity checked profile={profile:?} {checked:?}");
         if matches!(checked, Checked::Verified(verified) if verified > generation) {
-            self.persist(profile).await;
+            self.persist(profile, account).await;
         }
         drop(permit);
         self.publish();

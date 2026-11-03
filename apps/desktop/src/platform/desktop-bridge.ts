@@ -177,6 +177,9 @@ export type SchoolConnectOutcome =
   | { kind: "needs-web"; reason: SchoolSignInProblemKind }
   /** No verdict: offline, the network, out of time. */
   | { kind: "unreachable" }
+  /** The school accepted the credentials and the system vault did not save
+   * them: the saved ones are as they were. */
+  | { kind: "not-saved" }
   /** A newer Connect, a sign-out or a reset stopped it. */
   | { kind: "stopped" };
 const isSchoolSessionSnapshot = (

@@ -57,6 +57,8 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
     let suffix = match account {
         "school-accounts" => "passwords.school-accounts",
         "school-refusals" => "passwords.school-refusals",
+        // An earlier release's device item; Core only deletes it.
+        "school-candidates" => "passwords.school-candidates",
         "google-drive" => "passwords.google-drive",
         "icloud" => "passwords.icloud",
         "cloud-credential-sync" => "passwords.cloud-credential-sync",

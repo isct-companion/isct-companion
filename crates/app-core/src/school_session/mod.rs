@@ -24,7 +24,8 @@
 //!
 //! Every change of an account goes through its owner (`owner`): permits
 //! stamped with the account generation, and the barrier that signing out
-//! and resetting run.
+//! and resetting run, which drains every operation of the account before it
+//! deletes anything.
 
 mod identity;
 mod jar;
@@ -53,7 +54,7 @@ use crate::{
     net::{BoxFuture, Host, Http, Limits, NetError, NetRequest, Response},
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
+    school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -214,7 +215,8 @@ impl SchoolSessionSnapshot {
 
 /// How `Core::connect_school` ended, for the Connect form. Only `Connected`
 /// saved anything: the entered credentials are the verified ones now and
-/// sync to the person's other devices.
+/// sync to the person's other devices. Every other outcome keeps the
+/// form's input.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SchoolConnectOutcome {
@@ -231,6 +233,9 @@ pub enum SchoolConnectOutcome {
     },
     /// No verdict: offline, the network, out of time.
     Unreachable,
+    /// The school accepted the credentials, and the system credential vault
+    /// did not save them: the saved credentials are as they were.
+    NotSaved,
     /// A newer Connect, a sign-out or a reset stopped it.
     Stopped,
 }
@@ -423,6 +428,9 @@ impl WebStop {
             Ended::Refused(problem) if problem.kind.needs_web() => Self::NeedsWeb,
             Ended::Refused(_) => Self::Rejected,
             Ended::NotConfigured => Self::NotConfigured,
+            // Only a Connect ends so; a web operation's sign-in joins it as
+            // the identity it made (`identity::Inner::sign_in`).
+            Ended::NotSaved { .. } => Self::Storage,
             Ended::Unavailable(_) | Ended::Offline | Ended::Stopped => Self::Unreachable,
         }
     }
@@ -582,6 +590,7 @@ impl SchoolSessions {
             Err(Ended::Refused(problem)) => SchoolConnectOutcome::Refused {
                 reason: problem.kind,
             },
+            Err(Ended::NotSaved { .. }) => SchoolConnectOutcome::NotSaved,
             Err(Ended::Stopped) => SchoolConnectOutcome::Stopped,
             Err(Ended::Unavailable(_) | Ended::Offline | Ended::NotConfigured) => {
                 SchoolConnectOutcome::Unreachable
@@ -607,9 +616,9 @@ impl SchoolSessions {
         self.snapshot()
     }
 
-    /// Saved credentials changed outside a connect (imported, synced,
-    /// deleted). A refusal is kept with the credentials it is about, so
-    /// there is nothing to lift: the next sign-in reads them again.
+    /// Saved credentials changed outside a connect (imported, synced). A
+    /// refusal is kept with the credentials it is about, so there is
+    /// nothing to lift: the next sign-in reads them again.
     pub fn credentials_changed(&self, profile: SchoolAuthProfile) {
         self.0.auth.refresh();
         self.0
@@ -619,29 +628,41 @@ impl SchoolSessions {
         self.0.publish();
     }
 
-    /// Signs the account out of this device: its sign-in stops, its reads
-    /// end, Core's cookies and the LMS token go, and so do the school
-    /// cookies of the web view.
-    pub async fn sign_out(&self, profile: SchoolAuthProfile) {
-        self.0.barrier(profile, true).await;
+    /// Forgets the account's credentials and signs it out of this device,
+    /// behind the account barrier: admission closes, its sign-in and reads
+    /// are stopped and waited for (a Connect the school already accepted
+    /// included, until its vault write landed), and only then do the
+    /// credentials, Core's cookies, the LMS token and the school cookies of
+    /// the web view go. Returns whether the credentials were deleted; the
+    /// rest is cleaned up either way.
+    pub async fn sign_out(&self, profile: SchoolAuthProfile) -> Result<bool, SchoolAuthError> {
+        let (closed, deleted) = self.0.close(profile, true, true).await;
+        drop(closed);
+        log::info!(target: "app_core::school_session", "account barrier done profile={profile:?}");
         self.0
             .account(profile)
             .identity
             .set_configured(self.0.auth.configured(profile));
         self.0.publish();
+        deleted.map(|()| true)
     }
 
     /// Clears the sessions of both accounts (a reset), the web view's school
-    /// websites too when `web`. Saved credentials stay.
-    pub async fn reset(&self, web: bool) {
+    /// websites too when `web`, and the saved credentials too when
+    /// `credentials`, each deleted only once both accounts' operations have
+    /// ended.
+    pub async fn reset(&self, web: bool, credentials: bool) -> Result<(), SchoolAuthError> {
         if web {
             self.0.web.close_admission(&PROFILES);
         }
         // Both accounts stay closed until both are clean: one reopened early
         // would sign in while the other is still being cleared.
         let mut closed = Vec::new();
+        let mut deleted = Ok(());
         for account in &self.0.accounts {
-            closed.push(self.0.close(account.profile, false).await);
+            let (guard, forgotten) = self.0.close(account.profile, false, credentials).await;
+            closed.push(guard);
+            deleted = deleted.and(forgotten);
         }
         if web {
             self.0.clear_web_of(&PROFILES).await;
@@ -654,6 +675,7 @@ impl SchoolSessions {
         drop(closed);
         log::info!(target: "app_core::school_session", "sessions reset");
         self.0.publish();
+        deleted
     }
 
     /// Clears both accounts' school websites from the web view, the
@@ -787,7 +809,9 @@ impl SchoolSessions {
     pub async fn shutdown(&self) {
         self.suspend();
         for account in &self.0.accounts {
-            self.0.persist(account.profile).await;
+            self.0
+                .persist(account.profile, account.owner.generation())
+                .await;
         }
         self.0.tasks.close();
         self.0.tasks.wait().await;
@@ -875,12 +899,18 @@ impl Inner {
     }
 
     /// Reads the account's vault items once: its identity, the sites' jars
-    /// and the refusals kept on this device.
+    /// and the refusals kept on this device. The read holds a permit until
+    /// what it read is installed, so a barrier forgets and deletes only
+    /// after it.
     async fn restore(&self, profile: SchoolAuthProfile) {
         let account = self.account(profile);
         account
             .restored
             .get_or_init(|| async {
+                // A barrier is running: it deletes the item anyway.
+                let Some(_permit) = account.owner.permit() else {
+                    return;
+                };
                 let auth = self.auth.clone();
                 let loaded = tokio::task::spawn_blocking(move || {
                     if let Err(error) = auth.load_refusals() {
@@ -910,13 +940,14 @@ impl Inner {
         self.publish();
     }
 
-    /// Saves the identity and every site's jar of the account. The write
-    /// holds a permit of its own until it lands, however the caller ends: a
+    /// Saves the identity and every site's jar of the account, for an
+    /// operation of account generation `generation`. The write holds a
+    /// permit of that generation until it lands, however the caller ends: a
     /// barrier waits for it, so it never lands after the barrier deleted
-    /// the item.
-    async fn persist(&self, profile: SchoolAuthProfile) {
+    /// the item, and an operation of an older generation writes nothing.
+    async fn persist(&self, profile: SchoolAuthProfile, generation: u64) {
         let account = self.account(profile);
-        let Some(permit) = account.owner.permit() else {
+        let Some(permit) = account.owner.permit_of(generation) else {
             return;
         };
         let Some(snapshot) = account.identity.persisted() else {
@@ -938,21 +969,18 @@ impl Inner {
         }
     }
 
-    /// The barrier: stop, cancel and drain the account's permits, clean up
-    /// in order (sign-in, sites, LMS token, vault item, web cookies), then
-    /// open the next generation.
-    async fn barrier(&self, profile: SchoolAuthProfile, web: bool) {
-        let closed = self.close(profile, web).await;
-        drop(closed);
-        log::info!(target: "app_core::school_session", "account barrier done profile={profile:?}");
-        self.publish();
-    }
-
-    /// Closes the account and clears its session: its sign-in stops, its
-    /// reads drain, Core's cookies, the LMS token and (with `web`) the
-    /// account's school websites in the web view go. It reopens, one
-    /// generation on, when the guard drops.
-    async fn close(&self, profile: SchoolAuthProfile, web: bool) -> owner::Closed<'_> {
+    /// The barrier. It closes admission first, then cancels the account's
+    /// sign-in and reads and waits for every operation of it (writes run on
+    /// to their end), and only then, still closed, deletes, in order: the credentials (with `credentials`), Core's
+    /// identity and sites, the LMS token, the saved session and (with
+    /// `web`) the web view's school websites. It reopens, one generation
+    /// on, when the guard drops. The result is the credentials' deletion.
+    async fn close(
+        &self,
+        profile: SchoolAuthProfile,
+        web: bool,
+        credentials: bool,
+    ) -> (owner::Closed<'_>, Result<(), SchoolAuthError>) {
         let account = self.account(profile);
         // No write of this account is admitted from here on.
         if web {
@@ -967,18 +995,31 @@ impl Inner {
         }
         let auth = self.auth.clone();
         let deleted = tokio::task::spawn_blocking(move || {
+            let forgotten = if credentials {
+                auth.delete(profile).map(|_| ())
+            } else {
+                Ok(())
+            };
             let token = auth.delete_moodle_token(profile);
             let session = auth.delete_session(profile);
-            token.and(session)
+            (forgotten, token.and(session))
         })
         .await;
-        if let Ok(Err(error)) = deleted {
-            log::warn!(target: "app_core::school_session", "session not deleted profile={profile:?}: {error}");
-        }
+        let forgotten = match deleted {
+            Ok((forgotten, cleaned)) => {
+                if let Err(error) = cleaned {
+                    log::warn!(target: "app_core::school_session", "session not deleted profile={profile:?}: {error}");
+                }
+                forgotten
+            }
+            Err(_) => Err(SchoolAuthError::Storage(
+                "The school account could not be signed out.".into(),
+            )),
+        };
         if web {
             self.clear_web_of(&[profile]).await;
         }
-        closed
+        (closed, forgotten)
     }
 
     /// Clears the school websites of `profiles` from the web view, in order:

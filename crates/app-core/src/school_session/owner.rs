@@ -1,14 +1,18 @@
 //! The account owner: every change of an account's session passes it.
 //!
 //! An operation first takes a permit stamped with the account generation;
-//! it stores rows, saves jars, renames a download or promotes credentials
+//! it stores rows, saves jars, renames a download or writes the account's
+//! vault items (credentials, refusals, the saved session, the LMS token)
 //! only while it holds one. A write to the vault takes a permit of its own
-//! into the blocking task that runs it, so it holds until the write lands,
-//! even when the read that started it was cancelled and dropped. Signing out or a reset runs the barrier: stop
-//! issuing permits, cancel the reads (writes run on to their end), wait
-//! until every permit is back, clean up in a fixed order, and only then
-//! open the next generation. No lock spans the database, the
-//! vault and the platform's cookie store, so the order is the guarantee.
+//! generation (`permit_of`) into the blocking task that runs it, so it holds
+//! until the write lands, even when the read that started it was cancelled
+//! and dropped; once a barrier began, it gets none. Signing out or a reset
+//! runs the barrier: stop issuing permits, cancel the reads (writes run on
+//! to their end), wait until every permit is back, and only then delete, in
+//! a fixed order, before the next generation opens. A write the platform
+//! was already handed lands before the delete; none begins after it. No
+//! lock spans the database, the vault and the platform's cookie store, so
+//! the order is the guarantee.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
@@ -117,7 +121,10 @@ impl Owner {
         })
     }
 
-    /// A permit for `generation` only: `None` once a barrier closed it.
+    /// A permit for `generation` only: `None` while a barrier runs and once
+    /// it closed that generation. Issued under the lock the barrier takes,
+    /// so a write that gets one is waited for, and one that does not never
+    /// lands after the barrier's delete.
     pub(super) fn permit_of(&self, generation: u64) -> Option<Permit> {
         self.permit()
             .filter(|permit| permit.generation == generation)

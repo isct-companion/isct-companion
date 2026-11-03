@@ -241,6 +241,10 @@ struct SchoolCredentialBundle {
 /// another device hears it from the school itself.
 const SCHOOL_REFUSAL_ACCOUNT: &str = "school-refusals";
 const REFUSAL_VERSION: u8 = 1;
+/// The device item `school-refusals` replaced. It may still hold a typed
+/// password and OTP secret no sign-in accepted: deleted once per launch,
+/// with the first device-local read, and never read.
+const RETIRED_CANDIDATE_ACCOUNT: &str = "school-candidates";
 
 #[derive(Default, Deserialize, Serialize)]
 struct RefusalBundle {
@@ -502,6 +506,9 @@ impl SchoolAuthService {
     fn read_refusals(&self, accounts: &mut Accounts) -> Result<(), SchoolAuthError> {
         if accounts.refusals.is_some() {
             return Ok(());
+        }
+        if let Err(error) = self.vault.delete(RETIRED_CANDIDATE_ACCOUNT) {
+            log::warn!(target: "app_core::school_auth", "the retired candidates item was not deleted: {error}");
         }
         // A record of another version is not read: the next refusal
         // replaces it.

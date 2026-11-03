@@ -3979,23 +3979,36 @@ checks:
           signed in, and the LMS must show its sign-in page. 教務Web signed out
           means the clear covered the other account.
       - action: |
-          On Android, delete the Science Tokyo credentials.
+          On Android, delete the Science Tokyo credentials, go back to
+          Settings, and read the card under School accounts.
         reason: |
-          WebView cannot clear one account's websites: the account page must
-          say the web sign-in was kept and offer to clear every school web
-          sign-in, never clear both silently.
+          WebView cannot clear one account's websites: the card must say a
+          signed-out account's web sign-in was kept and offer to clear every
+          school web sign-in, never clear both silently.
       - action: |
-          Press "Clear all school web sign-ins", then open 教務Web.
+          Quit the app (swipe it away), reopen it, open the LMS in the Web tab,
+          then go back to Settings.
         reason: |
-          The person's choice clears both accounts' web sessions; 教務Web then
-          signs in again through a web operation, since Core's Tokyo Tech
-          identity stays valid.
+          The LMS still opens signed in: the web sign-in survived on disk. Core
+          forgot that it kept it, so the reminder is gone, but "Clear all
+          school web sign-ins" must still be there under School accounts. A
+          missing button leaves only Reset, which also deletes the caches.
+      - action: |
+          Press "Clear all school web sign-ins", then open the LMS and
+          教務Web.
+        reason: |
+          The person's choice clears both accounts' web sessions: the LMS shows
+          its sign-in page, and 教務Web signs in again through a web
+          operation, since Core's Tokyo Tech identity stays valid.
     observe: |
-      The LMS and 教務Web views on both devices, and the Android account page.
+      The LMS and 教務Web views on both devices, and the School accounts
+      section of Android's Settings before and after the relaunch.
     expected: |
       The desktop LMS is signed out and 教務Web signed in. Android names the
-      kept web sign-in, clears both only when asked, and 教務Web opens signed
-      in afterwards without a password prompt.
+      kept web sign-in, still offers the clear button after a relaunch (with
+      its plain description instead of the reminder), clears both only when
+      asked, and afterwards the LMS is signed out while 教務Web opens signed
+      in without a password prompt.
     why_manual: |
       Needs each platform's real website data store and the real school
       cookies' domains; the clear order and the domain table are in the Core

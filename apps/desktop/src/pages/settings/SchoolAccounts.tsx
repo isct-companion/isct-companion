@@ -88,6 +88,7 @@ const OUTCOME_COLOR: Record<SchoolConnectOutcome["kind"], string> = {
   refused: "red",
   "needs-web": "yellow",
   unreachable: "orange",
+  "not-saved": "red",
   stopped: "dimmed",
 };
 
@@ -107,6 +108,8 @@ function connectOutcomeText(outcome: SchoolConnectOutcome) {
         .join(" ");
     case "unreachable":
       return t("schoolSession.connect.unreachable");
+    case "not-saved":
+      return t("schoolSession.connect.saveFailed");
     case "stopped":
       return t("schoolSession.connect.stopped");
   }

@@ -579,7 +579,7 @@ impl Inner {
                 Sso::Ready => {
                     log::info!(target: "app_core::school_session", "{site:?} session ready instance={}", instance.id);
                     session.install(instance.clone());
-                    self.persist(profile).await;
+                    self.persist(profile, call.account).await;
                     return Ok(instance);
                 }
                 Sso::SignIn => {
@@ -610,7 +610,8 @@ impl Inner {
             Ended::NotConfigured | Ended::Refused(_) => Stop::Blocked(AccountWait::Person),
             Ended::Offline => Stop::Blocked(AccountWait::Network),
             Ended::Unavailable(_) => Stop::Blocked(self.paused(profile)),
-            Ended::Stopped => Stop::Cancelled,
+            // Only a Connect ends so; a read joins it as the identity it made.
+            Ended::NotSaved { .. } | Ended::Stopped => Stop::Cancelled,
         }
     }
 

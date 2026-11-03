@@ -714,6 +714,53 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
     assert_eq!(fixture.calls(), (0, 0, 0));
 }
 
+// An upgrade from a ledger of an older schema starts empty instead of
+// leaving the service off: the file, its records and the snapshots they
+// named are gone, and nothing of them is read. A newer schema is refused.
+#[tokio::test]
+async fn an_older_ledger_is_rebuilt_empty() {
+    let fixture = Fixture::new();
+    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
+    let blobs = data.join("submissions");
+    std::fs::create_dir_all(&blobs).unwrap();
+    std::fs::write(blobs.join("0a1b2c"), b"%PDF-1 old").unwrap();
+    {
+        // Schema 1 kept the account on each write; a value it cannot parse
+        // now would fail any read of it.
+        let old = rusqlite::Connection::open(data.join("submissions.db")).unwrap();
+        old.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE preparations (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL);
+             CREATE TABLE operations (id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL, account TEXT NOT NULL,
+               site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
+               state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL);
+             INSERT INTO preparations VALUES ('old', 4102444800, '{}');
+             INSERT INTO operations VALUES ('old', 'old', 'science:24b00001',
+               'https://lms.s.isct.ac.jp/2025', 77, 'k', 'saving', 1, '{}');
+             PRAGMA user_version=1;",
+        )
+        .unwrap();
+    }
+
+    let service = fixture.service();
+    assert!(service.ledger.unsettled(None).unwrap().is_empty());
+    assert!(service.ledger.preparation("old").unwrap().is_none());
+    assert!(!blobs.exists());
+    fixture.put("report.pdf", b"%PDF-1 report");
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    assert!(service.ledger.intact(&prepared.files));
+    drop(service);
+
+    rusqlite::Connection::open(data.join("submissions.db"))
+        .unwrap()
+        .pragma_update(None, "user_version", 3)
+        .unwrap();
+    assert!(Ledger::open(&data).is_err());
+}
+
 // The person's switch gates the write path itself: off, nothing is sent;
 // turned off during the upload, the save never leaves, and the write is
 // recorded as failed without having been sent.

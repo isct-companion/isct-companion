@@ -61,7 +61,9 @@ fn a_snapshot_keeps_the_last_value_and_writes_a_lifetime_as_an_absolute_expiry()
     );
 }
 
-// The barrier waits for every permit, and no permit is issued while it runs.
+// The barrier waits for every permit, no permit (not even one of the
+// running generation, for a vault write) is issued while it runs, and it
+// reopens one generation on.
 #[tokio::test]
 async fn the_account_barrier_drains_permits_before_the_next_generation() {
     let owner = Owner::new();
@@ -78,10 +80,15 @@ async fn the_account_barrier_drains_permits_before_the_next_generation() {
     };
     tokio::time::sleep(Duration::from_millis(20)).await;
     assert!(permit.is_cancelled(), "the barrier cancels the reads");
+    assert!(
+        owner.permit_of(1).is_none(),
+        "no write begins once it started"
+    );
     assert!(!closing.is_finished(), "it waits for the permit");
     drop(permit);
     assert!(closing.await.unwrap());
     assert_eq!(owner.permit().unwrap().generation(), 2);
+    assert!(owner.permit_of(1).is_none());
 }
 
 /// Science Tokyo as the session and web operation suites need it, without a
@@ -766,6 +773,50 @@ async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credent
     assert_eq!(saved().password, "changed");
 }
 
+// The school accepts a Connect and the vault refuses to save its
+// credentials: the Connect says so instead of `Connected`, so the form keeps
+// what was typed; the saved credentials are as they were, and the identity
+// the school gave stands.
+#[tokio::test(start_paused = true)]
+async fn a_connect_the_vault_did_not_save_says_so() {
+    #[derive(Clone, Default)]
+    struct Refusing(MemoryVault, Arc<AtomicBool>);
+    impl crate::ports::SecretVault for Refusing {
+        fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+            if account == "school-accounts" && self.1.load(Ordering::SeqCst) {
+                return Err(crate::ports::SecretError::Access("denied".into()));
+            }
+            self.0.store(account, secret)
+        }
+        fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+            self.0.load(account)
+        }
+        fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+            self.0.delete(account)
+        }
+    }
+    let vault = Refusing::default();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(SchoolAuthProfile::Science, &science_credentials("old"))
+        .unwrap();
+    vault.1.store(true, Ordering::SeqCst);
+    let sessions = SchoolSessions::with_transport(School::accepting("new"), auth.clone());
+    assert_eq!(
+        sessions
+            .connect(SchoolAuthProfile::Science, science_credentials("new"))
+            .await,
+        SchoolConnectOutcome::NotSaved
+    );
+    assert_eq!(
+        auth.load(SchoolAuthProfile::Science)
+            .unwrap()
+            .unwrap()
+            .password,
+        "old"
+    );
+    assert!(sessions.fresh(SchoolAuthProfile::Science).is_some());
+}
+
 // A sign-in on Core's own that hits a page needing the person makes the
 // account need the web, kept with the saved credentials; one without a
 // verdict pauses sign-ins on Core's own until its retry time, which only
@@ -883,39 +934,49 @@ async fn a_read_gets_the_site_session_only_when_a_request_needs_cookies() {
     ));
 }
 
-/// A vault whose writes of a saved session wait while it holds them.
+/// A vault whose writes of some items wait while it holds them.
 #[derive(Clone, Default)]
 struct HeldVault {
     inner: MemoryVault,
-    /// (holding, a write is waiting)
-    gate: Arc<(Mutex<(bool, bool)>, std::sync::Condvar)>,
+    prefix: &'static str,
+    holding: Arc<(Mutex<bool>, std::sync::Condvar)>,
+    /// Told when a write starts waiting. An async signal, never a blocking
+    /// wait: under a paused clock a blocking task stops time, and a sign-in
+    /// waiting for a fresh one-time password window would never get one.
+    waiting: Arc<tokio::sync::Notify>,
 }
 
 impl HeldVault {
+    /// Holds the writes of the items whose account starts with `prefix`.
+    fn on(prefix: &'static str) -> Self {
+        Self {
+            prefix,
+            ..Self::default()
+        }
+    }
+
     fn hold(&self, holding: bool) {
-        let (lock, signal) = &*self.gate;
-        lock.lock().unwrap().0 = holding;
+        let (lock, signal) = &*self.holding;
+        *lock.lock().unwrap() = holding;
         signal.notify_all();
     }
 
-    fn wait_for_a_write(&self) {
-        let (lock, signal) = &*self.gate;
-        let mut gate = lock.lock().unwrap();
-        while !gate.1 {
-            gate = signal.wait(gate).unwrap();
-        }
+    /// Until a write is held.
+    async fn wait_for_a_write(&self) {
+        self.waiting.notified().await;
     }
 }
 
 impl crate::ports::SecretVault for HeldVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
-        if account.starts_with("school-session") {
-            let (lock, signal) = &*self.gate;
-            let mut gate = lock.lock().unwrap();
-            gate.1 = true;
-            signal.notify_all();
-            while gate.0 {
-                gate = signal.wait(gate).unwrap();
+        if account.starts_with(self.prefix) {
+            let (lock, signal) = &*self.holding;
+            let mut holding = lock.lock().unwrap();
+            if *holding {
+                self.waiting.notify_one();
+            }
+            while *holding {
+                holding = signal.wait(holding).unwrap();
             }
         }
         self.inner.store(account, secret)
@@ -935,7 +996,7 @@ impl crate::ports::SecretVault for HeldVault {
 // and its clean-up comes after it, so nothing of the account is left.
 #[tokio::test]
 async fn a_vault_write_of_a_cancelled_read_lands_before_the_sign_out_cleans_up() {
-    let vault = HeldVault::default();
+    let vault = HeldVault::on("school-session");
     let auth = Arc::new(SchoolAuthService::new(vault.clone()));
     auth.promote(SchoolAuthProfile::Science, &science_credentials("right"))
         .unwrap();
@@ -944,12 +1005,15 @@ async fn a_vault_write_of_a_cancelled_read_lands_before_the_sign_out_cleans_up()
     vault.hold(true);
     let read = {
         let sessions = sessions.clone();
-        tokio::spawn(async move { sessions.0.persist(SchoolAuthProfile::Science).await })
+        tokio::spawn(async move {
+            let generation = sessions.account_generation(SchoolAuthProfile::Science);
+            sessions
+                .0
+                .persist(SchoolAuthProfile::Science, generation)
+                .await
+        })
     };
-    let waiting = vault.clone();
-    tokio::task::spawn_blocking(move || waiting.wait_for_a_write())
-        .await
-        .unwrap();
+    vault.wait_for_a_write().await;
     read.abort();
     let signing_out = {
         let sessions = sessions.clone();
@@ -961,11 +1025,64 @@ async fn a_vault_write_of_a_cancelled_read_lands_before_the_sign_out_cleans_up()
         "the sign-out waits for the write"
     );
     vault.hold(false);
-    signing_out.await.unwrap();
+    assert_eq!(signing_out.await.unwrap(), Ok(true));
     assert!(
         crate::ports::SecretVault::load(&vault.inner, "school-session-science")
             .unwrap()
             .is_none(),
         "the sign-out's delete came after the write"
     );
+}
+
+// The person signs out while a Connect the school already accepted is
+// saving its credentials. The sign-out moves the account generation, waits
+// for that write and every other operation of the account, and only then
+// deletes: the account ends with no credentials, identity or session, and
+// nothing of the Connect is written after.
+#[tokio::test(start_paused = true)]
+async fn a_sign_out_during_an_accepted_connect_deletes_after_its_write() {
+    let vault = HeldVault::on("school-accounts");
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(SchoolAuthProfile::Science, &science_credentials("old"))
+        .unwrap();
+    let sessions = SchoolSessions::with_transport(School::accepting("new"), auth.clone());
+    vault.hold(true);
+    let connect = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move {
+            sessions
+                .connect(SchoolAuthProfile::Science, science_credentials("new"))
+                .await
+        })
+    };
+    vault.wait_for_a_write().await;
+    let signing_out = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move { sessions.sign_out(SchoolAuthProfile::Science).await })
+    };
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !signing_out.is_finished(),
+        "the sign-out waits for the Connect's write"
+    );
+    vault.hold(false);
+    assert_eq!(signing_out.await.unwrap(), Ok(true));
+    connect.await.unwrap();
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    let relaunched = SchoolAuthService::new(vault.inner.clone());
+    assert!(relaunched
+        .load(SchoolAuthProfile::Science)
+        .unwrap()
+        .is_none());
+    assert!(
+        crate::ports::SecretVault::load(&vault.inner, "school-session-science")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(science(&sessions).state, SchoolSessionState::NotConfigured);
+    assert_eq!(sessions.fresh(SchoolAuthProfile::Science), None);
 }

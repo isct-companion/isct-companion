@@ -415,19 +415,16 @@ impl Core {
     }
 
     /// Forgets the account's credentials and signs it out of this device:
-    /// Core's session, the LMS token and the account's school websites in
-    /// the web view go.
+    /// once every operation of the account has ended, the credentials,
+    /// Core's session, the LMS token and the school websites in the web
+    /// view go (`SchoolSessions::sign_out`).
     pub async fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<bool, CredentialMutationError> {
-        let auth = self.auth.clone();
-        let deleted = tokio::task::spawn_blocking(move || auth.delete(profile))
-            .await
-            .map_err(|_| SchoolBrowserError::Stopped)??;
-        self.sessions.sign_out(profile).await;
+        let deleted = self.sessions.sign_out(profile).await;
         self.sync.unblock(profile);
-        Ok(deleted)
+        Ok(deleted?)
     }
 
     /// A credential file was imported: both accounts read their saved

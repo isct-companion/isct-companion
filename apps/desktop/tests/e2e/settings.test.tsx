@@ -387,7 +387,7 @@ describe("School accounts", () => {
   );
 
   it(
-    "connects in one call, keeps a draft the school refused and clears it once connected",
+    "connects in one call, keeps a draft the school refused or the vault did not save and clears it once connected",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
@@ -395,6 +395,7 @@ describe("School accounts", () => {
       };
       const answers = [
         { kind: "refused", reason: "invalid-otp" },
+        { kind: "not-saved" },
         { kind: "connected" },
       ];
       const mounted = await mountAccounts({
@@ -431,6 +432,19 @@ describe("School accounts", () => {
         expect(buttonIn(science, "Connect").disabled).toBe(false),
       );
 
+      // The school accepted it and the vault did not save it: that is the
+      // outcome too, and the draft stays.
+      await clickButton(science, "Connect");
+      await wait(() =>
+        expect(science.textContent).toContain(
+          "the system credential vault could not save them",
+        ),
+      );
+      expect(password.value).toBe("new-secret");
+      await wait(() =>
+        expect(buttonIn(science, "Connect").disabled).toBe(false),
+      );
+
       // Only a connection saves the draft: the form empties and says so.
       await clickButton(science, "Connect");
       await wait(() =>
@@ -438,7 +452,7 @@ describe("School accounts", () => {
           "Signed in. These credentials are saved and sync to your other devices.",
         ),
       );
-      expect(mounted.core.commands("connect_school")[1].args).toMatchObject({
+      expect(mounted.core.commands("connect_school")[2].args).toMatchObject({
         credentials: { password: "new-secret" },
       });
       expect(password.value).toBe("");
