@@ -679,12 +679,12 @@ async fn a_refusal_of_the_saved_credentials_is_kept_with_them() {
 
     // Other credentials (here imported from another device) are not
     // refused: the account is normal, and the next sign-in uses them.
-    auth.import_sync_payload(
-        &serde_json::json!({"version": 1, "accounts": {"science": science_credentials("right")}})
+    relaunched.import_credentials(
+        serde_json::json!({"version": 1, "accounts": {"science": science_credentials("right")}})
             .to_string(),
+        relaunched.credential_generations(),
     )
-    .unwrap();
-    relaunched.credentials_changed(SchoolAuthProfile::Science);
+    .await.unwrap();
     assert_eq!(science_state(&relaunched), SchoolSessionState::Normal);
     assert!(background(&relaunched).await.is_ok());
     assert_eq!(school.passwords(), 3);
@@ -820,6 +820,13 @@ async fn a_connect_saved_while_a_refusals_clean_up_failed_is_connected() {
             typed
         );
         assert_eq!(auth.refusal(SchoolAuthProfile::Science), None, "{typed}");
+        let reopened = SchoolAuthService::new(vault);
+        assert!(reopened
+            .sign_in_credentials(SchoolAuthProfile::Science)
+            .unwrap()
+            .unwrap()
+            .refusal
+            .is_none());
         assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
     }
 }
@@ -1297,7 +1304,10 @@ async fn a_sign_out_that_did_not_finish_keeps_the_account_and_can_be_redone() {
         Err(SchoolAuthError::SignOutIncomplete(left)) if left.contains("LMS token")
     ));
     assert!(auth.load(SchoolAuthProfile::Science).unwrap().is_some());
-    assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
+    assert!(science(&sessions).sign_out_pending);
+    assert!(sessions.permit(SchoolAuthProfile::Science).is_none());
+    let reopened = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(vault.clone())));
+    assert!(science(&reopened).sign_out_pending);
 
     vault.1.store(false, Ordering::SeqCst);
     assert_eq!(

@@ -394,7 +394,7 @@
   "error.school-site-changed": "The school site changed and could not be read. Update the app.",
   "error.sign-in-required": "Sign in to your school account again.",
   "error.stopped": "The app is closing. Try again after it restarts.",
-  "error.sign-out-incomplete": "Signing out did not finish on this device, so the account is still saved. Sign out again.",
+  "error.sign-out-incomplete": "Sign out again to finish clearing this device.",
   "error.storage": "Data on this device could not be read or saved.",
   "error.study-admission-term": "The admission term {{term}} is not valid; use a form like 2026-1Q.",
   "error.study-duplicate-term": "Two study stages cannot start in {{term}}.",

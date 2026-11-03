@@ -394,7 +394,7 @@
   "error.school-site-changed": "学校网站已变更，无法读取。请更新应用。",
   "error.sign-in-required": "请重新登录学校账号。",
   "error.stopped": "应用正在关闭。请在重新启动后重试。",
-  "error.sign-out-incomplete": "本机上的退出登录没有完成，账号仍然保存着。请再退出一次。",
+  "error.sign-out-incomplete": "请再次退出登录，完成本机清理。",
   "error.storage": "无法读取或保存本机数据。",
   "error.study-admission-term": "入学学期 {{term}} 无效，请使用 2026-1Q 这样的格式。",
   "error.study-duplicate-term": "不能有两个学习阶段都从 {{term}} 开始。",

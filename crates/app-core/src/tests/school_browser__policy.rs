@@ -128,7 +128,7 @@ fn a_reload_keeps_the_page_and_drops_what_acts_or_leaks() {
     );
     assert_eq!(
         reopen_url(
-            "https://lms.s.isct.ac.jp/2025/course/view.php?id=3&SessKey=abc&confirm=1&section=2&token=t"
+            "https://lms.s.isct.ac.jp/2025/course/view.php?id=3&SessKey=abc&confirm=1&section=2&token=t&access_token=a&refresh_token=b&code=c"
         )
         .unwrap()
         .as_str(),

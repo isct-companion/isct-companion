@@ -181,6 +181,7 @@ pub struct SchoolMaintenance {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolProfileSession {
+    pub sign_out_pending: bool,
     pub state: SchoolSessionState,
     pub problem: Option<SchoolSignInProblem>,
     /// When Core tries again on its own (`unavailable` only).
@@ -366,6 +367,8 @@ impl Transport for Offline {
 struct Account {
     profile: SchoolAuthProfile,
     owner: Owner,
+    /// Order the identity verdict and all its vault writes as one commit.
+    commit: tokio::sync::Mutex<()>,
     identity: Identity,
     sites: Vec<SiteSession>,
     /// The vault item, read once, at the account's first use.
@@ -397,8 +400,8 @@ pub struct SchoolSessions(Arc<Inner>);
 
 /// The web views of the accounts, as a sign-out stops them.
 pub(crate) trait AccountViews: Send + Sync {
-    /// Ends the web operations of `profiles` and closes their views.
-    fn stop(&self, profiles: &[SchoolAuthProfile]);
+    /// All school views share the store, including public sites and popups.
+    fn stop(&self);
 }
 
 /// Why a web operation could not get an account's identity into the web
@@ -489,9 +492,15 @@ impl SchoolSessions {
         auth: Arc<SchoolAuthService>,
     ) -> Self {
         let configured = PROFILES.map(|profile| auth.configured(profile));
+        let pending = PROFILES.map(|profile| auth.sign_out_pending(profile));
         let account = |profile: SchoolAuthProfile, sites: Vec<SiteSession>| Account {
             profile,
-            owner: Owner::new(),
+            owner: {
+                let owner = Owner::new();
+                owner.set_sign_out_pending(pending[slot(profile)]);
+                owner
+            },
+            commit: tokio::sync::Mutex::new(()),
             identity: Identity::new(configured[slot(profile)]),
             sites,
             restored: tokio::sync::OnceCell::new(),
@@ -528,6 +537,7 @@ impl SchoolSessions {
     pub(crate) fn ready(auth: Arc<SchoolAuthService>) -> Self {
         let sessions = Self::new(None, auth);
         for account in &sessions.0.accounts {
+            account.identity.set_configured(true);
             for site in &account.sites {
                 site.install_restored(Jar::default(), 0);
             }
@@ -580,6 +590,7 @@ impl SchoolSessions {
         let Some(permit) = inner.account(profile).owner.permit() else {
             return Ok(SchoolConnectOutcome::Stopped);
         };
+        let intent = inner.account(profile).identity.begin_connect();
         let auth = inner.auth.clone();
         let credentials = tokio::task::spawn_blocking(move || {
             auth.refresh();
@@ -595,6 +606,7 @@ impl SchoolSessions {
         inner.restore(profile).await;
         let seen = inner.account(profile).identity.generation();
         let how = identity::How::Connect {
+            intent,
             credentials,
             account: permit.generation(),
         };
@@ -641,45 +653,61 @@ impl SchoolSessions {
         self.snapshot()
     }
 
-    /// Saved credentials changed outside a connect (imported, synced). A
-    /// refusal is kept with the credentials it is about, so there is
-    /// nothing to lift: the next sign-in reads them again. While a barrier
-    /// runs it does nothing: the barrier reads them itself once it is done.
-    pub fn credentials_changed(&self, profile: SchoolAuthProfile) {
-        let account = self.0.account(profile);
-        let Some(_permit) = account.owner.permit() else {
-            return;
-        };
-        self.0.auth.refresh();
-        account
-            .identity
-            .set_configured(self.0.auth.configured(profile));
-        self.0.publish();
+    /// Capture before fetching the remote backup, without holding up a sign-out.
+    pub(crate) fn credential_generations(&self) -> [u64; 2] {
+        PROFILES.map(|profile| self.account_generation(profile))
     }
 
-    /// Replaces the saved credentials with `payload`, a credential backup
-    /// decrypted by Rust, and lets both accounts read them again. It holds
-    /// both accounts' permits from before it reads the vault until its
-    /// write landed: a sign-out or reset running refuses it, and one begun
-    /// meanwhile deletes only after it. Returns how many accounts it held.
-    pub async fn import_credentials(&self, payload: String) -> Result<usize, SchoolAuthError> {
-        let permits = PROFILES.map(|profile| self.0.account(profile).owner.permit());
-        let [Some(science), Some(tokyo_tech)] = permits else {
-            return Err(SchoolAuthError::Storage(
-                "A sign-out or reset is running. Try again once it ends.".into(),
-            ));
-        };
-        let auth = self.0.auth.clone();
-        let imported = tokio::task::spawn_blocking(move || {
-            let _held = (science, tokyo_tech);
-            auth.import_sync_payload(&payload)
-        })
-        .await
-        .map_err(|_| SchoolAuthError::Storage("The credentials could not be saved.".into()))??;
-        for profile in PROFILES {
-            self.credentials_changed(profile);
-        }
-        Ok(imported)
+    /// Drain both captured generations in reset order before replacing the bundle.
+    /// Dropping the caller does not detach the vault write from these guards.
+    pub(crate) async fn import_credentials(
+        &self,
+        payload: String,
+        generations: [u64; 2],
+    ) -> Result<usize, SchoolAuthError> {
+        let sessions = self.clone();
+        self.0
+            .tasks
+            .run(async move {
+                let mut closed = Vec::new();
+                for profile in PROFILES {
+                    let account = sessions.0.account(profile);
+                    closed.push(
+                        account
+                            .owner
+                            .close_generation(generations[slot(profile)])
+                            .await
+                            .ok_or_else(|| {
+                                SchoolAuthError::Storage(
+                                    "The account changed during backup retrieval.".into(),
+                                )
+                            })?,
+                    );
+                }
+                let auth = sessions.0.auth.clone();
+                let present =
+                    tokio::task::spawn_blocking(move || auth.import_sync_payload(&payload))
+                        .await
+                        .map_err(|_| {
+                            SchoolAuthError::Storage("Credential import stopped.".into())
+                        })??;
+                for profile in PROFILES {
+                    let account = sessions.0.account(profile);
+                    let saved = present.contains(&profile);
+                    account.identity.set_configured(saved);
+                    if !saved {
+                        account.identity.forget();
+                        for site in &account.sites {
+                            site.forget();
+                        }
+                    }
+                }
+                drop(closed);
+                sessions.0.publish();
+                Ok(present.len())
+            })
+            .await
+            .map_err(|error| SchoolAuthError::Storage(error.to_string()))?
     }
 
     /// The verified credentials as the synchronized bundle, for an
@@ -698,10 +726,19 @@ impl SchoolSessions {
     /// credentials stay saved, the error names what is left, and signing out
     /// again redoes every step.
     pub async fn sign_out(&self, profile: SchoolAuthProfile) -> Result<bool, SchoolAuthError> {
+        let sessions = self.clone();
+        self.0
+            .tasks
+            .run(async move { sessions.sign_out_owned(profile).await })
+            .await
+            .map_err(|error| SchoolAuthError::SignOutIncomplete(error.to_string()))?
+    }
+
+    async fn sign_out_owned(&self, profile: SchoolAuthProfile) -> Result<bool, SchoolAuthError> {
         // No web write is admitted from here on: the clear covers both
         // accounts.
         self.0.web.close_admission(&PROFILES);
-        let (closed, mut unfinished) = self.0.close(profile).await;
+        let (closed, mut unfinished) = self.0.close(profile, true).await;
         if !self.0.clear_web().await {
             unfinished.push("the school web sign-ins");
         }
@@ -730,7 +767,7 @@ impl SchoolSessions {
         let mut closed = Vec::new();
         let mut unfinished = Vec::new();
         for account in &self.0.accounts {
-            let (guard, left) = self.0.close(account.profile).await;
+            let (guard, left) = self.0.close(account.profile, credentials).await;
             closed.push(guard);
             unfinished.extend(left);
         }
@@ -861,6 +898,16 @@ impl SchoolSessions {
         self.0.seed(profile, identity)
     }
 
+    pub(crate) fn sign_out_pending(&self, profile: SchoolAuthProfile) -> bool {
+        self.0.account(profile).owner.sign_out_pending()
+    }
+
+    pub(crate) fn web_cleanup_pending(&self) -> bool {
+        PROFILES
+            .iter()
+            .any(|profile| self.sign_out_pending(*profile))
+    }
+
     /// The account generation of `profile`, which a web operation checks
     /// did not move.
     pub(crate) fn account_generation(&self, profile: SchoolAuthProfile) -> u64 {
@@ -916,6 +963,7 @@ impl Inner {
         let account = self.account(profile);
         let (state, problem, retry_at) = account.identity.view(self.auth.refusal(profile));
         SchoolProfileSession {
+            sign_out_pending: account.owner.sign_out_pending(),
             state,
             problem,
             retry_at,
@@ -1044,9 +1092,20 @@ impl Inner {
     /// be deleted; the caller deletes the credentials only once nothing is
     /// left (`forget`), so a sign-out that did not finish keeps the account
     /// saved and the person can sign out again.
-    async fn close(&self, profile: SchoolAuthProfile) -> (owner::Closed<'_>, Vec<&'static str>) {
+    async fn close(
+        &self,
+        profile: SchoolAuthProfile,
+        forget: bool,
+    ) -> (owner::Closed<'_>, Vec<&'static str>) {
         let account = self.account(profile);
         let closed = account.owner.close().await;
+        if forget {
+            account.owner.set_sign_out_pending(true);
+            if let Err(error) = self.auth.mark_sign_out(profile, true) {
+                log::warn!("Sign-out intent could not be saved: {error}");
+                return (closed, vec!["the local sign-out record"]);
+            }
+        }
         account.identity.cancel_flight();
         account.identity.wait_flight().await;
         account.identity.forget();
@@ -1089,14 +1148,23 @@ impl Inner {
             return Err(SchoolAuthError::SignOutIncomplete(unfinished.join(", ")));
         }
         let auth = self.auth.clone();
-        let profiles = profiles.to_vec();
+        let batch = profiles.to_vec();
         tokio::task::spawn_blocking(move || {
-            profiles
-                .into_iter()
-                .try_for_each(|profile| auth.delete(profile).map(|_| ()))
+            for profile in &batch {
+                auth.delete(*profile)?;
+            }
+            for profile in batch {
+                auth.mark_sign_out(profile, false)?;
+            }
+            Ok::<_, SchoolAuthError>(())
         })
         .await
         .map_err(|_| SchoolAuthError::SignOutIncomplete("the saved credentials".into()))?
+        .map_err(|error| SchoolAuthError::SignOutIncomplete(error.to_string()))?;
+        for profile in profiles {
+            self.account(*profile).owner.set_sign_out_pending(false);
+        }
+        Ok(())
     }
 
     /// Clears every school website from the web view, both accounts', in
@@ -1116,7 +1184,7 @@ impl Inner {
         self.web.close_admission(&PROFILES);
         let views = guard(&self.views).as_ref().and_then(Weak::upgrade);
         if let Some(views) = views {
-            views.stop(&PROFILES);
+            views.stop();
         }
         let wait = self.web.clear(&self.tasks);
         match tokio::time::timeout(WEB_STORE_LIMIT, wait).await {
@@ -1142,7 +1210,8 @@ impl Inner {
     /// Whether nothing stands in the way of the account's identity: its
     /// derived state is normal.
     fn usable(&self, profile: SchoolAuthProfile) -> bool {
-        self.profile(profile).state == SchoolSessionState::Normal
+        !self.account(profile).owner.sign_out_pending()
+            && self.profile(profile).state == SchoolSessionState::Normal
     }
 
     fn fresh(&self, profile: SchoolAuthProfile) -> Option<u64> {

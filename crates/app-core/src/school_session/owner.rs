@@ -21,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 struct State {
     generation: u64,
     open: bool,
+    sign_out_pending: bool,
     permits: usize,
     /// Cancelled by the barrier: the reads and the sign-in of this generation.
     cancel: CancellationToken,
@@ -95,12 +96,21 @@ impl Owner {
             state: Mutex::new(State {
                 generation: 1,
                 open: true,
+                sign_out_pending: false,
                 permits: 0,
                 cancel: CancellationToken::new(),
             }),
             returned: Notify::new(),
             turn: tokio::sync::Mutex::new(()),
         }))
+    }
+
+    pub(super) fn set_sign_out_pending(&self, pending: bool) {
+        self.0.state().sign_out_pending = pending;
+    }
+
+    pub(super) fn sign_out_pending(&self) -> bool {
+        self.0.state().sign_out_pending
     }
 
     pub(super) fn generation(&self) -> u64 {
@@ -110,7 +120,7 @@ impl Owner {
     /// A permit for the current generation; `None` while a barrier runs.
     pub(super) fn permit(&self) -> Option<Permit> {
         let mut state = self.0.state();
-        if !state.open {
+        if !state.open || state.sign_out_pending {
             return None;
         }
         state.permits += 1;
@@ -134,7 +144,18 @@ impl Owner {
     /// and waits until every permit is back. Writes are not cancelled: the
     /// wait lasts until they end.
     pub(super) async fn close(&self) -> Closed<'_> {
+        self.drain(self.0.turn.lock().await).await
+    }
+
+    pub(super) async fn close_generation(&self, generation: u64) -> Option<Closed<'_>> {
         let turn = self.0.turn.lock().await;
+        if self.generation() != generation || self.sign_out_pending() {
+            return None;
+        }
+        Some(self.drain(turn).await)
+    }
+
+    async fn drain<'a>(&'a self, turn: tokio::sync::MutexGuard<'a, ()>) -> Closed<'a> {
         {
             let mut state = self.0.state();
             state.open = false;

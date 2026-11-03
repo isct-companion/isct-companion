@@ -335,6 +335,9 @@ impl SchoolBrowserEngine {
             SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
             SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
         };
+        if unsigned {
+            self.cancel_sign_in(site)?;
+        }
         let explicit_target = target.is_some();
         let target = target
             .or(current)
@@ -600,6 +603,9 @@ impl SchoolBrowserEngine {
     ) -> Result<BrowserId, SchoolBrowserError> {
         let created = {
             let mut state = self.0.state.guard();
+            if self.0.sessions.web_cleanup_pending() {
+                return Err(SchoolBrowserError::SignOutIncomplete);
+            }
             if let Some(view) = state.views.get(&site) {
                 return Ok(view.id);
             }

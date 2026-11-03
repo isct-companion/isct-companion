@@ -146,7 +146,8 @@ enum SchoolSessionText {
     }
 
     static func line(_ session: SchoolProfileSession) -> String {
-        line(session.state, problem: session.problem, retryAt: session.retryAt)
+        if session.signOutPending { return t("error.sign-out-incomplete") }
+        return line(session.state, problem: session.problem, retryAt: session.retryAt)
     }
 
     /// The paused site of an account (LMS for Science Tokyo, 教務Web for Tokyo

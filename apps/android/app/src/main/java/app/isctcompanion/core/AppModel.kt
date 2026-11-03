@@ -982,6 +982,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
 
         private fun profileSession(row: JSONObject) = SchoolProfileSession(
+            signOutPending = row.getBoolean("signOutPending"),
             state = wire(row.getString("state")),
             problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
             retryAt = row.text("retryAt"),

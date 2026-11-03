@@ -150,6 +150,7 @@ export type SchoolMaintenance = {
   until: string;
 };
 export type SchoolProfileSession = {
+  signOutPending: boolean;
   state: SchoolSessionState;
   problem: SchoolSignInProblem | null;
   /** RFC 3339; only with `unavailable`. */

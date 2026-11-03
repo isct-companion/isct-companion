@@ -366,6 +366,7 @@ coded!(SchoolBrowserError, |e| match e {
     SchoolBrowserError::InvalidInput(_) => C::InvalidInput,
     SchoolBrowserError::Platform(_) => C::Platform,
     SchoolBrowserError::Storage(_) => C::Storage,
+    SchoolBrowserError::SignOutIncomplete => C::SignOutIncomplete,
     SchoolBrowserError::Stopped => C::Stopped,
 });
 coded!(BrowserError, |e| match e {

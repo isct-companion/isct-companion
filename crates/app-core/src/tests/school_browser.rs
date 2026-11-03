@@ -1565,11 +1565,11 @@ async fn a_refusal_and_an_unreachable_school_send_no_password() {
     engine.shutdown().await;
 }
 
-// Signing either account out stops both accounts' views and clears every
-// school website, once, on every platform; a view of no account stays. The
-// account still signed in loses its web sign-in with it, and its next page
-// opens a new view whose web operation writes its identity again, after
-// the clear.
+// Signing either account out stops every school view and clears every
+// school website, once, on every platform. A view of no account closes too:
+// it shares the cookie store and can show private pages. The account still
+// signed in loses its web sign-in with it, and its next page opens a new
+// view whose web operation writes its identity again, after the clear.
 #[tokio::test]
 async fn signing_an_account_out_clears_every_school_website() {
     let school = School::accepting("right");
@@ -1599,11 +1599,7 @@ async fn signing_an_account_out_clears_every_school_website() {
         Ok(true)
     );
     let disposed = browser.disposed.lock().unwrap().clone();
-    assert_eq!(
-        disposed.len(),
-        2,
-        "the syllabus has no account: its view stays"
-    );
+    assert_eq!(disposed.len(), 3, "the syllabus view closes too");
     assert!(disposed.contains(&lms) && disposed.contains(&kyomu));
     assert_eq!(*store.clears.lock().unwrap(), 1);
 

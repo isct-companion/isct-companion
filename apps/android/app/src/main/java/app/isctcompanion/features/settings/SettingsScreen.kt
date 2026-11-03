@@ -505,6 +505,7 @@ private fun AccountRow(
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
+        session?.signOutPending == true -> t("error.sign-out-incomplete") to Theme.colors.danger
         !connected -> t("common.notConnected") to Theme.colors.muted
         session == null -> t("settings.main.checking") to Theme.colors.muted
         session.state == SchoolSessionState.NORMAL -> (
@@ -593,7 +594,9 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val saved = summary?.saved == true
     val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
     Page {
-        if (saved && session != null) {
+        if (session?.signOutPending == true) {
+            Footer(t("error.sign-out-incomplete"), Theme.colors.danger)
+        } else if (saved && session != null) {
             SessionStatus(profile, session, retrying, enabled = !busy) {
                 scope.launch {
                     retrying = true
@@ -651,12 +654,12 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                     saving = false
                 }
             },
-            enabled = !busy && username.isNotEmpty() && (password.isNotEmpty() || saved),
+            enabled = !busy && session?.signOutPending != true && username.isNotEmpty() && (password.isNotEmpty() || saved),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) {
             if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
         }
-        if (saved) {
+        if (saved || session?.signOutPending == true) {
             // Core stops the account's reads and clears the web sign-in
             // before this returns, which can take a moment.
             TextButton(

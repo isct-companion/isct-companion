@@ -4010,10 +4010,12 @@ checks:
       page.
     steps:
       - action: |
-          On the desktop, delete the Science Tokyo credentials in Settings,
-          then open the LMS and 教務Web from the Web page.
+          On the desktop, visit the LMS inside the syllabus view before deleting
+          the Science Tokyo credentials. Check that this view also closes, then
+          open the LMS and 教務Web again from the Web page.
         reason: |
-          Every platform clears every school site on a sign-out: the LMS must
+          A public view shares the school cookie store and can display private
+          course content. It must close during sign-out. The LMS must
           show its sign-in page. 教務Web must open signed in without a
           password prompt, because Core writes the Tokyo Tech identity into
           its new view before the first page; a 教務Web sign-in page means
@@ -8257,7 +8259,7 @@ checks:
 
   - id: SCHOOL-APP-OTP-ENTRY
     area: school
-    title: A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with an unsigned portal button
+    title: A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with a portal button
     persona: undergraduate-first-term
     preconditions: |
       A desktop build, an iPhone build and an Android build from this
@@ -8280,10 +8282,9 @@ checks:
       - action: |
           Press the button.
         reason: |
-          The in-app web view opens the portal's own sign-in page with nothing
-          typed into it: the app writes no sign-in and reads nothing there. A
-          page already signed in by the app, or filled fields, mean a sign-in
-          was handed off.
+          The portal uses the web view's existing cookies. It may show a
+          signed-in page from a previous visit. Opening it must not start
+          an app sign-in or fill in credentials.
       - action: |
           Sign in there by hand (with the emailed code) and register App OTP.
           Back in Settings, press Connect again with the OTP field still
@@ -8303,7 +8304,7 @@ checks:
     expected: |
       The first Connect shows the emailed-code reason, the App OTP
       explanation and one portal button, and saves nothing; the portal opens
-      unsigned; a Connect without the OTP after App OTP is registered asks
+      with the existing web session; a Connect without the OTP after App OTP is registered asks
       for it and saves nothing; the last Connect ends Connected.
     why_manual: |
       Needs a live account still on the emailed code, the real Extic pages

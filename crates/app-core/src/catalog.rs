@@ -197,7 +197,7 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
         Site::Kyomu
     };
     let Some(permit) = sessions.permit(SchoolAuthProfile::TokyoTech) else {
-        return KeyEnd::Cancelled { source };
+        return crate::sync_engine::denied_read(sessions, SchoolAuthProfile::TokyoTech, source);
     };
     let read = sessions
         .run(

@@ -233,7 +233,9 @@ struct SettingsScreen: View {
         let session = model.profileSession(profile)
         let state = session?.state ?? .notConfigured
         let text: String =
-            if state == .normal, let lastRun {
+            if session?.signOutPending == true {
+                t("error.sign-out-incomplete")
+            } else if state == .normal, let lastRun {
                 t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)])
             } else if let session {
                 SchoolSessionText.line(session)
@@ -343,6 +345,8 @@ private struct AccountScreen: View {
                     Section { Text(error).foregroundStyle(Theme.danger) }
                 } else if let outcome {
                     connectOutcome(outcome)
+                } else if session?.signOutPending == true {
+                    Text(t("error.sign-out-incomplete"))
                 } else if !saving, let session, Self.stuck.contains(session.state) {
                     status(session)
                 }
@@ -355,9 +359,9 @@ private struct AccountScreen: View {
                     } label: {
                         if saving { ProgressView() } else { Text(t("settings.main.saveAndConnect")) }
                     }
-                    .disabled(saving || username.isEmpty || (password.isEmpty && summary?.saved != true))
+                    .disabled(saving || session?.signOutPending == true || username.isEmpty || (password.isEmpty && summary?.saved != true))
                 }
-                if summary?.saved == true {
+                if summary?.saved == true || session?.signOutPending == true {
                     Section {
                         // Core first stops the account's reads, so this can take a moment.
                         Button(role: .destructive) {

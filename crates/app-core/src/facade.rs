@@ -416,9 +416,9 @@ impl Core {
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<bool, CredentialMutationError> {
-        let deleted = self.sessions.sign_out(profile).await;
+        let deleted = self.sessions.sign_out(profile).await?;
         self.sync.unblock(profile);
-        Ok(deleted?)
+        Ok(deleted)
     }
 
     /// A credential file was imported: both accounts read their saved
@@ -426,7 +426,6 @@ impl Core {
     /// applies.
     pub fn credentials_imported(&self) {
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-            self.sessions.credentials_changed(profile);
             self.sync.unblock(profile);
         }
     }

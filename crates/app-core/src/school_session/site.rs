@@ -307,10 +307,25 @@ impl Attempt {
         self.0.call.account
     }
 
+    /// A token and a previously established cookie jar have the same local
+    /// admission requirement, even though only the latter needs site SSO.
+    pub(crate) fn authorize(&self) -> Result<(), NetError> {
+        let call = &self.0.call;
+        let account = call.sessions.account(call.site.profile());
+        if account.owner.sign_out_pending() || !account.identity.configured() {
+            let stop = Stop::Blocked(AccountWait::Person);
+            let error = stop.net();
+            *guard(&call.stopped) = Some(stop);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// The site instance this attempt reads with: the current one, or a new
     /// one taken through SSO, signing in once if the SSO reaches the sign-in
     /// page. A failure ends the call (`run` returns it).
     async fn ready(&self) -> Result<&Arc<Instance>, NetError> {
+        self.authorize()?;
         let call = &self.0.call;
         self.0
             .instance
@@ -363,6 +378,7 @@ impl Attempt {
     /// `request` without cookies (the token REST service), within the
     /// call's deadline. It needs no site session.
     pub(crate) async fn bare(&self, request: NetRequest) -> Result<Response, NetError> {
+        self.authorize()?;
         let call = &self.0.call;
         tokio::time::timeout_at(call.deadline, call.sessions.transport.send(request))
             .await

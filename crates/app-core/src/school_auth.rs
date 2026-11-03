@@ -51,6 +51,20 @@ pub enum SchoolAuthProfile {
 }
 
 impl SchoolAuthProfile {
+    fn pending_key(self) -> &'static str {
+        match self {
+            Self::Science => "school-sign-out-science",
+            Self::TokyoTech => "school-sign-out-tokyo-tech",
+        }
+    }
+
+    fn acceptance_key(self) -> &'static str {
+        match self {
+            Self::Science => "school-accepted-science",
+            Self::TokyoTech => "school-accepted-tokyo-tech",
+        }
+    }
+
     pub const fn start_site(self) -> SchoolSite {
         match self {
             Self::Science => SchoolSite::SciencePortal,
@@ -348,6 +362,59 @@ impl SchoolAuthService {
             status_path: Some(path),
         }
     }
+    // The desktop and mobile shells have a local metadata directory. Pathless
+    // embedders keep these non-secret markers in their device-local vault.
+    fn marker(&self, key: &str) -> Result<bool, SchoolAuthError> {
+        match &self.status_path {
+            Some(path) => path
+                .with_file_name(key)
+                .try_exists()
+                .map_err(|error| SchoolAuthError::storage(error.to_string())),
+            None => Ok(self.vault.load(key)?.is_some()),
+        }
+    }
+
+    fn set_marker(&self, key: &str, present: bool) -> Result<(), SchoolAuthError> {
+        if let Some(path) = &self.status_path {
+            let path = path.with_file_name(key);
+            if present {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|error| SchoolAuthError::storage(error.to_string()))?;
+                }
+                return crate::storage::atomic_write(&path, b"1")
+                    .map_err(|error| SchoolAuthError::storage(error.to_string()));
+            }
+            return match std::fs::remove_file(path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    Err(SchoolAuthError::storage(error.to_string()))
+                }
+                _ => Ok(()),
+            };
+        }
+        if present {
+            self.vault.store(key, "1")?;
+        } else {
+            self.vault.delete(key)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn sign_out_pending(&self, profile: SchoolAuthProfile) -> bool {
+        self.marker(profile.pending_key()).unwrap_or_else(|error| {
+            log::warn!("Cannot read local sign-out state: {error}");
+            true
+        })
+    }
+
+    pub(crate) fn mark_sign_out(
+        &self,
+        profile: SchoolAuthProfile,
+        pending: bool,
+    ) -> Result<(), SchoolAuthError> {
+        self.set_marker(profile.pending_key(), pending)
+    }
+
     fn cached_status(&self) -> Option<SchoolCredentialStatus> {
         let path = self.status_path.as_ref()?;
         let text = std::fs::read_to_string(path).ok()?;
@@ -552,7 +619,31 @@ impl SchoolAuthService {
                 .unwrap_or_default(),
             None => HashMap::new(),
         };
-        accounts.refusals = Some(refusals);
+        let mut active = refusals;
+        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+            if active.contains_key(&profile) && self.marker(profile.acceptance_key())? {
+                active.remove(&profile);
+            }
+        }
+        accounts.refusals = Some(active);
+        Ok(())
+    }
+
+    /// The matching credentials were accepted. If the refusal item cannot
+    /// be updated, persist the acceptance before reporting success.
+    fn accepted(
+        &self,
+        accounts: &mut Accounts,
+        profile: SchoolAuthProfile,
+    ) -> Result<(), SchoolAuthError> {
+        let mut remaining = accounts.refusals();
+        if remaining.remove(&profile).is_some() {
+            if self.write_refusals(&remaining).is_err() {
+                self.set_marker(profile.acceptance_key(), true)?;
+            }
+            accounts.refusals = Some(remaining);
+        }
+        self.note(accounts);
         Ok(())
     }
 
@@ -604,7 +695,10 @@ impl SchoolAuthService {
 
     /// Validates and replaces the native credential bundle after Rust has
     /// authenticated and decrypted it. No plaintext is returned to the UI.
-    pub fn import_sync_payload(&self, payload: &str) -> Result<usize, SchoolAuthError> {
+    pub(crate) fn import_sync_payload(
+        &self,
+        payload: &str,
+    ) -> Result<Vec<SchoolAuthProfile>, SchoolAuthError> {
         let mut bundle: SchoolCredentialBundle = serde_json::from_str(payload).map_err(|_| {
             SchoolAuthError::compatibility("Synced school credentials are invalid.")
         })?;
@@ -634,7 +728,7 @@ impl SchoolAuthService {
                 },
             );
         }
-        Ok(bundle.accounts.len())
+        Ok(bundle.accounts.into_keys().collect())
     }
 
     /// The school accepted `credentials`: they become the verified,
@@ -656,11 +750,7 @@ impl SchoolAuthService {
             let payload = self.write_accounts(&verified)?;
             self.adopt(&mut accounts, Some(payload))?;
         }
-        let mut refusals = accounts.refusals();
-        if refusals.remove(&profile).is_some() {
-            self.drop_refusals(&mut accounts, refusals);
-        }
-        self.note(&accounts);
+        self.accepted(&mut accounts, profile)?;
         self.record_summary(
             profile,
             Some(credentials),
@@ -691,6 +781,9 @@ impl SchoolAuthService {
                 problem: problem.clone(),
             },
         );
+        if self.marker(profile.acceptance_key())? {
+            self.set_marker(profile.acceptance_key(), false)?;
+        }
         self.write_refusals(&refusals)?;
         accounts.refusals = Some(refusals);
         self.note(&accounts);
@@ -706,17 +799,14 @@ impl SchoolAuthService {
     ) -> Result<(), SchoolAuthError> {
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
-        let mut refusals = accounts.refusals();
+        let refusals = accounts.refusals();
         if refusals
             .get(&profile)
             .is_none_or(|refusal| refusal.credentials != digest(credentials))
         {
             return Ok(());
         }
-        refusals.remove(&profile);
-        self.drop_refusals(&mut accounts, refusals);
-        self.note(&accounts);
-        Ok(())
+        self.accepted(&mut accounts, profile)
     }
 
     /// The refusal of the profile's credentials, as the vault was last read.

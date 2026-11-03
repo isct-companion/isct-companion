@@ -296,10 +296,11 @@ impl<'a, V: SecretVault, F: CredentialFiles> CredentialBackup<'a, V, F> {
         password: &str,
         school: &SchoolSessions,
     ) -> Result<BackupOutcome, CredentialBackupError> {
+        let generations = school.credential_generations();
         if !self.configured()? {
             if let Some(bytes) = self.files.read(FILE_NAME).await? {
                 school
-                    .import_credentials(decrypt(&bytes, password)?)
+                    .import_credentials(decrypt(&bytes, password)?, generations)
                     .await?;
                 self.vault.store(PASSWORD_ACCOUNT, password)?;
                 return Ok(BackupOutcome::Restored);

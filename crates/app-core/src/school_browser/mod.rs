@@ -153,6 +153,8 @@ pub enum SchoolBrowserError {
     Platform(String),
     #[error("{0}")]
     Storage(String),
+    #[error("School web sign-out has not finished.")]
+    SignOutIncomplete,
     #[error("The school browser has stopped.")]
     Stopped,
 }

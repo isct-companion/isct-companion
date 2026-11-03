@@ -4790,9 +4790,11 @@ page.
 
 **Steps**
 
-1. On the desktop, delete the Science Tokyo credentials in Settings,
-   then open the LMS and 教務Web from the Web page.
-   - *Why:* Every platform clears every school site on a sign-out: the LMS must
+1. On the desktop, visit the LMS inside the syllabus view before deleting
+   the Science Tokyo credentials. Check that this view also closes, then
+   open the LMS and 教務Web again from the Web page.
+   - *Why:* A public view shares the school cookie store and can display private
+     course content. It must close during sign-out. The LMS must
      show its sign-in page. 教務Web must open signed in without a
      password prompt, because Core writes the Tokyo Tech identity into
      its new view before the first page; a 教務Web sign-in page means
@@ -9657,7 +9659,7 @@ glance in the real app on three platforms.
 
 **Last recorded** never run
 
-### A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with an unsigned portal button (`SCHOOL-APP-OTP-ENTRY`)
+### A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with a portal button (`SCHOOL-APP-OTP-ENTRY`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -9683,10 +9685,9 @@ OTP registered).
      first Connect never reached the school. Nothing is saved and the
      card stays Not connected.
 2. Press the button.
-   - *Why:* The in-app web view opens the portal's own sign-in page with nothing
-     typed into it: the app writes no sign-in and reads nothing there. A
-     page already signed in by the app, or filled fields, mean a sign-in
-     was handed off.
+   - *Why:* The portal uses the web view's existing cookies. It may show a
+     signed-in page from a previous visit. Opening it must not start
+     an app sign-in or fill in credentials.
 3. Sign in there by hand (with the emailed code) and register App OTP.
    Back in Settings, press Connect again with the OTP field still
    empty.
@@ -9706,7 +9707,7 @@ The Science Tokyo form, the Web page showing the portal, and the card.
 
 The first Connect shows the emailed-code reason, the App OTP
 explanation and one portal button, and saves nothing; the portal opens
-unsigned; a Connect without the OTP after App OTP is registered asks
+with the existing web session; a Connect without the OTP after App OTP is registered asks
 for it and saves nothing; the last Connect ends Connected.
 
 **Why this is manual**

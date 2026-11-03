@@ -496,6 +496,7 @@ impl MoodleClient {
     pub(crate) async fn token(&self, attempt: &Attempt) -> Result<MoodleToken, MoodleError> {
         let generation = attempt.account_generation();
         let mut slot = self.token.lock().await;
+        attempt.authorize()?;
         if let Some((_, token)) = slot.as_ref().filter(|(owner, _)| *owner == generation) {
             return Ok(token.clone());
         }
@@ -519,6 +520,7 @@ impl MoodleClient {
     ) -> Result<MoodleToken, MoodleError> {
         let generation = attempt.account_generation();
         let mut slot = self.token.lock().await;
+        attempt.authorize()?;
         if let Some((_, current)) = slot
             .as_ref()
             .filter(|(owner, current)| *owner == generation && current != refused)

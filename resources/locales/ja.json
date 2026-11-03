@@ -394,7 +394,7 @@
   "error.school-site-changed": "学校のサイトが変わり、読み取れませんでした。アプリを更新してください。",
   "error.sign-in-required": "学校のアカウントにもう一度サインインしてください。",
   "error.stopped": "アプリが終了処理中です。再起動後にもう一度お試しください。",
-  "error.sign-out-incomplete": "この端末でのサインアウトが完了しなかったため、アカウントはまだ保存されています。もう一度サインアウトしてください。",
+  "error.sign-out-incomplete": "この端末のデータ削除を完了するには、もう一度サインアウトしてください。",
   "error.storage": "この端末のデータを読み書きできませんでした。",
   "error.study-admission-term": "入学学期 {{term}} が正しくありません。2026-1Q の形式で入力してください。",
   "error.study-duplicate-term": "{{term}} に始まる課程を 2 つ登録することはできません。",

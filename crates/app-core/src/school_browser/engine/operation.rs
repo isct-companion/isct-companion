@@ -52,7 +52,12 @@ impl Visit {
     /// A main-frame page arrived. The identity provider's pages and sign-in
     /// routes leave the visit as it was.
     pub(super) fn arrived(&mut self, url: &Url) {
-        if on_provider(url) || is_login_url(url) {
+        // The identity provider also hosts these two ordinary portal pages.
+        let portal = [SchoolSite::SciencePortal, SchoolSite::TokyoPortal]
+            .iter()
+            .filter_map(|site| Url::parse(site.start_url()).ok())
+            .any(|entry| entry.origin() == url.origin() && entry.path() == url.path());
+        if (on_provider(url) && !portal) || is_login_url(url) {
             return;
         }
         if let Some(last) = reopen_url(url.as_str()) {
@@ -506,22 +511,9 @@ impl SchoolBrowserEngine {
 
 impl AccountViews for Inner {
     /// The account's sign-out: its operations end and its views close.
-    fn stop(&self, profiles: &[SchoolAuthProfile]) {
-        let gone = self.state.with(|state| {
-            let sites: Vec<SchoolSite> = state
-                .views
-                .keys()
-                .copied()
-                .filter(|site| {
-                    site_profile(*site).is_some_and(|profile| profiles.contains(&profile))
-                })
-                .collect();
-            sites
-                .into_iter()
-                .filter_map(|site| state.views.remove(&site))
-                .collect::<Vec<_>>()
-        });
-        for view in gone {
+    fn stop(&self) {
+        let gone = self.state.with(|state| std::mem::take(&mut state.views));
+        for view in gone.into_values() {
             if let Some(op) = &view.op {
                 op.cancel();
             }

@@ -302,6 +302,7 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
     core.start(&tokio::runtime::Handle::current()).unwrap();
     let relay = core.events.clone().unwrap();
     let session = |state, maintenance| SchoolProfileSession {
+        sign_out_pending: false,
         state,
         problem: None,
         retry_at: None,

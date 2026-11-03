@@ -44,6 +44,23 @@ pub(crate) struct SchoolReaders {
     pub(crate) moodle: Arc<MoodleClient>,
 }
 
+/// Cleanup needs the person's retry; ordinary barriers only cancel this run.
+pub(crate) fn denied_read(
+    sessions: &SchoolSessions,
+    profile: SchoolAuthProfile,
+    source: String,
+) -> KeyEnd {
+    if sessions.sign_out_pending(profile) {
+        KeyEnd::Blocked {
+            profile,
+            wait: super::AccountWait::Person,
+            source,
+        }
+    } else {
+        KeyEnd::Cancelled { source }
+    }
+}
+
 fn paused_at(until_unix: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(until_unix, 0).unwrap_or_else(Utc::now)
 }
@@ -149,9 +166,7 @@ pub(crate) async fn read_lms_key(
     let key = &lease.key;
     let source = moodle::source(key.dataset);
     let Some(permit) = readers.sessions.permit(SchoolAuthProfile::Science) else {
-        return KeyEnd::Cancelled {
-            source: source.into(),
-        };
+        return denied_read(&readers.sessions, SchoolAuthProfile::Science, source.into());
     };
     let stored = if key.dataset == Dataset::LmsCourse {
         let Some(id) = lms_course_key(key) else {
@@ -239,7 +254,7 @@ pub(crate) async fn read_kyomu_page(
         return KeyEnd::failed("unsupported", source);
     };
     let Some(permit) = readers.sessions.permit(SchoolAuthProfile::TokyoTech) else {
-        return KeyEnd::Cancelled { source };
+        return denied_read(&readers.sessions, SchoolAuthProfile::TokyoTech, source);
     };
     let emit = |state: IngestState, changed: usize, message: String| {
         if let Some(events) = events {

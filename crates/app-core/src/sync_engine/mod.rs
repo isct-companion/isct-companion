@@ -16,7 +16,7 @@ mod snapshot;
 
 pub(crate) use planner::Depth;
 pub(crate) use runner::{Gated, KeyEnd, Lease};
-pub(crate) use school::{net_end, session_end, SchoolReaders};
+pub(crate) use school::{denied_read, net_end, session_end, SchoolReaders};
 
 use crate::{
     lifecycle::SchoolSite, school_auth::SchoolAuthProfile, school_session::SchoolSessionState,

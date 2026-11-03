@@ -71,6 +71,7 @@ pub(super) enum How {
     Connect {
         credentials: SchoolCredentials,
         account: u64,
+        intent: u64,
     },
 }
 
@@ -147,6 +148,7 @@ struct State {
     /// Numbers the sign-ins, so one applies its result only while it is
     /// still the account's.
     flights: u64,
+    connect_intent: u64,
     /// The one running verification.
     check: Option<watch::Receiver<Option<Checked>>>,
 }
@@ -187,6 +189,7 @@ impl Identity {
                 pause: None,
                 flight: None,
                 flights: 0,
+                connect_intent: 0,
                 check: None,
             }),
         }
@@ -198,6 +201,16 @@ impl Identity {
 
     /// Whether credentials are saved, as the caller read the status
     /// metadata.
+    pub(super) fn configured(&self) -> bool {
+        guard(&self.state).configured
+    }
+
+    pub(super) fn begin_connect(&self) -> u64 {
+        let mut state = guard(&self.state);
+        state.connect_intent += 1;
+        state.connect_intent
+    }
+
     pub(super) fn set_configured(&self, configured: bool) {
         guard(&self.state).configured = configured;
     }
@@ -438,6 +451,9 @@ impl Inner {
         loop {
             let mut done = {
                 let mut state = guard(&identity.state);
+                if matches!(&how, How::Connect { intent, .. } if state.connect_intent != *intent) {
+                    return Err(Ended::Stopped);
+                }
                 let newer = state.generation > seen
                     && state.snapshot.is_some()
                     && state.trust != Trust::Invalid;
@@ -646,6 +662,10 @@ impl Inner {
         used: Option<SchoolCredentials>,
         end: End,
     ) -> Result<u64, Ended> {
+        // A replacement may sign in while an accepted result is being saved.
+        // It commits after the earlier write, or wins this lock first and
+        // makes the earlier attempt stale at apply(). No vault IO in the state lock.
+        let _commit = self.account(profile).commit.lock().await;
         let owner = &self.account(profile).owner;
         let identity = &self.account(profile).identity;
         let connect = matches!(how, How::Connect { .. });

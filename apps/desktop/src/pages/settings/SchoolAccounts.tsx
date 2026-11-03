@@ -589,7 +589,7 @@ function Account({
               {t("settings.schoolAccounts.showPage")}
             </Button>
           )}
-          {retryOffered && (
+          {retryOffered && !session.signOutPending && (
             <Button
               variant="subtle"
               size="compact-xs"
@@ -664,13 +664,13 @@ function Account({
       )}
       <div className="actions schoolAccountActions">
         <Button
-          disabled={busy || scanning}
+          disabled={busy || scanning || session?.signOutPending}
           loading={busy}
           onClick={() => void connect()}
         >
           {t("settings.campusWifi.connect")}
         </Button>
-        {(summary.saved || summary.hasOtp) && (
+        {(summary.saved || summary.hasOtp || session?.signOutPending) && (
           <Button
             variant="subtle"
             color="red"
