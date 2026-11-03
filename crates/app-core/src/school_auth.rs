@@ -23,6 +23,10 @@ pub enum SchoolAuthError {
     Compatibility(String),
     #[error("{0}")]
     Storage(String),
+    /// Signing out did not finish (what is left is named); the credentials
+    /// stay saved, and signing out again redoes every step.
+    #[error("Signing out did not finish: {0}")]
+    SignOutIncomplete(String),
 }
 
 impl SchoolAuthError {
@@ -76,7 +80,23 @@ pub struct SchoolCredentials {
 }
 
 impl SchoolCredentials {
+    /// Credentials to keep: everything a sign-in on Core's own needs, the
+    /// Science Tokyo App OTP setup included. Only a sign-in the school
+    /// accepted saves them, and at Science Tokyo that one always sent it.
     fn validate(&mut self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
+        self.validate_input(profile)?;
+        if profile == SchoolAuthProfile::Science && self.otp_secret.is_empty() {
+            return Err(SchoolAuthError::invalid(
+                "Science Tokyo OTP setup link or secret is required.",
+            ));
+        }
+        Ok(())
+    }
+
+    /// What a Connect may send: the Science Tokyo OTP setup may be left
+    /// out, and the school's pages then say what they need (an emailed code
+    /// for an account without App OTP, the App OTP otherwise).
+    fn validate_input(&mut self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
         self.username = self.username.trim().to_string();
         self.otp_secret = self.otp_secret.trim().replace(' ', "");
         self.matrix = self
@@ -96,12 +116,9 @@ impl SchoolCredentials {
         }
         match profile {
             SchoolAuthProfile::Science => {
-                if self.otp_secret.is_empty() {
-                    return Err(SchoolAuthError::invalid(
-                        "Science Tokyo OTP setup link or secret is required.",
-                    ));
+                if !self.otp_secret.is_empty() {
+                    otp_config(&self.otp_secret)?;
                 }
-                otp_config(&self.otp_secret)?;
                 if !self.matrix.is_empty() {
                     return Err(SchoolAuthError::invalid(
                         "Matrix credentials belong to the Tokyo Tech account.",
@@ -497,10 +514,25 @@ impl SchoolAuthService {
                 .is_some_and(|verified| digest(verified) == refusal.credentials)
         });
         if refusals.len() != before {
-            self.write_refusals(&refusals)?;
-            accounts.refusals = Some(refusals);
+            self.drop_refusals(accounts, refusals);
         }
         Ok(())
+    }
+
+    /// Keeps `refusals`, fewer than before, in memory at once and writes
+    /// them. A failed write overturns nothing already saved and holds no
+    /// credentials back: what is left on disk is about other credentials,
+    /// or rewritten whole by the next write of the refusals (an accepted
+    /// Retry included).
+    fn drop_refusals(
+        &self,
+        accounts: &mut Accounts,
+        refusals: HashMap<SchoolAuthProfile, Refusal>,
+    ) {
+        if let Err(error) = self.write_refusals(&refusals) {
+            log::warn!(target: "app_core::school_auth", "a refusal that no longer applies was not deleted: {error}");
+        }
+        accounts.refusals = Some(refusals);
     }
 
     fn read_refusals(&self, accounts: &mut Accounts) -> Result<(), SchoolAuthError> {
@@ -606,12 +638,16 @@ impl SchoolAuthService {
     }
 
     /// The school accepted `credentials`: they become the verified,
-    /// synchronized credentials, and a refusal of the profile goes.
+    /// synchronized credentials, and a refusal of the profile goes. Only the
+    /// credentials' write decides the result: a refusal that could not be
+    /// deleted is gone from memory all the same (`drop_refusals`).
     pub(crate) fn promote(
         &self,
         profile: SchoolAuthProfile,
         credentials: &SchoolCredentials,
     ) -> Result<(), SchoolAuthError> {
+        // Only what a later sign-in on its own can use is kept.
+        credentials.clone().validate(profile)?;
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
         if accounts.verified.get(&profile) != Some(credentials) {
@@ -622,8 +658,7 @@ impl SchoolAuthService {
         }
         let mut refusals = accounts.refusals();
         if refusals.remove(&profile).is_some() {
-            self.write_refusals(&refusals)?;
-            accounts.refusals = Some(refusals);
+            self.drop_refusals(&mut accounts, refusals);
         }
         self.note(&accounts);
         self.record_summary(
@@ -679,8 +714,7 @@ impl SchoolAuthService {
             return Ok(());
         }
         refusals.remove(&profile);
-        self.write_refusals(&refusals)?;
-        accounts.refusals = Some(refusals);
+        self.drop_refusals(&mut accounts, refusals);
         self.note(&accounts);
         Ok(())
     }
@@ -754,7 +788,7 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
-        credentials.validate(profile)?;
+        credentials.validate_input(profile)?;
         Ok(credentials)
     }
 
@@ -807,7 +841,9 @@ impl SchoolAuthService {
     }
 
     /// The profile's stored token. A record this version cannot read is
-    /// deleted.
+    /// deleted, and so is one of an account with no saved credentials (a
+    /// sign-out that did not finish, a deletion on another device): a token
+    /// is never used for an account that is not saved.
     pub fn load_moodle_token(
         &self,
         profile: SchoolAuthProfile,
@@ -815,6 +851,10 @@ impl SchoolAuthService {
         let Some(account) = moodle_token_account(profile) else {
             return Ok(None);
         };
+        if !self.configured(profile) {
+            self.vault.delete(account)?;
+            return Ok(None);
+        }
         let Some(payload) = self.vault.load(account)? else {
             return Ok(None);
         };

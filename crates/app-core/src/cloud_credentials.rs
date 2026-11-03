@@ -4,7 +4,8 @@
 use crate::cloud_sync::document::{BoxFuture, DocumentError};
 use crate::cloud_sync::google_drive::{DriveAuthorization, GoogleDrive};
 use crate::ports::{SecretError, SecretVault};
-use crate::school_auth::{SchoolAuthError, SchoolAuthService};
+use crate::school_auth::SchoolAuthError;
+use crate::school_session::SchoolSessions;
 use base64::Engine;
 use ring::{
     aead, pbkdf2,
@@ -293,16 +294,18 @@ impl<'a, V: SecretVault, F: CredentialFiles> CredentialBackup<'a, V, F> {
     pub async fn enable(
         &self,
         password: &str,
-        school: &SchoolAuthService,
+        school: &SchoolSessions,
     ) -> Result<BackupOutcome, CredentialBackupError> {
         if !self.configured()? {
             if let Some(bytes) = self.files.read(FILE_NAME).await? {
-                school.import_sync_payload(&decrypt(&bytes, password)?)?;
+                school
+                    .import_credentials(decrypt(&bytes, password)?)
+                    .await?;
                 self.vault.store(PASSWORD_ACCOUNT, password)?;
                 return Ok(BackupOutcome::Restored);
             }
         }
-        let encrypted = encrypt(&school.export_sync_payload()?, password)?;
+        let encrypted = encrypt(&school.export_credentials()?, password)?;
         self.files.write(FILE_NAME, encrypted).await?;
         self.vault.store(PASSWORD_ACCOUNT, password)?;
         Ok(BackupOutcome::Uploaded)

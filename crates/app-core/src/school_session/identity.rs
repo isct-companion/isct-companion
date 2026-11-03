@@ -63,15 +63,29 @@ pub(super) enum How {
     /// the sign-in page, which may go through a pause, never through a
     /// refusal.
     Web { past_pause: bool },
-    /// The person's Retry: once through a refusal or a pause.
-    Retry,
-    /// The person's Connect with these credentials.
-    Connect(SchoolCredentials),
+    /// The person's Retry: once through a refusal or a pause. It runs in
+    /// account generation `account`, whose permit the Retry took first.
+    Retry { account: u64 },
+    /// The person's Connect with these credentials, in account generation
+    /// `account`, whose permit the Connect took before it read the vault.
+    Connect {
+        credentials: SchoolCredentials,
+        account: u64,
+    },
 }
 
 impl How {
     fn lifts_refusal(&self) -> bool {
-        matches!(self, Self::Retry | Self::Connect(_))
+        matches!(self, Self::Retry { .. } | Self::Connect { .. })
+    }
+
+    /// The account generation the person's action is bound to: its sign-in
+    /// runs only in it, and a sign-out or reset begun since stops it.
+    fn bound(&self) -> Option<u64> {
+        match self {
+            Self::Retry { account } | Self::Connect { account, .. } => Some(*account),
+            Self::Background | Self::Web { .. } => None,
+        }
     }
 
     fn lifts_pause(&self) -> bool {
@@ -420,7 +434,7 @@ impl Inner {
     ) -> Result<u64, Ended> {
         let account = self.account(profile);
         let identity = &account.identity;
-        let joins = !matches!(how, How::Connect(_));
+        let joins = !matches!(how, How::Connect { .. });
         loop {
             let mut done = {
                 let mut state = guard(&identity.state);
@@ -443,7 +457,11 @@ impl Inner {
                             None if joins => self.held(profile, &state, &how)?,
                             None => {}
                         }
-                        let Some(permit) = account.owner.permit() else {
+                        let permit = match how.bound() {
+                            Some(generation) => account.owner.permit_of(generation),
+                            None => account.owner.permit(),
+                        };
+                        let Some(permit) = permit else {
                             return Err(Ended::Stopped);
                         };
                         state.flights += 1;
@@ -556,8 +574,8 @@ impl Inner {
         used: &mut Option<SchoolCredentials>,
     ) -> End {
         let credentials = match how {
-            How::Connect(credentials) => credentials.clone(),
-            How::Background | How::Web { .. } | How::Retry => {
+            How::Connect { credentials, .. } => credentials.clone(),
+            How::Background | How::Web { .. } | How::Retry { .. } => {
                 let auth = self.auth.clone();
                 match tokio::task::spawn_blocking(move || auth.sign_in_credentials(profile)).await {
                     Ok(Ok(Some(saved))) => {
@@ -630,7 +648,7 @@ impl Inner {
     ) -> Result<u64, Ended> {
         let owner = &self.account(profile).owner;
         let identity = &self.account(profile).identity;
-        let connect = matches!(how, How::Connect(_));
+        let connect = matches!(how, How::Connect { .. });
         let sent = matches!(end, End::Refused { sent: true, .. });
         let Some(result) = identity.apply(id, connect, end) else {
             log::info!(target: "app_core::school_session", "a replaced sign-in ended profile={profile:?}");

@@ -362,9 +362,17 @@ private struct AccountScreen: View {
                         // Core first stops the account's reads, so this can take a moment.
                         Button(role: .destructive) {
                             removing = true
+                            error = nil
                             Task {
-                                await model.deleteCredentials(profile)
-                                dismiss()
+                                do {
+                                    try await model.deleteCredentials(profile)
+                                    dismiss()
+                                } catch {
+                                    // Signing out did not finish: the account
+                                    // stays saved, and this button with it.
+                                    self.error = AppModel.describe(error)
+                                }
+                                removing = false
                             }
                         } label: {
                             if removing { ProgressView() } else { Text(t("settings.main.removeSignInDetailsFrom")) }

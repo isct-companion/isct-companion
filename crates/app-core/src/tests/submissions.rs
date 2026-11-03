@@ -714,38 +714,44 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
     assert_eq!(fixture.calls(), (0, 0, 0));
 }
 
-// An upgrade from a ledger of an older schema starts empty instead of
-// leaving the service off: the file, its records and the snapshots they
-// named are gone, and nothing of them is read. A newer schema is refused.
-#[tokio::test]
-async fn an_older_ledger_is_rebuilt_empty() {
-    let fixture = Fixture::new();
-    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
+/// A ledger of schema 1 in `data`, with a record of each kind and a
+/// snapshot, as an earlier release left it. Schema 1 kept the account on
+/// each write; a value it cannot parse now would fail any read of it.
+fn schema_one(data: &std::path::Path) {
     let blobs = data.join("submissions");
     std::fs::create_dir_all(&blobs).unwrap();
     std::fs::write(blobs.join("0a1b2c"), b"%PDF-1 old").unwrap();
-    {
-        // Schema 1 kept the account on each write; a value it cannot parse
-        // now would fail any read of it.
-        let old = rusqlite::Connection::open(data.join("submissions.db")).unwrap();
-        old.execute_batch(
+    rusqlite::Connection::open(data.join("submissions.db"))
+        .unwrap()
+        .execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE preparations (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL);
              CREATE TABLE operations (id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL, account TEXT NOT NULL,
                site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
                state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL);
+             CREATE INDEX operations_by_assignment ON operations(account, site, assign_id);
              INSERT INTO preparations VALUES ('old', 4102444800, '{}');
              INSERT INTO operations VALUES ('old', 'old', 'science:24b00001',
                'https://lms.s.isct.ac.jp/2025', 77, 'k', 'saving', 1, '{}');
              PRAGMA user_version=1;",
         )
         .unwrap();
-    }
+}
+
+// An upgrade from a ledger of an older schema starts empty instead of
+// leaving the service off: its records and the snapshots they named are
+// gone, and nothing of them is read. A newer schema is refused.
+#[tokio::test]
+async fn an_older_ledger_is_rebuilt_empty() {
+    let fixture = Fixture::new();
+    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
+    let blobs = data.join("submissions");
+    schema_one(&data);
 
     let service = fixture.service();
     assert!(service.ledger.unsettled(None).unwrap().is_empty());
     assert!(service.ledger.preparation("old").unwrap().is_none());
-    assert!(!blobs.exists());
+    assert!(!blobs.join("0a1b2c").exists());
     fixture.put("report.pdf", b"%PDF-1 report");
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
@@ -759,6 +765,30 @@ async fn an_older_ledger_is_rebuilt_empty() {
         .pragma_update(None, "user_version", 3)
         .unwrap();
     assert!(Ledger::open(&data).is_err());
+}
+
+// Two processes share the data folder (a dev build and the app) and both
+// find schema 1. The first upgrades and records a write; the second, whose
+// look at the version came before that, upgrades after it and finds the
+// new version under the lock: what the first recorded, its snapshot
+// included, stays.
+#[tokio::test]
+async fn a_second_upgrade_keeps_what_the_first_recorded_since() {
+    let fixture = Fixture::new();
+    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
+    schema_one(&data);
+    let mut late = ledger::connect(&data.join("submissions.db")).unwrap();
+    assert_eq!(ledger::version(&late).unwrap(), 1);
+
+    let service = fixture.service();
+    fixture.put("report.pdf", b"%PDF-1 report");
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    ledger::upgrade(&mut late, &data.join("submissions")).unwrap();
+    assert!(service.ledger.preparation(&prepared.id).unwrap().is_some());
+    assert!(service.ledger.intact(&prepared.files));
 }
 
 // The person's switch gates the write path itself: off, nothing is sent;

@@ -22,14 +22,19 @@
 //! - Windows: WebView2's `CookieManager`, with the leading dot of a Domain
 //!   attribute put back. `AddOrUpdateCookie` has no completion; it applies
 //!   in call order on the view's thread, before the navigation Core sends
-//!   after it. A clear removes every school cookie.
+//!   after it. The school views have a WebView2 data directory of their own
+//!   (`school_web::school_profile`), so a clear removes all of that
+//!   profile's browsing data (`ClearBrowsingDataAll`), awaited through its
+//!   completion handler.
 //! - Linux: libsoup's `soup_cookie_parse` into WebKitGTK's cookie manager,
-//!   each write awaited through its callback. A clear removes every school
-//!   cookie.
+//!   each write awaited through its callback. The school views share
+//!   WebKitGTK's default data manager with the app's own view, so a clear
+//!   removes every kind of data of the school sites' records only, found
+//!   by their domain, awaited through its callback.
 
 use app_core::{
     net::BoxFuture,
-    school_session::{is_school_domain, WebCookie, WebCookieSeed},
+    school_session::{WebCookie, WebCookieSeed},
 };
 use tauri::AppHandle;
 #[cfg(not(target_os = "macos"))]
@@ -112,42 +117,26 @@ impl WebCookieSeed for DesktopWebCookies {
 
     fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
-            let app = self.app.clone();
-            let existing = self.school_view();
-            // Tauri's cookie calls must not run on the main thread, which
-            // WebView2 needs free to answer them.
-            tauri::async_runtime::spawn_blocking(move || clear(&app, existing))
-                .await
-                .map_err(|error| error.to_string())?
+            // The store is reached through a view: a temporary one when no
+            // school view exists.
+            let (view, temporary) = match self.school_view() {
+                Some(view) => (view, false),
+                None => (store_view(&self.app)?, true),
+            };
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let result = match view.with_webview(move |platform| native::clear(platform, sender)) {
+                Ok(()) => receiver
+                    .await
+                    .map_err(|_| "the school view went away".to_string())
+                    .and_then(|answer| answer),
+                Err(error) => Err(error.to_string()),
+            };
+            if temporary {
+                let _ = view.close();
+            }
+            result
         })
     }
-}
-
-/// Deletes every school cookie of the school store, through a temporary
-/// view when no school view exists.
-#[cfg(not(target_os = "macos"))]
-fn clear(app: &AppHandle, existing: Option<Webview>) -> Result<(), String> {
-    let (view, temporary) = match existing {
-        Some(view) => (view, false),
-        None => (store_view(app)?, true),
-    };
-    let result = view
-        .cookies()
-        .map_err(|error| format!("School cookies are unreadable: {error}"))
-        .and_then(|cookies| {
-            for cookie in cookies
-                .into_iter()
-                .filter(|cookie| cookie.domain().is_some_and(is_school_domain))
-            {
-                view.delete_cookie(cookie)
-                    .map_err(|error| format!("A school cookie could not be removed: {error}"))?;
-            }
-            Ok(())
-        });
-    if temporary {
-        let _ = view.close();
-    }
-    result
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -171,8 +160,9 @@ fn store_view(app: &AppHandle) -> Result<Webview, String> {
 
 #[cfg(target_os = "macos")]
 mod native {
-    use super::{is_school_domain, WebCookie};
+    use super::WebCookie;
     use crate::school_browser_native::SCHOOL_DATA_STORE;
+    use app_core::school_session::is_school_domain;
     use block2::RcBlock;
     use objc2::{rc::Retained, MainThreadMarker};
     use objc2_foundation::{NSArray, NSDictionary, NSHTTPCookie, NSString, NSURL, NSUUID};
@@ -294,13 +284,59 @@ mod native {
 #[cfg(windows)]
 mod native {
     use super::WebCookie;
+    use std::{cell::RefCell, rc::Rc};
     use tauri::webview::cookie::{Cookie, SameSite};
     use tokio::sync::oneshot::Sender;
-    use webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2_2, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX,
-        COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT,
+    use webview2_com::{
+        ClearBrowsingDataCompletedHandler,
+        Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2Profile2, ICoreWebView2_13, ICoreWebView2_2,
+            COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE,
+            COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT,
+        },
     };
     use windows::core::{Interface, HSTRING};
+
+    type Done = Rc<RefCell<Option<Sender<Result<(), String>>>>>;
+
+    fn answer(done: &Done, result: Result<(), String>) {
+        if let Some(done) = done.borrow_mut().take() {
+            let _ = done.send(result);
+        }
+    }
+
+    /// Removes all browsing data (cookies, storage, caches) of the school
+    /// views' own WebView2 profile, which no other view uses, and answers
+    /// once WebView2 has. Runs on the view's thread.
+    pub(super) fn clear(
+        platform: tauri::webview::PlatformWebview,
+        done: Sender<Result<(), String>>,
+    ) {
+        let done: Done = Rc::new(RefCell::new(Some(done)));
+        let handler = {
+            let done = done.clone();
+            ClearBrowsingDataCompletedHandler::create(Box::new(
+                move |result: windows::core::Result<()>| {
+                    answer(&done, result.map_err(|error| error.message().to_string()));
+                    Ok(())
+                },
+            ))
+        };
+        // SAFETY: WebView2 calls on the view's own (UI) thread, where
+        // `with_webview` runs this.
+        let started = unsafe {
+            platform
+                .controller()
+                .CoreWebView2()
+                .and_then(|view| view.cast::<ICoreWebView2_13>())
+                .and_then(|view| view.Profile())
+                .and_then(|profile| profile.cast::<ICoreWebView2Profile2>())
+                .and_then(|profile| profile.ClearBrowsingDataAll(&handler))
+        };
+        if let Err(error) = started {
+            answer(&done, Err(error.message().to_string()));
+        }
+    }
 
     /// Writes every cookie into WebView2's cookie manager on the view's
     /// thread. `AddOrUpdateCookie` applies in call order on this thread,
@@ -391,10 +427,67 @@ mod native {
 #[cfg(target_os = "linux")]
 mod native {
     use super::WebCookie;
+    use app_core::school_session::is_school_domain;
     use soup3::glib;
     use std::{cell::RefCell, rc::Rc};
     use tokio::sync::oneshot::Sender;
-    use webkit2gtk::{gio, CookieManagerExt, WebContextExt, WebViewExt};
+    use webkit2gtk::{
+        gio, CookieManagerExt, WebContextExt, WebViewExt, WebsiteData, WebsiteDataManagerExt,
+        WebsiteDataManagerExtManual, WebsiteDataTypes,
+    };
+
+    /// Removes every kind of data (cookies, storage, caches) of the school
+    /// sites' records, found by their domain: the school views share
+    /// WebKitGTK's default data manager with the app's own view, whose data
+    /// stays. Answers once WebKitGTK has. Runs on the main thread.
+    pub(super) fn clear(
+        platform: tauri::webview::PlatformWebview,
+        done: Sender<Result<(), String>>,
+    ) {
+        let Some(manager) = platform.inner().website_data_manager() else {
+            let _ = done.send(Err("the school store has no data manager".into()));
+            return;
+        };
+        let remover = manager.clone();
+        manager.fetch(
+            WebsiteDataTypes::ALL,
+            None::<&gio::Cancellable>,
+            move |records| {
+                let records = match records {
+                    Ok(records) => records,
+                    Err(error) => {
+                        let _ = done.send(Err(error.to_string()));
+                        return;
+                    }
+                };
+                let school: Vec<WebsiteData> = records
+                    .into_iter()
+                    .filter(|record| {
+                        record
+                            .name()
+                            .is_some_and(|name| is_school_domain(name.as_str()))
+                    })
+                    .collect();
+                log::info!(
+                    "[school-web] clearing {} school website records",
+                    school.len()
+                );
+                if school.is_empty() {
+                    let _ = done.send(Ok(()));
+                    return;
+                }
+                let chosen: Vec<&WebsiteData> = school.iter().collect();
+                remover.remove(
+                    WebsiteDataTypes::ALL,
+                    &chosen,
+                    None::<&gio::Cancellable>,
+                    move |result| {
+                        let _ = done.send(result.map_err(|error| error.to_string()));
+                    },
+                );
+            },
+        );
+    }
 
     /// Parses each value with libsoup for its URL, as WebKitGTK receives a
     /// response's cookies, adds it to the view's cookie manager, and answers

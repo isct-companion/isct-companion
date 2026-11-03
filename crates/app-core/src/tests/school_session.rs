@@ -620,7 +620,8 @@ async fn a_connect_replaces_the_running_sign_in_and_only_its_own_result_applies(
     school.hang.store(false, Ordering::SeqCst);
     let outcome = sessions
         .connect(SchoolAuthProfile::Science, science_credentials("new"))
-        .await;
+        .await
+        .unwrap();
     assert_eq!(outcome, SchoolConnectOutcome::Connected);
     let generation = waiting.await.unwrap().expect("the Connect's identity");
     assert_eq!(sessions.fresh(SchoolAuthProfile::Science), Some(generation));
@@ -703,7 +704,8 @@ async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credent
 
     let refused = sessions
         .connect(SchoolAuthProfile::Science, science_credentials("typo"))
-        .await;
+        .await
+        .unwrap();
     assert_eq!(
         refused,
         SchoolConnectOutcome::Refused {
@@ -717,7 +719,8 @@ async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credent
     school.state.lock().unwrap().email_otp = true;
     let emailed = sessions
         .connect(SchoolAuthProfile::Science, science_credentials("right"))
-        .await;
+        .await
+        .unwrap();
     assert_eq!(
         emailed,
         SchoolConnectOutcome::NeedsWeb {
@@ -734,7 +737,8 @@ async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credent
     sessions.network(crate::sync_engine::Network::Offline);
     let offline = sessions
         .connect(SchoolAuthProfile::Science, science_credentials("right"))
-        .await;
+        .await
+        .unwrap();
     assert_eq!(offline, SchoolConnectOutcome::Unreachable);
     assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
     assert_eq!(science(&sessions).retry_at, None, "a Connect never pauses");
@@ -745,7 +749,8 @@ async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credent
     school.state.lock().unwrap().password = "changed".into();
     let stale = sessions
         .connect(SchoolAuthProfile::Science, science_credentials("right"))
-        .await;
+        .await
+        .unwrap();
     assert!(matches!(stale, SchoolConnectOutcome::Refused { .. }));
     assert_eq!(science(&sessions).state, SchoolSessionState::Refused);
     assert_eq!(saved().password, "right");
@@ -753,10 +758,117 @@ async fn a_connect_that_fails_changes_nothing_but_a_refusal_of_the_saved_credent
     // Connect with what the school takes now replaces them.
     let connected = sessions
         .connect(SchoolAuthProfile::Science, science_credentials("changed"))
-        .await;
+        .await
+        .unwrap();
     assert_eq!(connected, SchoolConnectOutcome::Connected);
     assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
     assert_eq!(saved().password, "changed");
+}
+
+// The school accepts a Connect, the credentials are saved, and only the
+// clean-up of a refusal fails. The outcome follows what the vault holds:
+// Connected. The refusal does not hold these credentials back either, with
+// the saved ones refused before (the same credentials) or with new ones.
+#[tokio::test(start_paused = true)]
+async fn a_connect_saved_while_a_refusals_clean_up_failed_is_connected() {
+    #[derive(Clone, Default)]
+    struct Stuck(MemoryVault, Arc<AtomicBool>);
+    impl crate::ports::SecretVault for Stuck {
+        fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+            if account == "school-refusals" && self.1.load(Ordering::SeqCst) {
+                return Err(crate::ports::SecretError::Access("denied".into()));
+            }
+            self.0.store(account, secret)
+        }
+        fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+            self.0.load(account)
+        }
+        fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+            if account == "school-refusals" && self.1.load(Ordering::SeqCst) {
+                return Err(crate::ports::SecretError::Access("denied".into()));
+            }
+            self.0.delete(account)
+        }
+    }
+    for typed in ["right", "new"] {
+        let vault = Stuck::default();
+        let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+        let saved = science_credentials("right");
+        auth.promote(SchoolAuthProfile::Science, &saved).unwrap();
+        let refused = SchoolSignInProblem {
+            kind: SchoolSignInProblemKind::InvalidCredentials,
+            message: "refused".into(),
+        };
+        assert!(auth
+            .record_refusal(SchoolAuthProfile::Science, &saved, &refused)
+            .unwrap());
+        vault.1.store(true, Ordering::SeqCst);
+        let sessions = SchoolSessions::with_transport(School::accepting(typed), auth.clone());
+        assert_eq!(
+            sessions
+                .connect(SchoolAuthProfile::Science, science_credentials(typed))
+                .await
+                .unwrap(),
+            SchoolConnectOutcome::Connected,
+            "{typed}"
+        );
+        assert_eq!(
+            auth.load(SchoolAuthProfile::Science)
+                .unwrap()
+                .unwrap()
+                .password,
+            typed
+        );
+        assert_eq!(auth.refusal(SchoolAuthProfile::Science), None, "{typed}");
+        assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
+    }
+}
+
+// A first Connect on a device with nothing saved may leave the OTP out:
+// the password reaches the school, and the school's pages decide. An account
+// still on the emailed code ends needing the web (the App OTP guidance);
+// one with App OTP ends asking for its setup. Neither saves anything, and
+// saved credentials still need the OTP.
+#[tokio::test(start_paused = true)]
+async fn a_first_connect_without_an_otp_reaches_the_schools_answer() {
+    let school = School::accepting("right");
+    let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
+    let sessions = SchoolSessions::with_transport(school.clone(), auth.clone());
+    let typed = auth
+        .resolve(
+            SchoolAuthProfile::Science,
+            SchoolCredentials {
+                otp_secret: String::new(),
+                ..science_credentials("right")
+            },
+        )
+        .expect("a Connect may leave the OTP out");
+
+    school.state.lock().unwrap().email_otp = true;
+    assert_eq!(
+        sessions
+            .connect(SchoolAuthProfile::Science, typed.clone())
+            .await
+            .unwrap(),
+        SchoolConnectOutcome::NeedsWeb {
+            reason: SchoolSignInProblemKind::EmailOtp
+        }
+    );
+    assert_eq!(school.passwords(), 1, "the password reached the school");
+
+    school.state.lock().unwrap().email_otp = false;
+    assert_eq!(
+        sessions
+            .connect(SchoolAuthProfile::Science, typed.clone())
+            .await
+            .unwrap(),
+        SchoolConnectOutcome::Refused {
+            reason: SchoolSignInProblemKind::OtpNeeded
+        }
+    );
+    assert!(auth.load(SchoolAuthProfile::Science).unwrap().is_none());
+    assert_eq!(science(&sessions).state, SchoolSessionState::NotConfigured);
+    assert!(auth.promote(SchoolAuthProfile::Science, &typed).is_err());
 }
 
 // The school accepts a Connect and the vault refuses to save its
@@ -790,7 +902,8 @@ async fn a_connect_the_vault_did_not_save_says_so() {
     assert_eq!(
         sessions
             .connect(SchoolAuthProfile::Science, science_credentials("new"))
-            .await,
+            .await
+            .unwrap(),
         SchoolConnectOutcome::NotSaved
     );
     assert_eq!(
@@ -925,6 +1038,8 @@ async fn a_read_gets_the_site_session_only_when_a_request_needs_cookies() {
 struct HeldVault {
     inner: MemoryVault,
     prefix: &'static str,
+    /// Reads of those items wait too.
+    loads: bool,
     holding: Arc<(Mutex<bool>, std::sync::Condvar)>,
     /// Told when a write starts waiting. An async signal, never a blocking
     /// wait: under a paused clock a blocking task stops time, and a sign-in
@@ -947,33 +1062,48 @@ impl HeldVault {
         signal.notify_all();
     }
 
-    /// Until a write is held.
+    /// Until a write (or, with `loads`, a read) is held.
     async fn wait_for_a_write(&self) {
         self.waiting.notified().await;
+    }
+
+    /// Waits here while holding, for an item the vault holds.
+    fn held(&self, account: &str) {
+        if !account.starts_with(self.prefix) {
+            return;
+        }
+        let (lock, signal) = &*self.holding;
+        let mut holding = lock.lock().unwrap();
+        if *holding {
+            self.waiting.notify_one();
+        }
+        while *holding {
+            holding = signal.wait(holding).unwrap();
+        }
     }
 }
 
 impl crate::ports::SecretVault for HeldVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
-        if account.starts_with(self.prefix) {
-            let (lock, signal) = &*self.holding;
-            let mut holding = lock.lock().unwrap();
-            if *holding {
-                self.waiting.notify_one();
-            }
-            while *holding {
-                holding = signal.wait(holding).unwrap();
-            }
-        }
+        self.held(account);
         self.inner.store(account, secret)
     }
 
     fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        if self.loads {
+            self.held(account);
+        }
         self.inner.load(account)
     }
 
     fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
         self.inner.delete(account)
+    }
+
+    /// With `loads`, its items are read again when the person acts, as an
+    /// iCloud Keychain item is.
+    fn shared(&self, account: &str) -> bool {
+        self.loads && account.starts_with(self.prefix)
     }
 }
 
@@ -1039,6 +1169,7 @@ async fn a_sign_out_during_an_accepted_connect_deletes_after_its_write() {
             sessions
                 .connect(SchoolAuthProfile::Science, science_credentials("new"))
                 .await
+                .unwrap()
         })
     };
     vault.wait_for_a_write().await;
@@ -1071,4 +1202,129 @@ async fn a_sign_out_during_an_accepted_connect_deletes_after_its_write() {
     );
     assert_eq!(science(&sessions).state, SchoolSessionState::NotConfigured);
     assert_eq!(sessions.fresh(SchoolAuthProfile::Science), None);
+}
+
+// A Connect that leaves the password blank reads the saved one from the
+// vault. The person signs out while that read is under way: the sign-out
+// waits for the Connect, which then stops without signing in, and the
+// password the sign-out deleted is never sent or saved again.
+#[tokio::test(start_paused = true)]
+async fn a_sign_out_during_a_connects_vault_read_stops_the_connect() {
+    let vault = HeldVault {
+        loads: true,
+        ..HeldVault::on("school-accounts")
+    };
+    SchoolAuthService::new(vault.inner.clone())
+        .promote(SchoolAuthProfile::Science, &science_credentials("right"))
+        .unwrap();
+    // A launch: the first read of the saved credentials goes to the vault.
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let school = School::accepting("right");
+    let sessions = SchoolSessions::with_transport(school.clone(), auth.clone());
+    vault.hold(true);
+    let connect = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move {
+            sessions
+                .connect(
+                    SchoolAuthProfile::Science,
+                    SchoolCredentials {
+                        password: String::new(),
+                        ..science_credentials("")
+                    },
+                )
+                .await
+        })
+    };
+    vault.wait_for_a_write().await;
+    let signing_out = {
+        let sessions = sessions.clone();
+        tokio::spawn(async move { sessions.sign_out(SchoolAuthProfile::Science).await })
+    };
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !signing_out.is_finished(),
+        "the sign-out waits for the Connect"
+    );
+    vault.hold(false);
+    assert_eq!(connect.await.unwrap(), Ok(SchoolConnectOutcome::Stopped));
+    assert_eq!(signing_out.await.unwrap(), Ok(true));
+    assert_eq!(school.passwords(), 0, "nothing was sent");
+    let relaunched = SchoolAuthService::new(vault.inner.clone());
+    assert!(relaunched
+        .load(SchoolAuthProfile::Science)
+        .unwrap()
+        .is_none());
+}
+
+// Signing out succeeds only when every step did. The LMS token cannot be
+// deleted: the sign-out says what is left, the credentials stay saved (and
+// with them the account's sign-out), and signing out again redoes every
+// step and ends with nothing left. A token left behind by an account that is
+// not saved is never used: reading it deletes it.
+#[tokio::test]
+async fn a_sign_out_that_did_not_finish_keeps_the_account_and_can_be_redone() {
+    #[derive(Clone, Default)]
+    struct Stuck(MemoryVault, Arc<AtomicBool>);
+    impl crate::ports::SecretVault for Stuck {
+        fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+            self.0.store(account, secret)
+        }
+        fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+            self.0.load(account)
+        }
+        fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+            if account == "lms-token-science" && self.1.load(Ordering::SeqCst) {
+                return Err(crate::ports::SecretError::Access("denied".into()));
+            }
+            self.0.delete(account)
+        }
+    }
+    let vault = Stuck::default();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(SchoolAuthProfile::Science, &science_credentials("right"))
+        .unwrap();
+    let token = crate::school_auth::MoodleToken::new("token".into());
+    auth.store_moodle_token(SchoolAuthProfile::Science, &token)
+        .unwrap();
+    let sessions = SchoolSessions::with_transport(School::accepting("right"), auth.clone());
+
+    vault.1.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        sessions.sign_out(SchoolAuthProfile::Science).await,
+        Err(SchoolAuthError::SignOutIncomplete(left)) if left.contains("LMS token")
+    ));
+    assert!(auth.load(SchoolAuthProfile::Science).unwrap().is_some());
+    assert_eq!(science(&sessions).state, SchoolSessionState::Normal);
+
+    vault.1.store(false, Ordering::SeqCst);
+    assert_eq!(
+        sessions.sign_out(SchoolAuthProfile::Science).await,
+        Ok(true)
+    );
+    assert!(auth.load(SchoolAuthProfile::Science).unwrap().is_none());
+    assert!(
+        crate::ports::SecretVault::load(&vault.0, "lms-token-science")
+            .unwrap()
+            .is_none()
+    );
+
+    // A token an unsaved account left behind is not used, and goes.
+    crate::ports::SecretVault::store(
+        &vault.0,
+        "lms-token-science",
+        r#"{"version":2,"token":"left"}"#,
+    )
+    .unwrap();
+    assert!(auth
+        .load_moodle_token(SchoolAuthProfile::Science)
+        .unwrap()
+        .is_none());
+    assert!(
+        crate::ports::SecretVault::load(&vault.0, "lms-token-science")
+            .unwrap()
+            .is_none()
+    );
 }

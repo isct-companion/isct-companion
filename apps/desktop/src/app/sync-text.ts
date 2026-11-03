@@ -171,6 +171,7 @@ const SESSION_STATES: Record<SchoolSessionState, MessageKey> = {
 const SIGN_IN_PROBLEMS: Record<SchoolSignInProblemKind, MessageKey> = {
   "invalid-credentials": "failure.theIDOrPasswordWas",
   "invalid-otp": "failure.theOneTimePasswordWas",
+  "otp-needed": "schoolSession.problem.otpNeeded",
   "invalid-matrix": "failure.theMatrixAnswerWasNot",
   "email-otp": "schoolSession.problem.emailOtp",
   "password-change": "schoolSession.problem.passwordChange",

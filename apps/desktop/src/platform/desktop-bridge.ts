@@ -125,6 +125,8 @@ export type SchoolSignInProblemKind =
   /** With `refused`. */
   | "invalid-credentials"
   | "invalid-otp"
+  /** A Connect without an OTP setup reached the App OTP step. */
+  | "otp-needed"
   | "invalid-matrix"
   /** With `needs-web`. */
   | "email-otp"

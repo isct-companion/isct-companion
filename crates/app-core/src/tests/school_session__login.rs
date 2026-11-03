@@ -120,7 +120,10 @@ async fn connect_and_read(
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
     let credentials = auth.resolve(profile, credentials).unwrap();
     let sessions = SchoolSessions::new(Some(Http::new().unwrap()), auth.clone());
-    let outcome = sessions.connect(profile, credentials.clone()).await;
+    let outcome = sessions
+        .connect(profile, credentials.clone())
+        .await
+        .unwrap();
     assert_eq!(
         outcome,
         crate::school_session::SchoolConnectOutcome::Connected

@@ -932,6 +932,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         fun reason(kind: SchoolSignInProblemKind): String = when (kind) {
             SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
             SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
+            SchoolSignInProblemKind.OTP_NEEDED -> t("schoolSession.problem.otpNeeded")
             SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
             SchoolSignInProblemKind.EMAIL_OTP -> t("schoolSession.problem.emailOtp")
             SchoolSignInProblemKind.PASSWORD_CHANGE -> t("schoolSession.problem.passwordChange")

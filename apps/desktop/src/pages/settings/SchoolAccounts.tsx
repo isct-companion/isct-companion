@@ -544,6 +544,11 @@ function Account({
       setMatrixReplacing(false);
       await refresh();
       notify(t("settings.schoolAccounts.accountForgotten", { account: title }));
+    } catch (reason) {
+      // Signing out did not finish: the account stays saved, with Forget,
+      // and pressing it again redoes every step.
+      setError(errorText(reason) ?? t("error.sign-out-incomplete"));
+      await refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }

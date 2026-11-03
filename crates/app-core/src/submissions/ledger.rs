@@ -13,10 +13,14 @@
 //! transaction is ever held across a network wait. Snapshots live in
 //! `submissions/` beside it, named by their sha256.
 //!
-//! The single-flight guard holds within one schema version. A file of an
-//! older version is deleted with its snapshots and the ledger starts empty:
-//! the person confirms their hand-ins before upgrading, and nothing of the
-//! old records is recovered or read. A newer version is refused.
+//! The single-flight guard holds within one schema version. A ledger of an
+//! older version starts empty, its snapshots gone: the person confirms their
+//! hand-ins before upgrading, and nothing of the old records is recovered or
+//! read. The upgrade runs in one exclusive transaction that reads the
+//! version again, so of two processes that both saw the old one, only the
+//! first rebuilds and cleans the snapshots, and the second finds the new
+//! version and leaves what the first recorded since. A newer version is
+//! refused.
 use super::{
     LmsIdentity, Operation, OperationState, Preparation, RemoteState, SnapshotFile,
     SubmissionError, UploadFile, RECEIPT_RETENTION,
@@ -68,27 +72,10 @@ pub(super) struct Ledger {
 
 impl Ledger {
     pub(super) fn open(directory: &Path) -> Result<Self, SubmissionError> {
-        let path = directory.join(FILE);
         let blobs = directory.join(BLOBS);
-        let mut connection = connect(&path)?;
-        let mut version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if (1..SCHEMA_VERSION).contains(&version) {
-            drop(connection);
-            rebuild(&path, &blobs)?;
-            connection = connect(&path)?;
-            version = 0;
-        }
-        match version {
-            0 => {
-                connection.execute_batch(SCHEMA)?;
-                connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-            }
-            SCHEMA_VERSION => {}
-            other => {
-                return Err(SubmissionError::Storage(format!(
-                    "{FILE} schema {other} is not supported"
-                )))
-            }
+        let mut connection = connect(&directory.join(FILE))?;
+        if version(&connection)? != SCHEMA_VERSION {
+            upgrade(&mut connection, &blobs)?;
         }
         Ok(Self {
             connection: Mutex::new(connection),
@@ -404,27 +391,49 @@ impl Ledger {
     }
 }
 
-fn connect(path: &Path) -> Result<Connection, SubmissionError> {
+pub(super) fn connect(path: &Path) -> Result<Connection, SubmissionError> {
     let connection = Connection::open(path)?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
     Ok(connection)
 }
 
-/// Deletes a ledger of an older schema: the file, its `-wal` and `-shm`,
-/// and the snapshots only its records named.
-fn rebuild(path: &Path, blobs: &Path) -> Result<(), SubmissionError> {
-    let gone = |result: std::io::Result<()>| match result {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
-    };
-    for suffix in ["", "-wal", "-shm"] {
-        let mut file = path.as_os_str().to_owned();
-        file.push(suffix);
-        gone(fs::remove_file(PathBuf::from(file)))?;
+pub(super) fn version(connection: &Connection) -> Result<i64, SubmissionError> {
+    Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+}
+
+/// Brings the ledger to `SCHEMA_VERSION` in one exclusive transaction, the
+/// lock every other process's upgrade and write waits for. The version is
+/// read again inside it: another process may have upgraded since this one
+/// looked, and then nothing happens. A new file gets the schema; an older
+/// one loses its tables and, still under the lock, the snapshots only its
+/// records named, before any record of the new schema can exist.
+pub(super) fn upgrade(connection: &mut Connection, blobs: &Path) -> Result<(), SubmissionError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+    match version(&transaction)? {
+        SCHEMA_VERSION => return Ok(()),
+        0 => {}
+        older if older < SCHEMA_VERSION => {
+            transaction.execute_batch(
+                "DROP TABLE IF EXISTS operations; DROP TABLE IF EXISTS preparations;",
+            )?;
+            match fs::remove_dir_all(blobs) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into())
+                }
+                _ => {}
+            }
+            log::info!(target: "app_core::submissions", "{FILE} of schema {older} was rebuilt empty");
+        }
+        newer => {
+            return Err(SubmissionError::Storage(format!(
+                "{FILE} schema {newer} is not supported"
+            )))
+        }
     }
-    gone(fs::remove_dir_all(blobs))?;
-    log::info!(target: "app_core::submissions", "{FILE} of an older schema was rebuilt empty");
+    transaction.execute_batch(SCHEMA)?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    transaction.commit()?;
     Ok(())
 }
 

@@ -707,9 +707,16 @@ final class AppModel {
 
     /// Returns once Core has stopped the account's reads and removed its
     /// sign-in, the web views' school cookies included.
-    func deleteCredentials(_ profile: SchoolAuthProfile) async {
+    /// Throws when signing out did not finish: the account stays saved, and
+    /// signing out again redoes every step.
+    func deleteCredentials(_ profile: SchoolAuthProfile) async throws {
         guard let session else { return }
-        _ = try? await session.deleteCredentials(profile: profile).value()
+        do {
+            _ = try await session.deleteCredentials(profile: profile).value()
+        } catch {
+            await refreshAccounts()
+            throw error
+        }
         await refreshAccounts()
     }
 

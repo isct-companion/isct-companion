@@ -1452,16 +1452,27 @@ checks:
           The Windows host reports no navigation facts at all; Reload must
           still be the same GET, because it no longer depends on what a host
           reports.
+      - action: |
+          Signed in to the LMS, open a forum discussion from a course's
+          announcements, then press the app's Reload.
+        reason: |
+          Reload reopens the page the person was on, its discussion id
+          included: the forum's index, or a Moodle error about a missing
+          parameter, means Reload opened the narrower address kept on disk
+          for a relaunch instead.
     observe: |
-      The line under the address after Reload, and the 成績 page itself.
+      The line under the address after Reload, the 成績 page itself, and the
+      discussion after its Reload.
     expected: |
-      On each build the page opens in its initial state (the 学期 chosen
-      before resets), without the 教務Web error page, and no line appears
-      under the address.
+      On each build the 成績 page opens in its initial state (the 学期
+      chosen before resets), without the 教務Web error page, and no line
+      appears under the address; the forum discussion reopens as itself.
     why_manual: |
-      Needs a real WebForms postback inside WebKit and WebView2; the page is
-      a glance. Which page Reload opens is Core's and tested there.
+      Needs a real WebForms postback inside WebKit and WebView2 and a real
+      LMS discussion; each page is a glance. Which address Reload opens is
+      Core's and tested there.
     covers:
+      - crates/app-core/src/school_browser/policy.rs
       - apps/desktop/src-tauri/src/school_webkit.rs
       - apps/desktop/src-tauri/src/school_windows.rs
       - apps/desktop/src/pages/web/WebPage.tsx
@@ -3994,8 +4005,9 @@ checks:
     persona: careless-multidevice
     preconditions: |
       A macOS desktop build, an Android build and an iPhone build from this
-      source, each with both school accounts connected and the LMS and
-      教務Web each opened once in the Web page.
+      source, and a Windows build when one is at hand, each with both school
+      accounts connected and the LMS and 教務Web each opened once in the Web
+      page.
     steps:
       - action: |
           On the desktop, delete the Science Tokyo credentials in Settings,
@@ -4006,6 +4018,14 @@ checks:
           password prompt, because Core writes the Tokyo Tech identity into
           its new view before the first page; a 教務Web sign-in page means
           the remaining account's identity was not written back after the
+          clear.
+      - action: |
+          On the Windows build, do the same.
+        reason: |
+          Windows clears the school views' own WebView2 profile whole, not
+          only its cookies: the LMS shows its sign-in page, and 教務Web opens
+          signed in again without a prompt. An error under the account card
+          saying the sign-out did not finish means WebView2 refused the
           clear.
       - action: |
           On the iPhone, delete the Science Tokyo credentials in Settings,
@@ -8237,22 +8257,26 @@ checks:
 
   - id: SCHOOL-APP-OTP-ENTRY
     area: school
-    title: An emailed code ends Connect with the App OTP explanation and a portal button that opens unsigned
+    title: A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with an unsigned portal button
     persona: undergraduate-first-term
     preconditions: |
       A desktop build, an iPhone build and an Android build from this
-      commit, a Science Tokyo account that still uses the emailed one-time
-      password (no App OTP registered), and no Science Tokyo account saved
-      in the app.
+      commit, each freshly installed (or reset with everything), so no
+      Science Tokyo credentials and no OTP setup are saved, and a Science
+      Tokyo account that still uses the emailed one-time password (no App
+      OTP registered).
     steps:
       - action: |
-          Enter the student id and password, leave the OTP field empty, and
-          press Connect.
+          Open Settings › Science Tokyo, enter the student id and password,
+          leave the OTP field empty, and press Connect.
         reason: |
-          The school asks for the emailed code, which the app cannot answer:
-          the form explains that the app signs in by itself only with App OTP
-          and offers one button, "Open the Science Tokyo portal". Nothing is
-          saved and the card stays Not connected.
+          The app must not refuse the empty OTP itself: the password goes to
+          the school, and the school asks for the emailed code, which the app
+          cannot answer. The form then explains that the app signs in by
+          itself only with App OTP and offers one button, "Open the Science
+          Tokyo portal". A local "OTP setup is required" error means the
+          first Connect never reached the school. Nothing is saved and the
+          card stays Not connected.
       - action: |
           Press the button.
         reason: |
@@ -8261,8 +8285,17 @@ checks:
           page already signed in by the app, or filled fields, mean a sign-in
           was handed off.
       - action: |
-          Sign in there by hand (with the emailed code), register App OTP,
-          paste its setup link or secret into the OTP field, and press Connect.
+          Sign in there by hand (with the emailed code) and register App OTP.
+          Back in Settings, press Connect again with the OTP field still
+          empty.
+        reason: |
+          Now the school asks for the App one-time password: the form says
+          the school asks for it and to enter its setup link or secret, and
+          nothing is saved. A "not accepted" message would blame a code the
+          person never entered.
+      - action: |
+          Paste the App OTP setup link or secret into the OTP field and press
+          Connect.
         reason: |
           With App OTP the app signs in by itself and the account is saved.
     observe: |
@@ -8270,12 +8303,17 @@ checks:
     expected: |
       The first Connect shows the emailed-code reason, the App OTP
       explanation and one portal button, and saves nothing; the portal opens
-      unsigned; the last Connect ends Connected.
+      unsigned; a Connect without the OTP after App OTP is registered asks
+      for it and saves nothing; the last Connect ends Connected.
     why_manual: |
-      Needs a live account still on the emailed code and the real portal in
-      each platform's web view. That the unsigned entry starts no web
-      operation is in the school browser suite.
+      Needs a live account still on the emailed code, the real Extic pages
+      and the real portal in each platform's web view. That an empty OTP
+      reaches the school and ends on its page is in the session suite, and
+      that the unsigned entry starts no web operation in the school browser
+      suite.
     covers:
+      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_session/login.rs
       - crates/app-core/src/school_browser/engine.rs
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
       - apps/desktop/src/pages/web/WebPage.tsx

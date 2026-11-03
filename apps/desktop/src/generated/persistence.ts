@@ -2004,6 +2004,7 @@ export type ErrorCode =
   | "write-denied"
   | "too-large"
   | "vault-unavailable"
+  | "sign-out-incomplete"
   | "sign-in-required"
   | "school-maintenance"
   | "school-site-changed"

@@ -124,6 +124,7 @@ enum SchoolSessionText {
         switch kind {
         case .invalidCredentials: return t("failure.theIDOrPasswordWas")
         case .invalidOtp: return t("failure.theOneTimePasswordWas")
+        case .otpNeeded: return t("schoolSession.problem.otpNeeded")
         case .invalidMatrix: return t("failure.theMatrixAnswerWasNot")
         case .emailOtp: return t("schoolSession.problem.emailOtp")
         case .passwordChange: return t("schoolSession.problem.passwordChange")

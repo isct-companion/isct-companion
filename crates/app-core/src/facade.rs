@@ -388,15 +388,9 @@ impl Core {
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<SchoolConnectOutcome, CredentialMutationError> {
-        let auth = self.auth.clone();
-        let credentials = tokio::task::spawn_blocking(move || {
-            // Blank fields fill from what the vault holds now.
-            auth.refresh();
-            auth.resolve(profile, credentials)
-        })
-        .await
-        .map_err(|_| SchoolBrowserError::Stopped)??;
-        let outcome = self.sessions.connect(profile, credentials).await;
+        // Blank fields fill from what the vault holds now, under the
+        // account's permit (`SchoolSessions::connect`).
+        let outcome = self.sessions.connect(profile, credentials).await?;
         self.sync.unblock(profile);
         Ok(outcome)
     }

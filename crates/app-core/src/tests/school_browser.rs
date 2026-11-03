@@ -1345,8 +1345,11 @@ async fn an_app_link_writes_a_verified_identity_before_it_opens_and_nothing_else
 // operation, never more.
 #[tokio::test]
 async fn a_reload_reopens_the_last_page_and_on_the_sign_in_page_signs_in_at_most_once() {
+    // A form's result whose address carries what a Reload must not send
+    // again, and the part (`d`) the restore record would drop.
     const FORM_RESULT: &str =
-        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7&action=editsubmission";
+        "https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=77&sesskey=s3cr3t#p5";
+    const REOPENED: &str = "https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=77";
     let school = School::accepting("right");
     let store = WebStore::open();
     let (engine, browser, _, _) = signed_engine(&school, "right", &store);
@@ -1393,7 +1396,7 @@ async fn a_reload_reopens_the_last_page_and_on_the_sign_in_page_signs_in_at_most
     .await;
     assert!(engine.reload(SchoolSite::ScienceLms).unwrap());
     let reloaded = navigated(&browser, 1).await;
-    assert_eq!(target(&reloaded), FORM_RESULT, "opened again with a GET");
+    assert_eq!(target(&reloaded), REOPENED, "opened again with a GET");
     assert_eq!(
         browser.commands.lock().unwrap().last(),
         Some(&reloaded),
@@ -1401,7 +1404,7 @@ async fn a_reload_reopens_the_last_page_and_on_the_sign_in_page_signs_in_at_most
     );
     assert_eq!(access(&engine), None, "nothing to sign in, nothing to say");
     assert_eq!(school.passwords(), 1);
-    arrive(&browser, &reloaded, 3, FORM_RESULT);
+    arrive(&browser, &reloaded, 3, REOPENED);
     // Later the session runs out and the person's own link lands on the
     // sign-in page.
     wander(&browser, opened.browser, 4, SIGN_IN_PAGE);
@@ -1417,7 +1420,7 @@ async fn a_reload_reopens_the_last_page_and_on_the_sign_in_page_signs_in_at_most
     let reopened = navigated(&browser, 2).await;
     assert_eq!(
         target(&reopened),
-        FORM_RESULT,
+        REOPENED,
         "the visit's last page, as a Reload elsewhere opens it"
     );
     assert_eq!(
@@ -1429,7 +1432,7 @@ async fn a_reload_reopens_the_last_page_and_on_the_sign_in_page_signs_in_at_most
     assert_eq!(access(&engine), Some(SchoolWebAccess::SigningIn));
     arrive(&browser, &reopened, 5, SIGN_IN_PAGE);
     let again = navigated(&browser, 3).await;
-    assert_eq!(target(&again), FORM_RESULT);
+    assert_eq!(target(&again), REOPENED);
     assert_eq!(
         school.passwords(),
         2,

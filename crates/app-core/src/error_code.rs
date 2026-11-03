@@ -53,6 +53,7 @@ codes! {
     WriteDenied => "write-denied",
     TooLarge => "too-large",
     VaultUnavailable => "vault-unavailable",
+    SignOutIncomplete => "sign-out-incomplete",
     SignInRequired => "sign-in-required",
     SchoolMaintenance => "school-maintenance",
     SchoolSiteChanged => "school-site-changed",
@@ -354,6 +355,7 @@ coded!(SchoolAuthError, |e| match e {
     SchoolAuthError::Vault(e) => e.code(),
     SchoolAuthError::Compatibility(_) => C::Compatibility,
     SchoolAuthError::Storage(_) => C::Storage,
+    SchoolAuthError::SignOutIncomplete(_) => C::SignOutIncomplete,
 });
 coded!(OtpImportError, |e| match e {
     OtpImportError::Invalid => C::OtpImportInvalid,

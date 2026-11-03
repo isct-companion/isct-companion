@@ -1,7 +1,6 @@
 use crate::{
     cloud::{CloudProvider, DesktopCloudService},
     cloud_sync, data, require_local_main,
-    school_auth::SchoolAuthService,
     secrets::OsSecretVault,
 };
 use crate::{coded, CommandError};
@@ -146,13 +145,13 @@ pub(crate) async fn enable_cloud_credential_sync(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     password: String,
 ) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
+    let core = crate::core_ports::core(&app);
     let outcome = service
         .credential_backup()
-        .enable(&password, auth.inner())
+        .enable(&password, core.sessions())
         .await
         .map_err(coded)?;
     // An imported credential file is one of the moments Core reads the

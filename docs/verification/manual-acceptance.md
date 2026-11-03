@@ -215,7 +215,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
-| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_windows.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/policy.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_windows.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -355,7 +355,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/mod.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
@@ -1822,24 +1822,33 @@ at hand, signed in to 教務Web.
    - *Why:* The Windows host reports no navigation facts at all; Reload must
      still be the same GET, because it no longer depends on what a host
      reports.
+3. Signed in to the LMS, open a forum discussion from a course's
+   announcements, then press the app's Reload.
+   - *Why:* Reload reopens the page the person was on, its discussion id
+     included: the forum's index, or a Moodle error about a missing
+     parameter, means Reload opened the narrower address kept on disk
+     for a relaunch instead.
 
 **Where to look**
 
-The line under the address after Reload, and the 成績 page itself.
+The line under the address after Reload, the 成績 page itself, and the
+discussion after its Reload.
 
 **Expected**
 
-On each build the page opens in its initial state (the 学期 chosen
-before resets), without the 教務Web error page, and no line appears
-under the address.
+On each build the 成績 page opens in its initial state (the 学期
+chosen before resets), without the 教務Web error page, and no line
+appears under the address; the forum discussion reopens as itself.
 
 **Why this is manual**
 
-Needs a real WebForms postback inside WebKit and WebView2; the page is
-a glance. Which page Reload opens is Core's and tested there.
+Needs a real WebForms postback inside WebKit and WebView2 and a real
+LMS discussion; each page is a glance. Which address Reload opens is
+Core's and tested there.
 
 **Covers**
 
+- `crates/app-core/src/school_browser/policy.rs`
 - `apps/desktop/src-tauri/src/school_webkit.rs`
 - `apps/desktop/src-tauri/src/school_windows.rs`
 - `apps/desktop/src/pages/web/WebPage.tsx`
@@ -4775,8 +4784,9 @@ page Reload reopens are in the Core web operation suite.
 **Preconditions**
 
 A macOS desktop build, an Android build and an iPhone build from this
-source, each with both school accounts connected and the LMS and
-教務Web each opened once in the Web page.
+source, and a Windows build when one is at hand, each with both school
+accounts connected and the LMS and 教務Web each opened once in the Web
+page.
 
 **Steps**
 
@@ -4788,17 +4798,23 @@ source, each with both school accounts connected and the LMS and
      its new view before the first page; a 教務Web sign-in page means
      the remaining account's identity was not written back after the
      clear.
-2. On the iPhone, delete the Science Tokyo credentials in Settings,
+2. On the Windows build, do the same.
+   - *Why:* Windows clears the school views' own WebView2 profile whole, not
+     only its cookies: the LMS shows its sign-in page, and 教務Web opens
+     signed in again without a prompt. An error under the account card
+     saying the sign-out did not finish means WebView2 refused the
+     clear.
+3. On the iPhone, delete the Science Tokyo credentials in Settings,
    then open the LMS and 教務Web in the Web tab.
    - *Why:* iOS used to clear one account's sites only; it must now behave as
      the desktop does: the LMS signed out, 教務Web signed in again
      without a prompt.
-3. On Android, delete the Science Tokyo credentials, read Settings ›
+4. On Android, delete the Science Tokyo credentials, read Settings ›
    School accounts, then open the LMS and 教務Web in the Web tab.
    - *Why:* The sign-out is the clear: no card offering to clear every school
      web sign-in may remain. The LMS shows its sign-in page and 教務Web
      opens signed in again without a prompt.
-4. Quit the Android app (swipe it away), reopen it and open the LMS.
+5. Quit the Android app (swipe it away), reopen it and open the LMS.
    - *Why:* The LMS still shows its sign-in page: the clear reached the
      WebView's store on disk, not only its memory.
 
@@ -9641,7 +9657,7 @@ glance in the real app on three platforms.
 
 **Last recorded** never run
 
-### An emailed code ends Connect with the App OTP explanation and a portal button that opens unsigned (`SCHOOL-APP-OTP-ENTRY`)
+### A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with an unsigned portal button (`SCHOOL-APP-OTP-ENTRY`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -9650,25 +9666,36 @@ glance in the real app on three platforms.
 **Preconditions**
 
 A desktop build, an iPhone build and an Android build from this
-commit, a Science Tokyo account that still uses the emailed one-time
-password (no App OTP registered), and no Science Tokyo account saved
-in the app.
+commit, each freshly installed (or reset with everything), so no
+Science Tokyo credentials and no OTP setup are saved, and a Science
+Tokyo account that still uses the emailed one-time password (no App
+OTP registered).
 
 **Steps**
 
-1. Enter the student id and password, leave the OTP field empty, and
-   press Connect.
-   - *Why:* The school asks for the emailed code, which the app cannot answer:
-     the form explains that the app signs in by itself only with App OTP
-     and offers one button, "Open the Science Tokyo portal". Nothing is
-     saved and the card stays Not connected.
+1. Open Settings › Science Tokyo, enter the student id and password,
+   leave the OTP field empty, and press Connect.
+   - *Why:* The app must not refuse the empty OTP itself: the password goes to
+     the school, and the school asks for the emailed code, which the app
+     cannot answer. The form then explains that the app signs in by
+     itself only with App OTP and offers one button, "Open the Science
+     Tokyo portal". A local "OTP setup is required" error means the
+     first Connect never reached the school. Nothing is saved and the
+     card stays Not connected.
 2. Press the button.
    - *Why:* The in-app web view opens the portal's own sign-in page with nothing
      typed into it: the app writes no sign-in and reads nothing there. A
      page already signed in by the app, or filled fields, mean a sign-in
      was handed off.
-3. Sign in there by hand (with the emailed code), register App OTP,
-   paste its setup link or secret into the OTP field, and press Connect.
+3. Sign in there by hand (with the emailed code) and register App OTP.
+   Back in Settings, press Connect again with the OTP field still
+   empty.
+   - *Why:* Now the school asks for the App one-time password: the form says
+     the school asks for it and to enter its setup link or secret, and
+     nothing is saved. A "not accepted" message would blame a code the
+     person never entered.
+4. Paste the App OTP setup link or secret into the OTP field and press
+   Connect.
    - *Why:* With App OTP the app signs in by itself and the account is saved.
 
 **Where to look**
@@ -9679,16 +9706,21 @@ The Science Tokyo form, the Web page showing the portal, and the card.
 
 The first Connect shows the emailed-code reason, the App OTP
 explanation and one portal button, and saves nothing; the portal opens
-unsigned; the last Connect ends Connected.
+unsigned; a Connect without the OTP after App OTP is registered asks
+for it and saves nothing; the last Connect ends Connected.
 
 **Why this is manual**
 
-Needs a live account still on the emailed code and the real portal in
-each platform's web view. That the unsigned entry starts no web
-operation is in the school browser suite.
+Needs a live account still on the emailed code, the real Extic pages
+and the real portal in each platform's web view. That an empty OTP
+reaches the school and ends on its page is in the session suite, and
+that the unsigned entry starts no web operation in the school browser
+suite.
 
 **Covers**
 
+- `crates/app-core/src/school_auth.rs`
+- `crates/app-core/src/school_session/login.rs`
 - `crates/app-core/src/school_browser/engine.rs`
 - `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
 - `apps/desktop/src/pages/web/WebPage.tsx`

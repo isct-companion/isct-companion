@@ -1,5 +1,5 @@
 use super::policy::{
-    browsing_url, is_identity_login, is_login_url, navigation_rule, new_window_rule,
+    browsing_url, is_identity_login, is_login_url, navigation_rule, new_window_rule, reopen_url,
     restore_record, DenyReason, Verdict,
 };
 use super::{

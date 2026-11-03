@@ -34,9 +34,11 @@ use tokio_util::sync::CancellationToken;
 /// again.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Visit {
-    /// The last school page that arrived, however it was reached, in
-    /// restore-record form. Reload opens it with a GET, so a page a form
-    /// produced is reopened by its address and the form is never sent again.
+    /// The last school page that arrived, however it was reached, as
+    /// `reopen_url` keeps it: the page itself, without its fragment or what
+    /// would act or leak. Reload opens it with a GET, so a page a form
+    /// produced is reopened by its address and the form is never sent
+    /// again. Memory only: the restore record on disk is narrower.
     last: Option<Url>,
 }
 
@@ -53,14 +55,14 @@ impl Visit {
         if on_provider(url) || is_login_url(url) {
             return;
         }
-        if let Some(last) = restore_record(url.as_str()).and_then(|last| Url::parse(&last).ok()) {
+        if let Some(last) = reopen_url(url.as_str()) {
             self.last = Some(last);
         }
     }
 
     /// Where the App's Reload opens: the last page recorded. While none is
-    /// (the view opened on the sign-in page, or only on pages the restore
-    /// record does not keep), it is `site`'s start page: the one address
+    /// (the view opened on the sign-in page, or only on pages that are no
+    /// school site's), it is `site`'s start page: the one address
     /// known to open with a GET, where the engine's own reload might send a
     /// form again.
     pub(super) fn reopen(&self, site: SchoolSite) -> Option<Url> {

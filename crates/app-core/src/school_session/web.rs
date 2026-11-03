@@ -53,8 +53,11 @@ pub trait WebCookieSeed: Send + Sync {
     /// Writes `cookies` in order through the platform's own `Set-Cookie`
     /// parser and resolves once the store has committed every one.
     fn write(&self, cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>>;
-    /// Removes every school website's data (`is_school_domain`): cookies,
-    /// storage and caches, both accounts' alike. Resolves once done.
+    /// Removes every school website's (`is_school_domain`) cookies and the
+    /// storage its pages keep, both accounts' alike, and resolves once the
+    /// platform confirmed it. That much every platform removes; a platform
+    /// whose store allows it removes the sites' caches too, which no
+    /// sign-in depends on.
     fn clear(&self) -> BoxFuture<'_, Result<(), String>>;
 }
 
