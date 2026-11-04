@@ -229,7 +229,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-LECTURE-PANE-OVERLAYS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/styles.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
-| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-printer/src/cups/helper.rs<br>crates/adpt-printer/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/settings/CampusPrinterSettings.tsx |
+| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/settings/CampusPrinterSettings.tsx |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer_windows.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
@@ -2486,12 +2486,14 @@ reinstall, refuses the other login, and the system settings remove it.
 
 Needs root, the system's admin prompt, the campus network and the real
 printer's billing; the student-ID, device URI, PPD and probe logic is
-in crates/adpt-printer/src/tests and crates/app-core/src/tests.
+in crates/adpt-cups/src/tests, crates/adpt-printer/src/tests and
+crates/app-core/src/tests.
 
 **Covers**
 
-- `crates/adpt-printer/src/cups/helper.rs`
-- `crates/adpt-printer/build.rs`
+- `crates/adpt-cups/src/install.rs`
+- `crates/adpt-cups/src/backend.rs`
+- `crates/adpt-cups/build.rs`
 - `apps/desktop/src-tauri/src/campus_printer_cups.rs`
 - `apps/desktop/src/pages/settings/CampusPrinterSettings.tsx`
 

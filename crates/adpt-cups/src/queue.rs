@@ -1,17 +1,14 @@
-//! What the root helper does that needs no root: the device URI that
-//! carries the student ID, the queue's copy of the PPD, the arguments for
-//! `lpadmin` and for the system lpd backend, and whether Kyocera's own
-//! driver software can be used. Shared with the helper by `#[path]`, so it
-//! uses std only.
+//! What the queue is made of, shared by the installer, the backend and the
+//! library's tests: the device URI that carries the student ID, the
+//! queue's copy of the PPD, the arguments for `lpadmin` and for the system
+//! lpd backend, and the system's own paths. Included by the programs by
+//! path, so it uses std only.
 
 use crate::endpoint::{HOST, QUEUE};
 use crate::student_id::StudentId;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 
 pub const PRINTER_NAME: &str = "InstitutePrinter";
-/// The helper's first argument in its install role.
-pub const INSTALL: &str = "install";
 pub const BACKEND_NAME: &str = "titech-lpd";
 pub const BACKEND_MODE: u32 = 0o700;
 pub const PPD_MODE: u32 = 0o644;
@@ -19,16 +16,26 @@ const BACKEND_SCHEME: &str = "titech-lpd://";
 const DELEGATE_SCHEME: &str = "lpd://";
 const STUDENT_PARAMETER: &str = "student=";
 
+/// CUPS's program folder (`ServerBin`), where backends live.
+#[cfg(target_os = "macos")]
+pub const SERVER_BIN: &str = "/usr/libexec/cups";
+#[cfg(target_os = "linux")]
+pub const SERVER_BIN: &str = "/usr/lib/cups";
+
+/// The system's CUPS administration tools.
+pub const LPADMIN: &str = "/usr/sbin/lpadmin";
+pub const CUPSACCEPT: &str = "/usr/sbin/cupsaccept";
+pub const CUPSENABLE: &str = "/usr/sbin/cupsenable";
+
 /// An unmodified copy of the PPD in Kyocera's macOS driver package
 /// (4.0.7420, `*FileVersion: "8.4506"`). Its licence allows redistribution
 /// only unaltered, so the file stays byte-for-byte (`.gitattributes`); the
-/// queue gets an edited copy (`queue_ppd`).
-pub const PPD: &[u8] = include_bytes!("../../assets/Kyocera ECOSYS P8060cdn.PPD");
+/// queue gets an edited copy (`without_kyocera_driver`).
+pub const PPD: &[u8] = include_bytes!("../assets/Kyocera ECOSYS P8060cdn.PPD");
 
-/// Lines that point CUPS at the Kyocera driver software. They are kept only
-/// when that software is installed and runnable; otherwise CUPS uses its own
-/// pdftops/pstops filters, which already emit every PJL and PostScript
-/// option command defined in the PPD.
+/// Lines that point CUPS at the Kyocera driver software. Without them CUPS
+/// uses its own pdftops/pstops filters, which already emit every PJL and
+/// PostScript option command defined in the PPD.
 const KYOCERA_ONLY_PPD_KEYWORDS: &[&str] = &["*cupsPreFilter", "*cupsFilter", "*APDialogExtension"];
 
 pub const INSTALLABLE_OPTIONS: &[(&str, &str)] = &[
@@ -109,16 +116,27 @@ fn is_kyocera_driver_line(line: &[u8]) -> bool {
         .any(|keyword| line.starts_with(keyword.as_bytes()))
 }
 
+/// The PPD without the Kyocera driver lines.
+pub fn without_kyocera_driver(ppd: &[u8]) -> Vec<u8> {
+    ppd.split_inclusive(|&byte| byte == b'\n')
+        .filter(|line| !is_kyocera_driver_line(line))
+        .flatten()
+        .copied()
+        .collect()
+}
+
 /// Files the PPD's Kyocera-only lines refer to: filters inside the CUPS
-/// filter directory and the print dialog plugin bundle at an absolute path.
-pub fn kyocera_driver_files(ppd: &[u8], filter_dir: &Path) -> Vec<PathBuf> {
+/// filter directory and the print dialog plugin bundle. Kyocera ships this
+/// software for macOS only, so only macOS looks for it.
+#[cfg(target_os = "macos")]
+pub fn kyocera_driver_files(ppd: &[u8], filter_dir: &Path) -> Vec<std::path::PathBuf> {
     String::from_utf8_lossy(ppd)
         .lines()
         .filter(|line| is_kyocera_driver_line(line.as_bytes()))
         .filter_map(|line| {
             let value = line.split('"').nth(1)?;
             if line.starts_with("*APDialogExtension") {
-                Some(PathBuf::from(value))
+                Some(std::path::PathBuf::from(value))
             } else {
                 value
                     .split_whitespace()
@@ -129,8 +147,11 @@ pub fn kyocera_driver_files(ppd: &[u8], filter_dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `Err` explains why the Kyocera driver software cannot be used.
-pub fn check_kyocera_driver(files: &[PathBuf]) -> Result<(), String> {
+/// Whether the person installed Kyocera's driver software and this Mac can
+/// run it; `Err` says why not.
+#[cfg(target_os = "macos")]
+pub fn check_kyocera_driver(files: &[std::path::PathBuf]) -> Result<(), String> {
+    use std::process::{Command, Stdio};
     if files.is_empty() {
         return Err("the PPD references no Kyocera driver files".to_string());
     }
@@ -163,18 +184,27 @@ pub fn check_kyocera_driver(files: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-/// The queue's copy of the PPD: without the Kyocera driver lines unless
-/// that software is usable.
-pub fn queue_ppd(ppd: &[u8], use_kyocera_driver: bool) -> Vec<u8> {
-    if use_kyocera_driver {
-        return ppd.to_vec();
+/// The queue's copy of the PPD and how it renders: unchanged when
+/// Kyocera's driver software is usable, otherwise without its lines.
+#[cfg(target_os = "macos")]
+pub fn queue_ppd() -> (Vec<u8>, String) {
+    let filters = Path::new(SERVER_BIN).join("filter");
+    match check_kyocera_driver(&kyocera_driver_files(PPD, &filters)) {
+        Ok(()) => (PPD.to_vec(), "Kyocera driver software".to_string()),
+        Err(reason) => (
+            without_kyocera_driver(PPD),
+            format!("standard CUPS filters ({reason})"),
+        ),
     }
+}
 
-    ppd.split_inclusive(|&byte| byte == b'\n')
-        .filter(|line| !is_kyocera_driver_line(line))
-        .flatten()
-        .copied()
-        .collect()
+/// Kyocera's driver software does not exist for Linux: CUPS's own filters.
+#[cfg(target_os = "linux")]
+pub fn queue_ppd() -> (Vec<u8>, String) {
+    (
+        without_kyocera_driver(PPD),
+        "standard CUPS filters".to_string(),
+    )
 }
 
 /// CUPS backend arguments: job-id user title copies options [file].
@@ -223,36 +253,3 @@ fn copy_job_id(job_id: &str, copy_index: u32) -> String {
         Err(_) => job_id.to_string(),
     }
 }
-
-/// Where CUPS keeps its programs when `cups-config` cannot say.
-#[cfg(target_os = "macos")]
-pub fn default_cups_serverbin() -> PathBuf {
-    PathBuf::from("/usr/libexec/cups")
-}
-
-#[cfg(target_os = "linux")]
-pub fn default_cups_serverbin() -> PathBuf {
-    PathBuf::from("/usr/lib/cups")
-}
-
-/// Where the system lpd backend is, the usual place first.
-#[cfg(target_os = "macos")]
-pub fn default_lpd_backend_paths() -> Vec<PathBuf> {
-    vec![
-        PathBuf::from("/usr/libexec/cups/backend/lpd"),
-        PathBuf::from("/usr/lib/cups/backend/lpd"),
-    ]
-}
-
-#[cfg(target_os = "linux")]
-pub fn default_lpd_backend_paths() -> Vec<PathBuf> {
-    vec![
-        PathBuf::from("/usr/lib/cups/backend/lpd"),
-        PathBuf::from("/usr/libexec/cups/backend/lpd"),
-    ]
-}
-
-#[cfg(target_os = "macos")]
-pub const ROOT_OWNER_GROUP: &str = "root:wheel";
-#[cfg(target_os = "linux")]
-pub const ROOT_OWNER_GROUP: &str = "root:root";

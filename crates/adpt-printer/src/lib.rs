@@ -4,21 +4,23 @@
 //! keeps it well formed, and that the ID is the person's own is Core's
 //! decision (`app_core::campus_printer`).
 //!
-//! This crate holds no state and decides nothing. It holds the protocols:
-//! the student ID's format, an LPD client and the PJL header for printing a
-//! PDF without a driver (Windows), and the CUPS queue with its root helper
-//! (macOS and Linux). Ported from InstitutePrinter's `cross-platform` and
-//! `master` branches.
+//! This crate holds no state and decides nothing. On every desktop it holds
+//! the printer's address and the student ID's format; on Windows also the
+//! LPD client and PJL header that print a PDF without a driver. macOS and
+//! Linux print through a CUPS queue instead (`adpt-cups`). Ported from
+//! InstitutePrinter's `cross-platform` branch.
 
 mod endpoint;
 mod student_id;
 
+// Windows prints with these. Their tests also run on macOS, which, like
+// Windows, lets any user send from a port below 1024; Linux does not.
+#[cfg(any(windows, all(test, target_os = "macos")))]
 pub mod document;
+#[cfg(any(windows, all(test, target_os = "macos")))]
 pub mod lpd;
+#[cfg(any(windows, all(test, target_os = "macos")))]
 pub mod pjl;
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-pub mod cups;
 
 pub use endpoint::{ADDRESS, HOST, PORT, QUEUE};
 pub use student_id::StudentId;

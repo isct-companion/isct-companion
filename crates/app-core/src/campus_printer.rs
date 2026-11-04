@@ -9,8 +9,8 @@
 //! clicks the setting, never in the background, and never ICMP (often
 //! filtered, privileged on some systems, and blind to whether LPD answers).
 //!
-//! Shells do the platform part: on macOS and Linux they run the root helper
-//! Core hands them (`CupsInstall`) behind the system's admin prompt; on
+//! Shells do the platform part: on macOS and Linux they run the root
+//! installer Core hands them (`CupsInstall`) behind the system's admin prompt; on
 //! Windows Core sends the file itself (`Core::campus_print`).
 
 use crate::school_auth::SchoolAuthProfile;
@@ -95,12 +95,12 @@ pub async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
     }
 }
 
-/// The root step that installs the CUPS queue: run `helper`, written to an
-/// executable file, as root with `args`.
+/// The root step that installs the CUPS queue: run `installer`, written to
+/// an executable file, as root with `args`.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub struct CupsInstall {
-    pub helper: &'static [u8],
-    pub args: [String; 3],
+    pub installer: &'static [u8],
+    pub args: [String; 2],
 }
 
 /// How a print from the Windows print window ended.
@@ -153,7 +153,7 @@ impl Core {
     }
 
     /// The queue's root step for the verified student ID, printable only by
-    /// `login` (the system account installing it, which the helper checks),
+    /// `login` (the system account installing it, which the installer checks),
     /// or why there is no ID. Installing again updates the same queue.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub async fn campus_printer_install(
@@ -163,12 +163,8 @@ impl Core {
         let account = self.campus_printer_account().await;
         let student = account.student().ok_or(account)?;
         Ok(CupsInstall {
-            helper: adpt_printer::cups::HELPER,
-            args: [
-                adpt_printer::cups::INSTALL.into(),
-                student.to_string(),
-                login,
-            ],
+            installer: adpt_cups::INSTALLER,
+            args: [student.to_string(), login],
         })
     }
 

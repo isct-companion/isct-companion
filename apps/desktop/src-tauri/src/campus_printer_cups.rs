@@ -1,7 +1,7 @@
 //! Installs the `InstitutePrinter` CUPS queue (macOS and Linux) behind one
-//! administrator prompt: Core hands over the root helper and its arguments
-//! for the verified student ID, this writes the helper to a private folder
-//! and runs it as root. Nothing is downloaded, and nothing records whether
+//! administrator prompt: Core hands over the root installer and its
+//! arguments for the verified student ID, this writes the installer to a
+//! private folder and runs it as root. Nothing is downloaded, and nothing records whether
 //! the queue exists: installing again overwrites it, and the system printer
 //! settings remove it.
 //!
@@ -21,7 +21,7 @@ use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
-/// The helper's result as the prompt reports it.
+/// The installer's result as the prompt reports it.
 enum Elevated {
     Done,
     Cancelled,
@@ -61,15 +61,15 @@ fn run(cache: &Path, install: &CupsInstall, prompt: &str) -> CampusPrinterSetup 
     let result = (|| -> io::Result<Elevated> {
         fs::create_dir_all(cache)?;
         DirBuilder::new().mode(0o700).create(&dir)?;
-        let helper = dir.join("institute-printer-helper");
+        let installer = dir.join("institute-printer-installer");
         // Closed before it runs: Linux refuses to execute a file open for writing.
         OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o700)
-            .open(&helper)?
-            .write_all(install.helper)?;
-        elevate(&helper, &install.args, prompt)
+            .open(&installer)?
+            .write_all(install.installer)?;
+        elevate(&installer, &install.args, prompt)
     })();
     let _ = fs::remove_dir_all(&dir);
     match result {
@@ -114,7 +114,7 @@ fn login_name() -> io::Result<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn elevate(helper: &Path, args: &[String; 3], prompt: &str) -> io::Result<Elevated> {
+fn elevate(installer: &Path, args: &[String; 2], prompt: &str) -> io::Result<Elevated> {
     // Every value goes in as an argument and through `quoted form of`, so no
     // text reaches the shell unquoted.
     let output = Command::new("/usr/bin/osascript")
@@ -122,11 +122,11 @@ fn elevate(helper: &Path, args: &[String; 3], prompt: &str) -> io::Result<Elevat
             "-e",
             "on run argv",
             "-e",
-            "do shell script (quoted form of item 1 of argv) & \" \" & (quoted form of item 2 of argv) & \" \" & (quoted form of item 3 of argv) & \" \" & (quoted form of item 4 of argv) with prompt (item 5 of argv) with administrator privileges",
+            "do shell script (quoted form of item 1 of argv) & \" \" & (quoted form of item 2 of argv) & \" \" & (quoted form of item 3 of argv) with prompt (item 4 of argv) with administrator privileges",
             "-e",
             "end run",
         ])
-        .arg(helper)
+        .arg(installer)
         .args(args)
         .arg(prompt)
         .output()?;
@@ -142,8 +142,8 @@ fn elevate(helper: &Path, args: &[String; 3], prompt: &str) -> io::Result<Elevat
 }
 
 #[cfg(target_os = "linux")]
-fn elevate(helper: &Path, args: &[String; 3], _prompt: &str) -> io::Result<Elevated> {
-    let output = Command::new("pkexec").arg(helper).args(args).output()?;
+fn elevate(installer: &Path, args: &[String; 2], _prompt: &str) -> io::Result<Elevated> {
+    let output = Command::new("pkexec").arg(installer).args(args).output()?;
     Ok(match output.status.code() {
         Some(0) => Elevated::Done,
         // pkexec: the person dismissed the authentication dialog.

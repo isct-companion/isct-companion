@@ -1,8 +1,6 @@
-use super::queue::*;
-use crate::StudentId;
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use crate::queue::*;
+use adpt_printer::StudentId;
+use std::path::Path;
 
 fn student() -> StudentId {
     StudentId::parse("24M12345").unwrap()
@@ -26,6 +24,41 @@ fn the_device_uri_carries_the_student_id_to_the_backend() {
         "titech-lpd://172.20.83.212/kyocera?other=1",
     ] {
         assert!(parse_device_uri(bad).is_err(), "{bad}");
+    }
+}
+
+// The queue is the installing login's alone and never shared, so nobody
+// else, on this computer or the network, prints on this student's bill.
+#[test]
+fn the_queue_takes_only_the_installing_login() {
+    let uri = device_uri(&student());
+    let args = lpadmin_args(&student(), "taro.y", "/tmp/q.ppd");
+    assert_eq!(
+        args[..11],
+        [
+            "-p",
+            PRINTER_NAME,
+            "-E",
+            "-v",
+            &uri,
+            "-P",
+            "/tmp/q.ppd",
+            "-u",
+            "allow:taro.y",
+            "-o",
+            "printer-is-shared=false"
+        ]
+    );
+    assert!(args
+        .windows(2)
+        .any(|pair| pair == ["-o", "Option18=HardDisk"]));
+
+    for login in ["taro", "taro.y", "s_24m-1", "_spool"] {
+        assert!(is_login_name(login), "{login}");
+    }
+    let long = "a".repeat(256);
+    for login in ["", "-x", "a,b", "@admin", "a b", "a;b", "名前", &long] {
+        assert!(!is_login_name(login), "{login:?}");
     }
 }
 
@@ -71,16 +104,14 @@ fn delegate_args_force_the_student_and_one_copy() {
 }
 
 #[test]
-fn queue_ppd_drops_kyocera_driver_references() {
+fn the_queue_ppd_drops_only_the_kyocera_driver_lines() {
     let ppd = b"*NickName: \"Test\"\r\n\
 *cupsPreFilter: \"application/pdf 0 kyoprefilter_F\"\r\n\
 *cupsFilter: \"application/vnd.cups-postscript 0 kyofilter_F\"\r\n\
 *APDialogExtension: \"/Library/Printers/Kyocera/PDEs/KfSummary.plugin\"\r\n\
 *Duplex None/None: \"statusdict begin false setduplexmode false settumble end\"\r\n";
-
-    assert_eq!(queue_ppd(ppd, true), ppd.to_vec());
     assert_eq!(
-        queue_ppd(ppd, false),
+        without_kyocera_driver(ppd),
         b"*NickName: \"Test\"\r\n\
 *Duplex None/None: \"statusdict begin false setduplexmode false settumble end\"\r\n"
             .to_vec()
@@ -96,18 +127,10 @@ fn the_bundled_ppd_needs_no_kyocera_software() {
     assert!(ppd.contains("*FileVersion: \"8.4506\""));
     assert_eq!(PPD.len(), 316_022, "the PPD must stay byte-for-byte");
 
-    let queue = String::from_utf8_lossy(&queue_ppd(PPD, false)).into_owned();
+    let queue = String::from_utf8_lossy(&without_kyocera_driver(PPD)).into_owned();
     assert!(!queue.contains("kyofilter_F"));
     assert!(!queue.contains("kyoprefilter_F"));
     assert!(!queue.contains("/Library/Printers/Kyocera"));
-    assert_eq!(
-        kyocera_driver_files(PPD, Path::new("/cups/filter")),
-        vec![
-            PathBuf::from("/cups/filter/kyoprefilter_F"),
-            PathBuf::from("/cups/filter/kyofilter_F"),
-            PathBuf::from("/Library/Printers/Kyocera/PDEs/KfSummary.plugin"),
-        ]
-    );
     for (name, value) in INSTALLABLE_OPTIONS {
         assert!(
             ppd.contains(&format!("*{name} {value}/")),
@@ -116,9 +139,26 @@ fn the_bundled_ppd_needs_no_kyocera_software() {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn kyocera_driver_files_lists_filters_and_plugin() {
+    use std::path::PathBuf;
+    assert_eq!(
+        kyocera_driver_files(PPD, Path::new("/cups/filter")),
+        vec![
+            PathBuf::from("/cups/filter/kyoprefilter_F"),
+            PathBuf::from("/cups/filter/kyofilter_F"),
+            PathBuf::from("/Library/Printers/Kyocera/PDEs/KfSummary.plugin"),
+        ]
+    );
+}
+
+#[cfg(target_os = "macos")]
 #[test]
 fn check_kyocera_driver_requires_installed_runnable_files() {
-    let dir = std::env::temp_dir().join(format!("adpt-printer-driver-{}", std::process::id()));
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("adpt-cups-driver-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("Driver.plugin")).unwrap();
     for (name, bytes) in [
@@ -142,95 +182,5 @@ fn check_kyocera_driver_requires_installed_runnable_files() {
         .contains("cannot run on this machine"));
     assert!(check_kyocera_driver(&[]).is_err());
 
-    fs::remove_dir_all(&dir).unwrap();
-}
-
-// The embedded helper is an executable for this machine.
-#[test]
-fn the_helper_is_embedded() {
-    let magic = &crate::cups::HELPER[..4];
-    #[cfg(target_os = "macos")]
-    assert!(magic == [0xcf, 0xfa, 0xed, 0xfe] || magic == [0xca, 0xfe, 0xba, 0xbe]);
-    #[cfg(target_os = "linux")]
-    assert_eq!(magic, b"\x7fELF");
-}
-
-// The queue is the installing login's alone and never shared, so nobody
-// else, on this computer or the network, prints on this student's bill.
-#[test]
-fn the_queue_takes_only_the_installing_login() {
-    let uri = device_uri(&student());
-    let args = lpadmin_args(&student(), "taro.y", "/tmp/q.ppd");
-    assert_eq!(
-        args[..11],
-        [
-            "-p",
-            PRINTER_NAME,
-            "-E",
-            "-v",
-            &uri,
-            "-P",
-            "/tmp/q.ppd",
-            "-u",
-            "allow:taro.y",
-            "-o",
-            "printer-is-shared=false"
-        ]
-    );
-    assert!(args
-        .windows(2)
-        .any(|pair| pair == ["-o", "Option18=HardDisk"]));
-
-    for login in ["taro", "taro.y", "s_24m-1", "_spool"] {
-        assert!(is_login_name(login), "{login}");
-    }
-    let long = "a".repeat(256);
-    for login in ["", "-x", "a,b", "@admin", "a b", "a;b", "名前", &long] {
-        assert!(!is_login_name(login), "{login:?}");
-    }
-}
-
-// CUPS runs a backend with the device URI as argv[0], so the role comes
-// from the arguments, never the name: no arguments discovers it, a job's
-// arguments reach the URI check, and only `install` is the installer.
-#[test]
-fn the_helper_is_the_backend_whatever_argv0_says() {
-    use std::os::unix::process::CommandExt;
-    use std::process::Command;
-    let dir = std::env::temp_dir().join(format!("adpt-printer-helper-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    let helper = dir.join("institute-printer-helper");
-    fs::write(&helper, crate::cups::HELPER).unwrap();
-    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
-    let uri = "titech-lpd://172.20.83.212/kyocera?student=24M12345";
-    let run = |args: &[&str], device: &str| {
-        Command::new(&helper)
-            .arg0(uri)
-            .args(args)
-            .env("DEVICE_URI", device)
-            .output()
-            .unwrap()
-    };
-
-    let discovered = run(&[], uri);
-    assert!(discovered.status.success());
-    assert!(String::from_utf8_lossy(&discovered.stdout).starts_with("network titech-lpd "));
-
-    let job = run(
-        &["7", "user", "title", "1", "", "/nonexistent.ps"],
-        "titech-lpd://172.20.83.212/kyocera",
-    );
-    assert!(!job.status.success());
-    let stderr = String::from_utf8_lossy(&job.stderr);
-    assert!(stderr.contains("names no student ID"), "{stderr}");
-
-    let install = run(&["install", "24M12345"], uri);
-    assert!(String::from_utf8_lossy(&install.stderr).contains("usage:"));
-    let install = run(&["install", "24M12345", "taro"], uri);
-    assert!(
-        String::from_utf8_lossy(&install.stderr).contains("must run as root"),
-        "the install role, refused only for lack of root"
-    );
     fs::remove_dir_all(&dir).unwrap();
 }

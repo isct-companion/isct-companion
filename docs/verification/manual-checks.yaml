@@ -2014,10 +2014,12 @@ checks:
     why_manual: |
       Needs root, the system's admin prompt, the campus network and the real
       printer's billing; the student-ID, device URI, PPD and probe logic is
-      in crates/adpt-printer/src/tests and crates/app-core/src/tests.
+      in crates/adpt-cups/src/tests, crates/adpt-printer/src/tests and
+      crates/app-core/src/tests.
     covers:
-      - crates/adpt-printer/src/cups/helper.rs
-      - crates/adpt-printer/build.rs
+      - crates/adpt-cups/src/install.rs
+      - crates/adpt-cups/src/backend.rs
+      - crates/adpt-cups/build.rs
       - apps/desktop/src-tauri/src/campus_printer_cups.rs
       - apps/desktop/src/pages/settings/CampusPrinterSettings.tsx
     verified: null

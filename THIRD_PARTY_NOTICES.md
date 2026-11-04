@@ -482,7 +482,7 @@ Apache License
 
 ## Kyocera ECOSYS P8060cdn PPD (bundled, unaltered)
 
-`crates/adpt-printer/assets/Kyocera ECOSYS P8060cdn.PPD` is the PPD from
+`crates/adpt-cups/assets/Kyocera ECOSYS P8060cdn.PPD` is the PPD from
 Kyocera's macOS driver package (`com.kyocera.kyoceraMacintosh.OSX10.pkg`
 4.0.7420, `*FileVersion: "8.4506"`). The macOS and Linux builds embed it
 and write a copy without its three Kyocera driver lines into the

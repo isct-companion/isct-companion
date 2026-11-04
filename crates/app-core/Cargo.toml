@@ -14,7 +14,7 @@ workspace-archives = ["dep:zip"]
 agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
 # The campus printer; desktop only, the phones never print to it.
-campus-printer = ["dep:adpt-printer", "tokio/net"]
+campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "tokio/net"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
@@ -59,6 +59,10 @@ schemars = { version = "1.2", optional = true, features = ["chrono04"] }
 semver = "1"
 # Settings shows the OTP setup as a QR code for other authenticators.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+# The campus printer's CUPS queue exists only on macOS and Linux.
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+adpt-cups = { path = "../adpt-cups", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

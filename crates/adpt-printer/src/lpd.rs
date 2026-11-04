@@ -162,27 +162,30 @@ fn command(
     }
 }
 
-/// RFC 1179 expects clients to send from a port below 1024. The CUPS lpd
-/// backend runs as root and takes the first free port counting down from
-/// 1023, so this does the same. Windows lets any user bind these ports;
-/// where the system refuses, it falls back to an ordinary port, which the
-/// printer has accepted so far.
+/// RFC 1179 expects clients to send from a port below 1024, as the CUPS
+/// lpd backend does, taking the first free port counting down from 1023.
+/// Windows lets any user bind these ports.
 ///
 /// Each connection starts one port below the last one used: the previous
 /// upload's port is still in TIME_WAIT for that printer, and reusing it does
-/// not always fail at once (macOS lets the bind through and then times the
-/// connect out), so a second copy must never try it first.
+/// not always fail at once, so a second copy must never try it first.
 fn connect(server: SocketAddr) -> io::Result<TcpStream> {
     static NEXT: AtomicU16 = AtomicU16::new(RESERVED_TOP);
     let start = NEXT.load(Ordering::Relaxed);
     let span = RESERVED_TOP - RESERVED_BOTTOM + 1;
+    let taken = |e: &io::Error| {
+        matches!(
+            e.kind(),
+            io::ErrorKind::AddrInUse | io::ErrorKind::AddrNotAvailable
+        )
+    };
     for offset in 0..span {
         let port = RESERVED_BOTTOM + (start - RESERVED_BOTTOM + span - offset) % span;
         let socket = new_socket(server)?;
         match socket.bind(&local_address(server, port).into()) {
             Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => break,
-            Err(_) => continue,
+            Err(e) if taken(&e) => continue,
+            Err(e) => return Err(e),
         }
         match socket.connect_timeout(&server.into(), CONNECT_TIMEOUT) {
             Ok(()) => {
@@ -195,20 +198,14 @@ fn connect(server: SocketAddr) -> io::Result<TcpStream> {
                 return into_stream(socket);
             }
             // The port may still be in TIME_WAIT from an earlier run.
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::AddrInUse | io::ErrorKind::AddrNotAvailable
-                ) =>
-            {
-                continue
-            }
+            Err(e) if taken(&e) => continue,
             Err(e) => return Err(e),
         }
     }
-    let socket = new_socket(server)?;
-    socket.connect_timeout(&server.into(), CONNECT_TIMEOUT)?;
-    into_stream(socket)
+    Err(io::Error::new(
+        io::ErrorKind::AddrInUse,
+        "every source port below 1024 is in use",
+    ))
 }
 
 fn new_socket(server: SocketAddr) -> io::Result<Socket> {
@@ -264,19 +261,10 @@ pub fn local_hostname() -> String {
     }
 }
 
-#[cfg(unix)]
+/// The macOS test build: no control file there names a real host.
+#[cfg(not(windows))]
 fn raw_hostname() -> Option<String> {
-    extern "C" {
-        fn gethostname(name: *mut std::ffi::c_char, len: usize) -> std::ffi::c_int;
-    }
-
-    let mut buf = [0u8; 256];
-    // SAFETY: the buffer outlives the call and its length is passed with it.
-    if unsafe { gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
-        return None;
-    }
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    Some(String::from_utf8_lossy(&buf[..end]).into_owned())
+    None
 }
 
 #[cfg(windows)]
