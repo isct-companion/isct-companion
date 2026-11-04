@@ -324,8 +324,7 @@ fn absolute_expiry(line: &str, now: DateTime<Utc>) -> String {
     kept.join("; ")
 }
 
-/// How Core reaches the school: `net::Http` in the app, a scripted school
-/// in the session tests.
+/// How Core reaches the school: `net::Http`, or nothing (`Offline`).
 pub(crate) trait Transport: Send + Sync {
     fn send(&self, request: NetRequest) -> BoxFuture<'_, Result<Response, NetError>>;
     /// A maintenance page: pause the host now.
@@ -1336,7 +1335,6 @@ impl Inner {
     }
 }
 
-// The scripted school and web store in it serve the web operation suite too.
 #[cfg(test)]
 #[path = "../tests/school_session.rs"]
-pub(crate) mod tests;
+mod tests;
