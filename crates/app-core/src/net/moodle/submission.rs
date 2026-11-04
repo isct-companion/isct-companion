@@ -19,7 +19,7 @@ use super::{
 use crate::{
     net::{Body, BoxFuture, Host, Limits, NetError, NetRequest},
     school_auth::SchoolAuthProfile,
-    school_session::{Attempt, Operation, Permit, RunError, SchoolSessions, Site},
+    school_session::{Attempt, Blocked, Operation, Permit, RunError, SchoolSessions, Site},
     submissions::{
         LmsIdentity, LmsModule, RemoteFile, RemoteState, RemoteStatus, RemoteSubmission,
         SubmissionRules, SubmissionTransport, TransportError, UploadFile, WriteGrant,
@@ -107,8 +107,13 @@ impl Operation for ReadUser<'_> {
 fn run_error(error: RunError<MoodleError>) -> TransportError {
     match error {
         RunError::Op(error) => read_error(error),
-        RunError::Blocked(AccountWait::Person) => TransportError::SignInRequired,
-        RunError::Blocked(_) => TransportError::NotSent("the school cannot be reached now".into()),
+        RunError::Blocked(Blocked {
+            wait: AccountWait::Person,
+            ..
+        }) => TransportError::SignInRequired,
+        RunError::Blocked(_) | RunError::Offline => {
+            TransportError::NotSent("the school cannot be reached now".into())
+        }
         RunError::Net(error) => TransportError::NotSent(error.to_string()),
         RunError::Cancelled => TransportError::NotSent("signed out or reset".into()),
         RunError::Deadline => TransportError::NotSent("timed out".into()),

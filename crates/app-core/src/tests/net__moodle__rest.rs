@@ -296,10 +296,16 @@ async fn write_surface_survey() {
         .map(|term| term.trim().to_string())
         .collect();
     let auth = Arc::new(SchoolAuthService::new(NoVault));
-    let client = Arc::new(MoodleClient::new(auth.clone()));
+    let sessions = SchoolSessions::new(Some(Http::new().unwrap()), auth.clone());
+    let client = Arc::new(MoodleClient::new(auth, sessions.credential_signal()));
     // A detached attempt runs in account generation 0, the token's.
-    *client.token.lock().await = Some((0, stored_token()));
-    let sessions = SchoolSessions::new(Some(Http::new().unwrap()), auth);
+    client.set(
+        0,
+        super::super::TokenState::Held {
+            token: stored_token(),
+            unavailable: Default::default(),
+        },
+    );
     let attempt = Attempt::detached(&sessions, Site::Lms, Default::default());
     let transport = TokenTransport {
         client,

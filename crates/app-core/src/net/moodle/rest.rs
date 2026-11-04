@@ -29,7 +29,8 @@ const FORUM_POSTS_PER_FORUM: usize = 8;
 
 pub(super) struct TokenTransport {
     client: Arc<MoodleClient>,
-    /// One relaunch per pull; a token refused again ends the token path.
+    /// One relaunch per key; a token refused again right after it is no
+    /// token (`MoodleClient::refused`).
     relaunched: AtomicBool,
 }
 
@@ -40,6 +41,11 @@ impl TokenTransport {
             client,
             relaunched: AtomicBool::new(false),
         }
+    }
+
+    /// A new key starts: it may relaunch once more.
+    pub(super) fn next_key(&self) {
+        self.relaunched.store(false, Ordering::SeqCst);
     }
 
     /// Obtains or loads the token and proves it with `site_info`, before any
@@ -90,14 +96,30 @@ impl TokenTransport {
         if !function.via_rest() {
             return Err(MoodleError::ServiceUnavailable(function.name().into()));
         }
-        let token = self.client.token(attempt).await?;
-        match self.post(attempt, &token, function, args, limits).await {
-            Err(MoodleError::InvalidToken) if !self.relaunched.swap(true, Ordering::SeqCst) => {
-                let token = self.client.renew_token(attempt, &token).await?;
-                self.post(attempt, &token, function, args, limits).await
+        let generation = attempt.account_generation();
+        let mut token = self.client.token(attempt).await?;
+        let mut answer = self.post(attempt, &token, function, args, limits).await;
+        if matches!(answer, Err(MoodleError::InvalidToken)) {
+            if self.relaunched.swap(true, Ordering::SeqCst) {
+                self.client.refused(generation, &token);
+            } else {
+                token = self.client.renew_token(attempt, &token).await?;
+                answer = self.post(attempt, &token, function, args, limits).await;
+                if matches!(answer, Err(MoodleError::InvalidToken)) {
+                    self.client.refused(generation, &token);
+                }
             }
-            other => other,
         }
+        // A function this token cannot serve is a fact of the token
+        // (`approach/lms-token-function-fallback-evidence`); the token
+        // itself stays good for the others.
+        if let Err(error) = &answer {
+            if error.wants_cookie_fallback() && !matches!(error, MoodleError::InvalidToken) {
+                self.client
+                    .function_unavailable(generation, &token, function);
+            }
+        }
+        answer
     }
 
     async fn post(

@@ -117,6 +117,13 @@ impl Owner {
         self.0.state().generation
     }
 
+    /// Whether a permit would be issued now: no barrier runs and no
+    /// sign-out is pending.
+    pub(super) fn admits(&self) -> bool {
+        let state = self.0.state();
+        state.open && !state.sign_out_pending
+    }
+
     /// A permit for the current generation; `None` while a barrier runs.
     pub(super) fn permit(&self) -> Option<Permit> {
         let mut state = self.0.state();

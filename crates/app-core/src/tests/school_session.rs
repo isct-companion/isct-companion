@@ -273,3 +273,56 @@ fn a_clear_covers_every_school_website_and_no_other() {
         assert!(!is_school_domain(domain), "{domain}");
     }
 }
+
+struct NoVault;
+
+impl crate::ports::SecretVault for NoVault {
+    fn store(&self, _account: &str, _secret: &str) -> Result<(), crate::ports::SecretError> {
+        Ok(())
+    }
+
+    fn load(&self, _account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        Ok(None)
+    }
+
+    fn delete(&self, _account: &str) -> Result<(), crate::ports::SecretError> {
+        Ok(())
+    }
+}
+
+// The school refused a session just recovered from the identity: the
+// anomaly pause stops silent SSO as well as sign-ins on Core's own, so sync
+// holds every key that needs a session by the facts alone (`AccountFacts`),
+// and the executor's `ready` follows the same rule. The identity is not
+// invalidated: its snapshot is kept and serves again once the pause ends.
+#[tokio::test]
+async fn an_anomaly_pause_stops_silent_sso_but_keeps_the_identity() {
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(NoVault)));
+    let profile = SchoolAuthProfile::Science;
+    sessions.0.restore(profile).await;
+    let identity = &sessions.0.account(profile).identity;
+    identity.set_configured(true);
+    let generation = identity
+        .restore(Snapshot {
+            cookies: vec![WebCookie {
+                url: EXTIC_SESSION.into(),
+                set_cookie: "_idp=t1; path=/; secure".into(),
+            }],
+        })
+        .unwrap();
+    let facts = sessions.account_facts(profile);
+    assert!(facts.admitted && facts.identity && facts.sites.is_empty());
+    assert_eq!(facts.sign_in, SignInAdmission::Allowed);
+
+    identity.anomaly(generation);
+    let facts = sessions.account_facts(profile);
+    assert!(!facts.identity, "no SSO on Core's own during the pause");
+    assert!(matches!(facts.sign_in, SignInAdmission::Paused { .. }));
+    assert!(identity.snapshot().is_none());
+    assert!(identity.persisted().is_some(), "the snapshot is kept");
+
+    assert!(identity.expire_pause(tokio::time::Instant::now() + RETRY_NOT_BEFORE));
+    assert!(sessions.account_facts(profile).identity);
+    assert_eq!(identity.snapshot().map(|(_, at)| at), Some(generation));
+}
+

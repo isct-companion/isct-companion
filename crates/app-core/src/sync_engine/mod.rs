@@ -139,9 +139,10 @@ pub enum Held {
         host: String,
         until: DateTime<Utc>,
     },
-    /// A read of the account could not reach its school
-    /// (`school_session::run`): every key of the account waits for what
-    /// that read said lets it go on. Not a failure: no backoff.
+    /// No credential on the key's path can serve it and none can be got
+    /// now (`planner::hold`): it waits for what the account's admission or
+    /// sign-in says lets it go on. Keys whose path still has a usable token
+    /// or session go on. Not a failure: no backoff.
     Account {
         profile: SchoolAuthProfile,
         wait: AccountWait,
@@ -153,17 +154,17 @@ pub enum Held {
     Prerequisite,
 }
 
-/// What lets an account's reads go on after one could not reach its school.
+/// What lets an account's waiting reads go on. Waiting for the network is
+/// `Held::Offline`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum AccountWait {
     /// The person: no credentials, the school refused them or wants its own
-    /// page. Until the credentials change, or the person's Retry or Connect.
+    /// page, or a sign-out is pending. Until the credentials change, or the
+    /// person's Retry or Connect.
     Person,
     /// A pause after a sign-in without a verdict, until `until`.
     Paused { until: DateTime<Utc> },
-    /// The shell reports no network: until it returns.
-    Network,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

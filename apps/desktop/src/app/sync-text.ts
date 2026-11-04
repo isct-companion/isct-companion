@@ -69,7 +69,7 @@ const clock = (at: string, locale: string) =>
     minute: "2-digit",
   });
 
-/** What an account's reads wait for after one could not reach its school. */
+/** What an account's waiting reads wait for. */
 function accountWaitText(wait: AccountWait, locale: string) {
   switch (wait.kind) {
     case "person":
@@ -78,8 +78,6 @@ function accountWaitText(wait: AccountWait, locale: string) {
       return t("schoolSession.state.unavailableRetry", {
         time: clock(wait.until, locale),
       });
-    case "network":
-      return t("syncStatus.waitingForAConnection");
   }
 }
 

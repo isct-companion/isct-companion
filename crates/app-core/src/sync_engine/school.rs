@@ -1,11 +1,16 @@
 //! Executors of leased LMS and 教務Web keys. Each key is one read operation
 //! of its site session (`school_session::run`): the session is recovered at
 //! most once inside the call, and a read that cannot reach the school ends
-//! the key as a wait for what it said lets it go on, never as a failure. A complete key commits its rows, its
+//! the key as a wait for what it said lets it go on, never as a failure. An
+//! LMS key reads with the transport its credential path and the token's
+//! facts name (`via`), the same table the planner holds keys by. A complete key commits its rows, its
 //! freshness and its `sync_runs` row in one transaction inside the lease's
 //! write gate, while the account's permit holds; any other ending is
 //! returned to the runner, which records it.
-use super::{Depth, Gated, KeyEnd, Lease};
+use super::{
+    planner::{self, Credential, Credentials},
+    Depth, Gated, KeyEnd, Lease,
+};
 use crate::{
     data::WorkspaceChangeSource,
     events::CoreEvent,
@@ -17,7 +22,7 @@ use crate::{
     },
     net::{
         kyomu,
-        moodle::{self, KeyError, LmsReader, MoodleClient},
+        moodle::{self, KeyError, LmsReader, MoodleClient, TokenFact, Via},
         BoxFuture, Host, NetError,
     },
     ports::EventSink,
@@ -44,6 +49,35 @@ pub(crate) struct SchoolReaders {
     pub(crate) moodle: Arc<MoodleClient>,
 }
 
+/// The credential facts the planner holds keys by, as the school sessions
+/// and the LMS token's holder keep them now.
+pub(crate) fn credentials(readers: &SchoolReaders) -> Credentials {
+    let sessions = &readers.sessions;
+    // Read first: a fact that moves while the rest is read moves it too, so
+    // nothing read here is newer than the version it is filed under.
+    let version = sessions.credential_signal().version();
+    Credentials {
+        version,
+        science: sessions.account_facts(SchoolAuthProfile::Science),
+        tokyo_tech: sessions.account_facts(SchoolAuthProfile::TokyoTech),
+        token: readers
+            .moodle
+            .token_fact(sessions.account_generation(SchoolAuthProfile::Science)),
+    }
+}
+
+/// The transport an LMS key reads with: the token while its path keeps it
+/// and a token is held or may still be got, else the session cookie.
+pub(super) fn via(key: &Key, depth: Depth, token: &TokenFact) -> Via {
+    let tries_token = planner::usable_path(key, depth, token).contains(&Credential::Token)
+        && !matches!(token, TokenFact::Absent { launchable: false });
+    if tries_token {
+        Via::Token
+    } else {
+        Via::Cookie
+    }
+}
+
 /// Cleanup needs the person's retry; ordinary barriers only cancel this run.
 pub(crate) fn denied_read(
     sessions: &SchoolSessions,
@@ -54,6 +88,8 @@ pub(crate) fn denied_read(
         KeyEnd::Blocked {
             profile,
             wait: super::AccountWait::Person,
+            // Decided now, with nothing awaited since the permit was refused.
+            version: sessions.credential_signal().version(),
             source,
         }
     } else {
@@ -74,11 +110,13 @@ pub(crate) fn session_end<E>(
 ) -> KeyEnd {
     match error {
         RunError::Op(error) => op(error),
-        RunError::Blocked(wait) => KeyEnd::Blocked {
+        RunError::Blocked(blocked) => KeyEnd::Blocked {
             profile,
-            wait,
+            wait: blocked.wait,
+            version: blocked.version,
             source,
         },
+        RunError::Offline => KeyEnd::Offline { source },
         RunError::Net(error) => net_end(error, source),
         RunError::Cancelled => KeyEnd::Cancelled { source },
         RunError::Deadline => KeyEnd::failed("timeout", source),
@@ -99,7 +137,7 @@ pub(crate) fn net_end(error: NetError, source: String) -> KeyEnd {
 }
 
 /// One LMS key, as an operation of the LMS session. The reader the worker
-/// keeps open across keys is opened on the first attempt that needs it.
+/// keeps across keys opens each transport when a key first needs it.
 struct LmsKey<'a> {
     moodle: &'a Arc<MoodleClient>,
     reader: &'a mut Option<LmsReader>,
@@ -113,36 +151,36 @@ impl Operation for LmsKey<'_> {
 
     fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<LmsRead, KeyError>> {
         Box::pin(async move {
-            if self.reader.is_none() {
-                *self.reader = Some(self.moodle.open(&attempt).await?);
-            }
-            let Some(open) = self.reader.as_mut() else {
-                return Err(KeyError::new(
-                    "open",
-                    moodle::MoodleError::Malformed("reader"),
-                ));
-            };
+            let open = self
+                .reader
+                .get_or_insert_with(|| LmsReader::new(self.moodle.clone()));
             let key = &self.lease.key;
+            // Decided on each attempt from the token's facts now: a rerun
+            // after a recovered session sees what the first attempt found.
+            let token = self.moodle.token_fact(attempt.account_generation());
+            let via = via(key, self.lease.depth, &token);
             match key.dataset {
-                Dataset::LmsEnrolment => match self.lease.depth {
-                    Depth::Light => open.current_enrolment(&attempt).await,
-                    Depth::Full => open.full_enrolment(&attempt).await,
-                }
-                .map(LmsRead::Enrolment),
-                Dataset::LmsDeadlines => open.deadlines(&attempt).await.map(LmsRead::Deadlines),
+                Dataset::LmsEnrolment => open
+                    .enrolment(&attempt, via, self.lease.depth == Depth::Full)
+                    .await
+                    .map(LmsRead::Enrolment),
+                Dataset::LmsDeadlines => open
+                    .deadlines(&attempt, via)
+                    .await
+                    .map(LmsRead::Deadlines),
                 Dataset::LmsCourse => {
                     let id = lms_course_key(key).ok_or_else(invalid_key)?;
-                    open.course(&attempt, id, self.stored)
+                    open.course(&attempt, via, id, self.stored)
                         .await
                         .map(LmsRead::Course)
                 }
                 Dataset::LmsAssign => {
                     let id = lms_course_key(key).ok_or_else(invalid_key)?;
-                    open.assign(&attempt, id).await.map(LmsRead::Assign)
+                    open.assign(&attempt, via, id).await.map(LmsRead::Assign)
                 }
                 Dataset::LmsHistory => {
                     let (year, month) = parse_month(&key.key).ok_or_else(invalid_key)?;
-                    open.history(&attempt, year, month)
+                    open.history(&attempt, via, year, month)
                         .await
                         .map(LmsRead::History)
                 }
@@ -156,8 +194,8 @@ fn invalid_key() -> KeyError {
     KeyError::new("key", moodle::MoodleError::Malformed("invalid key"))
 }
 
-/// Reads and commits one leased LMS key. `reader` is the transport the
-/// worker keeps open across keys; it is opened here when empty.
+/// Reads and commits one leased LMS key. `reader` is what the worker keeps
+/// across keys; it is made here when empty.
 pub(crate) async fn read_lms_key(
     readers: &SchoolReaders,
     reader: &mut Option<LmsReader>,

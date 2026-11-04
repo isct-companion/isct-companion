@@ -185,7 +185,10 @@ impl Core {
                 .unwrap_or_else(|| Arc::new(NoopEvents)),
         );
         runtime.downloads.attach_sessions(sessions.clone());
-        let moodle = Arc::new(crate::net::moodle::MoodleClient::new(auth.clone()));
+        let moodle = Arc::new(crate::net::moodle::MoodleClient::new(
+            auth.clone(),
+            sessions.credential_signal(),
+        ));
         sync.attach_school(crate::sync_engine::SchoolReaders {
             sessions: sessions.clone(),
             moodle: moodle.clone(),
@@ -390,17 +393,13 @@ impl Core {
     ) -> Result<SchoolConnectOutcome, CredentialMutationError> {
         // Blank fields fill from what the vault holds now, under the
         // account's permit (`SchoolSessions::connect`).
-        let outcome = self.sessions.connect(profile, credentials).await?;
-        self.sync.unblock(profile);
-        Ok(outcome)
+        Ok(self.sessions.connect(profile, credentials).await?)
     }
 
     /// The person's Retry: one sign-in with the credentials saved now, read
     /// again first.
     pub async fn retry_school(&self, profile: SchoolAuthProfile) -> SchoolSessionSnapshot {
-        let snapshot = self.sessions.retry(profile).await;
-        self.sync.unblock(profile);
-        snapshot
+        self.sessions.retry(profile).await
     }
 
     /// Both accounts' sessions as shells render them.
@@ -416,18 +415,7 @@ impl Core {
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<bool, CredentialMutationError> {
-        let deleted = self.sessions.sign_out(profile).await?;
-        self.sync.unblock(profile);
-        Ok(deleted)
-    }
-
-    /// A credential file was imported: both accounts read their saved
-    /// credentials again; a refusal of credentials it replaced no longer
-    /// applies.
-    pub fn credentials_imported(&self) {
-        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-            self.sync.unblock(profile);
-        }
+        Ok(self.sessions.sign_out(profile).await?)
     }
 
     /// Ports are scoped to operations, so completed work releases native handles.

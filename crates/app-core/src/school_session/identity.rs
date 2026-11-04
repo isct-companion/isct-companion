@@ -116,6 +116,18 @@ pub(crate) enum Ended {
     NotSaved { generation: u64 },
 }
 
+/// Whether a sign-in on Core's own may start now, as sync reads it: the
+/// verdict `Inner::admission` gives a background sign-in.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SignInAdmission {
+    Allowed,
+    /// No credentials, or the school refused them or wants its own page:
+    /// until they change or the person retries.
+    Person,
+    /// A pause after a sign-in without a verdict, until `until`.
+    Paused { until: DateTime<Utc> },
+}
+
 /// How a verification ended.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Checked {
@@ -164,6 +176,20 @@ impl State {
         self.pause
             .as_ref()
             .filter(|pause| Instant::now() < pause.until)
+    }
+
+    /// Whether a site may take a new instance from the snapshot without a
+    /// password now: there is one the school has not found invalid, and no
+    /// anomaly pause runs. During that pause the school has just refused a
+    /// session recovered from this identity, so neither SSO nor a sign-in
+    /// on Core's own goes again until it ends; the snapshot itself is kept
+    /// (a site's refusal says nothing about the identity) and serves after.
+    fn silent_sso(&self) -> bool {
+        self.snapshot.is_some()
+            && self.trust != Trust::Invalid
+            && !self
+                .paused()
+                .is_some_and(|pause| pause.problem.kind == Kind::Anomaly)
     }
 }
 
@@ -215,14 +241,14 @@ impl Identity {
         guard(&self.state).configured = configured;
     }
 
-    /// The current snapshot and its generation, unless the school found it
-    /// invalid.
+    /// The snapshot a site may take a new instance from and its generation
+    /// (`State::silent_sso`).
     pub(super) fn snapshot(&self) -> Option<(Arc<Snapshot>, u64)> {
         let state = guard(&self.state);
         state
             .snapshot
             .clone()
-            .filter(|_| state.trust != Trust::Invalid)
+            .filter(|_| state.silent_sso())
             .map(|snapshot| (snapshot, state.generation))
     }
 
@@ -470,7 +496,7 @@ impl Inner {
                     None => {
                         match &state.flight {
                             Some(replaced) => replaced.cancel.cancel(),
-                            None if joins => self.held(profile, &state, &how)?,
+                            None if joins => self.admission(profile, &state, &how)?,
                             None => {}
                         }
                         let permit = match how.bound() {
@@ -519,7 +545,14 @@ impl Inner {
     }
 
     /// Why a sign-in on Core's own (or a web operation's) may not start now.
-    fn held(&self, profile: SchoolAuthProfile, state: &State, how: &How) -> Result<(), Ended> {
+    /// The one rule: `sign_in` asks it before starting one, and sync asks it
+    /// for a background sign-in (`identity_facts`).
+    fn admission(
+        &self,
+        profile: SchoolAuthProfile,
+        state: &State,
+        how: &How,
+    ) -> Result<(), Ended> {
         if !state.configured {
             return Err(Ended::NotConfigured);
         }
@@ -532,6 +565,28 @@ impl Inner {
             Some(pause) if !how.lifts_pause() => Err(Ended::Unavailable(pause.problem.clone())),
             _ => Ok(()),
         }
+    }
+
+    /// Whether a site of `profile` may take a new instance by SSO alone
+    /// (the rule `site::ready` follows), and whether a background sign-in
+    /// may start now (the rule `sign_in` follows).
+    pub(super) fn identity_facts(&self, profile: SchoolAuthProfile) -> (bool, SignInAdmission) {
+        let state = guard(&self.account(profile).identity.state);
+        let identity = state.silent_sso();
+        let admission = match self.admission(profile, &state, &How::Background) {
+            Ok(()) => SignInAdmission::Allowed,
+            Err(Ended::Unavailable(_)) => {
+                let left = state
+                    .paused()
+                    .map(|pause| pause.until.saturating_duration_since(Instant::now()))
+                    .unwrap_or_default();
+                SignInAdmission::Paused {
+                    until: Utc::now() + chrono::Duration::from_std(left).unwrap_or_default(),
+                }
+            }
+            Err(_) => SignInAdmission::Person,
+        };
+        (identity, admission)
     }
 
     /// The sign-in task: runs the flow within `SIGN_IN_DEADLINE`, then
@@ -577,6 +632,7 @@ impl Inner {
             .await;
         self.account(profile).identity.land(id);
         drop(permit);
+        self.changed();
         self.publish();
         result
     }
@@ -851,6 +907,9 @@ impl Inner {
             self.persist(profile, account).await;
         }
         drop(permit);
+        if checked != Checked::Unconfirmed {
+            self.changed();
+        }
         self.publish();
         checked
     }

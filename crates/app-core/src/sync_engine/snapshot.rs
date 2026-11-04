@@ -6,7 +6,7 @@
 //! `past` or null) and `scope`; the key being read is
 //! `sync.current.<dataset>` with `title` and `key`.
 use super::{
-    planner::{Candidate, Facts, Inputs},
+    planner::{Candidate, Inputs},
     runner::Batch,
     Held, Label, RunView, SourceView, SyncFailure, SyncSnapshot,
 };
@@ -33,7 +33,6 @@ pub(super) struct Parts<'a> {
     pub(super) batches: &'a [Batch],
     pub(super) leased: &'a HashSet<Key>,
     pub(super) plan: &'a [Candidate],
-    pub(super) facts: &'a Facts,
     pub(super) sessions: &'a HashMap<SchoolAuthProfile, Shown>,
     pub(super) inputs: &'a Inputs,
     pub(super) now: DateTime<Utc>,
@@ -157,22 +156,27 @@ fn source_view(source: &Source, parts: &Parts<'_>) -> SourceView {
         .leased
         .iter()
         .any(|key| source.datasets.contains(&key.dataset));
-    // A key waiting for another of the same source says nothing about the
-    // source; its run shows the wait.
-    let mut held = parts
-        .plan
-        .iter()
-        .filter(|candidate| source.datasets.contains(&candidate.key.dataset))
-        .find_map(|candidate| {
+    // As a run's summary: a source with a key running or ready to run is
+    // not waiting, whatever its other keys wait for. A key waiting for
+    // another of the same source says nothing about the source; its run
+    // shows the wait.
+    let planned = || {
+        parts
+            .plan
+            .iter()
+            .filter(|candidate| source.datasets.contains(&candidate.key.dataset))
+    };
+    let ready = planned().any(|candidate| candidate.held.is_none());
+    let held = if running || ready {
+        None
+    } else {
+        planned().find_map(|candidate| {
             candidate
                 .held
                 .clone()
                 .filter(|held| *held != Held::Prerequisite)
-        });
-    // A source whose account waits says so even with nothing planned.
-    if let Some(profile) = source.profile.filter(|_| held.is_none() && !running) {
-        held = parts.facts.account_hold(profile, parts.now);
-    }
+        })
+    };
     let backing_off = |state: &&KeyState| {
         state.failures > 0 && state.next_eligible.is_some_and(|at| at > parts.now)
     };

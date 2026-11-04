@@ -10,7 +10,7 @@ use crate::{
     school_auth::SchoolAuthProfile,
     school_browser::{browsing_url, is_login_url, school_file_url},
     school_files::{self, SchoolFile, SchoolFileRequest},
-    school_session::{Attempt, OpError, Operation, Permit, RunError, SchoolSessions, Site},
+    school_session::{Attempt, Blocked, OpError, Operation, Permit, RunError, SchoolSessions, Site},
     sync_engine::AccountWait,
 };
 pub use adpt_isct::lms::ResolvedResource;
@@ -79,8 +79,11 @@ impl OpError for FetchError {
 fn run_error(error: RunError<FetchError>) -> FetchError {
     match error {
         RunError::Op(error) => error,
-        RunError::Blocked(AccountWait::Person) => FetchError::Login,
-        RunError::Blocked(_) => FetchError::Network,
+        RunError::Blocked(Blocked {
+            wait: AccountWait::Person,
+            ..
+        }) => FetchError::Login,
+        RunError::Blocked(_) | RunError::Offline => FetchError::Network,
         RunError::Net(error) => session_error(error),
         RunError::Cancelled => FetchError::Cancelled,
         RunError::Deadline => FetchError::Timeout,
