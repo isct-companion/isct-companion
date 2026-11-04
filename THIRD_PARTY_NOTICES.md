@@ -480,6 +480,24 @@ Apache License
    limitations under the License.
 ```
 
+## Kyocera ECOSYS P8060cdn PPD (bundled, unaltered)
+
+`crates/adpt-cups/assets/Kyocera ECOSYS P8060cdn.PPD` is the PPD from
+Kyocera's macOS driver package (`com.kyocera.kyoceraMacintosh.OSX10.pkg`
+4.0.7420, `*FileVersion: "8.4506"`). The macOS and Linux builds embed it
+and write a copy without its three Kyocera driver lines into the
+`InstitutePrinter` print queue; the bundled file itself is kept byte for
+byte. Its header reads:
+
+```
+(C) 2024 KYOCERA Document Solutions Inc.
+All Rights Reserved
+
+Permission is granted for redistribution of this file as long as this
+copyright notice is intact and the contents of the file are not altered
+in any way from their original form.
+```
+
 ## optical-flow-lk 0.6.0 (Rust crate dependency)
 
 Pyramidal Lucas-Kanade optical flow and Shi-Tomasi corners, used unmodified

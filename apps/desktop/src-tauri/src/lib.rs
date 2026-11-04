@@ -8,6 +8,11 @@ use school_web::SchoolWebController;
 use secrets::OsSecretVault;
 
 mod agent_server;
+mod campus_printer;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod campus_printer_cups;
+#[cfg(windows)]
+mod campus_printer_windows;
 #[cfg(target_os = "macos")]
 mod campus_wifi;
 mod cloud;
@@ -84,6 +89,12 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), CommandError> {
     if webview.label() != "main" {
         return Err("native commands are restricted to the local main webview".into());
     }
+    require_bundled_origin(webview)
+}
+
+/// The caller shows the bundled application, not a school page or any
+/// other origin.
+fn require_bundled_origin(webview: &tauri::Webview) -> Result<(), CommandError> {
     let url = webview
         .url()
         .map_err(|_| "native caller URL is unavailable")?;
@@ -100,6 +111,19 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), CommandError> {
         return Err("native command caller is not the bundled application origin".into());
     }
     Ok(())
+}
+
+/// Where a window of the bundled application loads it from.
+#[cfg(dev)]
+fn app_url() -> WebviewUrl {
+    WebviewUrl::External(
+        tauri::Url::parse("http://localhost:4173").expect("the local Vite URL is valid"),
+    )
+}
+
+#[cfg(not(dev))]
+fn app_url() -> WebviewUrl {
+    WebviewUrl::App("index.html".into())
 }
 
 /// SQLite-backed commands run on a blocking thread so a slow query never stalls
@@ -193,8 +217,20 @@ pub fn run() {
     let builder = tauri::Builder::default();
     // Registered first, so a second launch hands over before anything starts.
     #[cfg(target_os = "windows")]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
-        window_close::show_main(app)
+    // The PDF right-click entry starts the app with a file to print; a
+    // running app gets that launch's arguments here. This runs inside the
+    // plugin's window-message handler, where building a window can deadlock
+    // on Windows, so the print window is built from a task.
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
+        match campus_printer_windows::print_request(args) {
+            Some(file) => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    campus_printer_windows::open_print_window(&app, file);
+                });
+            }
+            None => window_close::show_main(app),
+        }
     }));
     let builder = builder
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
@@ -235,6 +271,7 @@ pub fn run() {
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
         .manage(desktop_updates::DesktopUpdates::default())
+        .manage(campus_printer::Setup::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "macos")]
     let builder = builder
@@ -245,6 +282,8 @@ pub fn run() {
                 app.exit(0);
             }
         });
+    #[cfg(windows)]
+    let builder = builder.manage(campus_printer_windows::PrintRequests::default());
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let builder = builder.on_window_event(|window, event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -339,6 +378,15 @@ pub fn run() {
             commands::backup::save_file,
             commands::backup::import_data,
             commands::agent::agent_connection,
+            campus_printer::campus_printer_status,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            campus_printer_cups::install_campus_printer,
+            #[cfg(windows)]
+            campus_printer_windows::add_campus_print_menu,
+            #[cfg(windows)]
+            campus_printer_windows::campus_print_request,
+            #[cfg(windows)]
+            campus_printer_windows::campus_print,
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,
             #[cfg(target_os = "macos")]
@@ -400,13 +448,7 @@ pub fn run() {
                     .map_err(std::io::Error::other)?,
             );
             {
-                #[cfg(dev)]
-                let main_url = WebviewUrl::External(
-                    tauri::Url::parse("http://localhost:4173")
-                        .expect("the local Vite URL is valid"),
-                );
-                #[cfg(not(dev))]
-                let main_url = WebviewUrl::App("index.html".into());
+                let main_url = app_url();
                 // File drops belong to WebKit's page/file inputs, including
                 // child school views. No shell listener consumes Tauri drops.
                 let window =
@@ -453,6 +495,11 @@ pub fn run() {
             // After the main window exists: the initial focus fact and event
             // delivery both refer to it.
             core_ports::DesktopRuntime::start(app.handle());
+            // Started by the PDF right-click entry with no app running.
+            #[cfg(windows)]
+            if let Some(file) = campus_printer_windows::print_request(std::env::args_os()) {
+                campus_printer_windows::open_print_window(app.handle(), file);
+            }
             desktop_updates::load_last_install(app.handle());
             Ok(())
         })

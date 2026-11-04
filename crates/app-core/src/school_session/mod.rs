@@ -871,6 +871,39 @@ impl SchoolSessions {
         self.0.prepare_web(profile, past_pause).await
     }
 
+    /// The account name of `profile`'s verified identity, got ready as for
+    /// a web operation (`prepare_web`, never past a pause). It is read with
+    /// the account's commit held, so it is the name of the credentials that
+    /// made that identity: a sign-in applies its identity and saves its
+    /// credentials under that lock as one commit.
+    #[cfg(feature = "campus-printer")]
+    pub(crate) async fn verified_account_name(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<String, WebStop> {
+        let inner = &self.0;
+        let prepared = inner.prepare_web(profile, false).await?;
+        let account = inner.account(profile);
+        let _commit = account.commit.lock().await;
+        let Some(permit) = account.owner.permit() else {
+            return Err(WebStop::Stale);
+        };
+        if inner.writable(profile, prepared.identity).is_none() {
+            return Err(WebStop::Stale);
+        }
+        let auth = inner.auth.clone();
+        let loaded = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            auth.load(profile)
+        })
+        .await;
+        match loaded {
+            Ok(Ok(Some(credentials))) => Ok(credentials.username),
+            Ok(Ok(None)) => Err(WebStop::NotConfigured),
+            Ok(Err(_)) | Err(_) => Err(WebStop::Storage),
+        }
+    }
+
     /// A web operation's one sign-in with the saved credentials: the web
     /// page refused the verified identity `seen`. A newer identity that
     /// appeared meanwhile is used instead.

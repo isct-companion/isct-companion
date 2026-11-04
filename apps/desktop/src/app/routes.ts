@@ -82,6 +82,7 @@ const sections = new Set<string>([
   "sources",
   "automation",
   "wifi",
+  "printer",
   "developer",
   "agent",
   "extensions",

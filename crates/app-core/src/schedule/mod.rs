@@ -86,12 +86,12 @@ pub use timing::{
     default_teaching_periods, teaching_periods, timetable_axis, validate_teaching_periods, AxisRow,
     AxisStop, TeachingPeriod, TimetableAxis,
 };
+#[cfg(feature = "agent")]
+pub(crate) use today::classes_on;
 pub use today::{
     assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
     RecentItem, RecentKind, TodayClass, TodayPhase, TodayView,
 };
-#[cfg(feature = "agent")]
-pub(crate) use today::classes_on;
 pub(crate) use today::{recent_key, recent_version, unseen_recent, RECENT_DAYS};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]

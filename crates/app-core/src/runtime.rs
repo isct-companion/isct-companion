@@ -203,6 +203,12 @@ impl CoreRuntime {
         }
     }
 
+    /// Work Core owns past its caller: shutdown waits for it to end.
+    #[cfg(all(feature = "campus-printer", windows))]
+    pub(crate) fn owned(&self) -> &RuntimeTasks {
+        &self.tasks
+    }
+
     pub async fn shutdown(&self) {
         {
             let _lifecycle = self.lifecycle.lock().await;

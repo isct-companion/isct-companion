@@ -9,6 +9,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "adpt-cups"
+version = "1.0.0-rc.1"
+dependencies = [
+ "adpt-printer",
+]
+
+[[package]]
 name = "adpt-isct"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -22,6 +29,15 @@ dependencies = [
  "ts-rs",
  "unicode-normalization",
  "url",
+]
+
+[[package]]
+name = "adpt-printer"
+version = "1.0.0-rc.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "socket2",
 ]
 
 [[package]]
@@ -84,7 +100,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "app-core"
 version = "1.0.0-rc.1"
 dependencies = [
+ "adpt-cups",
  "adpt-isct",
+ "adpt-printer",
  "base64 0.23.1",
  "bytes",
  "chrono",
@@ -2721,6 +2739,7 @@ dependencies = [
  "if-addrs",
  "ipnet",
  "keyring 4.2.0",
+ "libc",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -2756,6 +2775,7 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-collections",
+ "windows-registry",
  "windows-version",
 ]
 

@@ -10,6 +10,7 @@ export type Section =
   | "sources"
   | "automation"
   | "wifi"
+  | "printer"
   | "developer"
   | "agent"
   | "extensions"

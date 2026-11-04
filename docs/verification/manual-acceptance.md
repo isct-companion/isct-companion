@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 169 checks must be re-run before the next release.**
+**8 of 171 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**161 checks have never been run or could not be run:**
+**163 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -57,6 +57,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-LECTURE-PANE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
+- `DESKTOP-CAMPUS-PRINTER-QUEUE` — never verified
+- `DESKTOP-CAMPUS-PRINTER-WINDOWS` — never verified
 - `DESKTOP-MCP-LMS-WRITE` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-FILE-SHARE-MACOS` — never verified
@@ -227,6 +229,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-LECTURE-PANE-OVERLAYS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/styles.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
+| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/settings/CampusPrinterSettings.tsx |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer_windows.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
@@ -2413,6 +2417,157 @@ Requires the campus network and OS-level wireless configuration.
 **Covers**
 
 - `apps/desktop/src-tauri/src/campus_wifi.rs`
+
+**Last recorded** never run
+
+### Campus printer queue on macOS and Linux bills the verified student ID (`DESKTOP-CAMPUS-PRINTER-QUEUE`)
+
+**Area** desktop · **Persona** 修士課程 1年・前期課程 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build of this commit on a Mac (then again on a Linux desktop
+with CUPS and a polkit agent), the Tokyo Tech Portal account of a
+master's student (24M… or similar) saved in 学校アカウント, the
+administrator password, a short PDF, and access to the print release
+or billing page that shows which student ID a job was charged to. The
+campus network or the Science Tokyo VPN for the printing steps.
+
+**Steps**
+
+1. Off campus without the VPN, open 設定 → 学内プリンタ, then connect
+   the VPN and press 確認.
+   - *Why:* Core tries one TCP connect to the printer only on open and on
+     確認. Off the network the page must say it cannot reach the
+     printer and name the campus network or VPN; 印刷できます must
+     appear only after the VPN is up, which no local listener proves.
+2. Read the 学籍番号 row, then press 追加 and cancel the
+   administrator prompt.
+   - *Why:* The row must show the Tokyo Tech account's own student ID in
+     capitals, and the prompt must be the system's (macOS: the app's
+     text; Linux: polkit's). Cancelling must say キャンセルしました and
+     leave no InstitutePrinter queue.
+3. Press 追加 again and authenticate, then open System Settings →
+   Printers & Scanners (Linux: the printer settings or `lpstat -v`).
+   - *Why:* One root step installs the titech-lpd backend and the queue. The
+     queue's device URI must carry the student ID
+     (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
+     `lpstat -l -p InstitutePrinter` must allow only this login and the
+     queue must not be shared.
+4. Print the PDF from Preview (Linux: any viewer) to InstitutePrinter,
+   two copies, two-sided, black and white, then check the billing page.
+   - *Why:* Only the real printer shows that a non-B student ID is accepted and
+     billed, and that the PPD's duplex and color options reach it
+     through the stock CUPS filters.
+5. From Preview's print dialog, print a one-page PDF to
+   InstitutePrinter with 部数 2, then count the sheets.
+   - *Why:* CUPS's filters already copy a job that reaches the backend on
+     stdin, and the lpd backend then sends it once. Exactly 2 sheets
+     shows the backend leaves the copy count alone; 4 would mean the
+     copies were applied twice, as InstitutePrinter's backend did.
+6. Pause the queue, print once, press 追加 again, resume the queue,
+   then print from another login on the same computer.
+   - *Why:* Installing again updates the same queue in place, so the waiting
+     job must survive it and print. CUPS refuses the other login,
+     because nobody else may print on this student's bill. A real
+     print run is the only place both show.
+7. Remove InstitutePrinter in the system printer settings.
+   - *Why:* Removal belongs to the system; nothing in the app tracks it.
+
+**Where to look**
+
+The 学内プリンタ page, the system's admin prompt, the printer list and
+device URI, the printed pages, and the billing page.
+
+**Expected**
+
+The page reports the network correctly, the admin prompt cancels
+cleanly, the queue bills the master's student ID, prints two
+two-sided black-and-white copies (a 2-copy one-page job is exactly 2
+sheets), keeps a waiting job through a
+reinstall, refuses the other login, and the system settings remove it.
+
+**Why this is manual**
+
+Needs root, the system's admin prompt, the campus network and the real
+printer's billing; the student-ID, device URI, PPD and probe logic is
+in crates/adpt-cups/src/tests, crates/adpt-printer/src/tests and
+crates/app-core/src/tests.
+
+**Covers**
+
+- `crates/adpt-cups/src/install.rs`
+- `crates/adpt-cups/src/backend.rs`
+- `crates/adpt-cups/build.rs`
+- `apps/desktop/src-tauri/src/campus_printer_cups.rs`
+- `apps/desktop/src/pages/settings/CampusPrinterSettings.tsx`
+
+**Last recorded** never run
+
+### Windows PDF right-click entry prints with the chosen options (`DESKTOP-CAMPUS-PRINTER-WINDOWS`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Windows build of this commit, the person's Tokyo Tech Portal
+account saved, the campus network or the Science Tokyo VPN, a short
+multi-page PDF, and the print billing page.
+
+**Steps**
+
+1. Open 设置 → 校内打印机 and press 添加 on the PDF 右键菜单 row.
+   - *Why:* The entry goes under HKCU without an administrator prompt; a UAC
+     prompt here means it was written somewhere it should not be.
+2. Quit the app, right-click the PDF in File Explorer (on Windows 11
+   under 显示更多选项) and choose 用校内打印机打印.
+   - *Why:* A cold start must open the print window for that file, in the UI
+     language, not just the main window.
+3. Close it, keep the app running, and use the entry again.
+   - *Why:* A running app gets the second launch's arguments from the
+     single-instance plugin; without them only the main window comes
+     forward and the file is lost.
+4. Print 2 copies, long edge, black and white, then once in color
+   one-sided; check the pages and the billing page.
+   - *Why:* Only the real printer shows that the PJL header sets duplex,
+     binding and render mode, that each copy is one job, and that the
+     jobs bill the account's student ID.
+5. Start a 5-copy print and press 关闭 while it is sending, then read
+   the application log and the printed pages.
+   - *Why:* Closing only closes the window. The send runs to its end in the
+     background and logs `[campus-printer] print`. The pages show
+     whether all five arrived; a log line without them means the send
+     was dropped with the window.
+6. Double-click the PDF and open its Open with list.
+   - *Why:* The entry is one extra verb; the default PDF app and Open with
+     must stay as they were.
+
+**Where to look**
+
+The registry under HKCU\Software\Classes\SystemFileAssociations\.pdf\shell,
+the print window, the printed pages and the billing page.
+
+**Expected**
+
+No admin prompt, the window opens both from a cold start and with the
+app running, the options reach the paper, jobs bill the student ID,
+and the default PDF handling is unchanged.
+
+**Why this is manual**
+
+Needs Windows Explorer, the registry, the campus network and the real
+printer; the LPD client, PJL header and copy uploads are tested in
+crates/adpt-printer/src/tests.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/campus_printer_windows.rs`
+- `apps/desktop/src/features/campus-print/CampusPrintWindow.tsx`
+- `apps/desktop/src-tauri/capabilities/campus-print.json`
 
 **Last recorded** never run
 

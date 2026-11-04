@@ -28,6 +28,20 @@ native apps (`apps/ios`, `apps/android`), and the values the binary injects at s
 platform at runtime from `navigator.userAgent`, `navigator.platform`, touch
 points or similar heuristics.
 
+The same holds for anything else a platform fixes in advance:
+
+- Code only one platform runs is compiled only there, including protocol
+  clients and their fallbacks. A fallback for another OS's behaviour is dead
+  code.
+- One executable per role. A program must not work out at runtime which of
+  several jobs it was started for, from `argv[0]`, a subcommand or its
+  environment. Build each role as its own binary.
+- A platform's own paths and tools are `cfg` constants. Do not check whether
+  files exist, walk a candidate list, or try another OS's paths. Ask the system
+  at runtime only for what really varies within one platform (the layout a
+  service reports about itself, software the person installed). When the
+  answer is missing, fail with a clear error instead of guessing.
+
 Allowed exceptions:
 
 - iOS vs iPadOS. One iOS binary runs on both, so telling them apart at runtime

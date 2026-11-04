@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "campus-print",
+  "description": "The Windows print window for the campus printer: bundled application only",
+  "platforms": ["windows"],
+  "windows": ["campus-print-*"],
+  "permissions": ["core:default", "core:window:allow-close"]
+}

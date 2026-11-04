@@ -1,0 +1,38 @@
+/* The Windows print window: one small fixed-size page. */
+.campusPrint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-row-gap);
+  padding: var(--space-gutter);
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.campusPrint h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.campusPrintFile {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.campusPrintCopies {
+  width: 5rem;
+}
+
+.campusPrintResult {
+  margin: 0;
+  min-height: 1.4em;
+}
+
+.campusPrint footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+}
