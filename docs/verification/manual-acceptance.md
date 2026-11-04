@@ -811,17 +811,20 @@ app log is visible.
    - *Why:* A refresh reads the enrolment list in full, whose other quarters
      come only from the signed-in dashboard: the session is needed, a
      sign-in with the saved password is refused, and the card must turn
-     to Refused while the timetable run says it waits for the person
-     (Waiting for you in Settings) without a failure or retry time.
-3. Without reconnecting, create or edit a dated event in the LMS
-   calendar (or wait for a deadline the LMS adds), then press Refresh
-   now on Assignments and wait about a minute.
-   - *Why:* Deadlines read over the token alone. The defect fixed here held
-     every key of the account after one refusal: the assignment list
-     would stop updating and the LMS status line would say the whole
-     source waits. Here the deadlines run must finish and the new date
-     appear, and the source line must not show the account wait while
-     those keys run.
+     to Refused while the status bar says it waits for the person
+     (設定での操作を待っています) without a failure or retry time.
+3. Without reconnecting, press Refresh now on Assignments and wait
+   about a minute. Then read the latest runs in sync.db (read-only):
+   sqlite3 "file:$HOME/Library/Application Support/app.isctcompanion/sync.db?mode=ro"
+   "select dataset,key,finished_at,outcome from sync_runs order by finished_at desc limit 40;"
+   - *Why:* Deadlines, course outlines and assignment states read over the
+     token alone. The defect fixed here held every key of the account
+     after one refusal, so these keys would stop updating. A successful
+     read logs nothing at INFO level, so its run record is the evidence:
+     lms.deadlines, lms.course and lms.assign must end complete after
+     the timetable's sign-in-required run, with no second password
+     POST in the log. No new LMS data is needed (students may not be
+     able to add calendar events on the school's LMS).
 4. Watch the app log for two minutes without touching anything.
    - *Why:* A key that ended waiting must not be leased again while nothing
      changed: repeated "ended waiting" lines for the timetable, or
@@ -834,16 +837,17 @@ app log is visible.
 
 **Where to look**
 
-The Science Tokyo card in Settings, the sync status line and runs on the
-Timetable and Assignments pages, the Assignments list, and the app log.
+The Science Tokyo card in Settings, the status bar, the sync_runs
+table of sync.db, and the app log.
 
 **Expected**
 
 With the refused password the card says Refused and the timetable
-refresh waits for the person, while the deadlines still update from the
-LMS and the LMS source is not shown as waiting while they run. The log
-shows no repeated sign-in or re-leasing of the waiting key. After
-Connect the timetable refresh runs by itself and completes.
+refresh waits for the person, while lms.deadlines, lms.course and
+lms.assign runs still complete over the token. The log shows one
+refused password POST and no repeated sign-in, and sync_runs shows no
+new run of the waiting key while nothing changes. After Connect the
+timetable refresh runs by itself and completes.
 
 **Why this is manual**
 

@@ -4,8 +4,12 @@
 [实测记录](verification.json) · 接入评估：slotledger `approach/lms-token-rest-transport`
 
 这份协议覆盖 IsctCompanion 接入需要、并已在 2026-10-20 验证的 8 个读取函数，
-以及公开配置、官方浏览器授权和资源文件下载。学校服务声明了 470 个函数；
-这里没有把其余函数标为已验证。[写入面调查](#写入面调查2026-10-31)
+以及公开配置、官方浏览器授权和资源文件下载。学校服务声明了 470 个函数
+（Moodle 4.5.10+，2026-11-04 用学生 token 读取的完整名单在
+[verification.json](verification.json) 的 `declaredFunctions`；浏览器会话的
+AJAX 不提供 `core_webservice_get_site_info`，名单只能用 token 读）；
+这里没有把其余函数标为已验证。名单包括学生自建日历事件的
+`core_calendar_create_calendar_events` 等，网页完整日历页也有「新しいイベント」。[写入面调查](#写入面调查2026-10-31)
 列出了提交相关的写函数、作业设置和可撤回性，并在一个作业上做过一次
 「上传 → 保存 → 撤回」实测；写入协议只验证了这一种配置。
 

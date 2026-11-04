@@ -599,11 +599,12 @@ impl SchoolSessions {
         }))
     }
 
-    /// Sessions whose every site already holds an instance with an empty
-    /// jar, for tests of what runs on a session.
+    /// Sessions whose accounts are admitted and whose every site already
+    /// holds an instance with an empty jar, for tests of what runs on a
+    /// session (`http` for the live probes that send real requests).
     #[cfg(test)]
-    pub(crate) fn ready(auth: Arc<SchoolAuthService>) -> Self {
-        let sessions = Self::new(None, auth);
+    pub(crate) fn ready(http: Option<Http>, auth: Arc<SchoolAuthService>) -> Self {
+        let sessions = Self::new(http, auth);
         for account in &sessions.0.accounts {
             account.identity.set_configured(true);
             for site in &account.sites {
