@@ -137,6 +137,11 @@ impl SiteSession {
         guard(&self.state).instance.clone()
     }
 
+    /// Whether the site holds an instance.
+    pub(super) fn present(&self) -> bool {
+        guard(&self.state).instance.is_some()
+    }
+
     fn build(&self, jar: Jar, identity: u64) -> Arc<Instance> {
         let mut state = guard(&self.state);
         let id = state.next;
@@ -216,7 +221,10 @@ pub(crate) enum RunError<E> {
     Op(E),
     /// The account cannot reach its school now, and what lets its reads go
     /// on.
-    Blocked(AccountWait),
+    Blocked(Blocked),
+    /// A sign-in it needed found the shell offline and sent nothing: a wait
+    /// for the network, not a failure.
+    Offline,
     /// The site's SSO failed on the network or a paused host.
     Net(NetError),
     /// The account's barrier stopped the read.
@@ -225,10 +233,22 @@ pub(crate) enum RunError<E> {
     Deadline,
 }
 
+/// The sessions' verdict that a read cannot reach its school now.
+#[derive(Clone, Debug)]
+pub(crate) struct Blocked {
+    /// What lets the account's reads go on.
+    pub(crate) wait: AccountWait,
+    /// `CredentialSignal::version` when the verdict was made, after every
+    /// fact the verdict itself changed: a wait is current only while the
+    /// facts stay at it (a Connect that lands later moves them on).
+    pub(crate) version: u64,
+}
+
 /// Why getting a site's instance ended a call.
 #[derive(Clone, Debug)]
 enum Stop {
-    Blocked(AccountWait),
+    Blocked(Blocked),
+    Offline,
     Net(NetError),
     Cancelled,
     Deadline,
@@ -239,8 +259,11 @@ impl Stop {
     /// returns the stop itself, whatever the operation made of it.
     fn net(&self) -> NetError {
         match self {
-            Self::Blocked(AccountWait::Person) => NetError::SignInRequired,
-            Self::Blocked(_) => NetError::Offline,
+            Self::Blocked(Blocked {
+                wait: AccountWait::Person,
+                ..
+            }) => NetError::SignInRequired,
+            Self::Blocked(_) | Self::Offline => NetError::Offline,
             Self::Net(error) => error.clone(),
             Self::Cancelled => NetError::Cancelled,
             Self::Deadline => NetError::Deadline,
@@ -251,7 +274,8 @@ impl Stop {
 impl<E> From<Stop> for RunError<E> {
     fn from(stop: Stop) -> Self {
         match stop {
-            Stop::Blocked(wait) => Self::Blocked(wait),
+            Stop::Blocked(blocked) => Self::Blocked(blocked),
+            Stop::Offline => Self::Offline,
             Stop::Net(error) => Self::Net(error),
             Stop::Cancelled => Self::Cancelled,
             Stop::Deadline => Self::Deadline,
@@ -313,7 +337,7 @@ impl Attempt {
         let call = &self.0.call;
         let account = call.sessions.account(call.site.profile());
         if account.owner.sign_out_pending() || !account.identity.configured() {
-            let stop = Stop::Blocked(AccountWait::Person);
+            let stop = call.sessions.stop(AccountWait::Person);
             let error = stop.net();
             *guard(&call.stopped) = Some(stop);
             return Err(error);
@@ -507,8 +531,11 @@ impl Inner {
                     let instance = attempt.0.instance.get();
                     if let Some(instance) = instance {
                         session.retire(instance);
+                        self.changed();
                     }
                     if recovered || call.signed_in.load(Ordering::SeqCst) {
+                        // Only the site refused a session it had just
+                        // recovered: the identity is not found invalid.
                         log::warn!(target: "app_core::school_session", "{site:?} refused a recovered session");
                         let identity = &self.account(profile).identity;
                         identity.anomaly(
@@ -517,8 +544,9 @@ impl Inner {
                                 |instance| instance.identity,
                             ),
                         );
+                        self.changed();
                         self.publish();
-                        return Err(RunError::Blocked(self.paused(profile)));
+                        return Err(self.stop(self.paused(profile)).into());
                     }
                     log::info!(target: "app_core::school_session", "{site:?} session expired; rebuilding it");
                     recovered = true;
@@ -576,8 +604,9 @@ impl Inner {
             let Some((snapshot, generation)) = identity.snapshot() else {
                 if call.signed_in.swap(true, Ordering::SeqCst) {
                     identity.anomaly(identity.generation());
+                    self.changed();
                     self.publish();
-                    return Err(Stop::Blocked(self.paused(profile)));
+                    return Err(self.stop(self.paused(profile)));
                 }
                 let seen = identity.generation();
                 bounded(
@@ -595,17 +624,24 @@ impl Inner {
                 Sso::Ready => {
                     log::info!(target: "app_core::school_session", "{site:?} session ready instance={}", instance.id);
                     session.install(instance.clone());
+                    self.changed();
                     self.persist(profile, call.account).await;
                     return Ok(instance);
                 }
                 Sso::SignIn => {
                     if call.signed_in.swap(true, Ordering::SeqCst) {
+                        // The snapshot this call's own sign-in made is no
+                        // identity either: no site may take an instance
+                        // from it, and the pause bounds the next sign-in.
                         log::warn!(target: "app_core::school_session", "{site:?} sent a fresh sign-in back to the sign-in page");
+                        identity.invalidate(generation);
                         identity.anomaly(generation);
+                        self.changed();
                         self.publish();
-                        return Err(Stop::Blocked(self.paused(profile)));
+                        return Err(self.stop(self.paused(profile)));
                     }
                     identity.invalidate(generation);
+                    self.changed();
                     bounded(
                         cancel,
                         deadline,
@@ -619,13 +655,23 @@ impl Inner {
         }
     }
 
+    /// The verdict that a read waits for `wait`, stamped with the credential
+    /// facts' version now: callers make it after the facts it changed moved,
+    /// and before anything else is awaited.
+    fn stop(&self, wait: AccountWait) -> Stop {
+        Stop::Blocked(Blocked {
+            wait,
+            version: self.credentials.version(),
+        })
+    }
+
     /// What lets `profile`'s reads go on after a sign-in ended without an
-    /// identity.
+    /// identity. The sign-in bumped the facts before its waiters hear it.
     fn blocked(&self, profile: SchoolAuthProfile, ended: Ended) -> Stop {
         match ended {
-            Ended::NotConfigured | Ended::Refused(_) => Stop::Blocked(AccountWait::Person),
-            Ended::Offline => Stop::Blocked(AccountWait::Network),
-            Ended::Unavailable(_) => Stop::Blocked(self.paused(profile)),
+            Ended::NotConfigured | Ended::Refused(_) => self.stop(AccountWait::Person),
+            Ended::Offline => Stop::Offline,
+            Ended::Unavailable(_) => self.stop(self.paused(profile)),
             // Only a Connect ends so; a read joins it as the identity it made.
             Ended::NotSaved { .. } | Ended::Stopped => Stop::Cancelled,
         }

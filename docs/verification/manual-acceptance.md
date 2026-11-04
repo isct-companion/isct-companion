@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 171 checks must be re-run before the next release.**
+**8 of 172 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,10 +28,11 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**163 checks have never been run or could not be run:**
+**164 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
+- `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
@@ -202,6 +203,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | crates/app-core/src/downloads.rs |
 | `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/lms_ingest.rs<br>crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs<br>crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>crates/app-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
 | `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/sync_engine/planner.rs<br>docs/lms-api/README.md |
+| `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/planner.rs<br>crates/app-core/src/sync_engine/runner.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/sync_engine/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
@@ -779,6 +781,93 @@ parsing and mapping are covered by the net::moodle unit tests.
 - `crates/app-core/src/sync_engine/school.rs`
 - `crates/app-core/src/sync_engine/planner.rs`
 - `docs/lms-api/README.md`
+
+**Last recorded** never run
+
+### After a refused password, deadlines still update over the token while the full timetable refresh asks to reconnect (`SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The account from SCHOOL-SIGNIN-SCIENCE is Signed in on a desktop build
+from this source, a first LMS pull has finished (so the keychain holds
+"lms-token-science"), and the person can change their Science Tokyo
+password on the school's own site and change it back afterwards. The
+app log is visible.
+
+**Steps**
+
+1. Quit the app. On the school's site, change the Science Tokyo
+   password. In the OS keychain, delete only the item
+   "school-session-science" (keep "lms-token-science").
+   - *Why:* This leaves exactly the state the change is about: the saved
+     password now refused by the school, no saved LMS session or
+     identity, and a token that still works. Deleting the token too
+     would test the other branch (nothing on the path can serve).
+2. Start the app and press the timetable's Refresh now.
+   - *Why:* A refresh reads the enrolment list in full, whose other quarters
+     come only from the signed-in dashboard: the session is needed, a
+     sign-in with the saved password is refused, and the card must turn
+     to Refused while the status bar says it waits for the person
+     (設定での操作を待っています) without a failure or retry time.
+3. Without reconnecting, press Refresh now on Assignments and wait
+   about a minute. Then read the latest runs in sync.db (read-only):
+   sqlite3 "file:$HOME/Library/Application Support/app.isctcompanion/sync.db?mode=ro"
+   "select dataset,key,finished_at,outcome from sync_runs order by finished_at desc limit 40;"
+   - *Why:* Deadlines, course outlines and assignment states read over the
+     token alone. The defect fixed here held every key of the account
+     after one refusal, so these keys would stop updating. A successful
+     read logs nothing at INFO level, so its run record is the evidence:
+     lms.deadlines, lms.course and lms.assign must end complete after
+     the timetable's sign-in-required run, with no second password
+     POST in the log. No new LMS data is needed (students may not be
+     able to add calendar events on the school's LMS).
+4. Watch the app log for two minutes without touching anything.
+   - *Why:* A key that ended waiting must not be leased again while nothing
+     changed: repeated "ended waiting" lines for the timetable, or
+     repeated sign-in attempts with the refused password, mean the
+     planner spins or ignores the refusal on record.
+5. Change the password back on the school's site (or connect with the
+   new one) and press Connect in Settings.
+   - *Why:* Connect is a credential fact change: the timetable refresh that was
+     waiting must start on its own, without another press.
+
+**Where to look**
+
+The Science Tokyo card in Settings, the status bar, the sync_runs
+table of sync.db, and the app log.
+
+**Expected**
+
+With the refused password the card says Refused and the timetable
+refresh waits for the person, while lms.deadlines, lms.course and
+lms.assign runs still complete over the token. The log shows one
+refused password POST and no repeated sign-in, and sync_runs shows no
+new run of the waiting key while nothing changes. After Connect the
+timetable refresh runs by itself and completes.
+
+**Why this is manual**
+
+Needs a real account whose password the school refuses while its LMS
+token still works, which no fixture reproduces (the session suite does
+not simulate the school, `approach/school-sign-in-verification`). The
+planner rule behind it, which keys wait for which credential facts, is
+covered by the sync_engine unit tests; this check proves the facts the
+real school produces lead there.
+
+**Covers**
+
+- `crates/app-core/src/sync_engine/planner.rs`
+- `crates/app-core/src/sync_engine/runner.rs`
+- `crates/app-core/src/sync_engine/school.rs`
+- `crates/app-core/src/sync_engine/snapshot.rs`
+- `crates/app-core/src/school_session/**`
+- `crates/app-core/src/net/moodle/mod.rs`
+- `crates/app-core/src/net/moodle/reader.rs`
+- `crates/app-core/src/net/moodle/rest.rs`
 
 **Last recorded** never run
 

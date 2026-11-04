@@ -28,6 +28,10 @@
 //! stamped with the account generation, and the barrier that signing out
 //! and resetting run, which drains every operation of the account before it
 //! deletes anything.
+//!
+//! Sync reads only what these sessions hold (`account_facts`, the LMS
+//! token's `MoodleClient::token_fact`) and is told when any of it changes
+//! (`CredentialSignal`); it keeps none of it itself.
 
 mod identity;
 mod jar;
@@ -38,9 +42,9 @@ mod store;
 mod walk;
 mod web;
 
-pub(crate) use identity::Ended;
+pub(crate) use identity::{Ended, SignInAdmission};
 pub(crate) use owner::Permit;
-pub(crate) use site::{Attempt, OpError, Operation, RunError, Site};
+pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
 
 use self::{
@@ -324,8 +328,70 @@ fn absolute_expiry(line: &str, now: DateTime<Utc>) -> String {
     kept.join("; ")
 }
 
-/// How Core reaches the school: `net::Http` in the app, a scripted school
-/// in the session tests.
+/// Moves whenever a credential fact a school read rests on changes: a site
+/// instance installed or retired, the identity snapshot made, restored or
+/// found invalid, a refusal recorded or cleared, a pause set or over, the
+/// account admitted or not, the LMS token got, refused or found unable to
+/// serve a function. Sync compares its `version` and is called on every
+/// move; unlike `publish`, it never depends on what shells render.
+#[derive(Default)]
+pub(crate) struct CredentialSignal {
+    version: AtomicU64,
+    listener: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+impl CredentialSignal {
+    pub(crate) fn version(&self) -> u64 {
+        self.version.load(Ordering::SeqCst)
+    }
+
+    /// A fact changed. Callers hold none of the sessions' locks.
+    pub(crate) fn changed(&self) {
+        self.version.fetch_add(1, Ordering::SeqCst);
+        let listener = guard(&self.listener).clone();
+        if let Some(listener) = listener {
+            listener();
+        }
+    }
+
+    /// The one listener (the sync runner). Set once.
+    pub(crate) fn listen(&self, listener: Arc<dyn Fn() + Send + Sync>) {
+        *guard(&self.listener) = Some(listener);
+    }
+}
+
+/// What one account's credentials allow now, as sync reads it. Before the
+/// account's saved session is read back (`Inner::restore`), its jars and
+/// identity count as present: unchecked, never as gone.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AccountFacts {
+    /// Saved credentials, no sign-out pending, no barrier running: the
+    /// admission every read of the account passes first
+    /// (`Attempt::authorize`, `Owner::permit`).
+    pub(crate) admitted: bool,
+    /// An identity snapshot the school has not found invalid, and no
+    /// anomaly pause running: a site's SSO can take a new instance from it
+    /// without a password.
+    pub(crate) identity: bool,
+    /// Whether a sign-in on Core's own may start (`Inner::admission`).
+    pub(crate) sign_in: SignInAdmission,
+    /// The sites holding an instance.
+    pub(crate) sites: Vec<Site>,
+}
+
+impl Default for AccountFacts {
+    /// No sessions at all: nothing is admitted.
+    fn default() -> Self {
+        Self {
+            admitted: false,
+            identity: false,
+            sign_in: SignInAdmission::Person,
+            sites: Vec::new(),
+        }
+    }
+}
+
+/// How Core reaches the school: `net::Http`, or nothing (`Offline`).
 pub(crate) trait Transport: Send + Sync {
     fn send(&self, request: NetRequest) -> BoxFuture<'_, Result<Response, NetError>>;
     /// A maintenance page: pause the host now.
@@ -388,6 +454,7 @@ struct Inner {
     published: Mutex<Option<SchoolSessionProfiles>>,
     /// The shell reports no network: a sign-in sends nothing.
     offline: AtomicBool,
+    credentials: Arc<CredentialSignal>,
 }
 
 fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -528,14 +595,16 @@ impl SchoolSessions {
             revision: AtomicU64::new(1),
             published: Mutex::new(None),
             offline: AtomicBool::new(false),
+            credentials: Arc::new(CredentialSignal::default()),
         }))
     }
 
-    /// Sessions whose every site already holds an instance with an empty
-    /// jar, for tests of what runs on a session.
+    /// Sessions whose accounts are admitted and whose every site already
+    /// holds an instance with an empty jar, for tests of what runs on a
+    /// session (`http` for the live probes that send real requests).
     #[cfg(test)]
-    pub(crate) fn ready(auth: Arc<SchoolAuthService>) -> Self {
-        let sessions = Self::new(None, auth);
+    pub(crate) fn ready(http: Option<Http>, auth: Arc<SchoolAuthService>) -> Self {
+        let sessions = Self::new(http, auth);
         for account in &sessions.0.accounts {
             account.identity.set_configured(true);
             for site in &account.sites {
@@ -610,7 +679,9 @@ impl SchoolSessions {
             credentials,
             account: permit.generation(),
         };
-        Ok(match inner.sign_in(profile, seen, how).await {
+        let ended = inner.sign_in(profile, seen, how).await;
+        inner.changed();
+        Ok(match ended {
             Ok(_) => SchoolConnectOutcome::Connected,
             Err(Ended::Refused(problem)) if problem.kind.needs_web() => {
                 SchoolConnectOutcome::NeedsWeb {
@@ -650,6 +721,7 @@ impl SchoolSessions {
         };
         let _ = inner.sign_in(profile, generation, how).await;
         drop(permit);
+        inner.changed();
         self.snapshot()
     }
 
@@ -703,6 +775,7 @@ impl SchoolSessions {
                     }
                 }
                 drop(closed);
+                sessions.0.changed();
                 sessions.0.publish();
                 Ok(present.len())
             })
@@ -749,6 +822,7 @@ impl SchoolSessions {
             .account(profile)
             .identity
             .set_configured(self.0.auth.configured(profile));
+        self.0.changed();
         self.0.publish();
         forgotten.map(|()| true)
     }
@@ -788,6 +862,7 @@ impl SchoolSessions {
         }
         drop(closed);
         log::info!(target: "app_core::school_session", "sessions reset {forgotten:?}");
+        self.0.changed();
         self.0.publish();
         forgotten
     }
@@ -800,6 +875,7 @@ impl SchoolSessions {
             changed |= account.identity.expire_pause(tokio::time::Instant::now());
         }
         if changed {
+            self.0.changed();
             self.0.publish();
         }
     }
@@ -823,6 +899,29 @@ impl SchoolSessions {
     /// A permit for one operation on `profile`'s account.
     pub(crate) fn permit(&self, profile: SchoolAuthProfile) -> Option<Permit> {
         self.0.account(profile).owner.permit()
+    }
+
+    /// The signal sync listens to, shared with the LMS token's holder.
+    pub(crate) fn credential_signal(&self) -> Arc<CredentialSignal> {
+        self.0.credentials.clone()
+    }
+
+    /// What `profile`'s credentials allow now. Reads only memory.
+    pub(crate) fn account_facts(&self, profile: SchoolAuthProfile) -> AccountFacts {
+        let account = self.0.account(profile);
+        let restored = account.restored.initialized();
+        let (identity, sign_in) = self.0.identity_facts(profile);
+        AccountFacts {
+            admitted: account.owner.admits() && account.identity.configured(),
+            identity: identity || !restored,
+            sign_in,
+            sites: account
+                .sites
+                .iter()
+                .filter(|site| !restored || site.present())
+                .map(|site| site.site)
+                .collect(),
+        }
     }
 
     /// Reads with `operation` on `site` by `deadline`, counted from the
@@ -992,6 +1091,11 @@ impl Inner {
             .unwrap_or(&account.sites[0])
     }
 
+    /// A credential fact changed (`CredentialSignal`).
+    fn changed(&self) {
+        self.credentials.changed();
+    }
+
     fn profile(&self, profile: SchoolAuthProfile) -> SchoolProfileSession {
         let account = self.account(profile);
         let (state, problem, retry_at) = account.identity.view(self.auth.refusal(profile));
@@ -1052,9 +1156,11 @@ impl Inner {
     /// after it.
     async fn restore(&self, profile: SchoolAuthProfile) {
         let account = self.account(profile);
+        let first = AtomicBool::new(false);
         account
             .restored
             .get_or_init(|| async {
+                first.store(true, Ordering::SeqCst);
                 // A barrier is running: it deletes the item anyway.
                 let Some(_permit) = account.owner.permit() else {
                     return;
@@ -1085,6 +1191,10 @@ impl Inner {
                 log::info!(target: "app_core::school_session", "restored the saved session profile={profile:?}");
             })
             .await;
+        // The jars and refusals are known now, no longer unchecked.
+        if first.load(Ordering::SeqCst) {
+            self.changed();
+        }
         self.publish();
     }
 
@@ -1132,6 +1242,8 @@ impl Inner {
     ) -> (owner::Closed<'_>, Vec<&'static str>) {
         let account = self.account(profile);
         let closed = account.owner.close().await;
+        // Closed: the account's reads are not admitted until it reopens.
+        self.changed();
         if forget {
             account.owner.set_sign_out_pending(true);
             if let Err(error) = self.auth.mark_sign_out(profile, true) {
@@ -1145,6 +1257,7 @@ impl Inner {
         for site in &account.sites {
             site.forget();
         }
+        self.changed();
         let auth = self.auth.clone();
         let deleted = tokio::task::spawn_blocking(move || {
             let token = auth.delete_moodle_token(profile);
@@ -1336,7 +1449,6 @@ impl Inner {
     }
 }
 
-// The scripted school and web store in it serve the web operation suite too.
 #[cfg(test)]
 #[path = "../tests/school_session.rs"]
-pub(crate) mod tests;
+mod tests;

@@ -5,10 +5,10 @@
 //! reads one leased key, records how it ended, and takes the next key of its
 //! lane, so an LMS worker keeps its transport open across keys.
 use super::{
-    planner::{self, Candidate, Depth, Facts, Group, Inputs, Lane, ReferenceWatch},
+    planner::{self, Candidate, Credentials, Depth, Facts, Group, Inputs, Lane, ReferenceWatch, Waited},
     school::{self, SchoolReaders},
     snapshot::{self, Shown},
-    AccountWait, Hint, Network, Priority, Scope, SyncSnapshot, View,
+    AccountWait, Held, Hint, Network, Priority, Scope, SyncSnapshot, View,
 };
 use crate::{
     data::{DataError, DataStore, WorkspaceChangeSource},
@@ -180,61 +180,6 @@ pub(crate) struct Lease {
     pub(crate) deadline: tokio::time::Instant,
     pub(crate) cancel: CancellationToken,
     writer: LeaseWriter,
-    /// What decided the account holds when it was leased.
-    holds: HoldStamp,
-}
-
-/// Each decision an account hold rests on, with its own version: the
-/// account's (the person's credentials, Retry and Connect, a pause), moved
-/// by `unblock`, and the network's, moved when the shell reports it back.
-/// A read stamps them when it is leased and `settle` compares them under
-/// the state lock, the lock that moves them: a read that started before a
-/// move cannot set the hold it lifted. Network recovery leaves a person's
-/// verdict standing, and an unblock leaves a network verdict.
-#[derive(Default)]
-struct HoldVersions {
-    account: HashMap<SchoolAuthProfile, u64>,
-    network: u64,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct HoldStamp {
-    science: u64,
-    tokyo_tech: u64,
-    network: u64,
-}
-
-impl HoldVersions {
-    fn account(&self, profile: SchoolAuthProfile) -> u64 {
-        self.account.get(&profile).copied().unwrap_or(0)
-    }
-
-    fn stamp(&self) -> HoldStamp {
-        HoldStamp {
-            science: self.account(SchoolAuthProfile::Science),
-            tokyo_tech: self.account(SchoolAuthProfile::TokyoTech),
-            network: self.network,
-        }
-    }
-
-    /// Moves the account's decision on.
-    fn lift(&mut self, profile: SchoolAuthProfile) {
-        *self.account.entry(profile).or_default() += 1;
-    }
-
-    /// Whether `wait`, read under `stamp`, still decides for `profile`.
-    fn current(&self, stamp: HoldStamp, profile: SchoolAuthProfile, wait: &AccountWait) -> bool {
-        match wait {
-            AccountWait::Network => stamp.network == self.network,
-            AccountWait::Person | AccountWait::Paused { .. } => {
-                let stamped = match profile {
-                    SchoolAuthProfile::Science => stamp.science,
-                    SchoolAuthProfile::TokyoTech => stamp.tokyo_tech,
-                };
-                stamped == self.account(profile)
-            }
-        }
-    }
 }
 
 impl Lease {
@@ -285,7 +230,6 @@ impl Lease {
                 gate: Arc::new(Gate::default()),
                 generation: 0,
             },
-            holds: HoldStamp::default(),
         }
     }
 
@@ -314,12 +258,21 @@ pub(crate) enum KeyEnd {
     Refused {
         kind: String,
     },
-    /// The read could not reach the account's school: every key of the
-    /// profile waits for `wait`, without a backoff, unless what decides that
-    /// wait moved on since the read started (`HoldVersions`).
+    /// The read could not reach the account's school: no credential on its
+    /// path served it and none could be got. Not a failure, no backoff: the
+    /// planner holds this key (at this depth) while the credential facts
+    /// stay at `version`, the one the sessions decided under
+    /// (`Facts::waited`), and derives anew from the facts what else waits.
     Blocked {
         profile: SchoolAuthProfile,
         wait: AccountWait,
+        version: u64,
+        source: String,
+    },
+    /// A sign-in the read needed found the shell offline and sent nothing.
+    /// Not a failure, no backoff, and the refresh button's press stays: the
+    /// planner holds every key while the shell reports no network.
+    Offline {
         source: String,
     },
     /// The host's breaker paused it: every key of the host is held, and this
@@ -420,6 +373,7 @@ impl Lease {
         let source = match end {
             KeyEnd::Failed { source, .. }
             | KeyEnd::Blocked { source, .. }
+            | KeyEnd::Offline { source }
             | KeyEnd::HostPaused { source, .. }
             | KeyEnd::Cancelled { source }
             | KeyEnd::NotEnrolled { source } => source.clone(),
@@ -434,10 +388,11 @@ impl Lease {
             KeyEnd::Done { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale => None,
             KeyEnd::Failed { kind, .. } => Some((RunOutcome::Failed, kind.clone(), true)),
             // Waiting for the account is not the key's failure: the planner
-            // holds the account's keys until what the read said lets them go.
+            // holds the key until its credential facts move.
             KeyEnd::Blocked { .. } => {
                 Some((RunOutcome::SignInRequired, "sign-in".to_string(), false))
             }
+            KeyEnd::Offline { .. } => Some((RunOutcome::Waiting, "offline".to_string(), false)),
             KeyEnd::HostPaused { .. } => {
                 Some((RunOutcome::Failed, "host-paused".to_string(), false))
             }
@@ -532,7 +487,6 @@ struct State {
     manual: HashMap<Key, (Instant, Option<String>)>,
     /// When each key was last asked for by hand, for the 30 s join.
     last_manual: HashMap<Key, Instant>,
-    holds: HoldVersions,
     requests: Vec<(ManualTarget, Instant)>,
     /// Keys a page showed since the last evaluation; touched for gc.
     shown: Vec<Key>,
@@ -651,7 +605,6 @@ impl SyncEngine {
                 opens: HashMap::new(),
                 manual: HashMap::new(),
                 last_manual: HashMap::new(),
-                holds: HoldVersions::default(),
                 requests: Vec::new(),
                 shown: Vec::new(),
                 follow_lms: None,
@@ -679,9 +632,19 @@ impl SyncEngine {
         let _ = self.0.events.set(events);
     }
 
-    /// The school sessions and clients LMS and 教務Web keys read with.
+    /// The school sessions and clients LMS and 教務Web keys read with. The
+    /// planner is told whenever their credential facts move.
     pub(crate) fn attach_school(&self, readers: SchoolReaders) {
         let sessions = shown(&readers.sessions.snapshot());
+        let hints = self.hints();
+        readers
+            .sessions
+            .credential_signal()
+            .listen(Arc::new(move || {
+                if let Some(engine) = hints.engine() {
+                    engine.reevaluate();
+                }
+            }));
         *guard(&self.0.school) = Some(readers);
         {
             let mut state = guard(&self.0.state);
@@ -698,22 +661,18 @@ impl SyncEngine {
         self.0.wake.notify_one();
     }
 
-    /// What a blocked account waited for happened (its credentials changed,
-    /// the person pressed Retry or Connect, or signed it out): its keys go
-    /// on, and a read finds out again whether the school can be reached. A
-    /// read already running can no longer hold the account (`HoldVersions`).
-    pub(crate) fn unblock(&self, profile: SchoolAuthProfile) {
-        {
-            let mut state = guard(&self.0.state);
-            state.holds.lift(profile);
-            state.facts.blocked.remove(&profile);
-            state.evaluate = true;
-        }
-        self.0.wake.notify_one();
-    }
-
     fn school(&self) -> Option<SchoolReaders> {
         guard(&self.0.school).clone()
+    }
+
+    /// The credential facts as the school sessions hold them now. Read
+    /// before the state lock is taken: the sessions call back into the
+    /// engine when they change, never the other way round under a lock.
+    fn credentials(&self) -> Credentials {
+        match self.school() {
+            Some(readers) => school::credentials(&readers),
+            None => Credentials::default(),
+        }
     }
 
     /// Starts the driver on the shell's runtime. Later calls do nothing.
@@ -829,7 +788,6 @@ impl SyncEngine {
             batches: &state.batches,
             leased: &leased,
             plan: &state.plan,
-            facts: &state.facts,
             sessions: &state.sessions,
             inputs: &state.inputs,
             now: Utc::now(),
@@ -850,13 +808,8 @@ impl SyncEngine {
             let mut state = guard(&self.0.state);
             state.closed += 1;
             self.0.gate.bump();
-            // A reset clears the sessions: a read finds out anew, and one
-            // still running holds nothing.
-            for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-                state.holds.lift(profile);
-            }
-            state.holds.network += 1;
-            state.facts.blocked.clear();
+            // A reset clears the sessions: a read finds out anew.
+            state.facts.waited.clear();
             for lease in state.leases.values() {
                 lease.cancel.cancel();
             }
@@ -901,6 +854,7 @@ impl SyncEngine {
     }
 
     fn quiet(&self, since: Instant) -> bool {
+        let credentials = self.credentials();
         let state = guard(&self.0.state);
         let now = Utc::now();
         !state.evaluate
@@ -911,8 +865,10 @@ impl SyncEngine {
                     && planner::hold(
                         &candidate.key,
                         candidate.priority,
+                        candidate.depth,
                         &state.inputs,
                         &state.facts,
+                        &credentials,
                         now,
                     )
                     .is_none()
@@ -996,6 +952,7 @@ impl SyncEngine {
                 return;
             }
         };
+        let credentials = self.credentials();
         let now = Utc::now();
         let instant = Instant::now();
         let mut state = guard(&self.0.state);
@@ -1032,10 +989,12 @@ impl SyncEngine {
         }
         state.facts.resetting = state.closed > 0;
         state.facts.paused.retain(|_, until| *until > now);
+        // A wait seen under facts that moved since holds nothing. One a read
+        // settled after these facts were read is newer, and stays.
         state
             .facts
-            .blocked
-            .retain(|_, wait| !matches!(wait, AccountWait::Paused { until } if *until <= now));
+            .waited
+            .retain(|_, waited| waited.version >= credentials.version);
         let opens: Vec<View> = state.opens.keys().cloned().collect();
         let manual: HashMap<Key, Option<String>> = state
             .manual
@@ -1043,7 +1002,15 @@ impl SyncEngine {
             .map(|(key, (_, scope))| (key.clone(), scope.clone()))
             .collect();
         let leased: HashSet<Key> = state.leases.keys().cloned().collect();
-        state.plan = planner::plan(&inputs, &state.facts, &opens, &manual, &leased, now);
+        state.plan = planner::plan(
+            &inputs,
+            &state.facts,
+            &credentials,
+            &opens,
+            &manual,
+            &leased,
+            now,
+        );
         state.inputs = inputs;
         update_batches(&mut state, instant, now);
     }
@@ -1054,6 +1021,7 @@ impl SyncEngine {
             return;
         };
         let mut started = Vec::new();
+        let credentials = self.credentials();
         {
             let mut state = guard(&self.0.state);
             if state.closed > 0 || state.stopped {
@@ -1061,7 +1029,7 @@ impl SyncEngine {
             }
             for lane in Lane::ALL {
                 while state.busy.get(&lane).copied().unwrap_or(0) < lane.capacity() {
-                    let Some(lease) = self.lease_next(&mut state, lane) else {
+                    let Some(lease) = self.lease_next(&mut state, lane, &credentials) else {
                         break;
                     };
                     *state.busy.entry(lane).or_default() += 1;
@@ -1085,8 +1053,15 @@ impl SyncEngine {
         }
     }
 
-    /// The first ready key of `lane` in plan order, leased.
-    fn lease_next(&self, state: &mut State, lane: Lane) -> Option<Lease> {
+    /// The first ready key of `lane` in plan order, leased. Each key's hold
+    /// is asked again with `credentials` as they are now: the plan may be
+    /// older than a read that just ended waiting.
+    fn lease_next(
+        &self,
+        state: &mut State,
+        lane: Lane,
+        credentials: &Credentials,
+    ) -> Option<Lease> {
         if state.closed > 0 || state.stopped {
             return None;
         }
@@ -1098,8 +1073,10 @@ impl SyncEngine {
                 && planner::hold(
                     &candidate.key,
                     candidate.priority,
+                    candidate.depth,
                     &state.inputs,
                     &state.facts,
+                    credentials,
                     now,
                 )
                 .is_none()
@@ -1141,7 +1118,6 @@ impl SyncEngine {
                 gate: self.0.gate.clone(),
                 generation: self.0.gate.generation(),
             },
-            holds: state.holds.stamp(),
         })
     }
 
@@ -1164,9 +1140,11 @@ impl SyncEngine {
         let mut lease = first;
         let Some(readers) = self.school() else {
             loop {
+                // No sessions: the planner's admission holds these keys.
                 let end = KeyEnd::Blocked {
                     profile: SchoolAuthProfile::Science,
                     wait: AccountWait::Person,
+                    version: Credentials::default().version,
                     source: String::new(),
                 };
                 match self.finish(lease, end).await {
@@ -1202,6 +1180,7 @@ impl SyncEngine {
         let unattached = || KeyEnd::Blocked {
             profile: SchoolAuthProfile::TokyoTech,
             wait: AccountWait::Person,
+            version: Credentials::default().version,
             source: String::new(),
         };
         match lease.key.dataset {
@@ -1230,10 +1209,11 @@ impl SyncEngine {
             .await
             .ok()
             .flatten();
+        let credentials = self.credentials();
         let next = {
             let mut state = guard(&self.0.state);
-            settle(&mut state, &lease, &end, after);
-            let next = self.lease_next(&mut state, lane);
+            settle(&mut state, &lease, &end, after, &credentials);
+            let next = self.lease_next(&mut state, lane, &credentials);
             if next.is_none() {
                 if let Some(busy) = state.busy.get_mut(&lane) {
                     *busy = busy.saturating_sub(1);
@@ -1296,23 +1276,23 @@ fn request_manual(state: &mut State, key: Key, scope: Option<String>, at: Instan
     state.manual.insert(key, (at, scope));
 }
 
-/// The shell's network. Once it is back, a read that ended waiting for it
-/// no longer holds its account, nor does one still running (`HoldVersions`).
+/// The shell's network.
 fn report_network(state: &mut State, network: Network) -> bool {
     let changed = state.facts.network != network;
     state.facts.network = network;
-    if network != Network::Offline {
-        state.holds.network += 1;
-        state
-            .facts
-            .blocked
-            .retain(|_, wait| *wait != AccountWait::Network);
-    }
     changed
 }
 
 /// Folds one finished key into the facts, the cache and its run.
-fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState>) {
+/// `credentials` are the facts now: a wait decided under an older version
+/// of them is not kept.
+fn settle(
+    state: &mut State,
+    lease: &Lease,
+    end: &KeyEnd,
+    after: Option<KeyState>,
+    credentials: &Credentials,
+) {
     let key = &lease.key;
     state.leases.remove(key);
     match after {
@@ -1338,23 +1318,37 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
                 state.evaluate = true;
             }
         }
-        // What lets the account go on changed while the read ran: its run
-        // is recorded, but it no longer decides whether the account waits.
-        KeyEnd::Blocked { profile, wait, .. }
-            if !state.holds.current(lease.holds, *profile, wait) =>
-        {
-            log::info!(target: "app_core::sync", "{key} ended waiting for {profile:?} ({wait:?}), decided anew since it started; no hold");
+        // Decided under the facts in force now: this key at this depth is
+        // not leased again until they move. Other keys wait only by the
+        // facts themselves.
+        KeyEnd::Blocked {
+            profile,
+            wait,
+            version,
+            ..
+        } if *version == credentials.version => {
+            log::info!(target: "app_core::sync", "{key} ended waiting for {profile:?} ({wait:?}) at credential version {version}");
+            state.facts.waited.insert(
+                (key.clone(), lease.depth),
+                Waited {
+                    version: *version,
+                    held: Held::Account {
+                        profile: *profile,
+                        wait: wait.clone(),
+                    },
+                },
+            );
             state.evaluate = true;
         }
-        KeyEnd::Blocked { profile, wait, .. } => {
-            // Every other key of the profile waits the same way, by what
-            // this read said.
-            state.facts.blocked.insert(*profile, wait.clone());
-            state
-                .plan
-                .retain(|candidate| planner::profile_of(candidate.key.dataset) != Some(*profile));
+        // The facts moved since the sessions decided (a Connect or Retry
+        // landed meanwhile): the verdict is stale, only its run is kept.
+        KeyEnd::Blocked {
+            profile, version, ..
+        } => {
+            log::info!(target: "app_core::sync", "{key} ended waiting for {profile:?} at credential version {version}, now {}; not held", credentials.version);
             state.evaluate = true;
         }
+        KeyEnd::Offline { .. } => state.evaluate = true,
         // The stored course list changed under the read: plan from it again.
         KeyEnd::NotEnrolled { .. } => state.evaluate = true,
         KeyEnd::HostPaused { host, until, .. } => {
@@ -1402,6 +1396,7 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
             }
             // Still due: the next plan holds or reads it again.
             KeyEnd::Blocked { .. }
+            | KeyEnd::Offline { .. }
             | KeyEnd::HostPaused { .. }
             | KeyEnd::Cancelled { .. }
             | KeyEnd::NotEnrolled { .. }
@@ -1573,8 +1568,9 @@ impl SyncEngine {
 
     /// A lease as `pump` would make it, without running it.
     pub(crate) fn lease_for_test(&self, lane: Lane) -> Option<Lease> {
+        let credentials = self.credentials();
         let mut state = guard(&self.0.state);
-        self.lease_next(&mut state, lane)
+        self.lease_next(&mut state, lane, &credentials)
     }
 
     /// Records and settles a read's ending as `finish` does, without
@@ -1585,12 +1581,8 @@ impl SyncEngine {
             .await
             .ok()
             .flatten();
-        settle(&mut guard(&self.0.state), &lease, &end, after);
-    }
-
-    /// `Hint::Network` without starting the driver.
-    pub(crate) fn network_for_test(&self, network: Network) {
-        report_network(&mut guard(&self.0.state), network);
+        let credentials = self.credentials();
+        settle(&mut guard(&self.0.state), &lease, &end, after, &credentials);
     }
 
     /// `Hint::Refresh` without starting the driver.

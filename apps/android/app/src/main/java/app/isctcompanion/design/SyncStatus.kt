@@ -107,12 +107,11 @@ fun heldText(held: Held): String = when (held) {
     is Held.Background -> t("syncStatus.resumesWhenTheAppIs")
     is Held.Backoff -> retryAt(held.until)
     is Held.HostPaused -> t("syncStatus.hostIsPausedUntilTime", "host" to held.host, "time" to Format.due(held.until))
-    // A read could not reach its account's school; not a failure.
+    // No credential on the key's path can serve it now; not a failure.
     is Held.Account -> when (val wait = held.wait) {
         is AccountWait.Person -> t("syncStatus.held.person")
         // A pause after a sign-in without a verdict, said as the account row says it.
         is AccountWait.Paused -> AppModel.sessionText(SchoolSessionState.UNAVAILABLE, retryAt = wait.until)
-        is AccountWait.Network -> t("syncStatus.waitingForAConnection")
     }
     is Held.Resetting -> t("syncStatus.resetting")
     is Held.Prerequisite -> t("syncStatus.waitingForTheDataIt")

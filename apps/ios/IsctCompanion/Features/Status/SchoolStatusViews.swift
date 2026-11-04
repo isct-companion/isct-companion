@@ -60,12 +60,11 @@ enum SyncText {
         }
     }
 
-    /// What an account's reads wait for after one could not reach its school.
+    /// What an account's waiting reads wait for.
     static func account(_ wait: AccountWait) -> String {
         switch wait {
         case .person: return t("syncStatus.held.person")
         case let .paused(until): return SchoolSessionText.line(.unavailable, problem: nil, retryAt: until)
-        case .network: return t("syncStatus.waitingForAConnection")
         }
     }
 

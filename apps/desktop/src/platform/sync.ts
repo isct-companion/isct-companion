@@ -41,11 +41,10 @@ export type SyncHint =
 /** An i18n key plus arguments; Core never builds sentences. */
 export type SyncLabel = { key: string; args: Record<string, unknown> | null };
 
-/** What lets an account's reads go on after one could not reach its school:
- * the person (Retry, Connect, changed credentials), the end of a pause, or
- * the network. */
-export type AccountWait =
-  { kind: "person" } | { kind: "paused"; until: string } | { kind: "network" };
+/** What lets an account's waiting reads go on: the person (Retry, Connect,
+ * changed credentials) or the end of a pause. Waiting for the network is
+ * `offline`. */
+export type AccountWait = { kind: "person" } | { kind: "paused"; until: string };
 
 export type SyncHeld =
   | { kind: "offline" }
@@ -54,8 +53,8 @@ export type SyncHeld =
   | { kind: "background" }
   | { kind: "backoff"; until: string }
   | { kind: "host-paused"; host: string; until: string }
-  /** A read of the account could not reach its school: every key of the
-   * account waits for `wait`. Not a failure, no backoff. */
+  /** No credential on the key's path can serve it and none can be got now;
+   * keys with a usable token or session go on. Not a failure, no backoff. */
   | { kind: "account"; profile: SchoolAuthProfile; wait: AccountWait }
   | { kind: "resetting" }
   | { kind: "prerequisite" };

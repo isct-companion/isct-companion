@@ -481,6 +481,89 @@ checks:
       - docs/lms-api/README.md
     verified: null
 
+  - id: SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN
+    area: school
+    title: After a refused password, deadlines still update over the token while the full timetable refresh asks to reconnect
+    persona: undergraduate-senior
+    preconditions: |
+      The account from SCHOOL-SIGNIN-SCIENCE is Signed in on a desktop build
+      from this source, a first LMS pull has finished (so the keychain holds
+      "lms-token-science"), and the person can change their Science Tokyo
+      password on the school's own site and change it back afterwards. The
+      app log is visible.
+    steps:
+      - action: |
+          Quit the app. On the school's site, change the Science Tokyo
+          password. In the OS keychain, delete only the item
+          "school-session-science" (keep "lms-token-science").
+        reason: |
+          This leaves exactly the state the change is about: the saved
+          password now refused by the school, no saved LMS session or
+          identity, and a token that still works. Deleting the token too
+          would test the other branch (nothing on the path can serve).
+      - action: |
+          Start the app and press the timetable's Refresh now.
+        reason: |
+          A refresh reads the enrolment list in full, whose other quarters
+          come only from the signed-in dashboard: the session is needed, a
+          sign-in with the saved password is refused, and the card must turn
+          to Refused while the status bar says it waits for the person
+          (設定での操作を待っています) without a failure or retry time.
+      - action: |
+          Without reconnecting, press Refresh now on Assignments and wait
+          about a minute. Then read the latest runs in sync.db (read-only):
+          sqlite3 "file:$HOME/Library/Application Support/app.isctcompanion/sync.db?mode=ro"
+          "select dataset,key,finished_at,outcome from sync_runs order by finished_at desc limit 40;"
+        reason: |
+          Deadlines, course outlines and assignment states read over the
+          token alone. The defect fixed here held every key of the account
+          after one refusal, so these keys would stop updating. A successful
+          read logs nothing at INFO level, so its run record is the evidence:
+          lms.deadlines, lms.course and lms.assign must end complete after
+          the timetable's sign-in-required run, with no second password
+          POST in the log. No new LMS data is needed (students may not be
+          able to add calendar events on the school's LMS).
+      - action: |
+          Watch the app log for two minutes without touching anything.
+        reason: |
+          A key that ended waiting must not be leased again while nothing
+          changed: repeated "ended waiting" lines for the timetable, or
+          repeated sign-in attempts with the refused password, mean the
+          planner spins or ignores the refusal on record.
+      - action: |
+          Change the password back on the school's site (or connect with the
+          new one) and press Connect in Settings.
+        reason: |
+          Connect is a credential fact change: the timetable refresh that was
+          waiting must start on its own, without another press.
+    observe: |
+      The Science Tokyo card in Settings, the status bar, the sync_runs
+      table of sync.db, and the app log.
+    expected: |
+      With the refused password the card says Refused and the timetable
+      refresh waits for the person, while lms.deadlines, lms.course and
+      lms.assign runs still complete over the token. The log shows one
+      refused password POST and no repeated sign-in, and sync_runs shows no
+      new run of the waiting key while nothing changes. After Connect the
+      timetable refresh runs by itself and completes.
+    why_manual: |
+      Needs a real account whose password the school refuses while its LMS
+      token still works, which no fixture reproduces (the session suite does
+      not simulate the school, `approach/school-sign-in-verification`). The
+      planner rule behind it, which keys wait for which credential facts, is
+      covered by the sync_engine unit tests; this check proves the facts the
+      real school produces lead there.
+    covers:
+      - crates/app-core/src/sync_engine/planner.rs
+      - crates/app-core/src/sync_engine/runner.rs
+      - crates/app-core/src/sync_engine/school.rs
+      - crates/app-core/src/sync_engine/snapshot.rs
+      - crates/app-core/src/school_session/**
+      - crates/app-core/src/net/moodle/mod.rs
+      - crates/app-core/src/net/moodle/reader.rs
+      - crates/app-core/src/net/moodle/rest.rs
+    verified: null
+
   - id: IDENTITY-FIRST-YEAR-GATE
     area: identity
     title: A first-year student is refused an upper-level course with a reason

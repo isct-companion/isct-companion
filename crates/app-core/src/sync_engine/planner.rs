@@ -1,12 +1,14 @@
 //! What is due, in which order, and why due work waits. Pure over the
-//! stored facts ([`Inputs`]) and the shell's facts ([`Facts`]), so the rules
-//! can be read (and tested) without a runner.
+//! stored facts ([`Inputs`]), the shell's facts ([`Facts`]) and the school
+//! sessions' credential facts ([`Credentials`]), so the rules can be read
+//! (and tested) without a runner.
 use super::{AccountWait, Held, Network, Priority, Scope, View};
 use crate::{
     lifecycle::SchoolSite,
     lms_ingest::{current_lms_term, lms_course_term, StoredLmsCourse},
-    net::Host,
+    net::{moodle::TokenFact, Host},
     school_auth::SchoolAuthProfile,
+    school_session::{AccountFacts, SignInAdmission, Site},
     sync_state::{self, Dataset, Due, Key, KeyState, Term},
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
@@ -110,7 +112,7 @@ impl Inputs {
     }
 }
 
-/// What the shell has told Core.
+/// What the shell has told Core, and what the runner saw of its reads.
 #[derive(Clone, Debug)]
 pub(crate) struct Facts {
     pub(crate) network: Network,
@@ -118,11 +120,12 @@ pub(crate) struct Facts {
     pub(crate) suspended: bool,
     pub(crate) power_saver: bool,
     pub(crate) resetting: bool,
-    /// Accounts whose last read could not reach the school, and what lets
-    /// their reads go on (`KeyEnd::Blocked`).
-    pub(crate) blocked: HashMap<SchoolAuthProfile, AccountWait>,
     /// Hosts the circuit breaker paused, until when.
     pub(crate) paused: HashMap<Host, DateTime<Utc>>,
+    /// Keys (at a depth) whose read ended waiting, with the credential
+    /// facts' version the sessions decided under: that key is not leased
+    /// again until the facts move (`hold`). It never holds another key.
+    pub(crate) waited: HashMap<(Key, Depth), Waited>,
 }
 
 impl Default for Facts {
@@ -133,30 +136,161 @@ impl Default for Facts {
             suspended: false,
             power_saver: false,
             resetting: false,
-            blocked: HashMap::new(),
             paused: HashMap::new(),
+            waited: HashMap::new(),
         }
     }
 }
 
-impl Facts {
-    /// Why the account's reads wait now: what the last read that could not
-    /// reach its school said, while it still holds. Nothing is predicted
-    /// from the account's state.
-    pub(crate) fn account_hold(
-        &self,
-        profile: SchoolAuthProfile,
-        now: DateTime<Utc>,
-    ) -> Option<Held> {
-        let wait = self.blocked.get(&profile)?;
-        if matches!(wait, AccountWait::Paused { until } if *until <= now) {
-            return None;
+/// A read that ended waiting (`KeyEnd::Blocked`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Waited {
+    /// `Credentials::version` when it ended.
+    pub(crate) version: u64,
+    pub(crate) held: Held,
+}
+
+/// One credential a school read can use.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(crate) enum Credential {
+    /// The LMS mobile token: requests carry it alone, no site session.
+    Token,
+    /// A site session's instance (its cookie jar).
+    Site(Site),
+}
+
+/// The credential facts of both accounts and the LMS token, read from the
+/// school sessions (their owner) when the planner needs them; the planner
+/// keeps none of them.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Credentials {
+    /// `CredentialSignal::version` when they were read.
+    pub(crate) version: u64,
+    pub(crate) science: AccountFacts,
+    pub(crate) tokyo_tech: AccountFacts,
+    /// The LMS token of the Science account's current generation.
+    pub(crate) token: TokenFact,
+}
+
+impl Default for Credentials {
+    /// No school sessions: no account is admitted.
+    fn default() -> Self {
+        Self {
+            version: 0,
+            science: AccountFacts::default(),
+            tokyo_tech: AccountFacts::default(),
+            token: TokenFact::Unchecked,
         }
-        Some(Held::Account {
-            profile,
-            wait: wait.clone(),
-        })
     }
+}
+
+impl Credentials {
+    fn account(&self, profile: SchoolAuthProfile) -> &AccountFacts {
+        match profile {
+            SchoolAuthProfile::Science => &self.science,
+            SchoolAuthProfile::TokyoTech => &self.tokyo_tech,
+        }
+    }
+
+    /// Whether `credential` may serve a read: held, or not yet looked for.
+    fn usable(&self, account: &AccountFacts, credential: Credential) -> bool {
+        match credential {
+            Credential::Token => !matches!(self.token, TokenFact::Absent { .. }),
+            Credential::Site(site) => account.sites.contains(&site),
+        }
+    }
+}
+
+/// The one table of which credentials a read of `key` at `depth` can use,
+/// in the order it tries them; each site session recovers through the
+/// identity's SSO, then a sign-in. The executors read with the same table
+/// (`school::via`).
+pub(crate) fn credential_path(key: &Key, depth: Depth) -> &'static [Credential] {
+    const LMS: Credential = Credential::Site(Site::Lms);
+    match key.dataset {
+        // Every quarter's grid comes from the signed-in dashboard only.
+        Dataset::LmsEnrolment if depth == Depth::Full => &[LMS],
+        Dataset::LmsEnrolment
+        | Dataset::LmsDeadlines
+        | Dataset::LmsCourse
+        | Dataset::LmsAssign
+        | Dataset::LmsHistory => &[Credential::Token, LMS],
+        Dataset::KyomuPage => &[Credential::Site(Site::Kyomu)],
+        Dataset::CatalogOfficial if japanese_key(key).is_some() => {
+            &[Credential::Site(Site::KyomuEnglish)]
+        }
+        Dataset::CatalogOfficial => &[Credential::Site(Site::Kyomu)],
+        Dataset::Reference => &[],
+    }
+}
+
+/// `credential_path` as the token's facts leave it: without the token when
+/// it was found unable to serve one of the key's functions.
+pub(crate) fn usable_path(key: &Key, depth: Depth, token: &TokenFact) -> Vec<Credential> {
+    let unserved = match token {
+        TokenFact::Held { unavailable } => crate::net::moodle::token_functions(key.dataset)
+            .iter()
+            .any(|function| unavailable.contains(function)),
+        TokenFact::Unchecked | TokenFact::Absent { .. } => false,
+    };
+    credential_path(key, depth)
+        .iter()
+        .copied()
+        .filter(|credential| !(unserved && *credential == Credential::Token))
+        .collect()
+}
+
+/// Why `key` at `depth` waits for its account's credentials, if it does.
+/// The account's admission comes first: without it no token or cookie is
+/// used. Then the key waits only if every credential on its path is known
+/// unusable and neither the identity's silent SSO nor a sign-in may get a
+/// new session; the sign-in's admission says what it waits for. This key
+/// at this depth, if its own read ended waiting under the facts as they
+/// still are, waits again (no re-lease until they move); that record never
+/// holds another key.
+fn credential_hold(
+    key: &Key,
+    depth: Depth,
+    facts: &Facts,
+    credentials: &Credentials,
+    now: DateTime<Utc>,
+) -> Option<Held> {
+    let profile = profile_of(key.dataset)?;
+    let account = credentials.account(profile);
+    let wait = |wait: AccountWait| Held::Account { profile, wait };
+    if !account.admitted {
+        return Some(wait(AccountWait::Person));
+    }
+    let path = usable_path(key, depth, &credentials.token);
+    let recoverable = path
+        .iter()
+        .any(|credential| credentials.usable(account, *credential))
+        || account.identity;
+    let derived = if recoverable {
+        None
+    } else {
+        match account.sign_in {
+            SignInAdmission::Allowed => None,
+            SignInAdmission::Person => Some(wait(AccountWait::Person)),
+            SignInAdmission::Paused { until } if until > now => {
+                Some(wait(AccountWait::Paused { until }))
+            }
+            SignInAdmission::Paused { .. } => None,
+        }
+    };
+    derived.or_else(|| {
+        facts
+            .waited
+            .get(&(key.clone(), depth))
+            .filter(|waited| waited.version == credentials.version)
+            .filter(|waited| {
+                !matches!(
+                    waited.held,
+                    Held::Account { wait: AccountWait::Paused { until }, .. } if until <= now
+                )
+            })
+            .map(|waited| waited.held.clone())
+    })
 }
 
 /// How a key came to be wanted; a stronger rule wins when several apply.
@@ -197,7 +331,7 @@ pub(crate) struct Candidate {
 }
 
 /// Which form of a key a read takes, where its reader has two.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum Depth {
     /// An automatic read: only what changes in use, over the light path.
     Light,
@@ -629,11 +763,15 @@ fn evaluate(
 }
 
 /// Why a due key may not be leased now, most fundamental reason first.
+/// `plan` and the runner's lease both ask it, the lease with the facts as
+/// they are at that moment.
 pub(crate) fn hold(
     key: &Key,
     priority: Priority,
+    depth: Depth,
     inputs: &Inputs,
     facts: &Facts,
+    credentials: &Credentials,
     now: DateTime<Utc>,
 ) -> Option<Held> {
     let dataset = key.dataset;
@@ -650,7 +788,7 @@ pub(crate) fn hold(
             until: *until,
         });
     }
-    if let Some(held) = profile_of(dataset).and_then(|profile| facts.account_hold(profile, now)) {
+    if let Some(held) = credential_hold(key, depth, facts, credentials, now) {
         return Some(held);
     }
     if facts.suspended {
@@ -673,6 +811,7 @@ pub(crate) fn hold(
 pub(crate) fn plan(
     inputs: &Inputs,
     facts: &Facts,
+    credentials: &Credentials,
     opens: &[View],
     manual: &HashMap<Key, Option<String>>,
     leased: &HashSet<Key>,
@@ -722,7 +861,21 @@ pub(crate) fn plan(
         .filter(|(key, _)| !leased.contains(key))
         .filter_map(|(key, watch)| {
             let (rank, backoff) = evaluate(&key, &watch, inputs.states.get(&key), now)?;
-            let held = hold(&key, watch.priority, inputs, facts, now).or(backoff);
+            let depth = if watch.rule == Rule::Manual || rank == 0 {
+                Depth::Full
+            } else {
+                Depth::Light
+            };
+            let held = hold(
+                &key,
+                watch.priority,
+                depth,
+                inputs,
+                facts,
+                credentials,
+                now,
+            )
+            .or(backoff);
             let group = Group {
                 dataset: key.dataset,
                 scope: watch.scope.clone(),
@@ -742,11 +895,7 @@ pub(crate) fn plan(
                 group,
                 title: watch.title,
                 locator: watch.locator,
-                depth: if watch.rule == Rule::Manual || rank == 0 {
-                    Depth::Full
-                } else {
-                    Depth::Light
-                },
+                depth,
                 key,
             })
         })

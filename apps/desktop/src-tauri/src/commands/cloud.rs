@@ -149,16 +149,13 @@ pub(crate) async fn enable_cloud_credential_sync(
 ) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     let core = crate::core_ports::core(&app);
-    let outcome = service
+    // A restored credential file reaches sync through the sessions' own
+    // credential signal (`SchoolSessions::import_credentials`).
+    service
         .credential_backup()
         .enable(&password, core.sessions())
         .await
         .map_err(coded)?;
-    // An imported credential file is one of the moments Core reads the
-    // saved credentials again.
-    if outcome == app_core::cloud_credentials::BackupOutcome::Restored {
-        crate::core_ports::core(&app).credentials_imported();
-    }
     Ok(true)
 }
 

@@ -8,6 +8,8 @@
 //! grids, files) gets one, and may go through SSO or a sign-in.
 //! [`ajax::CookieTransport`] is the fallback: AJAX `service.php` with the
 //! dashboard's sesskey, plus Rust HTML parsing of course and activity pages.
+//! Which one a key reads with is decided per key (`reader::Via`), from its
+//! credential path and what is known of the token (`TokenFact`).
 //! A session found gone ends the attempt as `SignInRequired`; recovering it
 //! and reading again is `school_session::run`'s, never this client's.
 //! Both take only [`MoodleFunction`]s, a closed read-only list. The token
@@ -31,14 +33,14 @@ mod token;
 
 pub use functions::MoodleFunction;
 pub(crate) use mapping::months_to_read;
-pub(crate) use reader::LmsReader;
+pub(crate) use reader::{LmsReader, Via};
 #[cfg(feature = "agent")]
 pub(crate) use submission::LmsSubmissions;
 
 use crate::{
     net::{Body, Host, Limits, NetError, NetRequest, Response},
     school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService},
-    school_session::{Attempt, OpError},
+    school_session::{Attempt, CredentialSignal, OpError},
     sync_state::Dataset,
 };
 use adpt_isct::{
@@ -51,8 +53,8 @@ use adpt_isct::{
 use envelope::EnvelopeError;
 use reqwest::Method;
 use serde_json::Value;
-use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashSet};
+use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
 
 /// Why one Moodle read failed. Carries error codes only, never response
@@ -215,6 +217,72 @@ impl std::fmt::Display for KeyError {
     }
 }
 
+/// The token functions a read of `dataset` calls (`site_info` proves the
+/// token first). When the token is known unable to serve any of them, the
+/// key reads with the session cookie only (`sync_engine::planner::usable_path`).
+pub(crate) fn token_functions(dataset: Dataset) -> &'static [MoodleFunction] {
+    use MoodleFunction as F;
+    match dataset {
+        Dataset::LmsEnrolment => &[F::SiteInfo, F::EnrolledCoursesByTimeline, F::DashboardBlocks],
+        Dataset::LmsDeadlines => &[
+            F::SiteInfo,
+            F::ActionEventsByTimesort,
+            F::CalendarUpcomingView,
+        ],
+        Dataset::LmsCourse => &[
+            F::SiteInfo,
+            F::CourseContents,
+            F::PageGetPagesByCourses,
+            F::ResourceGetResourcesByCourses,
+            F::FolderGetFoldersByCourses,
+            F::UrlGetUrlsByCourses,
+            F::AssignGetAssignments,
+            F::ForumGetForumsByCourses,
+            F::ForumGetForumDiscussions,
+        ],
+        Dataset::LmsAssign => &[
+            F::SiteInfo,
+            F::AssignGetAssignments,
+            F::QuizGetQuizzesByCourses,
+            F::AssignGetSubmissionStatus,
+            F::QuizGetUserAttempts,
+            F::QuizGetUserBestGrade,
+        ],
+        Dataset::LmsHistory => &[F::SiteInfo, F::CalendarMonthlyView],
+        Dataset::KyomuPage | Dataset::CatalogOfficial | Dataset::Reference => &[],
+    }
+}
+
+/// The LMS token as sync reads it, for the account generation asked about.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TokenFact {
+    /// Not looked for in this generation yet (the vault not read, or its
+    /// read failed): try-able.
+    Unchecked,
+    /// Confirmed absent: the vault holds none, or the token was refused and
+    /// its renewal failed. `launchable`: a launch with the session cookie
+    /// may still get one (false once the LMS answered that it offers none).
+    Absent { launchable: bool },
+    /// A token is held; the functions it was found unable to serve.
+    Held { unavailable: HashSet<MoodleFunction> },
+}
+
+/// The token of one account generation.
+struct Slot {
+    generation: u64,
+    state: TokenState,
+}
+
+enum TokenState {
+    Absent {
+        launchable: bool,
+    },
+    Held {
+        token: MoodleToken,
+        unavailable: HashSet<MoodleFunction>,
+    },
+}
+
 /// The canonical `sync_runs.source` of an LMS key: the function that reads
 /// its inventory.
 pub(crate) fn source(dataset: Dataset) -> &'static str {
@@ -255,57 +323,103 @@ pub(crate) struct Dashboard {
 /// Reads LMS data for the signed-in Science account.
 pub struct MoodleClient {
     auth: Arc<SchoolAuthService>,
-    /// The token in use and the account generation it was obtained in;
-    /// loaded from the vault or launched at most once at a time (the lock is
-    /// held across the launch). Another generation's token is dropped.
-    token: tokio::sync::Mutex<Option<(u64, MoodleToken)>>,
+    /// One load or launch of the token at a time (held across the launch).
+    flight: tokio::sync::Mutex<()>,
+    /// The token and what is known of it, for the account generation it was
+    /// got in; another generation's reads as unchecked.
+    slot: Mutex<Option<Slot>>,
+    /// Told whenever what `token_fact` says changes.
+    signal: Arc<CredentialSignal>,
 }
 
 impl MoodleClient {
-    pub fn new(auth: Arc<SchoolAuthService>) -> Self {
+    pub(crate) fn new(auth: Arc<SchoolAuthService>, signal: Arc<CredentialSignal>) -> Self {
         Self {
             auth,
-            token: tokio::sync::Mutex::new(None),
+            flight: tokio::sync::Mutex::new(()),
+            slot: Mutex::new(None),
+            signal,
         }
     }
 
-    /// Opens the transport a pull reads its keys with: the token path,
-    /// proven once with `site_info`, or the session cookie when the token
-    /// path is not offered.
-    pub(crate) async fn open(self: &Arc<Self>, attempt: &Attempt) -> Result<LmsReader, KeyError> {
-        match rest::TokenTransport::open(self, attempt).await {
-            Ok((transport, language)) => Ok(LmsReader::new(
-                self.clone(),
-                reader::Transport::Token(transport),
-                language,
-                None,
-            )),
-            Err(error) if error.wants_cookie_fallback() => {
-                log::warn!(target: "app_core::net::moodle", "LMS token transport unavailable ({error}); reading with the session cookie");
-                let (transport, dashboard) = self
-                    .cookie_transport(attempt)
-                    .await
-                    .map_err(KeyError::at("my/"))?;
-                let language = dashboard.config.language.clone();
-                Ok(LmsReader::new(
-                    self.clone(),
-                    reader::Transport::Cookie(transport),
-                    language,
-                    Some(dashboard),
-                ))
-            }
-            Err(error) => Err(KeyError::new(MoodleFunction::SiteInfo.name(), error)),
+    fn slot(&self) -> std::sync::MutexGuard<'_, Option<Slot>> {
+        self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// What is known of the token in account generation `generation`.
+    pub(crate) fn token_fact(&self, generation: u64) -> TokenFact {
+        match self
+            .slot()
+            .as_ref()
+            .filter(|slot| slot.generation == generation)
+        {
+            None => TokenFact::Unchecked,
+            Some(Slot {
+                state: TokenState::Absent { launchable },
+                ..
+            }) => TokenFact::Absent {
+                launchable: *launchable,
+            },
+            Some(Slot {
+                state: TokenState::Held { unavailable, .. },
+                ..
+            }) => TokenFact::Held {
+                unavailable: unavailable.clone(),
+            },
         }
     }
 
-    /// The cookie transport over a freshly read dashboard.
-    async fn cookie_transport(
+    /// The held token of `generation`, or its absence, as it is now.
+    fn current(&self, generation: u64) -> Option<Result<MoodleToken, bool>> {
+        let slot = self.slot();
+        let slot = slot.as_ref().filter(|slot| slot.generation == generation)?;
+        Some(match &slot.state {
+            TokenState::Held { token, .. } => Ok(token.clone()),
+            TokenState::Absent { launchable } => Err(*launchable),
+        })
+    }
+
+    fn set(&self, generation: u64, state: TokenState) {
+        *self.slot() = Some(Slot { generation, state });
+        self.signal.changed();
+    }
+
+    /// The function `function` failed under `token` in a way the session
+    /// cookie may serve: a fact of that token only, dropped with it.
+    pub(super) fn function_unavailable(
         &self,
-        attempt: &Attempt,
-    ) -> Result<(ajax::CookieTransport, Dashboard), MoodleError> {
-        let dashboard = Self::load_dashboard(attempt).await?;
-        let transport = ajax::CookieTransport::new(&dashboard)?;
-        Ok((transport, dashboard))
+        generation: u64,
+        token: &MoodleToken,
+        function: MoodleFunction,
+    ) {
+        let added = match self.slot().as_mut() {
+            Some(Slot {
+                generation: held,
+                state:
+                    TokenState::Held {
+                        token: current,
+                        unavailable,
+                    },
+            }) if *held == generation && current == token => unavailable.insert(function),
+            _ => false,
+        };
+        if added {
+            log::warn!(target: "app_core::net::moodle", "LMS token cannot serve {}; its keys read with the session cookie", function.name());
+            self.signal.changed();
+        }
+    }
+
+    /// `token` was refused right after a renewal: it is no token, and a
+    /// launch gives none that works.
+    pub(super) fn refused(&self, generation: u64, token: &MoodleToken) {
+        let refused = matches!(
+            self.slot().as_ref(),
+            Some(Slot { generation: held, state: TokenState::Held { token: current, .. } })
+                if *held == generation && current == token
+        );
+        if refused {
+            self.set(generation, TokenState::Absent { launchable: false });
+        }
     }
 
     fn envelope_error(attempt: &Attempt, error: EnvelopeError) -> MoodleError {
@@ -453,19 +567,21 @@ impl MoodleClient {
 
     // -- Token lifecycle -----------------------------------------------------
 
-    async fn vault_token(&self) -> Option<MoodleToken> {
+    /// The vault's token; `Err` when the vault could not be read, which
+    /// says nothing about whether one is saved.
+    async fn vault_token(&self) -> Result<Option<MoodleToken>, ()> {
         let auth = self.auth.clone();
         match tokio::task::spawn_blocking(move || {
             auth.load_moodle_token(SchoolAuthProfile::Science)
         })
         .await
         {
-            Ok(Ok(token)) => token,
+            Ok(Ok(token)) => Ok(token),
             Ok(Err(error)) => {
                 log::warn!(target: "app_core::net::moodle", "LMS token vault read failed: {error}");
-                None
+                Err(())
             }
-            Err(_) => None,
+            Err(_) => Err(()),
         }
     }
 
@@ -495,44 +611,87 @@ impl MoodleClient {
     /// The token in use: memory, else the vault, else a new launch.
     pub(crate) async fn token(&self, attempt: &Attempt) -> Result<MoodleToken, MoodleError> {
         let generation = attempt.account_generation();
-        let mut slot = self.token.lock().await;
+        let _flight = self.flight.lock().await;
         attempt.authorize()?;
-        if let Some((_, token)) = slot.as_ref().filter(|(owner, _)| *owner == generation) {
-            return Ok(token.clone());
+        match self.current(generation) {
+            Some(Ok(token)) => return Ok(token),
+            Some(Err(false)) => {
+                return Err(MoodleError::ServiceUnavailable(
+                    "the LMS offers no token".into(),
+                ))
+            }
+            Some(Err(true)) => {}
+            None => match self.vault_token().await {
+                Ok(Some(token)) => {
+                    self.set(
+                        generation,
+                        TokenState::Held {
+                            token: token.clone(),
+                            unavailable: HashSet::new(),
+                        },
+                    );
+                    return Ok(token);
+                }
+                Ok(None) => self.set(generation, TokenState::Absent { launchable: true }),
+                // Unchecked still: a launch may get one all the same.
+                Err(()) => {}
+            },
         }
-        if let Some(token) = self.vault_token().await {
-            *slot = Some((generation, token.clone()));
-            return Ok(token);
-        }
-        let token = self.launch(attempt).await?;
-        self.persist_token(attempt, Some(token.clone())).await;
-        *slot = Some((generation, token.clone()));
-        Ok(token)
+        self.launch_held(attempt, generation).await
     }
 
     /// After `invalidtoken`: drop the token and launch again with the
     /// session cookie. Concurrent callers that saw the same refused token
-    /// join one renewal.
+    /// join one renewal. The refusal applies only to `refused`, the token
+    /// the request used.
     async fn renew_token(
         &self,
         attempt: &Attempt,
         refused: &MoodleToken,
     ) -> Result<MoodleToken, MoodleError> {
         let generation = attempt.account_generation();
-        let mut slot = self.token.lock().await;
+        let _flight = self.flight.lock().await;
         attempt.authorize()?;
-        if let Some((_, current)) = slot
-            .as_ref()
-            .filter(|(owner, current)| *owner == generation && current != refused)
-        {
-            return Ok(current.clone());
+        match self.current(generation) {
+            Some(Ok(current)) if current != *refused => return Ok(current),
+            Some(Err(false)) => {
+                return Err(MoodleError::ServiceUnavailable(
+                    "the LMS offers no token".into(),
+                ))
+            }
+            _ => {}
         }
-        *slot = None;
+        // Refused: absent until a renewal gets another.
+        self.set(generation, TokenState::Absent { launchable: true });
         self.persist_token(attempt, None).await;
-        let token = self.launch(attempt).await?;
-        self.persist_token(attempt, Some(token.clone())).await;
-        *slot = Some((generation, token.clone()));
-        Ok(token)
+        self.launch_held(attempt, generation).await
+    }
+
+    /// A launch, kept as the generation's token. A launch the LMS answers
+    /// with no token marks it absent for good in this generation.
+    async fn launch_held(
+        &self,
+        attempt: &Attempt,
+        generation: u64,
+    ) -> Result<MoodleToken, MoodleError> {
+        match self.launch(attempt).await {
+            Ok(token) => {
+                self.persist_token(attempt, Some(token.clone())).await;
+                self.set(
+                    generation,
+                    TokenState::Held {
+                        token: token.clone(),
+                        unavailable: HashSet::new(),
+                    },
+                );
+                Ok(token)
+            }
+            Err(error @ MoodleError::ServiceUnavailable(_)) => {
+                self.set(generation, TokenState::Absent { launchable: false });
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// One `launch.php` GET with the LMS cookie, redirects off.
