@@ -1338,3 +1338,48 @@ async fn a_sign_out_that_did_not_finish_keeps_the_account_and_can_be_redone() {
             .is_none()
     );
 }
+
+// The printer bills the account name of a verified identity only: a
+// restored identity is verified first (no password), and without saved
+// credentials or an answer from the school there is no name.
+#[cfg(feature = "campus-printer")]
+#[tokio::test]
+async fn the_verified_account_name_needs_a_verified_identity() {
+    let school = School::accepting("right");
+    school.state.lock().unwrap().session = Some("t9".into());
+    let sessions = SchoolSessions::with_transport(school.clone(), science_auth());
+    let restored_generation = restored(&sessions, "t9");
+    assert_eq!(
+        sessions
+            .verified_account_name(SchoolAuthProfile::Science)
+            .await,
+        Ok("user".to_string())
+    );
+    assert!(
+        sessions.fresh(SchoolAuthProfile::Science) > Some(restored_generation),
+        "verified on the way"
+    );
+    assert_eq!(school.passwords(), 0);
+
+    let unsaved = SchoolSessions::with_transport(
+        school.clone(),
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+    );
+    restored(&unsaved, "t9");
+    assert_eq!(
+        unsaved
+            .verified_account_name(SchoolAuthProfile::Science)
+            .await,
+        Err(WebStop::NotConfigured)
+    );
+
+    school.state.lock().unwrap().down = true;
+    let offline = SchoolSessions::with_transport(school, science_auth());
+    restored(&offline, "t9");
+    assert_eq!(
+        offline
+            .verified_account_name(SchoolAuthProfile::Science)
+            .await,
+        Err(WebStop::Unreachable)
+    );
+}

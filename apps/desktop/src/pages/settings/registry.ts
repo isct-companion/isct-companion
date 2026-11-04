@@ -19,6 +19,11 @@ export type SectionDefinition = {
 const SECTIONS: SectionDefinition[] = [
   { id: "accounts", label: "settings.main.schoolAccounts", tier: "basic" },
   { id: "wifi", label: "settings.campusWifi.campusWiFi", tier: "basic" },
+  {
+    id: "printer",
+    label: "settings.campusPrinter.campusPrinter",
+    tier: "basic",
+  },
   { id: "study", label: "settings.academicCalendar.study", tier: "basic" },
   { id: "notifications", label: "common.notifications", tier: "basic" },
   { id: "appearance", label: "settings.appearance.appearance", tier: "basic" },
@@ -64,6 +69,8 @@ export type SectionContext = {
 /** Whether a page exists on this platform at all, regardless of the switch. */
 export function sectionSupported(id: Section, context: SectionContext) {
   if (id === "files") return context.platform === "native-desktop";
+  // Every desktop build compiles the campus printer in; the phones do not.
+  if (id === "printer") return context.platform === "native-desktop";
   if (id === "extensions") return context.extensionsAvailable;
   // ScienceTokyo Wi-Fi sign-in is compiled only into macOS builds.
   if (id === "wifi") return nativeOs() === "macos";
@@ -138,6 +145,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "campus-wifi",
     title: "settings.campusWifi.sciencetokyoWiFi",
     terms: "wifi wi-fi wireless network internet campus 無線LAN ネットワーク",
+  },
+  {
+    section: "printer",
+    id: "campus-printer",
+    title: "settings.campusPrinter.printer",
+    terms: "print printer kyocera lpd student id 印刷 プリンタ 打印 学籍番号",
   },
   {
     section: "study",

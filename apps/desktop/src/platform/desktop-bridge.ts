@@ -378,6 +378,43 @@ export const CAMPUS_WIFI_STEPS = [
   "verifying",
 ] as const;
 export type CampusWifiStep = (typeof CAMPUS_WIFI_STEPS)[number];
+/** Whose jobs the campus printer would bill (Core's `PrinterAccount`). */
+export type PrinterAccount =
+  | { kind: "ready"; studentId: string }
+  | { kind: "not-connected" }
+  | { kind: "not-student-id" }
+  | { kind: "needs-attention" }
+  | { kind: "unverified" };
+export type CampusPrinterStatus = {
+  account: PrinterAccount;
+  reach: "reachable" | "unreachable";
+};
+/** How adding the printer to the system ended. */
+export type CampusPrinterSetup =
+  | { kind: "added" }
+  | { kind: "cancelled" }
+  | { kind: "account"; account: PrinterAccount }
+  | { kind: "failed" };
+export type CampusPrintOptions = {
+  copies: number;
+  duplex: "off" | "long-edge" | "short-edge" | null;
+  color: "color" | "mono" | null;
+};
+/** The Windows print window's file and this device's look. */
+export type CampusPrintRequest = {
+  fileName: string;
+  locale: string | null;
+  appearance: string | null;
+  theme: string | null;
+};
+export type CampusPrintOutcome =
+  | { kind: "printed"; copies: number }
+  | { kind: "account"; account: PrinterAccount }
+  | { kind: "not-printable" }
+  | { kind: "invalid-copies" }
+  | { kind: "unreadable" }
+  | { kind: "unreachable"; copy: number }
+  | { kind: "failed"; copy: number };
 /** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {
@@ -579,6 +616,17 @@ export interface DesktopBridge {
     leaveScienceTokyoX: boolean,
     onStep: (step: CampusWifiStep) => void,
   ): Promise<CampusWifiOutcome>;
+  /** The verified student ID and whether the printer answers, found once. */
+  campusPrinterStatus?(): Promise<CampusPrinterStatus>;
+  /** macOS and Linux: adds the InstitutePrinter queue behind the system's
+   * administrator prompt, which shows `prompt` on macOS. */
+  installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
+  /** Windows: adds `label` to File Explorer's PDF right-click menu. */
+  addCampusPrintMenu?(label: string): Promise<CampusPrinterSetup>;
+  /** Windows print window: its file and this device's look. */
+  campusPrintRequest?(): Promise<CampusPrintRequest>;
+  /** Windows print window: sends its file to the printer. */
+  campusPrint?(options: CampusPrintOptions): Promise<CampusPrintOutcome>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
@@ -787,6 +835,12 @@ export function createTauriDesktopBridge(
       };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
+    campusPrinterStatus: () => result("campus_printer_status"),
+    installCampusPrinter: (prompt) =>
+      result("install_campus_printer", { prompt }),
+    addCampusPrintMenu: (label) => result("add_campus_print_menu", { label }),
+    campusPrintRequest: () => result("campus_print_request"),
+    campusPrint: (options) => result("campus_print", { options }),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();
@@ -1035,6 +1089,9 @@ declare global {
     __ISCT_COMPANION_NATIVE_OS__?: NativeOs;
     /** Set by the same bootstrap: the material the native window draws. */
     __ISCT_COMPANION_WINDOW_MATERIAL__?: "mica" | "";
+    /** Set by a window that shows one view instead of the app: the
+     * Windows campus print window. */
+    __ISCT_COMPANION_VIEW__?: "campus-print";
   }
 }
 

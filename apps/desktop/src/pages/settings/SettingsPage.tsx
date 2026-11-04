@@ -21,6 +21,7 @@ import { AgentSettings } from "./AgentSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { BackupSettings } from "./BackupSettings";
+import { CampusPrinterSettings } from "./CampusPrinterSettings";
 import { CampusWifiSettings } from "./CampusWifiSettings";
 import { DataUpdatesSettings } from "./DataUpdatesSettings";
 import { DeveloperSettings, useDeveloperMode } from "./DeveloperSettings";
@@ -262,6 +263,8 @@ function SettingsBody({
       />
     ) : current === "wifi" ? (
       <CampusWifiSettings notify={notify} />
+    ) : current === "printer" ? (
+      <CampusPrinterSettings notify={notify} />
     ) : current === "agent" ? (
       <AgentSettings data={data} update={update} notify={notify} />
     ) : current === "extensions" ? (

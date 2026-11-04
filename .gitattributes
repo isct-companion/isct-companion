@@ -1,3 +1,5 @@
 # Public parser fixtures retain captured HTML whitespace and pinned byte hashes.
 crates/app-core/tests/fixtures/kyomu/*.html text eol=lf whitespace=-blank-at-eol,-blank-at-eof
 .project/events.jsonl merge=union
+# Kyocera's PPD may be redistributed only unaltered: keep it byte-for-byte.
+crates/adpt-printer/assets/*.PPD -text

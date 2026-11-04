@@ -25,6 +25,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "adpt-printer"
+version = "1.0.0-rc.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "socket2",
+]
+
+[[package]]
 name = "aes"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -85,6 +94,7 @@ name = "app-core"
 version = "1.0.0-rc.1"
 dependencies = [
  "adpt-isct",
+ "adpt-printer",
  "base64 0.23.1",
  "bytes",
  "chrono",
@@ -2756,6 +2766,7 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-collections",
+ "windows-registry",
  "windows-version",
 ]
 

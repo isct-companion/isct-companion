@@ -13,9 +13,12 @@ workspace-archives = ["dep:zip"]
 # The tools of the local MCP server; only the desktop serves one.
 agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
+# The campus printer; desktop only, the phones never print to it.
+campus-printer = ["dep:adpt-printer", "tokio/net"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
+adpt-printer = { path = "../adpt-printer", optional = true }
 log = "0.4"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
