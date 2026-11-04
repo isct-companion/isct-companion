@@ -70,6 +70,10 @@ objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSHTTPCookie", "NSSet", "NSString", "NSUUID", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
 
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+# The login name the campus printer queue is restricted to (campus_printer_cups.rs).
+libc = "0.2"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test
 # notifications and reminder claims reflect the native result.

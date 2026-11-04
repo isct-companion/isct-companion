@@ -30,11 +30,17 @@ function outcomeText(outcome: CampusPrintOutcome) {
     case "unreadable":
       return t("campusPrint.window.couldNotReadTheFile");
     case "unreachable":
-      return outcome.copy > 1
-        ? t("campusPrint.window.unreachableFromCopy", { copy: outcome.copy })
+      return outcome.printed > 0
+        ? t("campusPrint.window.unreachableAfter", { printed: outcome.printed })
         : t("settings.campusPrinter.cannotReachThePrinter");
-    case "failed":
-      return t("campusPrint.window.printerRefusedCopy", { copy: outcome.copy });
+    case "not-printed":
+      return outcome.printed > 0
+        ? t("campusPrint.window.notPrintedAfter", { printed: outcome.printed })
+        : t("campusPrint.window.notPrinted");
+    case "uncertain":
+      return outcome.printed > 0
+        ? t("campusPrint.window.uncertainAfter", { printed: outcome.printed })
+        : t("campusPrint.window.uncertain");
   }
 }
 
@@ -143,8 +149,10 @@ export function CampusPrintWindow() {
         {!valid && copies !== "" ? t("campusPrint.window.copiesRange") : result}
       </p>
       <footer>
+        {/* Closing never cancels a send: it runs on to its end in the
+            background, bounded by the LPD timeouts, and logs its result. */}
         <UiButton className="button" onClick={close}>
-          {t(sent ? "common.done" : "common.cancel")}
+          {t(sent ? "common.done" : sending ? "common.close" : "common.cancel")}
         </UiButton>
         {!sent && (
           <UiButton

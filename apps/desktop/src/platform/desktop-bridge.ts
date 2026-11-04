@@ -413,8 +413,9 @@ export type CampusPrintOutcome =
   | { kind: "not-printable" }
   | { kind: "invalid-copies" }
   | { kind: "unreadable" }
-  | { kind: "unreachable"; copy: number }
-  | { kind: "failed"; copy: number };
+  | { kind: "unreachable"; printed: number }
+  | { kind: "not-printed"; printed: number }
+  | { kind: "uncertain"; printed: number };
 /** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {

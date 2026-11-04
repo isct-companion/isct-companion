@@ -42,7 +42,8 @@ pub async fn install_campus_printer(
         .0
         .try_lock()
         .map_err(|_| "The printer is already being added.".to_string())?;
-    let install = match core_ports::core(&app).campus_printer_install().await {
+    let login = login_name().map_err(shell)?;
+    let install = match core_ports::core(&app).campus_printer_install(login).await {
         Ok(install) => install,
         Err(account) => return Ok(CampusPrinterSetup::Account { account }),
     };
@@ -85,8 +86,35 @@ fn run(cache: &Path, install: &CupsInstall, prompt: &str) -> CampusPrinterSetup 
     }
 }
 
+/// This process's login name, from the user database rather than `$USER`,
+/// so the queue goes to the account that is really running the app.
+fn login_name() -> io::Result<String> {
+    // SAFETY: getuid cannot fail. getpwuid_r writes only into `entry` and
+    // `buffer`, both outliving the call, and `found` points at `entry` or is
+    // null; `pw_name` then points into `buffer`, which is still alive.
+    unsafe {
+        let mut entry: libc::passwd = std::mem::zeroed();
+        let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        let code = libc::getpwuid_r(
+            libc::getuid(),
+            &mut entry,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut found,
+        );
+        if code != 0 || found.is_null() || entry.pw_name.is_null() {
+            return Err(io::Error::other("this user has no user database entry"));
+        }
+        std::ffi::CStr::from_ptr(entry.pw_name)
+            .to_str()
+            .map(str::to_owned)
+            .map_err(|_| io::Error::other("the login name is not UTF-8"))
+    }
+}
+
 #[cfg(target_os = "macos")]
-fn elevate(helper: &Path, args: &[String; 2], prompt: &str) -> io::Result<Elevated> {
+fn elevate(helper: &Path, args: &[String; 3], prompt: &str) -> io::Result<Elevated> {
     // Every value goes in as an argument and through `quoted form of`, so no
     // text reaches the shell unquoted.
     let output = Command::new("/usr/bin/osascript")
@@ -94,7 +122,7 @@ fn elevate(helper: &Path, args: &[String; 2], prompt: &str) -> io::Result<Elevat
             "-e",
             "on run argv",
             "-e",
-            "do shell script (quoted form of item 1 of argv) & \" \" & (quoted form of item 2 of argv) & \" \" & (quoted form of item 3 of argv) with prompt (item 4 of argv) with administrator privileges",
+            "do shell script (quoted form of item 1 of argv) & \" \" & (quoted form of item 2 of argv) & \" \" & (quoted form of item 3 of argv) & \" \" & (quoted form of item 4 of argv) with prompt (item 5 of argv) with administrator privileges",
             "-e",
             "end run",
         ])
@@ -114,7 +142,7 @@ fn elevate(helper: &Path, args: &[String; 2], prompt: &str) -> io::Result<Elevat
 }
 
 #[cfg(target_os = "linux")]
-fn elevate(helper: &Path, args: &[String; 2], _prompt: &str) -> io::Result<Elevated> {
+fn elevate(helper: &Path, args: &[String; 3], _prompt: &str) -> io::Result<Elevated> {
     let output = Command::new("pkexec").arg(helper).args(args).output()?;
     Ok(match output.status.code() {
         Some(0) => Elevated::Done,

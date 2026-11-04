@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 pub const PRINTER_NAME: &str = "InstitutePrinter";
+/// The helper's first argument in its install role.
+pub const INSTALL: &str = "install";
 pub const BACKEND_NAME: &str = "titech-lpd";
 pub const BACKEND_MODE: u32 = 0o700;
 pub const PPD_MODE: u32 = 0o644;
@@ -65,8 +67,22 @@ pub fn parse_device_uri(uri: &str) -> Result<(StudentId, String), String> {
     Ok((student, format!("{DELEGATE_SCHEME}{printer}")))
 }
 
-/// `lpadmin`'s arguments that create the queue from `ppd`.
-pub fn lpadmin_args(student: &StudentId, ppd: &str) -> Vec<String> {
+/// A login name as CUPS's allow list takes it: letters, digits, `.`, `_`
+/// and `-`, not starting with `-`. That leaves out `,` (a list separator),
+/// `@` (a group) and anything a shell or CUPS would read differently.
+pub fn is_login_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// `lpadmin`'s arguments that create or update the queue from `ppd`: only
+/// `login` may print to it, so another account on the computer cannot bill
+/// this student, and it is never shared on the network.
+pub fn lpadmin_args(student: &StudentId, login: &str, ppd: &str) -> Vec<String> {
     let mut args = vec![
         "-p".to_string(),
         PRINTER_NAME.to_string(),
@@ -75,6 +91,10 @@ pub fn lpadmin_args(student: &StudentId, ppd: &str) -> Vec<String> {
         device_uri(student),
         "-P".to_string(),
         ppd.to_string(),
+        "-u".to_string(),
+        format!("allow:{login}"),
+        "-o".to_string(),
+        "printer-is-shared=false".to_string(),
     ];
     for (name, value) in INSTALLABLE_OPTIONS {
         args.push("-o".to_string());

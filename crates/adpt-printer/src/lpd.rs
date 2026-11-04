@@ -83,6 +83,19 @@ impl fmt::Display for LpdError {
 
 impl std::error::Error for LpdError {}
 
+/// The step after the whole data file: its terminating byte and the answer.
+const DATA_END: &str = "end of print data";
+
+impl LpdError {
+    /// The whole file reached the printer and only its answer is missing,
+    /// so the job may have printed. Every other failure is a job the
+    /// printer did not take: refused, or cut off before its data was all
+    /// sent.
+    pub fn may_have_printed(&self) -> bool {
+        matches!(self, Self::Transfer { step: DATA_END, .. })
+    }
+}
+
 /// Sends one job of `data_len` bytes from `data` to `queue` on `server`.
 pub fn send(
     server: SocketAddr,
@@ -120,7 +133,7 @@ pub fn send(
             announced: data_len,
         });
     }
-    command(&mut stream, &mut replies, &[0], "print data")
+    command(&mut stream, &mut replies, &[0], DATA_END)
 }
 
 fn command(

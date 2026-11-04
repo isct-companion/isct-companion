@@ -154,6 +154,7 @@ fn send_reports_a_rejected_queue_and_a_closed_port() {
     };
     let err = send(server, "nosuchqueue", &job, &mut &b"x"[..], 1).unwrap_err();
     handle.join().unwrap();
+    assert!(!err.may_have_printed(), "a refused job is not printed");
     assert!(
         matches!(
             err,
@@ -199,6 +200,7 @@ fn send_rejects_data_shorter_than_announced() {
     };
     let err = send(server, "kyocera", &job, &mut &b"short"[..], 100).unwrap_err();
     handle.join().unwrap();
+    assert!(!err.may_have_printed());
     assert!(
         matches!(
             err,
@@ -209,4 +211,42 @@ fn send_rejects_data_shorter_than_announced() {
         ),
         "{err}"
     );
+}
+
+// The whole file went out and the printer closed without answering: the
+// job may have printed, so the person must check before sending it again.
+// Data cut short never ends the job, so that one did not print.
+#[test]
+fn a_job_without_the_final_answer_may_have_printed() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(conn.try_clone().unwrap());
+        read_line(&mut reader);
+        conn.write_all(&[0]).unwrap();
+        let header = read_line(&mut reader);
+        conn.write_all(&[0]).unwrap();
+        read_file(&mut reader, &header);
+        conn.write_all(&[0]).unwrap();
+        let header = read_line(&mut reader);
+        conn.write_all(&[0]).unwrap();
+        read_file(&mut reader, &header);
+        // No answer to the data file: the connection just closes.
+    });
+    let user = student();
+    let job = Job {
+        number: 1,
+        host: "h",
+        user: &user,
+        title: "t",
+    };
+    let err = send(server, "kyocera", &job, &mut &b"data"[..], 4).unwrap_err();
+    handle.join().unwrap();
+    assert!(err.may_have_printed(), "{err}");
+    assert!(!LpdError::DataChanged {
+        sent: 1,
+        announced: 2
+    }
+    .may_have_printed());
 }

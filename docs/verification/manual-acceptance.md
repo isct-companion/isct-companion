@@ -2453,16 +2453,22 @@ campus network or the Science Tokyo VPN for the printing steps.
    Printers & Scanners (Linux: the printer settings or `lpstat -v`).
    - *Why:* One root step installs the titech-lpd backend and the queue. The
      queue's device URI must carry the student ID
-     (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root.
+     (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
+     `lpstat -l -p InstitutePrinter` must allow only this login and the
+     queue must not be shared.
 4. Print the PDF from Preview (Linux: any viewer) to InstitutePrinter,
    two copies, two-sided, black and white, then check the billing page.
    - *Why:* Only the real printer shows that a non-B student ID is accepted and
      billed, that copies arrive as two jobs, and that the PPD's duplex
      and color options reach it through the stock CUPS filters.
-5. Press 追加 once more, print again, then remove InstitutePrinter in
-   the system printer settings.
-   - *Why:* Installing again must overwrite the same queue without error, and
-     removal belongs to the system; nothing in the app tracks it.
+5. Pause the queue, print once, press 追加 again, resume the queue,
+   then print from another login on the same computer.
+   - *Why:* Installing again updates the same queue in place, so the waiting
+     job must survive it and print. CUPS refuses the other login,
+     because nobody else may print on this student's bill. A real
+     print run is the only place both show.
+6. Remove InstitutePrinter in the system printer settings.
+   - *Why:* Removal belongs to the system; nothing in the app tracks it.
 
 **Where to look**
 
@@ -2473,8 +2479,8 @@ device URI, the printed pages, and the billing page.
 
 The page reports the network correctly, the admin prompt cancels
 cleanly, the queue bills the master's student ID, prints two
-two-sided black-and-white copies, survives a reinstall, and is removed
-by the system settings.
+two-sided black-and-white copies, keeps a waiting job through a
+reinstall, refuses the other login, and the system settings remove it.
 
 **Why this is manual**
 
@@ -2521,7 +2527,13 @@ multi-page PDF, and the print billing page.
    - *Why:* Only the real printer shows that the PJL header sets duplex,
      binding and render mode, that each copy is one job, and that the
      jobs bill the account's student ID.
-5. Double-click the PDF and open its Open with list.
+5. Start a 5-copy print and press 关闭 while it is sending, then read
+   the application log and the printed pages.
+   - *Why:* Closing only closes the window. The send runs to its end in the
+     background and logs `[campus-printer] print`. The pages show
+     whether all five arrived; a log line without them means the send
+     was dropped with the window.
+6. Double-click the PDF and open its Open with list.
    - *Why:* The entry is one extra verb; the default PDF app and Open with
      must stay as they were.
 

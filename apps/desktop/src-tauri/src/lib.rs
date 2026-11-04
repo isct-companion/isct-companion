@@ -218,10 +218,17 @@ pub fn run() {
     // Registered first, so a second launch hands over before anything starts.
     #[cfg(target_os = "windows")]
     // The PDF right-click entry starts the app with a file to print; a
-    // running app gets that launch's arguments here.
+    // running app gets that launch's arguments here. This runs inside the
+    // plugin's window-message handler, where building a window can deadlock
+    // on Windows, so the print window is built from a task.
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
         match campus_printer_windows::print_request(args) {
-            Some(file) => campus_printer_windows::open_print_window(app, file),
+            Some(file) => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    campus_printer_windows::open_print_window(&app, file);
+                });
+            }
             None => window_close::show_main(app),
         }
     }));

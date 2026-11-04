@@ -100,7 +100,7 @@ pub async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub struct CupsInstall {
     pub helper: &'static [u8],
-    pub args: [String; 2],
+    pub args: [String; 3],
 }
 
 /// How a print from the Windows print window ended.
@@ -118,11 +118,17 @@ pub enum CampusPrintOutcome {
     InvalidCopies,
     /// The file could not be read: nothing was sent.
     Unreadable,
-    /// No connection before copy `copy` (counted from 1): it and the later
-    /// ones were not sent.
-    Unreachable { copy: u32 },
-    /// The printer refused or dropped copy `copy`.
-    Failed { copy: u32 },
+    /// No connection for the next copy: it and the later ones were not
+    /// sent. `printed` copies before it were accepted.
+    Unreachable { printed: u32 },
+    /// The printer refused the next copy, or the connection failed before
+    /// its data was all sent: it was not printed, nor the later ones.
+    /// `printed` copies before it were accepted.
+    NotPrinted { printed: u32 },
+    /// The next copy's data all went out and the printer never answered:
+    /// it may have printed, so the person checks the printer before sending
+    /// it again. `printed` copies before it were accepted.
+    Uncertain { printed: u32 },
 }
 
 #[cfg(windows)]
@@ -146,15 +152,23 @@ impl Core {
         PrinterAccount::of(self.sessions().verified_account_name(STUDENT_ACCOUNT).await)
     }
 
-    /// The queue's root step for the verified student ID, or why there is
-    /// none. Installing again overwrites the same queue.
+    /// The queue's root step for the verified student ID, printable only by
+    /// `login` (the system account installing it, which the helper checks),
+    /// or why there is no ID. Installing again updates the same queue.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    pub async fn campus_printer_install(&self) -> Result<CupsInstall, PrinterAccount> {
+    pub async fn campus_printer_install(
+        &self,
+        login: String,
+    ) -> Result<CupsInstall, PrinterAccount> {
         let account = self.campus_printer_account().await;
         let student = account.student().ok_or(account)?;
         Ok(CupsInstall {
             helper: adpt_printer::cups::HELPER,
-            args: [adpt_printer::cups::INSTALL.into(), student.to_string()],
+            args: [
+                adpt_printer::cups::INSTALL.into(),
+                student.to_string(),
+                login,
+            ],
         })
     }
 
@@ -171,21 +185,27 @@ impl Core {
         let Some(student) = account.student() else {
             return CampusPrintOutcome::Account { account };
         };
+        // The send runs to its end even when the window closes first (it
+        // is bounded by the LPD client's timeouts), so it logs its own result.
         let sent = tokio::task::spawn_blocking(move || {
-            document::print(adpt_printer::ADDRESS, &student, &path, &options)
+            let sent = document::print(adpt_printer::ADDRESS, &student, &path, &options);
+            log::info!("[campus-printer] print {sent:?}");
+            sent
         })
         .await;
-        log::info!("[campus-printer] print {sent:?}");
         match sent {
             Ok(Ok(copies)) => CampusPrintOutcome::Printed { copies },
             Ok(Err(document::PrintError::NotPrintable)) => CampusPrintOutcome::NotPrintable,
             Ok(Err(document::PrintError::Copies)) => CampusPrintOutcome::InvalidCopies,
             Ok(Err(document::PrintError::File(_))) | Err(_) => CampusPrintOutcome::Unreadable,
-            Ok(Err(document::PrintError::Lpd {
-                copy,
-                error: lpd::LpdError::Connect(_),
-            })) => CampusPrintOutcome::Unreachable { copy },
-            Ok(Err(document::PrintError::Lpd { copy, .. })) => CampusPrintOutcome::Failed { copy },
+            Ok(Err(document::PrintError::Lpd { copy, error })) => {
+                let printed = copy - 1;
+                match error {
+                    lpd::LpdError::Connect(_) => CampusPrintOutcome::Unreachable { printed },
+                    error if error.may_have_printed() => CampusPrintOutcome::Uncertain { printed },
+                    _ => CampusPrintOutcome::NotPrinted { printed },
+                }
+            }
         }
     }
 }

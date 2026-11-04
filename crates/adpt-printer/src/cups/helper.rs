@@ -1,11 +1,14 @@
-//! The root CUPS helper, one executable with two roles chosen by its name:
+//! The root CUPS helper, one executable with two roles:
 //!
-//! - `institute-printer-helper install <student ID>`, run once as root by
-//!   the app's admin prompt: installs a copy of itself as the `titech-lpd`
-//!   backend and recreates the `InstitutePrinter` queue.
-//! - `titech-lpd`, run by CUPS as root for each job: reads the student ID
-//!   from the queue's device URI, then delegates the upload to the system
-//!   lpd backend with that ID as the LPD user, one upload per copy.
+//! - `institute-printer-helper install <student ID> <login name>`, run once
+//!   as root by the app's admin prompt: installs a copy of itself as the
+//!   `titech-lpd` backend and creates or updates the `InstitutePrinter`
+//!   queue, for that login only.
+//! - anything else is CUPS running it as the `titech-lpd` backend, as root:
+//!   with no arguments to discover it, or with a job's 5 or 6 arguments,
+//!   when argv[0] is the device URI rather than a name. It reads the student
+//!   ID from the device URI, then delegates the upload to the system lpd
+//!   backend with that ID as the LPD user, one upload per copy.
 //!
 //! It uses std only: `build.rs` compiles this file with rustc alone for the
 //! library to embed, and the shared modules come in by path.
@@ -22,17 +25,15 @@ mod student_id;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let named = |name: &str| {
-        args.first()
-            .and_then(|program| std::path::Path::new(program).file_name())
-            .is_some_and(|file| file == name)
-    };
-    let result = if named(queue::BACKEND_NAME) {
-        unix::backend(&args)
-    } else if args.len() == 3 && args[1] == "install" {
-        unix::install(&args[2]).map(|()| 0)
+    // A CUPS job's first argument is a job id, never `install`; argv[0]
+    // says nothing (CUPS sets it to the device URI).
+    let result = if args.get(1).map(String::as_str) == Some(queue::INSTALL) {
+        match &args[..] {
+            [_, _, student, login] => unix::install(student, login).map(|()| 0),
+            _ => Err("usage: institute-printer-helper install <student ID> <login name>".into()),
+        }
     } else {
-        Err("usage: institute-printer-helper install <student ID>".to_string())
+        unix::backend(&args)
     };
     match result {
         Ok(code) => std::process::exit(code),
@@ -67,13 +68,16 @@ mod unix {
         fn geteuid() -> u32;
     }
 
-    pub(super) fn install(student: &str) -> Result<(), String> {
+    pub(super) fn install(student: &str, login: &str) -> Result<(), String> {
         // SAFETY: geteuid takes no arguments and cannot fail.
         if unsafe { geteuid() } != 0 {
             return Err("the installer must run as root".to_string());
         }
         let student =
             StudentId::parse(student).ok_or_else(|| format!("not a student ID: {student}"))?;
+        if !queue::is_login_name(login) {
+            return Err(format!("not a login name: {login:?}"));
+        }
 
         let serverbin = cups_serverbin();
         let backend_path = serverbin.join("backend").join(BACKEND_NAME);
@@ -85,9 +89,9 @@ mod unix {
         let backend = fs::read(&me).map_err(|e| format!("cannot read {}: {e}", me.display()))?;
         install_file_atomic(&backend_path, &backend, BACKEND_MODE)?;
 
+        // `lpadmin -p` updates a queue of the same name in place, keeping
+        // its waiting jobs: installing again overwrites it.
         let lpadmin = command_path("/usr/sbin/lpadmin", "lpadmin");
-        // Recreated from scratch, so no option of an earlier queue lingers.
-        let _ = Command::new(&lpadmin).arg("-x").arg(PRINTER_NAME).output();
 
         let ppd_path = temp_path_next_to(&env::temp_dir().join(format!("{PRINTER_NAME}.ppd")));
         let created = (|| {
@@ -98,7 +102,7 @@ mod unix {
             )?;
             run(
                 &lpadmin,
-                &queue::lpadmin_args(&student, path_str(&ppd_path)?),
+                &queue::lpadmin_args(&student, login, path_str(&ppd_path)?),
             )
         })();
         let _ = fs::remove_file(&ppd_path);
@@ -113,7 +117,7 @@ mod unix {
             &[PRINTER_NAME.to_string()],
         )?;
 
-        println!("Installed {PRINTER_NAME} for {student}.");
+        println!("Installed {PRINTER_NAME} for {student}, used by {login}.");
         match kyocera_driver {
             Ok(()) => println!("Rendering: Kyocera driver software."),
             Err(reason) => println!("Rendering: standard CUPS filters ({reason})."),

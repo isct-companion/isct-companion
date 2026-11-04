@@ -27,14 +27,6 @@ fn the_device_uri_carries_the_student_id_to_the_backend() {
     ] {
         assert!(parse_device_uri(bad).is_err(), "{bad}");
     }
-    let args = lpadmin_args(&student(), "/tmp/q.ppd");
-    assert_eq!(
-        args[..7],
-        ["-p", PRINTER_NAME, "-E", "-v", &uri, "-P", "/tmp/q.ppd"]
-    );
-    assert!(args
-        .windows(2)
-        .any(|pair| pair == ["-o", "Option18=HardDisk"]));
 }
 
 #[test]
@@ -161,4 +153,84 @@ fn the_helper_is_embedded() {
     assert!(magic == [0xcf, 0xfa, 0xed, 0xfe] || magic == [0xca, 0xfe, 0xba, 0xbe]);
     #[cfg(target_os = "linux")]
     assert_eq!(magic, b"\x7fELF");
+}
+
+// The queue is the installing login's alone and never shared, so nobody
+// else, on this computer or the network, prints on this student's bill.
+#[test]
+fn the_queue_takes_only_the_installing_login() {
+    let uri = device_uri(&student());
+    let args = lpadmin_args(&student(), "taro.y", "/tmp/q.ppd");
+    assert_eq!(
+        args[..11],
+        [
+            "-p",
+            PRINTER_NAME,
+            "-E",
+            "-v",
+            &uri,
+            "-P",
+            "/tmp/q.ppd",
+            "-u",
+            "allow:taro.y",
+            "-o",
+            "printer-is-shared=false"
+        ]
+    );
+    assert!(args
+        .windows(2)
+        .any(|pair| pair == ["-o", "Option18=HardDisk"]));
+
+    for login in ["taro", "taro.y", "s_24m-1", "_spool"] {
+        assert!(is_login_name(login), "{login}");
+    }
+    let long = "a".repeat(256);
+    for login in ["", "-x", "a,b", "@admin", "a b", "a;b", "名前", &long] {
+        assert!(!is_login_name(login), "{login:?}");
+    }
+}
+
+// CUPS runs a backend with the device URI as argv[0], so the role comes
+// from the arguments, never the name: no arguments discovers it, a job's
+// arguments reach the URI check, and only `install` is the installer.
+#[test]
+fn the_helper_is_the_backend_whatever_argv0_says() {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+    let dir = std::env::temp_dir().join(format!("adpt-printer-helper-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let helper = dir.join("institute-printer-helper");
+    fs::write(&helper, crate::cups::HELPER).unwrap();
+    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+    let uri = "titech-lpd://172.20.83.212/kyocera?student=24M12345";
+    let run = |args: &[&str], device: &str| {
+        Command::new(&helper)
+            .arg0(uri)
+            .args(args)
+            .env("DEVICE_URI", device)
+            .output()
+            .unwrap()
+    };
+
+    let discovered = run(&[], uri);
+    assert!(discovered.status.success());
+    assert!(String::from_utf8_lossy(&discovered.stdout).starts_with("network titech-lpd "));
+
+    let job = run(
+        &["7", "user", "title", "1", "", "/nonexistent.ps"],
+        "titech-lpd://172.20.83.212/kyocera",
+    );
+    assert!(!job.status.success());
+    let stderr = String::from_utf8_lossy(&job.stderr);
+    assert!(stderr.contains("names no student ID"), "{stderr}");
+
+    let install = run(&["install", "24M12345"], uri);
+    assert!(String::from_utf8_lossy(&install.stderr).contains("usage:"));
+    let install = run(&["install", "24M12345", "taro"], uri);
+    assert!(
+        String::from_utf8_lossy(&install.stderr).contains("must run as root"),
+        "the install role, refused only for lack of root"
+    );
+    fs::remove_dir_all(&dir).unwrap();
 }
