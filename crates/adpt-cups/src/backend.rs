@@ -1,18 +1,19 @@
 //! The `titech-lpd` CUPS backend, run by CUPS as root (mode 0700). With no
-//! arguments CUPS is discovering backends; with a job's 5 or 6 arguments
-//! it reads the student ID from `DEVICE_URI` and hands the upload to the
-//! system lpd backend with that ID as the LPD user, once per copy, so the
-//! printer never has to interpret a copy count.
+//! arguments CUPS is discovering backends; with a job's 5 or 6 arguments it
+//! reads the student ID from `DEVICE_URI` and becomes the system lpd
+//! backend (exec) for the same job, with that ID as the user and the plain
+//! `lpd://` URI. Everything else stays as CUPS gave it, so copies keep the
+//! lpd backend's own meaning: a job on stdin was already copied by the
+//! filters and goes once, and a job given as a file is sent once per copy.
 
 use crate::queue;
 use std::env;
-use std::fs::{self, File};
-use std::io::{self, Write};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The exit code for CUPS, or why the job failed.
+/// The exit code for CUPS, or why the job failed. A job never returns
+/// here once the lpd backend has taken over.
 pub fn run(args: &[String]) -> Result<i32, String> {
     if args.len() == 1 {
         println!(r#"network titech-lpd "Unknown" "Science Tokyo campus printer""#);
@@ -28,42 +29,16 @@ pub fn run(args: &[String]) -> Result<i32, String> {
     let device_uri = env::var("DEVICE_URI").map_err(|_| "DEVICE_URI is not set".to_string())?;
     let (student, delegate_uri) = queue::parse_device_uri(&device_uri)?;
     let delegate = lpd_backend()?;
-    let copies = queue::parse_copies(&args[4])?;
-    let stdin_file = if args.len() == 6 && copies > 1 {
-        Some(spool_stdin_to_temp()?)
-    } else {
-        None
-    };
-
     eprintln!(
-        "INFO: titech-lpd: delegating to {} as {student}, {copies} upload(s)",
+        "INFO: titech-lpd: handing the job to {} as {student}",
         delegate.display()
     );
-
-    let result = (|| {
-        for copy_index in 0..copies {
-            let status = Command::new(&delegate)
-                .args(queue::delegate_args(
-                    args,
-                    copy_index,
-                    &student,
-                    stdin_file.as_deref(),
-                ))
-                .env("DEVICE_URI", &delegate_uri)
-                .status()
-                .map_err(|e| format!("failed to execute {}: {e}", delegate.display()))?;
-            let code = status.code().unwrap_or(1);
-            if code != 0 {
-                return Ok(code);
-            }
-        }
-        Ok(0)
-    })();
-
-    if let Some(path) = stdin_file {
-        let _ = fs::remove_file(path);
-    }
-    result
+    let error = Command::new(&delegate)
+        .arg0(&delegate_uri)
+        .args(queue::delegate_args(args, &student))
+        .env("DEVICE_URI", &delegate_uri)
+        .exec();
+    Err(format!("failed to execute {}: {error}", delegate.display()))
 }
 
 /// The system lpd backend: where macOS keeps it.
@@ -79,19 +54,4 @@ fn lpd_backend() -> Result<PathBuf, String> {
     env::var_os("CUPS_SERVERBIN")
         .map(|serverbin| PathBuf::from(serverbin).join("backend/lpd"))
         .ok_or_else(|| "CUPS_SERVERBIN is not set; titech-lpd runs only under cupsd".to_string())
-}
-
-fn spool_stdin_to_temp() -> Result<PathBuf, String> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let path = env::temp_dir().join(format!("titech-lpd-{}-{nanos}.print", std::process::id()));
-    let mut file =
-        File::create(&path).map_err(|e| format!("failed to create {}: {e}", path.display()))?;
-    io::copy(&mut io::stdin(), &mut file)
-        .map_err(|e| format!("failed to spool stdin to {}: {e}", path.display()))?;
-    file.flush()
-        .map_err(|e| format!("failed to flush {}: {e}", path.display()))?;
-    Ok(path)
 }

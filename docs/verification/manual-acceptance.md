@@ -2459,15 +2459,21 @@ campus network or the Science Tokyo VPN for the printing steps.
 4. Print the PDF from Preview (Linux: any viewer) to InstitutePrinter,
    two copies, two-sided, black and white, then check the billing page.
    - *Why:* Only the real printer shows that a non-B student ID is accepted and
-     billed, that copies arrive as two jobs, and that the PPD's duplex
-     and color options reach it through the stock CUPS filters.
-5. Pause the queue, print once, press 追加 again, resume the queue,
+     billed, and that the PPD's duplex and color options reach it
+     through the stock CUPS filters.
+5. From Preview's print dialog, print a one-page PDF to
+   InstitutePrinter with 部数 2, then count the sheets.
+   - *Why:* CUPS's filters already copy a job that reaches the backend on
+     stdin, and the lpd backend then sends it once. Exactly 2 sheets
+     shows the backend leaves the copy count alone; 4 would mean the
+     copies were applied twice, as InstitutePrinter's backend did.
+6. Pause the queue, print once, press 追加 again, resume the queue,
    then print from another login on the same computer.
    - *Why:* Installing again updates the same queue in place, so the waiting
      job must survive it and print. CUPS refuses the other login,
      because nobody else may print on this student's bill. A real
      print run is the only place both show.
-6. Remove InstitutePrinter in the system printer settings.
+7. Remove InstitutePrinter in the system printer settings.
    - *Why:* Removal belongs to the system; nothing in the app tracks it.
 
 **Where to look**
@@ -2479,7 +2485,8 @@ device URI, the printed pages, and the billing page.
 
 The page reports the network correctly, the admin prompt cancels
 cleanly, the queue bills the master's student ID, prints two
-two-sided black-and-white copies, keeps a waiting job through a
+two-sided black-and-white copies (a 2-copy one-page job is exactly 2
+sheets), keeps a waiting job through a
 reinstall, refuses the other login, and the system settings remove it.
 
 **Why this is manual**

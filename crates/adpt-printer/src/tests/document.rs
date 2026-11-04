@@ -16,7 +16,14 @@ fn print_uploads_each_copy_with_the_pjl_header() {
     let path = temp_file("report.pdf", b"%PDF-1.7 body");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let server = listener.local_addr().unwrap();
-    let handle = thread::spawn(move || [serve_one_job(&listener), serve_one_job(&listener)]);
+    let removed = path.clone();
+    let handle = thread::spawn(move || {
+        let first = serve_one_job(&listener);
+        // The file goes away after the first copy: the second is still the
+        // same document, read once before anything was sent.
+        std::fs::remove_file(&removed).unwrap();
+        [first, serve_one_job(&listener)]
+    });
     let options = PrintOptions {
         copies: 2,
         settings: pjl::Settings {
@@ -26,7 +33,6 @@ fn print_uploads_each_copy_with_the_pjl_header() {
     };
     assert_eq!(print(server, &student(), &path, &options).unwrap(), 2);
     let jobs = handle.join().unwrap();
-    std::fs::remove_file(&path).unwrap();
 
     let mut expected = pjl::header(pjl::Language::Pdf, &options.settings);
     expected.extend_from_slice(b"%PDF-1.7 body");
@@ -67,7 +73,7 @@ fn print_refuses_other_files_and_copy_counts_before_connecting() {
     assert!(matches!(
         print(server, &student(), &pdf, &one),
         Err(PrintError::Lpd {
-            copy: 1,
+            accepted: 0,
             error: lpd::LpdError::Connect(_)
         })
     ));
@@ -98,4 +104,42 @@ fn options_read_from_the_print_window() {
     let defaults: PrintOptions =
         serde_json::from_str(r#"{"copies":1,"duplex":null,"color":null}"#).unwrap();
     assert_eq!(defaults.settings, pjl::Settings::default());
+}
+
+// A copy the printer refuses ends the print, and the error counts the
+// copies it had already accepted, so a retry knows what is on paper.
+#[test]
+fn a_refused_copy_reports_the_copies_already_accepted() {
+    let path = temp_file("three.pdf", b"%PDF-1.7 body");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        serve_one_job(&listener);
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut line = Vec::new();
+        std::io::BufRead::read_until(
+            &mut std::io::BufReader::new(conn.try_clone().unwrap()),
+            b'\n',
+            &mut line,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut conn, &[1]).unwrap();
+    });
+    let options = PrintOptions {
+        copies: 3,
+        settings: pjl::Settings::default(),
+    };
+    let result = print(server, &student(), &path, &options);
+    handle.join().unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(
+        matches!(
+            result,
+            Err(PrintError::Lpd {
+                accepted: 1,
+                error: lpd::LpdError::Rejected { .. }
+            })
+        ),
+        "{result:?}"
+    );
 }

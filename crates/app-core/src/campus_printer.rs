@@ -176,31 +176,48 @@ impl Core {
         path: std::path::PathBuf,
         options: PrintOptions,
     ) -> CampusPrintOutcome {
+        use crate::runtime_tasks::RuntimeTaskError;
         use adpt_printer::{document, lpd};
         let account = self.campus_printer_account().await;
         let Some(student) = account.student() else {
             return CampusPrintOutcome::Account { account };
         };
-        // The send runs to its end even when the window closes first (it
-        // is bounded by the LPD client's timeouts), so it logs its own result.
-        let sent = tokio::task::spawn_blocking(move || {
-            let sent = document::print(adpt_printer::ADDRESS, &student, &path, &options);
-            log::info!("[campus-printer] print {sent:?}");
-            sent
-        })
-        .await;
+        // Core owns the send: it runs to its end when the window closes
+        // first (bounded by the LPD client's timeouts), and Core's shutdown,
+        // which the app's exit waits for, waits for it too. It logs its own
+        // result, which no window may be left to show.
+        let sent = self
+            .runtime
+            .owned()
+            .run(async move {
+                tokio::task::spawn_blocking(move || {
+                    let sent = document::print(adpt_printer::ADDRESS, &student, &path, &options);
+                    log::info!("[campus-printer] print {sent:?}");
+                    sent
+                })
+                .await
+            })
+            .await;
         match sent {
-            Ok(Ok(copies)) => CampusPrintOutcome::Printed { copies },
-            Ok(Err(document::PrintError::NotPrintable)) => CampusPrintOutcome::NotPrintable,
-            Ok(Err(document::PrintError::Copies)) => CampusPrintOutcome::InvalidCopies,
-            Ok(Err(document::PrintError::File(_))) | Err(_) => CampusPrintOutcome::Unreadable,
-            Ok(Err(document::PrintError::Lpd { copy, error })) => {
-                let printed = copy - 1;
-                match error {
-                    lpd::LpdError::Connect(_) => CampusPrintOutcome::Unreachable { printed },
-                    error if error.may_have_printed() => CampusPrintOutcome::Uncertain { printed },
-                    _ => CampusPrintOutcome::NotPrinted { printed },
-                }
+            Ok(Ok(Ok(copies))) => CampusPrintOutcome::Printed { copies },
+            Ok(Ok(Err(document::PrintError::NotPrintable))) => CampusPrintOutcome::NotPrintable,
+            Ok(Ok(Err(document::PrintError::Copies))) => CampusPrintOutcome::InvalidCopies,
+            Ok(Ok(Err(document::PrintError::File(_)))) => CampusPrintOutcome::Unreadable,
+            Ok(Ok(Err(document::PrintError::Lpd {
+                accepted: printed,
+                error,
+            }))) => match error {
+                lpd::LpdError::Connect(_) => CampusPrintOutcome::Unreachable { printed },
+                error if error.may_have_printed() => CampusPrintOutcome::Uncertain { printed },
+                _ => CampusPrintOutcome::NotPrinted { printed },
+            },
+            // Core is shutting down: the send never started.
+            Err(RuntimeTaskError::Stopped | RuntimeTaskError::Unavailable) => {
+                CampusPrintOutcome::NotPrinted { printed: 0 }
+            }
+            // The send died midway; how far it got is unknown.
+            Ok(Err(_)) | Err(RuntimeTaskError::Panicked | RuntimeTaskError::Interrupted) => {
+                CampusPrintOutcome::Uncertain { printed: 0 }
             }
         }
     }

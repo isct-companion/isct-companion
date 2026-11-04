@@ -1,5 +1,6 @@
 use crate::queue::*;
 use adpt_printer::StudentId;
+#[cfg(target_os = "macos")]
 use std::path::Path;
 
 fn student() -> StudentId {
@@ -62,10 +63,13 @@ fn the_queue_takes_only_the_installing_login() {
     }
 }
 
+// Only the user changes: copies stay as CUPS gave them, so the lpd backend
+// sends a job on stdin once (the filters already copied it) and a file job
+// once per copy. Repeating uploads here printed N copies N times.
 #[test]
-fn delegate_args_force_the_student_and_one_copy() {
-    let args: Vec<String> = [
-        "titech-lpd",
+fn the_lpd_backend_gets_the_job_with_only_the_user_changed() {
+    let file_job: Vec<String> = [
+        "titech-lpd://172.20.83.212/kyocera?student=24M12345",
         "42",
         "cups-user",
         "title",
@@ -76,31 +80,20 @@ fn delegate_args_force_the_student_and_one_copy() {
     .map(String::from)
     .into();
     assert_eq!(
-        delegate_args(&args, 0, &student(), None),
+        delegate_args(&file_job, &student()),
         [
             "42",
             "24M12345",
             "title",
-            "1",
+            "3",
             "Duplex=None",
             "/tmp/input.ps"
         ]
     );
-    let spooled = Path::new("/tmp/spooled.ps");
     assert_eq!(
-        delegate_args(&args[..6], 1, &student(), Some(spooled)),
-        [
-            "43",
-            "24M12345",
-            "title",
-            "1",
-            "Duplex=None",
-            "/tmp/spooled.ps"
-        ]
+        delegate_args(&file_job[..6], &student()),
+        ["42", "24M12345", "title", "3", "Duplex=None"]
     );
-    assert_eq!(parse_copies("1"), Ok(1));
-    assert!(parse_copies("0").is_err());
-    assert!(parse_copies("x").is_err());
 }
 
 #[test]

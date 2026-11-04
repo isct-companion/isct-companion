@@ -6,6 +6,7 @@
 
 use crate::endpoint::{HOST, QUEUE};
 use crate::student_id::StudentId;
+#[cfg(target_os = "macos")]
 use std::path::Path;
 
 pub const PRINTER_NAME: &str = "InstitutePrinter";
@@ -207,49 +208,11 @@ pub fn queue_ppd() -> (Vec<u8>, String) {
     )
 }
 
-/// CUPS backend arguments: job-id user title copies options [file].
-pub fn parse_copies(text: &str) -> Result<u32, String> {
-    let copies = text
-        .parse::<u32>()
-        .map_err(|e| format!("invalid copies value {text}: {e}"))?;
-    if copies == 0 {
-        return Err("copies value must be at least 1".to_string());
-    }
-    Ok(copies)
-}
-
-/// The system lpd backend's arguments for upload `copy_index` (from 0):
-/// the student ID as the user, one copy, and the spooled file when stdin
-/// was spooled for repeated uploads.
-pub fn delegate_args(
-    args: &[String],
-    copy_index: u32,
-    student: &StudentId,
-    stdin_file: Option<&Path>,
-) -> Vec<String> {
-    let mut delegate = Vec::with_capacity(6);
-    delegate.push(copy_job_id(&args[1], copy_index));
-    delegate.push(student.as_str().to_string());
-    delegate.push(args[3].clone());
-    delegate.push("1".to_string());
-    delegate.push(args[5].clone());
-
-    if let Some(path) = stdin_file {
-        delegate.push(path.to_string_lossy().into_owned());
-    } else if args.len() == 7 {
-        delegate.push(args[6].clone());
-    }
-
+/// The system lpd backend's arguments for the job CUPS gave this backend
+/// (`args`: argv[0], job-id, user, title, copies, options [, file]): the
+/// same, with the student ID as the user.
+pub fn delegate_args(args: &[String], student: &StudentId) -> Vec<String> {
+    let mut delegate = args[1..].to_vec();
+    delegate[1] = student.as_str().to_string();
     delegate
-}
-
-fn copy_job_id(job_id: &str, copy_index: u32) -> String {
-    if copy_index == 0 {
-        return job_id.to_string();
-    }
-
-    match job_id.parse::<u32>() {
-        Ok(n) => n.saturating_add(copy_index).to_string(),
-        Err(_) => job_id.to_string(),
-    }
 }
