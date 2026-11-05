@@ -18,7 +18,7 @@ use crate::submissions::{SubmissionError, SubmissionService};
 use crate::workspace_changes::WorkspaceChange;
 use crate::workspaces::AssignmentWorkspaces;
 use serde_json::Value;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -79,12 +79,16 @@ impl From<AgentWriteError> for AgentError {
     }
 }
 
+/// Core's submission service, opened with Core, or why it could not open
+/// (a ledger another build wrote, an unreadable data folder).
+pub type Submissions = Arc<Result<SubmissionService, String>>;
+
 #[derive(Clone)]
 pub struct AgentService {
     store: DataStore,
     workspaces: AssignmentWorkspaces,
-    /// Core's submission service, once the school transport is attached.
-    submissions: Arc<OnceLock<SubmissionService>>,
+    /// Core's submission service, or why it could not open.
+    submissions: Submissions,
     /// The moment a call answers for; tests fix it.
     now: fn() -> chrono::DateTime<chrono::Utc>,
 }
@@ -93,7 +97,7 @@ impl AgentService {
     pub fn new(
         store: DataStore,
         workspaces: AssignmentWorkspaces,
-        submissions: Arc<OnceLock<SubmissionService>>,
+        submissions: Submissions,
     ) -> Self {
         Self {
             store,
@@ -126,7 +130,7 @@ impl AgentService {
             &Context {
                 store: &self.store,
                 workspaces: &self.workspaces,
-                submissions: self.submissions.get(),
+                submissions: self.submissions.as_ref().as_ref().map_err(String::as_str),
                 view: &view,
                 now: jst((self.now)())?,
             },
@@ -142,7 +146,7 @@ type View = (Arc<Value>, Arc<crate::schedule::SchoolReads>);
 pub(crate) struct Context<'a> {
     store: &'a DataStore,
     workspaces: &'a AssignmentWorkspaces,
-    submissions: Option<&'a SubmissionService>,
+    submissions: Result<&'a SubmissionService, &'a str>,
     view: &'a dyn Fn() -> Result<View, AgentError>,
     /// One moment for the whole call, in Japan time.
     now: chrono::DateTime<chrono::FixedOffset>,
