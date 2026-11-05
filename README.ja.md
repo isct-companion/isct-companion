@@ -11,7 +11,8 @@
 [ダウンロード](https://isctcomp.app/#download) ·
 [試験と校暦](https://isctcomp.app/data/) ·
 [不具合を報告](https://github.com/isct-companion/isct-companion/issues) ·
-[開発に参加](CONTRIBUTING.md)
+[開発に参加](CONTRIBUTING.md) ·
+[爱发电 Afdian](https://afdian.com/a/gliese129)
 
 [English](README.md) · **日本語**
 
@@ -110,3 +111,4 @@ IsctCompanion は大学とは関係のない独立したプロジェクトです
 
 IsctCompanion は学生が授業の合間に開発しています。役に立ったら、
 [応援](https://isctcomp.app/sponsor/)をご検討ください。App Store の登録料や署名証明書などの費用にあてます。
+中国からは[爱发电（Afdian）](https://afdian.com/a/gliese129)でも応援できます（WeChat Pay・Alipay）。

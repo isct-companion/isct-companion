@@ -11,7 +11,8 @@ Free · Open source · No ads · No account
 [Download](https://isctcomp.app/en/#download) ·
 [Exams & calendar](https://isctcomp.app/en/data/) ·
 [Report an issue](https://github.com/isct-companion/isct-companion/issues) ·
-[Contribute](CONTRIBUTING.md)
+[Contribute](CONTRIBUTING.md) ·
+[爱发电 Afdian](https://afdian.com/a/gliese129)
 
 **English** · [日本語](README.ja.md)
 
@@ -126,4 +127,5 @@ Windows app on real hardware and reported the bugs found there.
 
 IsctCompanion is built by students between classes. If it helps you, consider
 [supporting the project](https://isctcomp.app/en/sponsor/): it pays for things
-like the App Store fee and a code-signing certificate.
+like the App Store fee and a code-signing certificate. Supporters in China can
+also use [爱发电 (Afdian)](https://afdian.com/a/gliese129), with WeChat Pay or Alipay.
