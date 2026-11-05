@@ -139,21 +139,31 @@ What Core guarantees, whatever the agent does:
 - Idempotency is Core's: it derives the write's identity from the account,
   assignment, attempt, action and snapshot, so the same call again answers
   with the same operation instead of writing twice.
-- Every write is read back from the LMS. `succeeded` means the LMS holds
-  exactly the snapshot's names and sizes; anything else is `failed`, with a
-  code such as `submission-rejected` or `submission-mismatch`.
-- A write whose answer was lost is `outcome_unknown`. Core settles it by
-  reading the LMS, right away, on the next start and in its periodic wake,
-  and never sends it again. It turns `failed` only after the LMS has had
-  three minutes to finish; executing again is then a new write, which the
-  client confirms again.
+- Every write is read back from the LMS, through Core's `PlanEngine` like
+  every other LMS read. `succeeded` means the LMS holds the snapshot under
+  the same account and attempt: Core downloads the submitted files and
+  compares their SHA-256 with the snapshot; the same names and sizes alone
+  prove nothing. A LMS holding something else is `failed`, with a code such
+  as `submission-rejected` or `submission-mismatch`.
+- A write whose answer was lost is `outcome_unknown`. Core settles it only by
+  reading the LMS: right away, then on a schedule that grows from 30 seconds
+  to 6 hours, also after a restart. Time alone never settles it; until a read
+  shows what the LMS did, it keeps refusing other writes to the assignment.
+  It is never sent again; executing again after it failed is a new write,
+  which the client confirms again.
+- The account is fixed when the write is prepared: one permit spans the last
+  read, the upload and the save, and a sign-out or another account since
+  refuses it (`submission-identity-changed`).
+- A settled write queues its assignment to be read again, past any refresh
+  that started before the write.
 - A write that has been sent is never reported undone by a local cancel.
 
-`submission_status(operationId)` answers with a write's state, reading the
-LMS first when its outcome is unknown. Only individual file assignments are
+`submission_status(operationId)` answers with a write's state from Core's own
+record at once; an unknown one is read on Core's schedule. Only individual file assignments are
 supported; online text, drafts, submission statements, group work, timed
 assignments, ZIP hand-ins and file types named by group are refused with
 `submission-unsupported` and the reason. Operation records and snapshots stay
-on this device, outside backups and cloud sync, and are cleaned after success
-or expiry. The contract is recorded in slotledger as
+on this device, outside backups and cloud sync, in their own store
+generation; Core's daily maintenance removes expired records and the
+snapshots nothing names any more. The contract is recorded in slotledger as
 `approach/lms-submission-contract`.

@@ -61,7 +61,7 @@ import app.isctcompanion.core.SyncSnapshot
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
-/* Words for Core's sync snapshot (`sync_engine`). Core decides what runs, what
+/* Words for Core's sync snapshot (`plan`). Core decides what runs, what
  * waits, what failed and when it retries; these only name it, with the iOS
  * shell's strings (`Features/Status/SchoolStatusViews.swift`). */
 

@@ -1,85 +1,115 @@
-//! The device-local record of LMS writes: preparations, operation records
-//! and the content-addressed snapshots they upload.
+//! The device-local record of LMS writes: preparations, operation records,
+//! the snapshot objects each names, and the assignments to read again once
+//! a write settled.
 //!
-//! It is its own SQLite file, `submissions.db`, beside the store's three.
-//! Not user.db: backup and cloud sync read that file whole, and a write in
-//! flight on this device means nothing on another. Not cache.db or sync.db:
-//! both are emptied when their schema changes or the caches are reset, and
-//! losing a pending record would lift the single-flight guard and let a
-//! write whose outcome is unknown be sent again. Not a JSON file like the
-//! reminder log: a dev build and the app can share one data folder, and
-//! only SQLite's lock makes "one write per assignment" hold
-//! across processes. Every statement commits on its own, so no write
-//! transaction is ever held across a network wait. Snapshots live in
-//! `submissions/` beside it, named by their sha256.
-//!
-//! The single-flight guard holds within one schema version. A ledger of an
-//! older version starts empty, its snapshots gone: the person confirms their
-//! hand-ins before upgrading, and nothing of the old records is recovered or
-//! read. The upgrade runs in one exclusive transaction that reads the
-//! version again, so of two processes that both saw the old one, only the
-//! first rebuilds and cleans the snapshots, and the second finds the new
-//! version and leaves what the first recorded since. A newer version is
-//! refused.
+//! It is its own SQLite file, `submissions.db`, in its own store
+//! generation (`data::root`). Not user.db: backup and cloud sync read that
+//! file whole, and a write in flight on this device means nothing on
+//! another. Not the school group: it is replaced whenever its schema
+//! changes, and losing a pending record would lift the single-flight guard
+//! and let a write whose outcome is unknown be sent again. Only one Core
+//! process holds the data folder (`core.lock`), so every record whose
+//! `owner` is another run lost its executor. No write transaction is held
+//! across a network wait. References to snapshot objects are rows
+//! (`preparation_files`, `operation_files`), committed with what names them.
 use super::{
     LmsIdentity, Operation, OperationState, Preparation, RemoteState, SnapshotFile,
-    SubmissionError, UploadFile, RECEIPT_RETENTION,
+    SubmissionError, RECEIPT_RETENTION,
 };
-use crate::workspaces::HandInError;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
-use sha2::{Digest, Sha256};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::{
     collections::BTreeSet,
-    fs,
-    io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Mutex, MutexGuard},
 };
 
-const FILE: &str = "submissions.db";
-const BLOBS: &str = "submissions";
-const SCHEMA_VERSION: i64 = 2;
-/// A partial snapshot copy this old was left by a crash.
-const STALE_PARTIAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+pub(super) const FILE: &str = "submissions.db";
+/// The ledger format `store-index.db` records for its generation.
+pub(super) const FORMAT: i64 = 3;
+/// Formats of earlier releases, replaced by an empty ledger: hand-ins are
+/// confirmed before upgrading (`approach/short-lived-store-rebuild`).
+pub(super) const OLDER_FORMATS: &[i64] = &[1, 2];
 
 const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS preparations (
+CREATE TABLE preparations (
   id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS operations (
-  id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL,
-  site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
-  state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL
+CREATE TABLE preparation_files (
+  preparation_id TEXT NOT NULL REFERENCES preparations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL,
+  PRIMARY KEY (preparation_id, name)
 );
-CREATE INDEX IF NOT EXISTS operations_by_assignment ON operations(site, assign_id);
-CREATE INDEX IF NOT EXISTS operations_by_key ON operations(key);
-CREATE INDEX IF NOT EXISTS operations_by_preparation ON operations(preparation_id);
+CREATE INDEX preparation_files_by_object ON preparation_files(sha256);
+CREATE TABLE operations (
+  id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL,
+  site TEXT NOT NULL, user_id INTEGER NOT NULL, assign_id INTEGER NOT NULL,
+  key TEXT NOT NULL, state TEXT NOT NULL, owner TEXT NOT NULL,
+  next_check INTEGER, checks INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL, value TEXT NOT NULL
+);
+CREATE UNIQUE INDEX operations_one_unsettled ON operations(site, user_id, assign_id)
+  WHERE state NOT IN ('succeeded','failed');
+CREATE INDEX operations_by_key ON operations(key);
+CREATE INDEX operations_by_preparation ON operations(preparation_id);
+CREATE TABLE operation_files (
+  operation_id TEXT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL,
+  PRIMARY KEY (operation_id, name)
+);
+CREATE INDEX operation_files_by_object ON operation_files(sha256);
+CREATE TABLE refresh_outbox (
+  operation_id TEXT PRIMARY KEY, lms_course_id INTEGER NOT NULL,
+  revision INTEGER NOT NULL, next_attempt INTEGER NOT NULL
+);
 "#;
 
 /// States that end a write; every other state blocks new writes.
 const SETTLED: &str = "('succeeded','failed')";
 
+/// How `claim` ended.
 pub(super) enum Claim {
-    Claimed,
-    /// A write for the same assignment is not settled yet.
+    /// The write is recorded with its snapshot references.
+    Claimed(Box<Preparation>, Box<Operation>),
+    /// A write for the same account and assignment is not settled yet.
     Busy(Box<Operation>),
+    /// The preparation expired or is unknown.
+    Expired,
+}
+
+/// An assignment to read again after a write settled.
+pub(super) struct Refresh {
+    pub(super) operation: String,
+    pub(super) lms_course_id: u64,
+    /// The resource revision the write raised; an earlier read is not it.
+    pub(super) revision: u64,
 }
 
 pub(super) struct Ledger {
     connection: Mutex<Connection>,
-    blobs: PathBuf,
 }
 
 impl Ledger {
-    pub(super) fn open(directory: &Path) -> Result<Self, SubmissionError> {
-        let blobs = directory.join(BLOBS);
-        let mut connection = connect(&directory.join(FILE))?;
-        if version(&connection)? != SCHEMA_VERSION {
-            upgrade(&mut connection, &blobs)?;
+    /// Creates the ledger in a new generation's folder.
+    pub(super) fn create(path: &Path) -> Result<(), SubmissionError> {
+        let mut connection = connect(path)?;
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(SCHEMA)?;
+        transaction.pragma_update(None, "user_version", FORMAT)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub(super) fn open(path: &Path) -> Result<Self, SubmissionError> {
+        let connection = connect(path)?;
+        let found: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if found != FORMAT {
+            return Err(SubmissionError::UnsupportedLedger {
+                found,
+                expected: FORMAT,
+            });
         }
         Ok(Self {
             connection: Mutex::new(connection),
-            blobs,
         })
     }
 
@@ -90,47 +120,79 @@ impl Ledger {
     }
 
     pub(super) fn preparation(&self, id: &str) -> Result<Option<Preparation>, SubmissionError> {
-        let value: Option<String> = self
-            .lock()?
-            .query_row("SELECT value FROM preparations WHERE id=?1", [id], |row| {
-                row.get(0)
-            })
-            .optional()?;
-        value
-            .map(|value| serde_json::from_str(&value).map_err(SubmissionError::from))
-            .transpose()
+        preparation(&*self.lock()?, id)
     }
 
-    pub(super) fn put_preparation(&self, preparation: &Preparation) -> Result<(), SubmissionError> {
-        let value = serde_json::to_string(preparation)?;
-        self.lock()?.execute(
-            "INSERT OR REPLACE INTO preparations (id, expires_at, value) VALUES (?1, ?2, ?3)",
-            params![preparation.id, preparation.expires_at, value],
+    /// Records `preparation` with its snapshot references, in one
+    /// transaction, unless the same preparation is recorded and unexpired:
+    /// then that one answers. Runs under the snapshots' publication lock.
+    pub(super) fn publish_preparation(
+        &self,
+        preparation: &Preparation,
+        now: i64,
+    ) -> Result<Preparation, SubmissionError> {
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(existing) = preparation_of(&transaction, &preparation.id)? {
+            if existing.expires_at > now {
+                return Ok(existing);
+            }
+        }
+        transaction.execute("DELETE FROM preparations WHERE id=?1", [&preparation.id])?;
+        transaction.execute(
+            "INSERT INTO preparations (id, expires_at, value) VALUES (?1, ?2, ?3)",
+            params![
+                preparation.id,
+                preparation.expires_at,
+                serde_json::to_string(preparation)?
+            ],
         )?;
-        Ok(())
+        insert_files(&transaction, "preparation_files", "preparation_id", &preparation.id, &preparation.files)?;
+        transaction.commit()?;
+        Ok(preparation.clone())
     }
 
-    /// Drops a preparation whose write succeeded; its snapshot goes with
-    /// the next `clean`.
+    /// Drops a preparation whose write succeeded; its objects stay while
+    /// the operation names them.
     pub(super) fn release(&self, preparation: &str) -> Result<(), SubmissionError> {
         self.lock()?
             .execute("DELETE FROM preparations WHERE id=?1", [preparation])?;
         Ok(())
     }
 
-    /// Records `operation` unless a write for its assignment is not settled
-    /// yet, in one IMMEDIATE transaction: the check and the insert cannot
-    /// interleave with another process's.
-    pub(super) fn claim(&self, operation: &Operation) -> Result<Claim, SubmissionError> {
+    /// In one IMMEDIATE transaction: reads the preparation, checks it has
+    /// not expired and that `check` accepts it, refuses while a write for
+    /// its account and assignment is not settled, and records the write
+    /// `operation` makes of it with its snapshot references. Once it
+    /// commits, the preparation's expiry no longer matters.
+    pub(super) fn claim(
+        &self,
+        preparation_id: &str,
+        now: i64,
+        owner: &str,
+        check: impl FnOnce(&Preparation) -> Result<(), SubmissionError>,
+        operation: impl FnOnce(&Preparation) -> Operation,
+    ) -> Result<Claim, SubmissionError> {
         let mut connection = self.lock()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(preparation) =
+            preparation_of(&transaction, preparation_id)?.filter(|found| found.expires_at > now)
+        else {
+            return Ok(Claim::Expired);
+        };
+        check(&preparation)?;
+        let operation = operation(&preparation);
         let mut busy = operations(
             &transaction,
             &format!(
-                "SELECT value FROM operations WHERE site=?1 AND assign_id=?2
+                "SELECT value FROM operations WHERE site=?1 AND user_id=?2 AND assign_id=?3
                  AND state NOT IN {SETTLED} ORDER BY rowid"
             ),
-            params![operation.identity.site, operation.assign_id as i64],
+            params![
+                operation.identity.site,
+                operation.identity.user_id as i64,
+                operation.assign_id as i64
+            ],
         )?;
         if !busy.is_empty() {
             // The same write, when it is among them, answers for itself.
@@ -138,48 +200,69 @@ impl Ledger {
             return Ok(Claim::Busy(Box::new(busy.swap_remove(same.unwrap_or(0)))));
         }
         transaction.execute(
-            "INSERT INTO operations (id, preparation_id, site, assign_id, key, state, updated_at, value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO operations (id, preparation_id, site, user_id, assign_id, key, state, owner, updated_at, value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 operation.id,
                 operation.preparation_id,
                 operation.identity.site,
+                operation.identity.user_id as i64,
                 operation.assign_id as i64,
                 operation.key,
                 operation.state.name(),
+                owner,
                 operation.updated_at,
-                serde_json::to_string(operation)?,
+                serde_json::to_string(&operation)?,
             ],
         )?;
+        insert_files(&transaction, "operation_files", "operation_id", &operation.id, &operation.files)?;
         transaction.commit()?;
-        Ok(Claim::Claimed)
+        Ok(Claim::Claimed(Box::new(preparation), Box::new(operation)))
     }
 
-    /// Stores `operation` as it is now, only while its recorded state is
-    /// one of `from`. False when something else moved it first: a cancel,
-    /// recovery, or another process.
+    /// Stores `operation` as it is now, owned by `owner`, only while its
+    /// recorded state is `from`. False when something else moved it first:
+    /// a cancel or recovery. A settled state commits with `refresh`, the
+    /// assignment to read again, in the same transaction.
     pub(super) fn transition(
         &self,
         operation: &Operation,
-        from: &[OperationState],
+        from: OperationState,
+        owner: &str,
+        refresh: Option<Refresh>,
+        now: i64,
     ) -> Result<bool, SubmissionError> {
-        let states = from
-            .iter()
-            .map(|state| format!("'{}'", state.name()))
-            .collect::<Vec<_>>()
-            .join(",");
-        let changed = self.lock()?.execute(
-            &format!(
-                "UPDATE operations SET state=?1, updated_at=?2, value=?3
-                 WHERE id=?4 AND state IN ({states})"
-            ),
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "UPDATE operations SET state=?1, owner=?2, updated_at=?3, value=?4,
+               next_check=CASE WHEN ?1='outcome_unknown' THEN COALESCE(next_check, ?7) ELSE NULL END
+             WHERE id=?5 AND state=?6",
             params![
                 operation.state.name(),
+                owner,
                 operation.updated_at,
                 serde_json::to_string(operation)?,
-                operation.id
+                operation.id,
+                from.name(),
+                operation.updated_at + super::CHECK_FIRST,
             ],
         )?;
+        if changed == 1 {
+            if let Some(refresh) = refresh {
+                transaction.execute(
+                    "INSERT OR REPLACE INTO refresh_outbox (operation_id, lms_course_id, revision, next_attempt)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        refresh.operation,
+                        refresh.lms_course_id as i64,
+                        refresh.revision as i64,
+                        now
+                    ],
+                )?;
+            }
+        }
+        transaction.commit()?;
         Ok(changed == 1)
     }
 
@@ -214,30 +297,31 @@ impl Ledger {
         .pop())
     }
 
-    /// Writes not settled yet, oldest first; for one assignment, or all of
-    /// them.
+    /// The write not settled yet for one account and assignment.
     pub(super) fn unsettled(
         &self,
-        assignment: Option<(&LmsIdentity, u64)>,
+        identity: &LmsIdentity,
+        assign_id: u64,
     ) -> Result<Vec<Operation>, SubmissionError> {
-        let connection = self.lock()?;
-        match assignment {
-            Some((identity, assign_id)) => operations(
-                &connection,
-                &format!(
-                    "SELECT value FROM operations WHERE site=?1 AND assign_id=?2
-                     AND state NOT IN {SETTLED} ORDER BY rowid"
-                ),
-                params![identity.site, assign_id as i64],
+        operations(
+            &*self.lock()?,
+            &format!(
+                "SELECT value FROM operations WHERE site=?1 AND user_id=?2 AND assign_id=?3
+                 AND state NOT IN {SETTLED} ORDER BY rowid"
             ),
-            None => operations(
-                &connection,
-                &format!(
-                    "SELECT value FROM operations WHERE state NOT IN {SETTLED} ORDER BY rowid"
-                ),
-                params![],
+            params![identity.site, identity.user_id as i64, assign_id as i64],
+        )
+    }
+
+    /// Unsettled writes another run owned: their executor is gone.
+    pub(super) fn orphaned(&self, owner: &str) -> Result<Vec<Operation>, SubmissionError> {
+        operations(
+            &*self.lock()?,
+            &format!(
+                "SELECT value FROM operations WHERE owner<>?1 AND state NOT IN {SETTLED} ORDER BY rowid"
             ),
-        }
+            params![owner],
+        )
     }
 
     /// A write of the same content Core confirmed, while the LMS still
@@ -256,202 +340,157 @@ impl Ledger {
         .find(|operation| operation.verified.as_ref() == Some(state)))
     }
 
-    /// Drops expired preparations, receipts past their retention and every
-    /// snapshot neither a preparation nor an unsettled write still names.
-    pub(super) fn clean(&self, now: i64) -> Result<(), SubmissionError> {
-        let mut referenced = BTreeSet::new();
-        {
-            let connection = self.lock()?;
-            connection.execute("DELETE FROM preparations WHERE expires_at <= ?1", [now])?;
+    /// Writes whose outcome is unknown and whose next check has come, with
+    /// how many checks each had.
+    pub(super) fn checks_due(&self, now: i64) -> Result<Vec<(Operation, u32)>, SubmissionError> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT value, checks FROM operations
+             WHERE state='outcome_unknown' AND next_check IS NOT NULL AND next_check<=?1
+             ORDER BY next_check",
+        )?;
+        let rows = statement
+            .query_map([now], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(value, checks)| Ok((serde_json::from_str(&value)?, checks)))
+            .collect()
+    }
+
+    /// When an unknown write is read next. `queue` sets `at` only where no
+    /// check is queued; otherwise `at` replaces the time and counts a check.
+    pub(super) fn schedule_check(
+        &self,
+        operation: &str,
+        at: i64,
+        queue: bool,
+    ) -> Result<(), SubmissionError> {
+        let connection = self.lock()?;
+        if queue {
             connection.execute(
-                &format!("DELETE FROM operations WHERE state IN {SETTLED} AND updated_at <= ?1"),
-                [now - RECEIPT_RETENTION],
+                "UPDATE operations SET next_check=COALESCE(next_check, ?2)
+                 WHERE id=?1 AND state='outcome_unknown'",
+                params![operation, at],
             )?;
-            let mut statement = connection.prepare("SELECT value FROM preparations")?;
-            for value in statement.query_map([], |row| row.get::<_, String>(0))? {
-                let preparation: Preparation = serde_json::from_str(&value?)?;
-                referenced.extend(preparation.files.into_iter().map(|file| file.sha256));
-            }
-            drop(statement);
-            for operation in operations(
-                &connection,
-                &format!("SELECT value FROM operations WHERE state NOT IN {SETTLED}"),
-                params![],
-            )? {
-                referenced.extend(operation.files.into_iter().map(|file| file.sha256));
-            }
-        }
-        let Ok(entries) = fs::read_dir(&self.blobs) else {
-            return Ok(());
-        };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let keep = if name.ends_with(".partial") {
-                // Another snapshot may be copying it right now.
-                entry
-                    .metadata()
-                    .and_then(|metadata| metadata.modified())
-                    .ok()
-                    .and_then(|modified| modified.elapsed().ok())
-                    .is_none_or(|age| age < STALE_PARTIAL)
-            } else {
-                referenced.contains(&name)
-            };
-            if !keep {
-                let _ = fs::remove_file(entry.path());
-            }
+        } else {
+            connection.execute(
+                "UPDATE operations SET next_check=?2, checks=checks+1
+                 WHERE id=?1 AND state='outcome_unknown'",
+                params![operation, at],
+            )?;
         }
         Ok(())
     }
 
-    /// Copies the regular files `names` of `submit` into the snapshot store,
-    /// hashing the bytes as they are copied, so the digest is that of what
-    /// is kept, whatever happens to `submit/` meanwhile. By name.
-    pub(super) fn snapshot(
-        &self,
-        submit: &Path,
-        names: &[String],
-    ) -> Result<Vec<SnapshotFile>, SubmissionError> {
-        if names.is_empty() {
-            return Err(HandInError::Empty.into());
-        }
-        fs::create_dir_all(&self.blobs)?;
-        let mut files = Vec::new();
-        for name in names {
-            let source = submit.join(name);
-            let kind = fs::symlink_metadata(&source)?;
-            if kind.is_dir() {
-                return Err(HandInError::NeedsZip.into());
-            }
-            if !kind.is_file() {
-                return Err(HandInError::FilesOnly.into());
-            }
-            let (sha256, bytes) = self.keep(&source)?;
-            files.push(SnapshotFile {
-                name: name.clone(),
-                bytes,
-                sha256,
-            });
-        }
-        files.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(files)
+    /// When the next check or refresh is due, in Unix seconds.
+    pub(super) fn next_due(&self) -> Result<Option<i64>, SubmissionError> {
+        Ok(self.lock()?.query_row(
+            "SELECT MIN(at) FROM (
+               SELECT MIN(next_check) AS at FROM operations WHERE state='outcome_unknown'
+               UNION ALL SELECT MIN(next_attempt) FROM refresh_outbox)",
+            [],
+            |row| row.get(0),
+        )?)
     }
 
-    fn keep(&self, source: &Path) -> Result<(String, u64), SubmissionError> {
-        let partial = self.blobs.join(format!("{}.partial", uuid::Uuid::new_v4()));
-        let result = (|| {
-            let mut input = fs::File::open(source)?;
-            let mut output = fs::File::create(&partial)?;
-            let mut hasher = Sha256::new();
-            let mut buffer = vec![0; 64 * 1024];
-            let mut bytes = 0_u64;
-            loop {
-                let read = input.read(&mut buffer)?;
-                if read == 0 {
-                    break;
-                }
-                hasher.update(&buffer[..read]);
-                output.write_all(&buffer[..read])?;
-                bytes += read as u64;
-            }
-            output.sync_all()?;
-            let sha256 = data_encoding::HEXLOWER.encode(&hasher.finalize());
-            let blob = self.blobs.join(&sha256);
-            // A damaged copy under this name is replaced, not trusted.
-            if blob.exists() && digest_of(&blob).ok() != Some((sha256.clone(), bytes)) {
-                fs::remove_file(&blob)?;
-            }
-            if !blob.exists() {
-                fs::rename(&partial, blob)?;
-            }
-            Ok::<_, SubmissionError>((sha256, bytes))
-        })();
-        let _ = fs::remove_file(&partial);
-        result
+    pub(super) fn refreshes_due(&self, now: i64) -> Result<Vec<Refresh>, SubmissionError> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT operation_id, lms_course_id, revision FROM refresh_outbox
+             WHERE next_attempt<=?1 ORDER BY next_attempt",
+        )?;
+        let rows = statement
+            .query_map([now], |row| {
+                Ok(Refresh {
+                    operation: row.get(0)?,
+                    lms_course_id: row.get::<_, i64>(1)? as u64,
+                    revision: row.get::<_, i64>(2)? as u64,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
-    /// Whether every file's snapshot is still there with its size and digest.
-    pub(super) fn intact(&self, files: &[SnapshotFile]) -> bool {
-        files.iter().all(|file| {
-            digest_of(&self.blobs.join(&file.sha256)).ok()
-                == Some((file.sha256.clone(), file.bytes))
-        })
+    /// The refresh landed, or comes again at `retry`.
+    pub(super) fn refreshed(&self, operation: &str, retry: Option<i64>) -> Result<(), SubmissionError> {
+        let connection = self.lock()?;
+        match retry {
+            None => connection.execute("DELETE FROM refresh_outbox WHERE operation_id=?1", [operation])?,
+            Some(at) => connection.execute(
+                "UPDATE refresh_outbox SET next_attempt=?2 WHERE operation_id=?1",
+                params![operation, at],
+            )?,
+        };
+        Ok(())
     }
 
-    /// The snapshot files as the transport uploads them.
-    pub(super) fn uploads(&self, files: &[SnapshotFile]) -> Vec<UploadFile> {
-        files
-            .iter()
-            .map(|file| UploadFile {
-                name: file.name.clone(),
-                path: self.blobs.join(&file.sha256),
-                bytes: file.bytes,
-            })
-            .collect()
+    /// Maintenance, first half: drops expired preparations and settled
+    /// writes past their retention (never one with a refresh to make), with
+    /// their references, in one committed transaction; then answers every
+    /// object still referenced.
+    pub(super) fn expire(&self, now: i64) -> Result<BTreeSet<String>, SubmissionError> {
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute("DELETE FROM preparations WHERE expires_at <= ?1", [now])?;
+        transaction.execute(
+            &format!(
+                "DELETE FROM operations WHERE state IN {SETTLED} AND updated_at <= ?1
+                 AND id NOT IN (SELECT operation_id FROM refresh_outbox)"
+            ),
+            [now - RECEIPT_RETENTION],
+        )?;
+        transaction.commit()?;
+        let mut statement = connection.prepare(
+            "SELECT sha256 FROM preparation_files UNION SELECT sha256 FROM operation_files",
+        )?;
+        let referenced = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        Ok(referenced)
     }
 }
 
 pub(super) fn connect(path: &Path) -> Result<Connection, SubmissionError> {
     let connection = Connection::open(path)?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
-    connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+    connection.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+    )?;
     Ok(connection)
 }
 
-pub(super) fn version(connection: &Connection) -> Result<i64, SubmissionError> {
-    Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
-}
-
-/// Brings the ledger to `SCHEMA_VERSION` in one exclusive transaction, the
-/// lock every other process's upgrade and write waits for. The version is
-/// read again inside it: another process may have upgraded since this one
-/// looked, and then nothing happens. A new file gets the schema; an older
-/// one loses its tables and, still under the lock, the snapshots only its
-/// records named, before any record of the new schema can exist.
-pub(super) fn upgrade(connection: &mut Connection, blobs: &Path) -> Result<(), SubmissionError> {
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
-    match version(&transaction)? {
-        SCHEMA_VERSION => return Ok(()),
-        0 => {}
-        older if older < SCHEMA_VERSION => {
-            transaction.execute_batch(
-                "DROP TABLE IF EXISTS operations; DROP TABLE IF EXISTS preparations;",
-            )?;
-            match fs::remove_dir_all(blobs) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error.into())
-                }
-                _ => {}
-            }
-            log::info!(target: "app_core::submissions", "{FILE} of schema {older} was rebuilt empty");
-        }
-        newer => {
-            return Err(SubmissionError::Storage(format!(
-                "{FILE} schema {newer} is not supported"
-            )))
-        }
+fn insert_files(
+    transaction: &Transaction<'_>,
+    table: &str,
+    column: &str,
+    id: &str,
+    files: &[SnapshotFile],
+) -> Result<(), SubmissionError> {
+    for file in files {
+        transaction.execute(
+            &format!("INSERT INTO {table} ({column}, name, sha256, bytes) VALUES (?1, ?2, ?3, ?4)"),
+            params![id, file.name, file.sha256, file.bytes as i64],
+        )?;
     }
-    transaction.execute_batch(SCHEMA)?;
-    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    transaction.commit()?;
     Ok(())
 }
 
-/// A file's sha256 and size.
-fn digest_of(path: &Path) -> std::io::Result<(String, u64)> {
-    let mut input = fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0; 64 * 1024];
-    let mut bytes = 0_u64;
-    loop {
-        let read = input.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-        bytes += read as u64;
-    }
-    Ok((data_encoding::HEXLOWER.encode(&hasher.finalize()), bytes))
+fn preparation(connection: &Connection, id: &str) -> Result<Option<Preparation>, SubmissionError> {
+    let value: Option<String> = connection
+        .query_row("SELECT value FROM preparations WHERE id=?1", [id], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    value
+        .map(|value| serde_json::from_str(&value).map_err(SubmissionError::from))
+        .transpose()
+}
+
+fn preparation_of(
+    transaction: &Transaction<'_>,
+    id: &str,
+) -> Result<Option<Preparation>, SubmissionError> {
+    preparation(transaction, id)
 }
 
 fn operations(

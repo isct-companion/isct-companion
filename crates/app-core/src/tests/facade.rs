@@ -143,42 +143,47 @@ async fn forgetting_an_account_works_without_a_school_browser() {
     core.shutdown().await;
 }
 
+/// A shell keeps one timer: once its ports are attached, Core's directive
+/// names the earliest deadline of the duties they enable (maintenance a
+/// minute after start, here, with nothing else due in an empty workspace)
+/// and what a background opportunity would find. A reached deadline, even
+/// a stale one, only makes Core look again.
 #[tokio::test]
-async fn wake_reports_every_service_after_runtime_failure() {
-    let store = store("wake-report");
+async fn the_wake_directive_names_the_next_deadline_of_the_attached_duties() {
     let core = Core::new(
-        store.clone(),
+        store("directive"),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
-    let scheduler = core.services(Arc::new(NoopExporter));
-    let cloud = crate::cloud_sync::CloudServices {
-        backup: crate::backup::BackupService::new(store),
-        transport: Arc::new(NoopCloud),
-        events: Arc::new(NoopEvents),
-    };
-    core.runtime.shutdown().await;
-
-    let report = core
-        .wake(WakeServices {
-            scheduler,
-            cloud: Some(cloud),
-            reminders: Some(ReminderWake {
-                sink: Arc::new(NoopNotifications),
-                now: chrono::Utc::now().fixed_offset(),
-            }),
-        })
-        .await;
-    assert!(matches!(
-        report.runtime,
-        Err(RuntimeError::Task(
-            crate::runtime_tasks::RuntimeTaskError::Stopped
-        ))
-    ));
-    assert!(matches!(
-        report.cloud,
-        Some(Err(CloudWakeError::NotAttached))
-    ));
-    assert!(matches!(report.reminders, Some(Ok(_))));
+    // Offline: the started planner holds every key instead of reading.
+    core.sync_hint(Hint::Network {
+        network: Network::Offline,
+    });
+    core.start(&tokio::runtime::Handle::current()).unwrap();
+    let mut directives = core.wake_directives();
+    core.attach_ports(crate::facade::PlatformPorts {
+        exporter: Some(Arc::new(NoopExporter)),
+        notifications: Some(Arc::new(NoopNotifications)),
+        cloud: None,
+    });
+    let directive = tokio::time::timeout(
+        Duration::from_secs(5),
+        directives.wait_for(|directive| {
+            directive.at.is_some_and(|at| at > chrono::Utc::now())
+                && directive
+                    .background
+                    .iter()
+                    .any(|request| request.work == crate::plan::BackgroundWork::Local)
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .clone();
+    assert!(directive.at.unwrap() <= chrono::Utc::now() + chrono::Duration::minutes(2));
+    core.deadline_reached(directive.revision);
+    core.deadline_reached(0);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(core.wake_directive().revision >= directive.revision);
     core.shutdown().await;
 }
 
@@ -688,8 +693,8 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
 }
 
 /// Cloud capture follows local changes without a shell asking for it: a
-/// committed write makes the next wake capture at once instead of after the
-/// periodic interval.
+/// committed write makes the cloud duty due a few seconds on, and once it
+/// captured, nothing is due until the next change.
 #[tokio::test]
 async fn local_changes_bring_the_next_cloud_capture_forward() {
     let root = std::env::temp_dir().join(format!("app-core-capture-{}", Uuid::new_v4()));
@@ -699,38 +704,21 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
-    core.runtime
-        .attach_cloud(
-            CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap(),
-        )
-        .unwrap();
-    let services = crate::cloud_sync::CloudServices {
+    let cloud = CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap();
+    core.runtime.attach_cloud(cloud.clone()).unwrap();
+    assert_eq!(cloud.next_due(), None, "no ports, nothing due");
+    cloud.attach(crate::cloud_sync::CloudServices {
         backup: crate::backup::BackupService::new(store),
         transport: Arc::new(NoopCloud),
         events: Arc::new(NoopEvents),
-    };
-    let wake = || core.runtime.wake_cloud(services.clone()).unwrap();
-    async fn settle(wake: impl Fn() -> bool) {
-        // The interval is five seconds, so no capture is due while idle.
-        for _ in 0..15 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            assert!(!wake());
-        }
-    }
-    async fn captures(wake: impl Fn() -> bool) -> bool {
-        for _ in 0..100 {
-            if wake() {
-                return true;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        false
-    }
+    });
+    assert!(cloud.next_due().is_some_and(|at| at <= chrono::Utc::now()));
+    cloud.run_due().await.unwrap();
+    assert_eq!(cloud.next_due(), None, "captured; idle until a change");
 
-    assert!(wake());
-    settle(&wake).await;
     admission_year(&core, core.workspace.read_back().unwrap().revision, 2026).unwrap();
-    assert!(captures(&wake).await);
+    let due = cloud.next_due().unwrap();
+    assert!(due > chrono::Utc::now() && due <= chrono::Utc::now() + chrono::Duration::seconds(5));
 
     core.shutdown().await;
     let _ = std::fs::remove_dir_all(root);

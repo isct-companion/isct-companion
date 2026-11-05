@@ -382,7 +382,7 @@ impl SchoolAuthService {
                     std::fs::create_dir_all(parent)
                         .map_err(|error| SchoolAuthError::storage(error.to_string()))?;
                 }
-                return crate::storage::atomic_write(&path, b"1")
+                return crate::storage::durable_replace(&path, b"1")
                     .map_err(|error| SchoolAuthError::storage(error.to_string()));
             }
             return match std::fs::remove_file(path) {
@@ -470,16 +470,15 @@ impl SchoolAuthService {
         let Some(path) = &self.status_path else {
             return;
         };
-        let result = (|| -> Result<(), std::io::Error> {
+        let result = (|| -> Result<(), String> {
             if let Some(parent) = path
                 .parent()
                 .filter(|parent| !parent.as_os_str().is_empty())
             {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
             }
-            let temp = path.with_extension("tmp");
-            std::fs::write(&temp, serde_json::to_vec(&status)?)?;
-            std::fs::rename(temp, path)
+            let bytes = serde_json::to_vec(&status).map_err(|error| error.to_string())?;
+            crate::storage::durable_replace(path, &bytes).map_err(|error| error.to_string())
         })();
         if result.is_err() {
             let _ = std::fs::remove_file(path);

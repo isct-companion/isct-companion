@@ -18,17 +18,18 @@ use std::{
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(45);
-const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const SNAPSHOT_INTERVAL_SECONDS: i64 = 60 * 60;
+/// How long after a local change its capture waits for more.
+const CAPTURE_DELAY: chrono::Duration = chrono::Duration::seconds(5);
 /// Automatic mode asks every provider for other devices' changes at launch,
 /// at most this often while the app stays open, and on a return to front
 /// that comes at least `FOREGROUND_CHECK_SPACING` after the last check.
-const REMOTE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
-const FOREGROUND_CHECK_SPACING: Duration = Duration::from_secs(5 * 60);
+const REMOTE_CHECK_INTERVAL: chrono::Duration = chrono::Duration::hours(1);
+const FOREGROUND_CHECK_SPACING: chrono::Duration = chrono::Duration::minutes(5);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -179,8 +180,16 @@ struct Inner {
     journal: JournalStore,
     run: tokio::sync::Mutex<()>,
     tasks: RuntimeTasks,
-    tick_pass: Arc<tokio::sync::Semaphore>,
-    next_tick: Mutex<Instant>,
+    pass: Arc<tokio::sync::Semaphore>,
+    /// The shell's providers and backup, attached once; the automatic
+    /// passes the `PlanEngine` runs use them.
+    services: Mutex<Option<CloudServices>>,
+    /// When a capture is due: local content changed since the last one,
+    /// or this run has not captured yet.
+    capture_at: Mutex<Option<chrono::DateTime<chrono::Utc>>>,
+    /// The OS took an automatic pass's background time back: it stops
+    /// before its next delivery.
+    interrupted: std::sync::atomic::AtomicBool,
     remote_check: Mutex<RemoteCheck>,
 }
 
@@ -188,7 +197,7 @@ struct Inner {
 /// whether the shell has reported a return to front since.
 #[derive(Default)]
 struct RemoteCheck {
-    last: Option<Instant>,
+    last: Option<chrono::DateTime<chrono::Utc>>,
     foreground: bool,
 }
 
@@ -205,8 +214,10 @@ impl CloudSync {
             journal: JournalStore::open(legacy, supported, authorized)?,
             run: tokio::sync::Mutex::new(()),
             tasks: RuntimeTasks::default(),
-            tick_pass: Arc::new(tokio::sync::Semaphore::new(1)),
-            next_tick: Mutex::new(Instant::now()),
+            pass: Arc::new(tokio::sync::Semaphore::new(1)),
+            services: Mutex::new(None),
+            capture_at: Mutex::new(Some(chrono::Utc::now())),
+            interrupted: std::sync::atomic::AtomicBool::new(false),
             remote_check: Mutex::new(RemoteCheck::default()),
         })))
     }
@@ -215,48 +226,107 @@ impl CloudSync {
         self.0.journal.read(Journal::public_state)
     }
 
-    /// Admit one periodic queue/capture pass. The shell may call this often;
-    /// Core owns the five-second cadence and serial run guard.
-    pub fn tick(&self, services: CloudServices) -> Result<bool, CloudSyncError> {
-        if self.0.tasks.is_closed() {
-            return Err(CloudSyncError::Stopped);
+    /// The shell's cloud ports, for every automatic pass.
+    pub fn attach(&self, services: CloudServices) {
+        if let Ok(mut slot) = self.0.services.lock() {
+            *slot = Some(services);
         }
-        let Ok(permit) = self.0.tick_pass.clone().try_acquire_owned() else {
-            return Ok(false);
-        };
-        let now = Instant::now();
-        {
-            let mut next = self
-                .0
-                .next_tick
-                .lock()
-                .map_err(|_| CloudSyncError::Storage("Sync clock unavailable".into()))?;
-            if now < *next {
-                return Ok(false);
-            }
-            *next = now + TICK_INTERVAL;
-        }
-        let service = self.clone();
-        if !self.0.tasks.spawn(async move {
-            let _permit = permit;
-            if let Err(error) = service.resume_inner(&services).await {
-                crate::diagnostics::report("cloud-sync", &error);
-            }
-            if !service.0.tasks.is_closed() {
-                if let Err(error) = service.capture_inner(&services, true).await {
-                    crate::diagnostics::report("cloud-sync", &error);
-                }
-            }
-        }) {
-            return Err(CloudSyncError::Stopped);
-        }
-        Ok(true)
     }
 
-    /// Make the next `tick` capture without waiting out the interval.
+    pub(crate) fn services(&self) -> Option<CloudServices> {
+        self.0.services.lock().ok().and_then(|services| services.clone())
+    }
+
+    /// When the next automatic pass is due: at once after a local change,
+    /// else at the earliest retry, hourly upload or check for other
+    /// devices' changes. `None` without ports, or once stopped.
+    pub(crate) fn next_due(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        if self.0.tasks.is_closed() {
+            return None;
+        }
+        self.services()?;
+        let now = chrono::Utc::now();
+        if let Some(at) = self.0.capture_at.lock().ok().and_then(|at| *at) {
+            return Some(at);
+        }
+        let queue = self
+            .0
+            .journal
+            .read(|journal| queue_due(journal, now))
+            .ok()
+            .flatten();
+        let automatic = self.state().map(|state| state.automatic).unwrap_or(false);
+        let remote = automatic
+            .then(|| {
+                self.0.remote_check.lock().ok().map(|check| match check.last {
+                    None => now,
+                    Some(last) if check.foreground => last + FOREGROUND_CHECK_SPACING,
+                    Some(last) => last + REMOTE_CHECK_INTERVAL,
+                })
+            })
+            .flatten();
+        [queue, remote].into_iter().flatten().min()
+    }
+
+    /// One automatic pass: the queue, then a capture when local content
+    /// changed. Overlapping passes coalesce.
+    pub(crate) async fn run_due(&self) -> Result<(), CloudSyncError> {
+        let Some(services) = self.services() else {
+            return Ok(());
+        };
+        let Ok(_permit) = self.0.pass.clone().try_acquire_owned() else {
+            return Ok(());
+        };
+        self.0
+            .interrupted
+            .store(false, std::sync::atomic::Ordering::Release);
+        let service = self.clone();
+        let ran = self.0
+            .tasks
+            .run(async move {
+                if let Err(error) = service.resume_inner(&services).await {
+                    crate::diagnostics::report("cloud-sync", &error);
+                }
+                let now = chrono::Utc::now();
+                let due = service
+                    .0
+                    .capture_at
+                    .lock()
+                    .ok()
+                    .and_then(|mut at| at.take_if(|at| *at <= now))
+                    .is_some();
+                if due && !service.0.tasks.is_closed() {
+                    if let Err(error) = service.capture_inner(&services, true).await {
+                        // Tried again on a later pass.
+                        service.request_capture();
+                        return Err(error);
+                    }
+                }
+                Ok(())
+            })
+            .await
+            .map_err(CloudSyncError::from);
+        // An interrupt ends this pass only; manual syncs run on.
+        self.0
+            .interrupted
+            .store(false, std::sync::atomic::Ordering::Release);
+        ran?
+    }
+
+    /// Stops the automatic pass that runs before its next delivery; the
+    /// queue keeps what is left (`Duty::interrupt`).
+    pub(crate) fn interrupt(&self) {
+        self.0
+            .interrupted
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Local content changed: a pass a few seconds on captures it, so a
+    /// burst of commits makes one capture.
     pub fn request_capture(&self) {
-        if let Ok(mut next) = self.0.next_tick.lock() {
-            *next = Instant::now();
+        let soon = chrono::Utc::now() + CAPTURE_DELAY;
+        if let Ok(mut at) = self.0.capture_at.lock() {
+            *at = Some(at.map_or(soon, |at| at.min(soon)));
         }
     }
 
@@ -264,13 +334,7 @@ impl CloudSync {
         let service = self.clone();
         self.0
             .tasks
-            .run(async move {
-                service.capture_inner(&services, true).await?;
-                if let Ok(mut next) = service.0.next_tick.lock() {
-                    *next = Instant::now();
-                }
-                Ok(())
-            })
+            .run(async move { service.capture_inner(&services, true).await })
             .await
             .map_err(CloudSyncError::from)?
     }
@@ -425,6 +489,9 @@ impl CloudSync {
     pub async fn shutdown(&self) {
         self.0.tasks.close();
         self.0.tasks.wait().await;
+        if let Ok(mut services) = self.0.services.lock() {
+            *services = None;
+        }
         let _ = self.0.journal.change(|journal| {
             journal.state.syncing = false;
             for job in &mut journal.jobs {
@@ -621,9 +688,9 @@ impl CloudSync {
             .remote_check
             .lock()
             .map_err(|_| CloudSyncError::Storage("Sync clock unavailable".into()))?;
-        let now = Instant::now();
+        let now = chrono::Utc::now();
         let due = check.last.is_none_or(|last| {
-            let elapsed = now.saturating_duration_since(last);
+            let elapsed = now.signed_duration_since(last);
             elapsed >= REMOTE_CHECK_INTERVAL
                 || (check.foreground && elapsed >= FOREGROUND_CHECK_SPACING)
         });
@@ -650,7 +717,9 @@ impl CloudSync {
             .map(|delivery| delivery.provider)
             .collect::<std::collections::HashSet<_>>();
         for mut job in jobs {
-            if self.0.tasks.is_closed() {
+            if self.0.tasks.is_closed()
+                || self.0.interrupted.load(std::sync::atomic::Ordering::Acquire)
+            {
                 return Err(CloudSyncError::Stopped);
             }
             let now = chrono::Utc::now().timestamp();
@@ -1121,6 +1190,46 @@ async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(work)
         .await
         .map_err(|error| CloudSyncError::StorageTask(error.into()))?
+}
+
+/// When the queue next has a delivery to run: now for one due, else the
+/// earliest retry or hourly upload a pending delivery waits for.
+fn queue_due(
+    journal: &Journal,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    let mut next: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut consider = |at: chrono::DateTime<chrono::Utc>| {
+        next = Some(next.map_or(at, |next| next.min(at)));
+    };
+    for job in &journal.jobs {
+        for delivery in &job.task.deliveries {
+            if delivery.status == DeliveryStatus::Completed {
+                continue;
+            }
+            let Some(provider) = journal
+                .state
+                .providers
+                .iter()
+                .find(|row| row.provider == delivery.provider && row.enabled)
+            else {
+                continue;
+            };
+            if delivery.retry_at > now.timestamp() {
+                if let Some(at) = chrono::DateTime::from_timestamp(delivery.retry_at, 0) {
+                    consider(at);
+                }
+            } else if job.task.direction == Direction::Pull
+                || job.manual
+                || delivery.attempts > 0
+            {
+                consider(now);
+            } else if provider.synced_version.as_ref() != Some(&job.task.version) {
+                consider(journal.upload_due_at(delivery.provider).unwrap_or(now).max(now));
+            }
+        }
+    }
+    next
 }
 
 #[cfg(test)]

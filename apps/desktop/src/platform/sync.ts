@@ -1,8 +1,8 @@
 /**
- * Core's sync planner as the shell sees it (`crates/app-core/src/sync_engine`).
+ * Core's sync planner as the shell sees it (`crates/app-core/src/plan`).
  * The shell sends hints and renders the snapshot; it never decides what is
  * due or how far along a read is. The types mirror the Rust serde contract
- * (`approach/sync-planner-hints`); these helpers only choose which row of the snapshot a
+ * (`approach/core-deadline-plan`); these helpers only choose which row of the snapshot a
  * surface shows.
  */
 import type { SchoolAuthProfile, SchoolSessionState } from "./desktop-bridge";
@@ -28,7 +28,6 @@ export type SyncScope =
   | { kind: "catalog"; year: number };
 
 export type SyncHint =
-  | { kind: "wake" }
   | { kind: "foreground" }
   | { kind: "background" }
   | { kind: "suspend" }

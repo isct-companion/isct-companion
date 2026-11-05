@@ -398,8 +398,16 @@ pub fn run() {
                 notifications_macos::install(main);
             }
             let app_data_dir = app.path().app_data_dir()?;
-            let (data_store, _) = data::DataStore::initialize_dir(app_data_dir.clone())
-                .map_err(std::io::Error::other)?;
+            // Takes the data folder's lock first: a second copy of the app,
+            // a dev build included, stops here and says why.
+            let (data_store, _) = match data::DataStore::initialize_dir(app_data_dir.clone()) {
+                Ok(store) => store,
+                Err(error) => {
+                    log::error!("[data] {error}");
+                    native_dialog::fatal(&error.to_string());
+                    std::process::exit(1);
+                }
+            };
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
@@ -442,7 +450,7 @@ pub fn run() {
                 .attach_cloud(app.state::<cloud_sync::CloudSync>().0.clone())
                 .map_err(std::io::Error::other)?;
             // The MCP listener exists only while Allow local agents is on;
-            // the wake loop starts, stops and retries it.
+            // Core starts, stops and retries it (`DesktopRuntime::start`).
             app.manage(
                 agent_server::AgentAccess::new(app.handle().clone())
                     .map_err(std::io::Error::other)?,
@@ -553,7 +561,7 @@ pub fn run() {
             }
             if matches!(&event, tauri::RunEvent::Resumed) {
                 tauri::async_runtime::block_on(core_ports::runtime(app).resume());
-                core_ports::core(app).sync_hint(app_core::sync_engine::Hint::Resume);
+                core_ports::core(app).sync_hint(app_core::plan::Hint::Resume);
             }
 
             let foreground = match &event {

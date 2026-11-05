@@ -2,43 +2,70 @@
 //! recovery owned by Core, never by the caller
 //! (`approach/lms-submission-contract`).
 //!
-//! A write takes two steps. `prepare` snapshots `submit/` into the app data
-//! directory by name, size and sha256, reads what the LMS holds now and
-//! returns an immutable [`Preparation`]; the same content against the same
-//! LMS state gives the same preparation. `execute` takes the preparation's
-//! id with an echo of its summary, the one the MCP client showed the person,
-//! and refuses any difference. It re-reads the LMS, refuses when what the
-//! LMS holds moved, and uploads only the snapshot. Core derives the
-//! idempotency key itself; anything a caller passes is only a handle.
-//! One write per assignment runs at a time, its record is stored
-//! before anything is sent, and a write whose outcome is unknown is settled
-//! by reading the LMS, never by sending it again.
+//! A write takes two steps. `prepare` reads what the LMS holds now,
+//! snapshots `submit/` by name, size and sha256 (`snapshots`) and returns an
+//! immutable [`Preparation`], published with its snapshot in one ledger
+//! transaction; the same content against the same LMS state gives the same
+//! preparation. `execute` takes the preparation's id with an echo of its
+//! summary, the one the MCP client showed the person, and refuses any
+//! difference; in one transaction it checks the preparation has not expired
+//! and records the write with its snapshot. It reads the LMS again under
+//! the account permit it then holds through the upload and the save,
+//! refuses when the account, its generation or what the LMS holds moved,
+//! and uploads only the snapshot. Core derives the idempotency key itself;
+//! anything a caller passes is only a handle. One write per account and
+//! assignment runs at a time, its stage is stored before anything is sent,
+//! and a write whose outcome is unknown is settled by reading the LMS, never
+//! by sending it again.
 //!
-//! The LMS reports file names and sizes, not digests. So Core counts "the
-//! LMS already holds this" only on a receipt of its own: a write of the same
-//! content it confirmed, while the LMS still holds what it found then.
+//! Every LMS read here (preparation, preflight, verification) is a
+//! `PlanEngine` read: the engine's holds, lanes and ownership apply, and a
+//! verification is never joined with a read from before the write. A write
+//! counts as applied only on evidence bound to the account, the attempt and
+//! the content: the files the LMS holds are downloaded and their sha256
+//! compared. Names and sizes alone are inconclusive, and so is time: an
+//! unknown outcome keeps blocking new writes, read less and less often,
+//! until the LMS shows one. A settled write commits with the assignment to
+//! read again (`refresh_outbox`), which the engine reads past any refresh
+//! that started before the write.
+//!
 //! Nothing can lock the LMS against a browser or another device; checking
 //! the baseline again narrows that window and cannot close it.
 mod ledger;
+mod snapshots;
 
 use crate::{
-    data::DataStore,
+    data::{DataStore, StoreKind},
     error_code::{Coded, ErrorCode},
     net::BoxFuture,
+    plan::{Credential, Held, Lane, PlanHints, ReadRefused, ReadRequest},
+    runtime_tasks::RuntimeTasks,
+    school_auth::SchoolAuthProfile,
+    sync_state::{Dataset, Key},
     workspaces::{AssignmentWorkspaces, HandInError, SubmitFile, WorkspaceError},
 };
-use ledger::{Claim, Ledger};
+use ledger::{Claim, Ledger, Refresh};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use snapshots::Snapshots;
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 /// How long a preparation can be executed: time for a client's
 /// confirmation, while the LMS state it describes is still recent.
 const PREPARATION_TTL: i64 = 60 * 60;
-/// A write sent without an answer counts as not applied only once the LMS
-/// has had this long to finish it; until then it stays unknown and blocks
-/// new writes to the assignment.
-const SETTLE_AFTER: i64 = 3 * 60;
+/// An unknown outcome is read again after this, three times longer after
+/// each read that could not tell, at most `CHECK_MAX`.
+const CHECK_FIRST: i64 = 30;
+const CHECK_MAX: i64 = 6 * 60 * 60;
+/// A refresh after a settled write that did not land is tried again after
+/// this.
+const REFRESH_RETRY: i64 = 5 * 60;
+/// How long a refresh after a settled write may wait for its read.
+const REFRESH_WAIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// A read of the submission, sign-in and content downloads included.
+const READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// The LMS reads a submission over the token REST service only.
+const TOKEN_PATH: &[Credential] = &[Credential::Token];
 /// Settled writes stay as receipts only while their preparation could still
 /// be executed, so a repeated execute finds the write it repeats; the ledger
 /// keeps no history beyond that.
@@ -79,6 +106,14 @@ pub enum RemoteStatus {
 pub struct RemoteFile {
     pub name: String,
     pub bytes: u64,
+}
+
+/// A file of the submission as the LMS served it, by its content.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteContent {
+    pub name: String,
+    pub sha256: String,
 }
 
 /// The student's submission of the current attempt, as the LMS reports it.
@@ -134,6 +169,19 @@ pub struct RemoteSubmission {
     pub cmid: u64,
     pub state: RemoteState,
     pub rules: SubmissionRules,
+    /// The files' content, when the read was asked for it and could get
+    /// every file; sorted by name.
+    pub content: Option<Vec<RemoteContent>>,
+}
+
+/// The right to act on the LMS account for one account generation. A write
+/// holds one from its preflight read through its upload and save, so the
+/// account cannot change between them unnoticed.
+pub struct WritePermit {
+    /// The account generation it was taken at.
+    pub generation: u64,
+    /// The school sessions' permit; absent in a test transport.
+    pub(crate) inner: Option<crate::school_session::Permit>,
 }
 
 /// A snapshot file the transport uploads, read from the app data directory.
@@ -175,12 +223,21 @@ static GRANT: WriteGrant = WriteGrant { _sealed: () };
 /// read-only, and each write takes a [`WriteGrant`], which only
 /// [`SubmissionService`] holds.
 pub trait SubmissionTransport: Send + Sync {
-    /// One assignment's submission, as the LMS holds it now.
-    fn read(&self, module: LmsModule) -> BoxFuture<'_, Result<RemoteSubmission, TransportError>>;
+    /// A permit for the LMS account now.
+    fn permit(&self) -> Result<WritePermit, TransportError>;
+    /// One assignment's submission, as the LMS holds it now, with the
+    /// content of its files when `content` asks for it.
+    fn read(
+        self: Arc<Self>,
+        permit: Arc<WritePermit>,
+        module: LmsModule,
+        content: bool,
+    ) -> BoxFuture<'static, Result<RemoteSubmission, TransportError>>;
     /// Uploads `files` into one new draft area and returns its item id.
     fn upload<'a>(
         &'a self,
         grant: &'a WriteGrant,
+        permit: &'a WritePermit,
         files: &'a [UploadFile],
     ) -> BoxFuture<'a, Result<u64, TransportError>>;
     /// Saves the submission from draft area `draft`, which replaces the
@@ -188,6 +245,7 @@ pub trait SubmissionTransport: Send + Sync {
     fn save<'a>(
         &'a self,
         grant: &'a WriteGrant,
+        permit: &'a WritePermit,
         assign_id: u64,
         draft: u64,
     ) -> BoxFuture<'a, Result<(), TransportError>>;
@@ -195,6 +253,7 @@ pub trait SubmissionTransport: Send + Sync {
     fn remove<'a>(
         &'a self,
         grant: &'a WriteGrant,
+        permit: &'a WritePermit,
         assign_id: u64,
     ) -> BoxFuture<'a, Result<(), TransportError>>;
 }
@@ -265,6 +324,9 @@ pub struct Preparation {
     pub assignment_id: String,
     pub assignment_title: String,
     pub identity: LmsIdentity,
+    /// The LMS account's generation when it was read; a sign-out or a new
+    /// account since refuses the write.
+    pub account_generation: u64,
     pub module: LmsModule,
     pub assign_id: u64,
     pub action: SubmissionAction,
@@ -368,7 +430,7 @@ pub enum OperationState {
 }
 
 impl OperationState {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Prepared => "prepared",
             Self::Uploading => "uploading",
@@ -421,6 +483,7 @@ struct Operation {
     assignment_id: String,
     key: String,
     identity: LmsIdentity,
+    account_generation: u64,
     module: LmsModule,
     assign_id: u64,
     action: SubmissionAction,
@@ -437,6 +500,9 @@ struct Operation {
     detail: Option<String>,
     /// What the LMS held once the write was confirmed.
     verified: Option<RemoteState>,
+    /// The assignment's resource revision the write raised when it sent
+    /// (`PlanEngine::bump_resource`).
+    revision: u64,
     created_at: i64,
     updated_at: i64,
 }
@@ -449,6 +515,7 @@ impl Operation {
             assignment_id: preparation.assignment_id.clone(),
             key: preparation.key(),
             identity: preparation.identity.clone(),
+            account_generation: preparation.account_generation,
             module: preparation.module,
             assign_id: preparation.assign_id,
             action: preparation.action,
@@ -461,6 +528,7 @@ impl Operation {
             failure: None,
             detail: None,
             verified: None,
+            revision: 0,
             created_at: now,
             updated_at: now,
         }
@@ -480,26 +548,83 @@ impl Operation {
         }
     }
 
-    /// Whether `state` is what this write leaves on the LMS.
-    fn applied(&self, state: &RemoteState) -> bool {
-        if state.attempt != self.baseline.attempt {
-            return false;
+    /// What one read of the LMS proves about this write.
+    fn verdict(&self, remote: &RemoteSubmission) -> Verdict {
+        // Another account or assignment says nothing about this write.
+        if remote.identity != self.identity || remote.assign_id != self.assign_id {
+            return Verdict::Inconclusive;
         }
-        match self.action {
-            SubmissionAction::Save => {
-                state.status == RemoteStatus::Submitted
-                    && state.time_modified > self.baseline.time_modified
-                    && state.files.len() == self.files.len()
-                    && state.files.iter().zip(&self.files).all(|(remote, local)| {
-                        remote.name == local.name && remote.bytes == local.bytes
-                    })
+        let state = &remote.state;
+        if state == &self.baseline {
+            // Nothing moved: only a refusal the LMS answered proves it did
+            // not apply; a lost or late answer may still land.
+            return match (self.answered, self.failure) {
+                (true, Some(failure)) => Verdict::NotApplied(failure),
+                _ => Verdict::Inconclusive,
+            };
+        }
+        let shown = state.attempt == self.baseline.attempt
+            && match self.action {
+                SubmissionAction::Save => {
+                    state.status == RemoteStatus::Submitted
+                        && state.time_modified > self.baseline.time_modified
+                        && state.files.len() == self.files.len()
+                        && state.files.iter().zip(&self.files).all(|(remote, local)| {
+                            remote.name == local.name && remote.bytes == local.bytes
+                        })
+                }
+                SubmissionAction::Remove => {
+                    matches!(state.status, RemoteStatus::New | RemoteStatus::Reopened)
+                        && state.files.is_empty()
+                }
+            };
+        if !shown {
+            // The LMS holds something this write does not leave.
+            return Verdict::NotApplied(ErrorCode::SubmissionMismatch);
+        }
+        if self.action == SubmissionAction::Remove {
+            return Verdict::Applied;
+        }
+        match &remote.content {
+            Some(content) => {
+                let same = content.len() == self.files.len()
+                    && content
+                        .iter()
+                        .zip(&self.files)
+                        .all(|(remote, local)| remote.name == local.name && remote.sha256 == local.sha256);
+                if same {
+                    Verdict::Applied
+                } else {
+                    Verdict::NotApplied(ErrorCode::SubmissionMismatch)
+                }
             }
-            SubmissionAction::Remove => {
-                matches!(state.status, RemoteStatus::New | RemoteStatus::Reopened)
-                    && state.files.is_empty()
-            }
+            // Same names and sizes, content unseen.
+            None => Verdict::Inconclusive,
         }
     }
+
+    /// The assignment's key the write changes, by the ledger's own record.
+    fn resource(&self) -> Option<(u64, Key)> {
+        self.module
+            .course
+            .map(|course| (course, Key::new(Dataset::LmsAssign, course.to_string())))
+    }
+}
+
+/// What one read proves about a write.
+enum Verdict {
+    Applied,
+    NotApplied(ErrorCode),
+    /// Until a read can tell, the write stays unknown.
+    Inconclusive,
+}
+
+/// What an LMS read is for; reads join only within one purpose and fence.
+#[derive(Clone, Copy)]
+enum Purpose<'a> {
+    Prepare,
+    Preflight { operation: &'a str },
+    Verify { operation: &'a str, check: u32 },
 }
 
 /// An assignment kind or state this version does not write.
@@ -604,6 +729,13 @@ pub enum SubmissionError {
     /// The person's switch, "Allow AI agents to write to LMS", is off.
     #[error("Writing to the LMS is turned off in Settings")]
     WritesDisabled,
+    /// The LMS account or its generation changed since the preparation.
+    #[error("The school account changed after the submission was prepared")]
+    IdentityChanged,
+    /// A ledger this version does not read; it is kept as it is and LMS
+    /// writes stay off.
+    #[error("The submission ledger has format {found}, which this version cannot read (it reads {expected}); LMS writes are off")]
+    UnsupportedLedger { found: i64, expected: i64 },
 }
 
 impl From<rusqlite::Error> for SubmissionError {
@@ -646,22 +778,37 @@ pub struct SubmissionService {
     workspaces: AssignmentWorkspaces,
     transport: Arc<dyn SubmissionTransport>,
     ledger: Arc<Ledger>,
-    /// Set once this run recovered what the last one left unsettled.
-    recovered: Arc<tokio::sync::OnceCell<()>>,
+    snapshots: Arc<Snapshots>,
+    /// The engine every read goes through. Weak: the engine owns this
+    /// service's duty.
+    plan: PlanHints,
+    /// Core's owned tasks: a claimed write runs to its end in them, past a
+    /// caller that stopped waiting, and shutdown drains it.
+    tasks: RuntimeTasks,
+    /// This run, the owner of every write it starts.
+    owner: String,
     now: Clock,
 }
 
 impl SubmissionService {
-    /// Opens the device-local ledger beside `store`'s files.
+    /// Opens the ledger's active generation, or builds a new, empty one:
+    /// for a folder without one, or in place of a ledger of an older known
+    /// format (`approach/short-lived-store-rebuild`: hand-ins are confirmed
+    /// before upgrading). A newer or unknown format is refused and kept.
+    /// Then recovers what earlier runs left unsettled.
     pub fn open(
         store: &DataStore,
         workspaces: AssignmentWorkspaces,
         transport: Arc<dyn SubmissionTransport>,
+        plan: PlanHints,
+        tasks: RuntimeTasks,
     ) -> Result<Self, SubmissionError> {
         Self::with_clock(
             store,
             workspaces,
             transport,
+            plan,
+            tasks,
             Arc::new(|| chrono::Utc::now().timestamp()),
         )
     }
@@ -670,33 +817,83 @@ impl SubmissionService {
         store: &DataStore,
         workspaces: AssignmentWorkspaces,
         transport: Arc<dyn SubmissionTransport>,
+        plan: PlanHints,
+        tasks: RuntimeTasks,
         now: Clock,
     ) -> Result<Self, SubmissionError> {
-        let directory = store
-            .user_path()
-            .parent()
-            .ok_or_else(|| SubmissionError::Storage("The data folder is unknown".into()))?;
-        Ok(Self {
+        let root = store.root();
+        let active = root
+            .active(StoreKind::Submissions)
+            .map_err(|error| SubmissionError::Storage(error.to_string()))?;
+        // Before generations the ledger lay flat in the folder; of the
+        // formats it had, only the known older ones are replaced.
+        let flat = root.paths().root().join(ledger::FILE);
+        let older = match &active {
+            Some(active) if active.format == ledger::FORMAT => None,
+            Some(active) if ledger::OLDER_FORMATS.contains(&active.format) => Some(active.format),
+            Some(active) => {
+                return Err(SubmissionError::UnsupportedLedger {
+                    found: active.format,
+                    expected: ledger::FORMAT,
+                })
+            }
+            None => match crate::data::root::file_version(&flat) {
+                Ok(found) if found != 0 && !ledger::OLDER_FORMATS.contains(&found) => {
+                    return Err(SubmissionError::UnsupportedLedger {
+                        found,
+                        expected: ledger::FORMAT,
+                    })
+                }
+                Ok(found) => Some(found),
+                Err(_) => Some(0),
+            },
+        };
+        let generation = match (active, older) {
+            (Some(active), None) => root.paths().generation(StoreKind::Submissions, &active.id),
+            (_, older) => {
+                let (id, directory) = root
+                    .new_generation(StoreKind::Submissions)
+                    .map_err(|error| SubmissionError::Storage(error.to_string()))?;
+                let built = Ledger::create(&directory.join(ledger::FILE))
+                    .and_then(|()| Snapshots::open(&directory, root.clone()).map(|_| ()))
+                    .map_err(|error| crate::data::StoreOpenError::Io(error.to_string()));
+                crate::data::root::finish_candidate(&directory, built)
+                    .and_then(|()| {
+                        root.publish(
+                            &[crate::data::root::Candidate {
+                                kind: StoreKind::Submissions,
+                                generation: crate::data::root::Generation {
+                                    id,
+                                    format: ledger::FORMAT,
+                                },
+                            }],
+                            false,
+                        )
+                    })
+                    .map_err(|error| SubmissionError::Storage(error.to_string()))?;
+                if let Some(older) = older.filter(|found| *found != 0) {
+                    log::info!(target: "app_core::submissions", "The ledger of format {older} was replaced by an empty one");
+                }
+                directory
+            }
+        };
+        let service = Self {
             store: store.clone(),
             workspaces,
             transport,
-            ledger: Arc::new(Ledger::open(directory)?),
-            recovered: Arc::default(),
+            ledger: Arc::new(Ledger::open(&generation.join(ledger::FILE))?),
+            snapshots: Arc::new(Snapshots::open(&generation, root.clone())?),
+            plan,
+            tasks,
+            owner: root.boot().to_owned(),
             now,
-        })
+        };
+        service.recover()?;
+        Ok(service)
     }
 
     fn now(&self) -> i64 {
         (self.now)()
-    }
-
-    /// Recovers what the last run left unsettled, once per run, before
-    /// anything else touches the ledger.
-    async fn ready(&self) -> Result<(), SubmissionError> {
-        self.recovered
-            .get_or_try_init(|| async { self.recover().await.map(|_| ()) })
-            .await
-            .map(|_| ())
     }
 
     /// Every LMS write today comes from an agent, so the person's switch
@@ -710,11 +907,78 @@ impl SubmissionService {
         }
     }
 
-    /// The runtime wake: the first one recovers the last run, every one
-    /// settles writes whose outcome is unknown. Returns how many settled.
-    pub async fn wake(&self) -> Result<usize, SubmissionError> {
-        self.ready().await?;
-        self.reconcile().await
+    /// Settles what earlier runs left unsettled; their executor is gone
+    /// (only one Core holds the data folder). A write that never sent its
+    /// save or removal failed; one that may have is read until the LMS
+    /// shows what it did.
+    fn recover(&self) -> Result<(), SubmissionError> {
+        for mut operation in self.ledger.orphaned(&self.owner)? {
+            let from = operation.state;
+            match from {
+                OperationState::Prepared | OperationState::Uploading => {
+                    operation.failure = Some(ErrorCode::Stopped);
+                    self.advance(&mut operation, OperationState::Failed, from)?;
+                }
+                OperationState::Saving | OperationState::Verifying => {
+                    self.advance(&mut operation, OperationState::OutcomeUnknown, from)?;
+                }
+                // Read on its schedule, now owned by this run.
+                OperationState::OutcomeUnknown => {
+                    self.advance(&mut operation, OperationState::OutcomeUnknown, from)?;
+                }
+                OperationState::Succeeded | OperationState::Failed => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// When the `PlanEngine` next reads an unknown write or an assignment
+    /// a settled write changed.
+    pub(crate) fn next_due(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        let at = self.ledger.next_due().ok().flatten()?;
+        chrono::DateTime::from_timestamp(at, 0)
+    }
+
+    /// The `PlanEngine`'s pass: reads every unknown write whose check has
+    /// come, then the assignments settled writes changed.
+    pub(crate) async fn run_due(&self) -> Result<(), SubmissionError> {
+        let now = self.now();
+        for (operation, checks) in self.ledger.checks_due(now)? {
+            let id = operation.id.clone();
+            let settled = self.verify(operation, checks).await?;
+            if !settled.state.settled() {
+                let wait = CHECK_FIRST
+                    .saturating_mul(3_i64.saturating_pow(checks.min(8)))
+                    .min(CHECK_MAX);
+                self.ledger.schedule_check(&id, self.now() + wait, false)?;
+            }
+        }
+        for refresh in self.ledger.refreshes_due(now)? {
+            let key = Key::new(Dataset::LmsAssign, refresh.lms_course_id.to_string());
+            let Some(plan) = self.plan.engine() else {
+                return Ok(());
+            };
+            let landed =
+                tokio::time::timeout(REFRESH_WAIT, plan.refresh_key(key, refresh.revision)).await;
+            let retry = match landed {
+                Ok(Ok(())) => None,
+                Ok(Err(ReadRefused::Stopped)) => return Ok(()),
+                _ => Some(self.now() + REFRESH_RETRY),
+            };
+            self.ledger.refreshed(&refresh.operation, retry)?;
+        }
+        Ok(())
+    }
+
+    /// Maintenance: expired preparations, receipts past their retention and
+    /// the snapshot objects nothing names any more go.
+    pub(crate) fn maintain(&self, now: i64) -> Result<(), SubmissionError> {
+        let ledger = self.ledger.clone();
+        let removed = self.snapshots.collect(move || ledger.expire(now))?;
+        if removed > 0 {
+            log::info!(target: "app_core::submissions", "{removed} snapshot objects collected");
+        }
+        Ok(())
     }
 
     /// Reads the LMS, snapshots `submit/` for a save, and returns the write
@@ -726,39 +990,38 @@ impl SubmissionService {
         assignment: &str,
         action: SubmissionAction,
     ) -> Result<Preparation, SubmissionError> {
-        self.ready().await?;
         let (detail, _) = self.workspaces.detail(assignment)?;
         let module = self.workspaces.lms_module(assignment)?;
-        let remote = self.read(module).await?;
-        // An earlier write still decides what the LMS holds; this read may
-        // settle it.
-        for operation in self
+        let permit = Arc::new(self.transport.permit()?);
+        let account_generation = permit.generation;
+        let remote = self.read(Purpose::Prepare, module, permit, false).await?;
+        // An earlier write still decides what the LMS holds; an unknown one
+        // is read on its schedule, and soon.
+        if let Some(operation) = self
             .ledger
-            .unsettled(Some((&remote.identity, remote.assign_id)))?
+            .unsettled(&remote.identity, remote.assign_id)?
+            .into_iter()
+            .next()
         {
-            let operation = match operation.state {
-                OperationState::OutcomeUnknown => self.conclude(operation, &remote)?,
-                _ => operation,
-            };
-            if !operation.state.settled() {
-                return Err(refusal(&operation));
-            }
+            self.ensure_checked(&operation)?;
+            return Err(refusal(&operation));
         }
         supported(&remote.rules)?;
-        let files = match action {
-            SubmissionAction::Save => {
-                let files = self.snapshot(assignment).await?;
-                within_limits(&files, &remote.rules)?;
-                files
-            }
-            SubmissionAction::Remove => Vec::new(),
+        let capture = match action {
+            SubmissionAction::Save => Some(self.capture(assignment).await?),
+            SubmissionAction::Remove => None,
         };
+        let files = capture.as_ref().map(snapshots::Capture::files).unwrap_or_default();
+        if action == SubmissionAction::Save {
+            within_limits(&files, &remote.rules)?;
+        }
         let reversibility = reversibility(action, &remote.rules);
         let mut preparation = Preparation {
             id: String::new(),
             assignment_id: assignment.into(),
             assignment_title: detail.title,
             identity: remote.identity,
+            account_generation,
             module,
             assign_id: remote.assign_id,
             action,
@@ -772,19 +1035,18 @@ impl SubmissionService {
             .ledger
             .receipt(&preparation.key(), &preparation.baseline)?;
         preparation.effect = effect(&preparation, receipt.is_some())?;
-        // Content-addressed: the same snapshot, LMS state and effect give
-        // the same id.
+        // Content-addressed: the same snapshot, account, LMS state and
+        // effect give the same id.
         preparation.id = hex_digest(&serde_json::to_vec(&preparation)?);
         let now = self.now();
-        if let Some(existing) = self.ledger.preparation(&preparation.id)? {
-            if existing.expires_at > now {
-                return Ok(existing);
-            }
-        }
         preparation.expires_at = now + PREPARATION_TTL;
-        self.ledger.put_preparation(&preparation)?;
-        self.ledger.clean(now)?;
-        Ok(preparation)
+        let snapshots = self.snapshots.clone();
+        let ledger = self.ledger.clone();
+        tokio::task::spawn_blocking(move || {
+            snapshots.publish(capture, || ledger.publish_preparation(&preparation, now))
+        })
+        .await
+        .map_err(|_| SubmissionError::Storage("The snapshot was interrupted".into()))?
     }
 
     /// Executes a preparation whose summary the client confirmed. The same
@@ -795,48 +1057,70 @@ impl SubmissionService {
         &self,
         request: ExecuteRequest,
     ) -> Result<SubmissionOperation, SubmissionError> {
-        self.ready().await?;
+        self.allowed()?;
         let now = self.now();
-        let Some(preparation) = self
+        let Some(prepared) = self
             .ledger
             .preparation(&request.preparation_id)?
             .filter(|preparation| preparation.expires_at > now)
         else {
-            // A preparation is dropped once its write succeeded; repeating
-            // it answers with that write.
-            return match self.ledger.latest_for(&request.preparation_id)? {
-                Some(operation) if operation.state != OperationState::Failed => {
-                    self.answer(operation).await
-                }
-                _ => Err(SubmissionError::Expired),
-            };
+            return self.repeated(&request.preparation_id);
         };
-        confirm(&preparation.summary(), &request.summary)?;
-        self.allowed()?;
-        if preparation.action == SubmissionAction::Save {
-            self.check_files(&preparation).await?;
+        confirm(&prepared.summary(), &request.summary)?;
+        if prepared.action == SubmissionAction::Save {
+            self.check_files(&prepared).await?;
         }
-        let operation = Operation::new(&preparation, now);
-        match self.ledger.claim(&operation)? {
-            Claim::Claimed => {}
-            Claim::Busy(existing) if existing.key == operation.key => {
-                return self.answer(*existing).await;
+        let claimed = self.ledger.claim(
+            &request.preparation_id,
+            now,
+            &self.owner,
+            |preparation| confirm(&preparation.summary(), &request.summary),
+            |preparation| Operation::new(preparation, now),
+        )?;
+        let (preparation, operation) = match claimed {
+            Claim::Claimed(preparation, operation) => (*preparation, *operation),
+            Claim::Busy(existing) if existing.key == Operation::new(&prepared, now).key => {
+                return Ok(existing.public());
             }
             Claim::Busy(existing) => return Err(refusal(&existing)),
-        }
+            Claim::Expired => return self.repeated(&request.preparation_id),
+        };
         // Core owns a claimed write to its end: a caller that stops waiting
-        // does not stop it.
+        // does not stop it, and shutdown waits for it.
         let service = self.clone();
-        tokio::spawn(async move { service.run(preparation, operation).await })
+        self.tasks
+            .run(async move { service.run(preparation, operation).await })
             .await
             .map_err(|_| SubmissionError::Storage("The submission task stopped".into()))?
     }
 
-    /// One write's state; a write whose outcome is unknown is read for
-    /// first.
-    pub async fn status(&self, operation: &str) -> Result<SubmissionOperation, SubmissionError> {
-        self.ready().await?;
-        self.answer(self.known(operation)?).await
+    /// A preparation is dropped once its write succeeded; repeating it
+    /// answers with that write.
+    fn repeated(&self, preparation: &str) -> Result<SubmissionOperation, SubmissionError> {
+        match self.ledger.latest_for(preparation)? {
+            Some(operation) if operation.state != OperationState::Failed => {
+                self.ensure_checked(&operation)?;
+                Ok(operation.public())
+            }
+            _ => Err(SubmissionError::Expired),
+        }
+    }
+
+    /// One write's state as the ledger has it; an unknown one is read on
+    /// its schedule (queued now if it had none). Never reads the LMS itself.
+    pub fn status(&self, operation: &str) -> Result<SubmissionOperation, SubmissionError> {
+        let operation = self.known(operation)?;
+        self.ensure_checked(&operation)?;
+        Ok(operation.public())
+    }
+
+    /// An unknown write has a check queued.
+    fn ensure_checked(&self, operation: &Operation) -> Result<(), SubmissionError> {
+        if operation.state == OperationState::OutcomeUnknown {
+            self.ledger.schedule_check(&operation.id, self.now(), true)?;
+            self.plan.duties_changed();
+        }
+        Ok(())
     }
 
     /// Stops a write that has not sent its save or removal. One that has
@@ -860,49 +1144,52 @@ impl SubmissionService {
         })
     }
 
-    /// On Core start: settles what an earlier run left unsettled. A write
-    /// that never sent its save or removal failed; one that may have is
-    /// settled by reading the LMS. Returns how many writes settled.
-    pub async fn recover(&self) -> Result<usize, SubmissionError> {
-        for mut operation in self.ledger.unsettled(None)? {
-            let from = operation.state;
-            match from {
-                OperationState::Prepared | OperationState::Uploading => {
-                    operation.failure = Some(ErrorCode::Stopped);
-                    self.advance(&mut operation, OperationState::Failed, from)?;
-                }
-                OperationState::Saving | OperationState::Verifying => {
-                    self.advance(&mut operation, OperationState::OutcomeUnknown, from)?;
-                }
-                _ => {}
-            }
-        }
-        self.reconcile().await
-    }
-
-    /// Settles every write whose outcome is unknown by reading the LMS,
-    /// right after a timeout, on start and in the runtime wake. Only reads
-    /// are retried; a write is never sent again. Returns how many settled.
-    pub async fn reconcile(&self) -> Result<usize, SubmissionError> {
-        let mut settled = 0;
-        for operation in self.ledger.unsettled(None)? {
-            if operation.state == OperationState::OutcomeUnknown
-                && self.settle(operation).await?.state.settled()
-            {
-                settled += 1;
-            }
-        }
-        self.ledger.clean(self.now())?;
-        Ok(settled)
-    }
-
-    async fn read(&self, module: LmsModule) -> Result<RemoteSubmission, TransportError> {
-        let mut remote = self.transport.read(module).await?;
+    /// One LMS read through the `PlanEngine`: its holds and lanes, owned by
+    /// the engine, and joined only with a read of the same purpose and
+    /// fence.
+    async fn read(
+        &self,
+        purpose: Purpose<'_>,
+        module: LmsModule,
+        permit: Arc<WritePermit>,
+        content: bool,
+    ) -> Result<RemoteSubmission, TransportError> {
+        let fence = match purpose {
+            Purpose::Prepare => format!("prepare:{}", permit.generation),
+            Purpose::Preflight { operation } => format!("preflight:{operation}"),
+            Purpose::Verify { operation, check } => format!("verify:{operation}:{check}"),
+        };
+        let transport = self.transport.clone();
+        let Some(plan) = self.plan.engine() else {
+            return Err(TransportError::NotSent("Core has stopped".into()));
+        };
+        let read = plan
+            .read(
+                ReadRequest {
+                    key: format!("submission:{}:{}:{fence}", module.cmid, module.course.unwrap_or(0)),
+                    lane: Lane::Moodle,
+                    account: Some((SchoolAuthProfile::Science, TOKEN_PATH)),
+                    deadline: READ_DEADLINE,
+                },
+                move |_cancel| transport.read(permit, module, content),
+            )
+            .await;
+        let mut remote = match read {
+            Ok(read) => read?,
+            Err(ReadRefused::Held(Held::Account {
+                wait: crate::plan::AccountWait::Person,
+                ..
+            })) => return Err(TransportError::SignInRequired),
+            Err(refused) => return Err(TransportError::NotSent(refused.to_string())),
+        };
         remote.state.files.sort();
+        if let Some(content) = &mut remote.content {
+            content.sort();
+        }
         Ok(remote)
     }
 
-    async fn snapshot(&self, assignment: &str) -> Result<Vec<SnapshotFile>, SubmissionError> {
+    async fn capture(&self, assignment: &str) -> Result<snapshots::Capture, SubmissionError> {
         let workspace = self
             .workspaces
             .find(assignment)?
@@ -911,8 +1198,8 @@ impl SubmissionService {
             return Err(Unsupported::Zip.into());
         }
         let submit = PathBuf::from(&workspace.path).join(crate::workspaces::SUBMIT_DIR);
-        let ledger = self.ledger.clone();
-        tokio::task::spawn_blocking(move || ledger.snapshot(&submit, &workspace.submit_files))
+        let snapshots = self.snapshots.clone();
+        tokio::task::spawn_blocking(move || snapshots.capture(&submit, &workspace.submit_files))
             .await
             .map_err(|_| SubmissionError::Storage("The snapshot was interrupted".into()))?
     }
@@ -921,12 +1208,12 @@ impl SubmissionService {
     /// and `submit/` changed since means the person now wants to hand in
     /// something they have not confirmed.
     async fn check_files(&self, preparation: &Preparation) -> Result<(), SubmissionError> {
-        let ledger = self.ledger.clone();
+        let snapshots = self.snapshots.clone();
         let workspaces = self.workspaces.clone();
         let assignment = preparation.assignment_id.clone();
         let files = preparation.files.clone();
         let (intact, current) = tokio::task::spawn_blocking(move || {
-            Ok::<_, SubmissionError>((ledger.intact(&files), workspaces.status(&assignment)?))
+            Ok::<_, SubmissionError>((snapshots.intact(&files), workspaces.status(&assignment)?))
         })
         .await
         .map_err(|_| SubmissionError::Storage("The file check was interrupted".into()))??;
@@ -940,13 +1227,35 @@ impl SubmissionService {
         }
     }
 
-    /// One claimed write, from the last read to its settled or unknown end.
+    /// One claimed write, from the preflight read to its settled or unknown
+    /// end, under one account permit.
     async fn run(
         &self,
         preparation: Preparation,
         mut operation: Operation,
     ) -> Result<SubmissionOperation, SubmissionError> {
-        let checked = match self.read(preparation.module).await {
+        let permit = match self.transport.permit() {
+            Ok(permit) if permit.generation == preparation.account_generation => Arc::new(permit),
+            Ok(_) => {
+                self.ledger.withdraw(&operation.id)?;
+                return Err(SubmissionError::IdentityChanged);
+            }
+            Err(error) => {
+                self.ledger.withdraw(&operation.id)?;
+                return Err(error.into());
+            }
+        };
+        let checked = match self
+            .read(
+                Purpose::Preflight {
+                    operation: &operation.id,
+                },
+                preparation.module,
+                permit.clone(),
+                false,
+            )
+            .await
+        {
             Ok(remote) => self
                 .recheck(&preparation, &operation, &remote)
                 .and_then(|receipt| self.allowed().map(|()| receipt)),
@@ -972,8 +1281,8 @@ impl SubmissionService {
                 )? {
                     return Ok(self.known(&operation.id)?.public());
                 }
-                let files = self.ledger.uploads(&preparation.files);
-                match self.transport.upload(&GRANT, &files).await {
+                let files = self.snapshots.uploads(&preparation.files);
+                match self.transport.upload(&GRANT, &permit, &files).await {
                     Ok(draft) => Some(draft),
                     // A draft area alone changes nothing on the submission.
                     Err(error) => {
@@ -992,6 +1301,12 @@ impl SubmissionService {
             self.advance(&mut operation, OperationState::Failed, from)?;
             return Err(error);
         }
+        // A read of the assignment leased before this point never lands
+        // over what the write leaves.
+        operation.revision = match (operation.resource(), self.plan.engine()) {
+            (Some((_, key)), Some(plan)) => plan.bump_resource(&key),
+            _ => 0,
+        };
         let from = operation.state;
         operation.sent = true;
         operation.sent_at = Some(self.now());
@@ -1003,52 +1318,37 @@ impl SubmissionService {
         let sent = match draft {
             Some(draft) => {
                 self.transport
-                    .save(&GRANT, preparation.assign_id, draft)
+                    .save(&GRANT, &permit, preparation.assign_id, draft)
                     .await
             }
-            None => self.transport.remove(&GRANT, preparation.assign_id).await,
+            None => {
+                self.transport
+                    .remove(&GRANT, &permit, preparation.assign_id)
+                    .await
+            }
         };
-        let operation = match sent {
-            Ok(()) => {
-                operation.answered = true;
-                if !self.advance(
-                    &mut operation,
-                    OperationState::Verifying,
-                    OperationState::Saving,
-                )? {
-                    return Ok(self.known(&operation.id)?.public());
-                }
-                self.settle(operation).await?
-            }
-            Err(TransportError::Uncertain(detail)) => {
-                operation.detail = Some(detail);
-                if !self.advance(
-                    &mut operation,
-                    OperationState::OutcomeUnknown,
-                    OperationState::Saving,
-                )? {
-                    return Ok(self.known(&operation.id)?.public());
-                }
-                // Read right away; a write is never sent again.
-                self.settle(operation).await?
-            }
+        drop(permit);
+        match sent {
+            Ok(()) => operation.answered = true,
+            Err(TransportError::Uncertain(detail)) => operation.detail = Some(detail),
+            // A refusal is read back too: what the LMS holds decides, and
+            // the refusal names the failure while nothing changed.
             Err(error) => {
-                // A refusal is read back too: what the LMS holds decides,
-                // and the refusal names the failure while nothing changed.
                 operation.answered = true;
                 operation.failure = Some(error.code());
                 operation.detail = Some(error.to_string());
-                if !self.advance(
-                    &mut operation,
-                    OperationState::Verifying,
-                    OperationState::Saving,
-                )? {
-                    return Ok(self.known(&operation.id)?.public());
-                }
-                self.settle(operation).await?
             }
+        }
+        let to = if operation.answered {
+            OperationState::Verifying
+        } else {
+            OperationState::OutcomeUnknown
         };
-        Ok(operation.public())
+        if !self.advance(&mut operation, to, OperationState::Saving)? {
+            return Ok(self.known(&operation.id)?.public());
+        }
+        // Read right away; a write is never sent again.
+        Ok(self.verify(operation, 0).await?.public())
     }
 
     /// The last checks before sending, against a fresh read. `Some` is a
@@ -1059,6 +1359,9 @@ impl SubmissionService {
         operation: &Operation,
         remote: &RemoteSubmission,
     ) -> Result<Option<Operation>, SubmissionError> {
+        if remote.identity != preparation.identity {
+            return Err(SubmissionError::IdentityChanged);
+        }
         if remote.assign_id != preparation.assign_id || remote.cmid != preparation.module.cmid {
             return Err(SubmissionError::RemoteConflict);
         }
@@ -1079,76 +1382,53 @@ impl SubmissionService {
     }
 
     /// Reads the LMS for a write that was answered or whose outcome is
-    /// unknown, and concludes it if the read can.
-    async fn settle(&self, mut operation: Operation) -> Result<Operation, SubmissionError> {
-        match self.read(operation.module).await {
-            Ok(remote) => self.conclude(operation, &remote),
-            Err(error) => {
-                let from = operation.state;
-                if from != OperationState::OutcomeUnknown {
-                    operation.detail = Some(error.to_string());
-                    if !self.advance(&mut operation, OperationState::OutcomeUnknown, from)? {
-                        return self.known(&operation.id);
-                    }
+    /// unknown, with the content of what it holds, and concludes it if the
+    /// read can tell. A read that cannot leaves it unknown.
+    async fn verify(&self, mut operation: Operation, check: u32) -> Result<Operation, SubmissionError> {
+        let read = match self.transport.permit() {
+            Ok(permit) => {
+                self.read(
+                    Purpose::Verify {
+                        operation: &operation.id,
+                        check,
+                    },
+                    operation.module,
+                    Arc::new(permit),
+                    operation.action == SubmissionAction::Save,
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
+        let verdict = match read {
+            Ok(remote) => {
+                let verdict = operation.verdict(&remote);
+                if matches!(verdict, Verdict::Applied) {
+                    operation.verified = Some(remote.state.clone());
                 }
-                Ok(operation)
+                verdict
             }
-        }
-    }
-
-    /// Settles a write from one read of the LMS. Applied succeeds at once.
-    /// Not applied fails only when the LMS answered, or once it has had
-    /// `SETTLE_AFTER` to finish a write it did not answer; until then the
-    /// write stays unknown.
-    fn conclude(
-        &self,
-        mut operation: Operation,
-        remote: &RemoteSubmission,
-    ) -> Result<Operation, SubmissionError> {
+            Err(error) => {
+                operation.detail = Some(error.to_string());
+                Verdict::Inconclusive
+            }
+        };
         let from = operation.state;
-        let now = self.now();
-        let verdict = if remote.assign_id != operation.assign_id {
-            // Another assignment says nothing about this write.
-            None
-        } else if operation.applied(&remote.state) {
-            Some((OperationState::Succeeded, None))
-        } else if operation.answered
-            || operation
-                .sent_at
-                .is_none_or(|sent| now - sent >= SETTLE_AFTER)
-        {
-            let failure = if remote.state != operation.baseline {
-                ErrorCode::SubmissionMismatch
-            } else if let Some(refused) = operation.failure {
-                refused
-            } else if operation.answered {
-                ErrorCode::SubmissionMismatch
-            } else {
-                ErrorCode::Timeout
-            };
-            Some((OperationState::Failed, Some(failure)))
-        } else {
-            None
+        let (to, failure) = match verdict {
+            Verdict::Applied => (OperationState::Succeeded, None),
+            Verdict::NotApplied(failure) => (OperationState::Failed, Some(failure)),
+            Verdict::Inconclusive => (OperationState::OutcomeUnknown, operation.failure),
         };
-        let Some((state, failure)) = verdict else {
-            if from != OperationState::OutcomeUnknown
-                && !self.advance(&mut operation, OperationState::OutcomeUnknown, from)?
-            {
-                return self.known(&operation.id);
-            }
+        if to == from {
             return Ok(operation);
-        };
-        operation.failure = failure;
-        if state == OperationState::Succeeded {
-            operation.verified = Some(remote.state.clone());
         }
-        if !self.advance(&mut operation, state, from)? {
+        operation.failure = failure;
+        if !self.advance(&mut operation, to, from)? {
             return self.known(&operation.id);
         }
-        if state == OperationState::Succeeded {
+        if to == OperationState::Succeeded {
             self.ledger.release(&operation.preparation_id)?;
         }
-        self.ledger.clean(now)?;
         Ok(operation)
     }
 
@@ -1164,12 +1444,12 @@ impl SubmissionService {
         if !self.advance(&mut operation, OperationState::Failed, from)? {
             return self.known(&operation.id);
         }
-        self.ledger.clean(self.now())?;
         Ok(operation)
     }
 
     /// Moves `operation` to `to` and stores it, only while the ledger still
-    /// has it at `from`.
+    /// has it at `from`. A write that may have reached the LMS commits its
+    /// settled state with the assignment to read again.
     fn advance(
         &self,
         operation: &mut Operation,
@@ -1178,17 +1458,23 @@ impl SubmissionService {
     ) -> Result<bool, SubmissionError> {
         operation.state = to;
         operation.updated_at = self.now();
-        self.ledger.transition(operation, &[from])
-    }
-
-    /// Answers with an existing write, reading the LMS first when its
-    /// outcome is unknown.
-    async fn answer(&self, operation: Operation) -> Result<SubmissionOperation, SubmissionError> {
-        let operation = match operation.state {
-            OperationState::OutcomeUnknown => self.settle(operation).await?,
-            _ => operation,
-        };
-        Ok(operation.public())
+        let refresh = (to.settled() && operation.sent)
+            .then(|| operation.resource())
+            .flatten()
+            .map(|(lms_course_id, _)| Refresh {
+                operation: operation.id.clone(),
+                lms_course_id,
+                revision: operation.revision,
+            });
+        let moved =
+            self.ledger
+                .transition(operation, from, &self.owner, refresh, operation.updated_at)?;
+        // A check (unknown) or a refresh (settled) is now due: the engine
+        // looks at the deadlines again.
+        if moved && (to == OperationState::OutcomeUnknown || to.settled()) {
+            self.plan.duties_changed();
+        }
+        Ok(moved)
     }
 
     fn known(&self, operation: &str) -> Result<Operation, SubmissionError> {

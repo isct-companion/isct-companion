@@ -384,10 +384,15 @@ pub(crate) fn denied(error: &(impl std::any::Any + 'static)) -> bool {
         .is_some_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied)
 }
 
-/// Write `contents` to a 0600 temporary file beside `path`, fsync it, then
-/// replace `path`. On Windows an existing target is moved aside first and
-/// restored if the replacement fails.
-pub fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), StorageError> {
+/// The one way Core replaces a small file (JSON state, a token, a note):
+/// `contents` go to a 0600 temporary file beside `path`, which is synced,
+/// renamed over `path` in one step and the folder synced, so a crash leaves
+/// the old file or the new one, never a part. `rename` replaces an existing
+/// file on every target (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` on
+/// Windows), so the old file is never moved aside first. A read-modify-write
+/// stays serialized by the service that owns the file: a rename does not
+/// prevent a lost update.
+pub fn durable_replace(path: &Path, contents: &[u8]) -> Result<(), StorageError> {
     let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
         let mut options = fs::OpenOptions::new();
@@ -400,34 +405,28 @@ pub fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), StorageError> {
         let mut file = options.open(&temp).map_err(storage_error)?;
         file.write_all(contents).map_err(storage_error)?;
         file.sync_all().map_err(storage_error)?;
-        replace_file(&temp, path)
+        drop(file);
+        fs::rename(&temp, path).map_err(storage_error)?;
+        if let Some(parent) = path.parent() {
+            sync_directory(parent).map_err(storage_error)?;
+        }
+        Ok(())
     })();
-    let _ = fs::remove_file(temp);
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
     result
 }
 
-#[cfg(not(windows))]
-fn replace_file(source: &Path, target: &Path) -> Result<(), StorageError> {
-    fs::rename(source, target).map_err(storage_error)
+/// Makes a folder's entries (a rename, a new file) durable.
+#[cfg(unix)]
+pub(crate) fn sync_directory(directory: &Path) -> std::io::Result<()> {
+    fs::File::open(directory)?.sync_all()
 }
 
+/// NTFS journals its metadata, and `std` opens no directory handle a
+/// flush could take, so a rename is as durable as the file system makes it.
 #[cfg(windows)]
-fn replace_file(source: &Path, target: &Path) -> Result<(), StorageError> {
-    if !target.exists() {
-        return fs::rename(source, target).map_err(storage_error);
-    }
-    let backup = target.with_extension(format!("{}.bak", uuid::Uuid::new_v4()));
-    fs::rename(target, &backup).map_err(storage_error)?;
-    if let Err(error) = fs::rename(source, target) {
-        return match fs::rename(&backup, target) {
-            Ok(()) => Err(storage_error(error)),
-            Err(rollback) => Err(StorageError::Storage(format!(
-                "Could not replace {} ({error}); rollback also failed ({rollback}). The previous file is preserved at {}",
-                target.display(),
-                backup.display()
-            ))),
-        };
-    }
-    let _ = fs::remove_file(backup);
+pub(crate) fn sync_directory(_directory: &Path) -> std::io::Result<()> {
     Ok(())
 }

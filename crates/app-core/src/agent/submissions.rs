@@ -127,7 +127,7 @@ pub(super) struct SubmissionSave;
 
 impl Tool for SubmissionSave {
     const NAME: &'static str = "submission_save";
-    const DESCRIPTION: &'static str = "Hand the prepared files in to the LMS. At this school saving is submitting: the files replace the submission's file area and count as handed in. Pass the preparation id and the summary from submission_prepare unchanged; the person confirms it in their client. Core refuses a changed summary, files changed since the preparation, and a submission changed on the LMS meanwhile, and needs \"Allow AI agents to write to LMS\" in Settings. Core sends the write at most once: the same call again answers with the same operation, the result is read back from the LMS, and a write whose answer was lost stays outcome_unknown until Core settles it by reading. Never retry a failed write without asking the person.";
+    const DESCRIPTION: &'static str = "Hand the prepared files in to the LMS. At this school saving is submitting: the files replace the submission's file area and count as handed in. Pass the preparation id and the summary from submission_prepare unchanged; the person confirms it in their client. Core refuses a changed summary, files changed since the preparation, and a submission changed on the LMS meanwhile, and needs \"Allow AI agents to write to LMS\" in Settings. Core sends the write at most once: the same call again answers with the same operation, the result is read back from the LMS, and a write whose answer was lost stays outcome_unknown, blocking new writes to the assignment, until a read of the LMS shows what happened (the files' content is compared, not just their names). Never retry a failed write without asking the person.";
     const EFFECT: Effect = Effect::LmsWrite;
     type Args = WriteArgs;
     type Output = SubmissionOperation;
@@ -162,7 +162,7 @@ pub(super) struct SubmissionStatus;
 
 impl Tool for SubmissionStatus {
     const NAME: &'static str = "submission_status";
-    const DESCRIPTION: &'static str = "One LMS write's state: prepared, uploading, saving, verifying, succeeded, failed or outcome_unknown, whether it was sent, and why it failed. A write whose outcome is unknown is read from the LMS first; nothing is ever sent again.";
+    const DESCRIPTION: &'static str = "One LMS write's state: prepared, uploading, saving, verifying, succeeded, failed or outcome_unknown, whether it was sent, and why it failed. Answers from Core's own record without waiting for the LMS; a write whose outcome is unknown is read back from the LMS on Core's schedule, less often the longer it stays unknown, and is never sent again.";
     const EFFECT: Effect = Effect::Read;
     type Args = StatusArgs;
     type Output = SubmissionOperation;
@@ -170,6 +170,6 @@ impl Tool for SubmissionStatus {
     fn run(cx: &Context<'_>, args: StatusArgs) -> Result<SubmissionOperation, AgentError> {
         let id = non_empty(&args.operation_id, "operationId")?;
         let service = service(cx)?;
-        Ok(runtime()?.block_on(service.status(id))?)
+        Ok(service.status(id)?)
     }
 }

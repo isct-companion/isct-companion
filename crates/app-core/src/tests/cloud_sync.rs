@@ -7,7 +7,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::sync::Notify;
 
@@ -538,7 +538,7 @@ impl Fixture {
     /// upload back by `hours`, as if the app had stayed open that long.
     fn age(&self, check_hours: u64, upload_hours: i64) {
         self.sync.0.remote_check.lock().unwrap().last =
-            Instant::now().checked_sub(Duration::from_secs(check_hours * 3600));
+            Some(chrono::Utc::now() - chrono::Duration::hours(check_hours as i64));
         self.sync
             .0
             .journal

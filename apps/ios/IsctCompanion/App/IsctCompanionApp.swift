@@ -1,3 +1,4 @@
+import BackgroundTasks
 import IsctCore
 import QuickLook
 import SwiftUI
@@ -11,6 +12,19 @@ struct IsctCompanionApp: App {
     init() {
         Guide.configure()
         NotificationScheduler.presentInForeground()
+        // Registered before launch ends, as iOS requires; SwiftUI's
+        // `.backgroundTask` covers app refresh only.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: AppModel.backgroundMaintenance, using: .main) {
+            task in
+            guard let task = task as? BGProcessingTask else { return }
+            MainActor.assumeIsolated {
+                guard let model = AppModel.shared else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                model.backgroundMaintenance(task)
+            }
+        }
     }
 
     var body: some Scene {

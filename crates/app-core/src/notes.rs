@@ -250,11 +250,7 @@ impl From<StorageError> for NoteError {
 }
 
 fn write_note(path: &Path, contents: &[u8]) -> Result<(), NoteError> {
-    atomic_write(path, contents)
-}
-
-pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), NoteError> {
-    Ok(storage::atomic_write(path, contents)?)
+    Ok(storage::durable_replace(path, contents)?)
 }
 
 fn reject_symlink(path: &Path, message: &str) -> Result<(), NoteError> {

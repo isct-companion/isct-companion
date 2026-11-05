@@ -2,7 +2,7 @@
 //! Core's planner decides what is due; `sync-snapshot` events carry changes.
 use crate::CommandError;
 use crate::{core_ports, require_local_main};
-use app_core::sync_engine::{Hint, SyncSnapshot};
+use app_core::plan::{Hint, SyncSnapshot};
 
 /// A lifecycle fact, an opened page or a refresh button. Never waits for a
 /// read, so it stays synchronous on the IPC thread.

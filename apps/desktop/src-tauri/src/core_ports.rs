@@ -1,11 +1,11 @@
 //! Desktop adapters. Domain services and their task lifetime belong to Core.
 use app_core::{
     events::CoreEvent,
+    plan::Hint,
     ports::{EventError, EventSink},
     runtime::CoreRuntime,
     runtime_tasks::RuntimeTasks,
-    scheduler::{ExportError, ScheduledExporter, SchedulerServices},
-    sync_engine::Hint,
+    scheduler::{ExportError, ScheduledExporter},
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -19,6 +19,11 @@ use tauri::{AppHandle, Emitter, Manager};
 pub(crate) struct DesktopEvents(pub(crate) AppHandle);
 impl EventSink for DesktopEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
+        // The desktop's timer reads directives in Rust (`deadline_timer`);
+        // the webview has no use for them.
+        if matches!(event, CoreEvent::WakeDirective(_)) {
+            return Ok(());
+        }
         let (name, payload) = wire(&event);
         self.0.emit_to(MAIN_WINDOW, name, payload).map_err(|error| {
             log::error!("[events] {name} was not delivered: {error}");
@@ -50,12 +55,6 @@ pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
     core(app).runtime.clone()
 }
 
-// Operation-scoped ports avoid retaining AppHandle in the core's permanent
-// service state. Completed coordinator jobs release their work closures too.
-pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
-    core(app).services(Arc::new(DesktopExport(app.clone())))
-}
-
 /// The main window's focus as a planner fact. The desktop window counts as
 /// foreground while focused; the network is reported by the webview.
 pub(crate) fn lifecycle_hint(focused: bool) -> Hint {
@@ -70,24 +69,10 @@ pub(crate) fn lifecycle_hint(focused: bool) -> Hint {
 /// their own timeouts; this guarantees the app can always quit.
 pub(crate) const EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Logs a repeating background failure once per distinct message.
-#[derive(Default)]
-struct FailureLog(Option<String>);
-
-impl FailureLog {
-    fn record<E: std::fmt::Display>(&mut self, scope: &str, result: Result<(), E>) {
-        match result {
-            Ok(()) => self.0 = None,
-            Err(error) => {
-                let message = error.to_string();
-                if self.0.as_deref() != Some(message.as_str()) {
-                    log::error!("[{scope}] {message}");
-                    self.0 = Some(message);
-                }
-            }
-        }
-    }
-}
+/// The longest the deadline timer sleeps before it reads the wall clock
+/// again: the monotonic clock a sleep runs on stops while the Mac sleeps,
+/// so a deadline that came during system sleep is at most this late.
+const WALL_CLOCK_CHECK: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 #[derive(Default)]
 pub(crate) struct DesktopRuntime {
@@ -102,62 +87,36 @@ impl DesktopRuntime {
             .get_webview_window("main")
             .and_then(|window| window.is_focused().ok())
             == Some(true);
-        core(app).sync_hint(lifecycle_hint(focused));
+        let core = core(app);
+        core.sync_hint(lifecycle_hint(focused));
+        // Core's duties keep these ports until it shuts down.
+        core.attach_ports(app_core::facade::PlatformPorts {
+            exporter: Some(Arc::new(DesktopExport(app.clone()))),
+            notifications: Some(Arc::new(
+                crate::commands::notifications::DesktopNotifications(app.clone()),
+            )),
+            cloud: match crate::cloud_sync::services(app) {
+                Ok(services) => Some(services),
+                Err(error) => {
+                    log::error!("[cloud] automatic sync is unavailable: {error}");
+                    None
+                }
+            },
+        });
+        // The MCP listener exists only while Allow local agents is on; Core
+        // starts, stops and retries it.
+        core.attach_agent_listener(Arc::new(crate::agent_server::AgentListenerPort(
+            app.clone(),
+        )));
         let tasks = app.state::<Self>().tasks.clone();
-        let app = app.clone();
         // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
-        // before registering either owned loop.
+        // before registering the owned timer.
         tauri::async_runtime::block_on(async move {
-            if let Err(error) = core(&app).start(&tokio::runtime::Handle::current()) {
+            if let Err(error) = core.start(&tokio::runtime::Handle::current()) {
                 log::error!("[events] sync snapshot forwarding did not start: {error}");
             }
-            let wake_app = app.clone();
-            let wake_tasks = tasks.clone();
-            tasks.spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-                let (mut wake_failure, mut cloud_failure, mut reminder_failure) = (
-                    FailureLog::default(),
-                    FailureLog::default(),
-                    FailureLog::default(),
-                );
-                loop {
-                    tokio::select! {
-                        _ = wake_tasks.closed() => break,
-                        _ = interval.tick() => {}
-                    }
-                    crate::agent_server::AgentAccess::tick(&wake_app);
-                    // The planner evaluates at most every 30 s on its own.
-                    core(&wake_app).sync_hint(Hint::Wake);
-                    let cloud = match crate::cloud_sync::services(&wake_app) {
-                        Ok(services) => Some(services),
-                        Err(error) => {
-                            cloud_failure.record("cloud", Err(error));
-                            None
-                        }
-                    };
-                    let report = core(&wake_app)
-                        .wake(app_core::facade::WakeServices {
-                            scheduler: services(&wake_app),
-                            cloud,
-                            reminders: Some(app_core::facade::ReminderWake {
-                                sink: Arc::new(
-                                    crate::commands::notifications::DesktopNotifications(
-                                        wake_app.clone(),
-                                    ),
-                                ),
-                                now: chrono::Utc::now().fixed_offset(),
-                            }),
-                        })
-                        .await;
-                    wake_failure.record("runtime", report.runtime);
-                    if let Some(result) = report.cloud {
-                        cloud_failure.record("cloud", result.map(|_| ()));
-                    }
-                    if let Some(result) = report.reminders {
-                        reminder_failure.record("reminders", result.map(|_| ()));
-                    }
-                }
-            });
+            let timer_tasks = tasks.clone();
+            tasks.spawn(deadline_timer(core, timer_tasks));
         });
     }
 
@@ -177,6 +136,40 @@ impl DesktopRuntime {
     /// Allows the next exit request through, drained or not.
     pub(crate) fn mark_stopped(&self) {
         self.stopped.store(true, Ordering::Release);
+    }
+}
+
+/// The desktop's one timer for Core: it sleeps until the directive's
+/// deadline, tells Core, and sets itself again from the next directive.
+/// A deadline it already reported is not reported again until the
+/// directive moves.
+async fn deadline_timer(core: Arc<app_core::Core>, tasks: RuntimeTasks) {
+    let mut directives = core.wake_directives();
+    let mut reported = None;
+    loop {
+        let directive = directives.borrow_and_update().clone();
+        let now = chrono::Utc::now();
+        let wait = match directive.at {
+            Some(_) if reported == Some(directive.revision) => WALL_CLOCK_CHECK,
+            Some(at) => (at - now).to_std().unwrap_or_default().min(WALL_CLOCK_CHECK),
+            None => WALL_CLOCK_CHECK,
+        };
+        tokio::select! {
+            _ = tasks.closed() => break,
+            changed = directives.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+            }
+            _ = tokio::time::sleep(wait) => {
+                if directive.at.is_some_and(|at| at <= chrono::Utc::now())
+                    && reported != Some(directive.revision)
+                {
+                    reported = Some(directive.revision);
+                    core.deadline_reached(directive.revision);
+                }
+            }
+        }
     }
 }
 

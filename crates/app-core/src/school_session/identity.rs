@@ -342,6 +342,11 @@ impl Identity {
     }
 
     /// Drops a pause that ran out. `true` when it did.
+    /// When the pause ends, run out or not: the `PlanEngine` lifts it then.
+    pub(super) fn pause_end(&self) -> Option<Instant> {
+        guard(&self.state).pause.as_ref().map(|pause| pause.until)
+    }
+
     pub(super) fn expire_pause(&self, now: Instant) -> bool {
         let mut state = guard(&self.state);
         if state.pause.as_ref().is_some_and(|pause| now >= pause.until) {

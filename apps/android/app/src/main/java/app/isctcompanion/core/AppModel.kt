@@ -113,7 +113,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private var latestSeq: ULong = 0u
     private var boundaryJob: Job? = null
     private var refreshJob: Job? = null
-    private var wakeJob: Job? = null
+    /** The one timer for Core's next deadline (`WakeDirective`). */
+    private var deadlineJob: Job? = null
+    private var directive: WakeDirective? = null
     private val settingsWrite = Mutex()
     private val opening = Mutex()
     private var networkState = SyncNetwork.UNKNOWN
@@ -159,7 +161,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             // WorkManager can start the process with no activity in front.
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
-            if (foreground) startWaking() else runCatching { session.suspend() }
+            runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
+            if (!foreground) runCatching { session.suspend() }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
@@ -170,36 +173,43 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (active) {
             runCatching { session.resume() }
             hint(Hint.Foreground)
-            startWaking()
+            armDeadline()
             scope.launch { refresh() }
             scope.launch { checkForUpdate() }
             // Permission granted in the system settings while away.
             if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
-            wakeJob?.cancel()
-            wakeJob = null
+            deadlineJob?.cancel()
+            deadlineJob = null
             hint(Hint.Background)
             runCatching { session.suspend() }
+            scope.launch { BackgroundWake.schedule(context, directive) }
         }
     }
 
-    /** One WorkManager wake out of front: Core reads what it may there
-     * (LMS deadlines and assignment states over the token, reference files)
-     * and runs reminders, for at most two minutes, then suspends again unless
-     * the app came to the front. A stopped worker ends it early. */
-    suspend fun backgroundWake() {
+    /** One WorkManager opportunity out of front: Core reads what is due when
+     * [network] allows (LMS deadlines and assignment states over the token,
+     * reference files) and runs its local work, within [budgetSeconds], then
+     * suspends again unless the app came to the front. A stopped worker ends
+     * it early. */
+    suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt) {
         start()
         val session = session ?: return
-        val operation = runCatching { session.backgroundWake(120u) }.getOrNull() ?: return
+        val id = java.util.UUID.randomUUID().toString()
+        val operation = runCatching { session.beginBackgroundOpportunity(id, budgetSeconds, network) }
+            .getOrNull() ?: return
         try {
             operation.awaitResult()
         } catch (error: CancellationException) {
+            runCatching { session.endBackgroundOpportunity(id) }
             runCatching { operation.cancel() }
             throw error
         } catch (error: Exception) {
-            Log.w("isct", "background wake", error)
+            Log.w("isct", "background opportunity", error)
         }
         refresh()
+        runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
+        BackgroundWake.schedule(context, directive)
     }
 
     /** A lifecycle fact, opened view or refresh request for Core's sync
@@ -213,16 +223,29 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     fun refresh(target: SyncScope) = hint(Hint.Refresh(target))
 
-    /** Core's periodic wake while the app is in front (the planner's `Wake`
-     * hint, then reminders and scheduled tasks), about once a second. */
-    private fun startWaking() {
-        if (wakeJob?.isActive == true) return
-        wakeJob = scope.launch {
-            while (true) {
-                val session = session ?: return@launch
-                runCatching { session.wake().value() }
-                delay(1_000)
-            }
+    /** Takes Core's directive, unless an older one; the in-front timer and
+     * the WorkManager requests follow it. */
+    private fun applyDirective(next: WakeDirective) {
+        val current = directive
+        if (current != null && current.revision >= next.revision) return
+        directive = next
+        val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        if (foreground) armDeadline() else scope.launch { BackgroundWake.schedule(context, next) }
+    }
+
+    /** One job sleeps until the directive's deadline and tells Core; the next
+     * directive arms it again. Only in front: out of front WorkManager gives
+     * Core its opportunities. */
+    private fun armDeadline() {
+        deadlineJob?.cancel()
+        deadlineJob = null
+        val session = session ?: return
+        val directive = directive ?: return
+        val at = Format.date(directive.at) ?: return
+        deadlineJob = scope.launch {
+            val wait = at.toEpochMilli() - Instant.now().toEpochMilli()
+            if (wait > 0) delay(wait)
+            runCatching { session.deadlineReached(directive.revision) }
         }
     }
 
@@ -289,6 +312,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                         scope.launch { refreshCredentials() }
                     }
                     "cloud-sync-state" -> refreshCloud()
+                    "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
+                        .onSuccess(::applyDirective)
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
                     "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
@@ -305,6 +330,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 }
                 is StreamUpdate.SnapshotRequired -> {
                     scheduleRefresh()
+                    session?.let { runCatching { it.wakeDirective() }.onSuccess(::applyDirective) }
                     web.refreshPages()
                     refreshAccounts()
                     readSync()

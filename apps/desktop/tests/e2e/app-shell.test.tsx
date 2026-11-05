@@ -1944,7 +1944,7 @@ describe("workspace column sizing", () => {
 
 it("renders Core's sync snapshot in the footer and sends hints for refresh and opened pages", async () => {
   app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
-  // Core decides what is due and how far a run is (`sync_engine` and its
+  // Core decides what is due and how far a run is (`plan` and its
   // tests); the shell only picks the row to show and names it.
   const run = (overrides: Record<string, unknown>) => ({
     run: "run",

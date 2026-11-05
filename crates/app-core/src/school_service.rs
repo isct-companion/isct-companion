@@ -1,6 +1,6 @@
 //! The result of reading one school page, as shells receive it in
 //! `CoreEvent::SchoolIngest`. Reads themselves are sync keys
-//! (`crate::sync_engine`).
+//! (`crate::plan`).
 
 use crate::lifecycle::SchoolSite;
 use serde::{Deserialize, Serialize};

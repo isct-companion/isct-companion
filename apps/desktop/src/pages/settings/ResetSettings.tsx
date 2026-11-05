@@ -9,7 +9,7 @@ import { workspaceActions } from "../../store/workspace";
 import { UiButton } from "../../components/ui";
 import { Row, SettingsGroup } from "../../components/forms";
 
-/** `app_core::sync_engine::ResetScope`; Core decides what each one removes. */
+/** `app_core::plan::ResetScope`; Core decides what each one removes. */
 type ResetScope =
   | { kind: "school-caches"; sign_out_web: boolean; delete_downloads: boolean }
   | { kind: "everything" };

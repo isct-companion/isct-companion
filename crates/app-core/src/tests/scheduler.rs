@@ -222,7 +222,7 @@ async fn invalid_subhour_schedule_is_recorded_once_without_blocking_other_tasks(
     let services = services(&store, exporter.clone());
     let scheduler = Scheduler::default();
 
-    scheduler.tick(&services).await.unwrap();
+    scheduler.run_due(&services).await.unwrap();
     let recorded = task(&store, "a-invalid");
     assert!(recorded["lastResult"]
         .as_str()
@@ -230,7 +230,7 @@ async fn invalid_subhour_schedule_is_recorded_once_without_blocking_other_tasks(
     let recorded_revision = recorded["rev"].as_u64().unwrap();
     assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
 
-    scheduler.tick(&services).await.unwrap();
+    scheduler.run_due(&services).await.unwrap();
     assert_eq!(task(&store, "a-invalid")["rev"], recorded_revision);
     assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
 }
@@ -302,7 +302,7 @@ async fn action_dispatch_preserves_messages_and_skips_retired_refresh_tasks() {
             if message == "Scheduled custom hooks must select a built-in action."
     ));
     // School and reference reads belong to the sync planner now: a stored
-    // built-in refresh task is not an action, and no tick runs it.
+    // built-in refresh task is not an action, and no pass runs it.
     for retired in [
         "lms-refresh",
         "school-refresh",
@@ -316,7 +316,7 @@ async fn action_dispatch_preserves_messages_and_skips_retired_refresh_tasks() {
         ));
         add_task(&store, retired, retired, true);
     }
-    Scheduler::default().tick(&services).await.unwrap();
+    Scheduler::default().run_due(&services).await.unwrap();
     for retired in [
         "lms-refresh",
         "school-refresh",
@@ -328,7 +328,7 @@ async fn action_dispatch_preserves_messages_and_skips_retired_refresh_tasks() {
             .is_none_or(Value::is_null));
     }
     add_task(&store, "export", "export", true);
-    Scheduler::default().tick(&services).await.unwrap();
+    Scheduler::default().run_due(&services).await.unwrap();
     assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
 }
 

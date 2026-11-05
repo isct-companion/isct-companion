@@ -21,7 +21,10 @@ use settings::*;
 pub mod cloud_merge;
 mod error;
 pub mod migrations;
+pub(crate) mod root;
 pub mod versioned;
+
+pub use root::{StoreKind, StoreOpenError, StorePaths, StoreRoot};
 
 pub use changes::{CommitObserver, WorkspaceChangeSource};
 pub(crate) use connection::{commit_on, commit_then};
@@ -749,25 +752,22 @@ fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
     Ok(())
 }
 
-/// One store: user.db, cache.db and sync.db in one directory (`connection`).
+/// One store: user.db, cache.db and sync.db of the data folder's active
+/// generations (`root`), on the connections of `connection`.
 ///
 /// A transaction that writes several files, such as a school ingest that
-/// pins a course id in `course_identity_map` (user.db) while it writes
-/// school rows (cache.db) and their freshness (sync.db), commits atomically
-/// per file but not across them (WAL). SQLite commits `main` first. A crash
-/// in between leaves an identity-map row whose school rows rolled back, so
-/// the key reads as missing, and the next read resolves the same course id
-/// from that row; a crash between cache.db and sync.db can keep a key's
-/// freshness without its rows, which then read stale until the key is read
-/// again. Readers may likewise see one file's commit before another's; the
-/// view cache is keyed on every file's data version, so the next read
-/// shows all of them.
+/// pins a course id in `course_keys` (user.db) while it writes school rows
+/// (cache.db) and their freshness (sync.db), commits all of them or none,
+/// across a crash too: the three files use rollback journals, so SQLite
+/// commits them through one super-journal. Readers see a commit whole.
 #[derive(Clone)]
 pub struct DataStore {
     // Before `connections`: its read connection must close before the write
     // connection does (see `connection::Connections`).
     view_reader: Arc<Mutex<views::ViewReader>>,
     connections: Arc<connection::Connections>,
+    /// The folder's lock and paths; the last clone releases the lock.
+    root: Arc<StoreRoot>,
     observer: changes::Observer,
     /// Moves after every commit that changed `offerings`; catalog read
     /// caches key on it (see [`DataStore::catalog_version`]).
@@ -795,27 +795,34 @@ impl CommitSeq {
 }
 
 impl DataStore {
-    /// Opens or creates both files under `directory` and migrates them, the
-    /// only time migrations run. A legacy `school.db` found there is split
-    /// first (`migrations::migrate_legacy`): its user tables are copied into
-    /// user.db in one transaction and the file is kept as
-    /// `school.db.pre-split`; on failure nothing is renamed and the error
-    /// says so. Also returns whether a schema was created or changed.
+    /// Takes the data folder (`StoreRoot::open`: its lock first, then the
+    /// active generations, built anew where needed) and opens the store on
+    /// it. Also returns whether a store was created or replaced.
     pub fn initialize_dir(directory: PathBuf) -> Result<(Self, bool), DataError> {
-        std::fs::create_dir_all(&directory).map_err(DataError::from)?;
-        let split = migrations::migrate_legacy(&directory)?;
-        let (connections, created) =
-            connection::Connections::open(connection::Files::in_directory(directory))?;
+        let root = StoreRoot::open(directory)?;
+        let connections = connection::Connections::open(connection::Files::of(root.paths()))?;
         let view_reader = views::ViewReader::new(connections.open_reader()?);
+        let created = root.created();
         let store = Self {
             connections: Arc::new(connections),
             view_reader: Arc::new(Mutex::new(view_reader)),
+            root,
             observer: changes::Observer::default(),
             catalog_version: Arc::default(),
             commit_seq: CommitSeq::default(),
         };
         store.write(None, ensure_defaults_in)?;
-        Ok((store, split || created))
+        Ok((store, created))
+    }
+
+    /// The data folder this store owns.
+    pub fn root(&self) -> &Arc<StoreRoot> {
+        &self.root
+    }
+
+    /// Every path of the data folder (`StorePaths`).
+    pub fn paths(&self) -> &StorePaths {
+        self.root.paths()
     }
 
     /// A pooled read-only connection to both files.
@@ -1078,7 +1085,7 @@ impl DataStore {
 
     #[cfg(test)]
     pub(crate) fn directory(&self) -> &Path {
-        self.connections.files.user.parent().unwrap()
+        self.paths().root()
     }
 }
 

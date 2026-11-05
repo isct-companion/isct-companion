@@ -7,7 +7,7 @@ use crate::{
         self, AcademicCalendar, ClassSchedules, Departments, ImportantDates, PublishedExamFeed,
         ReferenceFetch, SubscriptionClient, SubscriptionError,
     },
-    sync_engine::{Gated, KeyEnd, Lease},
+    plan::{Gated, KeyEnd, Lease},
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, Term},
 };
 use chrono::{DateTime, Utc};
@@ -69,6 +69,7 @@ impl From<DataError> for ReferenceError {
             DataError::Conflict(message) => Self::Conflict(message),
             DataError::Compatibility(message) => Self::Compatibility(message),
             DataError::Storage(message) => Self::Storage(message),
+            DataError::Open(error) => Self::Storage(error.to_string()),
         }
     }
 }
@@ -327,6 +328,7 @@ fn normalized_index(raw: &str) -> Option<String> {
 /// Whether a reference key is read now: `sync_state::due`, and a fresh key
 /// whose validator came from another index, whose rows are gone, or that
 /// holds back a shrunk version is read again.
+/// Whether a reference key is due, and when a fresh one goes stale.
 pub(crate) fn reference_due(
     connection: &Connection,
     key: &Key,
@@ -334,17 +336,28 @@ pub(crate) fn reference_due(
     year: i32,
     index_url: &str,
     now: DateTime<Utc>,
-) -> Result<Due, DataError> {
+) -> Result<(Due, Option<DateTime<Utc>>), DataError> {
     let stored = StoredFile::read(connection, key, kind, year)?;
     let ttl = if kind == "departments" {
         Some(DEPARTMENTS_TTL)
     } else {
         sync_state::ttl(Dataset::Reference, Term::Current)
     };
-    Ok(match sync_state::due(stored.state.as_ref(), ttl, now) {
+    let due = match sync_state::due(stored.state.as_ref(), ttl, now) {
         Due::Fresh if stored.held.is_some() || stored.validator(index_url).is_none() => Due::Stale,
         due => due,
-    })
+    };
+    let stale_at = (due == Due::Fresh)
+        .then(|| {
+            stored
+                .state
+                .as_ref()
+                .and_then(|state| state.fetched_at)
+                .zip(ttl)
+                .map(|(fetched, ttl)| fetched + ttl)
+        })
+        .flatten();
+    Ok((due, stale_at))
 }
 
 /// Reads one leased reference key over Isct-Data.

@@ -5,7 +5,7 @@ use crate::{cloud_sync, core_ports, require_local_main};
 use crate::{coded, CommandError};
 use app_core::{
     reset::ResetDevice,
-    sync_engine::{ResetReport, ResetScope},
+    plan::{ResetReport, ResetScope},
 };
 use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Manager};

@@ -42,8 +42,8 @@ pub(crate) async fn run_scheduled_task(
     id: String,
 ) -> Result<String, CommandError> {
     require_local_main(&webview)?;
-    core_ports::runtime(&app)
-        .run_scheduled(core_ports::services(&app), id)
+    core_ports::core(&app)
+        .run_scheduled(id)
         .await
         .map_err(coded)?
         .map_err(coded)

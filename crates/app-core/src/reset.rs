@@ -28,7 +28,7 @@ use crate::{
     course_materials::purge_downloads,
     data::{DataError, DataStore, WorkspaceChangeSource},
     school_session::SchoolSessions,
-    sync_engine::{ResetReport, ResetScope, SyncEngine},
+    plan::{ResetReport, ResetScope, PlanEngine},
     Core,
 };
 use futures_util::future::{FutureExt, Shared};
@@ -186,7 +186,7 @@ impl Core {
     }
 
     /// The planner whose admission a reset closes.
-    fn reset_engine(&self) -> Arc<SyncEngine> {
+    fn reset_engine(&self) -> Arc<PlanEngine> {
         self.sync.clone()
     }
 }
@@ -194,7 +194,7 @@ impl Core {
 struct ResetRun {
     scope: ResetScope,
     store: DataStore,
-    engine: Arc<SyncEngine>,
+    engine: Arc<PlanEngine>,
     sessions: SchoolSessions,
     device: Option<Arc<dyn ResetDevice>>,
 }

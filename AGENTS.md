@@ -64,7 +64,9 @@ as modules migrate; enable `clippy::unwrap_used`, `expect_used` and `panic`
 denies for the completed core/FFI boundary. Release profiles use unwind, which
 alone is not crash recovery.
 
-Shells provide lifecycle facts and periodic wakeups; core decides what is due.
+Shells provide lifecycle facts and one timer for Core's `WakeDirective`;
+core decides what is due and when (`approach/core-deadline-plan`), and no
+service keeps a clock of its own.
 Bounded task waits require explicit ownership and shutdown semantics. Expose
 coarse services through FFI, with correlated callbacks and snapshot recovery.
 

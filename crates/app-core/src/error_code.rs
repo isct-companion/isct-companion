@@ -77,7 +77,6 @@ codes! {
     CloudVersionMissing => "cloud-version-missing",
     CloudTooLarge => "cloud-too-large",
     CloudRetrying => "cloud-retrying",
-    CloudNotAttached => "cloud-not-attached",
     ResetBusy => "reset-busy",
     ResetUnsupported => "reset-unsupported",
     ResetCredentials => "reset-credentials",
@@ -105,6 +104,8 @@ codes! {
     SubmissionRejected => "submission-rejected",
     SubmissionMismatch => "submission-mismatch",
     LmsWritesDisabled => "lms-writes-disabled",
+    DataFolderInUse => "data-folder-in-use",
+    SubmissionIdentityChanged => "submission-identity-changed",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -191,7 +192,7 @@ use crate::{
     ports::{EventError, SecretError},
     reference_refresh::ReferenceError,
     reset::ResetError,
-    runtime::{CloudWakeError, RuntimeError},
+    runtime::RuntimeError,
     runtime_tasks::RuntimeTaskError,
     schedule::{NotificationSinkError, ReminderError, ScheduleError},
     scheduler::{ExportError, SchedulerError},
@@ -220,6 +221,15 @@ coded!(DataError, |e| match e {
     DataError::Conflict(_) => C::Conflict,
     DataError::Compatibility(_) => C::Compatibility,
     DataError::Storage(_) => C::Storage,
+    DataError::Open(error) => error.code(),
+});
+coded!(crate::data::StoreOpenError, |e| {
+    use crate::data::StoreOpenError as E;
+    match e {
+        E::DirectoryInUse => C::DataFolderInUse,
+        E::UnsupportedFormat { .. } => C::Compatibility,
+        E::RecoveryRequired { .. } | E::Io(_) => C::Storage,
+    }
 });
 coded!(WorkspaceError, |e| match e {
     WorkspaceError::InvalidIntent(_) => C::InvalidInput,
@@ -273,11 +283,8 @@ coded!(RuntimeTaskError, |e| match e {
 });
 coded!(RuntimeError, |e| match e {
     RuntimeError::Task(e) => e.code(),
-    RuntimeError::Clock | RuntimeError::CloudAlreadyAttached => C::Internal,
-});
-coded!(CloudWakeError, |e| match e {
-    CloudWakeError::NotAttached => C::CloudNotAttached,
-    CloudWakeError::Sync(e) => e.code(),
+    RuntimeError::CloudAlreadyAttached => C::Internal,
+    RuntimeError::NoExporter => C::Unavailable,
 });
 coded!(CloudSyncError, |e| match e {
     CloudSyncError::Storage(_) => C::Storage,
@@ -523,6 +530,8 @@ impl Coded for crate::submissions::SubmissionError {
             E::InProgress => C::SubmissionInProgress,
             E::OutcomeUnknown => C::SubmissionOutcomeUnknown,
             E::WritesDisabled => C::LmsWritesDisabled,
+            E::IdentityChanged => C::SubmissionIdentityChanged,
+            E::UnsupportedLedger { .. } => C::Compatibility,
         }
     }
 

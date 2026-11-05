@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     data::DataStore,
     scheduler::{ExportError, ScheduledExporter},
-    sync_engine::SyncHints,
+    plan::PlanHints,
 };
 use serde_json::{json, Value};
 use std::sync::{
@@ -10,6 +10,7 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::Notify;
+use crate::plan::Duty;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -44,17 +45,10 @@ fn disable_background_work(store: &DataStore) {
     }
 }
 
-fn services(store: &DataStore, exporter: Arc<dyn ScheduledExporter>) -> SchedulerServices {
-    SchedulerServices {
-        store: store.clone(),
-        exporter,
-    }
-}
-
-/// A runtime with no sync engine behind its hints, so a wake reads nothing
-/// from the network.
+/// A runtime with no engine behind its hints, so nothing reads the
+/// network.
 fn runtime() -> Arc<CoreRuntime> {
-    Arc::new(CoreRuntime::new(SyncHints::detached()))
+    Arc::new(CoreRuntime::new(PlanHints::detached()))
 }
 
 fn add_launch_task(store: &DataStore, id: &str) {
@@ -75,44 +69,35 @@ fn add_launch_task(store: &DataStore, id: &str) {
         .unwrap();
 }
 
-async fn wait_for_count(counter: &AtomicUsize, expected: usize) {
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
-        while counter.load(Ordering::Relaxed) != expected {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
-}
-
+/// The person's tasks are a duty of the engine: due at once until a pass
+/// ran, then at their next occurrence, which a launch task has only once
+/// per run. A change to the tasks makes the duty due again, and the pass
+/// runs what is new; without a shell's export port nothing is due.
 #[tokio::test]
-async fn suspend_defers_automatic_work_and_resume_respects_scheduler_gate() {
-    let store = test_store("suspend-resume");
+async fn scheduled_tasks_are_due_at_their_occurrence_and_after_a_change() {
+    let store = test_store("scheduled");
     let runtime = runtime();
     disable_background_work(&store);
     add_launch_task(&store, "first");
+    let duty = Arc::new(crate::deadlines::Scheduled {
+        runtime: runtime.clone(),
+        store: store.clone(),
+    });
+    assert_eq!(duty.next_due(), None, "no export port, nothing due");
     let exporter = Arc::new(CountingExporter::default());
-    let services = services(&store, exporter.clone());
-
-    runtime.suspend().await;
-    runtime.wake(services.clone()).await.unwrap();
-    tokio::task::yield_now().await;
-    assert_eq!(exporter.0.load(Ordering::Relaxed), 0);
-
-    runtime.resume().await;
-    runtime.wake(services.clone()).await.unwrap();
-    wait_for_count(&exporter.0, 1).await;
-    let idle = runtime.ticking.clone().lock_owned().await;
-    drop(idle);
-
-    add_launch_task(&store, "second");
-    runtime.wake(services.clone()).await.unwrap();
-    tokio::task::yield_now().await;
+    runtime.attach_exporter(exporter.clone());
+    assert!(duty.next_due().is_some_and(|at| at <= chrono::Utc::now()));
+    duty.clone().run().await;
+    assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
+    assert_eq!(duty.next_due(), None, "a launch task runs once per run");
+    duty.clone().run().await;
     assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
 
-    *runtime.next_scheduled.lock().unwrap() = Instant::now();
-    runtime.wake(services).await.unwrap();
-    wait_for_count(&exporter.0, 2).await;
+    add_launch_task(&store, "second");
+    runtime.scheduled_tasks_changed();
+    assert!(duty.next_due().is_some_and(|at| at <= chrono::Utc::now()));
+    duty.clone().run().await;
+    assert_eq!(exporter.0.load(Ordering::Relaxed), 2);
     runtime.shutdown().await;
 }
 
@@ -161,7 +146,8 @@ async fn shutdown_is_final_and_idempotent() {
     let store = test_store("final-shutdown");
     let runtime = runtime();
     disable_background_work(&store);
-    let services = services(&store, Arc::new(CountingExporter::default()));
+    add_launch_task(&store, "first");
+    runtime.attach_exporter(Arc::new(CountingExporter::default()));
 
     runtime.shutdown().await;
     runtime.shutdown().await;
@@ -172,8 +158,8 @@ async fn shutdown_is_final_and_idempotent() {
         Err(RuntimeTaskError::Stopped)
     );
     assert!(matches!(
-        runtime.wake(services).await,
-        Err(RuntimeError::Task(RuntimeTaskError::Stopped))
-    ));
+        runtime.run_scheduled(&store, "first".into()).await,
+        Err(RuntimeError::NoExporter)
+    ), "shutdown releases the shell's port");
     runtime.shutdown().await;
 }

@@ -13,7 +13,7 @@ use app_core::{
         SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot, SchoolSessionState,
         SchoolSignInProblem, SchoolSignInProblemKind,
     },
-    sync_engine::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
+    plan::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
     workspace_changes::WorkspaceChange,
 };
 use serde_json::json;
@@ -31,6 +31,7 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::SchoolDownload(_) => "download",
         CoreEvent::SyncSnapshot(_) => "sync",
         CoreEvent::CloudSyncState(_) => "cloud",
+        CoreEvent::WakeDirective(_) => "directive",
     }
 }
 
@@ -181,11 +182,16 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             "cloud-sync-state",
             json!({"syncing":false,"automatic":false,"localVersion":"","providers":[],"versions":[],"tasks":[]}),
         ),
+        (
+            CoreEvent::WakeDirective(app_core::plan::WakeDirective::default()),
+            "wake-directive",
+            json!({"revision":0,"at":null,"background":[]}),
+        ),
     ];
     let mut covered = std::collections::HashSet::new();
     for (event, name, payload) in cases {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 10);
+    assert_eq!(covered.len(), 11);
 }

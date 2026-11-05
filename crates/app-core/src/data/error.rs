@@ -10,6 +10,9 @@ pub enum DataError {
     Compatibility(String),
     #[error("{0}")]
     Storage(String),
+    /// The data folder could not be taken or its stores read.
+    #[error(transparent)]
+    Open(#[from] super::StoreOpenError),
 }
 
 impl DataError {

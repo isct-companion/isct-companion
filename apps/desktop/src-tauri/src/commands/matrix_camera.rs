@@ -209,9 +209,10 @@ pub(crate) fn stop_matrix_camera(
             let directory = app.path().app_cache_dir()?.join("matrix-scan");
             std::fs::create_dir_all(&directory)?;
             let report = serde_json::json!({"sessionId":session_id,"version":app.config().version,"core":diagnostics,"capture":capture});
-            let temporary = directory.join(format!("{session_id}.tmp"));
-            std::fs::write(&temporary, serde_json::to_vec_pretty(&report)?)?;
-            std::fs::rename(temporary, directory.join("latest.json"))?;
+            app_core::storage::durable_replace(
+                &directory.join("latest.json"),
+                &serde_json::to_vec_pretty(&report)?,
+            )?;
             Ok(())
         };
         if let Err(error) = save() {

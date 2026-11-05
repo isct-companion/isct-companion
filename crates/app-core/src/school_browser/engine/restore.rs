@@ -37,7 +37,7 @@ impl SchoolBrowserEngine {
             if let Some((site, url)) = current {
                 let bytes = serde_json::to_vec(&RestoreRecord { site, url })
                     .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
-                crate::notes::atomic_write(&path, &bytes)
+                crate::storage::durable_replace(&path, &bytes)
                     .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
             }
         }
@@ -75,7 +75,7 @@ impl Inner {
                     let _io = owner.restore_io.guard();
                     let current = owner.state.with(|state| state.restore.clone());
                     if current == Some((path.clone(), epoch)) {
-                        let _ = crate::notes::atomic_write(&path, &bytes);
+                        let _ = crate::storage::durable_replace(&path, &bytes);
                     }
                 })
                 .await;

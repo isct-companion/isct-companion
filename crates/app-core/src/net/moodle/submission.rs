@@ -8,8 +8,12 @@
 //! a POST form with the token in the body, redirects off, TLS verified, the
 //! app User-Agent (all from `net::Http`), the error envelope and any warning
 //! taken as failure, and no token in a URL or a log line. Reads run as
-//! operations of the LMS site session; a write takes the account's permit,
-//! goes out on one attempt and never runs again.
+//! operations of the LMS site session under the write's account permit
+//! (`WritePermit`), which the service holds from its preflight read through
+//! the upload and the save; a write goes out on one attempt and never runs
+//! again. A verification also downloads the submitted files over the token
+//! (a POST to `webservice/pluginfile.php`, a read) so the service can
+//! compare their content with the snapshot.
 use super::{
     envelope::{form_fields, has_warnings, rest_result},
     lms_url,
@@ -21,11 +25,13 @@ use crate::{
     school_auth::SchoolAuthProfile,
     school_session::{Attempt, Blocked, Operation, Permit, RunError, SchoolSessions, Site},
     submissions::{
-        LmsIdentity, LmsModule, RemoteFile, RemoteState, RemoteStatus, RemoteSubmission,
-        SubmissionRules, SubmissionTransport, TransportError, UploadFile, WriteGrant,
+        LmsIdentity, LmsModule, RemoteContent, RemoteFile, RemoteState, RemoteStatus,
+        RemoteSubmission, SubmissionRules, SubmissionTransport, TransportError, UploadFile,
+        WriteGrant, WritePermit,
     },
-    sync_engine::AccountWait,
+    plan::AccountWait,
 };
+use sha2::{Digest, Sha256};
 use adpt_isct::lms::{id_of, LMS_WWWROOT};
 use reqwest::Method;
 use serde_json::{json, Value};
@@ -53,8 +59,9 @@ impl MoodleWrite {
     }
 }
 
-/// A read's deadline, from its start: a sign-in and a few page reads.
-const READ_DEADLINE: Duration = crate::sync_engine::KEY_DEADLINE;
+/// A read's deadline, from its start: a sign-in, a few calls and the
+/// submitted files.
+const READ_DEADLINE: Duration = Duration::from_secs(5 * 60);
 /// A write's attempt outlives its requests, which carry their own limits.
 const WRITE_DEADLINE: Duration = Duration::from_secs(60 * 60);
 
@@ -68,6 +75,7 @@ pub(crate) struct LmsSubmissions {
 struct ReadSubmission<'a> {
     submissions: &'a LmsSubmissions,
     module: LmsModule,
+    content: bool,
 }
 
 impl Operation for ReadSubmission<'_> {
@@ -80,7 +88,7 @@ impl Operation for ReadSubmission<'_> {
     ) -> BoxFuture<'_, Result<RemoteSubmission, MoodleError>> {
         Box::pin(async move {
             self.submissions
-                .read_submission(&attempt, self.module)
+                .read_submission(&attempt, self.module, self.content)
                 .await
         })
     }
@@ -125,10 +133,12 @@ impl LmsSubmissions {
         Self { client, sessions }
     }
 
-    fn permit(&self) -> Result<Permit, TransportError> {
-        self.sessions
-            .permit(SchoolAuthProfile::Science)
-            .ok_or_else(|| TransportError::NotSent("signing out or resetting".into()))
+    /// The school sessions' permit a write holds.
+    fn inner(permit: &WritePermit) -> Result<&Permit, TransportError> {
+        permit
+            .inner
+            .as_ref()
+            .ok_or_else(|| TransportError::NotSent("no account permit".into()))
     }
 
     /// A write's attempt: nothing sent yet. Its token writes need no site
@@ -148,6 +158,7 @@ impl LmsSubmissions {
         &self,
         attempt: &Attempt,
         module: LmsModule,
+        content: bool,
     ) -> Result<RemoteSubmission, MoodleError> {
         let course = module
             .course
@@ -199,13 +210,61 @@ impl LmsSubmissions {
         {
             return Err(MoodleError::Partial);
         }
+        let state = remote_state(&status)?;
+        let content = if content {
+            self.content(attempt, &status, &site).await
+        } else {
+            None
+        };
         Ok(RemoteSubmission {
             identity: LmsIdentity { site, user_id },
             assign_id,
             cmid: module.cmid,
-            state: remote_state(&status)?,
+            state,
             rules: rules(assignment, &status, &info),
+            content,
         })
+    }
+
+    /// Each submitted file's sha256, downloaded over the token from the
+    /// address the status names, which must be the LMS's own. `None` when
+    /// any file cannot be read: the service then cannot tell content apart.
+    async fn content(
+        &self,
+        attempt: &Attempt,
+        status: &Value,
+        site: &str,
+    ) -> Option<Vec<RemoteContent>> {
+        let token = self.client.token(attempt).await.ok()?;
+        let mut content = Vec::new();
+        for (name, bytes, url) in submitted_files(status)? {
+            let url = url::Url::parse(&url).ok()?;
+            let own = url::Url::parse(site).ok()?;
+            if url.scheme() != "https" || url.host_str() != own.host_str() {
+                return None;
+            }
+            let response = attempt
+                .bare(NetRequest {
+                    host: Host::Moodle,
+                    method: Method::POST,
+                    url,
+                    headers: Vec::new(),
+                    body: Body::Form(vec![("token".into(), token.expose().to_string())]),
+                    limits: download_limits(bytes),
+                })
+                .await
+                .ok()?;
+            if response.status != 200 || response.body.len() as u64 != bytes {
+                return None;
+            }
+            let mut hasher = Sha256::new();
+            hasher.update(&response.body);
+            content.push(RemoteContent {
+                name,
+                sha256: data_encoding::HEXLOWER.encode(&hasher.finalize()),
+            });
+        }
+        Some(content)
     }
 
     /// Each file into one new draft area: the first with item id 0, the
@@ -213,10 +272,10 @@ impl LmsSubmissions {
     async fn upload_files(
         &self,
         _grant: &WriteGrant,
+        permit: &WritePermit,
         files: &[UploadFile],
     ) -> Result<u64, TransportError> {
-        let permit = self.permit()?;
-        let attempt = self.write_attempt(&permit).await;
+        let attempt = self.write_attempt(Self::inner(permit)?).await;
         let token = self.client.token(&attempt).await.map_err(read_error)?;
         let url = lms_url(MoodleWrite::UploadDraftFile.name()).map_err(read_error)?;
         let mut draft = 0_u64;
@@ -290,11 +349,11 @@ impl LmsSubmissions {
     async fn post(
         &self,
         _grant: &WriteGrant,
+        permit: &WritePermit,
         write: MoodleWrite,
         args: &Value,
     ) -> Result<Value, TransportError> {
-        let permit = self.permit()?;
-        let attempt = self.write_attempt(&permit).await;
+        let attempt = self.write_attempt(Self::inner(permit)?).await;
         let token = self.client.token(&attempt).await.map_err(read_error)?;
         let mut form = vec![
             ("wstoken".to_string(), token.expose().to_string()),
@@ -317,12 +376,11 @@ impl LmsSubmissions {
     }
 
     /// The user id a removal names, from a fresh site info read.
-    async fn user_id(&self) -> Result<u64, TransportError> {
-        let permit = self.permit()?;
+    async fn user_id(&self, permit: &WritePermit) -> Result<u64, TransportError> {
         self.sessions
             .run(
                 Site::Lms,
-                &permit,
+                Self::inner(permit)?,
                 tokio::time::Instant::now() + READ_DEADLINE,
                 &mut ReadUser(self),
             )
@@ -332,17 +390,33 @@ impl LmsSubmissions {
 }
 
 impl SubmissionTransport for LmsSubmissions {
-    fn read(&self, module: LmsModule) -> BoxFuture<'_, Result<RemoteSubmission, TransportError>> {
+    fn permit(&self) -> Result<WritePermit, TransportError> {
+        let permit = self
+            .sessions
+            .permit(SchoolAuthProfile::Science)
+            .ok_or_else(|| TransportError::NotSent("signing out or resetting".into()))?;
+        Ok(WritePermit {
+            generation: permit.generation(),
+            inner: Some(permit),
+        })
+    }
+
+    fn read(
+        self: Arc<Self>,
+        permit: Arc<WritePermit>,
+        module: LmsModule,
+        content: bool,
+    ) -> BoxFuture<'static, Result<RemoteSubmission, TransportError>> {
         Box::pin(async move {
-            let permit = self.permit()?;
             self.sessions
                 .run(
                     Site::Lms,
-                    &permit,
+                    Self::inner(&permit)?,
                     tokio::time::Instant::now() + READ_DEADLINE,
                     &mut ReadSubmission {
-                        submissions: self,
+                        submissions: &self,
                         module,
+                        content,
                     },
                 )
                 .await
@@ -353,14 +427,16 @@ impl SubmissionTransport for LmsSubmissions {
     fn upload<'a>(
         &'a self,
         grant: &'a WriteGrant,
+        permit: &'a WritePermit,
         files: &'a [UploadFile],
     ) -> BoxFuture<'a, Result<u64, TransportError>> {
-        Box::pin(self.upload_files(grant, files))
+        Box::pin(self.upload_files(grant, permit, files))
     }
 
     fn save<'a>(
         &'a self,
         grant: &'a WriteGrant,
+        permit: &'a WritePermit,
         assign_id: u64,
         draft: u64,
     ) -> BoxFuture<'a, Result<(), TransportError>> {
@@ -368,6 +444,7 @@ impl SubmissionTransport for LmsSubmissions {
             let value = self
                 .post(
                     grant,
+                    permit,
                     MoodleWrite::SaveSubmission,
                     &json!({
                         "assignmentid": assign_id,
@@ -391,13 +468,15 @@ impl SubmissionTransport for LmsSubmissions {
     fn remove<'a>(
         &'a self,
         grant: &'a WriteGrant,
+        permit: &'a WritePermit,
         assign_id: u64,
     ) -> BoxFuture<'a, Result<(), TransportError>> {
         Box::pin(async move {
-            let user_id = self.user_id().await?;
+            let user_id = self.user_id(permit).await?;
             let value = self
                 .post(
                     grant,
+                    permit,
                     MoodleWrite::RemoveSubmission,
                     &json!({"userid": user_id, "assignid": assign_id}),
                 )
@@ -523,6 +602,48 @@ fn rules(assignment: &Value, status: &Value, info: &Value) -> SubmissionRules {
             .collect(),
         // An extension later than the cut-off moves it.
         cutoff: (cutoff > 0).then_some(cutoff.max(extension)),
+    }
+}
+
+/// The submitted files with their sizes and download addresses, by the
+/// same names `remote_state` gives them; `None` when one has no address.
+fn submitted_files(status: &Value) -> Option<Vec<(String, u64, String)>> {
+    let mut files = Vec::new();
+    let Some(submission) = status.pointer("/lastattempt/submission") else {
+        return Some(files);
+    };
+    for plugin in array(submission.get("plugins")) {
+        if plugin.get("type").and_then(Value::as_str) != Some("file") {
+            continue;
+        }
+        for area in array(plugin.get("fileareas")) {
+            if area.get("area").and_then(Value::as_str) != Some("submission_files") {
+                continue;
+            }
+            for file in array(area.get("files")) {
+                let name = file.get("filename").and_then(Value::as_str)?;
+                let url = file.get("fileurl").and_then(Value::as_str)?;
+                let folder = file
+                    .get("filepath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("/")
+                    .trim_start_matches('/');
+                files.push((
+                    format!("{folder}{name}"),
+                    number(file.get("filesize")).max(0) as u64,
+                    url.to_string(),
+                ));
+            }
+        }
+    }
+    Some(files)
+}
+
+/// A submitted file's download: its size, plus Moodle's answer.
+fn download_limits(bytes: u64) -> Limits {
+    Limits {
+        max_bytes: usize::try_from(bytes).unwrap_or(usize::MAX).saturating_add(64 * 1024),
+        deadline: Duration::from_secs(60 + bytes / (128 * 1024)),
     }
 }
 

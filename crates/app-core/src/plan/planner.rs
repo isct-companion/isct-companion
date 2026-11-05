@@ -80,6 +80,8 @@ pub(crate) struct ReferenceWatch {
     /// `reference_refresh::reference_due`: the validator and held-version
     /// rules of public files on top of `sync_state::due`.
     pub(crate) due: Due,
+    /// When a reference that is fresh now goes stale.
+    pub(crate) stale_at: Option<DateTime<Utc>>,
 }
 
 /// Stored facts, read once per evaluation on a blocking worker.
@@ -256,29 +258,8 @@ fn credential_hold(
     now: DateTime<Utc>,
 ) -> Option<Held> {
     let profile = profile_of(key.dataset)?;
-    let account = credentials.account(profile);
-    let wait = |wait: AccountWait| Held::Account { profile, wait };
-    if !account.admitted {
-        return Some(wait(AccountWait::Person));
-    }
     let path = usable_path(key, depth, &credentials.token);
-    let recoverable = path
-        .iter()
-        .any(|credential| credentials.usable(account, *credential))
-        || account.identity;
-    let derived = if recoverable {
-        None
-    } else {
-        match account.sign_in {
-            SignInAdmission::Allowed => None,
-            SignInAdmission::Person => Some(wait(AccountWait::Person)),
-            SignInAdmission::Paused { until } if until > now => {
-                Some(wait(AccountWait::Paused { until }))
-            }
-            SignInAdmission::Paused { .. } => None,
-        }
-    };
-    derived.or_else(|| {
+    account_hold(profile, &path, credentials, now).or_else(|| {
         facts
             .waited
             .get(&(key.clone(), depth))
@@ -291,6 +272,69 @@ fn credential_hold(
             })
             .map(|waited| waited.held.clone())
     })
+}
+
+/// Why a read of `profile`'s account over `path` waits for the account,
+/// derived from the credential facts alone: no admission, or every
+/// credential on the path known unusable while neither the identity's
+/// silent SSO nor a sign-in may get a new one.
+fn account_hold(
+    profile: SchoolAuthProfile,
+    path: &[Credential],
+    credentials: &Credentials,
+    now: DateTime<Utc>,
+) -> Option<Held> {
+    let account = credentials.account(profile);
+    let wait = |wait: AccountWait| Held::Account { profile, wait };
+    if !account.admitted {
+        return Some(wait(AccountWait::Person));
+    }
+    let recoverable = path
+        .iter()
+        .any(|credential| credentials.usable(account, *credential))
+        || account.identity;
+    if recoverable {
+        return None;
+    }
+    match account.sign_in {
+        SignInAdmission::Allowed => None,
+        SignInAdmission::Person => Some(wait(AccountWait::Person)),
+        SignInAdmission::Paused { until } if until > now => {
+            Some(wait(AccountWait::Paused { until }))
+        }
+        SignInAdmission::Paused { .. } => None,
+    }
+}
+
+/// Why a one-off read (`runner::ReadRequest`) on `lane` over `path` may
+/// not run now: the rules of [`hold`] at Interactive priority, with the
+/// account's facts for `path` when `credentials` are the sessions'.
+pub(crate) fn request_hold(
+    lane: Lane,
+    account: Option<(SchoolAuthProfile, &[Credential])>,
+    facts: &Facts,
+    credentials: Option<&Credentials>,
+    now: DateTime<Utc>,
+) -> Option<Held> {
+    if facts.resetting {
+        return Some(Held::Resetting);
+    }
+    if facts.network == Network::Offline {
+        return Some(Held::Offline);
+    }
+    let host = lane.host();
+    if let Some(until) = facts.paused.get(&host).filter(|until| **until > now) {
+        return Some(Held::HostPaused {
+            host: host.name().into(),
+            until: *until,
+        });
+    }
+    if let (Some((profile, path)), Some(credentials)) = (account, credentials) {
+        if let Some(held) = account_hold(profile, path, credentials, now) {
+            return Some(held);
+        }
+    }
+    facts.suspended.then_some(Held::Background)
 }
 
 /// How a key came to be wanted; a stronger rule wins when several apply.
@@ -806,17 +850,14 @@ pub(crate) fn hold(
     missing_prerequisite(key, inputs).map(|_| Held::Prerequisite)
 }
 
-/// Every due key that is not leased, in lease order: Interactive first,
-/// missing before stale, then dataset and key order.
-pub(crate) fn plan(
+/// Every key some rule wants, with its attributes: automatic keys, open
+/// pages, refresh presses and the prerequisites they pull forward.
+fn watched(
     inputs: &Inputs,
-    facts: &Facts,
-    credentials: &Credentials,
     opens: &[View],
     manual: &HashMap<Key, Option<String>>,
-    leased: &HashSet<Key>,
     now: DateTime<Utc>,
-) -> Vec<Candidate> {
+) -> BTreeMap<Key, Watch> {
     let mut watched = BTreeMap::new();
     for (key, priority) in automatic_keys(inputs, now) {
         want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
@@ -856,6 +897,21 @@ pub(crate) fn plan(
         }
         want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
     }
+    watched
+}
+
+/// Every due key that is not leased, in lease order: Interactive first,
+/// missing before stale, then dataset and key order.
+pub(crate) fn plan(
+    inputs: &Inputs,
+    facts: &Facts,
+    credentials: &Credentials,
+    opens: &[View],
+    manual: &HashMap<Key, Option<String>>,
+    leased: &HashSet<Key>,
+    now: DateTime<Utc>,
+) -> Vec<Candidate> {
+    let watched = watched(inputs, opens, manual, now);
     let mut candidates: Vec<Candidate> = watched
         .into_iter()
         .filter(|(key, _)| !leased.contains(key))
@@ -904,4 +960,56 @@ pub(crate) fn plan(
         (Reverse(a.priority), a.rank, &a.key).cmp(&(Reverse(b.priority), b.rank, &b.key))
     });
     candidates
+}
+
+/// When the plan next changes by time alone: the earliest moment a wanted
+/// key that is fresh now goes stale (its TTL, or an open page's threshold),
+/// a backoff ends, or a hold with an end lifts (a paused host, an
+/// account's pause). Keys due now are in the plan already; a hold that
+/// waits for a fact (the network, the person) has no time.
+pub(crate) fn next_due(
+    inputs: &Inputs,
+    plan: &[Candidate],
+    opens: &[View],
+    manual: &HashMap<Key, Option<String>>,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let watched = watched(inputs, opens, manual, now);
+    let fresh = watched.iter().filter_map(|(key, watch)| {
+        if watch.rule == Rule::Manual {
+            return None;
+        }
+        let state = inputs.states.get(key);
+        if let Some(until) = state
+            .and_then(|state| state.next_eligible)
+            .filter(|until| *until > now)
+        {
+            return Some(until);
+        }
+        if key.dataset == Dataset::Reference {
+            return inputs
+                .references
+                .iter()
+                .find(|reference| reference.key == *key)
+                .and_then(|reference| reference.stale_at);
+        }
+        let fetched = state.and_then(|state| state.fetched_at)?;
+        let ttl = sync_state::ttl(key.dataset, watch.term)?;
+        let window = if watch.rule == Rule::Open {
+            ttl.min(OPEN_THRESHOLD)
+        } else {
+            ttl
+        };
+        Some(fetched + window).filter(|at| *at > now)
+    });
+    let held = plan.iter().filter_map(|candidate| match &candidate.held {
+        Some(Held::Backoff { until })
+        | Some(Held::HostPaused { until, .. })
+        | Some(Held::Account {
+            wait: AccountWait::Paused { until },
+            ..
+        }) => Some(*until),
+        _ => None,
+    });
+    fresh.chain(held).min()
 }

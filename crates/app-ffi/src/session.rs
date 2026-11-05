@@ -493,37 +493,57 @@ impl Session {
             Ok(OperationResult::Done)
         })
     }
-    /// The shell's periodic wake (about once a second): forwards
-    /// `Hint::Wake` to the sync planner, then runs reminders, cloud sync and
-    /// the user's scheduled tasks.
-    pub fn wake(&self) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            wake_services(&i).await?;
-            Ok(OperationResult::Done)
-        })
+    /// When Core next has work: keep one timer for `at` and call
+    /// `deadline_reached` with this revision when it fires; ask the OS for a
+    /// background opportunity from `background`. Read it on start and after
+    /// `StreamUpdate::SnapshotRequired`, and keep the higher revision of it
+    /// and the `wake-directive` events.
+    pub fn wake_directive(&self) -> Result<WakeDirective, SdkError> {
+        if *self.inner.gate.lock().map_err(|_| SdkError::Closed)? {
+            return Err(SdkError::Closed);
+        }
+        project(self.inner.core.wake_directive())
     }
-    /// One wake from the OS background scheduler (iOS BGAppRefreshTask,
-    /// Android WorkManager), sent while the app is out of front. Core
-    /// resumes, runs one `wake`, reads what is due (signing in over HTTP
-    /// when a session needs it) and waits for those reads at most
-    /// `budget_seconds`. It then suspends again unless
-    /// the app came to the front. Cancel it when the OS ends the task early.
-    pub fn background_wake(&self, budget_seconds: u32) -> Result<Arc<Operation>, SdkError> {
+    /// The shell's timer for directive `revision` fired. Never waits.
+    pub fn deadline_reached(&self, revision: u64) -> Result<(), SdkError> {
+        if *self.inner.gate.lock().map_err(|_| SdkError::Closed)? {
+            return Err(SdkError::Closed);
+        }
+        self.inner.core.deadline_reached(revision);
+        Ok(())
+    }
+    /// One OS background opportunity (iOS BGTask, Android WorkManager),
+    /// named `id`, of at most `budget_seconds`: Core reads what is due if
+    /// `network` allows (signing in over HTTP when a session needs it),
+    /// runs its local duties, and answers `true` once all of it went quiet,
+    /// `false` when the budget ran out first. Cancelling it, or
+    /// `end_background_opportunity`, ends it early: no new read starts and
+    /// the reads it started stop, while local commits finish.
+    pub fn begin_background_opportunity(
+        &self,
+        id: String,
+        budget_seconds: u32,
+        network: bool,
+    ) -> Result<Arc<Operation>, SdkError> {
         self.start(true, move |i, cancel| async move {
             let budget = std::time::Duration::from_secs(u64::from(budget_seconds));
-            let work = async {
-                let (woke, _) = tokio::join!(wake_services(&i), i.core.sync_in_background(budget));
-                woke
-            };
-            let woke = tokio::select! {
+            let quiet = tokio::select! {
                 biased;
-                _ = cancel.cancelled() => Ok(()),
-                woke = work => woke,
+                _ = cancel.cancelled() => {
+                    i.core.end_background_opportunity(&id, app_core::plan::OpportunityEnd::Expired);
+                    false
+                }
+                quiet = i.core.background_opportunity(id.clone(), budget, network) => quiet,
             };
-            i.core.end_background_wake().await;
-            woke?;
-            Ok(OperationResult::Done)
+            Ok(OperationResult::Flag { value: quiet })
         })
+    }
+    /// The OS took opportunity `id`'s time back (its expiration handler).
+    pub fn end_background_opportunity(&self, id: String) -> Result<(), SdkError> {
+        self.inner
+            .core
+            .end_background_opportunity(&id, app_core::plan::OpportunityEnd::Expired);
+        Ok(())
     }
     pub fn export_backup(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
@@ -598,15 +618,17 @@ impl Session {
 pub fn decode_sync_snapshot(payload: JsonValue) -> Result<SyncSnapshot, SdkError> {
     project_input(payload.0)
 }
+/// Decodes the payload of a `wake-directive` stream event.
+#[uniffi::export]
+pub fn decode_wake_directive(payload: JsonValue) -> Result<WakeDirective, SdkError> {
+    project_input(payload.0)
+}
 pub(crate) fn unavailable(name: &str) -> SdkError {
     SdkError::Unavailable {
         detail: format!("{name} is not installed"),
     }
 }
 fn backup_error(e: app_core::backup::BackupError) -> SdkError {
-    crate::error::coded(&e)
-}
-fn runtime_error(e: app_core::runtime::RuntimeError) -> SdkError {
     crate::error::coded(&e)
 }
 struct Exporter(BackupService, PathBuf);
@@ -617,12 +639,6 @@ impl app_core::scheduler::ScheduledExporter for Exporter {
             .map(|_| ())
             .map_err(|e| app_core::scheduler::ExportError::Failed(e.to_string()))
     }
-}
-fn services(i: &Arc<Inner>) -> Result<app_core::scheduler::SchedulerServices, SdkError> {
-    Ok(i.core.services(Arc::new(Exporter(
-        i.backup.clone(),
-        i.backup_directory.clone(),
-    ))))
 }
 fn ocr_available() -> bool {
     #[cfg(feature = "ocr")]
@@ -667,7 +683,7 @@ async fn initialize(
         notifications: notifications.is_some(),
         ocr: ocr_available(),
     };
-    let initial_network: app_core::sync_engine::Network = project_input(config.initial_network)?;
+    let initial_network: app_core::plan::Network = project_input(config.initial_network)?;
     let native_cloud = cloud.clone();
     let store_drive = drive.clone();
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
@@ -710,7 +726,7 @@ async fn initialize(
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
-    core.sync_hint(app_core::sync_engine::Hint::Network {
+    core.sync_hint(app_core::plan::Hint::Network {
         network: initial_network,
     });
     if let Some(web_cookies) = web_cookies {
@@ -725,9 +741,7 @@ async fn initialize(
         None
     };
     let backup = BackupService::new(core.store.clone());
-    core.runtime
-        .attach_cloud(sync.clone())
-        .map_err(runtime_error)?;
+    core.runtime.attach_cloud(sync.clone())?;
     let transport: Arc<dyn app_core::cloud_sync::CloudTransport> =
         if native_cloud.is_some() || drive.is_some() {
             Arc::new(cloud_stores(native_cloud, drive.clone())?)
@@ -764,35 +778,17 @@ async fn initialize(
         )),
     });
     inner.core.runtime.notes.at(inner.files.clone());
+    // Core's deadline duties use these ports from now on.
+    inner.core.attach_ports(app_core::facade::PlatformPorts {
+        exporter: Some(Arc::new(Exporter(
+            inner.backup.clone(),
+            inner.backup_directory.clone(),
+        ))),
+        notifications: inner.notifications.as_ref().map(|sink| {
+            Arc::new(Notifications(sink.clone())) as Arc<dyn app_core::schedule::NotificationSink>
+        }),
+        cloud: inner.capabilities.cloud.then(|| inner.sync_services.clone()),
+    });
     inner.core.start(&Handle::current())?;
     Ok(inner)
-}
-
-/// `Hint::Wake` for the sync planner, then reminders, cloud sync and the
-/// user's scheduled tasks. All services run even when one fails; the first
-/// typed error is returned and snapshots expose any successful work.
-async fn wake_services(i: &Arc<Inner>) -> Result<(), SdkError> {
-    i.core.sync_hint(app_core::sync_engine::Hint::Wake);
-    let report = i
-        .core
-        .wake(app_core::facade::WakeServices {
-            scheduler: services(i)?,
-            cloud: i.cloud().ok().map(|(_, services)| services.clone()),
-            reminders: i
-                .notifications
-                .as_ref()
-                .map(|sink| app_core::facade::ReminderWake {
-                    sink: Arc::new(Notifications(sink.clone())),
-                    now: chrono::Utc::now().fixed_offset(),
-                }),
-        })
-        .await;
-    report.runtime.map_err(runtime_error)?;
-    if let Some(result) = report.cloud {
-        result?;
-    }
-    if let Some(result) = report.reminders {
-        result?;
-    }
-    Ok(())
 }

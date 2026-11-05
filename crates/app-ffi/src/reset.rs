@@ -4,12 +4,12 @@
 use crate::{SdkError, Session};
 use app_core::{
     reset::ResetDevice,
-    sync_engine::{ResetReport, ResetScope},
+    plan::{ResetReport, ResetScope},
 };
 use std::{path::PathBuf, sync::Arc};
 
-/// `app_core::sync_engine::ResetScope` across the ABI. (The FFI build does
-/// not project `sync_engine`, whose snapshot types carry timestamps.)
+/// `app_core::plan::ResetScope` across the ABI. (The FFI build does
+/// not project `plan`, whose snapshot types carry timestamps.)
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum ResetRequest {
     /// Clear every school cache and read it again. Plans, notes, marks,
@@ -22,7 +22,7 @@ pub enum ResetRequest {
     Everything,
 }
 
-/// `app_core::sync_engine::ResetReport` across the ABI.
+/// `app_core::plan::ResetReport` across the ABI.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ResetSummary {
     pub removed_rows: u64,

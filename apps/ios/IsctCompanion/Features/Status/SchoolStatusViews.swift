@@ -3,7 +3,7 @@ import IsctCore
 import Pow
 import SwiftUI
 
-/// Words for Core's sync snapshot (`sync_engine`). Core decides what runs, what
+/// Words for Core's sync snapshot (`plan`). Core decides what runs, what
 /// waits, what failed and when it retries; these only name it.
 enum SyncText {
     /// A source as Core names it in `SourceView.source`.
