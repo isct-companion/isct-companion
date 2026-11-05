@@ -18,12 +18,13 @@ impl From<SubmissionError> for AgentError {
     }
 }
 
-/// The service, once the school site is connected on this device.
+/// The service, unless it could not open with Core; the reason goes to the
+/// agent as is, since nothing the agent does next can change it.
 fn service<'a>(cx: &Context<'a>) -> Result<&'a SubmissionService, AgentError> {
-    cx.submissions.ok_or_else(|| {
-        AgentError::Unavailable(
-            "LMS submissions are available once the school site is connected.".into(),
-        )
+    cx.submissions.map_err(|why| {
+        AgentError::Unavailable(format!(
+            "LMS submissions are unavailable on this device: {why}"
+        ))
     })
 }
 

@@ -3,6 +3,9 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
+/// Why the fixture's submission service is missing.
+const UNOPENED: &str = "submissions.db schema 3 is not supported";
+
 struct Fixture {
     root: PathBuf,
     store: DataStore,
@@ -23,7 +26,11 @@ impl Fixture {
     }
 
     fn service(&self) -> AgentService {
-        AgentService::new(self.store.clone(), self.workspaces(), Default::default())
+        AgentService::new(
+            self.store.clone(),
+            self.workspaces(),
+            Arc::new(Err(UNOPENED.into())),
+        )
     }
 
     fn workspaces(&self) -> AssignmentWorkspaces {
@@ -289,8 +296,8 @@ fn every_tool_declares_object_schemas_and_its_effect() {
 }
 
 // An LMS write tool needs its own switch on top of agent access, checked
-// before its arguments are even read; the submission tools answer
-// `unavailable` until the school transport is attached.
+// before its arguments are even read; when the submission service could
+// not open, the tools answer `unavailable` with the reason it gave.
 #[test]
 fn lms_write_tools_need_their_own_switch() {
     use crate::error_code::{Coded, ErrorCode};
@@ -304,6 +311,7 @@ fn lms_write_tools_need_their_own_switch() {
         .call("submission_status", json!({"operationId": "o"}))
         .unwrap_err();
     assert_eq!(detached.code(), ErrorCode::Unavailable);
+    assert!(detached.to_string().ends_with(UNOPENED), "{detached}");
 }
 
 #[test]
@@ -579,7 +587,7 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
             let cx = Context {
                 store: &fixture.store,
                 workspaces: &workspaces,
-                submissions: None,
+                submissions: Err(UNOPENED),
                 view,
                 now: jst(monday_morning()).unwrap(),
             };

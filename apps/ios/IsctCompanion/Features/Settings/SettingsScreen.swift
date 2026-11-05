@@ -321,7 +321,7 @@ private struct AccountScreen: View {
         Form {
             Group {
                 Section {
-                    TextField(t("settings.main.studentID"), text: $username)
+                    TextField(t("settings.schoolAccounts.id"), text: $username)
                         .textContentType(.username)
                         .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)

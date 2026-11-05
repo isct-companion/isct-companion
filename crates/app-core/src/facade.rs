@@ -26,10 +26,10 @@ pub struct Core {
     pub agent: AgentService,
     /// Assignment workspaces under the selected course storage root.
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
-    /// LMS writes; the MCP tools share the slot. Only the desktop's agents
-    /// write to the LMS.
+    /// LMS writes, or why the service could not open; the MCP tools share
+    /// it. Only the desktop's agents write to the LMS.
     #[cfg(feature = "agent")]
-    submissions: Arc<std::sync::OnceLock<crate::submissions::SubmissionService>>,
+    submissions: crate::agent::Submissions,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
     /// Every network read of school and reference data; `Core::reset`
@@ -226,9 +226,26 @@ impl Core {
             runtime.notes.clone(),
             runtime.downloads.clone(),
         );
+        // A ledger that cannot open leaves writes off and reads untouched;
+        // the tools answer with the reason.
         #[cfg(feature = "agent")]
-        let submissions = Arc::new(std::sync::OnceLock::new());
-        let core = Self {
+        let submissions = Arc::new(
+            crate::submissions::SubmissionService::open(
+                &store,
+                assignment_workspaces.clone(),
+                Arc::new(crate::net::moodle::LmsSubmissions::new(
+                    moodle,
+                    sessions.clone(),
+                )),
+            )
+            .map_err(|error| {
+                crate::diagnostics::report("submissions", &error);
+                error.to_string()
+            }),
+        );
+        #[cfg(not(feature = "agent"))]
+        let _ = moodle;
+        Self {
             #[cfg(feature = "agent")]
             agent: AgentService::new(
                 store.clone(),
@@ -241,7 +258,7 @@ impl Core {
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
             sync,
-            sessions: sessions.clone(),
+            sessions,
             school_browser: Mutex::new(None),
             store,
             auth,
@@ -249,17 +266,7 @@ impl Core {
             events,
             reset_lease: Default::default(),
             finder: Default::default(),
-        };
-        // A ledger that cannot open leaves writes off and reads untouched.
-        #[cfg(feature = "agent")]
-        if let Err(error) = core.attach_submissions(Arc::new(
-            crate::net::moodle::LmsSubmissions::new(moodle, sessions),
-        )) {
-            crate::diagnostics::report("submissions", &error);
         }
-        #[cfg(not(feature = "agent"))]
-        let _ = (moodle, sessions);
-        core
     }
 
     /// A shell fact or intent for the sync planner. Never blocks.
@@ -348,28 +355,9 @@ impl Core {
         &self.sessions
     }
 
-    /// Opens the submission service over `transport`, once. What an earlier
-    /// run left unsettled is recovered by its first call or the next wake.
-    #[cfg(feature = "agent")]
-    fn attach_submissions(
-        &self,
-        transport: Arc<dyn crate::submissions::SubmissionTransport>,
-    ) -> Result<(), crate::submissions::SubmissionError> {
-        let service = crate::submissions::SubmissionService::open(
-            &self.store,
-            self.assignment_workspaces.clone(),
-            transport,
-        )?;
-        self.submissions.set(service).map_err(|_| {
-            crate::submissions::SubmissionError::Input(
-                "LMS submissions are already attached.".into(),
-            )
-        })
-    }
-
     #[cfg(feature = "agent")]
     pub fn submissions(&self) -> Option<&crate::submissions::SubmissionService> {
-        self.submissions.get()
+        self.submissions.as_ref().as_ref().ok()
     }
 
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
@@ -497,9 +485,9 @@ impl Core {
             None => None,
         };
         #[cfg(feature = "agent")]
-        let submissions = match self.submissions.get() {
-            Some(submissions) => Some(submissions.wake().await),
-            None => None,
+        let submissions = match self.submissions.as_ref() {
+            Ok(submissions) => Some(submissions.wake().await),
+            Err(_) => None,
         };
         WakeReport {
             runtime,
