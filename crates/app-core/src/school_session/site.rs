@@ -28,7 +28,7 @@ use super::{
 use crate::{
     net::{BoxFuture, Host, NetError, NetRequest, Response},
     school_auth::SchoolAuthProfile,
-    sync_engine::AccountWait,
+    plan::AccountWait,
 };
 use adpt_isct::login::SciencePage;
 use reqwest::header::COOKIE;

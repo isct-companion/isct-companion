@@ -2028,7 +2028,6 @@ export type ErrorCode =
   | "cloud-version-missing"
   | "cloud-too-large"
   | "cloud-retrying"
-  | "cloud-not-attached"
   | "reset-busy"
   | "reset-unsupported"
   | "reset-credentials"
@@ -2055,7 +2054,9 @@ export type ErrorCode =
   | "submission-outcome-unknown"
   | "submission-rejected"
   | "submission-mismatch"
-  | "lms-writes-disabled";
+  | "lms-writes-disabled"
+  | "data-folder-in-use"
+  | "submission-identity-changed";
 
 export type CoreFailure = {
   code: ErrorCode;

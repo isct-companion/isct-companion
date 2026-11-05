@@ -1,14 +1,21 @@
 //! Leases, lanes, the commit gate and the driver that ties them together.
 //!
-//! One driver task evaluates the plan when a hint asks for it (at most
-//! every 30 s on `Wake`) and fills each lane up to its budget. A worker
-//! reads one leased key, records how it ended, and takes the next key of its
-//! lane, so an LMS worker keeps its transport open across keys.
+//! One driver task evaluates the plan when a hint, a fact or a deadline asks
+//! for it, fills each lane up to its budget, starts the duties that are due
+//! and publishes the snapshot and the [`WakeDirective`]. A worker reads one
+//! leased key, records how it ended, and takes the next key of its lane, so
+//! an LMS worker keeps its transport open across keys; a one-off read
+//! queued for the lane takes the next free slot first.
 use super::{
-    planner::{self, Candidate, Credentials, Depth, Facts, Group, Inputs, Lane, ReferenceWatch, Waited},
+    duties::{Duty, Slot},
+    planner::{
+        self, Candidate, Credential, Credentials, Depth, Facts, Group, Inputs, Lane,
+        ReferenceWatch, Waited,
+    },
     school::{self, SchoolReaders},
     snapshot::{self, Shown},
-    AccountWait, Held, Hint, Network, Priority, Scope, SyncSnapshot, View,
+    AccountWait, BackgroundRequest, BackgroundWork, Held, Hint, Network, OpportunityEnd, Priority,
+    Scope, SyncSnapshot, View, WakeDirective,
 };
 use crate::{
     data::{DataError, DataStore, WorkspaceChangeSource},
@@ -25,7 +32,8 @@ use chrono::{DateTime, Utc};
 use rusqlite::Transaction;
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    any::Any,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     future::Future,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,7 +41,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tokio::sync::Notify;
+use tokio::sync::{oneshot, watch, Notify};
 use tokio_util::sync::CancellationToken;
 
 /// The longest one key may take, from its start, sign-in included. A key
@@ -42,7 +50,6 @@ use tokio_util::sync::CancellationToken;
 pub const KEY_DEADLINE: Duration = Duration::from_secs(3 * 60);
 /// A whole-department 教務 search is one GET and one 3 MB postback.
 const BULK_DEADLINE: Duration = Duration::from_secs(6 * 60);
-const EVALUATE_EVERY: Duration = Duration::from_secs(30);
 /// A second press of a refresh button within this time joins the first.
 const MANUAL_JOIN: Duration = Duration::from_secs(30);
 /// How long an opened page or a refresh press keeps its keys wanted while
@@ -69,35 +76,65 @@ fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 struct GateState {
     generation: u64,
     committing: usize,
+    /// Moves when an LMS write starts on a key's resource; a lease taken
+    /// before it never commits (`PlanEngine::bump_resource`).
+    resources: HashMap<Key, u64>,
 }
 
 /// Every write of a lease passes here. Closing admission bumps the
 /// generation under the same lock, so a commit either entered before the
-/// bump (and `wait_idle` waits for it) or is refused.
-#[derive(Default)]
-pub(crate) struct Gate(Mutex<GateState>);
+/// bump (and `wait_idle` waits for it) or is refused; likewise a write that
+/// started on the key's resource after the lease was taken.
+pub(crate) struct Gate {
+    state: Mutex<GateState>,
+    /// The commits in progress, for `wait_idle`.
+    committing: watch::Sender<usize>,
+}
+
+impl Default for Gate {
+    fn default() -> Self {
+        Self {
+            state: Mutex::default(),
+            committing: watch::channel(0).0,
+        }
+    }
+}
 
 impl Gate {
     fn generation(&self) -> u64 {
-        guard(&self.0).generation
+        guard(&self.state).generation
     }
 
     fn bump(&self) -> u64 {
-        let mut state = guard(&self.0);
+        let mut state = guard(&self.state);
         state.generation = state.generation.saturating_add(1);
         state.generation
     }
 
-    fn committing(&self) -> usize {
-        guard(&self.0).committing
+    fn resource(&self, key: &Key) -> u64 {
+        guard(&self.state).resources.get(key).copied().unwrap_or(0)
     }
 
-    fn enter(self: &Arc<Self>, generation: u64) -> Option<GateGuard> {
-        let mut state = guard(&self.0);
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
+    fn bump_resource(&self, key: &Key) -> u64 {
+        let mut state = guard(&self.state);
+        let revision = state.resources.entry(key.clone()).or_default();
+        *revision = revision.saturating_add(1);
+        *revision
+    }
+
+    fn enter(self: &Arc<Self>, generation: u64, resource: Option<&(Key, u64)>) -> Option<GateGuard> {
+        let mut state = guard(&self.state);
         if state.generation != generation {
             return None;
         }
+        if let Some((key, revision)) = resource {
+            if state.resources.get(key).is_some_and(|current| current > revision) {
+                return None;
+            }
+        }
         state.committing += 1;
+        self.committing.send_replace(state.committing);
         Some(GateGuard(self.clone()))
     }
 }
@@ -107,8 +144,9 @@ pub(crate) struct GateGuard(Arc<Gate>);
 
 impl Drop for GateGuard {
     fn drop(&mut self) {
-        let mut state = guard(&self.0 .0);
+        let mut state = guard(&self.0.state);
         state.committing = state.committing.saturating_sub(1);
+        self.0.committing.send_replace(state.committing);
     }
 }
 
@@ -126,6 +164,8 @@ pub(crate) struct LeaseWriter {
     store: DataStore,
     gate: Arc<Gate>,
     generation: u64,
+    /// The key's resource revision when it was leased.
+    resource: Option<(Key, u64)>,
 }
 
 impl LeaseWriter {
@@ -136,7 +176,7 @@ impl LeaseWriter {
     /// Holds the gate while the caller writes through store methods that
     /// open their own transaction. `None`: the lease is stale.
     pub(crate) fn enter(&self) -> Option<GateGuard> {
-        self.gate.enter(self.generation)
+        self.gate.enter(self.generation, self.resource.as_ref())
     }
 
     /// One transaction inside the gate.
@@ -180,6 +220,13 @@ pub(crate) struct Lease {
     pub(crate) deadline: tokio::time::Instant,
     pub(crate) cancel: CancellationToken,
     writer: LeaseWriter,
+}
+
+impl Lease {
+    /// The key's resource revision the lease was taken at.
+    fn revision(&self) -> u64 {
+        self.writer.resource.as_ref().map_or(0, |(_, revision)| *revision)
+    }
 }
 
 impl Lease {
@@ -229,6 +276,7 @@ impl Lease {
                 store: store.clone(),
                 gate: Arc::new(Gate::default()),
                 generation: 0,
+                resource: None,
             },
         }
     }
@@ -473,6 +521,58 @@ enum ManualTarget {
     LmsCurrentCourses,
 }
 
+/// Why a one-off read did not run. Only the desktop's LMS writes read
+/// this way today (`approach/desktop-only-features-compiled-out`).
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+pub(crate) enum ReadRefused {
+    /// It cannot run now, for this reason; nothing was sent.
+    #[error("The read waits ({0:?})")]
+    Held(Held),
+    /// A reset or the account's barrier ended it.
+    #[error("The read was cancelled")]
+    Cancelled,
+    #[error("The read timed out")]
+    Deadline,
+    /// The read ran and failed (a refreshed key's error kind).
+    #[error("The read failed ({0})")]
+    Failed(String),
+    #[error("Core has stopped")]
+    Stopped,
+}
+
+/// A one-off read the engine admits like a key: the same holds, the lane's
+/// slots, the engine's ownership and a reset's cancellation. Requests with
+/// the same `key` join the one queued or running.
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
+pub(crate) struct ReadRequest {
+    /// What the read is for and how fresh it must be; equal keys share one
+    /// read.
+    pub(crate) key: String,
+    pub(crate) lane: Lane,
+    /// The account and the credential path the read uses.
+    pub(crate) account: Option<(SchoolAuthProfile, &'static [Credential])>,
+    pub(crate) deadline: Duration,
+}
+
+type Output = Arc<dyn Any + Send + Sync>;
+type Outcome = Result<Output, ReadRefused>;
+type Work = Box<dyn FnOnce(CancellationToken) -> crate::net::BoxFuture<'static, Output> + Send>;
+
+struct Pending {
+    key: String,
+    lane: Lane,
+    deadline: Duration,
+    work: Work,
+}
+
+/// Someone waiting for a key's read that started at `revision` or later.
+struct Waiter {
+    revision: u64,
+    reply: oneshot::Sender<Result<(), ReadRefused>>,
+}
+
+
 struct State {
     facts: Facts,
     /// Each account as its session snapshot last said, for the status line.
@@ -497,6 +597,18 @@ struct State {
     evaluate: bool,
     last_evaluated: Option<Instant>,
     published: Option<SyncSnapshot>,
+    /// When the plan next changes by time alone (`planner::next_due`).
+    plan_next: Option<DateTime<Utc>>,
+    duties: Vec<Slot>,
+    /// One-off reads waiting for a slot of their lane.
+    reads: VecDeque<Pending>,
+    /// Every queued or running one-off read, by key, with its answer.
+    answers: HashMap<String, watch::Sender<Option<Outcome>>>,
+    running: HashMap<String, CancellationToken>,
+    waiters: HashMap<Key, Vec<Waiter>>,
+    /// OS background opportunities in progress, by id: whether each
+    /// allows the network. Android runs a network and a local one at once.
+    opportunities: HashMap<String, bool>,
 }
 
 struct Shared {
@@ -511,18 +623,22 @@ struct Shared {
     runtime: OnceLock<tokio::runtime::Handle>,
     driving: AtomicBool,
     probes: Arc<crate::reference_refresh::IndexProbes>,
+    /// Moves after every change a waiter could be waiting for
+    /// (`wait_quiet`).
+    version: watch::Sender<u64>,
+    directive: watch::Sender<WakeDirective>,
 }
 
 /// The sync planner and runner. Cheap to clone.
 #[derive(Clone)]
-pub struct SyncEngine(Arc<Shared>);
+pub struct PlanEngine(Arc<Shared>);
 
 /// A weak handle for components the engine itself owns (the school
 /// browser), so hints never keep the engine alive.
 #[derive(Clone)]
-pub struct SyncHints(Weak<Shared>);
+pub struct PlanHints(Weak<Shared>);
 
-impl SyncHints {
+impl PlanHints {
     /// Hints sent to nothing; for components built without an engine.
     pub fn detached() -> Self {
         Self(Weak::new())
@@ -530,26 +646,33 @@ impl SyncHints {
 
     pub fn send(&self, hint: Hint) {
         if let Some(shared) = self.0.upgrade() {
-            SyncEngine(shared).hint(hint);
+            PlanEngine(shared).hint(hint);
+        }
+    }
+
+    /// A duty brought its next time forward (`PlanEngine::duties_changed`).
+    pub(crate) fn duties_changed(&self) {
+        if let Some(shared) = self.0.upgrade() {
+            PlanEngine(shared).duties_changed();
         }
     }
 
     /// The engine while something else still owns it.
-    pub(crate) fn engine(&self) -> Option<SyncEngine> {
-        self.0.upgrade().map(SyncEngine)
+    pub(crate) fn engine(&self) -> Option<PlanEngine> {
+        self.0.upgrade().map(PlanEngine)
     }
 
     /// Folds a Core event (the session snapshot) into the snapshot.
     pub fn observe(&self, event: &CoreEvent) {
         if let Some(shared) = self.0.upgrade() {
-            SyncEngine(shared).observe(event);
+            PlanEngine(shared).observe(event);
         }
     }
 }
 
 /// Admission stays closed while this lives; dropping it reopens.
 pub struct AdmissionGuard {
-    engine: SyncEngine,
+    engine: PlanEngine,
 }
 
 impl Drop for AdmissionGuard {
@@ -583,7 +706,7 @@ fn shown(snapshot: &SchoolSessionSnapshot) -> HashMap<SchoolAuthProfile, Shown> 
         .collect()
 }
 
-impl SyncEngine {
+impl PlanEngine {
     pub fn new(store: DataStore, auth: Arc<SchoolAuthService>, network: Network) -> Self {
         let facts = Facts {
             network,
@@ -613,6 +736,13 @@ impl SyncEngine {
                 evaluate: true,
                 last_evaluated: None,
                 published: None,
+                plan_next: None,
+                duties: Vec::new(),
+                reads: VecDeque::new(),
+                answers: HashMap::new(),
+                running: HashMap::new(),
+                waiters: HashMap::new(),
+                opportunities: HashMap::new(),
             }),
             gate: Arc::new(Gate::default()),
             wake: Notify::new(),
@@ -620,11 +750,225 @@ impl SyncEngine {
             runtime: OnceLock::new(),
             driving: AtomicBool::new(false),
             probes: Arc::new(crate::reference_refresh::IndexProbes::default()),
+            version: watch::channel(0).0,
+            directive: watch::channel(WakeDirective::default()).0,
         }))
     }
 
-    pub fn hints(&self) -> SyncHints {
-        SyncHints(Arc::downgrade(&self.0))
+    /// Adds a deadline duty; the engine runs it whenever it is due.
+    pub(crate) fn register(&self, duty: Arc<dyn Duty>) {
+        guard(&self.0.state).duties.push(Slot::new(duty));
+        self.0.wake.notify_one();
+    }
+
+    /// A duty brought its next time forward: look again now.
+    pub(crate) fn duties_changed(&self) {
+        self.0.wake.notify_one();
+    }
+
+    /// The shell's timer for `revision` fired. A stale revision only costs
+    /// one look; the plan is evaluated again only when its own time came.
+    pub fn deadline_reached(&self, revision: u64) {
+        self.ensure_started();
+        {
+            let mut state = guard(&self.0.state);
+            if state
+                .plan_next
+                .is_some_and(|at| at <= Utc::now() + chrono::Duration::seconds(1))
+            {
+                state.evaluate = true;
+            }
+        }
+        log::debug!(target: "app_core::plan", "deadline {revision} reached");
+        self.0.wake.notify_one();
+    }
+
+    /// The directive as last published.
+    pub fn wake_directive(&self) -> WakeDirective {
+        self.0.directive.borrow().clone()
+    }
+
+    /// Every directive from now on, for a shell timer in this process.
+    pub fn wake_directives(&self) -> watch::Receiver<WakeDirective> {
+        self.0.directive.subscribe()
+    }
+
+    /// An LMS write starts on `key`'s resource: a read leased before now
+    /// does not commit. Returns the revision a read after the write has.
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
+    pub(crate) fn bump_resource(&self, key: &Key) -> u64 {
+        self.0.gate.bump_resource(key)
+    }
+
+    /// Reads `key` in full as a refresh press does, past the 30 s join, and
+    /// waits until a read leased at `revision` or later ended: `Ok` once
+    /// it landed. A wait the key cannot end yet (offline, the account)
+    /// lasts until it can; the caller bounds it.
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
+    pub(crate) async fn refresh_key(&self, key: Key, revision: u64) -> Result<(), ReadRefused> {
+        self.ensure_started();
+        let credentials = self.credentials();
+        let (reply, answer) = oneshot::channel();
+        {
+            let mut state = guard(&self.0.state);
+            if state.stopped {
+                return Err(ReadRefused::Stopped);
+            }
+            // Held by a fact now (offline, the account): refused at once, as
+            // a one-off read is; the caller asks again later.
+            let account = planner::profile_of(key.dataset)
+                .map(|profile| (profile, planner::credential_path(&key, Depth::Full)));
+            if let Some(held) = planner::request_hold(
+                Lane::of(key.dataset),
+                account,
+                &state.facts,
+                Some(&credentials),
+                Utc::now(),
+            ) {
+                return Err(ReadRefused::Held(held));
+            }
+            let now = Instant::now();
+            state.last_manual.insert(key.clone(), now);
+            state.manual.insert(key.clone(), (now, None));
+            // Revisions count from this run's start: after a restart every
+            // read is later than a write recorded before it.
+            let revision = revision.min(self.0.gate.resource(&key));
+            state
+                .waiters
+                .entry(key)
+                .or_default()
+                .push(Waiter { revision, reply });
+            state.evaluate = true;
+        }
+        self.0.wake.notify_one();
+        answer.await.map_err(|_| ReadRefused::Stopped)?
+    }
+
+    /// Runs `work` as a one-off read on `request.lane`, once the lane has a
+    /// slot, unless it is held now: a held read is refused at once with
+    /// the reason, never queued behind a fact. The engine owns the read: a
+    /// caller that stops waiting leaves it running, and a reset cancels it.
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
+    pub(crate) async fn read<T, F>(&self, request: ReadRequest, work: F) -> Result<T, ReadRefused>
+    where
+        T: Clone + Send + Sync + 'static,
+        F: FnOnce(CancellationToken) -> crate::net::BoxFuture<'static, T> + Send + 'static,
+    {
+        self.ensure_started();
+        let school = self.school();
+        let credentials = school.as_ref().map(school::credentials);
+        let mut answer = {
+            let mut state = guard(&self.0.state);
+            if state.stopped {
+                return Err(ReadRefused::Stopped);
+            }
+            if state.closed > 0 {
+                return Err(ReadRefused::Held(Held::Resetting));
+            }
+            // Without sessions (an engine built alone) the read's own
+            // transport decides what it can reach.
+            let account = request.account.filter(|_| school.is_some());
+            if let Some(held) = planner::request_hold(
+                request.lane,
+                account,
+                &state.facts,
+                credentials.as_ref(),
+                Utc::now(),
+            ) {
+                return Err(ReadRefused::Held(held));
+            }
+            match state.answers.get(&request.key) {
+                Some(sender) => sender.subscribe(),
+                None => {
+                    let (sender, answer) = watch::channel(None);
+                    state.answers.insert(request.key.clone(), sender);
+                    let work: Work = Box::new(move |cancel| {
+                        let read = work(cancel);
+                        Box::pin(async move { Arc::new(read.await) as Output })
+                    });
+                    state.reads.push_back(Pending {
+                        key: request.key,
+                        lane: request.lane,
+                        deadline: request.deadline,
+                        work,
+                    });
+                    answer
+                }
+            }
+        };
+        self.0.wake.notify_one();
+        let outcome = answer
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| ReadRefused::Stopped)?
+            .clone()
+            .ok_or(ReadRefused::Stopped)?;
+        outcome?
+            .downcast_ref::<T>()
+            .cloned()
+            .ok_or(ReadRefused::Stopped)
+    }
+
+    /// An OS background opportunity begins: reads run again when it allows
+    /// the network, and the duties its kind of work allows run.
+    pub(crate) fn begin_opportunity(&self, id: String, network: bool) {
+        self.ensure_started();
+        {
+            let mut state = guard(&self.0.state);
+            if network {
+                state.facts.suspended = false;
+            }
+            state.opportunities.insert(id, network);
+            state.evaluate = true;
+        }
+        self.0.wake.notify_one();
+    }
+
+    /// The opportunity `id` ended. Once no opportunity that allows the
+    /// network is left and the app is not in front, no new key is leased,
+    /// the rebuildable reads stop (what they leave stays wanted for the
+    /// next one) and the network duties are asked to stop between steps;
+    /// local commits finish. Returns whether the app is out of front with
+    /// no opportunity left, so Core suspends its sessions too.
+    pub(crate) fn end_opportunity(&self, id: &str, reason: OpportunityEnd) -> bool {
+        let (suspended, interrupt) = {
+            let mut state = guard(&self.0.state);
+            let Some(network) = state.opportunities.remove(id) else {
+                return false;
+            };
+            log::info!(target: "app_core::plan", "background opportunity {id} ended ({reason:?})");
+            let network_left = state.opportunities.values().any(|network| *network);
+            let mut interrupt = Vec::new();
+            if network && !network_left && !state.facts.foreground {
+                state.facts.suspended = true;
+                for lease in state.leases.values() {
+                    lease.cancel.cancel();
+                }
+                for cancel in state.running.values() {
+                    cancel.cancel();
+                }
+                interrupt = state
+                    .duties
+                    .iter()
+                    .filter(|slot| slot.running && slot.duty.work() == BackgroundWork::Network)
+                    .map(|slot| slot.duty.clone())
+                    .collect();
+            }
+            state.evaluate = true;
+            (
+                state.opportunities.is_empty() && !state.facts.foreground,
+                interrupt,
+            )
+        };
+        for duty in interrupt {
+            duty.interrupt();
+        }
+        self.0.wake.notify_one();
+        suspended
+    }
+
+    pub fn hints(&self) -> PlanHints {
+        PlanHints(Arc::downgrade(&self.0))
     }
 
     /// Where snapshots go. Set once, by the facade.
@@ -710,9 +1054,6 @@ impl SyncEngine {
         let evaluate = {
             let mut state = guard(&self.0.state);
             let evaluate = match hint {
-                Hint::Wake => state
-                    .last_evaluated
-                    .is_none_or(|at| now.saturating_duration_since(at) >= EVALUATE_EVERY),
                 Hint::Foreground => {
                     state.facts.foreground = true;
                     true
@@ -813,6 +1154,7 @@ impl SyncEngine {
             for lease in state.leases.values() {
                 lease.cancel.cancel();
             }
+            cancel_requests(&mut state);
             state.plan.clear();
             state.batches.clear();
             state.manual.clear();
@@ -834,60 +1176,72 @@ impl SyncEngine {
         state.facts.foreground && !state.facts.suspended
     }
 
-    /// Evaluates once more, then waits until no key is leased and none the
-    /// facts allow is left to lease, at most `limit`. An OS background wake
-    /// holds the process open this long.
+    /// Evaluates once more, then waits until no key is leased, none the
+    /// facts allow is left to lease, no one-off read is queued or running
+    /// and no duty the facts allow runs or is due, at most `limit`. An OS
+    /// background opportunity holds the process open this long.
     pub async fn wait_quiet(&self, limit: Duration) -> bool {
         let since = Instant::now();
-        let deadline = since + limit;
+        let deadline = tokio::time::Instant::now() + limit;
+        // Subscribed before the first look, so no change is missed.
+        let mut changes = self.0.version.subscribe();
         self.reevaluate();
         loop {
             if self.quiet(since) {
                 return true;
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
+            match tokio::time::timeout_at(deadline, changes.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => return self.quiet(since),
             }
-            tokio::time::sleep((deadline - now).min(Duration::from_millis(250))).await;
         }
     }
 
     fn quiet(&self, since: Instant) -> bool {
         let credentials = self.credentials();
-        let state = guard(&self.0.state);
-        let now = Utc::now();
-        !state.evaluate
-            && state.last_evaluated.is_some_and(|at| at >= since)
-            && state.leases.is_empty()
-            && !state.plan.iter().any(|candidate| {
-                candidate.held.is_none()
-                    && planner::hold(
-                        &candidate.key,
-                        candidate.priority,
-                        candidate.depth,
-                        &state.inputs,
-                        &state.facts,
-                        &credentials,
-                        now,
-                    )
-                    .is_none()
-            })
+        let duties = {
+            let state = guard(&self.0.state);
+            let now = Utc::now();
+            let reads_quiet = !state.evaluate
+                && state.last_evaluated.is_some_and(|at| at >= since)
+                && state.leases.is_empty()
+                && state.reads.is_empty()
+                && state.running.is_empty()
+                && !state.plan.iter().any(|candidate| {
+                    candidate.held.is_none()
+                        && planner::hold(
+                            &candidate.key,
+                            candidate.priority,
+                            candidate.depth,
+                            &state.inputs,
+                            &state.facts,
+                            &credentials,
+                            now,
+                        )
+                        .is_none()
+                });
+            if !reads_quiet || state.duties.iter().any(|slot| slot.running) {
+                return false;
+            }
+            let allowed = allowed_work(&state);
+            state
+                .duties
+                .iter()
+                .filter(|slot| allowed(slot.duty.work()))
+                .map(|slot| slot.duty.clone())
+                .collect::<Vec<_>>()
+        };
+        !duties
+            .iter()
+            .any(|duty| duty.next_due().is_some_and(|at| at <= Utc::now()))
     }
 
     /// Waits until no commit is in progress, at most `limit`.
     pub async fn wait_idle(&self, limit: Duration) -> bool {
-        let deadline = Instant::now() + limit;
-        loop {
-            if self.0.gate.committing() == 0 {
-                return true;
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            tokio::time::sleep((deadline - now).min(Duration::from_millis(20))).await;
-        }
+        let mut committing = self.0.gate.committing.subscribe();
+        tokio::time::timeout(limit, committing.wait_for(|count| *count == 0))
+            .await
+            .is_ok_and(|waited| waited.is_ok())
     }
 
     /// Cancels every read and waits for the driver and workers to stop.
@@ -904,6 +1258,12 @@ impl SyncEngine {
             state.stopped = true;
             for lease in state.leases.values() {
                 lease.cancel.cancel();
+            }
+            cancel_requests(&mut state);
+            for waiters in std::mem::take(&mut state.waiters).into_values() {
+                for waiter in waiters {
+                    let _ = waiter.reply.send(Err(ReadRefused::Stopped));
+                }
             }
         }
         self.0.tasks.close();
@@ -922,7 +1282,60 @@ impl SyncEngine {
                 self.evaluate().await;
             }
             self.pump();
+            self.run_duties();
             self.publish();
+        }
+    }
+
+    /// Starts every duty that is due and that the facts allow (a suspended
+    /// app runs only what its background opportunity allows).
+    fn run_duties(&self) {
+        let Some(handle) = self.0.runtime.get().cloned() else {
+            return;
+        };
+        let idle = {
+            let state = guard(&self.0.state);
+            if state.stopped {
+                return;
+            }
+            let allowed = allowed_work(&state);
+            state
+                .duties
+                .iter()
+                .enumerate()
+                .filter(|(_, slot)| !slot.running && allowed(slot.duty.work()))
+                .map(|(index, slot)| (index, slot.duty.clone()))
+                .collect::<Vec<_>>()
+        };
+        for (index, duty) in idle {
+            if !duty.next_due().is_some_and(|at| at <= Utc::now()) {
+                continue;
+            }
+            {
+                let mut state = guard(&self.0.state);
+                let Some(slot) = state.duties.get_mut(index) else {
+                    continue;
+                };
+                if slot.running {
+                    continue;
+                }
+                slot.running = true;
+            }
+            let engine = self.clone();
+            let name = duty.name();
+            let started = self.0.tasks.spawn_on(&handle, async move {
+                log::debug!(target: "app_core::plan", "{name} runs");
+                duty.run().await;
+                if let Some(slot) = guard(&engine.0.state).duties.get_mut(index) {
+                    slot.running = false;
+                }
+                engine.0.wake.notify_one();
+            });
+            if !started {
+                if let Some(slot) = guard(&self.0.state).duties.get_mut(index) {
+                    slot.running = false;
+                }
+            }
         }
     }
 
@@ -1011,6 +1424,7 @@ impl SyncEngine {
             &leased,
             now,
         );
+        state.plan_next = planner::next_due(&inputs, &state.plan, &opens, &manual, now);
         state.inputs = inputs;
         update_batches(&mut state, instant, now);
     }
@@ -1028,6 +1442,42 @@ impl SyncEngine {
                 return;
             }
             for lane in Lane::ALL {
+                while state.busy.get(&lane).copied().unwrap_or(0) < lane.capacity() {
+                    let Some(index) = state.reads.iter().position(|request| request.lane == lane)
+                    else {
+                        break;
+                    };
+                    let Some(request) = state.reads.remove(index) else {
+                        break;
+                    };
+                    // The facts may have moved while it queued (the app
+                    // went out of front, the network dropped).
+                    if let Some(held) =
+                        planner::request_hold(lane, None, &state.facts, None, Utc::now())
+                    {
+                        if let Some(sender) = state.answers.remove(&request.key) {
+                            sender.send_replace(Some(Err(ReadRefused::Held(held))));
+                        }
+                        continue;
+                    }
+                    let cancel = CancellationToken::new();
+                    state.running.insert(request.key.clone(), cancel.clone());
+                    *state.busy.entry(lane).or_default() += 1;
+                    let key = request.key.clone();
+                    if !self
+                        .0
+                        .tasks
+                        .spawn_on(&handle, self.clone().run_request(request, cancel))
+                    {
+                        state.running.remove(&key);
+                        if let Some(busy) = state.busy.get_mut(&lane) {
+                            *busy = busy.saturating_sub(1);
+                        }
+                        if let Some(sender) = state.answers.remove(&key) {
+                            sender.send_replace(Some(Err(ReadRefused::Stopped)));
+                        }
+                    }
+                }
                 while state.busy.get(&lane).copied().unwrap_or(0) < lane.capacity() {
                     let Some(lease) = self.lease_next(&mut state, lane, &credentials) else {
                         break;
@@ -1105,6 +1555,7 @@ impl SyncEngine {
                 cancel: cancel.clone(),
             },
         );
+        let key = candidate.key.clone();
         Some(Lease {
             key: candidate.key,
             run,
@@ -1117,8 +1568,39 @@ impl SyncEngine {
                 store: self.0.store.clone(),
                 gate: self.0.gate.clone(),
                 generation: self.0.gate.generation(),
+                resource: Some((key.clone(), self.0.gate.resource(&key))),
             },
         })
+    }
+
+    /// One one-off read, from its slot to its answer.
+    async fn run_request(self, request: Pending, cancel: CancellationToken) {
+        let generation = self.0.gate.generation();
+        let read = (request.work)(cancel.clone());
+        let outcome = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(ReadRefused::Cancelled),
+            ended = tokio::time::timeout(request.deadline, read) => {
+                ended.map_err(|_| ReadRefused::Deadline)
+            }
+        };
+        // A reset during the read leaves its answer to nobody.
+        let outcome = if self.0.gate.generation() == generation {
+            outcome
+        } else {
+            Err(ReadRefused::Cancelled)
+        };
+        {
+            let mut state = guard(&self.0.state);
+            state.running.remove(&request.key);
+            if let Some(busy) = state.busy.get_mut(&request.lane) {
+                *busy = busy.saturating_sub(1);
+            }
+            if let Some(sender) = state.answers.remove(&request.key) {
+                sender.send_replace(Some(outcome));
+            }
+        }
+        self.0.wake.notify_one();
     }
 
     async fn work(self, lane: Lane, first: Lease) {
@@ -1213,7 +1695,12 @@ impl SyncEngine {
         let next = {
             let mut state = guard(&self.0.state);
             settle(&mut state, &lease, &end, after, &credentials);
-            let next = self.lease_next(&mut state, lane, &credentials);
+            // A queued one-off read takes the slot first (`pump`).
+            let next = if state.reads.iter().any(|request| request.lane == lane) {
+                None
+            } else {
+                self.lease_next(&mut state, lane, &credentials)
+            };
             if next.is_none() {
                 if let Some(busy) = state.busy.get_mut(&lane) {
                     *busy = busy.saturating_sub(1);
@@ -1227,16 +1714,153 @@ impl SyncEngine {
 
     fn publish(&self) {
         let snapshot = self.snapshot();
-        {
+        let changed = {
             let mut state = guard(&self.0.state);
             if state.published.as_ref() == Some(&snapshot) {
-                return;
+                false
+            } else {
+                state.published = Some(snapshot.clone());
+                true
             }
-            state.published = Some(snapshot.clone());
+        };
+        if changed {
+            if let Some(events) = self.0.events.get() {
+                let _ = events.emit(CoreEvent::SyncSnapshot(snapshot));
+            }
         }
-        if let Some(events) = self.0.events.get() {
-            let _ = events.emit(CoreEvent::SyncSnapshot(snapshot));
+        self.publish_directive();
+        self.0.version.send_modify(|version| *version = version.wrapping_add(1));
+    }
+
+    /// The earliest deadline of the plan and every duty, and what an OS
+    /// background opportunity would find due, sent when it changed.
+    fn publish_directive(&self) {
+        let now = Utc::now();
+        let (plan, waiting, duties, failures) = {
+            let state = guard(&self.0.state);
+            let instant = Instant::now();
+            // A failed run without a retry time leaves the snapshot then.
+            let failures = state
+                .batches
+                .iter()
+                .filter(|batch| {
+                    batch.idle()
+                        && batch.failed.values().all(|(_, retry)| retry.is_none())
+                        && !batch.failed.is_empty()
+                })
+                .filter_map(|batch| batch.finished_at)
+                .map(|at| {
+                    now + chrono::Duration::from_std(
+                        FAILURE_SHOWN.saturating_sub(instant.saturating_duration_since(at)),
+                    )
+                    .unwrap_or_default()
+                })
+                .min();
+            let waiting = state.plan.iter().any(|candidate| candidate.held.is_none())
+                || !state.reads.is_empty();
+            let duties = state
+                .duties
+                .iter()
+                .map(|slot| (slot.duty.clone(), slot.running))
+                .collect::<Vec<_>>();
+            (state.plan_next, waiting, duties, failures)
+        };
+        // Work waiting only for a lane slot needs no timer (a read ending
+        // wakes the engine), but an OS opportunity would find it due.
+        let mut network = plan;
+        let mut local: Option<DateTime<Utc>> = None;
+        for (duty, running) in duties {
+            let Some(at) = (!running).then(|| duty.next_due()).flatten() else {
+                continue;
+            };
+            let slot = match duty.work() {
+                BackgroundWork::Network => &mut network,
+                BackgroundWork::Local => &mut local,
+            };
+            *slot = Some(slot.map_or(at, |current| current.min(at)));
         }
+        // Whole seconds, rounded up: every shell parses them, and a timer
+        // never fires before the work is due.
+        let second = |at: DateTime<Utc>| {
+            DateTime::from_timestamp(
+                at.timestamp() + i64::from(at.timestamp_subsec_nanos() > 0),
+                0,
+            )
+            .unwrap_or(at)
+        };
+        let network = network.map(second);
+        let local = local.map(second);
+        let at = [network, local, failures.map(second)].into_iter().flatten().min();
+        let background = [
+            (
+                BackgroundWork::Network,
+                network.into_iter().chain(waiting.then(|| second(now))).min(),
+            ),
+            (BackgroundWork::Local, local),
+        ]
+        .into_iter()
+        .filter_map(|(work, earliest)| {
+            earliest.map(|earliest| BackgroundRequest {
+                work,
+                earliest: earliest.max(second(now)),
+            })
+        })
+        .collect::<Vec<_>>();
+        let mut published = None;
+        self.0.directive.send_if_modified(|current| {
+            // Only a move of the deadline or of what is asked of the OS is
+            // news; a past deadline renewed to now is the same one.
+            let same_at = match (current.at, at) {
+                (Some(current), Some(at)) => current == at || (current <= now && at <= now),
+                (current, at) => current == at,
+            };
+            let same_background = current.background.len() == background.len()
+                && current
+                    .background
+                    .iter()
+                    .zip(&background)
+                    .all(|(a, b)| a.work == b.work && (a.earliest == b.earliest || (a.earliest <= now && b.earliest <= now)));
+            if same_at && same_background {
+                return false;
+            }
+            *current = WakeDirective {
+                revision: current.revision.wrapping_add(1),
+                at,
+                background,
+            };
+            published = Some(current.clone());
+            true
+        });
+        if let (Some(directive), Some(events)) = (published, self.0.events.get()) {
+            let _ = events.emit(CoreEvent::WakeDirective(directive));
+        }
+    }
+}
+
+/// Which duties the facts allow: all of them in front or running, and in
+/// the background what the opportunity allows.
+fn allowed_work(state: &State) -> impl Fn(BackgroundWork) -> bool {
+    let all = !state.facts.suspended;
+    let local = !state.opportunities.is_empty();
+    let network = state.opportunities.values().any(|network| *network);
+    move |work| {
+        all || match work {
+            BackgroundWork::Local => local,
+            BackgroundWork::Network => network,
+        }
+    }
+}
+
+/// Ends every one-off read: the queued ones answered, the running ones
+/// cancelled (they answer themselves).
+fn cancel_requests(state: &mut State) {
+    for request in std::mem::take(&mut state.reads) {
+        if let Some(sender) = state.answers.remove(&request.key) {
+            sender.send_replace(Some(Err(ReadRefused::Cancelled)));
+        }
+    }
+    for cancel in state.running.values() {
+        cancel.cancel();
     }
 }
 
@@ -1295,6 +1919,11 @@ fn settle(
 ) {
     let key = &lease.key;
     state.leases.remove(key);
+    // The key's new freshness or backoff moves the plan's own deadline:
+    // once the reads in flight are done, plan again.
+    if state.leases.is_empty() {
+        state.evaluate = true;
+    }
     match after {
         Some(after) => {
             state.inputs.states.insert(key.clone(), after);
@@ -1364,6 +1993,34 @@ fn settle(
         KeyEnd::Done { .. } | KeyEnd::Failed { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale
     ) {
         state.manual.remove(key);
+    }
+    // Someone waits for a read of this key that started late enough.
+    if let Some(waiters) = state.waiters.remove(key) {
+        let answer = match end {
+            KeyEnd::Done { .. } => Some(Ok(())),
+            KeyEnd::Failed { kind, .. } | KeyEnd::Refused { kind } => {
+                Some(Err(ReadRefused::Failed(kind.clone())))
+            }
+            _ => None,
+        };
+        let mut left = Vec::new();
+        // A waiter that stopped waiting wants no read.
+        for waiter in waiters.into_iter().filter(|waiter| !waiter.reply.is_closed()) {
+            match &answer {
+                Some(answer) if lease.revision() >= waiter.revision => {
+                    let _ = waiter.reply.send(answer.clone());
+                }
+                _ => left.push(waiter),
+            }
+        }
+        if !left.is_empty() {
+            // Still wanted by hand, past the join, until a read late
+            // enough ends.
+            let now = Instant::now();
+            state.manual.insert(key.clone(), (now, None));
+            state.waiters.insert(key.clone(), left);
+            state.evaluate = true;
+        }
     }
     if key.dataset == Dataset::LmsEnrolment
         && !matches!(end, KeyEnd::Cancelled { .. } | KeyEnd::Stale)
@@ -1520,7 +2177,7 @@ fn load_inputs(
         let mut references = Vec::new();
         for (kind, year, index_url) in followed {
             let key = crate::reference_refresh::reference_key(&kind, year);
-            let due = crate::reference_refresh::reference_due(
+            let (due, stale_at) = crate::reference_refresh::reference_due(
                 transaction,
                 &key,
                 &kind,
@@ -1532,6 +2189,7 @@ fn load_inputs(
                 key,
                 index_url,
                 due,
+                stale_at,
             });
         }
         Ok(Inputs {
@@ -1550,7 +2208,7 @@ fn load_inputs(
 /// Drives the engine by hand: no driver task runs, so nothing reads the
 /// network.
 #[cfg(test)]
-impl SyncEngine {
+impl PlanEngine {
     /// Runs one evaluation now and returns the plan.
     pub(crate) async fn evaluate_now(&self) -> Vec<Candidate> {
         self.evaluate().await;
@@ -1563,6 +2221,7 @@ impl SyncEngine {
             store: self.0.store.clone(),
             gate: self.0.gate.clone(),
             generation,
+            resource: None,
         }
     }
 

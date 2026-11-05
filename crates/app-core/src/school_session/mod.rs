@@ -109,7 +109,7 @@ const _: () = assert!(
 // page reads; every other limit comes from the caller's deadline.
 const _: () = assert!(
     SIGN_IN_DEADLINE.as_secs() + 2 * Limits::page().deadline.as_secs()
-        <= crate::sync_engine::KEY_DEADLINE.as_secs()
+        <= crate::plan::KEY_DEADLINE.as_secs()
 );
 
 /// One account as shells show it, derived from what Core keeps about it
@@ -867,9 +867,24 @@ impl SchoolSessions {
         forgotten
     }
 
-    /// The shell's periodic wake: a pause that has run out goes, and shells
-    /// see it.
-    pub fn wake(&self) {
+    /// When the earliest pause after a sign-in without a verdict ends; the
+    /// `PlanEngine` calls [`Self::lift_pauses`] then.
+    pub(crate) fn next_pause_end(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        let now = tokio::time::Instant::now();
+        self.0
+            .accounts
+            .iter()
+            .filter_map(|account| account.identity.pause_end())
+            .min()
+            .map(|until| {
+                chrono::Utc::now()
+                    + chrono::Duration::from_std(until.saturating_duration_since(now))
+                        .unwrap_or_default()
+            })
+    }
+
+    /// A pause that has run out goes, and shells see it.
+    pub(crate) fn lift_pauses(&self) {
         let mut changed = false;
         for account in &self.0.accounts {
             changed |= account.identity.expire_pause(tokio::time::Instant::now());
@@ -882,9 +897,9 @@ impl SchoolSessions {
 
     /// The network the shell reports (`Hint::Network`). While it is
     /// offline a sign-in ends without sending anything.
-    pub(crate) fn network(&self, network: crate::sync_engine::Network) {
+    pub(crate) fn network(&self, network: crate::plan::Network) {
         self.0.offline.store(
-            network == crate::sync_engine::Network::Offline,
+            network == crate::plan::Network::Offline,
             Ordering::SeqCst,
         );
     }

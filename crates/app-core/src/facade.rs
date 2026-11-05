@@ -7,11 +7,11 @@ use crate::school_session::{
 };
 use crate::{
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
+    plan::{Hint, Network, OpportunityEnd, PlanEngine, PlanHints, SyncSnapshot, WakeDirective},
     ports::EventSink,
-    runtime::{CloudWakeError, CoreRuntime, RuntimeError},
-    scheduler::{ScheduledExporter, SchedulerServices},
+    runtime::{CoreRuntime, RuntimeError},
+    scheduler::{ScheduledExporter, SchedulerError},
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
-    sync_engine::{Hint, Network, SyncEngine, SyncHints, SyncSnapshot},
     workspace::{WorkspaceError, WorkspaceService},
     workspace_changes::{self, Coalescer, WorkspaceChange, COALESCE_WINDOW},
 };
@@ -32,9 +32,13 @@ pub struct Core {
     submissions: crate::agent::Submissions,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
-    /// Every network read of school and reference data; `Core::reset`
-    /// closes its admission.
-    pub(crate) sync: Arc<SyncEngine>,
+    /// When all background work runs: every network read of school and
+    /// reference data, and the deadline duties (`crate::deadlines`);
+    /// `Core::reset` closes its admission.
+    pub(crate) sync: Arc<PlanEngine>,
+    /// The desktop's MCP listener as a duty of the engine.
+    #[cfg(feature = "agent")]
+    agent_access: Arc<crate::deadlines::AgentAccess>,
     /// The school accounts' sign-in and sessions, owned by Core.
     sessions: SchoolSessions,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
@@ -47,7 +51,7 @@ struct CoreEvents {
     sink: Mutex<Option<Arc<dyn EventSink>>>,
     /// Every event passes the relay below, so the session snapshot reaches the
     /// sync planner once for all shells.
-    sync: SyncHints,
+    sync: PlanHints,
 }
 
 struct NoopEvents;
@@ -60,7 +64,10 @@ impl EventSink for NoopEvents {
 
 impl EventSink for CoreEvents {
     fn emit(&self, event: crate::events::CoreEvent) -> Result<(), crate::ports::EventError> {
-        if !matches!(event, crate::events::CoreEvent::SyncSnapshot(_)) {
+        if !matches!(
+            event,
+            crate::events::CoreEvent::SyncSnapshot(_) | crate::events::CoreEvent::WakeDirective(_)
+        ) {
             self.sync.observe(&event);
         }
         let sink = self
@@ -79,10 +86,19 @@ impl EventSink for CoreEvents {
 
 /// Every committed workspace write reaches shells and cloud sync from here,
 /// whichever service, executor or agent tool made it.
+/// The store owns this observer, so it holds only weak handles to services
+/// that hold the store; a strong one would keep the store, and the data
+/// folder's lock, alive after Core is gone.
 struct StoreChanges {
     events: Option<StoreEvents>,
     seq: crate::data::CommitSeq,
-    runtime: Arc<CoreRuntime>,
+    runtime: std::sync::Weak<CoreRuntime>,
+    /// The deadline services a commit can bring forward.
+    reminders: crate::schedule::ReminderChanges,
+    reminder_reads: Vec<WorkspaceChange>,
+    plan: PlanHints,
+    #[cfg(feature = "agent")]
+    agent_access: std::sync::Weak<crate::deadlines::AgentAccess>,
 }
 
 struct StoreEvents {
@@ -99,13 +115,32 @@ impl CommitObserver for StoreChanges {
         revision: Option<String>,
         tables: &BTreeSet<String>,
     ) {
-        if workspace_changes::touches_user_data(tables) {
-            self.runtime.request_cloud_capture();
+        if let Some(runtime) = self.runtime.upgrade() {
+            if workspace_changes::touches_user_data(tables) {
+                runtime.request_cloud_capture();
+            }
+            if tables.contains("scheduled_tasks") {
+                runtime.scheduled_tasks_changed();
+            }
+        }
+        #[cfg(feature = "agent")]
+        if tables.contains("settings") {
+            if let Some(agent_access) = self.agent_access.upgrade() {
+                agent_access.changed();
+                self.plan.duties_changed();
+            }
+        }
+        let changes = workspace_changes::changes_for(tables);
+        if changes
+            .iter()
+            .any(|change| self.reminder_reads.contains(change))
+        {
+            self.reminders.changed();
+            self.plan.duties_changed();
         }
         let Some(events) = &self.events else {
             return;
         };
-        let changes = workspace_changes::changes_for(tables);
         if source == WorkspaceChangeSource::UserIntent {
             // The shell that made the intent waits on this event; it is
             // never held back. Events are hints with snapshot recovery; a
@@ -166,7 +201,7 @@ impl Core {
         auth: Arc<SchoolAuthService>,
         events: Option<Arc<dyn EventSink>>,
     ) -> Self {
-        let sync = SyncEngine::new(store.clone(), auth.clone(), Network::Unknown);
+        let sync = PlanEngine::new(store.clone(), auth.clone(), Network::Unknown);
         let events = events.map(|events| {
             Arc::new(CoreEvents {
                 sink: Mutex::new(Some(events)),
@@ -177,6 +212,9 @@ impl Core {
             sync.set_events(events.clone());
         }
         let runtime = Arc::new(CoreRuntime::new(sync.hints()));
+        let reminders = crate::schedule::ReminderService::new(store.clone());
+        #[cfg(feature = "agent")]
+        let agent_access = Arc::new(crate::deadlines::AgentAccess::new(store.clone()));
         let sessions = SchoolSessions::new(crate::net::Http::new().ok(), auth.clone());
         sessions.set_events(
             events
@@ -189,11 +227,12 @@ impl Core {
             auth.clone(),
             sessions.credential_signal(),
         ));
-        sync.attach_school(crate::sync_engine::SchoolReaders {
+        sync.attach_school(crate::plan::SchoolReaders {
             sessions: sessions.clone(),
             moodle: moodle.clone(),
         });
         let sync = Arc::new(sync);
+        let plan_hints = sync.hints();
         let seq = store.commit_seq_handle();
         store.observe(Arc::new(StoreChanges {
             seq: seq.clone(),
@@ -219,7 +258,17 @@ impl Core {
                     catalog,
                 }
             }),
-            runtime: runtime.clone(),
+            runtime: Arc::downgrade(&runtime),
+            reminders: reminders.changes(),
+            reminder_reads: crate::schedule::WorkspaceQuery::NotificationPlan {
+                now: String::new(),
+                horizon: String::new(),
+                locale: None,
+            }
+            .reads(),
+            plan: plan_hints.clone(),
+            #[cfg(feature = "agent")]
+            agent_access: Arc::downgrade(&agent_access),
         }));
         let assignment_workspaces = crate::workspaces::AssignmentWorkspaces::new(
             store.clone(),
@@ -237,6 +286,8 @@ impl Core {
                     moodle,
                     sessions.clone(),
                 )),
+                plan_hints.clone(),
+                runtime.tasks().clone(),
             )
             .map_err(|error| {
                 crate::diagnostics::report("submissions", &error);
@@ -245,6 +296,28 @@ impl Core {
         );
         #[cfg(not(feature = "agent"))]
         let _ = moodle;
+        // Every deadline of Core, run by the one engine.
+        sync.register(Arc::new(crate::deadlines::SessionPauses(sessions.clone())));
+        sync.register(Arc::new(crate::deadlines::Reminders(reminders.clone())));
+        sync.register(Arc::new(crate::deadlines::Scheduled {
+            runtime: runtime.clone(),
+            store: store.clone(),
+        }));
+        sync.register(Arc::new(crate::deadlines::Cloud(runtime.clone())));
+        sync.register(Arc::new(crate::deadlines::Maintenance::new(
+            store.clone(),
+            #[cfg(feature = "agent")]
+            submissions.as_ref().as_ref().ok().cloned(),
+        )));
+        #[cfg(feature = "agent")]
+        {
+            sync.register(agent_access.clone());
+            if let Ok(submissions) = submissions.as_ref() {
+                sync.register(Arc::new(crate::deadlines::SubmissionChecks(
+                    submissions.clone(),
+                )));
+            }
+        }
         Self {
             #[cfg(feature = "agent")]
             agent: AgentService::new(
@@ -256,8 +329,10 @@ impl Core {
             #[cfg(feature = "agent")]
             submissions,
             workspace: WorkspaceService::new(store.clone()),
-            reminders: crate::schedule::ReminderService::new(store.clone()),
+            reminders,
             sync,
+            #[cfg(feature = "agent")]
+            agent_access,
             sessions,
             school_browser: Mutex::new(None),
             store,
@@ -277,21 +352,71 @@ impl Core {
         self.sync.hint(hint);
     }
 
-    /// Holds an OS background wake open: resumes, then waits until sync
-    /// has nothing left to read, at most `limit`. Core signs in over HTTP on
-    /// its own, so school reads run in the background too; what the time
-    /// does not cover waits for the next wake. Returns whether sync went
-    /// quiet in time.
-    pub async fn sync_in_background(&self, limit: std::time::Duration) -> bool {
-        self.runtime.resume().await;
-        self.sync.wait_quiet(limit).await
+    /// The shell's ports for the deadline duties, attached once: the
+    /// scheduled-export port, local notifications (the desktop's; phones
+    /// schedule the plan with their OS) and the cloud providers.
+    pub fn attach_ports(&self, ports: PlatformPorts) {
+        if let Some(exporter) = ports.exporter {
+            self.runtime.attach_exporter(exporter);
+        }
+        if let Some(notifications) = ports.notifications {
+            self.reminders.attach(notifications);
+        }
+        if let (Some(cloud), Some(sync)) = (ports.cloud, self.runtime.cloud()) {
+            sync.attach(cloud);
+        }
+        self.sync.duties_changed();
     }
 
-    /// Ends a background wake: suspends again unless the app came to the
-    /// front meanwhile.
-    pub async fn end_background_wake(&self) {
-        if !self.sync.in_front() {
-            self.suspend().await;
+    /// The desktop's MCP listener, which Core starts and stops to match the
+    /// "Allow local agents" setting.
+    #[cfg(feature = "agent")]
+    pub fn attach_agent_listener(&self, listener: Arc<dyn crate::deadlines::AgentListener>) {
+        self.agent_access.attach(listener);
+        self.sync.duties_changed();
+    }
+
+    /// When Core next has work, as last published (`wake-directive`).
+    pub fn wake_directive(&self) -> WakeDirective {
+        self.sync.wake_directive()
+    }
+
+    /// Every directive from now on, for a timer in this process.
+    pub fn wake_directives(&self) -> tokio::sync::watch::Receiver<WakeDirective> {
+        self.sync.wake_directives()
+    }
+
+    /// The shell's timer for directive `revision` fired. Never blocks.
+    pub fn deadline_reached(&self, revision: u64) {
+        self.sync.deadline_reached(revision);
+    }
+
+    /// An OS background opportunity (iOS BGTask, Android WorkManager) of at
+    /// most `budget`: Core reads what is due (signing in over HTTP when a
+    /// session needs it) if `network` allows, runs the local duties, and
+    /// waits until all of that is quiet or the budget ends. The budget
+    /// covers everything the opportunity starts. Then it ends as
+    /// [`Self::end_background_opportunity`] does. Returns whether Core went
+    /// quiet in time.
+    pub async fn background_opportunity(
+        &self,
+        id: String,
+        budget: std::time::Duration,
+        network: bool,
+    ) -> bool {
+        self.sync.begin_opportunity(id.clone(), network);
+        let quiet = self.sync.wait_quiet(budget).await;
+        self.end_background_opportunity(&id, OpportunityEnd::Finished);
+        quiet
+    }
+
+    /// Ends opportunity `id`, also when the OS takes the time back early.
+    /// Unless the app came to the front meanwhile, no new read starts, the
+    /// reads it started stop (what they leave stays wanted), and a sign-in
+    /// under way ends; local commits finish.
+    pub fn end_background_opportunity(&self, id: &str, reason: OpportunityEnd) {
+        if self.sync.end_opportunity(id, reason) {
+            self.sessions.suspend();
         }
     }
 
@@ -406,12 +531,12 @@ impl Core {
         Ok(self.sessions.sign_out(profile).await?)
     }
 
-    /// Ports are scoped to operations, so completed work releases native handles.
-    pub fn services(&self, exporter: Arc<dyn ScheduledExporter>) -> SchedulerServices {
-        SchedulerServices {
-            store: self.store.clone(),
-            exporter,
-        }
+    /// Runs one of the person's scheduled tasks now.
+    pub async fn run_scheduled(
+        &self,
+        id: String,
+    ) -> Result<Result<String, SchedulerError>, RuntimeError> {
+        self.runtime.run_scheduled(&self.store, id).await
     }
 
     /// Evaluate a page's related queries against one coherent database snapshot.
@@ -463,41 +588,6 @@ impl Core {
         Ok(page)
     }
 
-    pub async fn reminder_tick(
-        &self,
-        sink: Arc<dyn crate::schedule::NotificationSink>,
-        now: chrono::DateTime<chrono::FixedOffset>,
-    ) -> Result<bool, crate::schedule::ReminderError> {
-        self.reminders.tick(sink, now).await
-    }
-
-    /// Run every periodic domain service once. Each result is retained so a
-    /// failed refresh cannot suppress cloud journaling or reminder delivery.
-    pub async fn wake(&self, services: WakeServices) -> WakeReport {
-        // A session's pause that ran out lifts; the planner reads again.
-        self.sessions.wake();
-        let runtime = self.runtime.wake(services.scheduler).await;
-        let cloud = services
-            .cloud
-            .map(|services| self.runtime.wake_cloud(services));
-        let reminders = match services.reminders {
-            Some(reminders) => Some(self.reminder_tick(reminders.sink, reminders.now).await),
-            None => None,
-        };
-        #[cfg(feature = "agent")]
-        let submissions = match self.submissions.as_ref() {
-            Ok(submissions) => Some(submissions.wake().await),
-            Err(_) => None,
-        };
-        WakeReport {
-            runtime,
-            cloud,
-            reminders,
-            #[cfg(feature = "agent")]
-            submissions,
-        }
-    }
-
     pub async fn import_legacy_reminders(
         &self,
         fired: serde_json::Value,
@@ -507,6 +597,8 @@ impl Core {
     }
 
     pub async fn shutdown(&self) {
+        #[cfg(feature = "agent")]
+        self.agent_access.detach();
         self.reminders.shutdown().await;
         // Reads stop before the sessions they read with.
         self.sync.shutdown().await;
@@ -529,25 +621,12 @@ pub enum CredentialMutationError {
     Browser(#[from] SchoolBrowserError),
 }
 
-pub struct ReminderWake {
-    pub sink: Arc<dyn crate::schedule::NotificationSink>,
-    pub now: chrono::DateTime<chrono::FixedOffset>,
-}
-
-pub struct WakeServices {
-    pub scheduler: SchedulerServices,
+/// The shell's ports for Core's deadline duties (`Core::attach_ports`).
+#[derive(Default)]
+pub struct PlatformPorts {
+    pub exporter: Option<Arc<dyn ScheduledExporter>>,
+    pub notifications: Option<Arc<dyn crate::schedule::NotificationSink>>,
     pub cloud: Option<crate::cloud_sync::CloudServices>,
-    pub reminders: Option<ReminderWake>,
-}
-
-pub struct WakeReport {
-    pub runtime: Result<(), RuntimeError>,
-    pub cloud: Option<Result<bool, CloudWakeError>>,
-    pub reminders: Option<Result<bool, crate::schedule::ReminderError>>,
-    /// How many LMS writes whose outcome was unknown this wake settled; the
-    /// first wake also recovers what the last run left unsettled.
-    #[cfg(feature = "agent")]
-    pub submissions: Option<Result<usize, crate::submissions::SubmissionError>>,
 }
 
 #[derive(Debug, thiserror::Error)]

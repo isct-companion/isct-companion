@@ -58,7 +58,9 @@ final class AppModel {
     private var boundaryTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
-    private var wakeTask: Task<Void, Never>?
+    /// The one timer for Core's next deadline (`WakeDirective`).
+    private var deadlineTask: Task<Void, Never>?
+    private var directive: WakeDirective?
     private var opening: Task<Void, Never>?
     private let network = NWPathMonitor()
     private var networkState: SyncNetwork = .unknown
@@ -66,7 +68,11 @@ final class AppModel {
 
     init() {
         web = WebRouter(browser: browser)
+        Self.shared = self
     }
+
+    /// The model the processing task the app registers at launch reaches.
+    nonisolated(unsafe) static weak var shared: AppModel?
 
     /// First launch: no school account configured yet.
     var needsAccount: Bool {
@@ -143,9 +149,8 @@ final class AppModel {
             // A background refresh can launch the app without a scene in front.
             let foreground = UIApplication.shared.applicationState != .background
             syncHint(foreground ? .foreground : .background)
-            if foreground {
-                startWaking()
-            } else {
+            if let directive = try? session.wakeDirective() { apply(directive) }
+            if !foreground {
                 _ = try? session.suspend()
             }
         } catch {
@@ -159,42 +164,80 @@ final class AppModel {
         case .active:
             _ = try? session.resume()
             syncHint(.foreground)
-            startWaking()
+            armDeadline()
             Task { await refresh() }
         case .background:
-            wakeTask?.cancel()
-            wakeTask = nil
+            deadlineTask?.cancel()
+            deadlineTask = nil
             syncHint(.background)
             _ = try? session.suspend()
-            Self.scheduleBackgroundRefresh()
+            scheduleBackgroundWork()
         default:
             break
         }
     }
 
-    /// The periodic wakeup desktop gives Core every second (`core_ports.rs`):
-    /// Core's planner decides which school reads are due, then reminders,
-    /// cloud sync and scheduled tasks run. Only while in front.
-    private func startWaking() {
-        guard wakeTask == nil else { return }
-        wakeTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self, let session = self.session else { return }
-                _ = try? await session.wake().value()
-                try? await Task.sleep(for: .seconds(1))
-            }
+    /// Takes Core's directive, unless an older one: the in-front timer and
+    /// the OS background requests follow it.
+    private func apply(_ next: WakeDirective) {
+        if let directive, directive.revision >= next.revision { return }
+        directive = next
+        if UIApplication.shared.applicationState != .background {
+            armDeadline()
+        } else {
+            scheduleBackgroundWork()
         }
     }
 
-    /// The `BGAppRefreshTask` the scene runs (`IsctCompanionApp`).
-    static let backgroundRefresh = "app.isctcompanion.refresh"
+    /// One task sleeps until the directive's deadline and tells Core; the
+    /// next directive arms it again. Only while in front: out of front the
+    /// OS gives Core its opportunities.
+    private func armDeadline() {
+        deadlineTask?.cancel()
+        deadlineTask = nil
+        guard let session, let directive, let raw = directive.at, let at = Self.date(raw) else { return }
+        let revision = directive.revision
+        deadlineTask = Task {
+            let wait = at.timeIntervalSinceNow
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled else { return }
+            _ = try? session.deadlineReached(revision: revision)
+        }
+    }
 
-    /// Asks iOS for the next background refresh. iOS picks the time; Core
-    /// decides what is due when it comes.
-    static func scheduleBackgroundRefresh() {
-        let request = BGAppRefreshTaskRequest(identifier: backgroundRefresh)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
-        try? BGTaskScheduler.shared.submit(request)
+    /// The `BGAppRefreshTask` the scene runs (`IsctCompanionApp`): reads
+    /// and cloud sync.
+    static let backgroundRefresh = "app.isctcompanion.refresh"
+    /// The `BGProcessingTask` registered at launch: Core's local work
+    /// (reminder plan, the person's tasks, maintenance), no network needed.
+    static let backgroundMaintenance = "app.isctcompanion.maintenance"
+
+    /// Asks iOS for the background opportunities Core's directive names, at
+    /// the earliest time each is due. iOS picks when they come.
+    func scheduleBackgroundWork() {
+        let requests = directive?.background ?? []
+        // A kind Core no longer asks for is not left to wake the app.
+        if !requests.contains(where: { $0.work == .network }) {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundRefresh)
+        }
+        if !requests.contains(where: { $0.work == .local }) {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundMaintenance)
+        }
+        for request in requests {
+            let earliest = Self.date(request.earliest) ?? Date()
+            switch request.work {
+            case .network:
+                let task = BGAppRefreshTaskRequest(identifier: Self.backgroundRefresh)
+                task.earliestBeginDate = earliest
+                try? BGTaskScheduler.shared.submit(task)
+            case .local:
+                let task = BGProcessingTaskRequest(identifier: Self.backgroundMaintenance)
+                task.earliestBeginDate = earliest
+                task.requiresNetworkConnectivity = false
+                task.requiresExternalPower = false
+                try? BGTaskScheduler.shared.submit(task)
+            }
+        }
     }
 
     /// One background refresh: Core reads what it may out of front, signing
@@ -202,15 +245,34 @@ final class AppModel {
     /// iCloud, within the budget iOS gives a refresh. The school web views
     /// stay closed. Cancelling the task ends it early.
     func backgroundRefresh() async {
-        Self.scheduleBackgroundRefresh()
+        await opportunity(budget: 25, network: true)
+    }
+
+    /// One processing task: Core's local work only. iOS's expiration ends it.
+    func backgroundMaintenance(_ task: BGProcessingTask) {
+        Task {
+            let id = UUID().uuidString
+            task.expirationHandler = { [weak self] in
+                Task { @MainActor in _ = try? self?.session?.endBackgroundOpportunity(id: id) }
+            }
+            await opportunity(budget: 60, network: false, id: id)
+            task.setTaskCompleted(success: true)
+        }
+    }
+
+    private func opportunity(budget: UInt32, network: Bool, id: String = UUID().uuidString) async {
         await start()
-        guard let session, let operation = try? session.backgroundWake(budgetSeconds: 25) else { return }
+        guard let session,
+            let operation = try? session.beginBackgroundOpportunity(id: id, budgetSeconds: budget, network: network)
+        else { return }
         await withTaskCancellationHandler {
             _ = try? await operation.awaitResult()
         } onCancel: {
             _ = try? operation.cancel()
         }
         await refresh()
+        if let directive = try? session.wakeDirective() { apply(directive) }
+        scheduleBackgroundWork()
     }
 
     private func watchNetwork() {
@@ -262,6 +324,8 @@ final class AppModel {
                         }
                     case "cloud-sync-state":
                         await refreshCloud()
+                    case "wake-directive":
+                        if let next = try? decodeWakeDirective(payload: event.payload) { apply(next) }
                     case "school-web-page", "school-web-notice":
                         web.receive(event.name, payload: event.payload)
                     // No screen here lists finder results; the catalog
@@ -280,6 +344,7 @@ final class AppModel {
                     }
                 case .snapshotRequired:
                     scheduleRefresh()
+                    if let next = try? session?.wakeDirective() { apply(next) }
                     web.refreshPages()
                     await refreshAccounts()
                     await refreshSyncSnapshot()

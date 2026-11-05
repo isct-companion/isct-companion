@@ -117,7 +117,9 @@ class IsctApplication : Application() {
         // Before the session opens: Core's HTTPS verifies through Android.
         TlsVerifier.install(this)
         scope.launch { model.start() }
-        BackgroundWake.schedule(this)
+        // The periodic wake of earlier releases; Core's directive schedules
+        // one-time work now (`BackgroundWake.schedule`).
+        androidx.work.WorkManager.getInstance(this).cancelUniqueWork("core-background-wake")
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = model.foreground(true)
             override fun onStop(owner: LifecycleOwner) = model.foreground(false)

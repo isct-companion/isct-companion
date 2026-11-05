@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 172 checks must be re-run before the next release.**
+**8 of 173 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**164 checks have never been run or could not be run:**
+**165 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -61,6 +61,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-CAMPUS-PRINTER-QUEUE` — never verified
 - `DESKTOP-CAMPUS-PRINTER-WINDOWS` — never verified
 - `DESKTOP-MCP-LMS-WRITE` — never verified
+- `DESKTOP-LEGACY-STORE-CUTOVER` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-FILE-SHARE-MACOS` — never verified
 - `DESKTOP-FILE-SHARE-WINDOWS` — never verified
@@ -108,7 +109,6 @@ an unverified area becomes an assumed-good one.
 - `MOBILE-OTP-AUTHENTICATOR-EXPORT` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
-- `DESKTOP-STORAGE-SPLIT` — never verified
 - `DESKTOP-CALENDAR-MARK-LATENCY` — never verified
 - `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `TIMETABLE-BLOCK-STATES` — never verified
@@ -165,6 +165,7 @@ an unverified area becomes an assumed-good one.
 - `TODAY-NOW-LINE-NEXT-DAY` — never verified
 - `MOBILE-SETTINGS-RESET` — never verified
 - `MOBILE-BACKGROUND-SYNC` — never verified
+- `MOBILE-CORE-BACKGROUND-DEADLINE` — never verified
 - `GUIDE-FIRST-RUN` — never verified
 - `VISUAL-NOW-GRADIENT` — never verified
 - `DESKTOP-RADIX-APPEARANCE` — never verified
@@ -202,8 +203,8 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx |
 | `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | crates/app-core/src/downloads.rs |
 | `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/lms_ingest.rs<br>crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs<br>crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>crates/app-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
-| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/sync_engine/planner.rs<br>docs/lms-api/README.md |
-| `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/planner.rs<br>crates/app-core/src/sync_engine/runner.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/sync_engine/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
+| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/planner.rs<br>docs/lms-api/README.md |
+| `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
@@ -234,7 +235,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/settings/CampusPrinterSettings.tsx |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer_windows.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
-| `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
+| `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
+| `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
@@ -261,14 +263,14 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders.rs |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/core_ports.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/app-core/src/schedule/alternation.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/school.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/school.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/app-core/src/app_updates.rs |
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
-| `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/downloads.rs<br>crates/app-core/src/sync_engine/school.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
+| `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/downloads.rs<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_import.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
@@ -280,12 +282,11 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
 | `DESKTOP-SCHOOL-COOKIES-LINUX` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs |
-| `NATIVE-SCHOOL-BACKGROUND-READ` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>crates/app-core/src/sync_engine/planner.rs |
+| `NATIVE-SCHOOL-BACKGROUND-READ` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>crates/app-core/src/plan/planner.rs |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift |
 | `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/sync_engine/school.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
-| `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
 | `TIMETABLE-BLOCK-STATES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
@@ -342,6 +343,7 @@ an unverified area becomes an assumed-good one.
 | `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt |
 | `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
+| `MOBILE-CORE-BACKGROUND-DEADLINE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Info.plist<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>crates/app-ffi/src/session.rs |
 | `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
 | `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `DESKTOP-RADIX-APPEARANCE` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/settings/settings.css |
@@ -349,7 +351,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
-| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/planner.rs<br>crates/app-core/src/sync_engine/runner.rs<br>crates/app-core/src/sync_engine/school.rs<br>apps/desktop/src/app/sync-text.ts |
+| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner.rs<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src/app/sync-text.ts |
 | `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/app-core/src/school_session/identity.rs |
 | `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `IOS-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
@@ -366,7 +368,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
-| `DESKTOP-COURSE-KEYS-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/course_keys.rs<br>crates/app-core/src/data/course_merge.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/backup_store.rs |
+| `DESKTOP-COURSE-KEYS-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/course_keys.rs<br>crates/app-core/src/data/course_merge.rs<br>crates/app-core/src/data/backup_store.rs |
 | `DESKTOP-VIEWS-FROM-TABLES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs |
 | `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts |
 | `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
@@ -778,8 +780,8 @@ parsing and mapping are covered by the net::moodle unit tests.
 - `crates/app-core/src/net/moodle/rest.rs`
 - `crates/app-core/src/net/moodle/ajax.rs`
 - `crates/app-core/src/school_auth.rs`
-- `crates/app-core/src/sync_engine/school.rs`
-- `crates/app-core/src/sync_engine/planner.rs`
+- `crates/app-core/src/plan/school.rs`
+- `crates/app-core/src/plan/planner.rs`
 - `docs/lms-api/README.md`
 
 **Last recorded** never run
@@ -855,15 +857,15 @@ Needs a real account whose password the school refuses while its LMS
 token still works, which no fixture reproduces (the session suite does
 not simulate the school, `approach/school-sign-in-verification`). The
 planner rule behind it, which keys wait for which credential facts, is
-covered by the sync_engine unit tests; this check proves the facts the
+covered by the plan unit tests; this check proves the facts the
 real school produces lead there.
 
 **Covers**
 
-- `crates/app-core/src/sync_engine/planner.rs`
-- `crates/app-core/src/sync_engine/runner.rs`
-- `crates/app-core/src/sync_engine/school.rs`
-- `crates/app-core/src/sync_engine/snapshot.rs`
+- `crates/app-core/src/plan/planner.rs`
+- `crates/app-core/src/plan/runner.rs`
+- `crates/app-core/src/plan/school.rs`
+- `crates/app-core/src/plan/snapshot.rs`
 - `crates/app-core/src/school_session/**`
 - `crates/app-core/src/net/moodle/mod.rs`
 - `crates/app-core/src/net/moodle/reader.rs`
@@ -2760,12 +2762,27 @@ they may hand test files in to and withdraw (no cut-off passed).
      submission afterwards.
 5. Prepare a save of a file of tens of MB, allow it and turn Wi-Fi off
    while it is saving. Turn it on after a minute, ask for another save
-   of other content, then call submission_status until it settles.
-   - *Why:* A dropped connection is what Core must settle by reading only. The
-     other save must be refused while the first is outcome_unknown, and
-     the first must end succeeded or failed with one upload at most (one
+   of other content, then call submission_status a few times over ten
+   minutes.
+   - *Why:* A dropped connection is what Core must settle by reading only, and
+     no longer by the clock. The other save must be refused while the
+     first is outcome_unknown; submission_status must answer at once
+     from Core's record (no LMS request per call in the log), and the
+     first write must end succeeded only once Core downloaded the LMS's
+     file and its SHA-256 matched, or failed with one upload at most (one
      file on the LMS page).
-6. Remove the test submission so the assignment is as it was.
+6. After a save that succeeded, watch the assignment's row in the app
+   and the application log for a minute.
+   - *Why:* The settled write queues its assignment to be read again: the row
+     must show the new submission state without a refresh press, and a
+     course refresh that started before the save must not overwrite it
+     with the state from before.
+7. With a save prepared, sign out of Science Tokyo in Settings and
+   sign in again (or with another account), then run submission_save.
+   - *Why:* The write is bound to the account and its generation it was
+     prepared with; it must be refused as submission-identity-changed
+     with nothing sent.
+8. Remove the test submission so the assignment is as it was.
    - *Why:* The assignment belongs to a real course; the check must leave no
      test files handed in.
 
@@ -2795,8 +2812,74 @@ tests drive the same paths only over a test transport.
 - `crates/app-core/src/submissions.rs`
 - `crates/app-core/src/submissions/**`
 - `crates/app-core/src/agent/submissions.rs`
+- `crates/app-core/src/deadlines.rs`
 - `apps/desktop/src-tauri/src/agent_server.rs`
 - `apps/desktop/src/pages/settings/AgentSettings.tsx`
+
+**Last recorded** never run
+
+### The first start after 1.2.x moves the data folder into store generations (`DESKTOP-LEGACY-STORE-CUTOVER`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Mac with IsctCompanion 1.2.7 installed and used (courses, a personal
+event, a reminder setting, Allow local agents on), a copy of
+`~/Library/Application Support/app.isctcompanion/` saved elsewhere, and
+a build of this commit (`yarn desktop:build --debug --bundles app`).
+`pgrep -lf IsctCompanion` shows nothing running.
+
+**Steps**
+
+1. Start the new build once, quit it, and list the data folder.
+   - *Why:* The flat user.db is copied into `user/<generation>/` and the folder
+     gains `core.lock`, `store-index.db`, `school/<generation>/` and
+     `local/reminders-fired.json`. The flat files stay (retired, not
+     deleted), so the old release's data remains as recovery material.
+2. Start the new build again and check Today, the personal event, the
+   reminder setting and Settings → AI agent access.
+   - *Why:* User data must be the 1.2.7 data, unchanged; school data may be read
+     again (the school group is rebuilt when 1.2.7's sync.db is of the
+     older schema), and the MCP listener comes back on its own.
+3. With the new build running, start `yarn desktop:dev` (or a second
+   copy of the .app).
+   - *Why:* One Core per data folder: the second process must stop at once with
+     the "another copy is using this data folder" message, before it
+     opens a database or reads the school.
+4. Quit everything, start 1.2.7 again, then the new build.
+   - *Why:* 1.2.7 does not know the lock or the generations: it works on the
+     retired flat files, and nothing it writes reaches the new build.
+     The new build must still open its own generations unharmed. Restore
+     the saved copy of the folder afterwards if 1.2.7 is needed again.
+
+**Where to look**
+
+Finder or `ls -R` on the data folder, the app's Today and Settings, the
+dialog of the second process.
+
+**Expected**
+
+The first start of the new build keeps all user data in a new
+generation, retires the flat files without deleting them, and a second
+process is refused with its message; after 1.2.7 ran again the new
+build still opens its own data.
+
+**Why this is manual**
+
+Needs a real installation of the released 1.2.7 with its real data
+folder and two real processes on one Mac. The cut-over, the lock and
+the generations are covered by the Core tests over scratch folders.
+
+**Covers**
+
+- `crates/app-core/src/data/root.rs`
+- `crates/app-core/src/data/connection.rs`
+- `crates/app-core/src/data/migrations.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/native_dialog.rs`
 
 **Last recorded** never run
 
@@ -3772,7 +3855,7 @@ A signed build, provisioning, and physical iOS and Android devices.
 5. On iOS, pull down on 今日 and watch the ring beside the settings
    button, then tap it.
    - *Why:* The ring and the sheet render Core's sync snapshot
-     (`sync_engine`), the same value as the desktop footer. A ring shown
+     (`plan`), the same value as the desktop footer. A ring shown
      for a run without a total, or a sheet whose LMS and 教務Web rows
      disagree with the desktop footer, means the shell stopped following
      Core.
@@ -4274,8 +4357,14 @@ Stop screen sharing/mirroring, or allow notifications while sharing.
 4. In a disposable local workspace, arrange a class, a linked subscription
    exam and an assignment so their reminder times occur shortly. Turn class
    reminders off while leaving exam reminders on, then background the app.
-   - *Why:* Verifies that native lifecycle wakeups deliver the selected times
-     even when the settings page and the application window are inactive.
+   - *Why:* Verifies that Core's reminder deadline (no periodic wake any more)
+     delivers the selected times even when the settings page and the
+     application window are inactive, within a minute of each time.
+5. Arrange one more reminder ten minutes out, put the Mac to sleep
+   for five minutes, wake it and wait.
+   - *Why:* The timer runs on a clock that stops during system sleep; it reads
+     the wall clock again at least every five minutes, so the reminder
+     must arrive no more than five minutes late, and not twice.
 
 **Where to look**
 
@@ -4306,6 +4395,8 @@ and native notification delivery; tests use a headless notification sink.
 - `apps/desktop/src/app/useWorkspaceRuntime.ts`
 - `scripts/desktop/tauri.mjs`
 - `crates/app-core/src/schedule/reminders.rs`
+- `crates/app-core/src/deadlines.rs`
+- `apps/desktop/src-tauri/src/core_ports.rs`
 
 **Last recorded** never run
 
@@ -4417,7 +4508,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 **Covers**
 
-- `crates/app-core/src/sync_engine/school.rs`
+- `crates/app-core/src/plan/school.rs`
 - `crates/adpt-isct/src/kyomu/search.rs`
 - `crates/adpt-isct/src/kyomu/pages.rs`
 - `crates/app-core/src/net/kyomu.rs`
@@ -4655,7 +4746,7 @@ real school session.
 
 - `crates/app-core/src/school_session/site.rs`
 - `crates/app-core/src/downloads.rs`
-- `crates/app-core/src/sync_engine/school.rs`
+- `crates/app-core/src/plan/school.rs`
 - `apps/desktop/src-tauri/src/school_cookies.rs`
 
 **Last recorded** never run
@@ -5282,7 +5373,7 @@ not built on this machine.
 - `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
-- `crates/app-core/src/sync_engine/planner.rs`
+- `crates/app-core/src/plan/planner.rs`
 
 **Last recorded** never run
 
@@ -5538,64 +5629,10 @@ shell, which no longer does either, still gets there.
 - `crates/app-core/src/facade.rs`
 - `crates/app-core/src/runtime.rs`
 - `crates/app-core/src/notes.rs`
-- `crates/app-core/src/sync_engine/school.rs`
+- `crates/app-core/src/plan/school.rs`
 - `crates/app-core/src/workspace_changes.rs`
 - `apps/desktop/src/store/workspace.ts`
 - `apps/desktop/src/platform/view-query.ts`
-
-**Last recorded** never run
-
-### The first launch after the split keeps the person's data and re-syncs the caches (`DESKTOP-STORAGE-SPLIT`)
-
-**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-macOS desktop app data folder from a build before the split, with a
-real `school.db` holding weekly events, assignment marks, course overrides,
-subscriptions, scheduled tasks and settings, and cloud backup on. Copy
-the whole folder aside first.
-
-**Steps**
-
-1. Note the device id, a few weekly events, a hidden assignment and a renamed
-   course in the old build, then quit it and launch the new build.
-   - *Why:* The split copies every user table out of the real file once; a
-     column or table the fixture does not have would lose data here and
-     nowhere in the tests.
-2. Run `ls "$HOME/Library/Application Support/app.isctcompanion"`.
-   - *Why:* `school.db.pre-split` must exist next to `user.db` and `cache.db`,
-     and `school.db` must be gone; a leftover `user.db.migrating` means
-     the split stopped halfway.
-3. Watch the sync status for a few minutes, then quit and launch again.
-   - *Why:* cache.db starts empty, so every key must read as missing and be
-     fetched; the second launch must not split or re-sync again.
-
-**Where to look**
-
-The Calendar, Assignments and course pages, Settings (device and
-backup), the sync status and the data folder listing.
-
-**Expected**
-
-Plans, the hidden assignment, the renamed course, subscriptions,
-scheduled tasks and settings look as before, cloud backup still names
-the same device, school data refills from the sync, and the second
-launch is an ordinary start.
-
-**Why this is manual**
-
-Tests split a fixture built from the current schema; only the person's
-real file, written by older builds over months, shows that nothing in
-it is left behind.
-
-**Covers**
-
-- `crates/app-core/src/data/migrations.rs`
-- `crates/app-core/src/data/connection.rs`
-- `apps/desktop/src-tauri/src/lib.rs`
 
 **Last recorded** never run
 
@@ -8842,8 +8879,9 @@ assignment or deadline change made after the app went to the background.
 
 1. Leave the app in the background for an hour or more (iPhone: keep
    Background App Refresh on; Android: no battery restriction).
-   - *Why:* iOS runs the BGAppRefreshTask and WorkManager the periodic worker
-     when they choose; Core then reads only token and public keys.
+   - *Why:* iOS runs the BGAppRefreshTask and WorkManager the one-time network
+     work Core's wake directive asked for, when they choose; Core then
+     reads only token and public keys.
 2. Before opening the app, look for the new assignment's reminder; then
    open the app and Settings → Application logs → Copy.
    - *Why:* A reminder or the new row on 今日 right after opening proves the
@@ -8870,6 +8908,82 @@ tests; this check is the shell wiring of the OS schedulers.
 
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
+
+**Last recorded** never run
+
+### Phones wake Core only at its deadlines, in front and in the background (`MOBILE-CORE-BACKGROUND-DEADLINE`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A debug build of this commit on an iPhone and on an Android phone, each
+signed in to Science Tokyo with one foreground sync done, Xcode's
+console (iPhone) or `adb logcat -s isct` (Android) attached, and
+Settings → Application logs ready to copy.
+
+**Steps**
+
+1. Leave the app open on 今日 for five minutes without touching it,
+   then copy the application log.
+   - *Why:* The shells no longer wake Core every second. With nothing due the
+     log must show no plan evaluations or duty runs between the start
+     and the next deadline; a burst once a second means a loop came
+     back, and none at all after the deadline means the timer was not
+     armed from the wake directive.
+2. Press the refresh button, then put the app in the background right
+   after the sync starts.
+   - *Why:* The read that started in front must finish or stop cleanly; out of
+     front nothing new is leased, and the log shows the background
+     requests the directive named (iPhone: BGAppRefreshTask and
+     BGProcessingTask submitted with earliest dates; Android: the
+     `core-background-network` and `core-background-local` work).
+3. iPhone: in Xcode's debugger run
+   `e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"app.isctcompanion.refresh"]`,
+   then `_simulateExpirationForTaskWithIdentifier:` for it a few
+   seconds later. Android: `adb shell cmd jobscheduler run -f
+   app.isctcompanion <job id>` for the network work, then turn on
+   airplane mode while it runs.
+   - *Why:* An opportunity the OS takes back early must end Core's work at
+     once (no new read, the running ones stop) and keep what stays due
+     for the next one, without an error banner or a stuck sync row on
+     the next open.
+4. Turn airplane mode on, background the app for an hour and open it
+   again.
+   - *Why:* Local work (the reminder plan, maintenance) runs in its own
+     opportunity without the network; the reminders scheduled with the
+     OS must still match Settings → Notifications on return.
+
+**Where to look**
+
+The device console and the copied application log; the sync status
+row and 今日 after reopening.
+
+**Expected**
+
+Idle in front, Core is woken only at the directive's deadline; out of
+front the OS opportunities follow the directive's earliest dates per
+kind; an expired opportunity stops reads without errors and the work
+is done on the next one; local work runs offline.
+
+**Why this is manual**
+
+Only a device runs BGTaskScheduler and WorkManager, decides when their
+opportunities come and takes them back early; the engine's deadlines,
+duties and opportunities are covered by the Core tests, this check is
+the shells' wiring of their timers and OS schedulers.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+- `apps/ios/IsctCompanion/Info.plist`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+- `crates/app-ffi/src/session.rs`
 
 **Last recorded** never run
 
@@ -9302,13 +9416,13 @@ on the first try.
 
 Needs a real LMS account and the shell's open-page hints racing a real
 enrolment read. The planner order and the not-enrolled outcome are
-covered by Core's sync_engine and lms_ingest tests.
+covered by Core's plan and lms_ingest tests.
 
 **Covers**
 
-- `crates/app-core/src/sync_engine/planner.rs`
-- `crates/app-core/src/sync_engine/runner.rs`
-- `crates/app-core/src/sync_engine/school.rs`
+- `crates/app-core/src/plan/planner.rs`
+- `crates/app-core/src/plan/runner.rs`
+- `crates/app-core/src/plan/school.rs`
 - `apps/desktop/src/app/sync-text.ts`
 
 **Last recorded** never run
@@ -10204,7 +10318,7 @@ shells' message mapping has no automated suite.
 
 **Last recorded** never run
 
-### Course ids survive the course-keys upgrade and cloud sync between devices (`DESKTOP-COURSE-KEYS-UPGRADE`)
+### Course ids survive merges and cloud sync between devices (`DESKTOP-COURSE-KEYS-UPGRADE`)
 
 **Area** desktop · **Persona** Two devices, interrupted work · **Result** —
 
@@ -10214,30 +10328,23 @@ shells' message mapping has no automated suite.
 
 Two macOS desktop builds of this commit on two machines, both signed
 in to the same school accounts and the same cloud provider. On the
-first, a data folder from 1.2.2 with courses on the timetable, a
-course renamed or recoloured, a session marked 休講, and a plan item.
-Copy that folder aside first.
+first, courses on the timetable, a course renamed or recoloured, a
+session marked 休講, and a plan item.
 
 **Steps**
 
-1. Launch the new build on the old folder and open the timetable,
-   Today and a renamed course.
-   - *Why:* The first launch turns course_identity_map into course_keys in
-     place. A course that lost its rename, colour or mark means an id
-     moved during the upgrade; an empty timetable means the upgrade
-     failed and fell back to an empty user.db.
-2. Press Refresh in the sync status and wait for LMS and 教務 to
+1. Press Refresh in the sync status and wait for LMS and 教務 to
    finish, then look for a course listed twice on the timetable.
    - *Why:* LMS courses now join catalog and 教務 courses only by exact
      offering id; a twin means a key was not matched, or that the
      removed code-and-quarter match was still needed for this course.
-3. In the course finder, download this year's catalog for one
+2. In the course finder, download this year's catalog for one
    department, then open a course of that department on the
    timetable and look at its credits and Japanese title.
    - *Why:* Courses are merged when a source is written; a catalog download
      writes no LMS row. Credits or titles that appear only after a
      restart mean the catalog write did not merge its courses again.
-4. Sync to the cloud, then on the second machine pull and open the
+3. Sync to the cloud, then on the second machine pull and open the
    same course and the marked session.
    - *Why:* Synced copies name courses by external key; a rename or mark that
      does not arrive, or arrives on a different course, means a key
@@ -10250,13 +10357,13 @@ the calendar, and the same on the second machine.
 
 **Expected**
 
-Every course keeps its rename, colour, marks and plan items after the
-upgrade, no course appears twice, and the second machine shows the
+Every course keeps its rename, colour, marks and plan items, no
+course appears twice, and the second machine shows the
 same edits on the same courses after a sync.
 
 **Why this is manual**
 
-Needs a real 1.2.2 data folder, real school reads and two machines on
+Needs real school reads and two machines on
 one cloud account; the key resolution, merge and conversion
 themselves are pinned by the Core data suite.
 
@@ -10264,7 +10371,6 @@ themselves are pinned by the Core data suite.
 
 - `crates/app-core/src/data/course_keys.rs`
 - `crates/app-core/src/data/course_merge.rs`
-- `crates/app-core/src/data/migrations.rs`
 - `crates/app-core/src/data/backup_store.rs`
 
 **Last recorded** never run

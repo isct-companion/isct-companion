@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
 /// Why the fixture's submission service is missing.
-const UNOPENED: &str = "submissions.db schema 3 is not supported";
+const UNOPENED: &str = "The submission ledger has format 4, which this version cannot read (it reads 3); LMS writes are off";
 
 struct Fixture {
     root: PathBuf,

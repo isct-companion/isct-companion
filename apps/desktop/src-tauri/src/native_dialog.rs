@@ -56,3 +56,14 @@ where
     let pending = receive.await.map_err(shell)?;
     Ok(pending.await.map(|file| file.path().to_path_buf()))
 }
+
+/// A blocking error message before any window exists, for a start that
+/// cannot go on (another copy of the app holds the data folder).
+pub(crate) fn fatal(message: &str) {
+    let _ = rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("IsctCompanion")
+        .set_description(message)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
+}

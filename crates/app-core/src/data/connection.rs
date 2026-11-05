@@ -4,11 +4,18 @@
 //! cache.db as `cache` and sync.db as `sync`. Table names are unique across
 //! the three files, so SQL never names the schema.
 //!
+//! All three files use rollback journals with `synchronous=FULL`
+//! (`approach/attached-store-atomicity`): a transaction that writes more
+//! than one of them commits through SQLite's super-journal, so a crash or a
+//! power loss keeps all of its files or none. WAL would commit each file on
+//! its own. Readers then block a commit while they read, and a commit
+//! blocks new readers, so every connection waits out a busy file.
+//!
 //! No pool library: the write connection carries the change hooks, and the
 //! order connections close in on reset and exit follows the store, which a
 //! general pool's own lifecycle would have to be worked around for.
 
-use super::{migrations, DataError};
+use super::{migrations, root::StorePaths, DataError};
 use rusqlite::{
     hooks::{Action, AuthAction, AuthContext, Authorization},
     Connection, OpenFlags, Transaction, TransactionBehavior,
@@ -16,15 +23,18 @@ use rusqlite::{
 use std::{
     collections::BTreeSet,
     ops::{Deref, DerefMut},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError},
+    time::Duration,
 };
 
 /// Read connections kept open. A read that finds all of them busy opens a
 /// short-lived one instead of waiting.
 const READERS: usize = 3;
+/// How long a connection waits for another's lock on a file.
+const BUSY: Duration = Duration::from_secs(10);
 
-/// The files of a store, inside one directory.
+/// The files of a store's active generations.
 pub(super) struct Files {
     pub(super) user: PathBuf,
     pub(super) cache: PathBuf,
@@ -32,42 +42,36 @@ pub(super) struct Files {
 }
 
 impl Files {
-    pub(super) fn in_directory(directory: PathBuf) -> Self {
+    pub(super) fn of(paths: &StorePaths) -> Self {
         Self {
-            user: directory.join(migrations::USER_FILE),
-            cache: directory.join(migrations::CACHE_FILE),
-            sync: directory.join(migrations::SYNC_FILE),
+            user: paths.user_db(),
+            cache: paths.cache_db(),
+            sync: paths.sync_db(),
         }
     }
 }
 
 pub(super) struct Connections {
     pub(super) files: Files,
-    // Fields drop in order: the read connections close first, so the write
-    // connection is the last one and checkpoints and removes the WAL files.
+    // Fields drop in order: the read connections close first, the write
+    // connection last.
     readers: Vec<Mutex<Connection>>,
     writer: Mutex<Connection>,
 }
 
 impl Connections {
-    /// Opens the write connection, creating or migrating both schemas (the
-    /// only place migrations run), then the read connections. Also returns
-    /// whether a schema was created or rebuilt.
-    pub(super) fn open(files: Files) -> Result<(Self, bool), DataError> {
+    /// Opens the write connection, then the read connections, on files
+    /// `data::root` made ready at the current schemas.
+    pub(super) fn open(files: Files) -> Result<Self, DataError> {
         let mut writer = Connection::open(&files.user)?;
+        writer.busy_timeout(BUSY)?;
         writer.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+            "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
-        let user_created = migrations::migrate_user(&mut writer)?;
-        let cache_created = migrations::attach_caches(&mut writer, &files.cache, &files.sync)?;
-        let user_upgraded = migrations::upgrade_user(&mut writer)?;
-        // Both are fetched again when lost, so they trade the last commits
-        // before a power loss for fewer syncs. A power loss can then keep a
-        // key's freshness and lose its rows; the key reads stale until it is
-        // read again, as after any lost cache commit.
+        migrations::attach(&writer, &files.cache, &files.sync)?;
         writer.execute_batch(
-            "PRAGMA cache.journal_mode=WAL; PRAGMA cache.synchronous=NORMAL;
-             PRAGMA sync.journal_mode=WAL; PRAGMA sync.synchronous=NORMAL;",
+            "PRAGMA cache.journal_mode=DELETE; PRAGMA cache.synchronous=FULL;
+             PRAGMA sync.journal_mode=DELETE; PRAGMA sync.synchronous=FULL;",
         )?;
         forbid_truncate(&mut writer)?;
         let mut connections = Self {
@@ -79,7 +83,7 @@ impl Connections {
             let reader = connections.open_reader()?;
             connections.readers.push(Mutex::new(reader));
         }
-        Ok((connections, user_created || cache_created || user_upgraded))
+        Ok(connections)
     }
 
     /// The write connection. Callers use it inside `spawn_blocking`; every
@@ -94,6 +98,7 @@ impl Connections {
             &self.files.user,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
+        connection.busy_timeout(BUSY)?;
         migrations::attach(&connection, &self.files.cache, &self.files.sync)?;
         Ok(connection)
     }
@@ -238,20 +243,4 @@ pub(crate) fn commit_then<T, U, E: From<DataError>>(
         .map(|(_, table, _)| table)
         .collect();
     result.map(|value| (value, tables))
-}
-
-/// Deletes a database file with its WAL, shared-memory and rollback files.
-/// Only for a file no connection has open: SQLite removes a WAL file by name
-/// when the last connection to its database closes.
-pub(super) fn remove_database(path: &Path) -> Result<(), DataError> {
-    for suffix in ["", "-wal", "-shm", "-journal"] {
-        let mut name = path.as_os_str().to_owned();
-        name.push(suffix);
-        match std::fs::remove_file(PathBuf::from(name)) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(())
 }

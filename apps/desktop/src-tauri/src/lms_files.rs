@@ -136,7 +136,7 @@ pub async fn choose_course_storage(
                         .parent()
                         .ok_or("Storage configuration has no directory")?;
                     fs::create_dir_all(parent).map_err(shell)?;
-                    storage::atomic_write(&config, &bytes).map_err(coded)
+                    storage::durable_replace(&config, &bytes).map_err(coded)
                 }
             })
             .map_err(coded)?;

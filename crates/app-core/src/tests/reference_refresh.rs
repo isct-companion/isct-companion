@@ -141,6 +141,7 @@ fn due(store: &DataStore, kind: &str, year: i32) -> Due {
                 INDEX,
                 "2026-10-13T03:20:00Z".parse().unwrap(),
             )
+            .map(|(due, _)| due)
         })
         .unwrap()
 }
@@ -712,6 +713,7 @@ async fn the_study_guide_follows_the_admission_year_and_stays_fresh_for_a_year()
                     INDEX,
                     now.parse().unwrap(),
                 )
+                .map(|(due, _)| due)
             })
             .unwrap()
     };

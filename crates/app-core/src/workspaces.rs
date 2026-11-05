@@ -310,7 +310,16 @@ impl Workspaces {
                 return Err(HandInError::FilesOnly);
             }
             let destination = unused_name(&submit, &safe_name(&name, "file"));
-            fs::copy(&source, destination).map_err(storage_error)?;
+            // Copied beside `submit/` and renamed in whole, so a preparation
+            // never snapshots half a file.
+            let partial = dir.join(format!(".{}.partial", uuid::Uuid::new_v4()));
+            let copied = fs::copy(&source, &partial)
+                .and_then(|_| fs::File::open(&partial)?.sync_all())
+                .and_then(|()| fs::rename(&partial, destination));
+            if let Err(error) = copied {
+                let _ = fs::remove_file(&partial);
+                return Err(storage_error(error).into());
+            }
         }
         Ok(submit_listing(&dir)?)
     }
@@ -526,7 +535,8 @@ fn read_meta(dir: &Path) -> Option<Meta> {
 fn write_meta(dir: &Path, meta: &Meta) -> Result<(), WorkspaceError> {
     let json = serde_json::to_vec_pretty(meta)
         .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
-    fs::write(dir.join(META), json).map_err(storage_error)
+    crate::storage::durable_replace(&dir.join(META), &json)
+        .map_err(|error| WorkspaceError::Storage(error.to_string()))
 }
 
 fn info(dir: &Path, meta: &Meta) -> WorkspaceInfo {

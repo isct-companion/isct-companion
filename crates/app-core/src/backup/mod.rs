@@ -75,7 +75,7 @@ impl BackupService {
         }
         std::fs::create_dir_all(directory)?;
         let destination = directory.join("workspace-latest.json");
-        crate::storage::atomic_write(&destination, document.as_bytes())
+        crate::storage::durable_replace(&destination, document.as_bytes())
             .map_err(|error| BackupError::Invalid(error.to_string()))?;
         Ok(destination)
     }

@@ -79,7 +79,7 @@ OpenAPI 的 `RpcRequest.oneOf` 和 `wsfunction` discriminator 描述各函数的
 讨论列表的 `discussion` 是讨论 ID，`id` 是首帖 ID。
 时间戳以秒为单位；0 通常表示未设置。HTML 通过应用现有的内容处理后再显示。
 
-课程表分两种读取，由同步规划器决定（`sync_engine::Depth`）：
+课程表分两种读取，由同步规划器决定（`plan::Depth`）：
 
 - 轻量（自动触发）：用 token 读课程列表和 `tttimetable` 默认课表（当前季度）。区块的
   `contents.content` 交给既有 Rust 课表解析器，未返回的季度保留缓存。失败时不回退，

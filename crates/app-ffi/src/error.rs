@@ -48,7 +48,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::SubmissionRemoteConflict
         | C::SubmissionFilesChanged
         | C::SubmissionExpired
-        | C::SubmissionMismatch => SdkError::Conflict { detail },
+        | C::SubmissionMismatch
+        | C::SubmissionIdentityChanged => SdkError::Conflict { detail },
         C::Storage
         | C::WriteDenied
         | C::VaultUnavailable
@@ -62,9 +63,11 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::SchoolMaintenance => SdkError::Maintenance { detail },
         C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
         C::Timeout | C::CloudRetrying => SdkError::Timeout { detail },
-        C::Busy | C::ResetBusy | C::SubmissionInProgress | C::SubmissionOutcomeUnknown => {
-            SdkError::Busy { detail }
-        }
+        C::Busy
+        | C::ResetBusy
+        | C::SubmissionInProgress
+        | C::SubmissionOutcomeUnknown
+        | C::DataFolderInUse => SdkError::Busy { detail },
         C::Cancelled | C::ResetStopped => SdkError::Cancelled,
         C::Stopped => SdkError::Closed,
         C::Callback => SdkError::Callback { detail },
@@ -72,7 +75,6 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::Unavailable
         | C::Platform
         | C::LogsUnavailable
-        | C::CloudNotAttached
         | C::SchoolSiteChanged
         | C::ResetUnsupported
         | C::MatrixScanEnded
@@ -123,7 +125,7 @@ from_coded!(
     app_core::schedule::ReminderError,
     app_core::schedule::ScheduleError,
     app_core::facade::CredentialMutationError,
-    app_core::runtime::CloudWakeError,
+    app_core::runtime::RuntimeError,
     app_core::data::DataError,
     app_core::workspace::WorkspaceError,
     app_core::runtime_tasks::RuntimeTaskError,

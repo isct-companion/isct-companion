@@ -59,6 +59,7 @@ impl From<DataError> for AgentError {
             DataError::Conflict(message) => Self::Conflict(message),
             DataError::Compatibility(message) => Self::Compatibility(message),
             DataError::Storage(message) => Self::Storage(message),
+            DataError::Open(error) => Self::Storage(error.to_string()),
         }
     }
 }

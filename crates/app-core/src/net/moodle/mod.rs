@@ -219,7 +219,7 @@ impl std::fmt::Display for KeyError {
 
 /// The token functions a read of `dataset` calls (`site_info` proves the
 /// token first). When the token is known unable to serve any of them, the
-/// key reads with the session cookie only (`sync_engine::planner::usable_path`).
+/// key reads with the session cookie only (`plan::planner::usable_path`).
 pub(crate) fn token_functions(dataset: Dataset) -> &'static [MoodleFunction] {
     use MoodleFunction as F;
     match dataset {

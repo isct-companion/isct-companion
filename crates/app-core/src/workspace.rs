@@ -315,6 +315,7 @@ impl From<DataError> for WorkspaceError {
             }
             DataError::Conflict(message) => Self::Conflict(message),
             DataError::Storage(message) => Self::Storage(message),
+            DataError::Open(error) => Self::Storage(error.to_string()),
         }
     }
 }

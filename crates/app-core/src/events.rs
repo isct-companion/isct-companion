@@ -9,7 +9,7 @@ use crate::{
     school_browser::{SchoolWebNotice, SchoolWebPage},
     school_service::IngestOutcome,
     school_session::SchoolSessionSnapshot,
-    sync_engine::SyncSnapshot,
+    plan::{SyncSnapshot, WakeDirective},
     workspace_changes::WorkspaceChange,
 };
 
@@ -82,6 +82,9 @@ pub enum CoreEvent {
     /// current value.
     SyncSnapshot(SyncSnapshot),
     CloudSyncState(SyncState),
+    /// When Core next has work; read `Core::wake_directive` for the current
+    /// value. The shell's one timer follows it.
+    WakeDirective(WakeDirective),
 }
 
 impl CoreEvent {
@@ -98,6 +101,7 @@ impl CoreEvent {
             Self::SchoolDownload(_) => "school-download",
             Self::SyncSnapshot(_) => "sync-snapshot",
             Self::CloudSyncState(_) => "cloud-sync-state",
+            Self::WakeDirective(_) => "wake-directive",
         }
     }
 
@@ -139,6 +143,7 @@ impl CoreEvent {
             Self::SchoolDownload(event) => json!(event),
             Self::SyncSnapshot(snapshot) => json!(snapshot),
             Self::CloudSyncState(state) => json!(state),
+            Self::WakeDirective(directive) => json!(directive),
         }
     }
 }

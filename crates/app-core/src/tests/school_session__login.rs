@@ -134,7 +134,7 @@ async fn connect_and_read(
         "the school's acceptance saves the credentials"
     );
     let permit = sessions.permit(profile).unwrap();
-    let deadline = tokio::time::Instant::now() + crate::sync_engine::KEY_DEADLINE;
+    let deadline = tokio::time::Instant::now() + crate::plan::KEY_DEADLINE;
     sessions
         .run(site, &permit, deadline, &mut Page(page))
         .await

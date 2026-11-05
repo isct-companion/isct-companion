@@ -75,7 +75,7 @@ pub(super) fn remove_detail(state: &mut Value, list: &str, id: u64, key: &str) {
     }
 }
 
-/// Which transport a key reads with (`sync_engine::school::via`, from the
+/// Which transport a key reads with (`plan::school::via`, from the
 /// key's credential path and the token's facts).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Via {

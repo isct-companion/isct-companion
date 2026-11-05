@@ -69,7 +69,7 @@ pub(crate) enum AgentConnection {
         url: String,
         token: String,
     },
-    /// Enabled, but the listener could not start; retried periodically.
+    /// Enabled, but the listener could not start; Core tries again.
     Failed {
         error: String,
     },
@@ -90,10 +90,25 @@ pub(crate) struct AgentAccess {
     port: u16,
     state: Mutex<AccessState>,
     closed: std::sync::atomic::AtomicBool,
-    next_check: std::sync::Mutex<std::time::Instant>,
 }
 
-const RECONCILE_INTERVAL: Duration = Duration::from_secs(5);
+/// Core's port into the listener: Core decides when it matches the setting
+/// again (the setting changed, a failed start retried), the shell binds.
+pub(crate) struct AgentListenerPort(pub(crate) tauri::AppHandle);
+
+impl app_core::deadlines::AgentListener for AgentListenerPort {
+    fn reconcile(&self, enabled: bool) -> app_core::net::BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            let Some(access) = self.0.try_state::<AgentAccess>() else {
+                return Ok(());
+            };
+            match access.apply(Ok(enabled)).await {
+                AgentConnection::Failed { error } => Err(error),
+                _ => Ok(()),
+            }
+        })
+    }
+}
 
 impl AgentAccess {
     pub(crate) fn new(app: tauri::AppHandle) -> Result<Self, String> {
@@ -113,7 +128,6 @@ impl AgentAccess {
             port,
             state: Mutex::new(AccessState::Off),
             closed: std::sync::atomic::AtomicBool::new(false),
-            next_check: std::sync::Mutex::new(std::time::Instant::now()),
         }
     }
 
@@ -125,6 +139,11 @@ impl AgentAccess {
             .await
             .map_err(|error| error.to_string())
             .and_then(|result| result.map_err(|error| error.to_string()));
+        self.apply(enabled).await
+    }
+
+    /// Start or stop the listener to match `enabled`, the setting as read.
+    async fn apply(&self, enabled: Result<bool, String>) -> AgentConnection {
         let mut state = self.state.lock().await;
         let closed = self.closed.load(std::sync::atomic::Ordering::Acquire);
         match (enabled, closed) {
@@ -172,23 +191,6 @@ impl AgentAccess {
                 error: error.clone(),
             },
         }
-    }
-
-    /// Called from the desktop wake loop: picks up setting changes made
-    /// outside Settings and retries a failed bind (e.g. once the port frees).
-    pub(crate) fn tick(app: &tauri::AppHandle) {
-        let Some(access) = app.try_state::<Self>() else {
-            return;
-        };
-        let now = std::time::Instant::now();
-        match access.next_check.lock() {
-            Ok(mut next) if now >= *next => *next = now + RECONCILE_INTERVAL,
-            _ => return,
-        }
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            app.state::<Self>().reconcile().await;
-        });
     }
 
     /// Stop admission permanently and drain the listener, if any.

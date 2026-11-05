@@ -1,3 +1,4 @@
+use super::runner::{ReadRefused, ReadRequest};
 use super::planner::{
     self, Candidate, Credential, Credentials, Depth, Facts, Inputs, Lane, ReferenceWatch, Waited,
 };
@@ -517,6 +518,7 @@ fn held_reasons_follow_the_shell_facts() {
         key: key(Dataset::Reference, "calendar/2026"),
         index_url: crate::reference_refresh::PUBLIC_INDEX.into(),
         due: Due::Missing,
+        stale_at: None,
     }];
     let deadlines = key(Dataset::LmsDeadlines, "all");
     let grades = key(Dataset::KyomuPage, "grades");
@@ -878,23 +880,23 @@ fn a_function_the_token_cannot_serve_moves_only_its_keys_to_the_cookie() {
     assert_eq!(find(&plan, &deadlines).unwrap().held, None);
 }
 
-fn engine(name: &str) -> (SyncEngine, DataStore) {
+fn engine(name: &str) -> (PlanEngine, DataStore) {
     engine_with(name, Arc::new(SchoolAuthService::new(EmptyVault)))
 }
 
-fn engine_with(name: &str, auth: Arc<SchoolAuthService>) -> (SyncEngine, DataStore) {
+fn engine_with(name: &str, auth: Arc<SchoolAuthService>) -> (PlanEngine, DataStore) {
     let path = std::env::temp_dir().join(format!("isct-sync-{name}-{}", uuid::Uuid::new_v4()));
     let store = DataStore::initialize_dir(path).unwrap().0;
     store
         .put_workspace_setting("selectedTerm", serde_json::json!("2026-3Q"))
         .unwrap();
-    let engine = SyncEngine::new(store.clone(), auth, Network::Wifi);
+    let engine = PlanEngine::new(store.clone(), auth, Network::Wifi);
     (engine, store)
 }
 
 /// An engine whose Tokyo Tech account is set up, its school sessions
 /// attached (they never reach the network).
-fn tokyo_engine(name: &str) -> (SyncEngine, DataStore, SchoolSessions) {
+fn tokyo_engine(name: &str) -> (PlanEngine, DataStore, SchoolSessions) {
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
     auth.promote(
         SchoolAuthProfile::TokyoTech,
@@ -1252,4 +1254,200 @@ fn snapshot_wire_names_match_the_shell_contract() {
     let event = crate::events::CoreEvent::SyncSnapshot(snapshot);
     assert_eq!(event.name(), "sync-snapshot");
     assert_eq!(event.payload(), wire);
+}
+
+/// The plan's own deadline includes what is not due yet: a fresh key at the
+/// end of its TTL, an open page's key at fifteen minutes, a backoff at its
+/// end and a paused host at its end. A key wanted by hand is due now, so it
+/// is in the plan, not in the deadline; with every key due or waiting for a
+/// fact, there is no time to wake for.
+#[test]
+fn the_next_deadline_includes_keys_that_are_not_due_yet() {
+    let deadlines = key(Dataset::LmsDeadlines, "all");
+    let enrolment = key(Dataset::LmsEnrolment, "all");
+    let inputs = inputs(vec![
+        stored(Dataset::LmsDeadlines, "all", Some(now() - Duration::minutes(10)), None),
+        stored(
+            Dataset::LmsEnrolment,
+            "all",
+            Some(now() - Duration::hours(1)),
+            Some(now() + Duration::minutes(20)),
+        ),
+    ]);
+    let next = |opens: &[View], facts: &Facts| {
+        let plan = plan(&inputs, facts, opens, &[]);
+        planner::next_due(&inputs, &plan, opens, &HashMap::new(), now())
+    };
+    // The deadlines key goes stale at its two-hour TTL; the enrolment list
+    // backs off for twenty minutes, sooner.
+    assert_eq!(next(&[], &facts()), Some(now() + Duration::minutes(20)));
+    // An open page renews the deadlines at fifteen minutes.
+    assert_eq!(
+        next(&[View::Assignments], &facts()),
+        Some(now() - Duration::minutes(10) + planner::OPEN_THRESHOLD)
+    );
+    let mut paused = facts();
+    paused
+        .paused
+        .insert(Host::Moodle, now() + Duration::minutes(5));
+    assert!(next(&[], &paused).unwrap() <= now() + Duration::minutes(20));
+    let manual: HashMap<Key, Option<String>> =
+        [(deadlines.clone(), None), (enrolment.clone(), None)].into();
+    let wanted = planner::plan(
+        &inputs,
+        &facts(),
+        &credentials(),
+        &[],
+        &manual,
+        &HashSet::new(),
+        now(),
+    );
+    assert!(find(&wanted, &deadlines).is_some());
+}
+
+/// A one-off read is admitted by the engine's rules: held now (offline, a
+/// reset) it is refused at once with the reason, never queued behind a
+/// fact. Two equal reads share one run of the work, which the engine owns.
+#[tokio::test]
+async fn a_one_off_read_is_held_like_a_key_and_joins_its_equal() {
+    let (engine, _store) = engine("read");
+    let request = |key: &str| ReadRequest {
+        key: key.into(),
+        lane: Lane::Moodle,
+        account: None,
+        deadline: std::time::Duration::from_secs(5),
+    };
+    engine.hint(Hint::Network {
+        network: Network::Offline,
+    });
+    let held = engine
+        .read(request("a"), |_| Box::pin(async { 1 }))
+        .await;
+    assert_eq!(held, Err(ReadRefused::Held(Held::Offline)));
+
+    engine.hint(Hint::Network {
+        network: Network::Wifi,
+    });
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let read = |engine: PlanEngine| {
+        let runs = runs.clone();
+        let release = release.clone();
+        async move {
+            engine
+                .read(request("b"), move |_| {
+                    Box::pin(async move {
+                        runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        release.notified().await;
+                        7
+                    })
+                })
+                .await
+        }
+    };
+    let first = tokio::spawn(read(engine.clone()));
+    let second = tokio::spawn(read(engine.clone()));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    release.notify_one();
+    assert_eq!(first.await.unwrap(), Ok(7));
+    assert_eq!(second.await.unwrap(), Ok(7));
+    assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    let _admission = engine.close_admission().await;
+    assert_eq!(
+        engine.read(request("c"), |_| Box::pin(async { 1 })).await,
+        Err(ReadRefused::Held(Held::Resetting))
+    );
+}
+
+/// An LMS write starts on a key's resource: a read leased before it never
+/// commits after it, and the next lease of the key, taken after, does.
+#[tokio::test]
+async fn a_read_leased_before_a_write_does_not_commit_after_it() {
+    let (engine, _store) = engine("resource");
+    engine.evaluate_now().await;
+    let before = engine.lease_for_test(Lane::IsctData).unwrap();
+    let revision = engine.bump_resource(&before.key);
+    assert_eq!(revision, 1);
+    assert!(before.writer().enter().is_none());
+    engine
+        .settle_for_test(before, KeyEnd::Stale)
+        .await;
+    engine.evaluate_now().await;
+    let after = engine.lease_for_test(Lane::IsctData).unwrap();
+    assert!(after.writer().enter().is_some());
+}
+
+/// A duty that is due once, counting its runs.
+struct Once {
+    work: BackgroundWork,
+    due: std::sync::Mutex<bool>,
+    runs: std::sync::atomic::AtomicUsize,
+}
+
+impl Once {
+    fn new(work: BackgroundWork) -> Arc<Self> {
+        Arc::new(Self {
+            work,
+            due: std::sync::Mutex::new(true),
+            runs: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+    fn runs(&self) -> usize {
+        self.runs.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Duty for Once {
+    fn name(&self) -> &'static str {
+        "once"
+    }
+    fn work(&self) -> BackgroundWork {
+        self.work
+    }
+    fn next_due(&self) -> Option<DateTime<Utc>> {
+        self.due.lock().unwrap().then_some(DateTime::UNIX_EPOCH)
+    }
+    fn run(self: Arc<Self>) -> crate::net::BoxFuture<'static, ()> {
+        Box::pin(async move {
+            *self.due.lock().unwrap() = false;
+            self.runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        })
+    }
+}
+
+/// The engine runs a due duty without anyone polling it, once. A suspended
+/// app runs only what its background opportunity allows: local work in an
+/// opportunity without the network, everything in one with it; the
+/// opportunity's wait for quiet ends once that work is done.
+#[tokio::test]
+async fn a_suspended_engine_runs_only_what_its_opportunity_allows() {
+    let (engine, _store) = engine("duties");
+    engine.hint(Hint::Network {
+        network: Network::Offline,
+    });
+    engine.hint(Hint::Background);
+    engine.hint(Hint::Suspend);
+    let local = Once::new(BackgroundWork::Local);
+    let network = Once::new(BackgroundWork::Network);
+    engine.register(local.clone());
+    engine.register(network.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!((local.runs(), network.runs()), (0, 0));
+
+    engine.begin_opportunity("local".into(), false);
+    assert!(engine.wait_quiet(std::time::Duration::from_secs(5)).await);
+    assert_eq!((local.runs(), network.runs()), (1, 0));
+    engine.end_opportunity("local", OpportunityEnd::Finished);
+
+    engine.begin_opportunity("network".into(), true);
+    // Android runs a local opportunity beside it; ending one leaves the
+    // other's work alone.
+    engine.begin_opportunity("local-2".into(), false);
+    assert!(engine.wait_quiet(std::time::Duration::from_secs(5)).await);
+    assert_eq!((local.runs(), network.runs()), (1, 1));
+    assert!(!engine.end_opportunity("network", OpportunityEnd::Expired));
+    assert!(!engine.in_front());
+    assert!(!engine.end_opportunity("unknown", OpportunityEnd::Expired));
+    assert!(engine.end_opportunity("local-2", OpportunityEnd::Finished));
 }

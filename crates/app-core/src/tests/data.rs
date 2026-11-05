@@ -251,7 +251,9 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
         .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions")
         .unwrap();
     // The next launch writes defaults again; a deleted built-in stays deleted.
-    let store = DataStore::initialize_dir(store.directory().to_path_buf())
+    let directory = store.directory().to_path_buf();
+    drop(store);
+    let store = DataStore::initialize_dir(directory)
         .unwrap()
         .0;
     let workspace = store.load_workspace().unwrap();

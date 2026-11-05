@@ -3,6 +3,8 @@ use crate::{
     data::{DataError, DataStore},
     downloads::Downloader,
     notes::NoteStore,
+    plan::{Network, PlanEngine},
+    school_auth::SchoolAuthService,
 };
 use serde_json::json;
 use std::{
@@ -15,11 +17,30 @@ use std::{
 
 const ASSIGNMENT: &str = "lms-assignment:77";
 
+struct EmptyVault;
+
+impl crate::ports::SecretVault for EmptyVault {
+    fn store(&self, _: &str, _: &str) -> Result<(), crate::ports::SecretError> {
+        Ok(())
+    }
+    fn load(&self, _: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        Ok(None)
+    }
+    fn delete(&self, _: &str) -> Result<(), crate::ports::SecretError> {
+        Ok(())
+    }
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    hex_digest(bytes)
+}
+
 /// The LMS behind the port: one assignment and its submission, applied the
 /// way Moodle applies writes (a save replaces the whole file area and moves
 /// `time_modified`; a removal empties it and leaves the time), with every
 /// call counted. No network: the transport is the only thing replaced, and
-/// the service, ledger and workspaces under test are the real ones.
+/// the service, ledger, snapshots, `PlanEngine` and workspaces under test
+/// are the real ones.
 #[derive(Clone)]
 struct FakeLms(Arc<Lms>);
 
@@ -32,13 +53,18 @@ struct Lms {
 
 struct LmsState {
     identity: LmsIdentity,
+    /// The account generation a permit is taken at.
+    generation: u64,
     remote: RemoteState,
     rules: SubmissionRules,
     clock: i64,
     drafts: HashMap<u64, Vec<(String, Vec<u8>)>>,
-    /// The bytes the last applied save put on the LMS.
+    /// The bytes the LMS holds for the submission's files.
     submitted: Vec<(String, Vec<u8>)>,
+    /// Whether a read asked for the files' content can download them.
+    content_readable: bool,
     uploaded_from: Vec<PathBuf>,
+    reads: usize,
     uploads: usize,
     saves: usize,
     removes: usize,
@@ -58,16 +84,39 @@ enum SaveOutcome {
 }
 
 impl SubmissionTransport for FakeLms {
-    fn read(&self, module: LmsModule) -> BoxFuture<'_, Result<RemoteSubmission, TransportError>> {
+    fn permit(&self) -> Result<WritePermit, TransportError> {
+        Ok(WritePermit {
+            generation: self.0.state.lock().unwrap().generation,
+            inner: None,
+        })
+    }
+
+    fn read(
+        self: Arc<Self>,
+        _: Arc<WritePermit>,
+        module: LmsModule,
+        content: bool,
+    ) -> BoxFuture<'static, Result<RemoteSubmission, TransportError>> {
         Box::pin(async move {
             assert_eq!(module.cmid, 77);
-            let lms = self.0.state.lock().unwrap();
+            let mut lms = self.0.state.lock().unwrap();
+            lms.reads += 1;
+            let content = (content && lms.content_readable).then(|| {
+                lms.submitted
+                    .iter()
+                    .map(|(name, bytes)| RemoteContent {
+                        name: name.clone(),
+                        sha256: sha256(bytes),
+                    })
+                    .collect()
+            });
             Ok(RemoteSubmission {
                 identity: lms.identity.clone(),
                 assign_id: 501,
                 cmid: 77,
                 state: lms.remote.clone(),
                 rules: lms.rules.clone(),
+                content,
             })
         })
     }
@@ -75,6 +124,7 @@ impl SubmissionTransport for FakeLms {
     fn upload<'a>(
         &'a self,
         _: &'a WriteGrant,
+        _: &'a WritePermit,
         files: &'a [UploadFile],
     ) -> BoxFuture<'a, Result<u64, TransportError>> {
         Box::pin(async move {
@@ -99,6 +149,7 @@ impl SubmissionTransport for FakeLms {
     fn save<'a>(
         &'a self,
         _: &'a WriteGrant,
+        _: &'a WritePermit,
         assign_id: u64,
         draft: u64,
     ) -> BoxFuture<'a, Result<(), TransportError>> {
@@ -114,17 +165,7 @@ impl SubmissionTransport for FakeLms {
             let outcome = lms.save;
             if outcome != SaveOutcome::LostBeforeApplying {
                 let files = lms.drafts.get(&draft).cloned().unwrap_or_default();
-                lms.clock += 1;
-                lms.remote.time_modified = lms.clock;
-                lms.remote.status = RemoteStatus::Submitted;
-                lms.remote.files = files
-                    .iter()
-                    .map(|(name, bytes)| RemoteFile {
-                        name: name.clone(),
-                        bytes: bytes.len() as u64,
-                    })
-                    .collect();
-                lms.submitted = files;
+                lms.submit(files);
             }
             match outcome {
                 SaveOutcome::Answered => Ok(()),
@@ -136,6 +177,7 @@ impl SubmissionTransport for FakeLms {
     fn remove<'a>(
         &'a self,
         _: &'a WriteGrant,
+        _: &'a WritePermit,
         assign_id: u64,
     ) -> BoxFuture<'a, Result<(), TransportError>> {
         Box::pin(async move {
@@ -147,6 +189,24 @@ impl SubmissionTransport for FakeLms {
             lms.submitted.clear();
             Ok(())
         })
+    }
+}
+
+impl LmsState {
+    /// The submission as a save (Core's or the person's in a browser)
+    /// leaves it.
+    fn submit(&mut self, files: Vec<(String, Vec<u8>)>) {
+        self.clock += 1;
+        self.remote.time_modified = self.clock;
+        self.remote.status = RemoteStatus::Submitted;
+        self.remote.files = files
+            .iter()
+            .map(|(name, bytes)| RemoteFile {
+                name: name.clone(),
+                bytes: bytes.len() as u64,
+            })
+            .collect();
+        self.submitted = files;
     }
 }
 
@@ -165,6 +225,10 @@ struct Fixture {
     store: DataStore,
     workspaces: AssignmentWorkspaces,
     lms: FakeLms,
+    /// The engine every read goes through, without school sessions: the
+    /// fake transport decides what it reaches.
+    plan: PlanEngine,
+    tasks: RuntimeTasks,
     now: Arc<AtomicI64>,
 }
 
@@ -214,6 +278,7 @@ impl Fixture {
                     site: "https://lms.s.isct.ac.jp/2025".into(),
                     user_id: 9001,
                 },
+                generation: 1,
                 remote: RemoteState {
                     attempt: 0,
                     status: RemoteStatus::New,
@@ -237,7 +302,9 @@ impl Fixture {
                 clock: 1_000,
                 drafts: HashMap::new(),
                 submitted: Vec::new(),
+                content_readable: true,
                 uploaded_from: Vec::new(),
+                reads: 0,
                 uploads: 0,
                 saves: 0,
                 removes: 0,
@@ -248,11 +315,18 @@ impl Fixture {
             save_started: tokio::sync::Notify::new(),
             release_save: tokio::sync::Notify::new(),
         }));
+        let plan = PlanEngine::new(
+            store.clone(),
+            Arc::new(SchoolAuthService::new(EmptyVault)),
+            Network::Wifi,
+        );
         Self {
             root,
             store,
             workspaces,
             lms,
+            plan,
+            tasks: RuntimeTasks::default(),
             now: Arc::new(AtomicI64::new(1_790_000_000)),
         }
     }
@@ -260,14 +334,36 @@ impl Fixture {
     /// A service over the fixture's data folder: a second one is the app
     /// after a restart.
     fn service(&self) -> SubmissionService {
+        self.open().unwrap()
+    }
+
+    fn open(&self) -> Result<SubmissionService, SubmissionError> {
         let now = self.now.clone();
         SubmissionService::with_clock(
             &self.store,
             self.workspaces.clone(),
             Arc::new(self.lms.clone()),
+            self.plan.hints(),
+            self.tasks.clone(),
             Arc::new(move || now.load(Ordering::SeqCst)),
         )
-        .unwrap()
+    }
+
+    /// The active ledger generation's folder.
+    fn generation(&self) -> PathBuf {
+        let active = self
+            .store
+            .root()
+            .active(StoreKind::Submissions)
+            .unwrap()
+            .unwrap();
+        self.store
+            .paths()
+            .generation(StoreKind::Submissions, &active.id)
+    }
+
+    fn object(&self, sha256: &str) -> PathBuf {
+        self.generation().join("objects").join(sha256)
     }
 
     fn lms(&self) -> MutexGuard<'_, LmsState> {
@@ -278,6 +374,11 @@ impl Fixture {
     fn calls(&self) -> (usize, usize, usize) {
         let lms = self.lms();
         (lms.uploads, lms.saves, lms.removes)
+    }
+
+    /// Reads of the LMS so far.
+    fn reads(&self) -> usize {
+        self.lms().reads
     }
 
     fn now(&self) -> i64 {
@@ -322,11 +423,12 @@ impl Drop for Fixture {
     }
 }
 
+
 // The snapshot is what the person confirmed. Once `submit/` changes, the
 // confirmed files are no longer what they want handed in, and a damaged
 // snapshot is no longer what they confirmed: nothing is sent until they
 // prepare again. A confirmation that does not echo the summary is refused
-// too. What is uploaded comes from the snapshot store, never `submit/`.
+// too. What is uploaded comes from the snapshot objects, never `submit/`.
 #[tokio::test]
 async fn files_changed_after_prepare_are_never_sent() {
     let fixture = Fixture::new();
@@ -364,18 +466,15 @@ async fn files_changed_after_prepare_are_never_sent() {
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
         .unwrap();
-    let blob = fixture
-        .root
-        .join("data/submissions")
-        .join(&prepared.files[0].sha256);
-    std::fs::write(blob, b"tampered").unwrap();
+    std::fs::write(fixture.object(&prepared.files[0].sha256), b"tampered").unwrap();
     assert!(matches!(
         service.execute(fixture.confirm(&prepared)).await,
         Err(SubmissionError::FilesChanged)
     ));
     assert_eq!(fixture.calls(), (0, 0, 0));
 
-    // Preparing again restores the snapshot under the same preparation.
+    // Preparing again replaces the damaged object, whole, under the same
+    // preparation.
     let again = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
@@ -391,13 +490,58 @@ async fn files_changed_after_prepare_are_never_sent() {
     assert!(lms
         .uploaded_from
         .iter()
-        .all(|path| path.starts_with(fixture.root.join("data/submissions"))));
+        .all(|path| path.starts_with(fixture.generation().join("objects"))));
+}
+
+// A snapshot is published with the preparation that names it, and
+// collected only in maintenance once nothing names it: a preparation keeps
+// its objects until it expires, and a claimed write keeps them past its
+// preparation's expiry. Staging another run left goes too.
+#[tokio::test]
+async fn maintenance_collects_only_what_nothing_names() {
+    let fixture = Fixture::new();
+    fixture.put("report.pdf", b"%PDF-1 report");
+    let service = fixture.service();
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    let object = fixture.object(&prepared.files[0].sha256);
+    let orphan = fixture.generation().join("staging/earlier-run/capture");
+    std::fs::create_dir_all(&orphan).unwrap();
+    service.maintain(fixture.now()).unwrap();
+    assert!(object.is_file(), "the preparation names it");
+    assert!(!orphan.exists());
+
+    let now = fixture.now();
+    assert!(matches!(
+        service
+            .ledger
+            .claim(&prepared.id, now, "earlier-run", |_| Ok(()), |preparation| {
+                Operation::new(preparation, now)
+            })
+            .unwrap(),
+        Claim::Claimed(..)
+    ));
+    fixture.advance(PREPARATION_TTL + 1);
+    service.maintain(fixture.now()).unwrap();
+    assert!(service.ledger.preparation(&prepared.id).unwrap().is_none());
+    assert!(object.is_file(), "the claimed write names it");
+
+    fixture.put("notes.txt", b"other");
+    let other = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap_err();
+    assert!(matches!(other, SubmissionError::InProgress));
 }
 
 // The answer to a save is lost after the LMS applied it. Core reads the
-// LMS at once and finds its own write there: succeeded, sent once. Asking
-// again, with the same preparation or a fresh one of the same content,
-// answers with that write instead of sending another.
+// LMS at once, downloads what it holds and finds its own content there:
+// succeeded, sent once, with the assignment queued to read again past any
+// refresh from before the write. Asking again, with the same preparation or
+// a fresh one of the same content, answers with that write instead of
+// sending another.
 #[tokio::test]
 async fn a_lost_answer_after_the_lms_applied_settles_by_reading() {
     let fixture = Fixture::new();
@@ -411,6 +555,10 @@ async fn a_lost_answer_after_the_lms_applied_settles_by_reading() {
     let operation = service.execute(fixture.confirm(&prepared)).await.unwrap();
     assert_eq!(operation.state, OperationState::Succeeded);
     assert!(operation.sent);
+    let refreshes = service.ledger.refreshes_due(fixture.now()).unwrap();
+    assert_eq!(refreshes.len(), 1);
+    assert_eq!(refreshes[0].lms_course_id, 5);
+    assert_eq!(refreshes[0].revision, 1, "the write raised the resource");
 
     let repeated = service.execute(fixture.confirm(&prepared)).await.unwrap();
     assert_eq!(repeated.id, operation.id);
@@ -426,13 +574,54 @@ async fn a_lost_answer_after_the_lms_applied_settles_by_reading() {
     assert_eq!(fixture.calls(), (1, 1, 0));
 }
 
-// A save that times out before the LMS applied it is not failed at once:
-// the LMS may still be finishing it. It stays unknown and refuses other
-// writes, and only reads settle it; once the LMS has had time to finish and
-// still holds what it held, it failed. Nothing sends it again by itself:
-// executing again is a new confirmation and a new write.
+// Names and sizes are not content. A lost answer after which the LMS holds
+// files of the right names and sizes stays unknown while their content
+// cannot be read, and fails once it can be and is not what was sent.
 #[tokio::test]
-async fn a_lost_save_stays_unknown_until_the_lms_has_had_time_to_finish() {
+async fn content_decides_whether_a_write_applied() {
+    let fixture = Fixture::new();
+    fixture.put("report.pdf", b"%PDF-1 report");
+    {
+        let mut lms = fixture.lms();
+        lms.save = SaveOutcome::LostBeforeApplying;
+        lms.content_readable = false;
+    }
+    let service = fixture.service();
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    let operation = service.execute(fixture.confirm(&prepared)).await.unwrap();
+    assert_eq!(operation.state, OperationState::OutcomeUnknown);
+    // Someone else's file of the same name and size lands meanwhile.
+    fixture
+        .lms()
+        .submit(vec![("report.pdf".into(), b"%PDF-1 REPORT".to_vec())]);
+    fixture.advance(CHECK_FIRST);
+    service.run_due().await.unwrap();
+    assert_eq!(
+        service.status(&operation.id).unwrap().state,
+        OperationState::OutcomeUnknown
+    );
+
+    fixture.lms().content_readable = true;
+    fixture.advance(CHECK_FIRST * 3);
+    service.run_due().await.unwrap();
+    let settled = service.status(&operation.id).unwrap();
+    assert_eq!(settled.state, OperationState::Failed);
+    assert_eq!(settled.failure, Some(ErrorCode::SubmissionMismatch));
+    assert_eq!(fixture.calls(), (1, 1, 0));
+}
+
+// A save that times out before the LMS applied it is never failed by the
+// clock: however long the LMS has had, it stays unknown and refuses other
+// writes until a read shows what the LMS did. Asking for its state answers
+// from the ledger without reading the LMS, and checks come less often the
+// longer it stays unknown. A save made in a browser meanwhile is evidence:
+// the LMS holds something else, the write failed and the assignment is
+// free again. Nothing sends it again by itself.
+#[tokio::test]
+async fn a_lost_save_stays_unknown_until_a_read_shows_what_happened() {
     let fixture = Fixture::new();
     fixture.put("report.pdf", b"%PDF-1 report");
     fixture.lms().save = SaveOutcome::LostBeforeApplying;
@@ -456,19 +645,39 @@ async fn a_lost_save_stays_unknown_until_the_lms_has_had_time_to_finish() {
         Err(SubmissionError::OutcomeUnknown)
     ));
 
-    assert_eq!(service.reconcile().await.unwrap(), 0);
-    fixture.advance(SETTLE_AFTER);
-    assert_eq!(service.reconcile().await.unwrap(), 1);
-    let settled = service.status(&operation.id).await.unwrap();
-    assert_eq!(settled.state, OperationState::Failed);
-    assert_eq!(settled.failure, Some(ErrorCode::Timeout));
-    assert_eq!(fixture.calls(), (1, 1, 0));
+    let reads = fixture.reads();
+    assert_eq!(
+        service.status(&operation.id).unwrap().state,
+        OperationState::OutcomeUnknown
+    );
+    assert_eq!(fixture.reads(), reads, "status never reads the LMS");
+    let first = service.next_due().unwrap().timestamp();
+    fixture.advance(CHECK_MAX * 4);
+    service.run_due().await.unwrap();
+    assert_eq!(
+        service.status(&operation.id).unwrap().state,
+        OperationState::OutcomeUnknown,
+        "time alone proves nothing"
+    );
+    let later = service.next_due().unwrap().timestamp() - fixture.now();
+    assert!(later >= CHECK_FIRST, "{first} then {later}");
+    fixture.advance(later);
+    service.run_due().await.unwrap();
+    assert!(service.next_due().unwrap().timestamp() - fixture.now() > later);
 
-    fixture.lms().save = SaveOutcome::Answered;
-    let retried = service.execute(fixture.confirm(&prepared)).await.unwrap();
-    assert_ne!(retried.id, operation.id);
-    assert_eq!(retried.state, OperationState::Succeeded);
-    assert_eq!(fixture.calls(), (2, 2, 0));
+    fixture
+        .lms()
+        .submit(vec![("other.pdf".into(), b"from the browser".to_vec())]);
+    fixture.advance(CHECK_MAX);
+    service.run_due().await.unwrap();
+    let settled = service.status(&operation.id).unwrap();
+    assert_eq!(settled.state, OperationState::Failed);
+    assert_eq!(settled.failure, Some(ErrorCode::SubmissionMismatch));
+    assert_eq!(fixture.calls(), (1, 1, 0));
+    assert!(matches!(
+        service.prepare(ASSIGNMENT, SubmissionAction::Save).await,
+        Err(SubmissionError::RemoteNotEmpty { .. })
+    ));
 }
 
 // The same content prepared twice is one preparation, and executed twice is
@@ -536,9 +745,10 @@ async fn the_same_content_prepared_and_executed_twice_is_written_once() {
 }
 
 // Between prepare and execute the submission changes on the LMS page, or a
-// new attempt opens: the write was confirmed against what is no longer
-// there, so it is refused before anything is sent, and the refusal leaves
-// nothing that blocks preparing again. A preparation also expires.
+// new attempt opens, or the account is another one or signed in anew: the
+// write was confirmed against what is no longer there, so it is refused
+// before anything is sent, and the refusal leaves nothing that blocks
+// preparing again. A preparation also expires.
 #[tokio::test]
 async fn a_remote_change_after_prepare_is_a_conflict() {
     let fixture = Fixture::new();
@@ -548,6 +758,18 @@ async fn a_remote_change_after_prepare_is_a_conflict() {
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
         .unwrap();
+    fixture.lms().generation = 2;
+    assert!(matches!(
+        service.execute(fixture.confirm(&prepared)).await,
+        Err(SubmissionError::IdentityChanged)
+    ));
+    fixture.lms().generation = 1;
+    fixture.lms().identity.user_id = 9002;
+    assert!(matches!(
+        service.execute(fixture.confirm(&prepared)).await,
+        Err(SubmissionError::IdentityChanged)
+    ));
+    fixture.lms().identity.user_id = 9001;
     {
         let mut lms = fixture.lms();
         lms.clock += 1;
@@ -592,7 +814,8 @@ async fn a_remote_change_after_prepare_is_a_conflict() {
 
 // While one write is on its way, a write of other content to the same
 // assignment is refused. Cancelling the one on its way does not claim to
-// undo it: its save was sent, and it runs to its end.
+// undo it: its save was sent, and it runs to its end, owned by Core past
+// the caller that stopped waiting.
 #[tokio::test]
 async fn one_write_per_assignment_at_a_time() {
     let fixture = Fixture::new();
@@ -618,6 +841,8 @@ async fn one_write_per_assignment_at_a_time() {
     fixture.lms.0.save_started.notified().await;
     let pending = service.ledger.latest_for(&first.id).unwrap().unwrap();
     assert_eq!(pending.state, OperationState::Saving);
+    // The caller stops waiting; the write does not stop.
+    running.abort();
 
     fixture.put("report.pdf", b"%PDF-1 second");
     assert!(matches!(
@@ -630,14 +855,19 @@ async fn one_write_per_assignment_at_a_time() {
     assert_eq!(cancel.operation.state, OperationState::Saving);
 
     fixture.lms.0.release_save.notify_one();
-    let done = running.await.unwrap().unwrap();
-    assert_eq!(done.state, OperationState::Succeeded);
+    fixture.tasks.close();
+    fixture.tasks.wait().await;
+    assert_eq!(
+        service.status(&pending.id).unwrap().state,
+        OperationState::Succeeded
+    );
     assert_eq!(fixture.calls(), (1, 1, 0));
 }
 
-// The app stops mid-write. On the next start, a write that never sent its
-// save failed; one that may have is settled by reading the LMS, applied or
-// not, and is never sent again.
+// The app stops mid-write. On the next start, writes another run owned
+// lost their executor (one Core holds the folder): one that never sent its
+// save failed; one that may have is read until the LMS shows what it did,
+// and is never sent again.
 #[tokio::test]
 async fn restart_settles_interrupted_writes_by_reading_only() {
     let fixture = Fixture::new();
@@ -647,148 +877,144 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
         .unwrap();
-    // Stored as the run leaves it: claimed, then moved to `to` with the
-    // save sent when `sent`.
+    // Stored as an earlier run leaves it: claimed, then moved to `to` with
+    // the save sent when `sent`.
     let interrupted = |to: OperationState, sent: bool| {
-        let mut operation = Operation::new(&prepared, fixture.now());
-        assert!(matches!(
-            service.ledger.claim(&operation).unwrap(),
-            Claim::Claimed
-        ));
+        let now = fixture.now();
+        // A write that succeeded released its preparation; publish it again.
+        service.ledger.publish_preparation(&prepared, now).unwrap();
+        let Claim::Claimed(_, operation) = service
+            .ledger
+            .claim(&prepared.id, now, "earlier-run", |_| Ok(()), |preparation| {
+                Operation::new(preparation, now)
+            })
+            .unwrap()
+        else {
+            panic!("claimed");
+        };
+        let mut operation = *operation;
         operation.state = to;
         operation.sent = sent;
-        operation.sent_at = sent.then(|| fixture.now());
+        operation.sent_at = sent.then_some(now);
         assert!(service
             .ledger
-            .transition(&operation, &[OperationState::Prepared])
+            .transition(&operation, OperationState::Prepared, "earlier-run", None, now)
             .unwrap());
         operation
     };
 
     // Stopped after the save left and the LMS applied it.
     let applied = interrupted(OperationState::Saving, true);
-    {
-        let mut lms = fixture.lms();
-        lms.clock += 1;
-        lms.remote = RemoteState {
-            attempt: 0,
-            status: RemoteStatus::Submitted,
-            files: vec![RemoteFile {
-                name: "report.pdf".into(),
-                bytes: 13,
-            }],
-            time_modified: lms.clock,
-        };
-    }
+    fixture
+        .lms()
+        .submit(vec![("report.pdf".into(), b"%PDF-1 report".to_vec())]);
     let restarted = fixture.service();
-    assert_eq!(restarted.recover().await.unwrap(), 1);
     assert_eq!(
-        restarted.status(&applied.id).await.unwrap().state,
+        restarted.status(&applied.id).unwrap().state,
+        OperationState::OutcomeUnknown
+    );
+    fixture.advance(CHECK_FIRST);
+    restarted.run_due().await.unwrap();
+    assert_eq!(
+        restarted.status(&applied.id).unwrap().state,
         OperationState::Succeeded
     );
 
     // Stopped while uploading: the save never left.
+    fixture.lms().remote = prepared.baseline.clone();
+    fixture.lms().submitted.clear();
     let uploading = interrupted(OperationState::Uploading, false);
     let restarted = fixture.service();
-    assert_eq!(restarted.recover().await.unwrap(), 0);
-    let stopped = restarted.status(&uploading.id).await.unwrap();
+    let stopped = restarted.status(&uploading.id).unwrap();
     assert_eq!(stopped.state, OperationState::Failed);
     assert_eq!(stopped.failure, Some(ErrorCode::Stopped));
     assert!(!stopped.sent);
 
-    // Stopped after the save left, which the LMS never applied.
-    fixture.lms().remote = prepared.baseline.clone();
+    // Stopped after the save left, which the LMS never applied: unknown
+    // for as long as the LMS shows nothing.
     let lost = interrupted(OperationState::Saving, true);
     let restarted = fixture.service();
-    assert_eq!(restarted.recover().await.unwrap(), 0);
+    fixture.advance(CHECK_MAX * 4);
+    restarted.run_due().await.unwrap();
     assert_eq!(
-        restarted.status(&lost.id).await.unwrap().state,
+        restarted.status(&lost.id).unwrap().state,
         OperationState::OutcomeUnknown
-    );
-    fixture.advance(SETTLE_AFTER);
-    assert_eq!(restarted.reconcile().await.unwrap(), 1);
-    assert_eq!(
-        restarted.status(&lost.id).await.unwrap().failure,
-        Some(ErrorCode::Timeout)
     );
     assert_eq!(fixture.calls(), (0, 0, 0));
 }
 
-/// A ledger of schema 1 in `data`, with a record of each kind and a
-/// snapshot, as an earlier release left it. Schema 1 kept the account on
-/// each write; a value it cannot parse now would fail any read of it.
-fn schema_one(data: &std::path::Path) {
-    let blobs = data.join("submissions");
-    std::fs::create_dir_all(&blobs).unwrap();
-    std::fs::write(blobs.join("0a1b2c"), b"%PDF-1 old").unwrap();
-    rusqlite::Connection::open(data.join("submissions.db"))
-        .unwrap()
-        .execute_batch(
-            "PRAGMA journal_mode=WAL;
-             CREATE TABLE preparations (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, value TEXT NOT NULL);
-             CREATE TABLE operations (id TEXT PRIMARY KEY, preparation_id TEXT NOT NULL, account TEXT NOT NULL,
-               site TEXT NOT NULL, assign_id INTEGER NOT NULL, key TEXT NOT NULL,
-               state TEXT NOT NULL, updated_at INTEGER NOT NULL, value TEXT NOT NULL);
-             CREATE INDEX operations_by_assignment ON operations(account, site, assign_id);
-             INSERT INTO preparations VALUES ('old', 4102444800, '{}');
-             INSERT INTO operations VALUES ('old', 'old', 'science:24b00001',
-               'https://lms.s.isct.ac.jp/2025', 77, 'k', 'saving', 1, '{}');
-             PRAGMA user_version=1;",
+// The ledger has its own store generation. One of an older format starts
+// empty in a new generation (hand-ins are confirmed before upgrading), and
+// nothing of it is read; one of a newer format is refused and kept as it
+// is, with LMS writes off.
+#[tokio::test]
+async fn an_older_ledger_is_replaced_and_a_newer_one_refused() {
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let first = fixture.generation();
+    drop(service);
+    let root = fixture.store.root();
+    let republish = |format: i64| {
+        let (id, directory) = root.new_generation(StoreKind::Submissions).unwrap();
+        std::fs::write(directory.join("marker"), b"kept").unwrap();
+        root.publish(
+            &[crate::data::root::Candidate {
+                kind: StoreKind::Submissions,
+                generation: crate::data::root::Generation { id, format },
+            }],
+            false,
         )
         .unwrap();
-}
+        directory
+    };
 
-// An upgrade from a ledger of an older schema starts empty instead of
-// leaving the service off: its records and the snapshots they named are
-// gone, and nothing of them is read. A newer schema is refused.
-#[tokio::test]
-async fn an_older_ledger_is_rebuilt_empty() {
-    let fixture = Fixture::new();
-    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
-    let blobs = data.join("submissions");
-    schema_one(&data);
-
+    let older = republish(ledger::FORMAT - 1);
     let service = fixture.service();
-    assert!(service.ledger.unsettled(None).unwrap().is_empty());
-    assert!(service.ledger.preparation("old").unwrap().is_none());
-    assert!(!blobs.join("0a1b2c").exists());
+    assert_ne!(fixture.generation(), older);
+    assert_ne!(fixture.generation(), first);
     fixture.put("report.pdf", b"%PDF-1 report");
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
         .unwrap();
-    assert!(service.ledger.intact(&prepared.files));
+    assert!(service.snapshots.intact(&prepared.files));
     drop(service);
 
-    rusqlite::Connection::open(data.join("submissions.db"))
-        .unwrap()
-        .pragma_update(None, "user_version", 3)
-        .unwrap();
-    assert!(Ledger::open(&data).is_err());
+    let newer = republish(ledger::FORMAT + 1);
+    assert!(matches!(
+        fixture.open(),
+        Err(SubmissionError::UnsupportedLedger { .. })
+    ));
+    assert_eq!(fixture.generation(), newer);
+    assert_eq!(std::fs::read(newer.join("marker")).unwrap(), b"kept");
 }
 
-// Two processes share the data folder (a dev build and the app) and both
-// find schema 1. The first upgrades and records a write; the second, whose
-// look at the version came before that, upgrades after it and finds the
-// new version under the lock: what the first recorded, its snapshot
-// included, stays.
+// Before generations the ledger lay flat in the data folder. One of a
+// format no release wrote is refused rather than replaced by an empty one.
 #[tokio::test]
-async fn a_second_upgrade_keeps_what_the_first_recorded_since() {
+async fn a_flat_ledger_of_an_unknown_format_is_refused() {
     let fixture = Fixture::new();
-    let data = fixture.store.user_path().parent().unwrap().to_path_buf();
-    schema_one(&data);
-    let mut late = ledger::connect(&data.join("submissions.db")).unwrap();
-    assert_eq!(ledger::version(&late).unwrap(), 1);
-
-    let service = fixture.service();
-    fixture.put("report.pdf", b"%PDF-1 report");
-    let prepared = service
-        .prepare(ASSIGNMENT, SubmissionAction::Save)
-        .await
+    let flat = fixture.store.paths().root().join(ledger::FILE);
+    rusqlite::Connection::open(&flat)
+        .unwrap()
+        .execute_batch("PRAGMA user_version=9; CREATE TABLE kept(id TEXT);")
         .unwrap();
-    ledger::upgrade(&mut late, &data.join("submissions")).unwrap();
-    assert!(service.ledger.preparation(&prepared.id).unwrap().is_some());
-    assert!(service.ledger.intact(&prepared.files));
+    assert!(matches!(
+        fixture.open(),
+        Err(SubmissionError::UnsupportedLedger { found: 9, .. })
+    ));
+    assert!(fixture
+        .store
+        .root()
+        .active(StoreKind::Submissions)
+        .unwrap()
+        .is_none());
+    rusqlite::Connection::open(&flat)
+        .unwrap()
+        .execute_batch("PRAGMA user_version=2;")
+        .unwrap();
+    fixture.service();
+    assert!(fixture.generation().join(ledger::FILE).is_file());
 }
 
 // The person's switch gates the write path itself: off, nothing is sent;

@@ -1426,7 +1426,7 @@ async fn legacy_fired_history_is_merged_before_delivery_starts() {
     let service = ReminderService::new(store.clone());
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
 
-    assert!(!service.tick(Arc::new(NoopSink), now).await.unwrap());
+    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
     assert!(service
         .import_legacy_fired(json!({"assignment:one": now.timestamp_millis()}), now)
         .await
@@ -1436,7 +1436,7 @@ async fn legacy_fired_history_is_merged_before_delivery_starts() {
         .await
         .unwrap());
     assert!(
-        super::reminders::read_fired(&super::reminders::fired_path(store.user_path()))
+        super::reminders::read_fired(&store.paths().local(super::reminders::REMINDER_LOG))
             .unwrap()
             .contains_key("assignment:one")
     );
@@ -1452,14 +1452,14 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
     let store = crate::data::DataStore::initialize_dir(root.clone())
         .unwrap()
         .0;
-    let path = super::reminders::fired_path(store.user_path());
+    let path = store.paths().local(super::reminders::REMINDER_LOG);
     let service = ReminderService::new(store);
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
 
-    assert!(!service.tick(Arc::new(NoopSink), now).await.unwrap());
+    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
     assert!(!path.is_file());
     tokio::time::advance(std::time::Duration::from_secs(61)).await;
-    service.tick(Arc::new(NoopSink), now).await.unwrap();
+    service.deliver_due(Arc::new(NoopSink), now).await.unwrap();
     assert!(path.is_file());
     assert!(super::reminders::read_fired(&path).unwrap().is_empty());
 
@@ -1475,7 +1475,7 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
 }
 
 #[tokio::test]
-async fn reminder_ticks_after_shutdown_are_rejected_as_stopped() {
+async fn reminder_passes_after_shutdown_are_rejected_as_stopped() {
     let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let store = crate::data::DataStore::initialize_dir(root.clone())
@@ -1483,10 +1483,10 @@ async fn reminder_ticks_after_shutdown_are_rejected_as_stopped() {
         .0;
     let service = ReminderService::new(store);
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-    assert!(!service.tick(Arc::new(NoopSink), now).await.unwrap());
+    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
     service.shutdown().await;
     assert!(matches!(
-        service.tick(Arc::new(NoopSink), now).await,
+        service.deliver_due(Arc::new(NoopSink), now).await,
         Err(ReminderError::Task(
             crate::runtime_tasks::RuntimeTaskError::Stopped
         ))

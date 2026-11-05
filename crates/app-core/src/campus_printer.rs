@@ -188,7 +188,7 @@ impl Core {
         // result, which no window may be left to show.
         let sent = self
             .runtime
-            .owned()
+            .tasks()
             .run(async move {
                 tokio::task::spawn_blocking(move || {
                     let sent = document::print(adpt_printer::ADDRESS, &student, &path, &options);

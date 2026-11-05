@@ -202,6 +202,15 @@ impl Journal {
         provider: CloudProvider,
         now: chrono::DateTime<chrono::Utc>,
     ) -> bool {
+        self.upload_due_at(provider).is_none_or(|at| at <= now)
+    }
+
+    /// When the hourly automatic upload to `provider` is next allowed;
+    /// `None` when it is now.
+    pub(super) fn upload_due_at(
+        &self,
+        provider: CloudProvider,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
         // Journals from before `uploaded_at` only know the last sync of any kind.
         self.uploaded_at
             .get(&provider)
@@ -214,8 +223,9 @@ impl Journal {
                     .and_then(|row| row.last_synced_at.as_deref())
             })
             .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
-            .is_none_or(|last| {
-                now.signed_duration_since(last).num_seconds() >= super::SNAPSHOT_INTERVAL_SECONDS
+            .map(|last| {
+                last.with_timezone(&chrono::Utc)
+                    + chrono::Duration::seconds(super::SNAPSHOT_INTERVAL_SECONDS)
             })
     }
 

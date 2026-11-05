@@ -7,7 +7,7 @@ use crate::net::{
     BoxFuture, KeyOutcome, NetError,
 };
 use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
-use crate::sync_engine::{net_end, session_end, KeyEnd, Lease};
+use crate::plan::{net_end, session_end, KeyEnd, Lease};
 use crate::sync_state::{self, Commit, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile};
 use chrono::Utc;
@@ -197,7 +197,7 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
         Site::Kyomu
     };
     let Some(permit) = sessions.permit(SchoolAuthProfile::TokyoTech) else {
-        return crate::sync_engine::denied_read(sessions, SchoolAuthProfile::TokyoTech, source);
+        return crate::plan::denied_read(sessions, SchoolAuthProfile::TokyoTech, source);
     };
     let read = sessions
         .run(

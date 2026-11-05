@@ -1,6 +1,7 @@
-//! The person's own scheduled tasks (exports). Shells provide wakeups; Core
-//! decides what is due. School and reference data are not scheduled here:
-//! each dataset's TTL in `crate::sync_engine` decides when it is read.
+//! The person's own scheduled tasks (exports). Core decides what is due and
+//! tells the `PlanEngine` when the next occurrence comes ([`Scheduler::next_due`]).
+//! School and reference data are not scheduled here: each dataset's TTL in
+//! `crate::plan` decides when it is read.
 
 use crate::data::{DataError, DataStore, WorkspaceChangeSource};
 use chrono::{DateTime, Duration, Utc};
@@ -58,6 +59,9 @@ pub struct Scheduler {
     started_at: DateTime<Utc>,
     running: tokio::sync::Mutex<()>,
     invalid_schedules: Mutex<HashSet<String>>,
+    /// The next occurrence of any task, as the last pass found it; `None`
+    /// until a pass ran or after the tasks changed: due at once.
+    next: Mutex<Option<Option<DateTime<Utc>>>>,
 }
 
 impl Default for Scheduler {
@@ -66,6 +70,7 @@ impl Default for Scheduler {
             started_at: Utc::now(),
             running: tokio::sync::Mutex::new(()),
             invalid_schedules: Mutex::new(HashSet::new()),
+            next: Mutex::new(None),
         }
     }
 }
@@ -112,11 +117,13 @@ fn reject_subhour_schedule(schedule: &str) -> Result<(), SchedulerError> {
     Ok(())
 }
 
-fn due_occurrence(
+/// The task's next occurrence at or after its floor (the last one's next
+/// second, never before this run started): `None` for a task that never
+/// runs again on its own.
+fn next_occurrence(
     task: &Value,
-    now: DateTime<Utc>,
     started_at: DateTime<Utc>,
-) -> Result<Option<String>, SchedulerError> {
+) -> Result<Option<DateTime<Utc>>, SchedulerError> {
     if task.get("enabled").and_then(Value::as_bool) != Some(true) || deleted(task) {
         return Ok(None);
     }
@@ -126,9 +133,7 @@ fn due_occurrence(
         .ok_or_else(|| SchedulerError::InvalidTask("scheduled task has no schedule".into()))?;
     let last = timestamp(task.get("lastOccurrenceAt").and_then(Value::as_str));
     if schedule == "launch" {
-        return Ok(last
-            .is_none_or(|last| last < started_at)
-            .then(|| started_at.to_rfc3339()));
+        return Ok(last.is_none_or(|last| last < started_at).then_some(started_at));
     }
     reject_subhour_schedule(schedule)?;
     let updated = timestamp(task.get("updatedAt").and_then(Value::as_str)).ok_or_else(|| {
@@ -151,12 +156,23 @@ fn due_occurrence(
         .unwrap_or(started_at)
         .max(started_at)
         .with_timezone(&Tz::UTC);
-    let dates = set
+    Ok(set
         .after(floor)
-        .before(now.with_timezone(&Tz::UTC))
         .all(1)
-        .dates;
-    Ok(dates.first().map(DateTime::to_rfc3339))
+        .dates
+        .first()
+        .map(|date| date.with_timezone(&Utc)))
+}
+
+/// The occurrence due now, if the next one has come.
+fn due_occurrence(
+    task: &Value,
+    now: DateTime<Utc>,
+    started_at: DateTime<Utc>,
+) -> Result<Option<String>, SchedulerError> {
+    Ok(next_occurrence(task, started_at)?
+        .filter(|at| *at <= now)
+        .map(|at| at.to_rfc3339()))
 }
 
 async fn execute(
@@ -184,7 +200,48 @@ async fn execute(
 }
 
 impl Scheduler {
-    pub async fn tick(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
+    /// When a pass is next due (`PlanEngine` asks): at once before the
+    /// first pass and after the tasks changed, else the next occurrence.
+    pub(crate) fn next_due(&self) -> Option<DateTime<Utc>> {
+        match self.next.lock().ok().and_then(|next| *next) {
+            None => Some(Utc::now()),
+            Some(next) => next,
+        }
+    }
+
+    /// The person's tasks changed: plan again at once.
+    pub(crate) fn changed(&self) {
+        if let Ok(mut next) = self.next.lock() {
+            *next = None;
+        }
+    }
+
+    /// Runs every task whose occurrence has come, then notes the next one.
+    pub async fn run_due(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
+        let ran = self.pass(services).await;
+        let next = services
+            .store
+            .user_rows("scheduled_tasks")
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .filter(|task| ScheduledAction::of(task).is_some())
+                    .filter_map(|task| next_occurrence(task, self.started_at).ok().flatten())
+                    .min()
+            })
+            .unwrap_or(None);
+        if let Ok(mut slot) = self.next.lock() {
+            // A failed read tries again in a minute.
+            *slot = Some(if ran.is_ok() {
+                next
+            } else {
+                Some(Utc::now() + Duration::minutes(1))
+            });
+        }
+        ran
+    }
+
+    async fn pass(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
         let tasks = services.store.user_rows("scheduled_tasks")?;
         let now = Utc::now();
         // A task of a retired built-in action never fires on its own.

@@ -587,7 +587,7 @@ fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
 /// and carry timestamps as text; the JSON both sides agree on must not change.
 #[test]
 fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
-    use app_core::sync_engine as core;
+    use app_core::plan as core;
     let retry = chrono::DateTime::parse_from_rfc3339("2026-10-20T03:00:00Z")
         .unwrap()
         .with_timezone(&chrono::Utc);
@@ -1239,7 +1239,20 @@ async fn drive_signs_in_through_the_token_port_and_stays_authorized_after_restar
     session.shutdown().await.unwrap();
     drop(session);
 
-    let session = open().await.unwrap();
+    // The dropped session lets go of the data folder on its own thread; a
+    // restart opens it once it did (one Core per folder).
+    let session = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match open().await {
+                Err(SdkError::Busy { detail }) if detail == "data-folder-in-use" => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await
+                }
+                opened => break opened.unwrap(),
+            }
+        }
+    })
+    .await
+    .unwrap();
     let state = cloud_op(
         session
             .set_cloud_enabled(CloudProvider::GoogleDrive, true)

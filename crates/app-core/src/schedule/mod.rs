@@ -70,10 +70,11 @@ pub use occurrence::{
     ScheduleProblemKind,
 };
 pub use range::calendar_between;
+pub(crate) use reminders::ReminderChanges;
 pub use reminders::{
     glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
-    ReminderService, DEFAULT_ASSIGNMENT_LEADS,
+    ReminderService, DEFAULT_ASSIGNMENT_LEADS, REMINDER_LOG,
 };
 pub use requests::{ColorCourse, ColorOverrides};
 pub use school::SchoolReads;

@@ -95,13 +95,18 @@ the changes it made, the next `revision` (user writes) and the commit `seq`;
 | Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                        |
 | Hand-in               | `waitingHandIns`, `assignmentSubmitFiles`, `addAssignmentFiles`, `removeAssignmentFile`, `handInAssignment`      |
 | Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud` |
-| Lifecycle             | `suspend`, `resume`, `wake`, `backgroundWake`, `shutdown`, `checkAndroidUpdate`                                  |
+| Lifecycle             | `suspend`, `resume`, `wakeDirective`, `deadlineReached`, `beginBackgroundOpportunity`, `endBackgroundOpportunity`, `shutdown`, `checkAndroidUpdate` |
 | Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                   |
 
-Core decides due work. The shell supplies network/foreground/browser facts,
-periodic wakeups, and native background opportunities. Suspend/resume uses the
-existing Core coordinator rather than a foreign state machine. Wakeups are not
-a guarantee that iOS or Android will permit background execution.
+Core decides due work and when it is next due. The shell supplies
+network/foreground/browser facts and keeps one timer from Core's
+`WakeDirective` (the `wake-directive` event, or `wakeDirective` after a missed
+one): when it fires it calls `deadlineReached` with the directive's revision.
+There is no periodic wake. Out of front the shell asks its OS for background
+opportunities at the directive's `background` times, network and local work
+apart, and runs each through `beginBackgroundOpportunity` (cancel it or call
+`endBackgroundOpportunity` when the OS takes the time back). The OS decides
+whether and how late an opportunity comes.
 
 ## Contract generation and errors
 

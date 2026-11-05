@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::SchoolReads;
-use chrono::{DateTime, Duration, FixedOffset};
+use chrono::{DateTime, Duration, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -60,31 +60,87 @@ pub enum ReminderError {
 #[derive(Clone)]
 pub struct ReminderService(Arc<ReminderInner>);
 
+/// The reminder log's file name in `StorePaths::local`.
+pub const REMINDER_LOG: &str = "reminders-fired.json";
+/// How far ahead a pass looks for the next reminder; with none in it, the
+/// next pass is this far out. A workspace change brings it forward.
+const LOOKAHEAD_HOURS: i64 = 36;
+
 struct ReminderInner {
     store: crate::data::DataStore,
     tasks: crate::runtime_tasks::RuntimeTasks,
     pass: Arc<tokio::sync::Semaphore>,
-    next_tick: Mutex<tokio::time::Instant>,
+    /// The shell's notification port, attached once; without one the
+    /// shell schedules the plan with the OS itself.
+    sink: Mutex<Option<Arc<dyn NotificationSink>>>,
+    /// When the next pass is due (`PlanEngine` asks); `None` before the
+    /// first pass, which is due at once.
+    next: Mutex<Option<DateTime<Utc>>>,
     legacy_import_until: tokio::time::Instant,
     fired_path: PathBuf,
 }
 
 impl ReminderService {
     pub fn new(store: crate::data::DataStore) -> Self {
-        let fired_path = fired_path(store.user_path());
+        let fired_path = store.paths().local(REMINDER_LOG);
         Self(Arc::new(ReminderInner {
             store,
             tasks: crate::runtime_tasks::RuntimeTasks::default(),
             pass: Arc::new(tokio::sync::Semaphore::new(1)),
-            next_tick: Mutex::new(tokio::time::Instant::now()),
+            sink: Mutex::new(None),
+            next: Mutex::new(None),
             legacy_import_until: tokio::time::Instant::now() + LEGACY_IMPORT_WAIT,
             fired_path,
         }))
     }
 
-    /// Claims and delivers reminders due within the desktop's five-minute
-    /// grace window. Concurrent wakeups coalesce into one pass.
-    pub async fn tick(
+    /// The shell's notifications, for every later pass.
+    pub fn attach(&self, sink: Arc<dyn NotificationSink>) {
+        if let Ok(mut slot) = self.0.sink.lock() {
+            *slot = Some(sink);
+        }
+    }
+
+    pub(crate) fn sink(&self) -> Option<Arc<dyn NotificationSink>> {
+        self.0.sink.lock().ok().and_then(|sink| sink.clone())
+    }
+
+    /// When the next pass is due: the next reminder's time, never before
+    /// the legacy import's wait ends. `None` without a notification port.
+    pub(crate) fn next_due(&self) -> Option<DateTime<Utc>> {
+        self.sink()?;
+        Some(
+            self.0
+                .next
+                .lock()
+                .ok()
+                .and_then(|next| *next)
+                .unwrap_or_else(Utc::now),
+        )
+    }
+
+    /// What reminders read changed: the next pass plans again shortly, so
+    /// a sync's burst of commits makes one pass.
+    pub(crate) fn changed(&self) {
+        changed(&self.0);
+    }
+
+    /// A handle for the store's commit observer, which must not keep the
+    /// service (and so the store) alive.
+    pub(crate) fn changes(&self) -> ReminderChanges {
+        ReminderChanges(Arc::downgrade(&self.0))
+    }
+
+    fn plan_next(&self, at: DateTime<Utc>) {
+        if let Ok(mut next) = self.0.next.lock() {
+            *next = Some(at);
+        }
+    }
+
+    /// Claims and delivers reminders due within the five-minute grace
+    /// window, and notes when the next one is due. Concurrent passes
+    /// coalesce into one.
+    pub async fn deliver_due(
         &self,
         sink: Arc<dyn NotificationSink>,
         now: DateTime<FixedOffset>,
@@ -94,23 +150,12 @@ impl ReminderService {
                 crate::runtime_tasks::RuntimeTaskError::Stopped,
             ));
         }
-        {
-            let mut next = self
-                .0
-                .next_tick
-                .lock()
-                .map_err(|_| ReminderError::Storage("reminder clock is unavailable".into()))?;
-            let instant = tokio::time::Instant::now();
-            if instant < *next {
-                return Ok(false);
-            }
-            *next = instant + StdDuration::from_secs(30);
-        }
         let Ok(permit) = self.0.pass.clone().try_acquire_owned() else {
             return Ok(false);
         };
         let inner = self.0.clone();
-        // Until the legacy import runs or its wait ends, a startup tick must
+        let service = self.clone();
+        // Until the legacy import runs or its wait ends, a startup pass must
         // not deliver reminders the previous runtime already showed.
         let awaiting_import = tokio::time::Instant::now() < self.0.legacy_import_until;
         self.0
@@ -119,18 +164,11 @@ impl ReminderService {
                 let _permit = permit;
                 let store = inner.store.clone();
                 let fired_path = inner.fired_path.clone();
+                let horizon = now + Duration::hours(LOOKAHEAD_HOURS);
                 let (initialized, permission, plan) = tokio::task::spawn_blocking(move || {
                     if !fired_path.is_file() {
                         if awaiting_import {
-                            return Ok((
-                                false,
-                                false,
-                                NotificationPlan {
-                                    from: now.to_rfc3339(),
-                                    through: now.to_rfc3339(),
-                                    items: Vec::new(),
-                                },
-                            ));
+                            return Ok((false, false, None));
                         }
                         // No legacy log arrived: start with an empty one.
                         // A later import still merges into it.
@@ -151,28 +189,54 @@ impl ReminderService {
                         .and_then(Value::as_str)
                         == Some("granted");
                     let plan = if permission {
-                        notification_plan(
+                        Some(notification_plan(
                             &workspace,
                             &school,
                             now - Duration::seconds(REMINDER_GRACE_SECONDS),
-                            now,
+                            horizon,
                             None,
-                        )?
+                        )?)
                     } else {
-                        NotificationPlan {
-                            from: now.to_rfc3339(),
-                            through: now.to_rfc3339(),
-                            items: Vec::new(),
-                        }
+                        None
                     };
                     Ok::<_, ReminderError>((true, permission, plan))
                 })
                 .await
                 .map_err(crate::runtime_tasks::RuntimeTaskError::from)??;
-                if !initialized || !permission {
+                if !initialized {
+                    let left = inner
+                        .legacy_import_until
+                        .saturating_duration_since(tokio::time::Instant::now());
+                    service.plan_next(Utc::now() + Duration::from_std(left).unwrap_or_default());
                     return Ok(false);
                 }
-                deliver_items(inner.fired_path.clone(), sink, plan.items, now).await
+                let Some(plan) = plan.filter(|_| permission) else {
+                    // Turning permission on is a workspace change.
+                    service.plan_next(horizon.with_timezone(&Utc));
+                    return Ok(false);
+                };
+                let at = |item: &NotificationItem| {
+                    DateTime::parse_from_rfc3339(&item.at)
+                        .ok()
+                        .map(|at| at.with_timezone(&Utc))
+                };
+                let now_utc = now.with_timezone(&Utc);
+                let (due, later): (Vec<_>, Vec<_>) = plan
+                    .items
+                    .into_iter()
+                    .partition(|item| at(item).is_none_or(|at| at <= now_utc));
+                let next = later
+                    .iter()
+                    .filter_map(at)
+                    .min()
+                    .unwrap_or_else(|| horizon.with_timezone(&Utc));
+                service.plan_next(next);
+                let delivered = deliver_items(inner.fired_path.clone(), sink, due, now).await;
+                if delivered.is_err() {
+                    // A reminder the port refused is claimed again soon.
+                    service.plan_next(next.min(now_utc + Duration::minutes(1)));
+                }
+                delivered
             })
             .await?
     }
@@ -204,18 +268,35 @@ impl ReminderService {
                     .map_err(crate::runtime_tasks::RuntimeTaskError::from)?
             })
             .await??;
-        let mut next = self
-            .0
-            .next_tick
-            .lock()
-            .map_err(|_| ReminderError::Storage("reminder clock is unavailable".into()))?;
-        *next = tokio::time::Instant::now();
+        self.changed();
         Ok(imported)
     }
 
     pub async fn shutdown(&self) {
         self.0.tasks.close();
         self.0.tasks.wait().await;
+        if let Ok(mut sink) = self.0.sink.lock() {
+            *sink = None;
+        }
+    }
+}
+
+/// [`ReminderService::changed`] through a weak handle.
+#[derive(Clone)]
+pub(crate) struct ReminderChanges(std::sync::Weak<ReminderInner>);
+
+impl ReminderChanges {
+    pub(crate) fn changed(&self) {
+        if let Some(inner) = self.0.upgrade() {
+            changed(&inner);
+        }
+    }
+}
+
+fn changed(inner: &ReminderInner) {
+    let soon = Utc::now() + Duration::seconds(5);
+    if let Ok(mut next) = inner.next.lock() {
+        *next = Some(next.map_or(soon, |next| next.min(soon)));
     }
 }
 
@@ -266,9 +347,12 @@ pub(super) fn read_fired(path: &Path) -> Result<BTreeMap<String, i64>, ReminderE
 }
 
 fn write_fired(path: &Path, fired: &BTreeMap<String, i64>) -> Result<(), ReminderError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| ReminderError::Storage(error.to_string()))?;
+    }
     let bytes =
         serde_json::to_vec(fired).map_err(|error| ReminderError::Storage(error.to_string()))?;
-    crate::notes::atomic_write(path, &bytes)
+    crate::storage::durable_replace(path, &bytes)
         .map_err(|error| ReminderError::Storage(error.to_string()))
 }
 
@@ -308,13 +392,6 @@ fn unclaim_fired(path: &Path, key: &str) -> Result<(), ReminderError> {
     write_fired(path, &fired)
 }
 
-pub(super) fn fired_path(database: &Path) -> PathBuf {
-    let name = database
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("workspace.db");
-    database.with_file_name(format!("{name}.reminders-fired.json"))
-}
 
 pub(super) fn claim_fired(
     path: &Path,

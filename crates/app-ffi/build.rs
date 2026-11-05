@@ -171,7 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "school_browser/port.rs",
         "lifecycle.rs",
         "cloud_sync/mod.rs",
-        "sync_engine/mod.rs",
+        "plan/mod.rs",
         "course_materials.rs",
         "storage.rs",
         "notes.rs",
@@ -223,7 +223,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if item.ident == "Task" {
                         item.ident = syn::parse_quote!(CloudTask);
                     }
-                    if name == "sync_engine/mod.rs" {
+                    if name == "plan/mod.rs" {
                         if let Some(renamed) = sync_name(&item.ident) {
                             item.ident = renamed;
                         }
@@ -261,7 +261,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if name.starts_with("../../adpt-isct/") {
                         continue;
                     }
-                    if name == "sync_engine/mod.rs" {
+                    if name == "plan/mod.rs" {
                         if let Some(renamed) = sync_name(&item.ident) {
                             item.ident = renamed;
                         }
