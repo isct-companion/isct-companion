@@ -22,8 +22,11 @@ fun main(args:Array<String>) = runBlocking {
     check(logs.startsWith("smoke\n") && logs.contains("Application started")) { "Opening a session must install Core's logger" }
     val credentials=SchoolCredentials("fixture","not-a-real-password","","A".repeat(70))
     vault.failNextStore()
-    try {session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value();error("Missing callback error")}
-    catch(_:SdkException.Callback) {}
+    // A vault callback that throws leaves the sign-out unfinished and the
+    // account closed; signing out again redoes every step.
+    try {session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value();error("Missing sign-out-incomplete")}
+    catch(e:SdkException.Storage) { check(e.detail=="sign-out-incomplete") { "Unexpected storage failure ${e.detail}" } }
+    check(session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value() is OperationResult.Flag) { "Signing out again must finish" }
     // The session is offline: connecting sends nothing and saves nothing.
     val offline=(session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value() as OperationResult.SchoolConnect).outcome
     check(offline is SchoolConnectOutcome.Unreachable) { "An offline connect must not sign in" }

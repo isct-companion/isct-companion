@@ -134,11 +134,16 @@ func require(_ condition: Bool, _ detail: String) throws {
             try require(try session.capabilities().ocr, "Packaged iOS SDK must expose OCR")
         }
         let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
+        // A vault callback that throws leaves the sign-out unfinished and the
+        // account closed; signing out again redoes every step.
         vault.failNextStore()
         do {
             _ = try await session.deleteCredentials(profile: .tokyoTech).value()
-            throw NSError(domain: "missing-callback-error", code: 1)
-        } catch SdkError.Callback { }
+            throw NSError(domain: "missing-sign-out-incomplete", code: 1)
+        } catch let SdkError.Storage(detail) where detail == "sign-out-incomplete" { }
+        guard case .flag = try await session.deleteCredentials(profile: .tokyoTech).value() else {
+            throw NSError(domain: "sign-out-retry", code: 1)
+        }
         // The session is offline: connecting sends nothing and saves nothing.
         guard case let .schoolConnect(offline) = try await session.connectSchool(profile: .tokyoTech, credentials: credentials).value() else {
             throw NSError(domain: "connect-result", code: 1)
