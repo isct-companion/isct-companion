@@ -611,7 +611,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
             }
         }
         OutlinedTextField(
-            username, { username = it }, label = { Text(t("settings.main.studentID")) }, singleLine = true,
+            username, { username = it }, label = { Text(t("settings.schoolAccounts.id")) }, singleLine = true,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
             ),
