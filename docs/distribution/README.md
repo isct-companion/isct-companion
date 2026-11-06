@@ -10,8 +10,8 @@ Get desktop releases from [Releases](https://github.com/isct-companion/isct-comp
 
 | System                   | Download filename contains   | Requirements                 |
 | ------------------------ | ---------------------------- | ---------------------------- |
-| Mac with Apple Silicon   | `aarch64-apple-darwin.dmg`   | macOS 14 or later            |
-| Mac with Intel processor | `x86_64-apple-darwin.dmg`    | macOS 14 or later            |
+| Mac with Apple Silicon   | `aarch64-apple-darwin.dmg`   | macOS 15 or later            |
+| Mac with Intel processor | `x86_64-apple-darwin.dmg`    | macOS 15 or later            |
 | Windows PC               | `x86_64-pc-windows-msvc.exe` | Windows 10/11, x64; WebView2 |
 | Android                  | `android.apk`                | Android 14 or later          |
 

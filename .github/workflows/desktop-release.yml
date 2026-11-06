@@ -452,7 +452,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'IsctCompanion %s desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.\n\n' "${RELEASE_TAG#v}" > release-notes.md
+          printf 'IsctCompanion %s desktop release for macOS 15+ (Apple Silicon / Intel) and Windows 10/11 x64.\n\n' "${RELEASE_TAG#v}" > release-notes.md
           notes="docs/releases/${RELEASE_TAG#v}.md"
           if [[ -f "$notes" ]]; then
             cat "$notes" >> release-notes.md

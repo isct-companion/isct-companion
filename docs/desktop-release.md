@@ -1,7 +1,7 @@
 # Desktop distribution
 
 The source repository `isct-companion/isct-companion` builds and publishes desktop
-Releases for macOS 14+ (Apple Silicon and Intel) and Windows 10/11 x64. The same
+Releases for macOS 15+ (Apple Silicon and Intel) and Windows 10/11 x64. The same
 version tag also starts the Android and iOS release workflows; see
 [mobile-release.md](mobile-release.md).
 
