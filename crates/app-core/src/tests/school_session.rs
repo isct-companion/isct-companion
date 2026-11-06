@@ -274,6 +274,26 @@ fn a_clear_covers_every_school_website_and_no_other() {
     }
 }
 
+/// A vault that keeps what it is given.
+#[derive(Clone, Default)]
+pub(crate) struct MemoryVault(Arc<Mutex<std::collections::HashMap<String, String>>>);
+
+impl crate::ports::SecretVault for MemoryVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+        self.0.lock().unwrap().insert(account.into(), secret.into());
+        Ok(())
+    }
+
+    fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        Ok(self.0.lock().unwrap().get(account).cloned())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+        self.0.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+
 struct NoVault;
 
 impl crate::ports::SecretVault for NoVault {
@@ -326,3 +346,223 @@ async fn an_anomaly_pause_stops_silent_sso_but_keeps_the_identity() {
     assert_eq!(identity.snapshot().map(|(_, at)| at), Some(generation));
 }
 
+// Credential Manager refuses a session past one item's limit, as every real
+// Tokyo Tech session with its site jars is. The session still comes back after
+// a relaunch, unverified; a sign-out leaves none of its items behind.
+#[tokio::test]
+async fn a_session_too_long_for_one_vault_item_comes_back_after_a_relaunch() {
+    let profile = SchoolAuthProfile::Science;
+    let vault = crate::secret_parts::tests::LimitedVault::with_limit(Some(1280));
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let sessions = SchoolSessions::new(None, auth);
+    sessions.0.restore(profile).await;
+    let long = format!("_idp={}; path=/; secure", "t".repeat(4000));
+    let identity = &sessions.0.account(profile).identity;
+    identity.set_configured(true);
+    identity
+        .restore(Snapshot {
+            cookies: vec![WebCookie {
+                url: EXTIC_SESSION.into(),
+                set_cookie: long.clone(),
+            }],
+        })
+        .unwrap();
+    let generation = sessions.account_generation(profile);
+    sessions.0.persist(profile, generation).await;
+    assert!(vault.parts() > 1, "spread over several items");
+
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let relaunched = SchoolSessions::new(None, auth);
+    relaunched.0.restore(profile).await;
+    let (snapshot, _) = relaunched.0.account(profile).identity.snapshot().unwrap();
+    assert_eq!(snapshot.cookies[0].set_cookie, long);
+    assert_eq!(relaunched.fresh(profile), None, "unverified after a relaunch");
+
+    assert_eq!(relaunched.sign_out(profile).await, Ok(true));
+    assert_eq!(vault.parts(), 0);
+    assert_eq!(
+        crate::ports::SecretVault::load(&vault, "school-session-science"),
+        Ok(None)
+);
+}
+
+// A revision always carries the view it was numbered with: shells keep the
+// highest revision they saw, so a higher revision with an older view (an
+// account stuck on "signing in") must be impossible, however publishes and
+// reads interleave. An unchanged view keeps its revision.
+#[test]
+fn a_school_session_revision_always_carries_its_own_view() {
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(NoVault)));
+    let first = sessions.snapshot();
+    assert_eq!(sessions.snapshot(), first);
+
+    let seen = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for thread in 0..4 {
+            let (sessions, seen) = (&sessions, &seen);
+            scope.spawn(move || {
+                for step in 0..300 {
+                    let identity = &sessions.0.account(SchoolAuthProfile::Science).identity;
+                    identity.set_configured((thread + step) % 2 == 0);
+                    sessions.0.publish();
+                    let snapshot = sessions.snapshot();
+                    seen.lock().unwrap().push(snapshot);
+                }
+            });
+        }
+    });
+    let mut views = std::collections::BTreeMap::new();
+    for snapshot in seen.into_inner().unwrap() {
+        let view = views
+            .entry(snapshot.revision)
+            .or_insert_with(|| snapshot.profiles.clone());
+        assert_eq!(*view, snapshot.profiles, "revision {}", snapshot.revision);
+    }
+    let last = sessions.snapshot();
+    assert!(last.revision > first.revision);
+    assert_eq!(
+        last.profiles.science.state,
+        if sessions
+            .0
+            .account(SchoolAuthProfile::Science)
+            .identity
+            .configured()
+        {
+            SchoolSessionState::Normal
+        } else {
+            SchoolSessionState::NotConfigured
+        }
+    );
+}
+
+/// A vault whose read of the saved credentials waits for the test, or is
+/// refused as a denied keychain refuses it.
+#[derive(Clone, Default)]
+struct HeldVault(Arc<HeldVaultState>);
+
+#[derive(Default)]
+struct HeldVaultState {
+    items: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    held: std::sync::Mutex<bool>,
+    released: std::sync::Condvar,
+    reading: std::sync::atomic::AtomicBool,
+    denied: std::sync::atomic::AtomicBool,
+}
+
+impl HeldVault {
+    fn hold(&self, held: bool) {
+        *self.0.held.lock().unwrap() = held;
+        self.0.released.notify_all();
+    }
+}
+
+impl crate::ports::SecretVault for HeldVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+        self.0
+            .items
+            .lock()
+            .unwrap()
+            .insert(account.into(), secret.into());
+        Ok(())
+    }
+    fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        if account == "school-accounts" {
+            self.0.reading.store(true, Ordering::SeqCst);
+            let mut held = self.0.held.lock().unwrap();
+            while *held {
+                held = self.0.released.wait(held).unwrap();
+            }
+            if self.0.denied.load(Ordering::SeqCst) {
+                return Err(crate::ports::SecretError::Access("denied".into()));
+            }
+        }
+        Ok(self.0.items.lock().unwrap().get(account).cloned())
+    }
+    fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+        self.0.items.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+
+fn saved_credentials() -> crate::school_auth::SchoolCredentials {
+    crate::school_auth::SchoolCredentials {
+        username: "student".into(),
+        password: "password".into(),
+        otp_secret: "JBSWY3DPEHPK3PXP".into(),
+        matrix: String::new(),
+    }
+}
+
+// While a Connect reads the vault nothing runs for its account, and a
+// background read must not start a sign-in in that window: it would send the
+// saved password right before the Connect sends the person's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_background_read_starts_no_sign_in_while_a_connect_reads_the_vault() {
+    let profile = SchoolAuthProfile::Science;
+    let vault = HeldVault::default();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(profile, &saved_credentials()).unwrap();
+    let sessions = SchoolSessions::new(None, auth);
+    sessions.assume_configured(profile);
+    // Saving read the item too: what counts from here on is the Connect's.
+    vault.0.reading.store(false, Ordering::SeqCst);
+    vault.hold(true);
+
+    let connect = tokio::spawn({
+        let sessions = sessions.clone();
+        async move { sessions.connect(profile, saved_credentials()).await }
+    });
+    while !vault.0.reading.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+
+    let identity = &sessions.0.account(profile).identity;
+    let seen = identity.generation();
+    let background = tokio::spawn({
+        let sessions = sessions.clone();
+        async move {
+            sessions
+                .0
+                .sign_in(profile, seen, identity::How::Background)
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let started = identity.sign_ins_started();
+    let shown = sessions.snapshot().profile(profile).state;
+    // Released first: a failed assertion must not leave a read blocked.
+    vault.hold(false);
+    assert_eq!(started, 0);
+    assert_eq!(shown, SchoolSessionState::SigningIn);
+    let _ = connect.await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(30), background)
+        .await
+        .expect("the background read goes on once the Connect has its sign-in");
+    assert!(identity.sign_ins_started() >= 1);
+}
+
+// A Retry whose vault read is refused says so: the caller gets a snapshot
+// with the reason, not the one from before the Retry.
+#[tokio::test]
+async fn a_retry_the_vault_refuses_says_why() {
+    let profile = SchoolAuthProfile::Science;
+    let vault = HeldVault::default();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    auth.promote(profile, &saved_credentials()).unwrap();
+    let sessions = SchoolSessions::new(None, auth);
+    sessions.assume_configured(profile);
+    let before = sessions.snapshot();
+
+    vault.0.denied.store(true, Ordering::SeqCst);
+    let after = sessions.retry(profile).await;
+    assert!(after.revision > before.revision);
+    let session = after.profile(profile);
+    assert_eq!(session.state, SchoolSessionState::Unavailable);
+    assert_eq!(
+        session.problem.as_ref().map(|problem| problem.kind),
+        Some(SchoolSignInProblemKind::CredentialStore)
+    );
+    assert!(session.retry_at.is_some());
+    assert_eq!(sessions.0.account(profile).identity.sign_ins_started(), 1);
+    assert!(sessions.0.account(profile).identity.configured());
+}

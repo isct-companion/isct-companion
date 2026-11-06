@@ -1,4 +1,6 @@
-export type Page = "home" | "timetable" | "lectures" | "web" | "settings";
+export type Page =
+  "home" | "timetable" | "lectures" | "web" | "tools" | "settings" | "about";
+export type Tool = "wifi" | "vpn" | "printer";
 export type Section =
   | "accounts"
   | "study"
@@ -9,13 +11,10 @@ export type Section =
   | "backup"
   | "sources"
   | "automation"
-  | "wifi"
-  | "printer"
   | "developer"
   | "agent"
   | "extensions"
-  | "diagnostics"
-  | "about";
+  | "diagnostics";
 export type { Platform } from "../platform/capabilities";
 
 /** Tauri errors may be native typed failures or JavaScript Errors. */

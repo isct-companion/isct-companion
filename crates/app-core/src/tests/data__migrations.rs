@@ -1,11 +1,9 @@
 use super::*;
 use std::collections::BTreeSet;
 
-fn tables_of(connection: &Connection, schema: &str) -> BTreeSet<String> {
+fn tables_of(connection: &Connection) -> BTreeSet<String> {
     let mut statement = connection
-        .prepare(&format!(
-            "SELECT name FROM {schema}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ))
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
         .unwrap();
     let names = statement
         .query_map([], |row| row.get::<_, String>(0))
@@ -24,15 +22,20 @@ fn listed(tables: &[&str]) -> BTreeSet<String> {
     tables.iter().map(|table| (*table).to_string()).collect()
 }
 
-/// Every table is created in the file that owns it, and the two lists match
-/// the schemas: a table missing from them would escape a cache reset or be
-/// counted wrong, and a backup table outside user.db would not be backed up.
+/// The three lists name every table of the schema, once each: a table missing
+/// from them would escape a cache reset or be counted wrong, and a backup table
+/// outside the user tables would not be backed up.
 #[test]
-fn each_table_is_created_in_the_file_that_owns_it() {
+fn each_table_belongs_to_one_group() {
     let connection = open_in_memory().unwrap();
-    assert_eq!(tables_of(&connection, "main"), listed(USER_TABLES));
-    assert_eq!(tables_of(&connection, "cache"), listed(CACHE_TABLES));
-    assert_eq!(tables_of(&connection, "sync"), listed(SYNC_TABLES));
+    let groups = [
+        listed(USER_TABLES),
+        listed(CACHE_TABLES),
+        listed(SYNC_TABLES),
+    ];
+    let every: BTreeSet<String> = groups.iter().flatten().cloned().collect();
+    assert_eq!(tables_of(&connection), every);
+    assert_eq!(every.len(), groups.iter().map(BTreeSet::len).sum::<usize>());
     for table in crate::data::USER_BACKUP_TABLES {
         assert!(USER_TABLES.contains(table), "{table}");
     }

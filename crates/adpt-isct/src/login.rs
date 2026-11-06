@@ -166,6 +166,99 @@ pub fn tokyo(html: &str, base: &str) -> TokyoPage {
     }
 }
 
+/// One step on the way into the campus VPN (the F5 APM). The APM hands the
+/// browser to GetAccess's proxy, which asks for the portal password again;
+/// the account comes from the portal session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VpnPage {
+    /// The proxy's form with a single password field and no account field.
+    Password(Form),
+    /// A page whose only form posts hidden fields onward: a hand-off a
+    /// browser's script would submit on load. The APM's sets the form's
+    /// address from its script (`document.<form>.action = unescape("…")`);
+    /// that address is the action here.
+    Relay(Form),
+    /// Anything else: the APM itself, a GetAccess sign-in, a refusal.
+    Other,
+}
+
+/// Reads a page met on the way into the campus VPN, fetched from `base`.
+pub fn vpn(html: &str, base: &str) -> VpnPage {
+    let document = Html::parse_document(html);
+    for form in select(&document, "form") {
+        let passwords = select_in(form, "input[type=\"password\"]");
+        if passwords.len() == 1
+            && passwords[0]
+                .attr("name")
+                .is_some_and(|name| name.eq_ignore_ascii_case("password"))
+            && input(form, "usr_name").is_none()
+        {
+            return VpnPage::Password(form_at(form, base));
+        }
+    }
+    let forms = select(&document, "form");
+    if let [form] = forms.as_slice() {
+        let method = form.attr("method").unwrap_or("get");
+        let inputs = select_in(*form, "input");
+        let hidden_only = !inputs.is_empty()
+            && inputs.iter().all(|input| {
+                input
+                    .attr("type")
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("hidden"))
+            });
+        if method.eq_ignore_ascii_case("post") && hidden_only {
+            let mut relay = form_at(*form, base);
+            if let Some(action) = scripted_action(&document, form.attr("name")) {
+                relay.action = resolve(base, &action);
+            }
+            return VpnPage::Relay(relay);
+        }
+    }
+    VpnPage::Other
+}
+
+/// The address a page's script gives form `name` before submitting it:
+/// `document.<name>.action = unescape("…")` or `= "…"`.
+fn scripted_action(document: &Html, name: Option<&str>) -> Option<String> {
+    let name = name?;
+    let needle = format!("{name}.action");
+    select(document, "script").into_iter().find_map(|script| {
+        let text: String = script.text().collect();
+        let after = &text[text.find(&needle)? + needle.len()..];
+        let value = after.trim_start().strip_prefix('=')?.trim_start();
+        let value = value.strip_prefix("unescape(").unwrap_or(value).trim_start();
+        let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let rest = &value[1..];
+        let address = &rest[..rest.find(quote)?];
+        Some(percent_decode(address))
+    })
+}
+
+/// `unescape`'s `%XX` decoding, enough for an address.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let escaped = (bytes[at] == b'%')
+            .then(|| bytes.get(at + 1..at + 3))
+            .flatten()
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match escaped {
+            Some(byte) => {
+                out.push(byte);
+                at += 3;
+            }
+            None => {
+                out.push(bytes[at]);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// The value GetAccess gives the Matrix choice in "Move to Other
 /// Authentication".
 pub const GRID: &str = "GridAuthOption";
@@ -376,3 +469,7 @@ fn select_in<'a>(root: ElementRef<'a>, raw: &str) -> Vec<ElementRef<'a>> {
         .map(|selector| root.select(&selector).collect())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "tests/login.rs"]
+mod tests;

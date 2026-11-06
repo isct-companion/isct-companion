@@ -44,8 +44,6 @@ import androidx.compose.runtime.setValue
 class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     private val lock = Any()
     private var events: BrowserEvents? = null
-    /** Last committed URL per view or popup, readable from Core workers. */
-    private val urls = mutableMapOf<BrowserId, String>()
     private var closedForGood = false
     private val main = Handler(Looper.getMainLooper())
 
@@ -104,8 +102,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         main.post { perform(command) }
     }
 
-    override fun currentUrl(browser: BrowserId): String? = synchronized(lock) { urls[browser] }
-
     override fun dispose(browser: BrowserId) {
         main.post {
             tabs[browser]?.let(::discard)
@@ -127,7 +123,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     override fun shutdown() {
         synchronized(lock) {
             closedForGood = true
-            urls.clear()
         }
         main.post {
             for (view in views.values.toList()) discard(view)
@@ -239,7 +234,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             close(view)
             return
         }
-        synchronized(lock) { urls[id] = initialUrl }
         view.webView.loadUrl(initialUrl)
     }
 
@@ -304,7 +298,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             if (dialog?.browser == each.id) dialog?.answer(false, null)
             if (files?.browser == each.id) files?.answer(null)
             tabs.remove(each.id)
-            synchronized(lock) { urls.remove(each.id) }
             (each.webView.parent as? ViewGroup)?.removeView(each.webView)
             each.webView.destroy()
         }
@@ -410,7 +403,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 if (url != failedUrl) failedUrl = null
-                url?.let { synchronized(lock) { urls[id] = it } }
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
@@ -419,7 +411,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                     failedUrl = null
                     return
                 }
-                synchronized(lock) { urls[id] = url }
                 if (url != BLANK) loaded = true
                 // WebView exposes no request id here; never label a late load with an action.
                 runCatching { listener()?.pageLoaded(nextPage(), null, url) }

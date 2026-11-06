@@ -52,7 +52,7 @@ Every build is on the [download page](https://isctcomp.app/en/#download) and on
 | macOS · Apple silicon / Intel | macOS 14+ | `.dmg`, signed and notarized by Apple |
 | Windows · x64 | Windows 10 / 11 | `.exe` installer (not signed yet: choose **More info → Run anyway**) |
 | Android | Android 9+ | `.apk` (Google Play release on the way) |
-| iPhone / iPad | iOS / iPadOS | [TestFlight public beta](https://testflight.apple.com/join/kUZNQHG6) (App Store release on the way) |
+| iPhone / iPad | iOS / iPadOS | [App Store](https://apps.apple.com/app/id6821631471), or the [TestFlight public beta](https://testflight.apple.com/join/kUZNQHG6) |
 
 After installing, sign in to your school accounts in Settings and refresh.
 

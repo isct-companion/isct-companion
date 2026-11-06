@@ -557,3 +557,94 @@ async fn write_surface_survey() {
     });
     std::fs::write(&out, serde_json::to_vec_pretty(&summary).unwrap()).unwrap();
 }
+
+const MAINTENANCE_PAGE: &str = r#"<html><body id="page-maintenance-message" class="pagelayout-maintenance">
+    <h2>Site under maintenance</h2><div class="maintenance_message">Back at 18:00</div></body></html>"#;
+
+// During maintenance the LMS answers HTML wherever JSON was asked for: the
+// cookie AJAX with 200 (which read as a lost session) and REST with 503 (a
+// bare HTTP failure). Both are the site's maintenance: its host pauses with
+// the notice, and no verdict on the session or the token follows. A page that
+// only mentions maintenance stays what it was.
+#[tokio::test]
+async fn maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
+    use crate::school_auth::SchoolAuthProfile::Science;
+    let answering = |status, content_type, body| {
+        let auth = Arc::new(SchoolAuthService::new(NoVault));
+        let sessions = SchoolSessions::with_transport(
+            Arc::new(crate::net::one_answer::OneAnswer {
+                status,
+                content_type,
+                body,
+            }),
+            auth.clone(),
+        );
+        sessions.assume_configured(Science);
+        let attempt = Attempt::detached(&sessions, Site::Lms, Default::default());
+        let client = Arc::new(MoodleClient::new(auth, sessions.credential_signal()));
+        (sessions, attempt, client)
+    };
+    let notice = |sessions: &SchoolSessions| {
+        sessions
+            .snapshot()
+            .profile(Science)
+            .maintenance
+            .clone()
+            .and_then(|maintenance| maintenance.notice)
+    };
+    let cookie = || {
+        super::super::ajax::CookieTransport::new(&super::super::Dashboard {
+            html: String::new(),
+            url: lms_url("my/").unwrap(),
+            config: adpt_isct::lms::PageConfig {
+                sesskey: Some("key".into()),
+                language: String::new(),
+            },
+            instance: 0,
+        })
+        .unwrap()
+    };
+    let token = MoodleToken::new("token".into());
+    let rest = MoodleFunction::SiteInfo;
+    let ajax = MoodleFunction::CourseformatState;
+    let args = json!({"courseid": 1});
+
+    for (status, kind) in [(200, "text/html; charset=utf-8"), (503, "text/html")] {
+        let (sessions, attempt, _) = answering(status, kind, MAINTENANCE_PAGE);
+        let answer = cookie().call(&attempt, ajax, &args).await;
+        assert!(
+            matches!(answer, Err(MoodleError::Net(NetError::HostPaused { .. }))),
+            "AJAX {status}: {answer:?}"
+        );
+        assert_eq!(
+            notice(&sessions).as_deref(),
+            Some("Site under maintenance Back at 18:00")
+        );
+
+        let (sessions, attempt, client) = answering(status, kind, MAINTENANCE_PAGE);
+        let answer = TokenTransport::new(client)
+            .post(&attempt, &token, rest, &json!({}), Limits::page)
+            .await;
+        assert!(
+            matches!(answer, Err(MoodleError::Net(NetError::HostPaused { .. }))),
+            "REST {status}: {answer:?}"
+        );
+        assert!(notice(&sessions).is_some());
+    }
+
+    let (sessions, attempt, _) = answering(
+        200,
+        "text/html",
+        "<html><body>Scheduled maintenance of the lab</body></html>",
+    );
+    let answer = cookie().call(&attempt, ajax, &args).await;
+    assert!(matches!(answer, Err(MoodleError::SignInRequired)), "{answer:?}");
+    assert_eq!(notice(&sessions), None);
+
+    let (sessions, attempt, client) = answering(200, "application/json", r#"{"lang":"en"}"#);
+    assert!(TokenTransport::new(client)
+        .post(&attempt, &token, rest, &json!({}), Limits::page)
+        .await
+        .is_ok());
+    assert_eq!(notice(&sessions), None);
+}

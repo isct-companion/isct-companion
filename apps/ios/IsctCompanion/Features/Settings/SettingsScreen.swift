@@ -403,10 +403,10 @@ private struct AccountScreen: View {
             switch outcome {
             case .connected:
                 Text(t("schoolSession.connect.connected")).foregroundStyle(Theme.ok)
-            case let .refused(reason):
+            case let .refused(reason, _):
                 Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.refused)).foregroundStyle(Theme.danger)
                 Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
-            case let .needsWeb(reason):
+            case let .needsWeb(reason, _):
                 Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.needsWeb)).foregroundStyle(Theme.warn)
                 Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
                 if reason == .emailOtp {

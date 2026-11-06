@@ -20,6 +20,10 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Sent on every request: reqwest sends no User-Agent of its own.
 pub const USER_AGENT: &str = "Mozilla/5.0 (compatible; IsctCompanion/0.1)";
+/// A desktop Safari's, for the campus VPN's APM: its access policy sends any
+/// other agent, ours included, to its refusal page.
+pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+    AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 /// A `reqwest` client builder with the TLS every Core and shell client uses:
 /// rustls with ring and the platform verifier (reqwest 0.13's default
@@ -40,16 +44,19 @@ pub enum Host {
     GetAccessRouter,
     ScienceAccount,
     IsctData,
+    /// The F5 APM in front of the campus VPN.
+    CampusVpn,
 }
 
 impl Host {
-    pub const ALL: [Host; 6] = [
+    pub const ALL: [Host; 7] = [
         Host::Moodle,
         Host::Kyomu,
         Host::GetAccess,
         Host::GetAccessRouter,
         Host::ScienceAccount,
         Host::IsctData,
+        Host::CampusVpn,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -60,6 +67,7 @@ impl Host {
             Host::GetAccessRouter => "rp.nap.gsic.titech.ac.jp",
             Host::ScienceAccount => "isct.ex-tic.com",
             Host::IsctData => "raw.githubusercontent.com",
+            Host::CampusVpn => "apm.nap.gsic.titech.ac.jp",
         }
     }
 
@@ -80,9 +88,11 @@ impl Host {
     pub(crate) const fn budget(self) -> (usize, Duration) {
         match self {
             Host::Moodle => (4, Duration::from_millis(60)),
-            Host::Kyomu | Host::GetAccess | Host::GetAccessRouter | Host::ScienceAccount => {
-                (1, Duration::from_millis(300))
-            }
+            Host::Kyomu
+            | Host::GetAccess
+            | Host::GetAccessRouter
+            | Host::ScienceAccount
+            | Host::CampusVpn => (1, Duration::from_millis(300)),
             Host::IsctData => (2, Duration::ZERO),
         }
     }
@@ -272,6 +282,10 @@ pub enum KeyOutcome<T> {
     /// The school does not offer this data now.
     Unavailable(&'static str),
 }
+
+#[cfg(test)]
+#[path = "../tests/net__one_answer.rs"]
+pub(crate) mod one_answer;
 
 #[cfg(test)]
 #[path = "../tests/net.rs"]

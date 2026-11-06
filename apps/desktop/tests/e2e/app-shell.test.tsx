@@ -686,7 +686,8 @@ describe("keyboard shortcuts", () => {
       paths.timetable(),
       paths.lectures(),
       paths.web(),
-      // ⌘5 returns to the section left above.
+      paths.tools(),
+      // ⌘6 returns to the section left above.
       paths.settings("study"),
     ].entries()) {
       await act(async () => {
@@ -2128,7 +2129,6 @@ it("shows every page and settings section in Chinese without English leftovers",
     "sources",
     "agent",
     "developer",
-    "about",
   ] as const;
   const leaks: Record<string, string[]> = {};
   for (const route of [

@@ -1451,3 +1451,35 @@ async fn a_suspended_engine_runs_only_what_its_opportunity_allows() {
     assert!(!engine.end_opportunity("unknown", OpportunityEnd::Expired));
     assert!(engine.end_opportunity("local-2", OpportunityEnd::Finished));
 }
+
+// Session events can reach the status line out of order. A late event with a
+// lower revision must not take the source back to what it said before.
+#[tokio::test]
+async fn a_late_session_event_does_not_take_a_source_back() {
+    use crate::school_session::{SchoolSessionSnapshot, SchoolSessionState, SchoolSessions};
+    let (engine, _store) = engine("late-session-event");
+    let session = |revision: u64, state: SchoolSessionState| {
+        let sessions = SchoolSessions::new(
+            None,
+            Arc::new(SchoolAuthService::new(EmptyVault)),
+        );
+        let mut snapshot: SchoolSessionSnapshot = sessions.snapshot();
+        snapshot.revision = revision;
+        snapshot.profiles.science.state = state;
+        crate::events::CoreEvent::SchoolSession(snapshot)
+    };
+    let shown = || {
+        engine
+            .snapshot()
+            .sources
+            .into_iter()
+            .find(|source| source.source == "lms")
+            .and_then(|source| source.session)
+    };
+    engine.observe(&session(5, SchoolSessionState::Refused));
+    assert_eq!(shown(), Some(SchoolSessionState::Refused));
+    engine.observe(&session(4, SchoolSessionState::SigningIn));
+    assert_eq!(shown(), Some(SchoolSessionState::Refused));
+    engine.observe(&session(6, SchoolSessionState::Normal));
+    assert_eq!(shown(), Some(SchoolSessionState::Normal));
+}

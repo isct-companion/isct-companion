@@ -64,8 +64,8 @@ impl ExamTimetable {
 pub struct SchoolReads {
     /// The catalog offerings the workspace's courses name, by offering id.
     pub(crate) catalog: BTreeMap<String, CatalogEntry>,
-    /// Shared by every snapshot of one cache.db version: no user intent
-    /// changes it.
+    /// Shared by every view until the exams change: no user intent changes
+    /// it.
     pub(crate) exams: Arc<ExamTimetable>,
 }
 

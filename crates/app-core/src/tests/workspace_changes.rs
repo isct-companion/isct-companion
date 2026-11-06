@@ -15,11 +15,8 @@ fn every_table_in_every_database_file_says_what_it_feeds() {
     let (store, _) = DataStore::initialize_dir(directory.clone()).unwrap();
     let names = store
         .write(None, |transaction| {
-            let mut statement = transaction.prepare(
-                "SELECT name FROM main.sqlite_master WHERE type = 'table'
-                 UNION SELECT name FROM cache.sqlite_master WHERE type = 'table'
-                 UNION SELECT name FROM sync.sqlite_master WHERE type = 'table'",
-            )?;
+            let mut statement =
+                transaction.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")?;
             let names = statement
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?;

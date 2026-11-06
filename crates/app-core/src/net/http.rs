@@ -62,11 +62,23 @@ impl Http {
     pub fn new() -> Result<Self, NetError> {
         let mut lanes = HashMap::new();
         for host in Host::ALL {
-            let client = super::client_builder()
+            let builder = super::client_builder()
                 .user_agent(USER_AGENT)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(CONNECT)
-                .pool_idle_timeout(Duration::from_secs(90))
+                .pool_idle_timeout(Duration::from_secs(90));
+            #[cfg(target_os = "macos")]
+            let builder = if host == Host::CampusVpn {
+                // The macOS helper reaches the APM over IPv4. On IPv6-only
+                // Wi-Fi the default path leaves through NAT64 from another
+                // public address than IPv4 through CLAT, and the APM answers
+                // openconnect's first request with a 302 for a session made
+                // from elsewhere. So the session is made the tunnel's way.
+                builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+            } else {
+                builder
+            };
+            let client = builder
                 .build()
                 .map_err(|error| NetError::Invalid(format!("HTTP client: {error}")))?;
             let (concurrent, spacing) = host.budget();

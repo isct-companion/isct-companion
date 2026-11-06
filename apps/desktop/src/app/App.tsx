@@ -4,7 +4,9 @@ import {
   CalendarDays,
   Globe,
   House,
+  Info,
   SlidersHorizontal,
+  Wrench,
 } from "lucide-react";
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { formatJst } from "../lib/civil-date";
@@ -59,6 +61,10 @@ import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
+import { vpnNoticeText } from "../pages/tools/CampusVpn";
+import { About } from "../pages/about/AboutPage";
+import { Tools } from "../pages/tools/ToolsPage";
+import { availableTools } from "../pages/tools/registry";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -185,14 +191,16 @@ function SchoolStatusAccount({
   );
 }
 
-const pages: Page[] = ["home", "timetable", "lectures", "web"];
+const pages: Page[] = ["home", "timetable", "lectures", "web", "tools"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
   timetable: <CalendarDays aria-hidden strokeWidth={1.75} />,
   home: <House aria-hidden strokeWidth={1.75} />,
   lectures: <BookOpen aria-hidden strokeWidth={1.75} />,
   web: <Globe aria-hidden strokeWidth={1.75} />,
+  tools: <Wrench aria-hidden strokeWidth={1.75} />,
   settings: <SlidersHorizontal aria-hidden strokeWidth={1.75} />,
+  about: <Info aria-hidden strokeWidth={1.75} />,
 };
 
 /** What the shell itself renders: course names and colours, the editors it
@@ -243,7 +251,9 @@ export function WorkspaceApp() {
   const homeMatch = useMatch(`${routePatterns.home}/*`);
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
   const webMatch = useMatch(`${routePatterns.web}/*`);
+  const toolsMatch = useMatch(routePatterns.tools);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
+  const aboutMatch = useMatch(routePatterns.about);
   const weekMatch = useMatch(routePatterns.week);
   const page: Page = timetableMatch
     ? "timetable"
@@ -251,9 +261,13 @@ export function WorkspaceApp() {
       ? "lectures"
       : webMatch
         ? "web"
-        : settingsMatch
-          ? "settings"
-          : "home";
+        : toolsMatch
+          ? "tools"
+          : settingsMatch
+            ? "settings"
+            : aboutMatch
+              ? "about"
+              : "home";
   const courseViewTerm = previewTerm ?? overview.value?.coursesTerm;
   const timetableViews = useTimetableViews(
     overview.value?.allTerms ?? [],
@@ -282,6 +296,16 @@ export function WorkspaceApp() {
       window.removeEventListener("unhandledrejection", rejection);
     };
   }, []);
+  // Campus VPN reminders come whichever page is open; the system
+  // notification is worded in the UI language.
+  useEffect(
+    () =>
+      desktopBridge?.onVpnNotice?.((notice) => {
+        const [title, body] = vpnNoticeText(notice);
+        void desktopBridge?.notify(title, body).catch(() => undefined);
+      }),
+    [],
+  );
   useEffect(() => {
     if (previewTerm === overview.value?.coursesTerm) setPreviewTerm(null);
   }, [previewTerm, overview.value?.coursesTerm]);
@@ -470,11 +494,11 @@ export function WorkspaceApp() {
     const key = (e: KeyboardEvent) => {
       if (
         (e.metaKey || e.ctrlKey) &&
-        ["1", "2", "3", "4", "5"].includes(e.key)
+        ["1", "2", "3", "4", "5", "6"].includes(e.key)
       ) {
         e.preventDefault();
         const next: Page =
-          e.key === "5" ? "settings" : pages[Number(e.key) - 1];
+          e.key === "6" ? "settings" : pages[Number(e.key) - 1];
         void navigate(pagePath(next));
       }
     };
@@ -587,7 +611,9 @@ export function WorkspaceApp() {
     timetable: t("common.timetable"),
     lectures: t("common.lectures"),
     web: t("common.web"),
+    tools: t("common.tools"),
     settings: t("common.settings"),
+    about: t("settings.main.about"),
   };
   const currentTerm = workspaceView.currentTerm;
   const todayTerm = workspaceView.todayTerm;
@@ -1182,6 +1208,8 @@ export function WorkspaceApp() {
       }
     />
   );
+  const aboutPage = <About data={data} update={update} />;
+  const toolsPage = <Tools platform={platform} notify={notify.info} />;
   const settingsPage = (
     <Settings
       mutate={workspaceActions.mutate}
@@ -1354,11 +1382,14 @@ export function WorkspaceApp() {
       )}
     </>
   );
+  const railPages = availableTools(platform).length
+    ? pages
+    : pages.filter((p) => p !== "tools");
   return (
     <div className="app" data-density={data.settings.density}>
       <aside className="rail">
         <nav aria-label={t("app.pages")}>
-          {pages.map((p, i) => (
+          {railPages.map((p) => (
             <UiButton
               className={page === p ? "active" : ""}
               onClick={() => navigatePage(p)}
@@ -1379,30 +1410,37 @@ export function WorkspaceApp() {
                   ? () => setLectureRailHovered(false)
                   : undefined
               }
-              title={`${navigation[p]} (⌘${i + 1})`}
+              title={`${navigation[p]} (⌘${pages.indexOf(p) + 1})`}
             >
               {icons[p]}
               <span>{navigation[p]}</span>
             </UiButton>
           ))}
         </nav>
-        <UiButton
-          className={`railUtility${page === "settings" ? " active" : ""}`}
-          onClick={() => void navigate(pagePath("settings"))}
-          title={navigation.settings}
-        >
-          {icons.settings}
-          <span>{navigation.settings}</span>
-        </UiButton>
+        <div className="railUtilities">
+          {(["settings", "about"] as const).map((p) => (
+            <UiButton
+              key={p}
+              className={`railUtility${page === p ? " active" : ""}`}
+              onClick={() => void navigate(pagePath(p))}
+              title={navigation[p]}
+            >
+              {icons[p]}
+              <span>{navigation[p]}</span>
+            </UiButton>
+          ))}
+        </div>
       </aside>
       <main
-        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
+        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : page === "about" ? " aboutMain" : ""}`}
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}
         {keep("timetable", timetablePage)}
         {keep("web", webPage)}
+        {keep("tools", toolsPage)}
         {keep("settings", settingsPage)}
+        {keep("about", aboutPage)}
       </main>
       {overlays}
       <aside
@@ -1418,7 +1456,7 @@ export function WorkspaceApp() {
           />
           <SchoolStatusAccount
             profile="tokyo-tech"
-            name="TokyoTech"
+            name="Tokyo Tech"
             session={tokyoTechSession}
             locale={data.settings.locale}
           />

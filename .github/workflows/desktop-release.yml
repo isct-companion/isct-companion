@@ -155,6 +155,66 @@ jobs:
       - name: Install Windows signing tool
         if: runner.os == 'Windows' && env.SIGN_WINDOWS == 'true'
         run: cargo install artifact-signing-cli --version 0.12.0 --locked
+      # Homebrew's openconnect is Apple Silicon only, so the Intel Mac build ships
+      # without the campus VPN and hides it.
+      - name: Build the campus VPN payload (Apple Silicon)
+        if: matrix.target == 'aarch64-apple-darwin'
+        env:
+          APPLE_CERTIFICATE: ${{ env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ env.SIGN_MACOS == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install openconnect
+          keychain="$RUNNER_TEMP/vpn-signing.keychain-db"
+          if [[ -n "$APPLE_SIGNING_IDENTITY" ]]; then
+            password="$(uuidgen)"
+            printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/vpn-signing.p12"
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 3600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            security import "$RUNNER_TEMP/vpn-signing.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            rm -f "$RUNNER_TEMP/vpn-signing.p12"
+          fi
+          node scripts/desktop/bundle-vpn.mjs
+          if [[ -n "$APPLE_SIGNING_IDENTITY" ]]; then
+            security delete-keychain "$keychain"
+          fi
+          payload=apps/desktop/src-tauri/resources/vpn
+          [[ "$(lipo -archs "$payload/openconnect/bin/openconnect")" == arm64 ]]
+          "$payload/openconnect/bin/openconnect" --version
+      - name: Build the campus VPN payload (Windows)
+        if: runner.os == 'Windows'
+        env:
+          AZURE_CLIENT_ID: ${{ env.SIGN_WINDOWS == 'true' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ env.SIGN_WINDOWS == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TENANT_ID: ${{ env.SIGN_WINDOWS == 'true' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ env.SIGN_WINDOWS == 'true' && vars.AZURE_ARTIFACT_SIGNING_ENDPOINT || '' }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ env.SIGN_WINDOWS == 'true' && vars.AZURE_ARTIFACT_SIGNING_ACCOUNT || '' }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ env.SIGN_WINDOWS == 'true' && vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE || '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The official build of the v9.21 tag, pinned by hash.
+          $installer = "$env:RUNNER_TEMP\openconnect-installer.exe"
+          Invoke-WebRequest -Uri 'https://gitlab.com/openconnect/openconnect/-/jobs/artifacts/v9.21/raw/openconnect-installer-MinGW64-GnuTLS-v9.21.exe?job=MinGW64/GnuTLS' -OutFile $installer
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          if ($hash -ne '6EE9E8EB9BC59EF70BB0717DF7F99703F8A2CCD11D8E45D58A61F9A2E6EF7D00') { throw "openconnect installer hash is $hash" }
+          $unpacked = "$env:RUNNER_TEMP\openconnect"
+          7z x $installer "-o$unpacked" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'could not unpack openconnect' }
+          node scripts/desktop/bundle-vpn.mjs --openconnect $unpacked
+          if ($LASTEXITCODE -ne 0) { throw 'could not build the campus VPN payload' }
+          if ($env:SIGN_WINDOWS -eq 'true') {
+            $files = Get-ChildItem apps/desktop/src-tauri/resources/vpn -Recurse -Include *.exe,*.dll
+            foreach ($file in $files) {
+              artifact-signing-cli -e $env:AZURE_ARTIFACT_SIGNING_ENDPOINT -d IsctCompanion $file.FullName
+              if ($LASTEXITCODE -ne 0) { throw "could not sign $($file.Name)" }
+            }
+          }
       - name: Build desktop installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -407,12 +467,12 @@ jobs:
           | Mac — Intel | [DMG](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_x86_64-apple-darwin.dmg) |
           | Windows — x64 | [EXE](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_x86_64-pc-windows-msvc.exe) |
           | Android | [APK](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_android.apk) |
-          | iPhone / iPad | TestFlight, or [IPA](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_ios.ipa) to sideload |
+          | iPhone / iPad | [App Store](https://apps.apple.com/app/id6821631471), or [IPA](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_ios.ipa) to sideload |
 
           Use the installers above. The latest.json file is for automatic updates.
           GitHub's automatically generated Source code archives are for developers.
           DOWNLOADS
-          printf '\nThe Android APK and the iPhone/iPad IPA are attached by their release workflows when their builds finish. Install on iPhone and iPad through TestFlight; the IPA is for sideloading tools (AltStore, Sideloadly), which re-sign it with your own Apple account. A sideloaded copy without the iCloud entitlement backs up through Google Drive or a file instead of iCloud.\n\n' >> release-notes.md
+          printf '\nThe Android APK and the iPhone/iPad IPA are attached by their release workflows when their builds finish. Install on iPhone and iPad through the App Store; the IPA is for sideloading tools (AltStore, Sideloadly), which re-sign it with your own Apple account. A sideloaded copy without the iCloud entitlement backs up through Google Drive or a file instead of iCloud.\n\n' >> release-notes.md
           echo 'Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.' >> release-notes.md
           echo 'Read the license documents bundled with the app before installing. Third-party notices are included in the app.' >> release-notes.md
           echo "Source build: https://github.com/$BUILD_REPO/commit/$SOURCE_SHA" >> release-notes.md

@@ -85,6 +85,9 @@ pub struct SchoolWebPage {
     pub notice: Option<SchoolWebFailure>,
     /// A web operation runs for the view, or what its last one left to say.
     pub access: Option<SchoolWebAccess>,
+    /// The page in front is a sign-in page Core could sign in with the saved
+    /// credentials and is not signing in now: the manual way out (Reload).
+    pub sign_in: bool,
 }
 
 /// Whether the app's Back or Forward does something for the page in front.

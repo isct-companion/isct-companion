@@ -19,6 +19,8 @@
 //!   it. The host therefore keeps each popup's frame and visibility with its
 //!   view (`arrange_popups`). Popups take the opener's page zoom, and refuse
 //!   to become first responder while hidden, as main views do.
+//! - Command keys: the focused view or popup asks the app's menu first and
+//!   gives the page the rest (`key_equivalent`).
 //! - History: whether a view or popup can go back or forward is reported to
 //!   Core when a page commits or finishes and when a popup is created.
 //! - Page dialogs: `alert()`, `confirm()`, `prompt()` as a sheet for the
@@ -57,8 +59,8 @@ use objc2::{
     define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSDragOperation, NSDraggingInfo, NSModalResponse,
-    NSModalResponseOK, NSOpenPanel, NSPrintInfo, NSResponder, NSTextField, NSView,
+    NSAlert, NSAlertFirstButtonReturn, NSApplication, NSDragOperation, NSDraggingInfo, NSEvent,
+    NSModalResponse, NSModalResponseOK, NSOpenPanel, NSPrintInfo, NSResponder, NSTextField, NSView,
     NSWindowOrderingMode,
 };
 use objc2_foundation::{
@@ -242,12 +244,17 @@ fn request(
 
 /// A coarse reason for a failed load. Cancellations (a newer load, a policy
 /// decision, a response that became a download or a plug-in) are not failures.
-fn failure(error: &NSError) -> LoadFailure {
+/// WebKit also says "not connected" (-1009) when the network works but has no
+/// route to the address, as for a campus-only host with a private IPv4
+/// address on IPv6-only Wi-Fi (CLAT does not translate it), so with the
+/// system's network path satisfied that is unreachable.
+fn failure(error: &NSError, online: bool) -> LoadFailure {
     let domain = error.domain().to_string();
     let code = error.code();
     match (domain.as_str(), code) {
         ("NSURLErrorDomain", -999) => LoadFailure::Cancelled,
         ("WebKitErrorDomain", 102 | 204) => LoadFailure::Cancelled,
+        ("NSURLErrorDomain", -1009) if online => LoadFailure::Unreachable,
         ("NSURLErrorDomain", -1009 | -1018 | -1020) => LoadFailure::Offline,
         ("NSURLErrorDomain", -1003 | -1006) => LoadFailure::HostNotFound,
         ("NSURLErrorDomain", -1001 | -1004 | -1005) => LoadFailure::Unreachable,
@@ -388,6 +395,13 @@ define_class!(
         fn accepts_first_responder(&self) -> bool {
             !self.isHiddenOrHasHiddenAncestor()
                 && unsafe { msg_send![super(self), acceptsFirstResponder] }
+        }
+
+        #[unsafe(method(performKeyEquivalent:))]
+        fn perform_key_equivalent(&self, event: &NSEvent) -> bool {
+            key_equivalent(self, event, || unsafe {
+                msg_send![super(self), performKeyEquivalent: event]
+            })
         }
 
         /// A hidden popup is no drag destination (`drag_hit_test`).
@@ -1174,7 +1188,7 @@ impl SchoolNavigationDelegate {
     }
 
     fn report_failure(&self, error: &NSError) {
-        let reason = failure(error);
+        let reason = failure(error, network_path::online());
         if reason == LoadFailure::Cancelled {
             return;
         }
@@ -1418,6 +1432,8 @@ pub unsafe fn install(
     let mtm = MainThreadMarker::new()?;
     let web_view = unsafe { (web_view as *const WKWebView).as_ref() }?;
     stay_out_while_hidden(web_view);
+    ask_menu_first(web_view);
+    network_path::watch();
     MAIN_VIEWS.with_borrow_mut(|views| {
         views.retain(|(id, web_view)| id.site != view.site && web_view.load().is_some());
         views.push((view, Weak::new(web_view)));
@@ -1453,6 +1469,82 @@ pub unsafe fn install(
         _ui: ui,
         _navigation: navigation,
     })
+}
+
+/// A command key at a school view or popup. WKWebView alone keeps ⌘C and ⌘V
+/// from the Edit menu in a popup (its context menu's Copy works), and wry's
+/// main views answer no at once, so a page never sees ⌘B. The focused view
+/// asks the menu first and gives `webkit` the rest; any other view leaves the
+/// key to the one that has focus.
+fn key_equivalent(view: &NSView, event: &NSEvent, webkit: impl FnOnce() -> bool) -> bool {
+    let this: &NSResponder = view;
+    let focused = view
+        .window()
+        .and_then(|window| window.firstResponder())
+        .is_some_and(|responder| std::ptr::eq(&*responder, this));
+    focused
+        && (NSApplication::sharedApplication(view.mtm())
+            .mainMenu()
+            .is_some_and(|menu| menu.performKeyEquivalent(event))
+            || webkit())
+}
+
+static WEBKIT_KEY_EQUIVALENT: std::sync::OnceLock<objc2::runtime::Imp> = std::sync::OnceLock::new();
+
+unsafe extern "C-unwind" fn main_view_key_equivalent(
+    this: &AnyObject,
+    selector: Sel,
+    event: &NSEvent,
+) -> Bool {
+    // SAFETY: the class this is installed on is a WKWebView subclass.
+    let view = unsafe { &*(this as *const AnyObject as *const NSView) };
+    Bool::new(key_equivalent(view, event, || {
+        let Some(original) = WEBKIT_KEY_EQUIVALENT.get() else {
+            return false;
+        };
+        // SAFETY: the stored IMP is WKWebView's own `performKeyEquivalent:`.
+        let original: unsafe extern "C-unwind" fn(&AnyObject, Sel, &NSEvent) -> Bool =
+            unsafe { std::mem::transmute(*original) };
+        unsafe { original(this, selector, event) }.as_bool()
+    }))
+}
+
+/// wry's class under the title observer's KVO subclass.
+fn wry_class(web_view: &WKWebView) -> Option<&'static objc2::runtime::AnyClass> {
+    let mut class = web_view.class();
+    while class.name().to_bytes().starts_with(b"NSKVONotifying_") {
+        class = class.superclass()?;
+    }
+    Some(class)
+}
+
+/// Replaces wry's `performKeyEquivalent:` on its class, once.
+fn ask_menu_first(web_view: &WKWebView) {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let selector = sel!(performKeyEquivalent:);
+        let (Some(class), Some(method)) = (
+            wry_class(web_view),
+            <WKWebView as objc2::ClassType>::class().instance_method(selector),
+        ) else {
+            log::error!("[school-web] command keys stay with wry's class");
+            return;
+        };
+        let _ = WEBKIT_KEY_EQUIVALENT.set(method.implementation());
+        // SAFETY: the replacement has the `BOOL (id, SEL, NSEvent *)` signature
+        // of the method whose type encoding it is registered with.
+        unsafe {
+            objc2::ffi::class_replaceMethod(
+                class as *const _ as *mut _,
+                selector,
+                std::mem::transmute::<
+                    unsafe extern "C-unwind" fn(&AnyObject, Sel, &NSEvent) -> Bool,
+                    objc2::runtime::Imp,
+                >(main_view_key_equivalent),
+                objc2::ffi::method_getTypeEncoding(method),
+            );
+        }
+    });
 }
 
 static WEBKIT_ACCEPTS_FIRST_RESPONDER: std::sync::OnceLock<objc2::runtime::Imp> =
@@ -1569,15 +1661,10 @@ fn log_drag(view: &NSView, hit: Option<*mut AnyObject>, reason: &str) {
 fn stay_out_while_hidden(web_view: &WKWebView) {
     static INSTALLED: std::sync::Once = std::sync::Once::new();
     INSTALLED.call_once(|| {
-        // wry registers its class under a versioned module path, and the
-        // title observer adds a KVO subclass on top; walk to the real class.
-        let mut class = web_view.class();
-        while class.name().to_bytes().starts_with(b"NSKVONotifying_") {
-            let Some(superclass) = class.superclass() else {
-                return;
-            };
-            class = superclass;
-        }
+        // wry registers its class under a versioned module path.
+        let Some(class) = wry_class(web_view) else {
+            return;
+        };
         let selector = sel!(acceptsFirstResponder);
         let Some(method) = <WKWebView as objc2::ClassType>::class().instance_method(selector)
         else {
@@ -1635,4 +1722,65 @@ fn stay_out_while_hidden(web_view: &WKWebView) {
             );
         }
     });
+}
+
+/// Whether the system has a usable network path (Network.framework's path
+/// monitor), for telling "offline" from "no route to this host" in `failure`.
+/// objc2 has no Network.framework binding, so the four C calls are declared
+/// here.
+mod network_path {
+    use block2::RcBlock;
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static SATISFIED: AtomicBool = AtomicBool::new(false);
+
+    #[link(name = "Network", kind = "framework")]
+    unsafe extern "C" {
+        fn nw_path_monitor_create() -> *mut c_void;
+        fn nw_path_monitor_set_queue(monitor: *mut c_void, queue: *mut c_void);
+        fn nw_path_monitor_set_update_handler(
+            monitor: *mut c_void,
+            handler: &block2::DynBlock<dyn Fn(*mut c_void)>,
+        );
+        fn nw_path_monitor_start(monitor: *mut c_void);
+        fn nw_path_get_status(path: *mut c_void) -> i32;
+    }
+    unsafe extern "C" {
+        fn dispatch_get_global_queue(identifier: isize, flags: usize) -> *mut c_void;
+    }
+
+    /// `nw_path_status_satisfied`.
+    const SATISFIED_STATUS: i32 = 1;
+    /// `QOS_CLASS_UTILITY`.
+    const UTILITY: isize = 0x11;
+
+    /// Starts the monitor once; it runs for the life of the app. Until its
+    /// first update the path counts as unsatisfied, which keeps WebKit's own
+    /// reading.
+    pub fn watch() {
+        static STARTED: std::sync::Once = std::sync::Once::new();
+        STARTED.call_once(|| {
+            let handler = RcBlock::new(|path: *mut c_void| {
+                // SAFETY: Network.framework passes a live `nw_path_t`.
+                let status = unsafe { nw_path_get_status(path) };
+                SATISFIED.store(status == SATISFIED_STATUS, Ordering::Relaxed);
+            });
+            // SAFETY: plain Network.framework and libdispatch calls; the
+            // monitor copies the handler and is never released.
+            unsafe {
+                let monitor = nw_path_monitor_create();
+                if monitor.is_null() {
+                    return;
+                }
+                nw_path_monitor_set_queue(monitor, dispatch_get_global_queue(UTILITY, 0));
+                nw_path_monitor_set_update_handler(monitor, &handler);
+                nw_path_monitor_start(monitor);
+            }
+        });
+    }
+
+    pub fn online() -> bool {
+        SATISFIED.load(Ordering::Relaxed)
+    }
 }

@@ -18,8 +18,8 @@ Get desktop releases from [Releases](https://github.com/isct-companion/isct-comp
 On Mac, open the disk image and drag the app to Applications. On Windows, run
 the installer; it installs WebView2 if needed (an internet connection may be
 required). Intel Mac builds currently omit campus-card OCR.
-iPhone and iPad builds are distributed through TestFlight while App Store review
-is being prepared. They require iOS or iPadOS 18 or later.
+iPhone and iPad builds are distributed through the App Store, with TestFlight
+as the public beta. They require iOS or iPadOS 18 or later.
 
 The version release contains installers and `latest.json`, the automatic update
 index. Mac update archives are kept in the separate Automatic desktop update

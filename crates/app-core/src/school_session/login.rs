@@ -7,7 +7,9 @@
 //! provider's "carry on" answer: it ends by opening the target (the LMS
 //! dashboard, a 教務Web page), and only that page proves the sign-in. A page
 //! asking again for a factor already sent ends the flow instead of sending
-//! it twice: a wrong password must never be retried until the account locks.
+//! it twice: a wrong password or one-time password must never be retried
+//! until the account locks. A maintenance page of the target ends it with
+//! no verdict.
 //!
 //! The attempt's jar is thrown away afterwards. What it keeps is the
 //! identity snapshot: every `Set-Cookie` the identity hosts sent, with the
@@ -52,6 +54,9 @@ pub(super) enum LoginEnd {
     Rejected(Kind, String),
     /// The school wants a person on its own page.
     NeedsWeb(Kind, String),
+    /// The site showed its maintenance page, with this notice: no verdict
+    /// on the credentials.
+    Maintenance(String),
     /// No verdict: the network, a server error, no answer in time.
     Unavailable(Kind, String),
 }
@@ -60,6 +65,7 @@ pub(super) enum LoginEnd {
 enum Fail {
     Rejected(Kind, &'static str),
     NeedsWeb(Kind, &'static str),
+    Maintenance(String),
     Walk(WalkError),
 }
 
@@ -120,6 +126,7 @@ fn finish(
         }
         Err(Fail::Rejected(kind, what)) => LoginEnd::Rejected(kind, what.into()),
         Err(Fail::NeedsWeb(kind, what)) => LoginEnd::NeedsWeb(kind, what.into()),
+        Err(Fail::Maintenance(notice)) => LoginEnd::Maintenance(notice),
         Err(Fail::Walk(WalkError::Http(status))) if status < 500 => LoginEnd::NeedsWeb(
             Kind::UnknownPage,
             format!("the school answered HTTP {status}"),
@@ -154,9 +161,9 @@ async fn science_flow(
     let lms = url(LMS_HOME)?;
     let mut page = walk.get(lms.clone(), None).await?;
     let mut credentials_sent = false;
-    let mut otp_sent: Option<u64> = None;
-    let mut otp_attempts = 0;
+    let mut otp_sent = false;
     for _ in 0..8 {
+        maintenance(&page)?;
         match login::science(&page.html, page.url.as_str()) {
             SciencePage::Credentials(mut form) => {
                 if credentials_sent {
@@ -186,6 +193,7 @@ async fn science_flow(
                 };
                 let referer = page.url.clone();
                 page = walk.follow(step, &referer).await?;
+                maintenance(&page)?;
                 // A script-answered success names no next page; the second
                 // factor's page is fixed.
                 if matches!(
@@ -198,11 +206,10 @@ async fn science_flow(
                 }
             }
             SciencePage::Totp(mut form) => {
-                if otp_attempts >= 2 {
-                    return Err(Fail::Rejected(
-                        Kind::InvalidOtp,
-                        "the school did not accept the one-time password",
-                    ));
+                // Back on the code form after sending one: the school turned
+                // it down. A factor goes out once per sign-in.
+                if otp_sent {
+                    return Err(invalid_otp());
                 }
                 if credentials.otp_secret.is_empty() {
                     return Err(Fail::Rejected(
@@ -210,25 +217,19 @@ async fn science_flow(
                         "the school asks for the App one-time password and none was entered",
                     ));
                 }
-                otp_attempts += 1;
                 let action = extic_action(&form)?;
-                let (window, code) = one_time_password(&credentials.otp_secret, otp_sent).await?;
-                otp_sent = Some(window);
+                let code = one_time_password(&credentials.otp_secret).await?;
+                otp_sent = true;
                 log::info!(target: "app_core::school_session", "step: Extic one-time password");
                 form.set("totp", &code);
-                match walk.post(&action, form.fields(), &page.url, true).await {
-                    // A code turned down is tried once more, in a later
-                    // window, from a fresh form.
-                    Err(WalkError::Http(401)) => {
-                        page = walk
-                            .get(second_factor(&page.url), Some(page.url.clone()))
-                            .await?;
-                    }
-                    other => {
-                        let referer = page.url.clone();
-                        page = walk.follow(other?, &referer).await?;
-                    }
-                }
+                // Extic answers a refused code with 401: the verdict.
+                submitted.store(true, Ordering::SeqCst);
+                let step = match walk.post(&action, form.fields(), &page.url, true).await {
+                    Err(WalkError::Http(401)) => return Err(invalid_otp()),
+                    other => other?,
+                };
+                let referer = page.url.clone();
+                page = walk.follow(step, &referer).await?;
             }
             SciencePage::Saml(form) => {
                 page = saml(walk, &form, &page).await?;
@@ -245,6 +246,7 @@ async fn science_flow(
     // The target is the only proof: nothing here knows what a success
     // response looks like.
     let page = arrive(walk, lms).await?;
+    maintenance(&page)?;
     if page.url.host_str() != Some(Host::Moodle.name()) {
         return Err(Fail::NeedsWeb(
             Kind::UnknownPage,
@@ -279,6 +281,7 @@ async fn tokyo_flow(
     let mut matrix_sent = false;
     let mut method_sent = false;
     for _ in 0..8 {
+        maintenance(&page)?;
         match login::tokyo(&page.html, page.url.as_str()) {
             TokyoPage::Agreement { password_url } => {
                 if password_sent {
@@ -333,6 +336,7 @@ async fn tokyo_flow(
                     "step: Matrix challenge ({} cells)",
                     challenge.cells.len()
                 );
+                submitted.store(true, Ordering::SeqCst);
                 page = tokyo_step(
                     walk,
                     &challenge.form,
@@ -376,6 +380,7 @@ async fn tokyo_flow(
         }
     }
     let entry = walk.get(url(KYOMU_ENTRY)?, None).await?;
+    maintenance(&entry)?;
     if entry.url.host_str() != Some(Host::Kyomu.name()) {
         return Err(Fail::NeedsWeb(
             Kind::UnknownPage,
@@ -386,6 +391,7 @@ async fn tokyo_flow(
         .and_then(|url| Url::parse(&url).ok())
         .ok_or(Fail::NeedsWeb(Kind::UnknownPage, "bad 教務Web address"))?;
     let page = walk.get(target, None).await?;
+    maintenance(&page)?;
     let has_session = jar
         .lock()
         .map(|jar| jar.has(&page.url, "ASP.NET_SessionId"))
@@ -400,6 +406,22 @@ async fn tokyo_flow(
         ));
     }
     Ok(())
+}
+
+/// A maintenance page of the target site ends the sign-in with its notice,
+/// whatever cookies it set: it proves nothing.
+fn maintenance(page: &Page) -> Result<(), Fail> {
+    match adpt_isct::maintenance_notice(&page.url, &page.html) {
+        Some(notice) => Err(Fail::Maintenance(notice)),
+        None => Ok(()),
+    }
+}
+
+fn invalid_otp() -> Fail {
+    Fail::Rejected(
+        Kind::InvalidOtp,
+        "the school did not accept the one-time password",
+    )
 }
 
 fn invalid_matrix() -> Fail {
@@ -505,10 +527,9 @@ fn unix_now() -> u64 {
         .unwrap_or_default()
 }
 
-/// The code to send now and the start of its window: never the window of
-/// `after` or an earlier one, and never one with less than `OTP_MARGIN` left
-/// (Extic's clock runs a little ahead); waits for the next window then.
-async fn one_time_password(secret: &str, after: Option<u64>) -> Result<(u64, String), Fail> {
+/// The code to send now: never one of a window with less than `OTP_MARGIN`
+/// left (Extic's clock runs a little ahead); waits for the next window then.
+async fn one_time_password(secret: &str) -> Result<String, Fail> {
     let unusable = || Fail::Rejected(Kind::InvalidOtp, "the saved OTP setup is not usable");
     let windows = upcoming_otps(secret).map_err(|_| unusable())?;
     let period = match windows.as_slice() {
@@ -517,8 +538,7 @@ async fn one_time_password(secret: &str, after: Option<u64>) -> Result<(u64, Str
     };
     let now = unix_now();
     let usable = |window: &&crate::school_auth::OtpWindow| {
-        after.is_none_or(|after| window.from > after)
-            && window.from + period >= now + OTP_MARGIN.as_secs()
+        window.from + period >= now + OTP_MARGIN.as_secs()
     };
     let window = windows.iter().find(usable).ok_or_else(unusable)?;
     if window.from > now {
@@ -526,7 +546,7 @@ async fn one_time_password(secret: &str, after: Option<u64>) -> Result<(u64, Str
         log::info!(target: "app_core::school_session", "waiting {wait}s for a fresh one-time password window");
         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
     }
-    Ok((window.from, window.code.clone()))
+    Ok(window.code.clone())
 }
 
 #[cfg(test)]

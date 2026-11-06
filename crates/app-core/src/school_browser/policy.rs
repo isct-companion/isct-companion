@@ -184,6 +184,13 @@ pub fn is_login_url(url: &Url) -> bool {
         })
 }
 
+/// A page that signs the person out: the sign-in page it ends on is what they
+/// asked for. A school's logout route says so in its path.
+pub(crate) fn is_logout_url(url: &Url) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    path.contains("logout") || path.contains("signout")
+}
+
 /// An identity-provider page where saved credentials can be entered.
 pub(crate) fn is_identity_login(url: &Url) -> bool {
     url.host_str()

@@ -14,7 +14,7 @@ import UIKit
 @Observable
 final class WebRouter {
     /// Sites in the ウェブ tab's picker, in order.
-    static let tabSites: [SchoolSite] = [.sciencePortal, .scienceLms, .kyomu, .tokyoMail, .library, .tsubame]
+    static let tabSites: [SchoolSite] = [.sciencePortal, .scienceLms, .kyomu, .tokyoPortal, .tokyoMail, .library, .tsubame]
 
     /// Where the site the ウェブ tab opens on is kept on this device (設定 › ウェブ).
     static let firstSiteKey = "web.firstSite"
@@ -218,7 +218,8 @@ final class WebRouter {
                 site: site, revision: revision, url: row["url"] as? String,
                 popups: (row["popups"] as? NSNumber)?.uint64Value ?? 0,
                 back: Self.step(row["back"] as? String), forward: Self.step(row["forward"] as? String),
-                notice: notice, access: Self.access(row["access"] as? [String: Any])))
+                notice: notice, access: Self.access(row["access"] as? [String: Any]),
+                signIn: row["signIn"] as? Bool ?? false))
         case "school-web-notice":
             let notice: SchoolWebNotice
             switch row["kind"] as? String {

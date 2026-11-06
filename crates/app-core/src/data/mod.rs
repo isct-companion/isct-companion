@@ -35,11 +35,11 @@ use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeSet, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, PoisonError, RwLock,
 };
 use uuid::Uuid;
 use versioned::{content_hash, VersionedValue};
@@ -63,7 +63,7 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("scheduledTasks", "scheduled_tasks"),
 ];
 
-/// School record tables, all in cache.db: rows a sync no longer finds keep
+/// School record tables: rows a sync no longer finds keep
 /// `missing_since` and are hidden from reads.
 const SCHOOL_CACHE_TABLES: &[&str] = &[
     "timetable_courses",
@@ -752,14 +752,13 @@ fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
     Ok(())
 }
 
-/// One store: user.db, cache.db and sync.db of the data folder's active
-/// generations (`root`), on the connections of `connection`.
+/// One store: the store.db of the data folder's active generation (`root`), on
+/// the connections of `connection`.
 ///
-/// A transaction that writes several files, such as a school ingest that
-/// pins a course id in `course_keys` (user.db) while it writes school rows
-/// (cache.db) and their freshness (sync.db), commits all of them or none,
-/// across a crash too: the three files use rollback journals, so SQLite
-/// commits them through one super-journal. Readers see a commit whole.
+/// A transaction commits every table it wrote or none, across a crash and a
+/// failed write too, such as a school ingest that pins a course id in
+/// `course_keys` while it writes school rows and their freshness. Readers see a
+/// commit whole.
 #[derive(Clone)]
 pub struct DataStore {
     // Before `connections`: its read connection must close before the write
@@ -773,6 +772,7 @@ pub struct DataStore {
     /// caches key on it (see [`DataStore::catalog_version`]).
     catalog_version: Arc<AtomicU64>,
     commit_seq: CommitSeq,
+    table_versions: TableVersions,
 }
 
 /// Counts this store's commits that changed rows, from 0 when it opened. It
@@ -789,8 +789,29 @@ impl CommitSeq {
         self.0.load(Ordering::Acquire)
     }
 
-    fn advance(&self) {
-        self.0.fetch_add(1, Ordering::AcqRel);
+    /// The new sequence.
+    fn advance(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::AcqRel) + 1
+    }
+}
+
+/// The commit (`CommitSeq`) that last changed each table of this store, since
+/// it opened. Every write of the app goes through this store, so these tell
+/// what changed the way `PRAGMA data_version` does, table by table. They move
+/// after a commit has landed and before its write lock is released
+/// ([`DataStore::committed_tables`]).
+#[derive(Clone, Default)]
+pub(crate) struct TableVersions(Arc<RwLock<HashMap<String, u64>>>);
+
+impl TableVersions {
+    /// The latest commit that changed any of `tables`; 0 when none has.
+    pub(crate) fn latest<'a>(&self, tables: impl IntoIterator<Item = &'a str>) -> u64 {
+        let versions = self.0.read().unwrap_or_else(PoisonError::into_inner);
+        tables
+            .into_iter()
+            .filter_map(|table| versions.get(table).copied())
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -800,8 +821,8 @@ impl DataStore {
     /// it. Also returns whether a store was created or replaced.
     pub fn initialize_dir(directory: PathBuf) -> Result<(Self, bool), DataError> {
         let root = StoreRoot::open(directory)?;
-        let connections = connection::Connections::open(connection::Files::of(root.paths()))?;
-        let view_reader = views::ViewReader::new(connections.open_reader()?);
+        let connections = connection::Connections::open(root.paths())?;
+        let view_reader = views::ViewReader::new(connections.open_reader()?)?;
         let created = root.created();
         let store = Self {
             connections: Arc::new(connections),
@@ -810,6 +831,7 @@ impl DataStore {
             observer: changes::Observer::default(),
             catalog_version: Arc::default(),
             commit_seq: CommitSeq::default(),
+            table_versions: TableVersions::default(),
         };
         store.write(None, ensure_defaults_in)?;
         Ok((store, created))
@@ -825,7 +847,7 @@ impl DataStore {
         self.root.paths()
     }
 
-    /// A pooled read-only connection to both files.
+    /// A pooled read-only connection.
     fn open(&self) -> Result<connection::Reader<'_>, DataError> {
         self.connections.reader()
     }
@@ -847,8 +869,10 @@ impl DataStore {
         source: Option<WorkspaceChangeSource>,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
-        let (value, tables) = commit_on(&mut self.connections.writer(), operation)?;
+        let mut writer = self.connections.writer();
+        let (value, tables) = commit_on(&mut writer, operation)?;
         self.committed_tables(&tables);
+        drop(writer);
         if let Some(source) = source {
             self.observer.committed(source, None, &tables);
         }
@@ -864,8 +888,10 @@ impl DataStore {
         year: u16,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
-        let (value, tables) = commit_on(&mut self.connections.writer(), operation)?;
+        let mut writer = self.connections.writer();
+        let (value, tables) = commit_on(&mut writer, operation)?;
         self.committed_tables(&tables);
+        drop(writer);
         if tables.contains("offerings") || tables.contains("settings") {
             self.observer.catalog_changed(year, self.catalog_version());
         }
@@ -890,9 +916,20 @@ impl DataStore {
         self.commit_seq.clone()
     }
 
+    /// After a commit has landed, with the write lock still held, so that a
+    /// write holding that lock knows what its transaction starts from, and
+    /// before anyone hears of the commit.
     fn committed_tables(&self, tables: &BTreeSet<String>) {
         if !tables.is_empty() {
-            self.commit_seq.advance();
+            let mut versions = self
+                .table_versions
+                .0
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            let seq = self.commit_seq.advance();
+            for table in tables {
+                versions.insert(table.clone(), seq);
+            }
         }
         if tables.contains("offerings") {
             self.catalog_version.fetch_add(1, Ordering::AcqRel);
@@ -1068,23 +1105,16 @@ impl DataStore {
         crate::sync_state::list(&*self.open()?, dataset)
     }
 
-    /// The file backup and cloud sync read: user.db, never the caches.
-    pub fn user_path(&self) -> &Path {
-        &self.connections.files.user
-    }
-
-    /// A read-write connection to the three files, for tests that seed or
-    /// inspect rows directly.
+    /// A read-write connection to the store, for tests that seed or inspect
+    /// rows directly. Its commits do not move table versions: a cached view
+    /// does not hear them.
     #[cfg(test)]
     pub(crate) fn test_connection(&self) -> Connection {
-        let files = &self.connections.files;
-        let connection = Connection::open(&files.user).unwrap();
-        migrations::attach(&connection, &files.cache, &files.sync).unwrap();
-        connection
+        Connection::open(&self.connections.path).unwrap()
     }
 
     #[cfg(test)]
-    pub(crate) fn directory(&self) -> &Path {
+    pub(crate) fn directory(&self) -> &std::path::Path {
         self.paths().root()
     }
 }

@@ -61,7 +61,7 @@ hickory-resolver = { version = "0.26", default-features = false, features = ["to
 # NSAlert sheets, the print panel and the file picker: school pages'
 # confirm/alert/prompt, window.print() and <input type=file> (school_webkit.rs),
 # and the close prompt (window_close_macos.rs).
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSCell", "NSControl", "NSDragging", "NSGraphics", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSavePanel", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSCell", "NSControl", "NSDragging", "NSEvent", "NSGraphics", "NSMenu", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSavePanel", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
 # Native notifications (notifications_macos.rs).
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # School view WebKit hooks (school_webkit.rs) and the identity cookies Core
@@ -74,14 +74,19 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 # The login name the campus printer queue is restricted to (campus_printer_cups.rs).
 libc = "0.2"
 
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+# The campus VPN helper's wire format (`src/vpn.rs`).
+vpn-protocol = { path = "../../../crates/vpn-protocol" }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test
 # notifications and reminder claims reflect the native result.
 tauri-winrt-notification = "0.8.1"
 # Mica needs Windows 11; the build number decides whether the window gets it.
 windows-version = "0.1"
-# CF_HDROP and the share UI for a course file (file_share_windows.rs); the
-# version tauri and wry already use.
+# CF_HDROP and the share UI for a course file (file_share_windows.rs), and
+# the campus VPN service check and UAC install (vpn_windows.rs); the version
+# tauri and wry already use.
 windows = { version = "0.62", features = [
     "ApplicationModel_DataTransfer",
     "Foundation_Collections",
@@ -91,6 +96,9 @@ windows = { version = "0.62", features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_Threading",
     "Win32_UI_Controls",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

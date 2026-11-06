@@ -16,9 +16,9 @@
 //! transport. A school-cache reset leaves cloud sync running: school caches
 //! never enter it, and it only writes user rows this reset keeps.
 //!
-//! The school caches are cache.db and sync.db, emptied whole
-//! (`DataStore::rebuild_cache`); a full reset also empties user.db. User
-//! writes need no separate gate.
+//! The school caches are the cache and sync tables, emptied whole
+//! (`DataStore::rebuild_cache`); a full reset also empties the user tables.
+//! User writes need no separate gate.
 //! Each database step is one transaction on the store's write connection,
 //! so an edit commits wholly before or after it, and every intent is
 //! revision-checked: an edit made against the data a full reset removed is
@@ -27,8 +27,8 @@
 use crate::{
     course_materials::purge_downloads,
     data::{DataError, DataStore, WorkspaceChangeSource},
+    plan::{PlanEngine, ResetReport, ResetScope},
     school_session::SchoolSessions,
-    plan::{ResetReport, ResetScope, PlanEngine},
     Core,
 };
 use futures_util::future::{FutureExt, Shared};

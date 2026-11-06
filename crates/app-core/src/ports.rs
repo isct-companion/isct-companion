@@ -27,12 +27,11 @@ pub trait SecretVault: Send + Sync {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError>;
     fn load(&self, account: &str) -> Result<Option<String>, SecretError>;
     fn delete(&self, account: &str) -> Result<(), SecretError>;
-    /// Whether another device can replace `account` while this process runs
-    /// (iCloud Keychain). Only such an item is read again after the first
-    /// read: on the macOS login keychain each read of an item another build
-    /// wrote asks the person for their password.
-    fn shared(&self, _account: &str) -> bool {
-        false
+    /// The longest secret one item holds, in UTF-16 code units; `None` on a
+    /// platform without such a limit. Core spreads a long saved session over
+    /// several items only under a limit (`secret_parts`).
+    fn item_limit(&self) -> Option<usize> {
+        None
     }
 }
 
@@ -69,6 +68,9 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
         "lms-token-science" => "passwords.lms-token-science",
         "school-session-science" => "passwords.school-session-science",
         "school-session-tokyo-tech" => "passwords.school-session-tokyo-tech",
+        part if crate::secret_parts::is_part(part) => {
+            return Ok(format!("{app_id}.passwords.{part}"))
+        }
         _ => return Err(SecretError::InvalidAccount),
     };
     Ok(format!("{app_id}.{suffix}"))

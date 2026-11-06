@@ -308,6 +308,7 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
     let relay = core.events.clone().unwrap();
     let session = |state, maintenance| SchoolProfileSession {
         sign_out_pending: false,
+        refusal_unsaved: false,
         state,
         problem: None,
         retry_at: None,

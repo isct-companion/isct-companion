@@ -65,3 +65,62 @@ fn a_capped_catalog_search_narrows_to_one_quarter() {
     // Out-of-range quarters search the whole year, never an invalid value.
     assert!(!pairs(5).iter().any(|(key, _)| key == "Quarters"));
 }
+
+// 教務Web's maintenance page may come with an error status. It is the site's
+// maintenance all the same: the host pauses with the notice, on a page read
+// and a course search alike. Another error page stays the HTTP failure it is.
+#[tokio::test]
+async fn a_maintenance_page_with_an_error_status_pauses_the_host() {
+    use crate::net::one_answer::OneAnswer;
+    use crate::school_auth::{SchoolAuthProfile::TokyoTech, SchoolAuthService};
+    use crate::school_session::SchoolSessions;
+    use std::sync::Arc;
+
+    struct NoVault;
+    impl crate::ports::SecretVault for NoVault {
+        fn store(&self, _: &str, _: &str) -> Result<(), crate::ports::SecretError> {
+            Ok(())
+        }
+        fn load(&self, _: &str) -> Result<Option<String>, crate::ports::SecretError> {
+            Ok(None)
+        }
+        fn delete(&self, _: &str) -> Result<(), crate::ports::SecretError> {
+            Ok(())
+        }
+    }
+    let answering = |body| {
+        let sessions = SchoolSessions::with_transport(
+            Arc::new(OneAnswer {
+                status: 503,
+                content_type: "text/html; charset=utf-8",
+                body,
+            }),
+            Arc::new(SchoolAuthService::new(NoVault)),
+        );
+        sessions.assume_configured(TokyoTech);
+        let attempt = Attempt::detached(&sessions, Site::Kyomu, Default::default());
+        (sessions, attempt)
+    };
+    let notice = |sessions: &SchoolSessions| {
+        sessions
+            .snapshot()
+            .profile(TokyoTech)
+            .maintenance
+            .clone()
+            .and_then(|maintenance| maintenance.notice)
+    };
+
+    const PAGE: &str = "<html><body><main><h1>ただいまメンテナンス中です</h1></main></body></html>";
+    let (sessions, attempt) = answering(PAGE);
+    let answer = page(&attempt, "grades").await;
+    assert!(
+        matches!(answer, Err(NetError::HostPaused { .. })),
+        "{answer:?}"
+    );
+    assert!(notice(&sessions).is_some_and(|text| text.contains("メンテナンス中")));
+
+    let (sessions, attempt) = answering("<html><body><p>Service Unavailable</p></body></html>");
+    let answer = page(&attempt, "grades").await;
+    assert!(matches!(answer, Err(NetError::Http(503))), "{answer:?}");
+    assert_eq!(notice(&sessions), None);
+}

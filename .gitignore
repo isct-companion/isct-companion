@@ -68,3 +68,5 @@ bindings/kotlin/artifacts/
 # Local encrypted updater signing key and public companion file
 .update/
 .project/run/
+# Built by scripts/desktop/bundle-vpn.mjs
+apps/desktop/src-tauri/resources/vpn/

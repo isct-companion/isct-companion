@@ -32,7 +32,7 @@ function outcomeText(outcome: CampusPrintOutcome) {
     case "unreachable":
       return outcome.printed > 0
         ? t("campusPrint.window.unreachableAfter", { printed: outcome.printed })
-        : t("settings.campusPrinter.cannotReachThePrinter");
+        : t("tools.campusPrinter.cannotReachThePrinter");
     case "not-printed":
       return outcome.printed > 0
         ? t("campusPrint.window.notPrintedAfter", { printed: outcome.printed })

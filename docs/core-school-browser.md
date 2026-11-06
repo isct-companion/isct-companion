@@ -3,7 +3,7 @@
 How a shell hosts school web views for Core. Core
 (`crates/app-core/src/school_browser`) owns every decision: which navigation
 and window may happen, which view a command goes to, what is shown about a
-page, when hidden work may use a view. A host is a browser engine adapter. It
+page. A host is a browser engine adapter. It
 reports what the engine knows, carries out what Core decides, and keeps no
 rules of its own: no host list, no scheme exception list, no injected page
 shim, no history of its own.
@@ -16,8 +16,10 @@ desktop (`apps/desktop/src-tauri/src/school_browser_native.rs` with
 ## Views, popups and pages
 
 - A **view** is one resident web view per `SchoolSite`, created by
-  `ensure(browser, initialUrl)`. The person's browsing and Core's hidden work
-  (session checks, sign-ins, pulls) share it, so the school session is one.
+  `ensure(browser, initialUrl)`. Its session is the web page's alone: Core
+  signs in and reads over HTTP with sessions of its own
+  (`crates/app-core/src/school_session`), and only writes an identity into the
+  view when a page needs one.
 - A **popup** is a window a page opened. Core gives it a `BrowserId` of its
   own (the opener's site, a new generation) and registers it as a child of its
   opener, which may be the view or another popup. A popup lives and closes
@@ -215,8 +217,8 @@ it as the site's **presenter**:
 
 - `Resume`: the view as it is, popups and a form in progress included; the
   restored or start page when the view has none.
-- `Go(url)`: an app link. Core closes every popup over the view, then
-  navigates the view itself only if it is not at `url` already.
+- `Go(url)`: an app link. Core closes every popup over the view and
+  navigates the view to `url`, even when it shows that address already.
 - `Return(url)`: a surface showing the view again (a confirmation covered the
   LMS reader; the person looked at Today and came back). If it is still the
   presenter, this is `Resume`, even if the person has since moved the view
@@ -305,8 +307,14 @@ else the site's entry (`adpt_isct::urls::entry`), on every host.
 
 While it signs in, the page's `access` is `signing-in`: the host covers the
 view (`SchoolBrowser::cover`) and the surface offers "Cancel, I'll sign in
-myself"; the view comes back once a write already handed to the platform
-ended. Where it stopped, `access` is `problem` (`unreachable`, `rejected`,
+myself"; the view comes back only once a write already handed to the
+platform ended. A write still queued when the operation stops is dropped at
+its turn. A write the platform was handed is the view's fact, not the
+operation's: the next operation waits for it and a navigation sent meanwhile
+is held. An App link's own write leaves its page in view; a write begun under
+a cover keeps the view covered, and one that has not answered within
+`WEB_STORE_LIMIT` keeps it covered with `access` `problem` `storage` until it
+ends. Only Core's exit does not wait for it. Where it stopped, `access` is `problem` (`unreachable`, `rejected`,
 `storage`, `still-sign-in`) until the view shows another page.
 
 Nothing is injected into a school page to show these.

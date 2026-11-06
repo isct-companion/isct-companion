@@ -295,7 +295,7 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
         calls: tasks.clone(),
         work: permits.clone(),
     };
-    let mut connection = rusqlite::Connection::open(fixture.core.store.user_path()).unwrap();
+    let mut connection = rusqlite::Connection::open(fixture.core.store.paths().store_db()).unwrap();
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .unwrap();

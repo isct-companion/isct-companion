@@ -19,6 +19,13 @@ merge behavior are deliberately out of scope.
 | School credentials and OTP material                                                             | Secret                | OS credential vault; optional AES-256-GCM cloud file            | Cloud sync is opt-in and never uploads plaintext                |
 | OAuth tokens and cloud credential-encryption password                                           | Secret                | OS credential vault                                             | Device-local; never exported or returned to the WebView         |
 | School WebView cookies and restore location                                                     | Session/device        | WebView store / app data                                        | Session or explicit restore preference                          |
+| Latest copy of the user tables                                                                  | Local user            | `local/user-snapshot/workspace-latest.json`                     | Replaced by daily maintenance                                   |
+
+All SQLite tables above share one file, `store/<generation>/store.db`, so a
+commit is whole across all of them. Ownership is by table: backup and cloud sync
+read the user tables only. Because a damaged file would take the user tables
+with the caches, daily maintenance keeps the copy above, in the format Settings
+imports.
 
 ## Reset
 

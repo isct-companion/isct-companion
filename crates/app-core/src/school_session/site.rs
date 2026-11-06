@@ -421,30 +421,13 @@ impl Attempt {
         }
     }
 
-    /// The site showed a maintenance page: its host pauses, the notice is
-    /// kept for the session snapshot, and the read ends as a paused host.
+    /// The site showed a maintenance page (`notice`, `None` when the answer
+    /// carried none): the read ends as a paused host
+    /// (`Inner::under_maintenance`).
     pub(crate) fn maintenance(&self, notice: Option<String>) -> NetError {
         let call = &self.0.call;
-        let host = call.site.host();
-        call.sessions.transport.report_maintenance(host);
-        if let Some(session) = call
-            .sessions
-            .account(call.site.profile())
-            .sites
-            .iter()
-            .find(|session| session.site == call.site)
-        {
-            guard(&session.state).notice = notice.or_else(|| Some(String::new()));
-        }
-        call.sessions.publish();
-        NetError::HostPaused {
-            host,
-            until_unix: call
-                .sessions
-                .transport
-                .paused_until(host)
-                .unwrap_or_else(|| chrono::Utc::now().timestamp() + 5 * 60),
-        }
+        call.sessions
+            .under_maintenance(call.site, notice.unwrap_or_default())
     }
 
     /// An attempt over `jar`, outside any session, for transport tests.
@@ -568,6 +551,24 @@ impl Inner {
     ) -> Attempt {
         self.restore(site.profile()).await;
         Attempt::new(self.call(site, permit, deadline))
+    }
+
+    /// `site` showed its maintenance page: the site session's fact. Its host
+    /// pauses, the notice shows until a read gets through, and what met it
+    /// (a read, an SSO, a verification, a sign-in) ends with no verdict, as
+    /// the paused host this returns.
+    pub(super) fn under_maintenance(&self, site: Site, notice: String) -> NetError {
+        let host = site.host();
+        self.transport.report_maintenance(host);
+        guard(&self.site(site).state).notice = Some(notice);
+        self.publish();
+        NetError::HostPaused {
+            host,
+            until_unix: self
+                .transport
+                .paused_until(host)
+                .unwrap_or_else(|| chrono::Utc::now().timestamp() + 5 * 60),
+        }
     }
 
     /// A read succeeded: a maintenance notice the site showed is over.
@@ -707,9 +708,9 @@ impl Inner {
             SchoolAuthProfile::TokyoTech => &[Host::GetAccess, Host::GetAccessRouter],
         };
         let walk = Walk::new(self.transport.as_ref(), &jar).capturing(hosts, &captured);
-        let ended = match profile {
-            SchoolAuthProfile::Science => lms_sso(&walk).await,
-            SchoolAuthProfile::TokyoTech => kyomu_sso(&walk, false).await,
+        let (site, ended) = match profile {
+            SchoolAuthProfile::Science => (Site::Lms, lms_sso(&walk).await),
+            SchoolAuthProfile::TokyoTech => (Site::Kyomu, kyomu_sso(&walk, false).await),
         };
         match ended {
             Ok(None) => {
@@ -719,8 +720,12 @@ impl Inner {
                 Walked::Ready(Snapshot::from_responses(lines, chrono::Utc::now()))
             }
             Err(SsoError::SignIn) => Walked::SignIn,
-            // A maintenance notice, the network, an unknown page: no verdict.
-            Ok(Some(_)) | Err(SsoError::Walk(_)) => Walked::Failed,
+            Ok(Some(notice)) => {
+                self.under_maintenance(site, notice);
+                Walked::Failed
+            }
+            // The network, an unknown page: no verdict.
+            Err(SsoError::Walk(_)) => Walked::Failed,
         }
     }
 
@@ -732,27 +737,7 @@ impl Inner {
             Site::KyomuEnglish => kyomu_sso(&walk, true).await,
         };
         match ended {
-            Ok(Some(notice)) => {
-                // 教務Web's maintenance page: the host pauses, the notice
-                // shows until a read gets through.
-                self.transport.report_maintenance(site.host());
-                if let Some(session) = self
-                    .account(site.profile())
-                    .sites
-                    .iter()
-                    .find(|session| session.site == site)
-                {
-                    guard(&session.state).notice = Some(notice);
-                }
-                self.publish();
-                Sso::Failed(NetError::HostPaused {
-                    host: site.host(),
-                    until_unix: self
-                        .transport
-                        .paused_until(site.host())
-                        .unwrap_or_else(|| chrono::Utc::now().timestamp() + 5 * 60),
-                })
-            }
+            Ok(Some(notice)) => Sso::Failed(self.under_maintenance(site, notice)),
             Ok(None) => Sso::Ready,
             Err(SsoError::SignIn) => Sso::SignIn,
             Err(SsoError::Walk(WalkError::Net(error))) => Sso::Failed(error),
@@ -791,11 +776,15 @@ impl From<WalkError> for SsoError {
 
 /// The LMS's SSO: the dashboard, through Extic and the SAML hand-off. Only
 /// the dashboard with the log-out action proves the session: the first LMS
-/// answer already sets a guest `MoodleSession`.
+/// answer already sets a guest `MoodleSession`. `Some` is a maintenance
+/// notice.
 async fn lms_sso(walk: &Walk<'_>) -> Result<Option<String>, SsoError> {
     let home = Url::parse(LMS_HOME).map_err(|_| WalkError::Off("bad LMS address"))?;
     let mut page = walk.get(home, None).await?;
     for _ in 0..4 {
+        if let Some(notice) = adpt_isct::maintenance_notice(&page.url, &page.html) {
+            return Ok(Some(notice));
+        }
         match adpt_isct::login::science(&page.html, page.url.as_str()) {
             SciencePage::Saml(form) => page = login::saml(walk, &form, &page).await?,
             SciencePage::Credentials(_) | SciencePage::Totp(_) | SciencePage::EmailOtp => {
@@ -803,6 +792,9 @@ async fn lms_sso(walk: &Walk<'_>) -> Result<Option<String>, SsoError> {
             }
             SciencePage::Other => break,
         }
+    }
+    if let Some(notice) = adpt_isct::maintenance_notice(&page.url, &page.html) {
+        return Ok(Some(notice));
     }
     if Host::of(&page.url) == Some(Host::Moodle) && page.html.contains("login/logout.php") {
         return Ok(None);
@@ -820,11 +812,8 @@ async fn lms_sso(walk: &Walk<'_>) -> Result<Option<String>, SsoError> {
 async fn kyomu_sso(walk: &Walk<'_>, english: bool) -> Result<Option<String>, SsoError> {
     let entry = Url::parse(KYOMU_ENTRY).map_err(|_| WalkError::Off("bad 教務Web address"))?;
     let page = walk.get(entry, None).await?;
-    if Host::of(&page.url) == Some(Host::Kyomu) {
-        let payload = adpt_isct::kyomu::extract_page(page.url.as_str(), &page.html);
-        if payload.status == "maintenance" {
-            return Ok(Some(payload.message));
-        }
+    if let Some(notice) = adpt_isct::maintenance_notice(&page.url, &page.html) {
+        return Ok(Some(notice));
     }
     if Host::of(&page.url) != Some(Host::Kyomu) || !page.url.path().starts_with(KYOMU_STUDENT) {
         return match adpt_isct::login::tokyo(&page.html, page.url.as_str()) {
@@ -840,7 +829,7 @@ async fn kyomu_sso(walk: &Walk<'_>, english: bool) -> Result<Option<String>, Sso
         };
     }
     if english {
-        to_english(walk, &page).await?;
+        return to_english(walk, &page).await;
     }
     Ok(None)
 }
@@ -849,22 +838,25 @@ async fn kyomu_sso(walk: &Walk<'_>, english: bool) -> Result<Option<String>, Sso
 /// catalog reads were proven on. The student top offers the same link, but
 /// switching there left the search page in Japanese (every English
 /// department read refused its columns).
-async fn to_english(walk: &Walk<'_>, page: &Page) -> Result<(), SsoError> {
+async fn to_english(walk: &Walk<'_>, page: &Page) -> Result<Option<String>, SsoError> {
     let search = page
         .url
         .join(crate::catalog::KYOMU_SEARCH_PATH)
         .map_err(|_| WalkError::Off("bad 教務Web search address"))?;
     let page = walk.get(search, Some(page.url.clone())).await?;
+    if let Some(notice) = adpt_isct::maintenance_notice(&page.url, &page.html) {
+        return Ok(Some(notice));
+    }
     let (url, html) = (page.url, page.html);
     let fields =
         adpt_isct::kyomu::search::language_postback(&html, adpt_isct::kyomu::search::TO_ENGLISH)
             .ok_or(WalkError::Off("the 教務Web language links changed"))?;
     log::info!(target: "app_core::school_session", "step: 教務Web in English");
     match walk.post(&url, &fields, &url, false).await? {
-        super::walk::Step::Page(_) => Ok(()),
+        super::walk::Step::Page(page) => Ok(adpt_isct::maintenance_notice(&page.url, &page.html)),
         super::walk::Step::Redirect(to) if Host::of(&to) == Some(Host::Kyomu) => {
-            walk.get(to, Some(url)).await?;
-            Ok(())
+            let page = walk.get(to, Some(url)).await?;
+            Ok(adpt_isct::maintenance_notice(&page.url, &page.html))
         }
         super::walk::Step::Redirect(_) => Err(SsoError::SignIn),
     }

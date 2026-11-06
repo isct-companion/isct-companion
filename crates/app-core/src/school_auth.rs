@@ -4,10 +4,11 @@ pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
 use crate::school_session::SchoolSignInProblem;
+use crate::secret_parts;
 use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -289,6 +290,13 @@ struct Refusal {
     /// (changed here or on another device) are not refused.
     credentials: String,
     problem: SchoolSignInProblem,
+    /// It came after an acceptance whose marker could not be removed: the
+    /// marker says nothing about this refusal, and a relaunch keeps it. Only
+    /// an acceptance that rewrites the record ends it then, so a marker stuck
+    /// twice holds accepted credentials back until the next Retry: never the
+    /// other way round, sending a refused password again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    after_marker: bool,
 }
 
 /// The verified credentials a sign-in on its own uses, and why the school
@@ -310,6 +318,7 @@ struct Accounts {
     /// Another device may have replaced the synchronized item since it was
     /// read (`refresh`).
     stale: bool,
+    unsaved_refusals: HashSet<SchoolAuthProfile>,
 }
 
 impl Accounts {
@@ -339,7 +348,10 @@ pub struct SchoolAuthService {
     accounts: Mutex<Accounts>,
     /// The refusal each account shows, as the vault was last read. Never
     /// locked across vault I/O, so drawing it never waits for the vault.
-    shown: Mutex<HashMap<SchoolAuthProfile, SchoolSignInProblem>>,
+    shown: Mutex<HashMap<SchoolAuthProfile, (SchoolSignInProblem, bool)>>,
+    /// Held across a saved session's vault I/O: two writes spread over
+    /// several items must not interleave (`secret_parts`).
+    session_items: Mutex<()>,
     status_path: Option<std::path::PathBuf>,
 }
 
@@ -350,6 +362,7 @@ impl SchoolAuthService {
             vault: Arc::new(vault),
             accounts: Mutex::new(Accounts::default()),
             shown: Mutex::default(),
+            session_items: Mutex::default(),
             status_path: None,
         }
     }
@@ -359,6 +372,7 @@ impl SchoolAuthService {
             vault: Arc::new(vault),
             accounts: Mutex::new(Accounts::default()),
             shown: Mutex::default(),
+            session_items: Mutex::default(),
             status_path: Some(path),
         }
     }
@@ -502,11 +516,11 @@ impl SchoolAuthService {
     }
 
     // The mutex covers the complete read-modify-write operation, so saving one
-    // account cannot overwrite a concurrent update to the other account.
+    // account cannot overwrite a concurrent update to the other account. The
+    // synchronized item is read at its first use and again after `refresh`,
+    // on every platform; nothing reads it at launch.
     fn unlock_accounts(&self, accounts: &mut Accounts) -> Result<(), SchoolAuthError> {
-        if accounts.payload.is_none()
-            || (accounts.stale && self.vault.shared(SCHOOL_CREDENTIAL_ACCOUNT))
-        {
+        if accounts.payload.is_none() || accounts.stale {
             let payload = self.vault.load(SCHOOL_CREDENTIAL_ACCOUNT)?;
             self.adopt(accounts, payload)?;
         }
@@ -526,7 +540,13 @@ impl SchoolAuthService {
                 } else {
                     accounts.refusals.as_ref()?.get(&profile)
                 };
-                Some((profile, refusal?.problem.clone()))
+                Some((
+                    profile,
+                    (
+                        refusal?.problem.clone(),
+                        accounts.unsaved_refusals.contains(&profile),
+                    ),
+                ))
             })
             .collect();
         if let Ok(mut current) = self.shown.lock() {
@@ -597,7 +617,12 @@ impl SchoolAuthService {
     ) {
         if let Err(error) = self.write_refusals(&refusals) {
             log::warn!(target: "app_core::school_auth", "a refusal that no longer applies was not deleted: {error}");
+        } else {
+            accounts.unsaved_refusals.clear();
         }
+        accounts
+            .unsaved_refusals
+            .retain(|profile| refusals.contains_key(profile));
         accounts.refusals = Some(refusals);
     }
 
@@ -620,7 +645,10 @@ impl SchoolAuthService {
         };
         let mut active = refusals;
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-            if active.contains_key(&profile) && self.marker(profile.acceptance_key())? {
+            let liftable = active
+                .get(&profile)
+                .is_some_and(|refusal| !refusal.after_marker);
+            if liftable && self.marker(profile.acceptance_key())? {
                 active.remove(&profile);
             }
         }
@@ -639,6 +667,9 @@ impl SchoolAuthService {
         if remaining.remove(&profile).is_some() {
             if self.write_refusals(&remaining).is_err() {
                 self.set_marker(profile.acceptance_key(), true)?;
+                accounts.unsaved_refusals.remove(&profile);
+            } else {
+                accounts.unsaved_refusals.clear();
             }
             accounts.refusals = Some(remaining);
         }
@@ -710,6 +741,7 @@ impl SchoolAuthService {
             credentials.validate(*profile)?;
         }
         let mut accounts = self.lock()?;
+        accounts.stale = true;
         self.unlock_accounts(&mut accounts)?;
         let payload = self.write_accounts(&bundle.accounts)?;
         // Drops the refusals of the credentials the import replaced.
@@ -760,7 +792,10 @@ impl SchoolAuthService {
 
     /// The school turned `credentials` down, or wants the person on its
     /// page: kept with exactly these credentials across launches, while they
-    /// are the verified ones. Returns whether it was kept.
+    /// are the verified ones. Returns whether they are the verified ones. The
+    /// refusal holds them back in memory first, under the same lock, and
+    /// then goes to the vault: an `Err` is a refusal held in this process
+    /// that the vault did not keep (a relaunch may not know it).
     pub(crate) fn record_refusal(
         &self,
         profile: SchoolAuthProfile,
@@ -773,18 +808,30 @@ impl SchoolAuthService {
             return Ok(false);
         }
         let mut refusals = accounts.refusals();
-        refusals.insert(
-            profile,
-            Refusal {
-                credentials: digest(credentials),
-                problem: problem.clone(),
-            },
-        );
-        if self.marker(profile.acceptance_key())? {
-            self.set_marker(profile.acceptance_key(), false)?;
+        let mut refusal = Refusal {
+            credentials: digest(credentials),
+            problem: problem.clone(),
+            after_marker: false,
+        };
+        refusals.insert(profile, refusal.clone());
+        accounts.refusals = Some(refusals.clone());
+        accounts.unsaved_refusals.insert(profile);
+        self.note(&accounts);
+        // An acceptance marker left by an earlier acceptance would lift the
+        // refusal at the next launch. One that cannot be removed (or read)
+        // goes on record with it, so it lifts nothing.
+        let key = profile.acceptance_key();
+        if self.marker(key).unwrap_or(true) {
+            if let Err(error) = self.set_marker(key, false) {
+                log::warn!(target: "app_core::school_auth", "an old acceptance marker was not removed: {error}");
+                refusal.after_marker = true;
+                refusals.insert(profile, refusal);
+                accounts.refusals = Some(refusals.clone());
+            }
         }
+        // The whole record: once it lands, every refusal in it is kept.
         self.write_refusals(&refusals)?;
-        accounts.refusals = Some(refusals);
+        accounts.unsaved_refusals.clear();
         self.note(&accounts);
         Ok(true)
     }
@@ -811,7 +858,19 @@ impl SchoolAuthService {
     /// The refusal of the profile's credentials, as the vault was last read.
     /// Never touches the vault.
     pub(crate) fn refusal(&self, profile: SchoolAuthProfile) -> Option<SchoolSignInProblem> {
-        self.shown.lock().ok()?.get(&profile).cloned()
+        self.shown
+            .lock()
+            .ok()?
+            .get(&profile)
+            .map(|(problem, _)| problem.clone())
+    }
+
+    pub(crate) fn refusal_unsaved(&self, profile: SchoolAuthProfile) -> bool {
+        self.shown
+            .lock()
+            .ok()
+            .and_then(|shown| shown.get(&profile).map(|(_, unsaved)| *unsaved))
+            .unwrap_or(false)
     }
 
     /// Reads the device-local refusals, without the synchronized item.
@@ -988,7 +1047,11 @@ impl SchoolAuthService {
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<Option<String>, SchoolAuthError> {
-        Ok(self.vault.load(session_account(profile))?)
+        let _items = self.session_items.lock();
+        Ok(secret_parts::load(
+            self.vault.as_ref(),
+            session_account(profile),
+        )?)
     }
 
     pub(crate) fn store_session(
@@ -996,11 +1059,20 @@ impl SchoolAuthService {
         profile: SchoolAuthProfile,
         session: &str,
     ) -> Result<(), SchoolAuthError> {
-        Ok(self.vault.store(session_account(profile), session)?)
+        let _items = self.session_items.lock();
+        Ok(secret_parts::store(
+            self.vault.as_ref(),
+            session_account(profile),
+            session,
+        )?)
     }
 
     pub(crate) fn delete_session(&self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
-        Ok(self.vault.delete(session_account(profile))?)
+        let _items = self.session_items.lock();
+        Ok(secret_parts::delete(
+            self.vault.as_ref(),
+            session_account(profile),
+        )?)
     }
 
     pub fn status(&self) -> Result<SchoolCredentialStatus, SchoolAuthError> {

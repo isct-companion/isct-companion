@@ -1,5 +1,6 @@
 //! Where the campus printer listens: lpd://172.20.83.212/kyocera. It is
-//! reachable only from the Science Tokyo campus network or its VPN.
+//! reached from ScienceTokyo Wi-Fi; ScienceTokyoX and the campus VPN do not
+//! reach it, even with a route to it through the tunnel.
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 

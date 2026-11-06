@@ -1,5 +1,6 @@
 import Foundation
 import IsctCore
+import Network
 import OSLog
 import UIKit
 import WebKit
@@ -33,9 +34,14 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     fileprivate static let log = Logger(subsystem: "app.isctcompanion", category: "school-web")
     private let lock = NSLock()
     private var events: BrowserEvents?
-    /// Last committed URL per view and popup, readable from Core workers.
-    private var urls: [BrowserId: String] = [:]
     private var closedForGood = false
+    /// Whether the device has a usable network, read when a load reports
+    /// "offline" (see `failure`).
+    private let network: NWPathMonitor = {
+        let monitor = NWPathMonitor()
+        monitor.start(queue: .global(qos: .utility))
+        return monitor
+    }()
 
     // Main-thread state.
     @MainActor private var views: [SchoolSite: SchoolPage] = [:]
@@ -74,10 +80,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         DispatchQueue.main.async { self.perform(command) }
     }
 
-    func currentUrl(browser: BrowserId) throws -> String? {
-        lock.withLock { urls[browser] }
-    }
-
     func dispose(browser: BrowserId) throws {
         DispatchQueue.main.async {
             self.discard(browser)
@@ -100,7 +102,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     func shutdown() throws {
         lock.withLock {
             closedForGood = true
-            urls.removeAll()
         }
         DispatchQueue.main.async {
             for page in self.popups.reversed() + Array(self.views.values) + Array(self.finishing) {
@@ -230,7 +231,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             try? listener()?.closed(browser: id)
             return
         }
-        lock.withLock { urls[id] = initialUrl }
         page.webView.load(URLRequest(url: url))
     }
 
@@ -291,7 +291,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     @MainActor private func forget(_ page: SchoolPage) {
         page.tearDown()
         if page.downloading { finishing.insert(page) }
-        lock.withLock { _ = urls.removeValue(forKey: page.id) }
     }
 
     /// A popup its page (`window.close()`) or the person closed. Core then
@@ -306,7 +305,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     @MainActor fileprivate func loaded(_ page: SchoolPage, url: URL?) {
         guard let url else { return }
-        lock.withLock { urls[page.id] = url.absoluteString }
         // WebKit exposes no request id here; never label a late load with an action.
         try? listener()?.pageLoaded(page: page.nextPage(), cause: nil, url: url.absoluteString)
     }
@@ -318,17 +316,22 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // WebKit shows nothing for a failed load and stays on the old page;
         // Core decides whether the web screen says so.
         try? listener()?.loadFailed(
-            page: page.nextPage(), cause: nil, url: url, reason: Self.failure(error),
+            page: page.nextPage(), cause: nil, url: url,
+            reason: Self.failure(error, online: network.currentPath.status == .satisfied),
             detail: "\(error.domain) \(error.code): \(error.localizedDescription)")
     }
 
     /// A coarse reason for a failed load. Cancellations are a newer load, a
-    /// policy decision, or a response that became a download.
-    private static func failure(_ error: NSError) -> LoadFailure {
+    /// policy decision, or a response that became a download. WebKit also
+    /// says "not connected" when the network works but has no route to the
+    /// address, as for a campus-only host with a private IPv4 address on
+    /// IPv6-only Wi-Fi (CLAT does not translate it), so that is unreachable.
+    private static func failure(_ error: NSError, online: Bool) -> LoadFailure {
         switch (error.domain, error.code) {
         case (NSURLErrorDomain, NSURLErrorCancelled): .cancelled
         // Frame load interrupted by policy change; plug-in handled load.
         case (WKError.errorDomain, 102), (WKError.errorDomain, 204): .cancelled
+        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet) where online: .unreachable
         case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet), (NSURLErrorDomain, NSURLErrorDataNotAllowed),
             (NSURLErrorDomain, NSURLErrorInternationalRoamingOff):
             .offline
@@ -433,7 +436,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             popups.append(popup)
             // Over the view and the site's earlier popups, as their sibling.
             arrangePopups(browser.site)
-            lock.withLock { urls[browser] = facts.url }
             // No history yet: Core's Back closes it until it has some.
             historyChanged(popup)
             return popup.webView

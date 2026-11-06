@@ -23,7 +23,7 @@ use std::time::Duration;
 
 /// The account whose name is the student ID.
 const STUDENT_ACCOUNT: SchoolAuthProfile = SchoolAuthProfile::TokyoTech;
-/// Long enough for the campus VPN's round trip, short enough to answer a
+/// Long enough for a slow campus network, short enough to answer a
 /// click.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -76,7 +76,8 @@ impl PrinterAccount {
 #[serde(rename_all = "kebab-case")]
 pub enum PrinterReach {
     Reachable,
-    /// Off the campus network and its VPN, or the printer is down.
+    /// Not on a network that reaches it (ScienceTokyo Wi-Fi does), or the
+    /// printer is down.
     Unreachable,
 }
 

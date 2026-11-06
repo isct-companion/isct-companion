@@ -56,9 +56,10 @@ pub fn run(args: &[String], backend: &[u8]) -> Result<String, String> {
         )
     })();
     let _ = fs::remove_file(&ppd_path);
+    // `lpadmin -E` has already enabled the queue and made it accept jobs. Do not
+    // run `cupsenable` after it: macOS's CUPS policy refuses Resume-Printer to
+    // root, which would report a working queue as failed.
     created?;
-    run_tool(queue::CUPSACCEPT, &[PRINTER_NAME.to_string()])?;
-    run_tool(queue::CUPSENABLE, &[PRINTER_NAME.to_string()])?;
 
     Ok(format!(
         "Installed {PRINTER_NAME} for {student}, used by {login}; rendering: {rendering}."

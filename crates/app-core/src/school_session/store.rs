@@ -1,6 +1,7 @@
-//! An account's session as the device keeps it: one device-only vault item
+//! An account's session as the device keeps it: one device-only vault record
 //! per account (`school-session-science`, `school-session-tokyo-tech`) with
-//! the identity snapshot and each site's jar. Never synchronized. A session
+//! the identity snapshot and each site's jar, spread over several items where
+//! one is too small for it (`secret_parts`). Never synchronized. A session
 //! read back is only a candidate: the first request finds out whether the
 //! school still honours it.
 

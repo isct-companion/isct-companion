@@ -6,9 +6,9 @@ import type { MessageKey } from "../../i18n";
  * Settings follow the layered model of mature system settings: everyday
  * pages first; Advanced for capable users who never touch code (data
  * updates, automation, AI agents); and code-level tools behind the Developer
- * options switch. About closes the list. Search reaches every layer.
+ * options switch. Search reaches every layer.
  */
-export type SectionTier = "basic" | "advanced" | "developer" | "about";
+export type SectionTier = "basic" | "advanced" | "developer";
 
 export type SectionDefinition = {
   id: Section;
@@ -18,12 +18,6 @@ export type SectionDefinition = {
 
 const SECTIONS: SectionDefinition[] = [
   { id: "accounts", label: "settings.main.schoolAccounts", tier: "basic" },
-  { id: "wifi", label: "settings.campusWifi.campusWiFi", tier: "basic" },
-  {
-    id: "printer",
-    label: "settings.campusPrinter.campusPrinter",
-    tier: "basic",
-  },
   { id: "study", label: "settings.academicCalendar.study", tier: "basic" },
   { id: "notifications", label: "common.notifications", tier: "basic" },
   { id: "appearance", label: "settings.appearance.appearance", tier: "basic" },
@@ -46,7 +40,6 @@ const SECTIONS: SectionDefinition[] = [
     label: "settings.main.applicationLogs",
     tier: "developer",
   },
-  { id: "about", label: "settings.main.about", tier: "about" },
 ];
 
 /** Pages reached from another page rather than listed in the sidebar. */
@@ -69,11 +62,7 @@ export type SectionContext = {
 /** Whether a page exists on this platform at all, regardless of the switch. */
 export function sectionSupported(id: Section, context: SectionContext) {
   if (id === "files") return context.platform === "native-desktop";
-  // Every desktop build compiles the campus printer in; the phones do not.
-  if (id === "printer") return context.platform === "native-desktop";
   if (id === "extensions") return context.extensionsAvailable;
-  // ScienceTokyo Wi-Fi sign-in is compiled only into macOS builds.
-  if (id === "wifi") return nativeOs() === "macos";
   return true;
 }
 
@@ -117,18 +106,6 @@ export type SettingEntry = {
 
 export const SETTING_ENTRIES: SettingEntry[] = [
   {
-    section: "about",
-    id: "updates",
-    title: "settings.about.appUpdates",
-    terms: "version update download 更新 版本",
-  },
-  {
-    section: "about",
-    id: "automatic-updates",
-    title: "settings.about.automaticUpdates",
-    terms: "background install 自动更新 自動更新",
-  },
-  {
     section: "accounts",
     id: "science",
     title: "settings.registry.scienceTokyoAccount",
@@ -139,18 +116,6 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "tokyo-tech",
     title: "settings.registry.tokyoTechAccount",
     terms: "login sign in matrix portal ログイン マトリクス",
-  },
-  {
-    section: "wifi",
-    id: "campus-wifi",
-    title: "settings.campusWifi.sciencetokyoWiFi",
-    terms: "wifi wi-fi wireless network internet campus 無線LAN ネットワーク",
-  },
-  {
-    section: "printer",
-    id: "campus-printer",
-    title: "settings.campusPrinter.printer",
-    terms: "print printer kyocera lpd student id 印刷 プリンタ 打印 学籍番号",
   },
   {
     section: "study",
@@ -380,18 +345,5 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "capabilities",
     title: "settings.registry.diagnostics",
     terms: "logs activity debug capability ログ",
-  },
-  {
-    section: "about",
-    id: "guide",
-    title: "settings.main.showWelcomeAndTipsAgain",
-    terms:
-      "tutorial onboarding help hints guide チュートリアル ヒント 教程 提示",
-  },
-  {
-    section: "about",
-    id: "version",
-    title: "settings.about.version",
-    terms: "about info バージョン 情報",
   },
 ];

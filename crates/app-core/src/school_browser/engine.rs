@@ -1,14 +1,14 @@
 use super::policy::{
-    browsing_url, is_identity_login, is_login_url, navigation_rule, new_window_rule, reopen_url,
-    restore_record, DenyReason, Verdict,
+    browsing_url, is_identity_login, is_login_url, is_logout_url, navigation_rule, new_window_rule,
+    reopen_url, restore_record, DenyReason, Verdict,
 };
 use super::{
     ActionId, BecameDownload, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     DownloadDisposition, History, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
-    NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded, SchoolBrowser,
-    SchoolBrowserError, SchoolBrowserListener, SchoolPageCustomization, SchoolWebAccess,
-    SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebProblem,
-    SchoolWebResult, SchoolWebStep,
+    NavigationKind, NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded,
+    SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolPageCustomization,
+    SchoolWebAccess, SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
+    SchoolWebProblem, SchoolWebResult, SchoolWebStep,
 };
 use crate::{
     events::CoreEvent,
@@ -94,6 +94,18 @@ struct ViewState {
     actions: HashMap<ActionId, bool>,
     /// The web operation signing the view in (`operation`).
     op: Option<WebOp>,
+    /// The operation whose cookie write the platform has not answered: a
+    /// fact of the view, not of that operation, so nothing superseding it
+    /// opens over the write.
+    write_pending: Option<u64>,
+    /// That write began under a cover, which stays until it ends.
+    write_covers: bool,
+    /// It ran past `WEB_STORE_LIMIT`: the view is covered and says so.
+    write_storing: bool,
+    /// Whether a write is pending, for the operation waiting to start.
+    write_changed: tokio::sync::watch::Sender<bool>,
+    /// A navigation sent while a write was pending, sent when it ends.
+    deferred_navigation: Option<(BrowserId, BrowserAction)>,
     /// What the last operation left to say, until the view shows another
     /// page.
     problem: Option<SchoolWebProblem>,
@@ -140,6 +152,17 @@ impl State {
             .map(|popup| &popup.visit)
     }
 
+    fn visit_mut(&mut self, browser: BrowserId) -> Option<&mut Visit> {
+        let view = self.views.get_mut(&browser.site)?;
+        if view.id == browser {
+            return Some(&mut view.visit);
+        }
+        view.popups
+            .iter_mut()
+            .find(|popup| popup.id == browser)
+            .map(|popup| &mut popup.visit)
+    }
+
     /// The address Core last saw in the view or popup `browser`.
     fn known_url(&self, browser: BrowserId) -> Option<String> {
         let view = self.views.get(&browser.site)?;
@@ -175,12 +198,16 @@ impl State {
             forward: SchoolWebStep::No,
             notice: None,
             access: None,
+            sign_in: false,
         };
         let Some(view) = self.views.get(&site) else {
             return page;
         };
         page.access = match &view.op {
-            Some(op) if op.covering => Some(SchoolWebAccess::SigningIn),
+            _ if view.write_storing => Some(SchoolWebAccess::Problem {
+                problem: SchoolWebProblem::Storage,
+            }),
+            _ if view.wants_cover() => Some(SchoolWebAccess::SigningIn),
             _ => view
                 .problem
                 .map(|problem| SchoolWebAccess::Problem { problem }),
@@ -198,12 +225,14 @@ impl State {
                 page.back = step(popup.history.map(|_| true));
                 page.forward = step(popup.history.map(|history| history.forward));
                 page.notice = popup.failure.clone();
+                page.sign_in = view.op.is_none() && popup.visit.offer;
             }
             None => {
                 page.url = (view.last_page > 0).then(|| view.url.clone());
                 page.back = step(view.history.map(|history| history.back));
                 page.forward = step(view.history.map(|history| history.forward));
                 page.notice = view.failure.clone();
+                page.sign_in = view.op.is_none() && view.visit.offer;
             }
         }
         page
@@ -261,6 +290,28 @@ fn site_profile(site: SchoolSite) -> Option<SchoolAuthProfile> {
 }
 
 struct Listener(Weak<Inner>);
+
+/// The target `entry` sends `site`'s view to when `surface` opens it, and
+/// `presenter` showed it last; `None` keeps the page as it is
+/// (`approach/school-web-front-page`). Only the entry and the presenter
+/// decide, never the address the view shows: Resume and a Return to the
+/// surface that presented it keep the page, while Go, a Return from another
+/// surface (taken as a Go) and an unsigned entry always navigate, so an
+/// explicit Go to the page already shown still opens it and may start the
+/// identity's recovery.
+pub(super) fn entry_target(
+    entry: SchoolWebEntry,
+    presenter: Option<&str>,
+    surface: &str,
+    site: SchoolSite,
+) -> Option<String> {
+    match entry {
+        SchoolWebEntry::Resume => None,
+        SchoolWebEntry::Return { .. } if presenter == Some(surface) => None,
+        SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
+        SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
+    }
+}
 
 impl SchoolBrowserEngine {
     pub fn new(
@@ -326,15 +377,8 @@ impl SchoolBrowserEngine {
             )
         };
         let already_open = view.is_some();
-        // A surface coming back finds the view as it left it, unless another
-        // surface showed it meanwhile.
         let unsigned = entry == SchoolWebEntry::Unsigned;
-        let target = match entry {
-            SchoolWebEntry::Resume => None,
-            SchoolWebEntry::Return { .. } if presenter.as_deref() == Some(surface) => None,
-            SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
-            SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
-        };
+        let target = entry_target(entry, presenter.as_deref(), surface, site);
         if unsigned {
             self.cancel_sign_in(site)?;
         }
@@ -344,17 +388,12 @@ impl SchoolBrowserEngine {
             .or_else(|| self.restored_target(site))
             .unwrap_or_else(|| site.start_url().to_string());
         let url = interactive_url(&target)?;
-        // A view the App sends somewhere: a new one, or an app link to
-        // another page. Revealing a view as it is navigates nothing, and
-        // keeps its exact native URL.
-        let navigates = match view {
-            None => true,
-            Some(browser) => {
-                explicit_target && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
-            }
-        };
-        // Where the account's identity is written first, a web operation
-        // opens the target (`operation`); an unsigned entry never does.
+        // A view the App sends somewhere: a new one, or one an entry gives
+        // a target, whatever page it shows now. Revealing a view as it is
+        // navigates nothing, and keeps its exact native URL.
+        let navigates = view.is_none() || explicit_target;
+        // Where the account's identity can be written, a web operation opens
+        // the target (`operation`); an unsigned entry never does.
         let operation =
             site_profile(site).filter(|_| navigates && !unsigned && self.0.sessions.seeds_web());
         self.user_browsing(Some(site))?;
@@ -375,6 +414,13 @@ impl SchoolBrowserEngine {
                     view.presenter = Some(surface.to_owned());
                 }
             });
+            if unsigned {
+                self.0.state.with(|state| {
+                    if let Some(visit) = state.visit_mut(browser) {
+                        visit.hold();
+                    }
+                });
+            }
             // An app link lands in the view itself, never under a popup.
             if already_open && explicit_target {
                 self.0.close_popups(site);
@@ -384,7 +430,18 @@ impl SchoolBrowserEngine {
                 None if already_open && navigates => {
                     self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
                 }
-                None => {}
+                // A view coming back on the sign-in page it reached while
+                // hidden.
+                None => {
+                    let front = self.0.state.with(|state| {
+                        let front = state.front(site, self.0.capabilities.inline_popups)?;
+                        let url = Url::parse(&state.known_url(front)?).ok()?;
+                        is_identity_login(&url).then_some(front)
+                    });
+                    if let Some(front) = front {
+                        self.0.sign_in_page(front);
+                    }
+                }
             }
             Ok::<_, SchoolBrowserError>(())
         })();
@@ -442,7 +499,9 @@ impl SchoolBrowserEngine {
     /// (`Visit::reopen`), never the engine's reload, so no form is sent
     /// twice. On a known sign-in page of a site with an account it starts a
     /// web operation that signs in first and then opens that same page
-    /// (`operation`), and a Reload while one signs the view in joins it.
+    /// (`operation`), and a Reload while one signs the view in joins it. The
+    /// page's `sign_in` button calls this too: the way out when the automatic
+    /// recovery got stuck.
     pub fn reload(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
         let Ok(browser) = self.front(site) else {
             return Ok(false);
@@ -622,6 +681,11 @@ impl SchoolBrowserEngine {
                     navigation: None,
                     actions: HashMap::new(),
                     op: None,
+                    write_pending: None,
+                    write_covers: false,
+                    write_storing: false,
+                    write_changed: tokio::sync::watch::channel(false).0,
+                    deferred_navigation: None,
                     problem: None,
                     covered: false,
                     visit: Visit::default(),
@@ -729,9 +793,9 @@ impl Inner {
         self.page_available(event);
     }
 
-    /// A popup's page only moves the address the person sees; Core runs no
-    /// script, restore or sign-in in it.
-    fn popup_loaded(&self, event: PageLoaded) {
+    /// A popup's page moves the address the person sees; Core runs no script
+    /// or restore in it, and only recovers its sign-in page.
+    fn popup_loaded(self: &Arc<Self>, event: PageLoaded) {
         if self.tasks.is_closed() {
             return;
         }
@@ -759,6 +823,9 @@ impl Inner {
             self.publish_page(browser.site);
             if let Some(landing) = Landing::of(browser.site, &event.url) {
                 self.landed(browser, event.cause, landing);
+                if landing == Landing::SignIn {
+                    self.sign_in_page(browser);
+                }
             }
         }
     }
@@ -822,6 +889,9 @@ impl Inner {
         }
         if let Some(landing) = Landing::of(event.page.browser.site, &event.url) {
             self.landed(event.page.browser, event.cause, landing);
+            if landing == Landing::SignIn {
+                self.sign_in_page(event.page.browser);
+            }
         }
         // External browsing gets history/address updates, never school
         // scripts, customizations or a pending submission.
@@ -938,7 +1008,14 @@ impl Inner {
             return NavigationDecision::Deny(DenyReason::Closed);
         }
         match navigation_rule(&request) {
-            Verdict::Allow | Verdict::Popup => NavigationDecision::Allow,
+            Verdict::Allow | Verdict::Popup => {
+                self.state.with(|state| {
+                    if let Some(visit) = state.visit_mut(browser) {
+                        visit.requested(&request);
+                    }
+                });
+                NavigationDecision::Allow
+            }
             Verdict::External => {
                 log::info!(target: "app_core::school_browser", "to system browser site={:?} host={}", browser.site, request.url.host_str().unwrap_or("-"));
                 NavigationDecision::External(request.url)
@@ -1180,12 +1257,21 @@ impl Inner {
             BrowserAction::Navigate(_) | BrowserAction::GoBack | BrowserAction::GoForward
         );
         let mut superseded = None;
+        let mut deferred = false;
         // A navigation Core sends leaves the failure it may fix behind.
         let cleared = navigation
             && self.state.with(|state| {
                 let Some(view) = state.views.get_mut(&browser.site) else {
                     return false;
                 };
+                if view.write_pending.is_some() {
+                    if op.is_none() {
+                        superseded = view.op.take();
+                        view.deferred_navigation = Some((browser, command.clone()));
+                    }
+                    deferred = true;
+                    return false;
+                }
                 if op.is_none() {
                     superseded = view.op.take();
                     view.problem = None;
@@ -1209,8 +1295,11 @@ impl Inner {
             superseded.cancel();
             self.sync_cover(browser.site);
         }
-        if cleared || superseded.is_some() {
+        if cleared || superseded.is_some() || deferred {
             self.publish_page(browser.site);
+        }
+        if deferred {
+            return Ok(action);
         }
         self.sent(
             browser,

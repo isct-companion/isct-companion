@@ -25,8 +25,6 @@ pub const SERVER_BIN: &str = "/usr/lib/cups";
 
 /// The system's CUPS administration tools.
 pub const LPADMIN: &str = "/usr/sbin/lpadmin";
-pub const CUPSACCEPT: &str = "/usr/sbin/cupsaccept";
-pub const CUPSENABLE: &str = "/usr/sbin/cupsenable";
 
 /// An unmodified copy of the PPD in Kyocera's macOS driver package
 /// (4.0.7420, `*FileVersion: "8.4506"`). Its licence allows redistribution

@@ -3,14 +3,16 @@ use crate::{
     data::DataStore,
     events::CoreEvent,
     lifecycle::SchoolSite,
+    net::BoxFuture,
     ports::{EventError, EventSink, SecretError, SecretVault},
+    school_auth::SchoolAuthProfile,
     school_auth::SchoolAuthService,
-    school_session::SchoolSessions,
+    school_session::{SchoolSessions, WebCookie, WebCookieSeed},
 };
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, Weak,
     },
 };
@@ -84,9 +86,6 @@ impl FakeBrowser {
         panic!("navigation {index} was not dispatched");
     }
 
-    fn set_current_url(&self, browser: BrowserId, url: Url) {
-        self.current.lock().unwrap().insert(browser, url);
-    }
 }
 
 /// Yields first, then sleeps briefly so blocking work (vault reads, SQLite
@@ -130,10 +129,6 @@ impl SchoolBrowser for FakeBrowser {
         }
         self.commands.lock().unwrap().push(command);
         Ok(())
-    }
-
-    fn current_url(&self, browser: BrowserId) -> Result<Option<Url>, BrowserError> {
-        Ok(self.current.lock().unwrap().get(&browser).cloned())
     }
 
     fn dispose(&self, browser: BrowserId) -> Result<(), BrowserError> {
@@ -545,6 +540,364 @@ async fn kyomu_open() -> (
     (engine, browser, events, id)
 }
 
+/// A web cookie store that takes everything: these cases are about when Core
+/// recovers a page, and no password exists to send.
+struct AnyWebStore;
+
+impl WebCookieSeed for AnyWebStore {
+    fn write(&self, _cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// A web cookie store whose calls wait at a gate: open by default, closed
+/// for a platform that is slow or never answers.
+struct GatedWebStore {
+    gate: tokio::sync::watch::Sender<bool>,
+    writes: AtomicU64,
+}
+
+impl GatedWebStore {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            gate: tokio::sync::watch::channel(true).0,
+            writes: AtomicU64::new(0),
+        })
+    }
+
+    /// Waits until the platform has been handed `count` writes.
+    async fn handed(&self, count: u64) {
+        for attempt in 0..6_000 {
+            if self.writes.load(Ordering::SeqCst) >= count {
+                return;
+            }
+            settle(attempt).await;
+        }
+        panic!("write {count} did not reach the platform");
+    }
+}
+
+impl WebCookieSeed for GatedWebStore {
+    fn write(&self, _cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        let mut gate = self.gate.subscribe();
+        Box::pin(async move {
+            let _ = gate.wait_for(|open| *open).await;
+            Ok(())
+        })
+    }
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn verified_sessions(store: Arc<GatedWebStore>) -> SchoolSessions {
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(EmptyVault)));
+    assert!(sessions.attach_web(store));
+    sessions.assume_verified(
+        SchoolAuthProfile::Science,
+        crate::school_session::Snapshot {
+            cookies: vec![WebCookie {
+                url: "https://isct.ex-tic.com/auth/session".into(),
+                set_cookie: "_idp=a; Path=/; Secure".into(),
+            }],
+        },
+    );
+    sessions
+}
+
+fn navigations(browser: &FakeBrowser) -> Vec<Url> {
+    browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|command| match &command.command {
+            BrowserAction::Navigate(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+// The platform never answers the App link's cookie write. Nothing opens over
+// it, the App link's page stays in view until the write is overdue, and then
+// the view is covered and says the store has not finished, for as long as it
+// takes. Core's exit is the exception: it has a bound, in the facade's order
+// (the browser engine, then the sessions that own the queue).
+#[tokio::test(start_paused = true)]
+async fn core_exit_does_not_wait_for_a_native_write_that_never_answers() {
+    use crate::school_session::{SEED_WAIT, WEB_STORE_LIMIT};
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    let store = GatedWebStore::new();
+    store.gate.send_replace(false);
+    let sessions = verified_sessions(store.clone());
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+
+    engine
+        .open(
+            SITE,
+            "web",
+            SchoolWebEntry::Go {
+                url: "https://lms.s.isct.ac.jp/2025/my/".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store.handed(1).await;
+    assert!(browser.covers.lock().unwrap().is_empty());
+
+    tokio::time::sleep(SEED_WAIT + WEB_STORE_LIMIT + std::time::Duration::from_secs(1)).await;
+    assert!(navigations(&browser).is_empty(), "nothing opens over a write");
+    assert_eq!(
+        engine.page(SITE).access,
+        Some(SchoolWebAccess::Problem {
+            problem: SchoolWebProblem::Storage
+        })
+    );
+    assert_eq!(browser.covers.lock().unwrap().last().map(|c| c.1), Some(true));
+
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        engine.shutdown().await;
+        sessions.shutdown().await;
+    })
+    .await
+    .expect("shutdown must not wait for the platform's answer");
+    assert!(navigations(&browser).is_empty());
+    assert_eq!(browser.covers.lock().unwrap().last().map(|c| c.1), Some(true));
+}
+
+// A write handed to the platform is the view's, not its operation's: a Go
+// that supersedes the recovery that began it cannot uncover the view or open
+// its page until the write ended, and a plain navigation sent meanwhile is
+// held and then sent.
+#[tokio::test(start_paused = true)]
+async fn a_view_stays_covered_over_a_write_that_outlives_its_operation() {
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    const HOME: &str = "https://lms.s.isct.ac.jp/2025/my/";
+    const COURSE: &str = "https://lms.s.isct.ac.jp/2025/course/view.php?id=1";
+    const SIGN_IN: &str = "https://isct.ex-tic.com/auth/session";
+    let store = GatedWebStore::new();
+    let sessions = verified_sessions(store.clone());
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+    let go = |url: &str| SchoolWebEntry::Go { url: url.into() };
+
+    engine.open(SITE, "web", go(HOME)).await.unwrap();
+    browser.navigation(0).await;
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let sequence = AtomicU64::new(1);
+    let land = |raw: &str| {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+            },
+            cause: None,
+            url: Url::parse(raw).unwrap(),
+        });
+    };
+    land(HOME);
+    drain().await;
+    let last_cover = || browser.covers.lock().unwrap().last().map(|cover| cover.1);
+
+    // The page lands on the sign-in page: a recovery, whose write is held.
+    store.gate.send_replace(false);
+    land(SIGN_IN);
+    store.handed(2).await;
+    assert_eq!(last_cover(), Some(true));
+    let before = navigations(&browser).len();
+
+    // The person's App link supersedes it, and shows nothing yet.
+    engine.open(SITE, "web", go(COURSE)).await.unwrap();
+    drain().await;
+    assert_eq!(last_cover(), Some(true));
+    assert_eq!(engine.page(SITE).access, Some(SchoolWebAccess::SigningIn));
+    assert_eq!(navigations(&browser).len(), before);
+
+    store.gate.send_replace(true);
+    let opened = browser.navigation(before).await;
+    assert_eq!(
+        opened.command,
+        BrowserAction::Navigate(Url::parse(COURSE).unwrap())
+    );
+    land(COURSE);
+    drain().await;
+    assert_eq!(last_cover(), Some(false));
+
+    // An unsigned entry (no operation of its own) during another such write.
+    store.gate.send_replace(false);
+    let handed = store.writes.load(Ordering::SeqCst);
+    land(SIGN_IN);
+    store.handed(handed + 1).await;
+    let before = navigations(&browser).len();
+    engine.open(SITE, "web", SchoolWebEntry::Unsigned).await.unwrap();
+    drain().await;
+    assert_eq!(navigations(&browser).len(), before);
+    assert_eq!(last_cover(), Some(true));
+
+    store.gate.send_replace(true);
+    browser.navigation(before).await;
+    drain().await;
+    assert_eq!(last_cover(), Some(false));
+    engine.shutdown().await;
+}
+
+/// Lets the engine's own tasks run as far as they can.
+async fn drain() {
+    for _ in 0..2_000 {
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Waits for the view to have been covered `times` times and given back.
+async fn recovered(browser: &FakeBrowser, times: usize) {
+    for attempt in 0..6_000 {
+        let covers = browser.covers.lock().unwrap().clone();
+        let count = |wanted: bool| covers.iter().filter(|(_, c)| *c == wanted).count();
+        if count(true) == times && count(false) == times {
+            return;
+        }
+        settle(attempt).await;
+    }
+    panic!(
+        "expected {times} recoveries, got {:?}",
+        browser.covers.lock().unwrap()
+    );
+}
+
+// A browser opens a page and deals with a sign-in only when the page asks for
+// one. An App link shows its page uncovered. A page landing on the sign-in
+// page recovers by itself once; a page that keeps coming back cannot keep
+// sending the password, and only the person's own action allows another. The
+// person's own sign-out, Back and unsigned entry stay on the page, with the
+// manual button still there.
+#[tokio::test]
+async fn a_sign_in_page_recovers_once_until_the_person_acts_and_never_after_they_left() {
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    const HOME: &str = "https://lms.s.isct.ac.jp/2025/my/";
+    const COURSE: &str = "https://lms.s.isct.ac.jp/2025/course/view.php?id=1";
+    const SIGN_IN: &str = "https://isct.ex-tic.com/auth/session";
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(EmptyVault)));
+    assert!(sessions.attach_web(Arc::new(AnyWebStore)));
+    let configured = || sessions.assume_configured(SchoolAuthProfile::Science);
+    configured();
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+    let open = |url: &str| SchoolWebEntry::Go { url: url.into() };
+
+    engine.open(SITE, "web", open(HOME)).await.unwrap();
+    browser.navigation(0).await;
+    assert!(browser.covers.lock().unwrap().is_empty());
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let sequence = AtomicU64::new(1);
+    let page = || PageId {
+        browser: id,
+        sequence: sequence.load(Ordering::Relaxed),
+    };
+    // Page reports reach Core in order but not at once: a case drains before
+    // it asks for a navigation that comes after one.
+    let land = |raw: &str| {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+            },
+            cause: None,
+            url: Url::parse(raw).unwrap(),
+        });
+    };
+    let ask = |raw: &str, kind: NavigationKind, gesture: bool| {
+        assert_eq!(
+            listener.decide_navigation(request(page(), raw, true, kind, gesture)),
+            NavigationDecision::Allow
+        );
+    };
+    land(HOME);
+    drain().await;
+
+    land(SIGN_IN);
+    recovered(&browser, 1).await;
+    configured();
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 1).await;
+    assert!(engine.page(SITE).sign_in, "the manual way out stays");
+
+    ask(COURSE, NavigationKind::Link, true);
+    land(SIGN_IN);
+    recovered(&browser, 2).await;
+    configured();
+
+    ask(
+        "https://lms.s.isct.ac.jp/2025/login/logout.php",
+        NavigationKind::FormSubmit,
+        true,
+    );
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 2).await;
+    assert!(engine.page(SITE).sign_in);
+    assert!(engine.reload(SITE).unwrap());
+    recovered(&browser, 3).await;
+    configured();
+
+    land(HOME);
+    drain().await;
+    ask(COURSE, NavigationKind::Link, true);
+    ask(HOME, NavigationKind::BackForward, false);
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 3).await;
+
+    // Reload opens where the person's link was going, and what they asked
+    // for wins over the last page when that link never arrived.
+    land(HOME);
+    drain().await;
+    ask(COURSE, NavigationKind::Link, true);
+    assert!(engine.reload(SITE).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(COURSE).unwrap())
+    );
+
+    engine
+        .open(SITE, "web", SchoolWebEntry::Unsigned)
+        .await
+        .unwrap();
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 3).await;
+
+    // An App link recovers only once its page asked: it stays uncovered until
+    // then, and an earlier hold does not outlast the link.
+    engine.open(SITE, "web", open(COURSE)).await.unwrap();
+    drain().await;
+    recovered(&browser, 3).await;
+    land(SIGN_IN);
+    recovered(&browser, 4).await;
+}
+
 const KYOMU_HOME: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
 
 /// How many popups the page on screen had, each time that changed.
@@ -851,7 +1204,6 @@ async fn a_file_window_gives_way_to_back_and_to_app_links() {
         cause: None,
         url: Url::parse(elsewhere).unwrap(),
     });
-    browser.set_current_url(id, Url::parse(elsewhere).unwrap());
     engine.user_browsing(None).unwrap();
     let before = navigations();
     engine
@@ -893,7 +1245,9 @@ async fn a_file_window_gives_way_to_back_and_to_app_links() {
         BrowserAction::Navigate(Url::parse(activity).unwrap())
     );
 
-    // An app link, even to the page already under the window, closes it.
+    // An app link, even to the page already under the window, closes it
+    // and opens its page again: the entry decides, never the address the
+    // view shows (approach/school-web-front-page).
     let popup = open_file();
     let before = navigations();
     engine
@@ -908,7 +1262,11 @@ async fn a_file_window_gives_way_to_back_and_to_app_links() {
         .unwrap();
     assert_eq!(engine.page(site).popups, 0);
     assert_eq!(browser.disposed.lock().unwrap().last(), Some(&popup));
-    assert_eq!(navigations(), before, "the view was already there");
+    assert_eq!(navigations(), before + 1);
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(activity).unwrap())
+    );
     engine.shutdown().await;
 }
 

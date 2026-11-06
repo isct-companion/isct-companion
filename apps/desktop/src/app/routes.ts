@@ -18,8 +18,10 @@ export const routePatterns = {
   course: "/lectures/:courseId",
   assignment: "/lectures/:courseId/assignments/:aid",
   web: "/web",
+  tools: "/tools",
   settings: "/settings",
   section: "/settings/:section",
+  about: "/about",
 } as const;
 const encode = encodeURIComponent;
 export const paths = {
@@ -33,8 +35,10 @@ export const paths = {
       ? `${routePatterns.lectures}/${encode(courseId)}${assignmentId ? `/assignments/${encode(assignmentId)}` : ""}`
       : routePatterns.lectures,
   web: () => routePatterns.web,
+  tools: () => routePatterns.tools,
   settings: (section?: Section) =>
     section ? `${routePatterns.settings}/${section}` : routePatterns.settings,
+  about: () => routePatterns.about,
   page: (page: Page) => paths[page](),
 };
 
@@ -58,7 +62,11 @@ export function parseRoute(location: string) {
           ? "settings"
           : id === "web"
             ? "web"
-            : "home";
+            : id === "tools"
+              ? "tools"
+              : id === "about"
+                ? "about"
+                : "home";
   return {
     page,
     matched: Boolean(match),
@@ -81,13 +89,10 @@ const sections = new Set<string>([
   "backup",
   "sources",
   "automation",
-  "wifi",
-  "printer",
   "developer",
   "agent",
   "extensions",
   "diagnostics",
-  "about",
 ]);
 export function isSection(value: string | undefined): value is Section {
   return value !== undefined && sections.has(value);

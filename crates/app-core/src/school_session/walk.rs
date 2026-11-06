@@ -7,7 +7,7 @@
 
 use super::{jar::Cookies, Transport, WebCookie};
 use crate::net::{Body, Host, Limits, NetError, NetRequest, Response};
-use reqwest::header::{ACCEPT, COOKIE, ORIGIN, REFERER};
+use reqwest::header::{ACCEPT, COOKIE, ORIGIN, REFERER, USER_AGENT};
 use reqwest::Method;
 use std::sync::Mutex;
 use url::Url;
@@ -61,6 +61,9 @@ pub(super) struct Walk<'a> {
     /// Identity hosts whose `Set-Cookie` values are kept as they arrive,
     /// with the URL each came from: the identity snapshot.
     capture: Option<(&'a [Host], &'a Mutex<Vec<WebCookie>>)>,
+    /// Sent instead of Core's own agent, for a site that admits browsers
+    /// only.
+    agent: Option<&'static str>,
 }
 
 impl<'a> Walk<'a> {
@@ -69,7 +72,13 @@ impl<'a> Walk<'a> {
             transport,
             cookies,
             capture: None,
+            agent: None,
         }
+    }
+
+    pub(super) fn browser(mut self) -> Self {
+        self.agent = Some(crate::net::BROWSER_USER_AGENT);
+        self
     }
 
     pub(super) fn capturing(mut self, hosts: &'a [Host], into: &'a Mutex<Vec<WebCookie>>) -> Self {
@@ -103,7 +112,16 @@ impl<'a> Walk<'a> {
                     referer = Some(url);
                     url = next;
                 }
-                status => return Err(WalkError::Http(status)),
+                // A maintenance page may come with an error status: it is the
+                // page, for the caller's maintenance check.
+                status => {
+                    return match response.text() {
+                        Ok(html) if adpt_isct::maintenance_notice(&url, &html).is_some() => {
+                            Ok(Page { url, html })
+                        }
+                        _ => Err(WalkError::Http(status)),
+                    };
+                }
             }
         }
         Err(WalkError::Off("too many redirects"))
@@ -129,7 +147,15 @@ impl<'a> Walk<'a> {
                 action,
                 response.location().as_deref(),
             )?)),
-            status => Err(WalkError::Http(status)),
+            status => match response.text() {
+                Ok(html) if adpt_isct::maintenance_notice(action, &html).is_some() => {
+                    Ok(Step::Page(Page {
+                        url: action.clone(),
+                        html,
+                    }))
+                }
+                _ => Err(WalkError::Http(status)),
+            },
         }
     }
 
@@ -158,6 +184,9 @@ impl<'a> Walk<'a> {
         }
         if let Some(referer) = referer {
             headers.push((REFERER, referer.to_string()));
+        }
+        if let Some(agent) = self.agent {
+            headers.push((USER_AGENT, agent.to_owned()));
         }
         if method == Method::POST {
             headers.push((

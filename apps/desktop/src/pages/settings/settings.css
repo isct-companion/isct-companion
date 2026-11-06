@@ -307,12 +307,6 @@ button.calendarDay.open {
   }
 }
 
-/* ---------- settings: about ---------- */
-.aboutValue {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
 /* Size to the pane: narrow phones must not inherit the matrix's desktop minimums. */
 .settingsPane,
 .schoolAccounts,
@@ -357,19 +351,6 @@ button.calendarDay.open {
     flex-wrap: wrap;
     max-width: 100%;
   }
-}
-
-/* Campus Wi-Fi: the signed-in button stays green and cannot be clicked. */
-.button.campusWifiConnected:disabled {
-  background: var(--ok-soft);
-  border-color: transparent;
-  color: var(--ok);
-  opacity: 1;
-  cursor: default;
-}
-.campusWifiProgress {
-  margin-top: 6px;
-  max-width: 260px;
 }
 
 /* Subordinate reminder controls keep their own accessible label and grouping. */

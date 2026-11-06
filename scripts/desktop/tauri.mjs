@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { nativeOAuthEnv } from "../lib/oauth-config.mjs";
@@ -73,8 +73,25 @@ const windowsConfig = windowsSigningEndpoint
       },
     }
   : undefined;
+// The campus VPN payload (`bundle-vpn.mjs`) ships only when it was built:
+// the helper, route hook and openconnect land in resources/vpn.
+const vpnHelper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[process.platform];
+const vpnPayload =
+  vpnHelper !== undefined &&
+  existsSync(path.join(root, "apps/desktop/src-tauri/resources/vpn", vpnHelper));
+const vpnBundle = vpnPayload
+  ? {
+      resources: [
+        ...JSON.parse(
+          readFileSync(path.join(root, "apps/desktop/src-tauri/tauri.conf.json"), "utf8"),
+        ).bundle.resources,
+        "resources/vpn/",
+      ],
+    }
+  : undefined;
+if (vpnPayload) console.log("Campus VPN payload: included.");
 const tauriCommand = [...process.argv.slice(2)];
-if (macConfig || windowsConfig || version) {
+if (macConfig || windowsConfig || version || vpnBundle) {
   // Keep Tauri options before the separator for additional Cargo arguments.
   const separator = tauriCommand.indexOf("--");
   tauriCommand.splice(
@@ -83,7 +100,9 @@ if (macConfig || windowsConfig || version) {
     "--config",
     JSON.stringify({
       ...macConfig,
-      ...(windowsConfig ? { bundle: windowsConfig } : {}),
+      ...(windowsConfig || vpnBundle
+        ? { bundle: { ...macConfig?.bundle, ...windowsConfig, ...vpnBundle } }
+        : {}),
       ...(version ? { version } : {}),
     }),
   );

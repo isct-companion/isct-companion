@@ -97,7 +97,6 @@ export function heldText(held: SyncHeld, locale: string) {
       });
     case "host-paused":
       return t("app.hostIsNotAnsweringRetries", {
-        host: held.host,
         time: clock(held.until, locale),
       });
     case "account":
@@ -114,6 +113,11 @@ const FAILURE_KINDS: Record<string, MessageKey> = {
   offline: "syncStatus.failure.noConnection",
   "sign-in": "syncStatus.failure.signInRequired",
   "site-changed": "syncStatus.failure.siteChanged",
+  storage: "syncStatus.failure.notSaved",
+  parse: "syncStatus.failure.unreadable",
+  dns: "syncStatus.failure.unreachable",
+  tls: "syncStatus.failure.unreachable",
+  connect: "syncStatus.failure.unreachable",
 };
 
 function failureReason(kind: string) {
@@ -177,6 +181,7 @@ const SIGN_IN_PROBLEMS: Record<SchoolSignInProblemKind, MessageKey> = {
   network: "schoolSession.problem.network",
   unanswered: "schoolSession.problem.unanswered",
   anomaly: "schoolSession.problem.anomaly",
+  "credential-store": "schoolSession.problem.credentialStore",
 };
 
 /** The site each account's maintenance pauses. */
@@ -210,6 +215,7 @@ export function sessionDetails(
   // A kind this build does not know yet shows Core's own diagnostic.
   const problem = session.problem;
   if (problem) lines.push(signInProblemText(problem.kind) ?? problem.message);
+  if (session.refusalUnsaved) lines.push(t("schoolSession.refusalUnsaved"));
   if (session.state === "needs-web")
     lines.push(t("schoolSession.needsWeb.signInYourself"));
   if (session.maintenance)

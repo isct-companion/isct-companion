@@ -21,7 +21,7 @@ use super::{
     MoodleClient, MoodleError, MoodleFunction,
 };
 use crate::{
-    net::{Body, BoxFuture, Host, Limits, NetError, NetRequest},
+    net::{Body, BoxFuture, Host, Limits, NetError, NetRequest, Response},
     school_auth::SchoolAuthProfile,
     school_session::{Attempt, Blocked, Operation, Permit, RunError, SchoolSessions, Site},
     submissions::{
@@ -323,7 +323,7 @@ impl LmsSubmissions {
                 })
                 .await
                 .map_err(sent_error)?;
-            let value = answer(&attempt, response.status, &response.body)?;
+            let value = answer(&attempt, &response)?;
             let record = value
                 .as_array()
                 .and_then(|records| records.first())
@@ -372,7 +372,7 @@ impl LmsSubmissions {
             })
             .await
             .map_err(sent_error)?;
-        answer(&attempt, response.status, &response.body)
+        answer(&attempt, &response)
     }
 
     /// The user id a removal names, from a fresh site info read.
@@ -672,16 +672,18 @@ fn warning_codes(warnings: &[Value]) -> String {
 
 /// A write's HTTP answer: the error envelope first, as for reads. A gateway
 /// refusal (4xx) never reached Moodle; a 5xx or an unreadable body may have.
-fn answer(attempt: &Attempt, status: u16, body: &[u8]) -> Result<Value, TransportError> {
-    match status {
-        200 => {
-            rest_result(body).map_err(|error| match MoodleClient::envelope_error(attempt, error) {
+fn answer(attempt: &Attempt, response: &Response) -> Result<Value, TransportError> {
+    // The maintenance page answered instead: the write did not run.
+    MoodleClient::maintenance(attempt, response).map_err(read_error)?;
+    match response.status {
+        200 => rest_result(&response.body).map_err(|error| {
+            match MoodleClient::envelope_error(attempt, error) {
                 MoodleError::Malformed(what) => TransportError::Uncertain(what.into()),
                 other => read_error(other),
-            })
-        }
-        400..=499 => Err(TransportError::Rejected(format!("HTTP {status}"))),
-        _ => Err(TransportError::Uncertain(format!("HTTP {status}"))),
+            }
+        }),
+        status @ 400..=499 => Err(TransportError::Rejected(format!("HTTP {status}"))),
+        status => Err(TransportError::Uncertain(format!("HTTP {status}"))),
     }
 }
 

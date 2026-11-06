@@ -1010,11 +1010,12 @@ describe("Tauri bridge contract", () => {
       forward: "unknown",
       notice: { url: null, reason: "offline" },
       access: { kind: "problem", problem: "storage" },
+      signIn: false,
     };
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
         case "connect_school":
-          return { kind: "refused", reason: "invalid-otp" };
+          return { kind: "refused", reason: "invalid-otp", refusalUnsaved: false };
         case "navigate_school_web":
         case "set_school_web_zoom":
         case "school_web_forward":
@@ -1055,7 +1056,7 @@ describe("Tauri bridge contract", () => {
     };
 
     await expect(bridge.connectSchool("science", credentials)).resolves.toEqual(
-      { kind: "refused", reason: "invalid-otp" },
+      { kind: "refused", reason: "invalid-otp", refusalUnsaved: false },
     );
     await expect(bridge.schoolSessionSnapshot()).resolves.toEqual({
       revision: 4,

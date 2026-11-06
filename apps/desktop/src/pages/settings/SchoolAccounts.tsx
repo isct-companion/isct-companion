@@ -668,7 +668,7 @@ function Account({
           loading={busy}
           onClick={() => void connect()}
         >
-          {t("settings.campusWifi.connect")}
+          {t("tools.campusWifi.connect")}
         </Button>
         {(summary.saved || summary.hasOtp || session?.signOutPending) && (
           <Button

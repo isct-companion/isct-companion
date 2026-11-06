@@ -10,6 +10,7 @@
     "tauri": "node scripts/desktop/tauri.mjs",
     "desktop:dev": "node scripts/desktop/tauri.mjs dev",
     "desktop:build": "node scripts/desktop/tauri.mjs build",
+    "desktop:vpn": "node scripts/desktop/bundle-vpn.mjs",
     "test": "vitest run --config apps/desktop/tests/vitest.config.ts",
     "test:watch": "vitest --config apps/desktop/tests/vitest.config.ts",
     "test:live": "ISCT_LIVE_SCHOOL_TESTS=1 vitest run --config apps/desktop/tests/vitest.config.ts tests/live",
