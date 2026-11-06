@@ -361,7 +361,7 @@ if (args[0] === 'release' && args[1] === 'view') {
           `IsctCompanion ${tag.slice(1)} desktop release`,
         );
         // The mobile workflows attach their builds after publication; the
-        // IPA is for sideloading, TestFlight stays the way to install.
+        // IPA is for sideloading, the App Store stays the way to install.
         expect(notes).toContain(
           "Android APK and the iPhone/iPad IPA are attached by their release workflows",
         );
