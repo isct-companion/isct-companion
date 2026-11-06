@@ -314,7 +314,7 @@ impl Workspaces {
             // never snapshots half a file.
             let partial = dir.join(format!(".{}.partial", uuid::Uuid::new_v4()));
             let copied = fs::copy(&source, &partial)
-                .and_then(|_| fs::File::open(&partial)?.sync_all())
+                .and_then(|_| crate::storage::sync_file(&partial))
                 .and_then(|()| fs::rename(&partial, destination));
             if let Err(error) = copied {
                 let _ = fs::remove_file(&partial);

@@ -418,6 +418,20 @@ pub fn durable_replace(path: &Path, contents: &[u8]) -> Result<(), StorageError>
     result
 }
 
+/// Makes a closed file's contents durable. Unix flushes through any handle,
+/// and a file copied from a read-only source could not be opened to write.
+#[cfg(unix)]
+pub(crate) fn sync_file(path: &Path) -> std::io::Result<()> {
+    fs::File::open(path)?.sync_all()
+}
+
+/// `FlushFileBuffers` needs a handle with write access: through a read-only
+/// one it fails with ERROR_ACCESS_DENIED (os error 5).
+#[cfg(windows)]
+pub(crate) fn sync_file(path: &Path) -> std::io::Result<()> {
+    fs::OpenOptions::new().write(true).open(path)?.sync_all()
+}
+
 /// Makes a folder's entries (a rename, a new file) durable.
 #[cfg(unix)]
 pub(crate) fn sync_directory(directory: &Path) -> std::io::Result<()> {

@@ -2755,8 +2755,17 @@ checks:
       event, a reminder setting, Allow local agents on), a copy of
       `~/Library/Application Support/app.isctcompanion/` saved elsewhere, and
       a build of this commit (`yarn desktop:build --debug --bundles app`).
-      `pgrep -lf IsctCompanion` shows nothing running.
+      `pgrep -lf IsctCompanion` shows nothing running. For the Windows step, a
+      Windows PC with 1.2.7 installed and used, and an installer of this commit.
     steps:
+      - action: |
+          On the Windows PC, install this commit over 1.2.7 and start it. Then
+          uninstall, remove the data folder and install it fresh.
+        reason: |
+          Windows refuses file operations that Unix allows, and the Core tests
+          do not run the installed app's own folder. 1.3.0 passed on a Mac and
+          stopped on Windows with "The data folder could not be opened" (os
+          error 5) while building the first store.
       - action: |
           Start the new build once, quit it, and list the data folder.
         reason: |
@@ -2803,6 +2812,7 @@ checks:
       - crates/app-core/src/data/root.rs
       - crates/app-core/src/data/connection.rs
       - crates/app-core/src/data/migrations.rs
+      - crates/app-core/src/storage.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/native_dialog.rs
     verified: null
