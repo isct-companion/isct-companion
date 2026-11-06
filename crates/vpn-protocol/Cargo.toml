@@ -1,0 +1,11 @@
+[package]
+name = "vpn-protocol"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Wire format between IsctCompanion and the campus VPN root helper"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+serde_json = "1"

@@ -335,6 +335,9 @@ export type SchoolWebPage = {
   forward: SchoolWebStep;
   notice: SchoolWebFailure | null;
   access: SchoolWebAccess | null;
+  /** The page in front is a sign-in page Core is not signing in now, and the
+   * saved account could: the manual way out, through Reload. */
+  signIn: boolean;
 };
 
 /** How a surface brings a site's view on screen. Core resumes, goes to the
@@ -370,6 +373,24 @@ export type CampusWifiOutcome =
   | "science-tokyo-x";
 export type CampusWifiStatus =
   "signed-in" | "sign-in-required" | "science-tokyo-x" | "other";
+/** A campus VPN reminder Core decided is due. */
+export type VpnNotice =
+  | { kind: "ending"; minutes: number }
+  | { kind: "ended" }
+  | { kind: "keepEnded" }
+  | { kind: "keepStopped"; code: string };
+/** Campus VPN as the helper reports it; `error` is a code the UI keys on. */
+export type VpnStatus = {
+  /** `unavailable`: this build has no VPN payload (Intel Macs). */
+  state: "disconnected" | "connecting" | "connected" | "error" | "unavailable";
+  address?: string | null;
+  /** When the campus session ends (RFC 3339), for the countdown. */
+  expiresAt?: string | null;
+  /** When auto-continue ends and disconnects (RFC 3339), while it is on. */
+  keepUntil?: string | null;
+  error?: string | null;
+  detail?: string | null;
+};
 /** Sign-in stages in order; "joining" is skipped when already on ScienceTokyo. */
 export const CAMPUS_WIFI_STEPS = [
   "joining",
@@ -608,6 +629,19 @@ export interface DesktopBridge {
   onSchoolWebNotice?(callback: (notice: SchoolWebNotice) => void): () => void;
   /** What the Wi-Fi interface is on now (macOS builds only). */
   campusWifiStatus?(): Promise<CampusWifiStatus>;
+  /** Campus VPN state from the privileged helper (macOS and Windows builds). */
+  vpnStatus?(): Promise<VpnStatus>;
+  /** One administrator approval installs or updates the helper and openconnect. */
+  vpnInstall?(): Promise<VpnStatus>;
+  /** Signs in to the campus VPN with the saved Tokyo Tech account and connects. */
+  vpnConnect?(): Promise<VpnStatus>;
+  vpnDisconnect?(): Promise<VpnStatus>;
+  /** Auto-continue for `hours`, which it always needs, or off with `null`. */
+  vpnKeep?(hours: number | null): Promise<VpnStatus>;
+  /** The state after each check while a tunnel is up (every minute). */
+  onVpnStatus?(callback: (status: VpnStatus) => void): () => void;
+  /** The session ends in a few minutes, or ended on its own. */
+  onVpnNotice?(callback: (notice: VpnNotice) => void): () => void;
   /**
    * Joins ScienceTokyo if needed and signs in once with the Tokyo Tech account
    * (macOS builds only). Returns "science-tokyo-x" without changing anything
@@ -684,6 +718,7 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
     Number.isSafeInteger(page.popups) &&
     schoolWebSteps.includes(page.back) &&
     schoolWebSteps.includes(page.forward) &&
+    typeof page.signIn === "boolean" &&
     (notice === null ||
       (typeof notice === "object" &&
         (notice.url === null || typeof notice.url === "string") &&
@@ -694,6 +729,28 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
           (access.kind === "problem" && typeof access.problem === "string"))))
   );
 };
+
+/** Listens to a native event, passing on only payloads `accepts` takes. */
+function subscribe<T>(
+  event: string,
+  accepts: (payload: any) => boolean,
+  callback: (payload: T) => void,
+): () => void {
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  void tauriListen<T>(event, ({ payload }) => {
+    if (!disposed && accepts(payload)) callback(payload);
+  })
+    .then((fn) => {
+      if (disposed) quietly(fn);
+      else unlisten = fn;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    if (unlisten) quietly(unlisten);
+  };
+}
 
 /** Tauri's unlisten throws, or rejects, once the runtime is gone (window closing, tests). */
 const quietly = (unlisten: () => unknown) => {
@@ -843,6 +900,28 @@ export function createTauriDesktopBridge(
     campusPrintRequest: () => result("campus_print_request"),
     campusPrint: (options) => result("campus_print", { options }),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
+    vpnStatus: () => invokeCommand("vpn_status"),
+    vpnInstall: () => invokeCommand("vpn_install"),
+    vpnConnect: () => invokeCommand("vpn_connect"),
+    vpnDisconnect: () => invokeCommand("vpn_disconnect"),
+    vpnKeep: (hours) => invokeCommand("vpn_keep", { hours }),
+    onVpnStatus: (callback) =>
+      subscribe<VpnStatus>(
+        "vpn-status",
+        (payload) => typeof payload?.state === "string",
+        callback,
+      ),
+    onVpnNotice: (callback) =>
+      subscribe<VpnNotice>(
+        "vpn-notice",
+        (payload) =>
+          payload?.kind === "ended" ||
+          payload?.kind === "keepEnded" ||
+          (payload?.kind === "keepStopped" &&
+            typeof payload.code === "string") ||
+          (payload?.kind === "ending" && typeof payload.minutes === "number"),
+        callback,
+      ),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();
       steps.onmessage = onStep;

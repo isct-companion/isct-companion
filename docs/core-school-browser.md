@@ -3,7 +3,7 @@
 How a shell hosts school web views for Core. Core
 (`crates/app-core/src/school_browser`) owns every decision: which navigation
 and window may happen, which view a command goes to, what is shown about a
-page, when hidden work may use a view. A host is a browser engine adapter. It
+page. A host is a browser engine adapter. It
 reports what the engine knows, carries out what Core decides, and keeps no
 rules of its own: no host list, no scheme exception list, no injected page
 shim, no history of its own.
@@ -16,8 +16,10 @@ desktop (`apps/desktop/src-tauri/src/school_browser_native.rs` with
 ## Views, popups and pages
 
 - A **view** is one resident web view per `SchoolSite`, created by
-  `ensure(browser, initialUrl)`. The person's browsing and Core's hidden work
-  (session checks, sign-ins, pulls) share it, so the school session is one.
+  `ensure(browser, initialUrl)`. Its session is the web page's alone: Core
+  signs in and reads over HTTP with sessions of its own
+  (`crates/app-core/src/school_session`), and only writes an identity into the
+  view when a page needs one.
 - A **popup** is a window a page opened. Core gives it a `BrowserId` of its
   own (the opener's site, a new generation) and registers it as a child of its
   opener, which may be the view or another popup. A popup lives and closes

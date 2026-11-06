@@ -53,6 +53,7 @@ pub mod school_browser;
 pub mod school_files;
 pub mod school_service;
 pub mod school_session;
+mod secret_parts;
 pub mod storage;
 pub mod study_profile;
 #[cfg(feature = "agent")]
@@ -63,4 +64,5 @@ pub mod sync_state;
 pub mod workspace;
 pub mod workspace_changes;
 
+pub mod vpn;
 pub mod workspaces;

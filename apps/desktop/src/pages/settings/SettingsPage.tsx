@@ -16,13 +16,10 @@ import { workspaceActions } from "../../store/workspace";
 import { UiButton, UiInput } from "../../components/ui";
 import { SettingsHeader } from "../../components/forms";
 import { AcademicCalendarSettings } from "./AcademicCalendarSettings";
-import { AboutSettings } from "./AboutSettings";
 import { AgentSettings } from "./AgentSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { BackupSettings } from "./BackupSettings";
-import { CampusPrinterSettings } from "./CampusPrinterSettings";
-import { CampusWifiSettings } from "./CampusWifiSettings";
 import { DataUpdatesSettings } from "./DataUpdatesSettings";
 import { DeveloperSettings, useDeveloperMode } from "./DeveloperSettings";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
@@ -261,18 +258,12 @@ function SettingsBody({
         notify={notify}
         desktop={desktop}
       />
-    ) : current === "wifi" ? (
-      <CampusWifiSettings notify={notify} />
-    ) : current === "printer" ? (
-      <CampusPrinterSettings notify={notify} />
     ) : current === "agent" ? (
       <AgentSettings data={data} update={update} notify={notify} />
     ) : current === "extensions" ? (
       <ExtensionsSettings data={data} update={customizeSite} />
     ) : current === "diagnostics" ? (
       <DiagnosticsSettings data={data} notify={notify} />
-    ) : current === "about" ? (
-      <AboutSettings data={data} update={update} />
     ) : null;
 
   return (
@@ -317,19 +308,15 @@ function SettingsBody({
             {sections.map((item, index) => (
               <Fragment key={item.id}>
                 {item.tier !== sections[index - 1]?.tier &&
-                  (item.tier === "about" ? (
-                    <hr className="settingsNavDivider" />
-                  ) : (
-                    item.tier !== "basic" && (
-                      <span className="settingsNavGroup">
-                        {t(
-                          item.tier === "advanced"
-                            ? "settings.main.advanced"
-                            : "settings.main.developer",
-                        )}
-                      </span>
-                    )
-                  ))}
+                  item.tier !== "basic" && (
+                    <span className="settingsNavGroup">
+                      {t(
+                        item.tier === "advanced"
+                          ? "settings.main.advanced"
+                          : "settings.main.developer",
+                      )}
+                    </span>
+                  )}
                 <UiButton
                   className={sectionParent(current) === item.id ? "active" : ""}
                   aria-current={current === item.id ? "page" : undefined}

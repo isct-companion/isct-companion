@@ -1,3 +1,4 @@
+import { Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Progress } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
@@ -10,42 +11,37 @@ import {
 } from "../../platform/desktop-bridge";
 import { UiButton } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
-import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
+import { ToolCard } from "./ToolCard";
 import { errorText } from "../../app/shared";
 
 const OUTCOME_TEXT: Record<
   Exclude<CampusWifiOutcome, "science-tokyo-x">,
   MessageKey
 > = {
-  "signed-in": "settings.campusWifi.signedInToScienceTokyo",
-  "already-online": "settings.campusWifi.alreadyConnected",
-  "needs-account": "settings.campusWifi.saveTheTokyoTechPortal",
-  rejected: "settings.campusWifi.thePortalRefusedTheTokyo",
+  "signed-in": "tools.campusWifi.signedInToScienceTokyo",
+  "already-online": "tools.campusWifi.alreadyConnected",
+  "needs-account": "tools.campusWifi.saveTheTokyoTechPortal",
+  rejected: "tools.campusWifi.thePortalRefusedTheTokyo",
 };
 
 const STEP_TEXT: Record<CampusWifiStep, MessageKey> = {
-  joining: "settings.campusWifi.joiningScienceTokyo",
-  "opening-portal": "settings.campusWifi.openingTheSignInPage",
+  joining: "tools.campusWifi.joiningScienceTokyo",
+  "opening-portal": "tools.campusWifi.openingTheSignInPage",
   "signing-in": "common.signingIn",
-  verifying: "settings.campusWifi.waitingForTheNetworkTo",
+  verifying: "tools.campusWifi.waitingForTheNetworkTo",
 };
 
 /**
  * ScienceTokyo Wi-Fi: one sign-in per click, nothing in the background. The
  * Wi-Fi state is read once each time the page opens.
  */
-export function CampusWifiSettings({
-  notify,
-}: {
-  notify: (message: string) => void;
-}) {
+export function CampusWifi({ notify }: { notify: (message: string) => void }) {
   const [status, setStatus] = useState<CampusWifiStatus>();
   const [checking, setChecking] = useState(true);
   const [step, setStep] = useState<CampusWifiStep>();
   const [connecting, setConnecting] = useState(false);
   const [result, setResult] = useState<string>();
   const connected = status === "signed-in";
-
   useEffect(() => {
     let current = true;
     setChecking(true);
@@ -94,9 +90,9 @@ export function CampusWifiSettings({
     if ((await connect(false)) !== "science-tokyo-x") return;
     if (
       await confirmAction(
-        t("settings.campusWifi.thisMacIsOnScienceTokyoX"),
-        t("settings.campusWifi.switch"),
-        { title: t("settings.campusWifi.switchToScienceTokyo"), danger: false },
+        t("tools.campusWifi.thisMacIsOnScienceTokyoX"),
+        t("tools.campusWifi.switch"),
+        { title: t("tools.campusWifi.switchToScienceTokyo"), danger: false },
       )
     )
       await connect(true);
@@ -108,9 +104,9 @@ export function CampusWifiSettings({
     : 0;
   const hint = connecting ? (
     <>
-      {step ? t(STEP_TEXT[step]) : t("settings.campusWifi.connecting")}
+      {step ? t(STEP_TEXT[step]) : t("tools.campusWifi.connecting")}
       <Progress
-        className="campusWifiProgress"
+        className="toolProgress"
         value={progress}
         size="sm"
         animated
@@ -120,42 +116,35 @@ export function CampusWifiSettings({
   ) : (
     (result ??
     (connected
-      ? t("settings.campusWifi.signedInToScienceTokyo")
+      ? t("tools.campusWifi.signedInToScienceTokyo")
       : status === "science-tokyo-x"
-        ? t("settings.campusWifi.connectedToScienceTokyoX")
+        ? t("tools.campusWifi.connectedToScienceTokyoX")
         : undefined))
   );
 
   return (
-    <>
-      <SettingsHeader
-        title="settings.campusWifi.campusWiFi"
-        description="settings.campusWifi.joinsScienceTokyoAndSignsIn"
-      />
-      <SettingsGroup footer={t("settings.campusWifi.runsOnlyWhenYouClick")}>
-        <Row
-          group
-          id="campus-wifi"
-          title="settings.campusWifi.sciencetokyoWiFi"
-          hint={hint}
+    <ToolCard
+      icon={<Wifi aria-hidden strokeWidth={1.75} />}
+      title="tools.campusWifi.campusWiFi"
+      status={hint}
+      note="tools.campusWifi.runsOnlyWhenYouClick"
+      actions={
+        <UiButton
+          className={`button small${connected ? " toolConnected" : ""}`}
+          disabled={checking || connecting || connected}
+          onClick={() => void start()}
         >
-          <UiButton
-            className={`button small${connected ? " campusWifiConnected" : ""}`}
-            disabled={checking || connecting || connected}
-            onClick={() => void start()}
-          >
-            {t(
-              connected
-                ? "settings.main.connected"
-                : connecting
-                  ? "settings.campusWifi.connecting"
-                  : checking
-                    ? "settings.academicCalendar.checking"
-                    : "settings.campusWifi.connect",
-            )}
-          </UiButton>
-        </Row>
-      </SettingsGroup>
-    </>
+          {t(
+            connected
+              ? "settings.main.connected"
+              : connecting
+                ? "tools.campusWifi.connecting"
+                : checking
+                  ? "settings.academicCalendar.checking"
+                  : "tools.campusWifi.connect",
+          )}
+        </UiButton>
+      }
+    />
   );
 }

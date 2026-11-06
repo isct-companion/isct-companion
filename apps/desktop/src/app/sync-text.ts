@@ -97,7 +97,6 @@ export function heldText(held: SyncHeld, locale: string) {
       });
     case "host-paused":
       return t("app.hostIsNotAnsweringRetries", {
-        host: held.host,
         time: clock(held.until, locale),
       });
     case "account":
@@ -114,6 +113,11 @@ const FAILURE_KINDS: Record<string, MessageKey> = {
   offline: "syncStatus.failure.noConnection",
   "sign-in": "syncStatus.failure.signInRequired",
   "site-changed": "syncStatus.failure.siteChanged",
+  storage: "syncStatus.failure.notSaved",
+  parse: "syncStatus.failure.unreadable",
+  dns: "syncStatus.failure.unreachable",
+  tls: "syncStatus.failure.unreachable",
+  connect: "syncStatus.failure.unreachable",
 };
 
 function failureReason(kind: string) {

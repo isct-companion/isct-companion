@@ -19,6 +19,7 @@ campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "tokio/net"]
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
 adpt-printer = { path = "../adpt-printer", optional = true }
+vpn-protocol = { path = "../vpn-protocol" }
 log = "0.4"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

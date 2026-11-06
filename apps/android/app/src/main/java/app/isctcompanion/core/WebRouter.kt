@@ -85,7 +85,7 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
                     SchoolWebPage(
                         site, row.optLong("revision").toULong(), row.text("url"), row.optLong("popups").toULong(),
                         step(row.optString("back")), step(row.optString("forward")), notice,
-                        access(row.optJSONObject("access")),
+                        access(row.optJSONObject("access")), row.optBoolean("signIn"),
                     ),
                 )
             }
@@ -247,8 +247,8 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
 
         /** Sites in the ウェブ tab's switcher, in order. */
         val tabSites = listOf(
-            SchoolSite.SCIENCE_PORTAL, SchoolSite.SCIENCE_LMS, SchoolSite.KYOMU, SchoolSite.TOKYO_MAIL, SchoolSite.LIBRARY,
-            SchoolSite.TSUBAME,
+            SchoolSite.SCIENCE_PORTAL, SchoolSite.SCIENCE_LMS, SchoolSite.KYOMU, SchoolSite.TOKYO_PORTAL, SchoolSite.TOKYO_MAIL,
+            SchoolSite.LIBRARY, SchoolSite.TSUBAME,
         )
 
         fun name(site: SchoolSite): String = when (site) {

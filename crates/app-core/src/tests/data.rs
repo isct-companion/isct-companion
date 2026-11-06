@@ -1,5 +1,50 @@
 use super::*;
 
+// A read transaction that begins on cache.db and then reads user.db must not
+// hold up a commit across the three files until it fails as "database is
+// locked". Rollback journals make the two wait for each other otherwise: the
+// bug is a 10-second stall and a lost write, not a wrong row.
+#[test]
+fn a_read_transaction_in_any_order_does_not_deadlock_a_commit() {
+    let store = store("read-lock-order");
+    let mut reader = store.connections.open_reader().unwrap();
+    let transaction = connection::read_transaction(&mut reader).unwrap();
+    let count = |table: &str| {
+        transaction
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    count("registrations");
+    let writer = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            store
+                .write::<_, DataError>(None, |write| {
+                    write.execute_batch(
+                        "INSERT INTO settings VALUES ('lock-order', '1', '', '', '', 1, NULL, NULL);
+                         INSERT INTO registrations VALUES ('lock-order', '{}', '', '', '', 1, NULL, NULL, NULL, NULL);
+                         INSERT INTO dataset_state (dataset, key) VALUES ('lock-order', 'all');",
+                    )?;
+                    Ok(())
+                })
+                .map(|()| started.elapsed())
+        })
+    };
+    // The commit is waiting for this read now.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    count("settings");
+    count("dataset_state");
+    transaction.finish().unwrap();
+    let elapsed = writer.join().unwrap().unwrap();
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "the commit waited {elapsed:?}"
+    );
+}
+
 #[test]
 fn corrupt_stored_rows_are_storage_failures() {
     let connection = Connection::open_in_memory().unwrap();

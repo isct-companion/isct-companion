@@ -365,9 +365,7 @@ describe("School accounts", () => {
         }),
       );
       await wait(() =>
-        expect(science.querySelector(".uiTag")?.textContent).toBe(
-          "Connected · signs in when needed",
-        ),
+        expect(science.querySelector(".uiTag")?.textContent).toBe("Connected"),
       );
       expect(
         [
@@ -501,11 +499,7 @@ describe("School accounts", () => {
           profiles: schoolProfiles("normal", "not-configured"),
         }),
       );
-      await wait(() =>
-        expect(science.textContent).toContain(
-          "Connected · signs in when needed",
-        ),
-      );
+      await wait(() => expect(science.textContent).toContain("Connected"));
       expect(buttonByText(science, "Retry")).toBeFalsy();
 
       // A refusal is said by its kind, with Retry and the other-device hint;
@@ -521,7 +515,7 @@ describe("School accounts", () => {
         ),
       );
       await wait(() =>
-        expect(science.textContent).toContain("Not accepted by the school"),
+        expect(science.textContent).toContain("Sign-in refused"),
       );
       expect(science.textContent).toContain(
         "The ID or password was not accepted.",
@@ -541,11 +535,7 @@ describe("School accounts", () => {
       expect(mounted.core.commands("retry_school")[0].args).toEqual({
         profile: "science",
       });
-      await wait(() =>
-        expect(science.textContent).toContain(
-          "Connected · signs in when needed",
-        ),
-      );
+      await wait(() => expect(science.textContent).toContain("Connected"));
       expect(mounted.core.commands("connect_school")).toHaveLength(0);
 
       // The web-only state sends the person to the portal page.
@@ -1432,7 +1422,9 @@ describe("Backup", () => {
         '[aria-label="Earlier version pages"]',
       )!;
       const page = (label: string) =>
-        versionPages.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`) ??
+        versionPages.querySelector<HTMLButtonElement>(
+          `[aria-label="${label}"]`,
+        ) ??
         [...versionPages.querySelectorAll<HTMLButtonElement>("button")].find(
           (button) => button.textContent === label,
         )!;
@@ -2345,7 +2337,7 @@ describe("desktop app updates", () => {
     async () => {
       const workspace = workspaceFixture();
       workspace.settings.locale = "zh";
-      app = await mountSettings(paths.settings("about"), {
+      app = await mountSettings(paths.about(), {
         workspace,
         handle: (command) => {
           if (command === "check_app_update" || command === "app_update_state")
@@ -2367,6 +2359,92 @@ describe("desktop app updates", () => {
       await wait(() =>
         expect(app!.host.textContent).toContain("尚未发布稳定版"),
       );
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "opens the website, the repository, the license and the sponsor page in the browser",
+    async () => {
+      app = await mountSettings(paths.about());
+      for (const [row, url] of [
+        ["website", "https://isctcomp.app/"],
+        ["github", "https://github.com/isct-companion/isct-companion"],
+        [
+          "license",
+          "https://github.com/isct-companion/isct-companion/blob/main/LICENSE",
+        ],
+        ["sponsor", "https://isctcomp.app/sponsor/"],
+      ] as const) {
+        const button = await wait(() => {
+          const found = app!.host.querySelector<HTMLButtonElement>(
+            `[data-setting="${row}"] button`,
+          );
+          expect(found).not.toBeNull();
+          return found!;
+        });
+        await click(button);
+        await wait(() =>
+          expect(app!.core.commands("open_external").at(-1)?.args).toEqual({
+            url,
+          }),
+        );
+      }
+    },
+    TIMEOUT,
+  );
+});
+
+describe("Campus VPN", () => {
+  it(
+    "connects again after a tunnel failed, though the helper still reports it",
+    async () => {
+      window.__ISCT_COMPANION_NATIVE_OS__ = "windows";
+      const status = {
+        address: null,
+        expiresAt: null,
+        keepUntil: null,
+      };
+      const failed = {
+        ...status,
+        state: "error",
+        error: "tunnel_failed",
+        detail: "the tunnel ended",
+      };
+      try {
+        const mounted = await mountSettings(paths.tools(), {
+          handle: (command) => {
+            if (command === "vpn_status") return failed;
+            if (command === "vpn_connect")
+              return {
+                ...status,
+                state: "connected",
+                error: null,
+                detail: null,
+              };
+            return undefined;
+          },
+        });
+        app = mounted;
+        const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+        await wait(() =>
+          expect(pane.textContent).toContain(
+            "The campus VPN could not be established.",
+          ),
+        );
+        // A Windows build has no campus Wi-Fi sign-in to list.
+        expect(
+          [...pane.querySelectorAll(".toolCard h3")].map(
+            (title) => title.textContent,
+          ),
+        ).toEqual(["Campus VPN", "Campus printer"]);
+        await clickButton(pane, "Connect");
+        await wait(() =>
+          expect(mounted.core.commands("vpn_connect")).toHaveLength(1),
+        );
+      } finally {
+        delete window.__ISCT_COMPANION_NATIVE_OS__;
+      }
     },
     TIMEOUT,
   );

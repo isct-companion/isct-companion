@@ -4,6 +4,7 @@ pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
 use crate::school_session::SchoolSignInProblem;
+use crate::secret_parts;
 use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -340,6 +341,9 @@ pub struct SchoolAuthService {
     /// The refusal each account shows, as the vault was last read. Never
     /// locked across vault I/O, so drawing it never waits for the vault.
     shown: Mutex<HashMap<SchoolAuthProfile, SchoolSignInProblem>>,
+    /// Held across a saved session's vault I/O: two writes spread over
+    /// several items must not interleave (`secret_parts`).
+    session_items: Mutex<()>,
     status_path: Option<std::path::PathBuf>,
 }
 
@@ -350,6 +354,7 @@ impl SchoolAuthService {
             vault: Arc::new(vault),
             accounts: Mutex::new(Accounts::default()),
             shown: Mutex::default(),
+            session_items: Mutex::default(),
             status_path: None,
         }
     }
@@ -359,6 +364,7 @@ impl SchoolAuthService {
             vault: Arc::new(vault),
             accounts: Mutex::new(Accounts::default()),
             shown: Mutex::default(),
+            session_items: Mutex::default(),
             status_path: Some(path),
         }
     }
@@ -988,7 +994,11 @@ impl SchoolAuthService {
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<Option<String>, SchoolAuthError> {
-        Ok(self.vault.load(session_account(profile))?)
+        let _items = self.session_items.lock();
+        Ok(secret_parts::load(
+            self.vault.as_ref(),
+            session_account(profile),
+        )?)
     }
 
     pub(crate) fn store_session(
@@ -996,11 +1006,20 @@ impl SchoolAuthService {
         profile: SchoolAuthProfile,
         session: &str,
     ) -> Result<(), SchoolAuthError> {
-        Ok(self.vault.store(session_account(profile), session)?)
+        let _items = self.session_items.lock();
+        Ok(secret_parts::store(
+            self.vault.as_ref(),
+            session_account(profile),
+            session,
+        )?)
     }
 
     pub(crate) fn delete_session(&self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
-        Ok(self.vault.delete(session_account(profile))?)
+        let _items = self.session_items.lock();
+        Ok(secret_parts::delete(
+            self.vault.as_ref(),
+            session_account(profile),
+        )?)
     }
 
     pub fn status(&self) -> Result<SchoolCredentialStatus, SchoolAuthError> {

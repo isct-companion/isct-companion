@@ -3,14 +3,16 @@ use crate::{
     data::DataStore,
     events::CoreEvent,
     lifecycle::SchoolSite,
+    net::BoxFuture,
     ports::{EventError, EventSink, SecretError, SecretVault},
+    school_auth::SchoolAuthProfile,
     school_auth::SchoolAuthService,
-    school_session::SchoolSessions,
+    school_session::{SchoolSessions, WebCookie, WebCookieSeed},
 };
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, Weak,
     },
 };
@@ -543,6 +545,160 @@ async fn kyomu_open() -> (
     });
     url_shown(&events, KYOMU_HOME).await;
     (engine, browser, events, id)
+}
+
+/// A web cookie store that takes everything: these cases are about when Core
+/// recovers a page, and no password exists to send.
+struct AnyWebStore;
+
+impl WebCookieSeed for AnyWebStore {
+    fn write(&self, _cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// Lets the engine's own tasks run as far as they can.
+async fn drain() {
+    for _ in 0..2_000 {
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Waits for the view to have been covered `times` times and given back.
+async fn recovered(browser: &FakeBrowser, times: usize) {
+    for attempt in 0..6_000 {
+        let covers = browser.covers.lock().unwrap().clone();
+        let count = |wanted: bool| covers.iter().filter(|(_, c)| *c == wanted).count();
+        if count(true) == times && count(false) == times {
+            return;
+        }
+        settle(attempt).await;
+    }
+    panic!(
+        "expected {times} recoveries, got {:?}",
+        browser.covers.lock().unwrap()
+    );
+}
+
+// A browser opens a page and deals with a sign-in only when the page asks for
+// one. An App link shows its page uncovered. A page landing on the sign-in
+// page recovers by itself once; a page that keeps coming back cannot keep
+// sending the password, and only the person's own action allows another. The
+// person's own sign-out, Back and unsigned entry stay on the page, with the
+// manual button still there.
+#[tokio::test]
+async fn a_sign_in_page_recovers_once_until_the_person_acts_and_never_after_they_left() {
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    const HOME: &str = "https://lms.s.isct.ac.jp/2025/my/";
+    const COURSE: &str = "https://lms.s.isct.ac.jp/2025/course/view.php?id=1";
+    const SIGN_IN: &str = "https://isct.ex-tic.com/auth/session";
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(EmptyVault)));
+    assert!(sessions.attach_web(Arc::new(AnyWebStore)));
+    let configured = || sessions.assume_configured(SchoolAuthProfile::Science);
+    configured();
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+    let open = |url: &str| SchoolWebEntry::Go { url: url.into() };
+
+    engine.open(SITE, "web", open(HOME)).await.unwrap();
+    browser.navigation(0).await;
+    assert!(browser.covers.lock().unwrap().is_empty());
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let sequence = AtomicU64::new(1);
+    let page = || PageId {
+        browser: id,
+        sequence: sequence.load(Ordering::Relaxed),
+    };
+    // Page reports reach Core in order but not at once: a case drains before
+    // it asks for a navigation that comes after one.
+    let land = |raw: &str| {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+            },
+            cause: None,
+            url: Url::parse(raw).unwrap(),
+        });
+    };
+    let ask = |raw: &str, kind: NavigationKind, gesture: bool| {
+        assert_eq!(
+            listener.decide_navigation(request(page(), raw, true, kind, gesture)),
+            NavigationDecision::Allow
+        );
+    };
+    land(HOME);
+    drain().await;
+
+    land(SIGN_IN);
+    recovered(&browser, 1).await;
+    configured();
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 1).await;
+    assert!(engine.page(SITE).sign_in, "the manual way out stays");
+
+    ask(COURSE, NavigationKind::Link, true);
+    land(SIGN_IN);
+    recovered(&browser, 2).await;
+    configured();
+
+    ask(
+        "https://lms.s.isct.ac.jp/2025/login/logout.php",
+        NavigationKind::FormSubmit,
+        true,
+    );
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 2).await;
+    assert!(engine.page(SITE).sign_in);
+    assert!(engine.reload(SITE).unwrap());
+    recovered(&browser, 3).await;
+    configured();
+
+    land(HOME);
+    drain().await;
+    ask(COURSE, NavigationKind::Link, true);
+    ask(HOME, NavigationKind::BackForward, false);
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 3).await;
+
+    // Reload opens where the person's link was going, and what they asked
+    // for wins over the last page when that link never arrived.
+    land(HOME);
+    drain().await;
+    ask(COURSE, NavigationKind::Link, true);
+    assert!(engine.reload(SITE).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(COURSE).unwrap())
+    );
+
+    engine
+        .open(SITE, "web", SchoolWebEntry::Unsigned)
+        .await
+        .unwrap();
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 3).await;
+
+    // An App link recovers only once its page asked: it stays uncovered until
+    // then, and an earlier hold does not outlast the link.
+    engine.open(SITE, "web", open(COURSE)).await.unwrap();
+    drain().await;
+    recovered(&browser, 3).await;
+    land(SIGN_IN);
+    recovered(&browser, 4).await;
 }
 
 const KYOMU_HOME: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";

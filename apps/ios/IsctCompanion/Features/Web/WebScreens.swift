@@ -324,6 +324,20 @@ private struct PageBars: View {
                 signIn(access)
                 Divider()
             }
+            if web.pages[site]?.signIn == true {
+                HStack {
+                    Text(t("web.signIn.asks"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(t("web.signIn.useSaved")) { web.reload(site) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                Divider()
+            }
             if let failure = web.failure(site) {
                 failed(failure)
                 Divider()

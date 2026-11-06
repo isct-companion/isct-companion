@@ -230,6 +230,11 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             is SchoolWebAccess.Problem -> NoticeBanner(t(problemText(access.problem)), Theme.colors.warnSoft)
             null -> Unit
         }
+        if (page?.signIn == true) {
+            NoticeBanner(t("web.signIn.asks"), Theme.colors.accentSoft) {
+                TextButton(onClick = { web.reload(site) }) { Text(t("web.signIn.useSaved")) }
+            }
+        }
         when (web.notices[site]) {
             WebRouter.Notice.REOPENED -> NoticeBanner(t("web.reopenedThisPageWithoutSending"), Theme.colors.accentSoft)
             null -> Unit

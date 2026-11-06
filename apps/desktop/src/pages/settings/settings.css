@@ -359,19 +359,6 @@ button.calendarDay.open {
   }
 }
 
-/* Campus Wi-Fi: the signed-in button stays green and cannot be clicked. */
-.button.campusWifiConnected:disabled {
-  background: var(--ok-soft);
-  border-color: transparent;
-  color: var(--ok);
-  opacity: 1;
-  cursor: default;
-}
-.campusWifiProgress {
-  margin-top: 6px;
-  max-width: 260px;
-}
-
 /* Subordinate reminder controls keep their own accessible label and grouping. */
 .settingsSuboptions { margin: 0 0 12px 8px; padding-inline-start: 20px; border-inline-start: 1px solid var(--line); }
 .settingsSuboptions .row { border-bottom: 0; padding-block: 8px; }

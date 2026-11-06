@@ -124,6 +124,12 @@ impl SecretVault for OsSecretVault {
             Ok(())
         }
     }
+
+    // A Credential Manager item holds 2560 bytes, and keyring writes UTF-16.
+    #[cfg(windows)]
+    fn item_limit(&self) -> Option<usize> {
+        Some(1280)
+    }
 }
 
 // Read back through the destination, never through load()'s migration fallback.

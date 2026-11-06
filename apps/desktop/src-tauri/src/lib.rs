@@ -56,6 +56,12 @@ mod window_close;
 mod window_close_macos;
 #[cfg(target_os = "windows")]
 mod window_close_windows;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod vpn;
+#[cfg(target_os = "macos")]
+mod vpn_macos;
+#[cfg(target_os = "windows")]
+mod vpn_windows;
 mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
@@ -273,6 +279,8 @@ pub fn run() {
         .manage(desktop_updates::DesktopUpdates::default())
         .manage(campus_printer::Setup::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let builder = builder.manage(vpn::service());
     #[cfg(target_os = "macos")]
     let builder = builder
         .manage(campus_wifi::CampusWifi::default())
@@ -390,7 +398,17 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,
             #[cfg(target_os = "macos")]
-            campus_wifi::campus_wifi_status
+            campus_wifi::campus_wifi_status,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            commands::vpn::vpn_status,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            commands::vpn::vpn_connect,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            commands::vpn::vpn_disconnect,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            commands::vpn::vpn_keep,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            commands::vpn::vpn_install
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -509,6 +527,8 @@ pub fn run() {
                 campus_printer_windows::open_print_window(app.handle(), file);
             }
             desktop_updates::load_last_install(app.handle());
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            vpn::watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

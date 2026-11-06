@@ -1,3 +1,4 @@
+import { Printer } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
@@ -8,16 +9,16 @@ import {
 } from "../../platform/desktop-bridge";
 import { accountText } from "../../features/campus-print/account";
 import { UiButton } from "../../components/ui";
-import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
+import { ToolCard } from "./ToolCard";
 import { errorText } from "../../app/shared";
 
 const SETUP_TEXT: Record<
   Exclude<CampusPrinterSetup["kind"], "account">,
   MessageKey
 > = {
-  added: "settings.campusPrinter.added",
-  cancelled: "settings.campusPrinter.cancelled",
-  failed: "settings.campusPrinter.couldNotAdd",
+  added: "tools.campusPrinter.added",
+  cancelled: "tools.campusPrinter.cancelled",
+  failed: "tools.campusPrinter.couldNotAdd",
 };
 
 /**
@@ -26,7 +27,7 @@ const SETUP_TEXT: Record<
  * background. macOS and Linux add a system print queue; Windows adds a PDF
  * right-click entry.
  */
-export function CampusPrinterSettings({
+export function CampusPrinter({
   notify,
 }: {
   notify: (message: string) => void;
@@ -62,10 +63,10 @@ export function CampusPrinterSettings({
     try {
       const outcome = windows
         ? await desktopBridge?.addCampusPrintMenu?.(
-            t("settings.campusPrinter.printToCampusPrinter"),
+            t("tools.campusPrinter.printToCampusPrinter"),
           )
         : await desktopBridge?.installCampusPrinter?.(
-            t("settings.campusPrinter.adminPrompt"),
+            t("tools.campusPrinter.adminPrompt"),
           );
       if (!outcome) return;
       if (outcome.kind === "account") {
@@ -75,8 +76,7 @@ export function CampusPrinterSettings({
         setResult(accountText(outcome.account));
       } else setResult(t(SETUP_TEXT[outcome.kind]));
     } catch (error) {
-      const message =
-        errorText(error) ?? t("settings.campusPrinter.couldNotAdd");
+      const message = errorText(error) ?? t("tools.campusPrinter.couldNotAdd");
       setResult(message);
       notify(message);
     } finally {
@@ -86,76 +86,52 @@ export function CampusPrinterSettings({
 
   const ready = status?.account.kind === "ready";
   return (
-    <>
-      <SettingsHeader
-        title="settings.campusPrinter.campusPrinter"
-        description="settings.campusPrinter.printsToTheKyoceraPrinter"
-      />
-      <SettingsGroup footer={t("settings.campusPrinter.checksOnlyWhenYouOpen")}>
-        <Row
-          group
-          id="campus-printer"
-          title="settings.campusPrinter.printer"
-          hint={
-            checking
+    <ToolCard
+      icon={<Printer aria-hidden strokeWidth={1.75} />}
+      title="tools.campusPrinter.campusPrinter"
+      status={
+        <>
+          <span>
+            {checking
               ? t("settings.academicCalendar.checking")
               : status?.reach === "reachable"
-                ? t("settings.campusPrinter.readyToPrint")
-                : t("settings.campusPrinter.cannotReachThePrinter")
-          }
-        >
+                ? t("tools.campusPrinter.readyToPrint")
+                : t("tools.campusPrinter.cannotReachThePrinter")}
+          </span>
+          {status && <span>{accountText(status.account)}</span>}
+          {result && <span>{result}</span>}
+        </>
+      }
+      note="tools.campusPrinter.printsToTheKyoceraPrinter"
+      actions={
+        <>
           <UiButton
             className="button small"
             disabled={checking}
             onClick={() => void check()}
           >
-            {t("settings.campusPrinter.check")}
+            {t("tools.campusPrinter.check")}
           </UiButton>
-        </Row>
-        <Row
-          id="student-id"
-          title="settings.campusPrinter.studentId"
-          hint={
-            status
-              ? accountText(status.account)
-              : checking
-                ? t("settings.academicCalendar.checking")
-                : undefined
-          }
-        >
-          {null}
-        </Row>
-      </SettingsGroup>
-      <SettingsGroup
-        footer={t(
-          windows
-            ? "settings.campusPrinter.addsTheRightClickEntry"
-            : "settings.campusPrinter.addsTheSystemPrinter",
-        )}
-      >
-        <Row
-          group
-          id="campus-printer-add"
-          title={
-            windows
-              ? "settings.campusPrinter.pdfRightClickMenu"
-              : "settings.campusPrinter.systemPrinter"
-          }
-          hint={result}
-        >
           <UiButton
             className="button small"
             disabled={!ready || adding || checking}
+            title={t(
+              windows
+                ? "tools.campusPrinter.addsTheRightClickEntry"
+                : "tools.campusPrinter.addsTheSystemPrinter",
+            )}
             onClick={() => void add()}
           >
             {t(
               adding
-                ? "settings.campusPrinter.adding"
-                : "settings.campusPrinter.add",
+                ? "tools.campusPrinter.adding"
+                : windows
+                  ? "tools.campusPrinter.addPdfMenu"
+                  : "tools.campusPrinter.addSystemPrinter",
             )}
           </UiButton>
-        </Row>
-      </SettingsGroup>
-    </>
+        </>
+      }
+    />
   );
 }

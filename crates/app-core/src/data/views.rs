@@ -193,7 +193,7 @@ impl DataStore {
         let ViewReader {
             connection, exams, ..
         } = &mut *reader;
-        let transaction = connection.transaction()?;
+        let transaction = super::connection::read_transaction(connection)?;
         let shared = SharedExams::read(&transaction, exams.as_ref(), Some(versions.1))?;
         let (workspace, school) = Self::view_with(&transaction, fields, &shared)?;
         transaction.commit()?;

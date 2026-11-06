@@ -16,10 +16,9 @@
 //! once and runs the operation again at most once. Writes never run again.
 //!
 //! The web view gets an account's identity cookies, one way, from a web
-//! operation the person started (`seed`, the one exit): only a verified
-//! generation, only while the account is usable. Core never reads them back,
-//! and a session someone signs in to by hand on a web page stays the web
-//! page's. Signing either account out clears every school website of the
+//! operation (`seed`, the one exit): only a verified generation, only while
+//! the account is usable. Core never reads them back, and a session someone
+//! signs in to by hand on a web page stays the web page's. Signing either account out clears every school website of the
 //! web view, both accounts' alike, in a fixed order (`clear_web`): the
 //! account still signed in has its identity written again by its next web
 //! operation, which opens a new view.
@@ -39,12 +38,14 @@ mod login;
 mod owner;
 mod site;
 mod store;
+mod vpn;
 mod walk;
 mod web;
 
 pub(crate) use identity::{Ended, SignInAdmission};
 pub(crate) use owner::Permit;
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
+pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
 
 use self::{
@@ -96,7 +97,7 @@ pub const VERIFY_DEADLINE: Duration = Duration::from_secs(30);
 /// A web operation uses an identity verified less long ago as it is.
 pub const VERIFIED_FRESH: Duration = Duration::from_secs(5 * 60);
 /// One web operation, everything included: getting the identity ready (a
-/// verification, a sign-in), two writes and two page loads.
+/// verification, a sign-in), its writes and its page loads.
 pub const WEB_OPERATION_DEADLINE: Duration = Duration::from_secs(150);
 
 const _: () = assert!(SEED_WAIT.as_secs() <= WEB_STORE_LIMIT.as_secs());
@@ -619,6 +620,12 @@ impl SchoolSessions {
         let _ = self.0.events.set(events);
     }
 
+    /// Lets a test act as if credentials were saved, with none to send.
+    #[cfg(test)]
+    pub(crate) fn assume_configured(&self, profile: SchoolAuthProfile) {
+        self.0.account(profile).identity.set_configured(true);
+    }
+
     /// The shell's write-only web cookie port. Set once.
     pub fn attach_web(&self, seed: Arc<dyn WebCookieSeed>) -> bool {
         self.0.web.attach(seed)
@@ -898,10 +905,9 @@ impl SchoolSessions {
     /// The network the shell reports (`Hint::Network`). While it is
     /// offline a sign-in ends without sending anything.
     pub(crate) fn network(&self, network: crate::plan::Network) {
-        self.0.offline.store(
-            network == crate::plan::Network::Offline,
-            Ordering::SeqCst,
-        );
+        self.0
+            .offline
+            .store(network == crate::plan::Network::Offline, Ordering::SeqCst);
     }
 
     /// The system took the background time back: sign-ins stop.

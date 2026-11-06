@@ -9,7 +9,9 @@
 //! than one of them commits through SQLite's super-journal, so a crash or a
 //! power loss keeps all of its files or none. WAL would commit each file on
 //! its own. Readers then block a commit while they read, and a commit
-//! blocks new readers, so every connection waits out a busy file.
+//! blocks new readers, so every connection waits out a busy file. That wait
+//! ends only if a read holding one file never waits for another a commit holds,
+//! so a read transaction starts through [`read_transaction`].
 //!
 //! No pool library: the write connection carries the change hooks, and the
 //! order connections close in on reset and exit follows the store, which a
@@ -143,6 +145,23 @@ impl DerefMut for Reader<'_> {
             Self::Extra(connection) => connection,
         }
     }
+}
+
+/// Starts a read transaction over the three files, holding them in the order a
+/// commit locks them. SQLite takes a file's lock when a statement first reads
+/// it; a transaction that began on `cache` and then read `main` would hold
+/// `cache` while a commit, holding `main`, waits for `cache`. Neither could go
+/// on, and the commit would fail once `BUSY` ran out.
+pub(crate) fn read_transaction(connection: &mut Connection) -> Result<Transaction<'_>, DataError> {
+    let transaction = connection.transaction()?;
+    for schema in ["main", "cache", "sync"] {
+        transaction.query_row(
+            &format!("SELECT count(*) FROM {schema}.sqlite_schema"),
+            [],
+            |_| Ok(()),
+        )?;
+    }
+    Ok(transaction)
 }
 
 /// SQLite skips the update hook when it empties a table with the truncate

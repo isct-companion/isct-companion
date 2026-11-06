@@ -274,6 +274,26 @@ fn a_clear_covers_every_school_website_and_no_other() {
     }
 }
 
+/// A vault that keeps what it is given.
+#[derive(Clone, Default)]
+pub(crate) struct MemoryVault(Arc<Mutex<std::collections::HashMap<String, String>>>);
+
+impl crate::ports::SecretVault for MemoryVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+        self.0.lock().unwrap().insert(account.into(), secret.into());
+        Ok(())
+    }
+
+    fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        Ok(self.0.lock().unwrap().get(account).cloned())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+        self.0.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+
 struct NoVault;
 
 impl crate::ports::SecretVault for NoVault {
@@ -326,3 +346,42 @@ async fn an_anomaly_pause_stops_silent_sso_but_keeps_the_identity() {
     assert_eq!(identity.snapshot().map(|(_, at)| at), Some(generation));
 }
 
+// Credential Manager refuses a session past one item's limit, as every real
+// Tokyo Tech session with its site jars is. The session still comes back after
+// a relaunch, unverified; a sign-out leaves none of its items behind.
+#[tokio::test]
+async fn a_session_too_long_for_one_vault_item_comes_back_after_a_relaunch() {
+    let profile = SchoolAuthProfile::Science;
+    let vault = crate::secret_parts::tests::LimitedVault::with_limit(Some(1280));
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let sessions = SchoolSessions::new(None, auth);
+    sessions.0.restore(profile).await;
+    let long = format!("_idp={}; path=/; secure", "t".repeat(4000));
+    let identity = &sessions.0.account(profile).identity;
+    identity.set_configured(true);
+    identity
+        .restore(Snapshot {
+            cookies: vec![WebCookie {
+                url: EXTIC_SESSION.into(),
+                set_cookie: long.clone(),
+            }],
+        })
+        .unwrap();
+    let generation = sessions.account_generation(profile);
+    sessions.0.persist(profile, generation).await;
+    assert!(vault.parts() > 1, "spread over several items");
+
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let relaunched = SchoolSessions::new(None, auth);
+    relaunched.0.restore(profile).await;
+    let (snapshot, _) = relaunched.0.account(profile).identity.snapshot().unwrap();
+    assert_eq!(snapshot.cookies[0].set_cookie, long);
+    assert_eq!(relaunched.fresh(profile), None, "unverified after a relaunch");
+
+    assert_eq!(relaunched.sign_out(profile).await, Ok(true));
+    assert_eq!(vault.parts(), 0);
+    assert_eq!(
+        crate::ports::SecretVault::load(&vault, "school-session-science"),
+        Ok(None)
+    );
+}

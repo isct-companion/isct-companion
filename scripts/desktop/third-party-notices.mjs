@@ -7,6 +7,8 @@
 // - Native: Rust crates linked into the backend (normal dependencies only),
 //   collected only for Tauri builds (TAURI_ENV_PLATFORM is set).
 // - Models: the bundled OCR model and runtime notices.
+// - Campus VPN: openconnect and the libraries bundled with it, as
+//   `bundle-vpn.mjs` recorded them (macOS builds that include the payload).
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -134,6 +136,21 @@ function modelComponents() {
   ];
 }
 
+function vpnComponents() {
+  const dir = path.join(root, "apps/desktop/src-tauri/resources/vpn/openconnect");
+  const list = path.join(dir, "components.json");
+  if (!existsSync(list)) return [];
+  return JSON.parse(readFileSync(list, "utf8")).map((item) => ({
+    group: "vpn",
+    name: item.name,
+    version: item.version,
+    license: item.license,
+    // Windows records the project; macOS components are Homebrew formulae.
+    url: item.url ?? `https://formulae.brew.sh/formula/${item.name}`,
+    texts: item.files.map((file) => readFileSync(path.join(dir, file), "utf8").trim()),
+  }));
+}
+
 /**
  * Builds the notices document. Identical license texts are stored once and
  * referenced by index, which keeps hundreds of Apache/MIT copies small.
@@ -143,6 +160,7 @@ export function buildNotices({ moduleIds, native }) {
     ...npmComponents(moduleIds),
     ...(native ? crateComponents(native) : []),
     ...modelComponents(),
+    ...vpnComponents(),
   ].sort(
     (a, b) =>
       a.group.localeCompare(b.group) ||
@@ -189,6 +207,7 @@ const GROUP_TITLES = {
   app: "Interface (npm packages)",
   native: "Native app (Rust crates)",
   models: "OCR model and runtime",
+  vpn: "Campus VPN (openconnect and its libraries)",
 };
 
 /** Plain-text notices: one section per component, shared texts inlined. */

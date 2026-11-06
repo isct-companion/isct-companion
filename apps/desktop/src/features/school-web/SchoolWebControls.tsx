@@ -41,7 +41,7 @@ const failureText: Record<SchoolLoadFailure, MessageKey> = {
  * The lines between a surface's toolbar and the school page: the popup in
  * front with its close button, Core signing the view in (the native view is
  * out of sight meanwhile) with "Cancel, I'll sign in myself", why that
- * sign-in stopped, a failed load with Retry and Open in browser (all from
+ * sign-in stopped, the button that signs a stuck sign-in page in, a failed load with Retry and Open in browser (all from
  * Core's page, so every surface shows the same), and Core's one-time note
  * that a reload was sent without the form. They sit outside the element the
  * native view covers.
@@ -92,6 +92,19 @@ export function SchoolWebNotices({
         <div className="webNotice" role="status">
           <span>{t(problemText[access.problem])}</span>
           {access.problem === "rejected" && routed && <OpenAccounts />}
+        </div>
+      )}
+      {page?.signIn && (
+        <div className="webNotice" role="status">
+          <span>{t("web.signIn.asks")}</span>
+          <UiButton
+            type="button"
+            onClick={() =>
+              void desktopBridge?.reloadSchoolWeb?.(site).catch(onError)
+            }
+          >
+            {t("web.signIn.useSaved")}
+          </UiButton>
         </div>
       )}
       {page && page.popups > 0 && (

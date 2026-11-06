@@ -14,9 +14,9 @@ no suitable library exists, and say why in a short comment.
 
 When two places (desktop and mobile, iOS and Android, two pages) need the same
 behaviour, put it in one module with one interface and let each side call it.
-Do not copy the logic. Example: `crates/app-core/src/school_browser` drives the
-login scripts (kept in `crates/adpt-isct/assets`) and relays for every
-school-web adapter.
+Do not copy the logic. Example: `crates/app-core/src/school_session` signs in
+over HTTP for every platform, and `crates/app-core/src/school_browser` decides
+when a school page recovers, for every school-web host.
 
 ## 3. Isolate native differences at compile time, not with runtime checks
 

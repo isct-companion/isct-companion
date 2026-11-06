@@ -237,6 +237,61 @@ checks:
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
     verified: null
 
+  - id: SCHOOL-SESSION-WINDOWS-VAULT
+    area: school
+    title: A long school session saves to Credential Manager and survives a relaunch
+    persona: windows-snap-user
+    preconditions: |
+      A Windows desktop build of this commit with a real Tokyo Tech account
+      saved, a network reaching 教務Web, and no other instance of the app
+      running. Look at item names and sizes only, never at an item's value.
+    steps:
+      - action: |
+          Start the app and use it until the log in Settings → Diagnostics
+          shows "Kyomu session ready". Opening a school page alone may not do
+          it: the web view keeps its own cookies, and only Core's read fills
+          the jar that is saved.
+        reason: |
+          An identity alone fits one Credential Manager item. Only the site
+          jars push the record past 2560 bytes, so a run that never reached a
+          site proves nothing.
+      - action: |
+          Open Settings → Diagnostics and search the log for "session not
+          saved". Run `cmdkey /list` and look for items named
+          `school-session-tokyo-tech.part-0` and so on.
+        reason: |
+          The log alone cannot tell a save that fit from one that was spread;
+          the part items show the long path really ran against the real vault.
+      - action: |
+          Quit the app from the tray, start it again and open 教務Web. Read
+          the log from this launch.
+        reason: |
+          A relaunch is what the saved session is for. Without it a person
+          signs in on every launch, which a save that only appeared to work
+          would still do.
+      - action: |
+          Sign the account out in Settings, then run `cmdkey /list` again.
+        reason: |
+          A leftover part would keep session cookies in the vault after the
+          person asked for them to go.
+    observe: |
+      Settings → Diagnostics, `cmdkey /list`, and 教務Web in the Web page.
+    expected: |
+      No "session not saved" line in any run. After the relaunch the log has
+      "restored the saved session profile=TokyoTech" and no "signing in
+      profile=TokyoTech", and 教務Web opens signed in. After the sign-out no
+      `school-session-tokyo-tech` item is left, parts included.
+    why_manual: |
+      Needs a real account's cookies and the real Credential Manager, whose
+      item limit no test vault can stand in for. Core's tests drive the same
+      spreading over a vault that enforces the limit, but only the app shows
+      whether a real session fits the bound and comes back signed in.
+    covers:
+      - apps/desktop/src-tauri/src/secrets.rs
+      - crates/app-core/src/secret_parts.rs
+      - crates/app-core/src/school_session/store.rs
+    verified: null
+
 
   - id: SCHOOL-LMS-TOKEN-HTTP
     area: school
@@ -1450,6 +1505,18 @@ checks:
           A popup is a web view of its own; it used to stay at 100% whatever
           the app's zoom said.
       - action: |
+          In a popup, select some text and press ⌘C, then paste it into another
+          app. Copy text from another app, click a text field in a popup, press
+          ⌘V, then ⌘A. Do the same on a school page without a popup. In the
+          LMS text editor, press ⌘B on a selection and leave without saving.
+          Do not submit any form.
+        reason: |
+          A popup's command keys used to stop inside WKWebView, so ⌘C and ⌘V
+          did nothing there while its context menu's Copy worked, and a main
+          view's never reached the page. Now the focused view asks the Edit
+          menu first and the page gets the rest, which only the native window
+          can show.
+      - action: |
           In Lectures, open an assignment you have submitted a PDF to with
           View in LMS, and click the submitted PDF in the reader pane.
         reason: |
@@ -1492,7 +1559,8 @@ checks:
       course page underneath is unchanged; a saved file, the notebook, HTML
       or text attachment included, lands in Downloads under its own name and
       no empty window stays open. A popup opens at the app's zoom and
-      follows a change. In the reader pane the PDF shows with a Close window
+      follows a change. ⌘C, ⌘V and ⌘A work in popups and on school pages, and
+      the LMS editor's ⌘B makes the selection bold. In the reader pane the PDF shows with a Close window
       line and the PDF's address; Back closes it and the assignment is in
       front; switching away and back keeps the PDF, while entering the
       course again shows the assignment with no window over it. The failure
@@ -1567,7 +1635,9 @@ checks:
     persona: undergraduate-senior
     preconditions: |
       macOS desktop build of this commit, signed in to the Tokyo Tech
-      Portal; the campus VPN available to switch on and off.
+      Portal; the campus VPN available to switch on and off; once, a campus
+      Wi-Fi that gives the Mac no IPv4 address (System Settings › Wi-Fi ›
+      Details › TCP/IP shows only IPv6 and an IPv4 of 192.0.0.2).
     steps:
       - action: |
           With the VPN off, open 「Education Computer Systems」 from the
@@ -1581,12 +1651,22 @@ checks:
         reason: |
           Retry must load the same address; the page opening proves the
           notice kept it.
+      - action: |
+          On the IPv6-only campus Wi-Fi with no VPN, open the same link.
+        reason: |
+          Its only address is a private IPv4 one, which macOS's IPv6-only
+          translation does not carry, and WebKit reports "not connected"
+          though the network works. The host reads the system's network path
+          to tell this from being offline; 「没有网络连接」 here means it
+          did not.
     observe: |
       The line under the address after each click, and the web pane.
     expected: |
-      Off VPN, a notice says the server was not found or did not answer and
-      that campus-only services need the campus network or VPN, with Retry
+      Off VPN, a notice says the server was not found or could not be
+      reached, naming off-campus without VPN and IPv6-only Wi-Fi, with Retry
       and Open in browser. On VPN, Retry opens the page and the notice goes.
+      On the IPv6-only Wi-Fi the popup shows the could-not-be-reached
+      notice, never the offline one.
     why_manual: |
       Needs the campus network and a real failed load inside WebKit; the
       notice is a glance. Which failures are shown is Core's and tested there.
@@ -1833,7 +1913,7 @@ checks:
           The menu must vanish with its page and be there again, still
           closable, on return; it used to float over the next page unclosable.
       - action: |
-          Settings → About → Show again, finish the welcome sheet, and on
+          About → Show again, finish the welcome sheet, and on
           Today switch pages from the rail before pressing Got it.
         reason: |
           This is the reported flow: the tip stayed on every page and Got it
@@ -1912,7 +1992,7 @@ checks:
     persona: undergraduate-senior
     preconditions: |
       A desktop build of this commit with a Lectures course that has an exam
-      on its LMS workspace, and the in-app tips reset (Settings → About →
+      on its LMS workspace, and the in-app tips reset (About →
       Show again).
     steps:
       - action: |
@@ -2009,7 +2089,7 @@ checks:
       A desktop build on campus with the campus network in range.
     steps:
       - action: |
-          Open Settings → Campus Wi-Fi and connect.
+          Open Tools → Campus Wi-Fi and connect.
         reason: |
           The join goes through OS-level WPA configuration, which has no
           in-process substitute.
@@ -2019,7 +2099,7 @@ checks:
           The ranges are hard-coded; a mismatch means the app would offer the
           connection on a network it cannot reach.
     observe: |
-      The Settings → Campus Wi-Fi state, the OS network list, and the NOC
+      The Tools → Campus Wi-Fi state, the OS network list, and the NOC
       guide's published ranges.
     expected: |
       The join succeeds, the state reflects the connection, and the ranges
@@ -2039,30 +2119,33 @@ checks:
       with CUPS and a polkit agent), the Tokyo Tech Portal account of a
       master's student (24M… or similar) saved in 学校アカウント, the
       administrator password, a short PDF, and access to the print release
-      or billing page that shows which student ID a job was charged to. The
-      campus network or the Science Tokyo VPN for the printing steps.
+      or billing page that shows which student ID a job was charged to.
+      ScienceTokyo Wi-Fi for the printing steps.
     steps:
       - action: |
-          Off campus without the VPN, open 設定 → 学内プリンタ, then connect
-          the VPN and press 確認.
+          On ScienceTokyoX or with only the campus VPN, open ツール →
+          学内プリンタ, then join ScienceTokyo Wi-Fi and press 確認.
         reason: |
           Core tries one TCP connect to the printer only on open and on
-          確認. Off the network the page must say it cannot reach the
-          printer and name the campus network or VPN; 印刷できます must
-          appear only after the VPN is up, which no local listener proves.
+          確認. Neither path reaches it, so the card must say so and name
+          ScienceTokyo Wi-Fi; 印刷できます must appear only after that join,
+          which no local listener proves.
       - action: |
-          Read the 学籍番号 row, then press 追加 and cancel the
+          Read the student ID on the card, then press システムプリンタを追加 and cancel the
           administrator prompt.
         reason: |
-          The row must show the Tokyo Tech account's own student ID in
+          The card must show the Tokyo Tech account's own student ID in
           capitals, and the prompt must be the system's (macOS: the app's
           text; Linux: polkit's). Cancelling must say キャンセルしました and
           leave no InstitutePrinter queue.
       - action: |
-          Press 追加 again and authenticate, then open System Settings →
-          Printers & Scanners (Linux: the printer settings or `lpstat -v`).
+          Press it again and authenticate, read the card, then open System
+          Settings → Printers & Scanners (Linux: the printer settings or
+          `lpstat -v`).
         reason: |
-          One root step installs the titech-lpd backend and the queue. The
+          One root step installs the titech-lpd backend and the queue, and the
+          card must say it was added: macOS's CUPS refuses `cupsenable` to root,
+          which used to report a working queue as failed. The
           queue's device URI must carry the student ID
           (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
           `lpstat -l -p InstitutePrinter` must allow only this login and the
@@ -2113,7 +2196,7 @@ checks:
       - crates/adpt-cups/src/backend.rs
       - crates/adpt-cups/build.rs
       - apps/desktop/src-tauri/src/campus_printer_cups.rs
-      - apps/desktop/src/pages/settings/CampusPrinterSettings.tsx
+      - apps/desktop/src/pages/tools/CampusPrinter.tsx
     verified: null
 
   - id: DESKTOP-CAMPUS-PRINTER-WINDOWS
@@ -2122,11 +2205,11 @@ checks:
     persona: windows-snap-user
     preconditions: |
       The Windows build of this commit, the person's Tokyo Tech Portal
-      account saved, the campus network or the Science Tokyo VPN, a short
-      multi-page PDF, and the print billing page.
+      account saved, ScienceTokyo Wi-Fi, a short multi-page PDF, and the print
+      billing page.
     steps:
       - action: |
-          Open 设置 → 校内打印机 and press 添加 on the PDF 右键菜单 row.
+          Open 工具 → 校内打印机 and press 添加 PDF 右键菜单.
         reason: |
           The entry goes under HKCU without an administrator prompt; a UAC
           prompt here means it was written somewhere it should not be.
@@ -2177,6 +2260,300 @@ checks:
       - apps/desktop/src-tauri/src/campus_printer_windows.rs
       - apps/desktop/src/features/campus-print/CampusPrintWindow.tsx
       - apps/desktop/src-tauri/capabilities/campus-print.json
+  - id: DESKTOP-ABOUT-PAGE
+    area: desktop
+    title: About is its own page under Settings, with its links, license and sponsor entry
+    persona: undergraduate-first-term
+    preconditions: |
+      A desktop build from this source.
+    steps:
+      - action: |
+          Look at the bottom of the left rail, then open About and read it.
+          Press its website, GitHub, license and sponsor buttons one by one.
+        reason: |
+          About sits under Settings. Each button must open the system browser
+          on isctcomp.app, the isct-companion repository, its GPL LICENSE file
+          and isctcomp.app/sponsor/; a wrong address shows only in a browser.
+      - action: |
+          Open Settings and read its sidebar.
+        reason: |
+          About moved rather than being copied, and the line above it went too.
+    observe: The rail, the About page and the browser it opens.
+    expected: |
+      About shows the version, updates and welcome tips, then the four links in
+      two groups, license and sponsor last. Settings no longer lists About.
+    why_manual: |
+      A layout and four links a person confirms at a glance in the real app.
+    covers:
+      - apps/desktop/src/pages/about/AboutPage.tsx
+      - apps/desktop/src/app/App.tsx
+  - id: DESKTOP-TOOLS-PAGE
+    area: desktop
+    title: Campus Wi-Fi, VPN and printer are small cards on the Tools page, per platform
+    persona: undergraduate-first-term
+    preconditions: |
+      A macOS and a Windows desktop build from this source.
+    steps:
+      - action: |
+          Look at the left rail, press ⌘5, and read the cards. Narrow the window
+          until the cards wrap. Press ⌘6.
+        reason: |
+          Tools sits between Web and Settings and ⌘6 now opens Settings. macOS
+          shows Campus Wi-Fi, Campus VPN and Campus printer; a Wi-Fi card on
+          Windows would offer a sign-in that build does not have. Buttons stay
+          at the bottom of a card and no text overflows when they wrap.
+      - action: |
+          Connect the VPN and look at its card, then disconnect.
+        reason: |
+          Only the VPN card grows when connected, with the auto-continue choice
+          inside it; a card that pushes its button off the page breaks that.
+      - action: |
+          Open Settings, read its sidebar and search it for "VPN" and "printer".
+        reason: |
+          The three moved, not copied: a leftover row would give one tool two
+          homes.
+    observe: The rail, the Tools cards and the Settings sidebar.
+    expected: |
+      macOS shows three cards, Windows two (Campus VPN, Campus printer), each
+      with its state and actions on the page. Settings no longer has them.
+    why_manual: |
+      A layout a person confirms at a glance in the real app; which tools a
+      build has is in the Campus VPN suite.
+    covers:
+      - apps/desktop/src/pages/tools/ToolsPage.tsx
+      - apps/desktop/src/pages/tools/ToolCard.tsx
+      - apps/desktop/src/pages/tools/tools.css
+      - apps/desktop/src/pages/tools/registry.ts
+      - apps/desktop/src/app/App.tsx
+  - id: DESKTOP-CAMPUS-VPN
+    area: desktop
+    title: Campus VPN connect, use, disconnect from outside campus
+    persona: undergraduate-first-term
+    preconditions: |
+      A signed and notarized macOS build, off campus, with a working school
+      login. Clash or Tailscale running if the person normally uses them. The
+      campus VPN helper not yet installed for the first run.
+    steps:
+      - action: |
+          Note the public address (curl https://ifconfig.me) and the default
+          route (route -n get default) before connecting.
+        reason: |
+          Without a baseline the later "default route unchanged" claim cannot
+          be checked.
+      - action: |
+          Open 工具 → 校园 VPN (ツール → キャンパス VPN) and press
+          Connect once. Approve the one-time installer prompt; nothing else is
+          typed or clicked.
+        reason: |
+          The installer is the only administrator prompt, and the APM sign-in
+          uses the saved Tokyo Tech account. Any other prompt or page means the
+          helper is not registered with launchd or the sign-in walk broke.
+      - action: |
+          Run ssh to login.t4.gsic.titech.ac.jp, open https://portal.t4.gsic.titech.ac.jp/
+          and a kyomu page.
+        reason: |
+          131.112.0.0/16 must be reachable through the tunnel; these three cover
+          SSH, the portal and a campus web application.
+      - action: |
+          Run curl https://ifconfig.me again and route -n get default.
+        reason: |
+          Only the campus subnet may move. A changed public address or default
+          route means the split tunnel has leaked everything.
+      - action: |
+          On a campus Wi-Fi that gives the Mac no IPv4 address (TCP/IP shows
+          only IPv6 and an IPv4 of 192.0.0.2), press Connect, then read
+          /var/log/app.isctcompanion.vpnhelper.log.
+        reason: |
+          There `curl -4` and plain `curl` to api.ipify.org show two public
+          addresses, one for CLAT and one for NAT64. A session made from one
+          and a tunnel from the other ends with `HTTP/1.0 302 Found` and
+          "无法建立校园 VPN 隧道", so the tunnel coming up is the proof that
+          Core signs in over the path openconnect uses.
+      - action: |
+          With the helper of an older build installed and no tunnel up, press
+          Connect and approve the update prompt.
+        reason: |
+          An outdated helper reports no session end; the app must replace it
+          once, with one administrator prompt, before it connects.
+      - action: |
+          Compare the countdown on the VPN row with the session end openconnect
+          logs in /var/log/app.isctcompanion.vpnhelper.log.
+        reason: |
+          The countdown is read from openconnect's UTC expiry line; a wrong
+          zone would shift it by hours.
+      - action: |
+          Leave the tunnel up into its last ten minutes with another page of
+          the app open, then let it end.
+        reason: |
+          The reminder and the ended notice come from the minute check, not
+          from the Settings page; neither may reconnect.
+      - action: |
+          While connected, choose a time under Auto-continue, then switch to
+          another network so the tunnel ends. Wait for the row to come back.
+        reason: |
+          Inside the chosen time the app signs in again by itself, which only a
+          real session ending can exercise.
+      - action: |
+          During that switch, run `route -n get 131.112.12.180` and `scutil --dns`.
+        reason: |
+          The APM's pin must follow the new network's gateway and the campus
+          resolvers must be gone until the tunnel is back; otherwise neither
+          openconnect nor a new sign-in can reach the APM.
+      - action: |
+          Let the chosen time run out (2 hours is the shortest).
+        reason: |
+          Auto-continue must end: the reminder comes ten minutes ahead, the
+          tunnel disconnects at the time shown, and nothing reconnects after.
+      - action: |
+          Disconnect, then check the routes and the scoped DNS resolver.
+        reason: |
+          Disconnect must remove 131.112.0.0/16, the host route pinning the APM
+          (131.112.12.180) and the isct.ac.jp resolver. A pin left behind points
+          at this network's gateway and blocks connecting from the next one.
+    observe: |
+      The app's VPN state and countdown, the system notifications, the ssh and
+      browser results, the public address before and after,
+      `netstat -rn -f inet`, and `scutil --dns`.
+    expected: |
+      Campus hosts work while connected. The public address and default route
+      are unchanged, Clash and Tailscale keep working, and disconnecting
+      leaves no campus route or DNS entry behind.
+    why_manual: |
+      Needs the school's F5 login, an actual tunnel and an administrator
+      install on macOS. None of that is reachable from automated suites.
+    covers:
+      - crates/vpn-helper/src/main.rs
+      - crates/vpn-helper/src/tests/helper.rs
+      - crates/vpn-helper/assets/vpnc-script
+      - crates/vpn-protocol/src/lib.rs
+      - crates/vpn-protocol/src/tests/protocol.rs
+      - crates/app-core/src/tests/vpn.rs
+      - crates/app-core/src/tests/vpn__f5.rs
+      - crates/app-core/src/vpn.rs
+      - crates/app-core/src/vpn/f5.rs
+      - crates/app-core/src/school_session/vpn.rs
+      - crates/app-core/src/tests/school_session__vpn.rs
+      - crates/adpt-isct/src/login.rs
+      - crates/vpn-helper/src/unix.rs
+      - apps/desktop/src-tauri/src/vpn.rs
+      - apps/desktop/src-tauri/src/vpn_macos.rs
+      - apps/desktop/src-tauri/src/tests/vpn_macos.rs
+      - apps/desktop/src-tauri/src/commands/vpn.rs
+      - apps/desktop/src/pages/tools/CampusVpn.tsx
+      - scripts/desktop/bundle-vpn.mjs
+    verified: null
+
+  - id: DESKTOP-CAMPUS-VPN-WINDOWS
+    area: desktop
+    title: Campus VPN on Windows - install, connect, use, disconnect, reboot
+    persona: undergraduate-first-term
+    preconditions: |
+      A Windows build made after `yarn desktop:vpn --openconnect <dir>` (the
+      official openconnect MinGW64/GnuTLS build unpacked), off campus, with
+      a working school login. Clash or Tailscale running if the person
+      normally uses them. The IsctCompanionVpnHelper service not installed
+      for the first run.
+    steps:
+      - action: |
+          Note the public address (curl https://ifconfig.me), `route print -4`
+          and `Get-DnsClientNrptPolicy` before connecting.
+        reason: |
+          Without a baseline the later "default route unchanged" and "no
+          resolver rule left" claims cannot be checked.
+      - action: |
+          Open 工具 → 校园 VPN (ツール → キャンパス VPN). Check that the page shows
+          only the VPN row, then press Connect once. Approve the one UAC
+          prompt; nothing else is typed or clicked.
+        reason: |
+          Windows builds have no Wi-Fi sign-in, so a Wi-Fi row here would be
+          a button that cannot work. The UAC prompt is the only elevation: it
+          copies the payload under Program Files and registers the service.
+          A second prompt, a console window or a sign-in page means the
+          install or the APM walk broke.
+      - action: |
+          Run ssh to login.t4.gsic.titech.ac.jp, open https://portal.t4.gsic.titech.ac.jp/
+          and a kyomu page.
+        reason: |
+          131.112.0.0/16 must be reachable through the Wintun adapter and the
+          campus names must resolve through the NRPT rule; the three cover
+          SSH, the portal and a campus web application.
+      - action: |
+          Run curl https://ifconfig.me, `route print -4` and
+          `Get-DnsClientNrptPolicy` again.
+        reason: |
+          Only 131.112.0.0/16 on the isct-campus-* adapter and the APM's host
+          route may be new. A changed public address or default route means
+          the split tunnel leaked everything; no NRPT entry for .isct.ac.jp
+          means campus names resolve outside the tunnel.
+      - action: |
+          Compare the countdown on the VPN row with the session end in
+          C:\ProgramData\IsctCompanion\VPN\helper.log.
+        reason: |
+          The countdown comes from openconnect's UTC expiry line; under a
+          Windows locale or zone it could be translated or shifted.
+      - action: |
+          Disconnect, then check `route print -4` and `Get-DnsClientNrptPolicy`.
+        reason: |
+          The disconnect asks openconnect to log out with Ctrl+C on its
+          console. If that fails, the helper kills it and cleans up itself;
+          either way no campus route, host route or resolver rule may stay.
+      - action: |
+          Connect, then from an elevated prompt run
+          `taskkill /F /IM isct-vpn-helper.exe`. Check
+          `Get-DnsClientNrptPolicy` and `route print -4` at once and again
+          after ten seconds.
+        reason: |
+          This stands in for a crash or a power cut, which never reach the
+          service's stop. openconnect must end with the helper through the job
+          object. The NRPT rule lives in the registry and outlives a reboot, so
+          the service must remove it when the service manager restarts it, or
+          campus names stay pointed at resolvers that cannot be reached
+          without the tunnel.
+      - action: |
+          Right after that, press Connect.
+        reason: |
+          The killed adapter stays listed for a while. Under a reused name
+          openconnect tried to open it and failed with "Could not open Wintun
+          adapter", so the first connect after a crash always failed.
+      - action: |
+          Connect, then restart Windows without disconnecting. After sign-in
+          check `sc.exe query IsctCompanionVpnHelper`,
+          `Get-DnsClientNrptPolicy`, `route print -4` and Settings.
+        reason: |
+          A restart tells the service to shut down, a different path from the
+          crash above that has only the system's shutdown timeout to finish
+          in. The service must also come back by itself after sign-in, or the
+          next Connect reports it as not running.
+    observe: |
+      The app's VPN state and countdown, the UAC prompt, the ssh and browser
+      results, the public address before and after, `route print -4`,
+      `Get-DnsClientNrptPolicy`, `sc.exe query IsctCompanionVpnHelper` and
+      C:\ProgramData\IsctCompanion\VPN\helper.log.
+    expected: |
+      One UAC prompt, then campus hosts work while connected. The public
+      address and default route are unchanged, Clash and Tailscale keep
+      working, and neither disconnecting nor a reboot leaves a campus route,
+      host route or resolver rule behind.
+    why_manual: |
+      Needs the school's F5 login, a real Wintun tunnel, a UAC approval and a
+      LocalSystem service. None of that is reachable from automated suites;
+      the pure parts (openconnect's lines, the hook's inputs, address byte
+      order, the service command line) are covered by the vpn-helper tests.
+    covers:
+      - crates/vpn-helper/src/main.rs
+      - crates/vpn-helper/src/windows.rs
+      - crates/vpn-helper/src/windows_net.rs
+      - crates/vpn-helper/src/tests/windows.rs
+      - crates/vpn-helper/src/tests/windows_net.rs
+      - crates/vpn-helper/assets/isct-vpn-script.js
+      - crates/vpn-protocol/src/lib.rs
+      - apps/desktop/src-tauri/src/vpn.rs
+      - apps/desktop/src-tauri/src/vpn_windows.rs
+      - apps/desktop/src-tauri/src/commands/vpn.rs
+      - apps/desktop/src/pages/tools/CampusVpn.tsx
+      - apps/desktop/src/pages/settings/registry.ts
+      - scripts/desktop/bundle-vpn.mjs
+      - scripts/desktop/bundle-vpn-windows.mjs
     verified: null
 
   - id: DESKTOP-MCP-LIVE
@@ -3851,7 +4228,7 @@ checks:
           and course records with the rollback copy.
         reason: A real bundle replacement must preserve the same app-data and Keychain
           access; an isolated parser test cannot verify that.
-    observe: Settings > About, the application bundle version,
+    observe: About, the application bundle version,
       updater-install-result.json in app data, and the retained workspace.
     expected: |
       Tampered content is rejected, the valid bundle installs through Cmd-Q,
@@ -3884,7 +4261,7 @@ checks:
       Control can be switched between Off and On (or a second PC with it On).
     steps:
       - action: Throttle the connection to about 2 Mbps (e.g. a metered hotspot or
-          a router limit), open Settings > About and press Download update.
+          a router limit), open About and press Download update.
         reason: The installer is over 30 MB; only a real slow link shows whether the
           download outlives the old 30-second whole-request timeout and whether
           the byte counter moves while the command is still running.
@@ -3900,7 +4277,7 @@ checks:
       - action: Repeat the install with Smart App Control On.
         reason: Smart App Control blocks the unsigned installer after the app has
           exited; only a real policy shows what the next launch reports.
-    observe: Settings > About status line, the notice at launch, and the version
+    observe: About status line, the notice at launch, and the version
       shown in About.
     expected: |
       The About line shows "Downloading update… · x / y MB" with x increasing,
@@ -3917,7 +4294,7 @@ checks:
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src/app/useDesktopUpdates.ts
-      - apps/desktop/src/pages/settings/AboutSettings.tsx
+      - apps/desktop/src/pages/about/AboutPage.tsx
       - crates/app-core/src/app_updates.rs
     verified: null
 
@@ -3929,10 +4306,10 @@ checks:
       `yarn desktop:dev` from a checkout whose package version equals the latest
       published release, with Automatic updates previously turned on.
     steps:
-      - action: Open Settings > About and press Check for updates.
+      - action: Open About and press Check for updates.
         reason: The dev version `x.y.z-dev.<stamp>` sorted below release `x.y.z`,
           so the dev app offered the older release as an update.
-    observe: Settings > About, the App updates and Automatic updates rows.
+    observe: About, the App updates and Automatic updates rows.
     expected: |
       "You're up to date · v<release>", no download button, and the Automatic
       updates toggle disabled with "Automatic installation requires an
@@ -4233,7 +4610,7 @@ checks:
     observe: |
       The account card before and after, the LMS page, and the copied log.
     expected: |
-      The card reads "Connected · signs in when needed" before and after. The assignment opens on the LMS signed in.
+      The card reads "Connected" before and after. The assignment opens on the LMS signed in.
       The log has one `identity checked` line and no `signing in profile=`.
     why_manual: |
       Needs the real Extic and LMS to accept a snapshot saved across a
@@ -4248,68 +4625,80 @@ checks:
 
   - id: SCHOOL-WEB-RELOAD-SIGN-IN
     area: school
-    title: Reload on the school sign-in page signs the page in once, and can be cancelled
+    title: A school page that lands on sign-in recovers by itself once; a person's sign-out stays, with a button
     persona: undergraduate-senior
     preconditions: |
-      A macOS desktop build from this source with the Science Tokyo account
-      connected, the LMS open in the Web page on a course page; an iPhone
-      and an Android build from this source with the same account, the LMS
-      open in ウェブ on a course page.
+      A macOS desktop build from this source with both accounts connected, the
+      LMS open in the Web page on a course page and 教務Web on a deep page; an
+      iPhone and an Android build from this source with the same accounts.
     steps:
       - action: |
-          In the LMS page, log out of the LMS from its own menu so the view
-          shows the Extic sign-in page, and wait ten seconds.
+          Wait more than five minutes, then open a course from the App's own
+          link.
         reason: |
-          A page that reaches the sign-in page by itself starts nothing: the
-          app must not type anything or reopen anything on its own.
+          An App link opens first, as a browser would: the page appears with
+          no "Signing in to this page…" panel. A panel before every page after
+          an idle spell means the old verify-first path still runs.
       - action: |
-          Press the app's Reload.
+          Delete the LMS session cookie (or wait for the session to expire)
+          and click a link inside the LMS page.
         reason: |
-          Reload on a known sign-in page is a web operation for the page in
-          front: the view hides behind "Signing in to this page…" with
-          "Cancel, I'll sign in myself", then the course page reopens signed
-          in. Extic's form left on screen, or the panel staying, means it did
-          not run or did not end.
+          The page reaches the sign-in page by itself: the view hides behind
+          the panel and the page the link was going to opens signed in. Extic's
+          form left on screen means the automatic recovery did not run; the
+          course page instead of the link's page means the link was lost.
       - action: |
-          Log out again, press Reload, and press "Cancel, I'll sign in
-          myself" while the panel shows.
+          Log out of the LMS from its own menu and wait ten seconds.
         reason: |
-          Cancelling hands the page back once the write already given to
-          WebKit ended; the sign-in page must come back usable for typing.
+          A person's own sign-out is what they asked for. The sign-in page
+          stays with "Sign in with saved account"; signing back in by itself
+          would make logging out impossible.
       - action: |
-          On an assignment, start a submission, log out of Extic in another
-          tab of the view if needed so that saving lands on the sign-in page,
-          then press Reload.
+          Press "Sign in with saved account", then log out again, press it, and
+          press "Cancel, I'll sign in myself" while the panel shows.
         reason: |
-          The sign-in page came from a form. Reload signs in and then opens
-          the visit's last page, the submission page, with a GET, as a Reload
-          anywhere else does: the form is never sent again, and there is
-          nothing left to warn about.
+          The button is the way out when the automatic path got stuck, and
+          Cancel hands the page back usable for typing once the write already
+          given to WebKit ended.
       - action: |
-          On the iPhone and on Android, log out of the LMS from its own menu,
-          then pick Reload (再読み込み) in the page menu.
+          Open 教務Web from the App after its session ended, on a deep page as
+          well as on its entry.
         reason: |
-          Android used to open the sign-in page itself again after signing
-          in, since it reported no request method. Reload is now Core's one
-          behaviour, so both phones sign in and reopen the course page.
+          A deep page without its session may end on the portal menu instead of
+          an identity sign-in page. It must still be recognised and recovered;
+          a page that stays on the menu means open-first misses this landing.
+      - action: |
+          On an assignment, start a submission, end the session so that saving
+          lands on the sign-in page, and let the recovery run.
+        reason: |
+          The sign-in page came from a form. Core signs in and opens the
+          visit's last page, the submission page, with a GET: the form is never
+          sent again.
+      - action: |
+          On the iPhone and on Android, repeat the App link, the session end
+          and the sign-out.
+        reason: |
+          The rule is Core's one behaviour, and each phone renders the button
+          itself.
       - action: |
           Copy the log.
         reason: |
           `web operation … started` and `ended` lines, and at most one
-          `signing in profile=` per operation, show the one-password rule.
+          `signing in profile=` per operation, show the one-password rule; a
+          run of `started` lines with no action in between would be a loop.
     observe: |
       The LMS view, the line under the address (the bar on the phones), and
       the copied log.
     expected: |
-      Nothing happens until Reload. Each Reload reopens the course page signed
-      in, on the desktop and on both phones; Cancel gives the sign-in page
-      back. The submission case reopens the submission page signed in, with
-      no line under the address; the draft saved while signed out is not
-      there and nothing was sent again. No operation has more than one
-      `signing in` line.
+      App links open with no panel. A session that ended recovers by itself once
+      and opens the page the link was going to, on the desktop and on both
+      phones; 教務Web deep pages recover too. A person's own logout stays on the
+      sign-in page with the button; Cancel gives it back. The submission case
+      reopens the submission page signed in, and nothing was sent again. No
+      operation has more than one `signing in` line.
     why_manual: |
       Needs a real LMS session to end and the real Extic sign-in page in
-      WebKit and Android WebView; the trigger, the one-sign-in budget and the
+      WebKit and Android WebView; the triggers, the one-recovery rule and the
       page Reload reopens are in the Core web operation suite.
     covers:
       - crates/app-core/src/school_browser/engine/operation.rs
@@ -5266,11 +5655,13 @@ checks:
         reason: |
           Tap-after-lift selects; lifting outside dismisses. Both paths must
           work or the picker only suits one habit.
-      - action: Choose TSUBAME, the last of the six sites.
+      - action: |
+          Check the rows: 東工大ポータル sits right after 教務Web, and TSUBAME
+          is the last of the seven sites. Choose 東工大ポータル, then TSUBAME.
         reason: |
-          TSUBAME joined the picker; it opens Core's start page for it (the
-          TSUBAME portal's SSO entry). A missing row means the site list is
-          the old one.
+          東工大ポータル and TSUBAME joined the picker; each opens Core's start
+          page for it (the GetAccess リソース メニュー, the TSUBAME portal's SSO
+          entry). A missing row means the site list is the old one.
       - action: |
           Tap the ウェブ tab while a site is open, and swipe from the page's
           edges.
@@ -6209,8 +6600,9 @@ checks:
         reason: |
           As on iOS, one bar: ‹ › on the left (dimmed when there is no page
           to go to), the site name with ▾ in the middle, ⋮ on the right, and
-          the page filling the rest; the title opens the six sites (TSUBAME
-          last) with the shown one ticked. A row of site tabs above the page
+          the page filling the rest; the title opens the seven sites
+          (東工大ポータル after 教務Web, TSUBAME last) with the shown one
+          ticked. A row of site tabs above the page
           is the old layout.
       - action: |
           In 設定 › ウェブ pick 130% and 最初のサイト ポータル. Swipe the app
@@ -7749,7 +8141,7 @@ checks:
     preconditions: |
       The desktop app and the iPhone app from the same commit, signed in with
       at least one class this week and one course with LMS lessons. On each,
-      press Settings → About → Show welcome and tips again (iPhone: then
+      press About → Show welcome and tips again (iPhone: then
       relaunch the app, so TipKit forgets the tips it has shown).
     steps:
       - action: |
@@ -8087,8 +8479,7 @@ checks:
           Watch the footer status line and the course page until the course
           list has landed (Lectures lists your courses again).
         reason: |
-          The course must wait for the list ("Waiting for the data it depends
-          on", never a failure) and be read the moment the list lands; a
+          The course must wait for the list ("Waiting for other data to load", never a failure) and be read the moment the list lands; a
           "Could not update" line or a retry time means the old ordering or
           the old error class is back.
       - action: |
@@ -8395,22 +8786,31 @@ checks:
     preconditions: |
       An iPhone and an iPad build of this commit, signed in to the Tokyo
       Tech Portal; the campus VPN available to switch on and off on the
-      device.
+      device; once, a campus Wi-Fi that gives the device no IPv4 address.
     steps:
       - action: |
-          With the VPN off, open 「Education Computer Systems」 from the
-          Portal's resource list.
+          With the VPN off, open ウェブ › 東工大ポータル, then
+          「Education Computer Systems」 from its resource list.
         reason: |
           The host resolves only inside the campus network. WKWebView shows
           nothing when a load fails and stays on the old page, so without a
-          reported failure the link looks broken.
+          reported failure the link looks broken. Opening the portal from
+          the ウェブ picker also proves its row starts on the resource list.
       - action: Switch the VPN on and tap Retry in the notice.
         reason: Retry must load the same address; the page opening proves the notice kept it.
+      - action: On the IPv6-only campus Wi-Fi with no VPN, open the same link.
+        reason: |
+          Its only address is a private IPv4 one that iOS's IPv6-only
+          translation does not carry, and WebKit reports "not connected"
+          though the network works. The host reads the system's network path
+          to tell this from being offline.
     observe: The bar under the navigation bar after each tap, and the page.
     expected: |
-      Off VPN, a notice says the server was not found or did not answer and
-      that campus-only services need the campus network or VPN, with Retry
+      Off VPN, a notice says the server was not found or could not be
+      reached, naming off-campus without VPN and IPv6-only Wi-Fi, with Retry
       and Open in browser. On VPN, Retry opens the page and the notice goes.
+      On the IPv6-only Wi-Fi the notice is the could-not-be-reached one,
+      never the offline one.
     why_manual: |
       Needs the campus network and a real failed load inside WebKit; the
       notice is a glance. Which failures are shown is Core's and tested there.
@@ -8683,7 +9083,7 @@ checks:
           Look at the card with no account saved, then while a Connect runs,
           then once it is connected.
         reason: |
-          Not connected, Signing in…, and "Connected · signs in when needed":
+          Not connected, Signing in…, and "Connected":
           a restored, unverified or verifying identity all read as connected.
       - action: |
           Turn the network off, open Today and refresh; read the card and the
