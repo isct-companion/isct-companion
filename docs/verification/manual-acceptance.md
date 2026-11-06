@@ -256,7 +256,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_windows.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
-| `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
+| `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
 | `DESKTOP-STORE-POWER-LOSS` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/root.rs |
 | `STORE-READS-WHILE-SYNCING-ON-DEVICES` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/views.rs |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
@@ -3297,27 +3297,34 @@ A Mac with IsctCompanion 1.2.7 installed and used (courses, a personal
 event, a reminder setting, Allow local agents on), a copy of
 `~/Library/Application Support/app.isctcompanion/` saved elsewhere, and
 a build of this commit (`yarn desktop:build --debug --bundles app`).
-`pgrep -lf IsctCompanion` shows nothing running.
+`pgrep -lf IsctCompanion` shows nothing running. For the Windows step, a
+Windows PC with 1.2.7 installed and used, and an installer of this commit.
 
 **Steps**
 
-1. Start the new build once, quit it, and list the data folder.
+1. On the Windows PC, install this commit over 1.2.7 and start it. Then
+   uninstall, remove the data folder and install it fresh.
+   - *Why:* Windows refuses file operations that Unix allows, and the Core tests
+     do not run the installed app's own folder. 1.3.0 passed on a Mac and
+     stopped on Windows with "The data folder could not be opened" (os
+     error 5) while building the first store.
+2. Start the new build once, quit it, and list the data folder.
    - *Why:* The user tables of the flat user.db are copied into
      `store/<generation>/store.db` and the folder gains `core.lock`,
      `store-index.db` and `local/reminders-fired.json`. The flat files
      stay (retired, not deleted), so the old release's data remains as
      recovery material.
-2. Start the new build again and check Today, the personal event, the
+3. Start the new build again and check Today, the personal event, the
    reminder setting and Settings → AI agent access.
    - *Why:* User data must be the 1.2.7 data, unchanged; school data is read
      again, since the flat caches are not carried over, and the MCP
      listener comes back on its own.
-3. With the new build running, start `yarn desktop:dev` (or a second
+4. With the new build running, start `yarn desktop:dev` (or a second
    copy of the .app).
    - *Why:* One Core per data folder: the second process must stop at once with
      the "another copy is using this data folder" message, before it
      opens a database or reads the school.
-4. Quit everything, start 1.2.7 again, then the new build.
+5. Quit everything, start 1.2.7 again, then the new build.
    - *Why:* 1.2.7 does not know the lock or the generations: it works on the
      retired flat files, and nothing it writes reaches the new build.
      The new build must still open its own generations unharmed. Restore
@@ -3347,6 +3354,7 @@ the generations are covered by the Core tests over scratch folders.
 - `crates/app-core/src/data/root.rs`
 - `crates/app-core/src/data/connection.rs`
 - `crates/app-core/src/data/migrations.rs`
+- `crates/app-core/src/storage.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/native_dialog.rs`
 
