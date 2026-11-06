@@ -3,7 +3,7 @@
 //! A course merges its LMS rows, its catalog offering, 教務 rooms and the
 //! person's own course record. The merge runs inside the transaction that
 //! writes one of those sources, for the courses that write touched only, and
-//! its rows land in `cache.merged_rows`; reads take them as they are. A
+//! its rows land in `merged_rows`; reads take them as they are. A
 //! course's rows are its merged record, the memberships and terms its LMS
 //! quarters imply, each keyed so that reading them in key order gives the
 //! order the read-time projection produced: timetable courses, then the
@@ -108,18 +108,18 @@ pub(super) fn refresh(transaction: &Transaction<'_>, touched: &[Touched]) -> Res
 pub(super) fn rebuild(transaction: &Transaction<'_>) -> Result<(), DataError> {
     merge(transaction, None)?;
     transaction.execute(
-        "INSERT INTO cache.merge_state(built) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM cache.merge_state)",
+        "INSERT INTO merge_state(built) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM merge_state)",
         [],
     )?;
     Ok(())
 }
 
 fn built(connection: &Connection) -> Result<bool, DataError> {
-    Ok(connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM cache.merge_state)",
-        [],
-        |row| row.get(0),
-    )?)
+    Ok(
+        connection.query_row("SELECT EXISTS(SELECT 1 FROM merge_state)", [], |row| {
+            row.get(0)
+        })?,
+    )
 }
 
 /// The internal ids of the courses a source row feeds.
@@ -390,10 +390,8 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
     let mut stored: HashMap<(String, String), (String, String)> = HashMap::new();
     {
         let mut statement = transaction.prepare_cached(match ids {
-            None => "SELECT kind, ord, course_id, value FROM cache.merged_rows WHERE ?1 IS NULL",
-            Some(_) => {
-                "SELECT kind, ord, course_id, value FROM cache.merged_rows WHERE course_id=?1"
-            }
+            None => "SELECT kind, ord, course_id, value FROM merged_rows WHERE ?1 IS NULL",
+            Some(_) => "SELECT kind, ord, course_id, value FROM merged_rows WHERE course_id=?1",
         })?;
         let mut keep = |course: Option<&str>| -> Result<(), DataError> {
             let found = statement
@@ -414,7 +412,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
         }
     }
     let mut insert = transaction.prepare_cached(
-        "INSERT OR REPLACE INTO cache.merged_rows(kind, ord, course_id, value) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR REPLACE INTO merged_rows(kind, ord, course_id, value) VALUES (?1, ?2, ?3, ?4)",
     )?;
     for (kind, order, id, value) in rows {
         let key = (kind.to_owned(), order);
@@ -427,7 +425,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
         insert.execute(params![kind, key.1, id, value])?;
     }
     let mut delete =
-        transaction.prepare_cached("DELETE FROM cache.merged_rows WHERE kind=?1 AND ord=?2")?;
+        transaction.prepare_cached("DELETE FROM merged_rows WHERE kind=?1 AND ord=?2")?;
     for ((kind, order), _) in stored {
         delete.execute(params![kind, order])?;
     }
@@ -436,8 +434,8 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
 
 /// The merged rows of one kind, in merge order.
 pub(super) fn read(connection: &Connection, kind: &str) -> Result<Vec<Value>, DataError> {
-    let mut statement = connection
-        .prepare_cached("SELECT value FROM cache.merged_rows WHERE kind=?1 ORDER BY ord")?;
+    let mut statement =
+        connection.prepare_cached("SELECT value FROM merged_rows WHERE kind=?1 ORDER BY ord")?;
     let rows = statement
         .query_map([kind], |row| row.get::<_, String>(0))?
         .map(|raw| {

@@ -284,5 +284,9 @@ pub enum KeyOutcome<T> {
 }
 
 #[cfg(test)]
+#[path = "../tests/net__one_answer.rs"]
+pub(crate) mod one_answer;
+
+#[cfg(test)]
 #[path = "../tests/net.rs"]
 mod tests;

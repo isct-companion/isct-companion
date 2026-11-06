@@ -218,20 +218,20 @@ const PROJECTED: &[&str] = &[
     "currentTerm",
 ];
 
-/// Which database file a table lives in. Only user-owned rows reach cloud
+/// Which group of tables a table belongs to. Only user-owned rows reach cloud
 /// sync, so only their commits bring a capture forward.
 #[derive(Clone, Copy, PartialEq)]
 enum Owner {
     User,
     Cache,
-    /// sync.db: the sync engine's bookkeeping about cache rows.
+    /// The sync engine's bookkeeping about cache rows.
     Sync,
 }
 
 /// Every table a commit can report, with the changes it feeds. A table not
 /// listed here is reported as every change and as user-owned, so a new
 /// table is over-refreshed rather than missed; the test that lists every
-/// database file fails until it is added.
+/// table of the store fails until it is added.
 const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("timetable_courses", &[Courses], Owner::Cache),
     ("memberships", &[Courses], Owner::Cache),

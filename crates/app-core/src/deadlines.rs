@@ -18,6 +18,9 @@ const MAINTENANCE_EVERY: Duration = Duration::days(1);
 const MAINTENANCE_START: Duration = Duration::minutes(1);
 const MAINTENANCE_RETRY: Duration = Duration::hours(1);
 const MAINTENANCE_KEY: &str = "daily";
+/// Under `local/`: the latest copy of the user tables, in the format Settings
+/// imports.
+pub(crate) const USER_SNAPSHOT_DIR: &str = "user-snapshot";
 
 /// A sign-in's pause without a verdict ends: the account may sign in again
 /// and the reads waiting on it go on.
@@ -125,7 +128,10 @@ impl Duty for Cloud {
 /// Low-frequency maintenance, the only place stored things are collected:
 /// unused school content (`sync_gc`), retired store generations and, on the
 /// desktop, the LMS write ledger's expired records and unreferenced
-/// snapshots. Its schedule survives restarts in `store-index.db`.
+/// snapshots. It also keeps a copy of the user tables outside the store: they
+/// share one file with everything else, and cloud sync is optional, so a
+/// damaged file would otherwise take them with it. Its schedule survives
+/// restarts in `store-index.db`.
 pub(crate) struct Maintenance {
     store: DataStore,
     #[cfg(feature = "agent")]
@@ -154,7 +160,7 @@ impl Maintenance {
         }
     }
 
-    fn pass(&self, now: DateTime<Utc>) -> Result<(), String> {
+    pub(crate) fn pass(&self, now: DateTime<Utc>) -> Result<(), String> {
         let gc = self
             .store
             .write(None, |transaction| crate::sync_gc::gc(transaction, now))
@@ -164,14 +170,22 @@ impl Maintenance {
             .root()
             .collect_retired(now)
             .map_err(|error| error.to_string());
+        let snapshot = crate::backup::BackupService::new(self.store.clone())
+            .write_scheduled(&self.store.paths().local(USER_SNAPSHOT_DIR))
+            .map_err(|error| error.to_string());
         #[cfg(feature = "agent")]
         let ledger = match &self.submissions {
-            Some(submissions) => submissions.maintain(now.timestamp()).map_err(|error| error.to_string()),
+            Some(submissions) => submissions
+                .maintain(now.timestamp())
+                .map_err(|error| error.to_string()),
             None => Ok(()),
         };
         #[cfg(not(feature = "agent"))]
         let ledger: Result<(), String> = Ok(());
-        gc.map(|_| ()).and(retired.map(|_| ())).and(ledger)
+        gc.map(|_| ())
+            .and(retired.map(|_| ()))
+            .and(snapshot.map(|_| ()))
+            .and(ledger)
     }
 }
 

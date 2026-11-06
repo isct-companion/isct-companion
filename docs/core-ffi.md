@@ -57,10 +57,10 @@ UNUSED_EXPRESSION warnings on newer compilers; sources are not patched.
 
 Create `Session.open(config, vault, browser?, cloud?, notifications?, downloads?)`
 once per app data directory. Opening storage runs on an owned worker. Directory
-paths must be absolute and supplied by the native shell. The SDK keeps `user.db`,
-`cache.db` and `sync.db` in that directory and splits a `school.db` found there once
-(`crates/app-core/src/data/migrations.rs`); it does not migrate an installed
-desktop app's container. The vault implements Core account names and must preserve the app's
+paths must be absolute and supplied by the native shell. The SDK keeps one
+`store/<generation>/store.db` in that directory and copies the user tables of an
+earlier `user.db` found there once (`crates/app-core/src/data/root.rs`); it does
+not migrate an installed desktop app's container. The vault implements Core account names and must preserve the app's
 Keychain/Keystore identity. Credentials never appear in query results.
 
 All service methods return an `Operation` immediately. Its identity is assigned

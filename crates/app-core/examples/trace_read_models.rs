@@ -199,8 +199,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     // A sync bookkeeping commit (a `last_used` touch) changes no school
-    // record; it commits to sync.db, never to cache.db.
-    let cache = rusqlite::Connection::open(std::path::Path::new(&path).join("sync.db"))?;
+    // record, so it leaves every view that does not read freshness cached.
+    let cache = rusqlite::Connection::open(store.paths().store_db())?;
     let touches = std::cell::Cell::new(0);
     let touch = || {
         touches.set(touches.get() + 1);

@@ -73,6 +73,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                 profiles: SchoolSessionProfiles {
                     science: SchoolProfileSession {
                         sign_out_pending: false,
+                        refusal_unsaved: false,
                         state: SchoolSessionState::Normal,
                         problem: None,
                         retry_at: None,
@@ -80,6 +81,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     },
                     tokyo_tech: SchoolProfileSession {
                         sign_out_pending: false,
+                        refusal_unsaved: false,
                         state: SchoolSessionState::Refused,
                         problem: Some(SchoolSignInProblem {
                             kind: SchoolSignInProblemKind::InvalidMatrix,
@@ -92,8 +94,8 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             }),
             "school-session",
             json!({"revision":7,"profiles":{
-                "science":{"signOutPending":false,"state":"normal","problem":null,"retryAt":null,"maintenance":null},
-                "tokyoTech":{"signOutPending":false,"state":"refused","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
+                "science":{"signOutPending":false,"refusalUnsaved":false,"state":"normal","problem":null,"retryAt":null,"maintenance":null},
+                "tokyoTech":{"signOutPending":false,"refusalUnsaved":false,"state":"refused","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
             }}),
         ),
         (

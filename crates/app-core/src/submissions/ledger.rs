@@ -3,9 +3,9 @@
 //! a write settled.
 //!
 //! It is its own SQLite file, `submissions.db`, in its own store
-//! generation (`data::root`). Not user.db: backup and cloud sync read that
-//! file whole, and a write in flight on this device means nothing on
-//! another. Not the school group: it is replaced whenever its schema
+//! generation (`data::root`). Not the store's user tables: backup and cloud
+//! sync read those whole, and a write in flight on this device means nothing
+//! on another. Not its school tables: they are emptied whenever their format
 //! changes, and losing a pending record would lift the single-flight guard
 //! and let a write whose outcome is unknown be sent again. Only one Core
 //! process holds the data folder (`core.lock`), so every record whose
@@ -147,7 +147,13 @@ impl Ledger {
                 serde_json::to_string(preparation)?
             ],
         )?;
-        insert_files(&transaction, "preparation_files", "preparation_id", &preparation.id, &preparation.files)?;
+        insert_files(
+            &transaction,
+            "preparation_files",
+            "preparation_id",
+            &preparation.id,
+            &preparation.files,
+        )?;
         transaction.commit()?;
         Ok(preparation.clone())
     }
@@ -215,7 +221,13 @@ impl Ledger {
                 serde_json::to_string(&operation)?,
             ],
         )?;
-        insert_files(&transaction, "operation_files", "operation_id", &operation.id, &operation.files)?;
+        insert_files(
+            &transaction,
+            "operation_files",
+            "operation_id",
+            &operation.id,
+            &operation.files,
+        )?;
         transaction.commit()?;
         Ok(Claim::Claimed(Box::new(preparation), Box::new(operation)))
     }
@@ -350,7 +362,9 @@ impl Ledger {
              ORDER BY next_check",
         )?;
         let rows = statement
-            .query_map([now], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?)))?
+            .query_map([now], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         rows.into_iter()
             .map(|(value, checks)| Ok((serde_json::from_str(&value)?, checks)))
@@ -412,10 +426,17 @@ impl Ledger {
     }
 
     /// The refresh landed, or comes again at `retry`.
-    pub(super) fn refreshed(&self, operation: &str, retry: Option<i64>) -> Result<(), SubmissionError> {
+    pub(super) fn refreshed(
+        &self,
+        operation: &str,
+        retry: Option<i64>,
+    ) -> Result<(), SubmissionError> {
         let connection = self.lock()?;
         match retry {
-            None => connection.execute("DELETE FROM refresh_outbox WHERE operation_id=?1", [operation])?,
+            None => connection.execute(
+                "DELETE FROM refresh_outbox WHERE operation_id=?1",
+                [operation],
+            )?,
             Some(at) => connection.execute(
                 "UPDATE refresh_outbox SET next_attempt=?2 WHERE operation_id=?1",
                 params![operation, at],

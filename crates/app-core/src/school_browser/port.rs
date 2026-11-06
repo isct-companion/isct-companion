@@ -214,7 +214,6 @@ pub trait SchoolBrowser: Send + Sync {
     fn attach(&self, listener: Weak<dyn SchoolBrowserListener>) -> Result<(), BrowserError>;
     fn ensure(&self, browser: BrowserId, initial: Url) -> Result<(), BrowserError>;
     fn dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError>;
-    fn current_url(&self, browser: BrowserId) -> Result<Option<Url>, BrowserError>;
     fn dispose(&self, browser: BrowserId) -> Result<(), BrowserError>;
     /// Takes a view, with the popups over it, out of sight and out of the
     /// input layer while Core signs it in (`covered`), or gives it back.

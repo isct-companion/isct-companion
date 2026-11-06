@@ -24,8 +24,10 @@
 //! identity was written and the page still lands on the sign-in page does it
 //! sign in, write and open the target once more. The network, maintenance
 //! and the store's failures never send a password. While it recovers the view
-//! is covered and the person may cancel; the view comes back only once a
-//! write already handed to the platform has ended.
+//! is covered and the person may cancel. A write already handed to the
+//! platform is the view's fact (`ViewState::write_pending`): it outlives the
+//! operation, the next one waits for it, a navigation sent meanwhile is held,
+//! and a view it covers comes back only when it ended.
 
 use super::*;
 use crate::school_session::{
@@ -214,6 +216,9 @@ struct Plan {
     /// An App link: it opens the target first, and recovers only if that
     /// lands on the sign-in page.
     open_first: bool,
+    /// Its cancel: a write it queued that has not reached the platform yet
+    /// is dropped once it is cancelled.
+    cancel: CancellationToken,
     /// The person's Reload on the sign-in page: it may go through a pause
     /// after a failure.
     past_pause: bool,
@@ -227,6 +232,17 @@ fn problem(stop: WebStop) -> Option<SchoolWebProblem> {
         WebStop::Storage => Some(SchoolWebProblem::Storage),
         // Superseded, or nothing Core could write: nothing to say.
         WebStop::Stale | WebStop::Unsupported => None,
+    }
+}
+
+impl ViewState {
+    /// Whether Core keeps the view out of sight now: an operation signing it
+    /// in, a write begun under a cover, or a write past its limit. An App
+    /// link's own write leaves its page in view (`Plan::open_first`).
+    pub(super) fn wants_cover(&self) -> bool {
+        self.write_storing
+            || (self.write_pending.is_some() && self.write_covers)
+            || self.op.as_ref().is_some_and(|op| op.covering)
     }
 }
 
@@ -264,6 +280,7 @@ impl Inner {
             };
             let view = state.views.get_mut(&site)?;
             view.problem = None;
+            view.deferred_navigation = None;
             let previous = view.op.replace(WebOp {
                 id,
                 browser,
@@ -292,6 +309,7 @@ impl Inner {
             target,
             open_first,
             past_pause,
+            cancel: cancel.clone(),
         };
         self.sync_cover(site);
         self.publish_page(site);
@@ -307,18 +325,40 @@ impl Inner {
 
     async fn run(
         self: Arc<Self>,
-        plan: Plan,
+        mut plan: Plan,
         mut landed: mpsc::UnboundedReceiver<Landing>,
         cancel: CancellationToken,
     ) {
         let mut write = None;
+        let mut changed = self.state.with(|state| {
+            state
+                .views
+                .get(&plan.site)
+                .map(|view| view.write_changed.subscribe())
+        });
         let ended = {
-            let work = self.operate(&plan, &mut landed, &mut write);
+            let work = async {
+                if let Some(changed) = changed.as_mut() {
+                    loop {
+                        let pending = *changed.borrow_and_update();
+                        if !pending {
+                            break;
+                        }
+                        if changed.changed().await.is_err() {
+                            return Some(None);
+                        }
+                    }
+                }
+                plan.deadline = Instant::now() + WEB_OPERATION_DEADLINE;
+                tokio::time::timeout_at(plan.deadline, self.operate(&plan, &mut landed, &mut write))
+                    .await
+                    .ok()
+            };
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => Some(None),
                 _ = self.tasks.closed() => Some(None),
-                ended = tokio::time::timeout_at(plan.deadline, work) => ended.ok(),
+                ended = work => ended,
             }
         };
         let problem = match ended {
@@ -336,10 +376,23 @@ impl Inner {
                 .then_some(SchoolWebProblem::Unreachable),
         };
         // A write already handed to the platform ends before the view is
-        // given back.
+        // given back. Past `WEB_STORE_LIMIT` the view stays covered and says
+        // the store has not finished, until the write really ended.
         if let Some(write) = write.as_mut() {
-            let _ = write.wait(WEB_STORE_LIMIT).await;
+            if write.wait(WEB_STORE_LIMIT).await.is_none() {
+                self.storing(&plan);
+                // Only the view waits for as long as the write takes. Core's
+                // exit does not (`SchoolBrowserEngine::shutdown` drains this
+                // task before the sessions stop the queue), and the view
+                // stays covered: its write never ended.
+                tokio::select! {
+                    biased;
+                    _ = write.ended() => {}
+                    _ = self.tasks.closed() => return,
+                }
+            }
         }
+        self.end_write(&plan);
         self.finish(plan.site, plan.id, problem);
     }
 
@@ -353,9 +406,13 @@ impl Inner {
         // that needs nothing from the school. Most pages end here.
         if plan.open_first {
             if let Some(identity) = self.sessions.fresh(plan.profile) {
-                let _ = self.write(plan, identity, write).await;
+                let written = self.write(plan, identity, write).await;
                 if !self.still(plan) {
                     return None;
+                }
+                // The platform still has it: nothing opens over it.
+                if written.is_err() && write.as_ref().is_some_and(WebWrite::pending) {
+                    return Some(SchoolWebProblem::Storage);
                 }
             }
             if self.open_and_land(plan, landed).await? != Landing::SignIn {
@@ -439,9 +496,10 @@ impl Inner {
 
     /// Writes `identity`, or the verified generation that replaced it while
     /// the write waited for its turn, and returns the generation written.
-    /// An earlier write of the operation ends first; one that has not
-    /// answered within `SEED_WAIT` stays queued and is waited for before the
-    /// view is given back.
+    /// An earlier write of the operation ends first. A queued write's handle
+    /// is in `slot` before anything is awaited, so one that has not answered
+    /// within `SEED_WAIT`, or whose operation was stopped meanwhile, is
+    /// still waited for before the view is given back.
     async fn write(
         &self,
         plan: &Plan,
@@ -449,17 +507,40 @@ impl Inner {
         slot: &mut Option<WebWrite>,
     ) -> Result<u64, WebStop> {
         if let Some(earlier) = slot.as_mut() {
-            let _ = earlier.wait(WEB_STORE_LIMIT).await;
+            if earlier.wait(WEB_STORE_LIMIT).await.is_none() {
+                return Err(WebStop::Storage);
+            }
         }
         for _ in 0..2 {
-            let answer = match self.sessions.seed(plan.profile, identity) {
-                Ok(mut queued) => {
-                    let answer = queued.wait(SEED_WAIT).await;
-                    *slot = Some(queued);
-                    answer.unwrap_or(Err(WebStop::Storage))
+            let started = self.state.with(|state| {
+                let Some(view) = state.views.get_mut(&plan.site) else {
+                    return false;
+                };
+                if !view.op.as_ref().is_some_and(|op| op.id == plan.id)
+                    || view.write_pending.is_some()
+                {
+                    return false;
                 }
-                Err(stop) => Err(stop),
+                view.write_pending = Some(plan.id);
+                view.write_covers = view.op.as_ref().is_some_and(|op| op.covering);
+                view.write_changed.send_replace(true);
+                true
+            });
+            if !started {
+                return Err(WebStop::Stale);
+            }
+            self.sync_cover(plan.site);
+            let answer = match self
+                .sessions
+                .seed(plan.profile, identity, plan.cancel.clone())
+            {
+                Ok(queued) => slot.insert(queued).wait(SEED_WAIT).await,
+                Err(stop) => Some(Err(stop)),
             };
+            if answer.is_some() {
+                self.end_write(plan);
+            }
+            let answer = answer.unwrap_or(Err(WebStop::Storage));
             match answer {
                 Ok(()) => return Ok(identity),
                 Err(WebStop::Stale) => match self.sessions.fresh(plan.profile) {
@@ -523,6 +604,43 @@ impl Inner {
         }
     }
 
+    /// Operation `plan` ended with a write the platform has not finished:
+    /// its view is covered and says so until the write ends.
+    fn storing(&self, plan: &Plan) {
+        let changed = self.state.with(|state| {
+            let view = state.views.get_mut(&plan.site)?;
+            if view.write_pending != Some(plan.id) {
+                return None;
+            }
+            view.write_storing = true;
+            Some(())
+        });
+        if changed.is_some() {
+            self.sync_cover(plan.site);
+            self.publish_page(plan.site);
+        }
+    }
+
+    fn end_write(&self, plan: &Plan) {
+        let ended = self.state.with(|state| {
+            let view = state.views.get_mut(&plan.site)?;
+            if view.write_pending != Some(plan.id) {
+                return None;
+            }
+            view.write_pending = None;
+            view.write_storing = false;
+            view.write_changed.send_replace(false);
+            Some(view.deferred_navigation.take())
+        });
+        if let Some(deferred) = ended {
+            self.sync_cover(plan.site);
+            self.publish_page(plan.site);
+            if let Some((browser, command)) = deferred.filter(|_| !self.tasks.is_closed()) {
+                let _ = self.dispatch(browser, command);
+            }
+        }
+    }
+
     /// Ends operation `id` of `site`'s view, leaving `problem` on the view.
     fn finish(&self, site: SchoolSite, id: u64, problem: Option<SchoolWebProblem>) {
         let ended = self.state.with(|state| {
@@ -546,7 +664,7 @@ impl Inner {
     pub(super) fn sync_cover(&self, site: SchoolSite) {
         let change = self.state.with(|state| {
             let view = state.views.get_mut(&site)?;
-            let wanted = view.op.as_ref().is_some_and(|op| op.covering);
+            let wanted = view.wants_cover();
             (view.covered != wanted).then(|| {
                 view.covered = wanted;
                 (view.id, wanted)

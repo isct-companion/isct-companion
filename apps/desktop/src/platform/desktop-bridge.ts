@@ -135,7 +135,8 @@ export type SchoolSignInProblemKind =
   /** With `unavailable`. */
   | "network"
   | "unanswered"
-  | "anomaly";
+  | "anomaly"
+  | "credential-store";
 /** Why the last sign-in did not finish. `message` is Core's English
  * diagnostic, for logs and tooltips; the shell shows text chosen by `kind`. */
 export type SchoolSignInProblem = {
@@ -151,6 +152,7 @@ export type SchoolMaintenance = {
 };
 export type SchoolProfileSession = {
   signOutPending: boolean;
+  refusalUnsaved: boolean;
   state: SchoolSessionState;
   problem: SchoolSignInProblem | null;
   /** RFC 3339; only with `unavailable`. */
@@ -172,9 +174,9 @@ export type SchoolConnectOutcome =
   | { kind: "connected" }
   /** The school refused the ID or password, the one-time password or the
    * Matrix (`reason`). */
-  | { kind: "refused"; reason: SchoolSignInProblemKind }
+  | { kind: "refused"; reason: SchoolSignInProblemKind; refusalUnsaved: boolean }
   /** The school wants the person on its own page (`reason`). */
-  | { kind: "needs-web"; reason: SchoolSignInProblemKind }
+  | { kind: "needs-web"; reason: SchoolSignInProblemKind; refusalUnsaved: boolean }
   /** No verdict: offline, the network, out of time. */
   | { kind: "unreachable" }
   /** The school accepted the credentials and the system vault did not save

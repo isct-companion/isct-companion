@@ -963,6 +963,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             SchoolSignInProblemKind.EMAIL_OTP -> t("schoolSession.problem.emailOtp")
             SchoolSignInProblemKind.PASSWORD_CHANGE -> t("schoolSession.problem.passwordChange")
             SchoolSignInProblemKind.UNKNOWN_PAGE -> t("schoolSession.problem.unknownPage")
+            SchoolSignInProblemKind.CREDENTIAL_STORE -> t("schoolSession.problem.credentialStore")
             SchoolSignInProblemKind.NETWORK, SchoolSignInProblemKind.UNANSWERED, SchoolSignInProblemKind.ANOMALY ->
                 t("schoolSession.state.unavailable")
         }
@@ -1009,6 +1010,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
         private fun profileSession(row: JSONObject) = SchoolProfileSession(
             signOutPending = row.getBoolean("signOutPending"),
+            refusalUnsaved = row.getBoolean("refusalUnsaved"),
             state = wire(row.getString("state")),
             problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
             retryAt = row.text("retryAt"),

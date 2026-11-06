@@ -4,7 +4,7 @@ impl DataStore {
     /// Read every backup table from one SQLite snapshot.
     pub fn export_document(&self) -> Result<Value, DataError> {
         let mut database = self.open()?;
-        let connection = connection::read_transaction(&mut database)?;
+        let connection = database.transaction()?;
         let mut tables = Map::new();
         for table in USER_BACKUP_TABLES {
             tables.insert(

@@ -1,0 +1,273 @@
+/* The About page, on purpose not like the rest of the app (slotledger
+   approach/desktop-about-page-design): an open, asymmetric composition carried
+   by the large name, one soft shape and the tilted icon. Everything you act on
+   stays level and in line. Colours stay the app's own tokens, so every theme
+   and appearance carries over. It fits the pane and nothing scrolls. */
+
+.workspaceMain.aboutMain {
+  height: 100dvh;
+  overflow: hidden;
+  padding: 0 0 52px;
+  padding-inline-start: var(--rail);
+}
+
+.aboutCanvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  /* clip, not hidden: the shape runs past the edge and focus must not scroll it. */
+  overflow: clip;
+  container-type: size;
+}
+
+/* ---------- the one shape behind everything ---------- */
+.aboutBlob {
+  position: absolute;
+  width: 70cqw;
+  aspect-ratio: 1;
+  top: -30cqw;
+  right: -18cqw;
+  background: var(--accent-soft);
+  border-radius: 57% 43% 61% 39% / 44% 58% 42% 56%;
+  pointer-events: none;
+  animation: aboutDrift 32s ease-in-out infinite alternate;
+}
+
+/* ---------- composition ---------- */
+.aboutLayout {
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  padding: clamp(16px, 5cqh, 48px) clamp(24px, 5.5cqw, 76px);
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "mark panel"
+    "links links";
+  column-gap: clamp(24px, 5cqw, 72px);
+  row-gap: clamp(14px, 3.5cqh, 32px);
+}
+
+/* ---------- the name ---------- */
+.aboutMark {
+  grid-area: mark;
+  align-self: center;
+  min-width: 0;
+  animation: aboutSettle 480ms var(--motion-easing-emphasized) both;
+}
+.aboutMark h1 {
+  margin: 0 0 clamp(4px, 1.2cqh, 12px);
+  color: var(--muted);
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 500;
+}
+.aboutWordmark {
+  /* "Companion" and its indent are about 5.3em: fit the column left over beside
+     the panel, whose narrowest width (280px) is what binds in a small window. */
+  --size: clamp(52px, min(10cqw, calc((84cqw - 280px) / 5.3), 17cqh), 168px);
+  display: block;
+  color: var(--ink);
+  font-size: var(--size);
+  font-weight: 700;
+  line-height: 0.96;
+  letter-spacing: -0.045em;
+}
+.aboutWordmarkFirst {
+  display: flex;
+  align-items: center;
+  gap: 0.2em;
+}
+.aboutWordmarkSecond {
+  display: block;
+  margin-inline-start: 0.42em;
+}
+.aboutIcon {
+  width: 0.86em;
+  height: 0.86em;
+  rotate: -9deg;
+  filter: drop-shadow(0 6px 12px rgb(0 0 0 / 0.16));
+  transition: rotate var(--motion-duration-slow) var(--motion-easing-emphasized);
+}
+.aboutMark:hover .aboutIcon {
+  rotate: 4deg;
+}
+.aboutVersion {
+  margin: clamp(8px, 2cqh, 18px) 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.aboutVersion b {
+  color: var(--ink);
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- updates and tips ---------- */
+.aboutPanel {
+  grid-area: panel;
+  align-self: center;
+  min-width: 0;
+  padding: 6px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  animation: aboutSettle 480ms 70ms var(--motion-easing-emphasized) both;
+}
+.aboutPanel .row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.aboutPanel .row:last-child {
+  border-bottom: 0;
+}
+.aboutPanel [data-setting="updates"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.aboutPanel [data-setting="updates"] > .actions {
+  justify-self: start;
+}
+/* A native error can be long; it stays readable here and the page stays put. */
+.aboutPanel [role="status"] {
+  display: block;
+  max-height: 5.6em;
+  overflow-y: auto;
+}
+.aboutNote {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  line-height: 1.4;
+}
+
+/* ---------- the way out: four equal pieces in one line ---------- */
+.aboutLinks {
+  grid-area: links;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(8px, 1.2cqw, 16px);
+}
+.aboutTile {
+  min-width: 0;
+  min-height: clamp(84px, 15cqh, 132px);
+  padding: 13px 16px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: start;
+  transition:
+    translate var(--motion-duration-slow) var(--motion-easing-emphasized),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard),
+    box-shadow var(--motion-duration-slow) var(--motion-easing-emphasized);
+  animation: aboutSettle 480ms 120ms var(--motion-easing-emphasized) both;
+}
+.aboutTile:hover,
+.aboutTile:focus-visible {
+  translate: 0 -3px;
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+}
+.aboutTile:active {
+  translate: 0;
+}
+.aboutTile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.aboutTileIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+.aboutTileAction {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: 500;
+}
+.aboutTileAction span {
+  opacity: 0;
+  translate: 4px 0;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-easing-standard),
+    translate var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.aboutTile:hover .aboutTileAction span,
+.aboutTile:focus-visible .aboutTileAction span {
+  opacity: 1;
+  translate: 0;
+}
+.aboutTileAction svg {
+  width: 15px;
+  height: 15px;
+}
+.aboutTileText {
+  grid-column: 1 / -1;
+  align-self: end;
+  min-width: 0;
+}
+.aboutTileText b {
+  display: block;
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 600;
+  line-height: 1.25;
+}
+.aboutTileText small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- motion ---------- */
+@keyframes aboutSettle {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+@keyframes aboutDrift {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  to {
+    transform: translate(-3%, 4%) rotate(14deg);
+    border-radius: 44% 56% 48% 52% / 56% 42% 58% 44%;
+  }
+}
+/* The app's rule (styles.css) keeps animations at the fast duration and turns
+   movement into fades, so here the pieces fade and the endless drift stops. */
+@media (prefers-reduced-motion: reduce) {
+  .aboutMark,
+  .aboutPanel,
+  .aboutTile {
+    animation-name: aboutFade;
+  }
+  .aboutBlob {
+    animation: none;
+  }
+  .aboutTile:hover,
+  .aboutTile:focus-visible {
+    translate: none;
+  }
+}
+@keyframes aboutFade {
+  from {
+    opacity: 0;
+  }
+}

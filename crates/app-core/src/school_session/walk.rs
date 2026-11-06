@@ -112,7 +112,16 @@ impl<'a> Walk<'a> {
                     referer = Some(url);
                     url = next;
                 }
-                status => return Err(WalkError::Http(status)),
+                // A maintenance page may come with an error status: it is the
+                // page, for the caller's maintenance check.
+                status => {
+                    return match response.text() {
+                        Ok(html) if adpt_isct::maintenance_notice(&url, &html).is_some() => {
+                            Ok(Page { url, html })
+                        }
+                        _ => Err(WalkError::Http(status)),
+                    };
+                }
             }
         }
         Err(WalkError::Off("too many redirects"))
@@ -138,7 +147,15 @@ impl<'a> Walk<'a> {
                 action,
                 response.location().as_deref(),
             )?)),
-            status => Err(WalkError::Http(status)),
+            status => match response.text() {
+                Ok(html) if adpt_isct::maintenance_notice(action, &html).is_some() => {
+                    Ok(Step::Page(Page {
+                        url: action.clone(),
+                        html,
+                    }))
+                }
+                _ => Err(WalkError::Http(status)),
+            },
         }
     }
 

@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 178 checks must be re-run before the next release.**
+**8 of 187 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**170 checks have never been run or could not be run:**
+**179 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -62,11 +62,14 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-CAMPUS-PRINTER-QUEUE` — never verified
 - `DESKTOP-CAMPUS-PRINTER-WINDOWS` — never verified
 - `DESKTOP-ABOUT-PAGE` — never verified
+- `DESKTOP-ABOUT-DESIGN` — never verified
 - `DESKTOP-TOOLS-PAGE` — never verified
 - `DESKTOP-CAMPUS-VPN` — never verified
 - `DESKTOP-CAMPUS-VPN-WINDOWS` — never verified
 - `DESKTOP-MCP-LMS-WRITE` — never verified
 - `DESKTOP-LEGACY-STORE-CUTOVER` — never verified
+- `DESKTOP-STORE-POWER-LOSS` — never verified
+- `STORE-READS-WHILE-SYNCING-ON-DEVICES` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-FILE-SHARE-MACOS` — never verified
 - `DESKTOP-FILE-SHARE-WINDOWS` — never verified
@@ -189,9 +192,15 @@ an unverified area becomes an assumed-good one.
 - `IOS-SCHOOL-PRINT` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
+- `SCHOOL-OTP-SUBMITTED-ONCE` — never verified
+- `SCHOOL-SIGN-IN-MAINTENANCE` — never verified
+- `SCHOOL-RETRY-KEYCHAIN-DENIED` — never verified
+- `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` — never verified
+- `SCHOOL-WEB-GO-SAME-PAGE` — never verified
 - `SCHOOL-CONNECT-OUTCOMES` — never verified
 - `SCHOOL-APP-OTP-ENTRY` — never verified
 - `SCHOOL-ACCOUNT-STATES` — never verified
+- `SCHOOL-REFUSAL-UNSAVED-COPY` — never verified
 - `DESKTOP-ERROR-CODE-COPY` — never verified
 - `DESKTOP-WEEKLY-EVENTS` — never verified
 - `MOBILE-ERROR-CODE-COPY` — never verified
@@ -241,12 +250,15 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer_windows.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
+| `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_windows.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
 | `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
+| `DESKTOP-STORE-POWER-LOSS` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/root.rs |
+| `STORE-READS-WHILE-SYNCING-ON-DEVICES` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/views.rs |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
@@ -372,9 +384,15 @@ an unverified area becomes an assumed-good one.
 | `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/mod.rs |
+| `SCHOOL-OTP-SUBMITTED-ONCE` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/login.rs |
+| `SCHOOL-SIGN-IN-MAINTENANCE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lib.rs<br>crates/adpt-isct/src/lms.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_session/site.rs<br>crates/app-core/src/school_session/walk.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/net/kyomu.rs |
+| `SCHOOL-RETRY-KEYCHAIN-DENIED` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/school_session/identity.rs |
+| `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
+| `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
@@ -887,8 +905,8 @@ app log is visible.
      to Refused while the status bar says it waits for the person
      (設定での操作を待っています) without a failure or retry time.
 3. Without reconnecting, press Refresh now on Assignments and wait
-   about a minute. Then read the latest runs in sync.db (read-only):
-   sqlite3 "file:$HOME/Library/Application Support/app.isctcompanion/sync.db?mode=ro"
+   about a minute. Then read the latest runs in the store (read-only):
+   sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db
    "select dataset,key,finished_at,outcome from sync_runs order by finished_at desc limit 40;"
    - *Why:* Deadlines, course outlines and assignment states read over the
      token alone. The defect fixed here held every key of the account
@@ -911,7 +929,7 @@ app log is visible.
 **Where to look**
 
 The Science Tokyo card in Settings, the status bar, the sync_runs
-table of sync.db, and the app log.
+table of the store, and the app log.
 
 **Expected**
 
@@ -1219,7 +1237,7 @@ itself, where courses are still being edited, is not yet observed.
      申告 period", the extractor's unavailable pattern must learn that
      notice and its element. If the data is visible but the selector
      does not match, the selector is broken.
-5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
    - *Why:* Only a complete read sets `fetched_at`, with outcome `complete` or
      `unavailable`. A page without one stays due and backs off after
      each failure, recorded in `failures` and `last_error`.
@@ -2783,8 +2801,8 @@ The rail, the About page and the browser it opens.
 
 **Expected**
 
-About shows the version, updates and welcome tips, then the four links in
-two groups, license and sponsor last. Settings no longer lists About.
+About shows the version, updates and welcome tips, and the four links,
+license and sponsor last. Settings no longer lists About.
 
 **Why this is manual**
 
@@ -2794,6 +2812,54 @@ A layout and four links a person confirms at a glance in the real app.
 
 - `apps/desktop/src/pages/about/AboutPage.tsx`
 - `apps/desktop/src/app/App.tsx`
+
+**Last recorded** never run
+
+### About has its own open composition in the app's colours, and it fits the window (`DESKTOP-ABOUT-DESIGN`)
+
+**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build from this source.
+
+**Steps**
+
+1. Open About in light appearance, then dark, and rest the pointer on
+   each of the four link tiles.
+   - *Why:* The colours come from the app's tokens, so a wrong one shows only on a
+     rendered page. A tile that does not lift, or shows no action word, has
+     lost its hover state.
+2. Shrink the window to its smallest size, then switch to Japanese and
+   large text.
+   - *Why:* The layout is fixed to the pane. Long labels are where a tile would
+     overlap its neighbour or the page would start to scroll.
+3. Turn on Reduce Motion in the system settings and reopen About.
+   - *Why:* The shape drifts without end, which must stop; a leftover animation
+     would run at the fast duration and flicker.
+
+**Where to look**
+
+The About page at each window size and appearance.
+
+**Expected**
+
+Large IsctCompanion name, one soft shape and a tilted icon, with the panel
+and four equal link tiles level, in the same colours as other pages. Nothing
+overlaps or scrolls at any size. With Reduce Motion the shape is still and
+the pieces only fade.
+
+**Why this is manual**
+
+A look a person confirms at a glance in the real app; the system's Reduce
+Motion setting and the native window's sizes are not reachable headlessly.
+
+**Covers**
+
+- `apps/desktop/src/pages/about/about.css`
+- `apps/desktop/src/pages/about/AboutPage.tsx`
 
 **Last recorded** never run
 
@@ -3219,7 +3285,7 @@ tests drive the same paths only over a test transport.
 
 **Last recorded** never run
 
-### The first start after 1.2.x moves the data folder into store generations (`DESKTOP-LEGACY-STORE-CUTOVER`)
+### The first start after 1.2.x moves the data folder into one store (`DESKTOP-LEGACY-STORE-CUTOVER`)
 
 **Area** desktop · **Persona** Two devices, interrupted work · **Result** —
 
@@ -3236,15 +3302,16 @@ a build of this commit (`yarn desktop:build --debug --bundles app`).
 **Steps**
 
 1. Start the new build once, quit it, and list the data folder.
-   - *Why:* The flat user.db is copied into `user/<generation>/` and the folder
-     gains `core.lock`, `store-index.db`, `school/<generation>/` and
-     `local/reminders-fired.json`. The flat files stay (retired, not
-     deleted), so the old release's data remains as recovery material.
+   - *Why:* The user tables of the flat user.db are copied into
+     `store/<generation>/store.db` and the folder gains `core.lock`,
+     `store-index.db` and `local/reminders-fired.json`. The flat files
+     stay (retired, not deleted), so the old release's data remains as
+     recovery material.
 2. Start the new build again and check Today, the personal event, the
    reminder setting and Settings → AI agent access.
-   - *Why:* User data must be the 1.2.7 data, unchanged; school data may be read
-     again (the school group is rebuilt when 1.2.7's sync.db is of the
-     older schema), and the MCP listener comes back on its own.
+   - *Why:* User data must be the 1.2.7 data, unchanged; school data is read
+     again, since the flat caches are not carried over, and the MCP
+     listener comes back on its own.
 3. With the new build running, start `yarn desktop:dev` (or a second
    copy of the .app).
    - *Why:* One Core per data folder: the second process must stop at once with
@@ -3263,8 +3330,9 @@ dialog of the second process.
 
 **Expected**
 
-The first start of the new build keeps all user data in a new
-generation, retires the flat files without deleting them, and a second
+The first start of the new build keeps all user data in a new store
+generation, fetches school data again, retires the flat files without
+deleting them, and a second
 process is refused with its message; after 1.2.7 ran again the new
 build still opens its own data.
 
@@ -3281,6 +3349,107 @@ the generations are covered by the Core tests over scratch folders.
 - `crates/app-core/src/data/migrations.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/native_dialog.rs`
+
+**Last recorded** never run
+
+### Cutting the power during school reads leaves the store whole (`DESKTOP-STORE-POWER-LOSS`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A MacBook you can force off (hold the power button for 10 seconds), and
+a build of this commit with signed-in school accounts. Note the personal
+events and plan marks you have. Save nothing else open on that Mac.
+
+**Steps**
+
+1. Press Refresh in the sync status, mark a class 休講 and add a personal
+   event while LMS and 教務 reads run. Wait until the event shows, then
+   force the Mac off straight away.
+   - *Why:* The Core tests kill the process, not the machine. Only a real power
+     cut shows whether a commit the app reported survives with
+     `F_FULLFSYNC` and whether the log recovers.
+2. Start the Mac and the app, then run `sqlite3 "$HOME/Library/Application
+   Support/app.isctcompanion"/store/*/store.db "PRAGMA integrity_check;"`
+   with the app closed.
+   - *Why:* A damaged page in the one file would take user data with the caches.
+3. Compare the event and the mark, and read the sync status.
+   - *Why:* Every commit is whole: the event and mark are there or the app had
+     not reported them, and a course never appears under two ids.
+4. Repeat the sequence on a Windows laptop and note the result beside
+   the Mac's.
+   - *Why:* Windows flushes through its own sync path, which no test here reaches.
+
+**Where to look**
+
+`PRAGMA integrity_check`, the event and the marked class in the app, and
+the sync status.
+
+**Expected**
+
+The app opens without a recovery message, the check prints `ok`, the event
+and mark that were showing are still there, and school pages show the same
+courses as before, reading again what was not finished.
+
+**Why this is manual**
+
+It needs real hardware losing power: a killed process keeps the drive's
+cache, which is what `F_FULLFSYNC` is there for, so no test can reach it.
+
+**Covers**
+
+- `crates/app-core/src/data/connection.rs`
+- `crates/app-core/src/data/migrations.rs`
+- `crates/app-core/src/data/root.rs`
+
+**Last recorded** never run
+
+### Pages stay quick during a first full read on Windows, Android and iPhone (`STORE-READS-WHILE-SYNCING-ON-DEVICES`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A build of this commit on a Windows laptop, an Android phone and an
+iPhone, each with signed-in school accounts and no store yet, so that the
+whole catalog and LMS are read for the first time.
+
+**Steps**
+
+1. While the first read runs, switch between Today, the timetable and
+   assignments, and mark an assignment done.
+   - *Why:* Measurements so far are from one Mac. Sync costs differ by platform,
+     and a first read is the most writing the store ever takes.
+2. On the desktop, repeat with `ISCT_TRACE_READS=1` set and read the
+   queue, work and persist times in the log.
+   - *Why:* A view read again too often, or a slow commit, shows here as a number
+     rather than a feeling.
+
+**Where to look**
+
+How fast pages switch and marks show on each device; on the desktop the
+trace lines in the log.
+
+**Expected**
+
+No page visibly stalls and marks show at once on all three. On the desktop
+the 95th-percentile queue and work times stay under 100 ms.
+
+**Why this is manual**
+
+It needs the real school, real accounts and three kinds of real device, and
+the result is how the app feels on each, which the Mac-only benchmark and
+the headless suites cannot stand in for.
+
+**Covers**
+
+- `crates/app-core/src/data/connection.rs`
+- `crates/app-core/src/data/views.rs`
 
 **Last recorded** never run
 
@@ -6054,40 +6223,32 @@ shell, which no longer does either, still gets there.
 **Preconditions**
 
 macOS desktop build with signed-in school accounts, a quarter with
-classes on the calendar, and the data folder of a build from before
-sync.db (its `cache.db` still holds `dataset_state`). Copy the folder
-aside first.
+classes on the calendar.
 
 **Steps**
 
-1. Launch the new build, run `ls "$HOME/Library/Application
-   Support/app.isctcompanion"` and open the sync status.
-   - *Why:* The first launch moves freshness and run records out of cache.db
-     into a new `sync.db`. A lost move shows as every key fetching again
-     and the status's last-read times reset to never.
-2. On the calendar, right-click a class and mark it 休講, then 試験,
+1. On the calendar, right-click a class and mark it 休講, then 試験,
    then back to the class, a few seconds apart.
    - *Why:* A mark now answers only the calendar fields; a block that keeps
      its old state, or updates only after a second, means the patch
      was not merged or the view did not query again.
-3. Press Refresh in the sync status so LMS and 教務 reads run, and
+2. Press Refresh in the sync status so LMS and 教務 reads run, and
    mark sessions again while they run and right after they finish.
-   - *Why:* A read that finds nothing new now commits only its freshness. The
-     delay this check exists for came back exactly while a sync ran.
-4. Switch to the timetable, Today and the course finder, then back.
+   - *Why:* A read that finds nothing new commits only its freshness, which no
+     calendar view reads. The delay this check exists for came back
+     exactly while a sync ran.
+3. Switch to the timetable, Today and the course finder, then back.
    - *Why:* Those pages read the mark through other change names; one still
      showing the old state means a view missed its change name.
 
 **Where to look**
 
-The data folder listing, the sync status times, the marked block on
-the calendar, and the same class on the timetable, Today and finder.
+The sync status times, the marked block on the calendar, and the same
+class on the timetable, Today and finder.
 
 **Expected**
 
-`sync.db` sits beside `user.db` and `cache.db`, the sync status keeps
-its last-read times and does not refetch everything, each mark shows
-on the calendar with no visible delay with or without a running sync,
+Each mark shows on the calendar with no visible delay with or without a running sync,
 and every other page shows the same state.
 
 **Why this is manual**
@@ -9805,7 +9966,7 @@ course that has materials and assignments open in Lectures.
    - *Why:* The course must wait for the list ("Waiting for other data to load", never a failure) and be read the moment the list lands; a
      "Could not update" line or a retry time means the old ordering or
      the old error class is back.
-3. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT dataset,key,outcome,error_kind,started_at,finished_at FROM sync_runs WHERE dataset IN ('lms.enrolment','lms.course') ORDER BY started_at DESC LIMIT 12"`.
+3. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db "SELECT dataset,key,outcome,error_kind,started_at,finished_at FROM sync_runs WHERE dataset IN ('lms.enrolment','lms.course') ORDER BY started_at DESC LIMIT 12"`.
    - *Why:* Shows the order on record: the open course's `lms.course` row must
      start after `lms.enrolment/all` finished, with outcome `complete`
      and no `parse` or `not-enrolled` row.
@@ -9813,7 +9974,7 @@ course that has materials and assignments open in Lectures.
 **Where to look**
 
 The open course page in Lectures, the footer status line and the
-`sync_runs` rows of sync.db.
+`sync_runs` rows of the store.
 
 **Expected**
 
@@ -10382,6 +10543,255 @@ school_auth tests.
 
 **Last recorded** never run
 
+### A refused one-time password is sent once per sign-in, never again in a later window (`SCHOOL-OTP-SUBMITTED-ONCE`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build from this commit with the Science Tokyo account
+connected and working, and a second, valid but wrong App OTP setup
+(any other base32 secret) at hand.
+
+**Steps**
+
+1. In Settings → School accounts → Science Tokyo, keep the ID and
+   password, enter the wrong OTP setup and press Connect; copy the log.
+   - *Why:* The school answers a wrong code with 401 or the code page again.
+     The log must show one `step: Extic one-time password` and then the
+     end: a second code line means the sign-in retried the factor in a
+     later window, which can lock the account.
+2. Read the form and the card.
+   - *Why:* The form says the one-time password was not accepted and nothing
+     was saved; the card stays Connected with the saved credentials.
+
+**Where to look**
+
+The Science Tokyo form and card, and the copied log.
+
+**Expected**
+
+Exactly one one-time password line for the Connect; "The one-time
+password was not accepted", entry kept, card unchanged.
+
+**Why this is manual**
+
+Needs the live Extic second factor; Core has no scripted school
+(approach/school-sign-in-verification).
+
+**Covers**
+
+- `crates/app-core/src/school_session/login.rs`
+
+**Last recorded** never run
+
+### A maintenance page during sign-in or verification pauses the site and is never a refusal (`SCHOOL-SIGN-IN-MAINTENANCE`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build from this commit with both accounts connected, during
+an announced LMS or 教務Web maintenance window (record `unreached`
+with `blocked_by` outside one).
+
+**Steps**
+
+1. While the site shows its maintenance page, press Retry on the
+   account in Settings, then open the site from an App link.
+   - *Why:* The sign-in must end with no verdict: the card shows the
+     maintenance notice and when Core tries again, never Refused or
+     "needs your attention" (a refusal would stop background sign-in
+     until the person retries), and never Connected (a maintenance page
+     with a session cookie proves nothing).
+2. Still inside the window, press Refresh on the LMS source, once with
+   a saved LMS token and once after signing the LMS token out by a
+   new Connect, so both the REST and the cookie AJAX paths answer.
+   - *Why:* Neither may read the HTML as a lost session or a refused token:
+     the footer shows the maintenance notice, the account stays usable,
+     and the LMS token is kept. A sign-in attempt starting here means a
+     path took the page for a lost session.
+3. After the window, wait for the pause to end or press Refresh.
+   - *Why:* The first read that gets through clears the notice; the saved
+     credentials were never held back.
+
+**Where to look**
+
+The account card, the workstation footer and the app log.
+
+**Expected**
+
+During maintenance: maintenance notice, host paused, no refusal kept.
+After: normal sign-in and the notice gone.
+
+**Why this is manual**
+
+Only the school's real maintenance pages show the shape the adapter
+matches; nothing in the suites fakes the school.
+
+**Covers**
+
+- `crates/adpt-isct/src/lib.rs`
+- `crates/adpt-isct/src/lms.rs`
+- `crates/app-core/src/school_session/login.rs`
+- `crates/app-core/src/school_session/site.rs`
+- `crates/app-core/src/school_session/walk.rs`
+- `crates/app-core/src/net/moodle/mod.rs`
+- `crates/app-core/src/net/moodle/ajax.rs`
+- `crates/app-core/src/net/moodle/rest.rs`
+- `crates/app-core/src/net/moodle/submission.rs`
+- `crates/app-core/src/net/kyomu.rs`
+
+**Last recorded** never run
+
+### A Retry the keychain refuses says so, and tries again later (`SCHOOL-RETRY-KEYCHAIN-DENIED`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS debug desktop build (it keeps school logins in the login
+keychain) from this commit with the Science Tokyo account connected,
+and a login keychain whose item another build wrote, so that reading
+it asks for permission.
+
+**Steps**
+
+1. Press Retry on the account in Settings, and answer Deny to the
+   system's keychain prompt.
+   - *Why:* The account must say the keychain would not give the credentials,
+     with when Core tries again, not "the network connection failed" and
+     not the state from before the press. Nothing goes to the school.
+2. Press Retry again and answer Allow.
+   - *Why:* The read goes through and the sign-in runs. No prompt appears
+     between the two presses except from those presses and Core's own
+     retry after the pause: a read per use asked endlessly once.
+
+**Where to look**
+
+The account card in Settings and the app log's `signing in` lines.
+
+**Expected**
+
+After Deny: the keychain line, no `signing in` line. After Allow: signed
+in.
+
+**Why this is manual**
+
+Only the real keychain prompt can be denied. The snapshot Core gives
+for a denied read is covered by the school_session suite.
+
+**Covers**
+
+- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src-tauri/src/secrets.rs`
+- `crates/app-core/src/school_session/identity.rs`
+
+**Last recorded** never run
+
+### Secrets held only in an earlier release's keychain place survive the upgrade (`DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A signed macOS release build from this commit, on a Mac user with no
+Isct Companion items in the keychain, and a test value for the Google
+Drive credential-sync password, not a real one.
+
+**Steps**
+
+1. Before launching, add the value under the earlier product name:
+   service `Campus Life`, account
+   `app.campuslife.sciencetokyo.passwords.cloud-credential-sync`.
+   - *Why:* That is where a person upgrading from the old product has it, and
+     only there. The school-login cleanup removed this path once on a
+     branch; dropping it loses the cloud sync key on upgrade.
+2. Launch the app and use Settings → Cloud to read the credential-sync
+   password state.
+   - *Why:* The first read finds it in the old place and copies it to the
+     current one, verifying the copy before the old item goes.
+3. Repeat with a school login saved by a build in the login keychain
+   (`IsctCompanion` service), then press Retry once.
+   - *Why:* A school login in the local keychain moves to the synchronized one
+     on its first read, and the re-read a Retry now does on every
+     platform finds it there without asking again.
+
+**Where to look**
+
+Settings, and Keychain Access for where each item is afterwards.
+
+**Expected**
+
+Each value is available after the upgrade and lives only in the current
+place; nothing is lost and no prompt repeats.
+
+**Why this is manual**
+
+Needs a signed bundle with the keychain entitlement and items written
+by another identity; Core only sees the vault port.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/secrets.rs`
+
+**Last recorded** never run
+
+### An App link to the page a school view already shows opens it again (`SCHOOL-WEB-GO-SAME-PAGE`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build from this commit with the Science Tokyo account
+connected, the LMS open in the Web page on the dashboard.
+
+**Steps**
+
+1. Log out of the LMS from its own menu, go back to the dashboard
+   address by hand, then open the LMS dashboard from an App link
+   (Today or a course's LMS link that lands on the dashboard).
+   - *Why:* Go always navigates, whatever address the view shows: the view
+     loads the dashboard again (open first). Where that lands on the
+     sign-in page it is covered by "Signing in to this page…", the
+     identity is written and the dashboard reopens signed in. Nothing
+     happening means Core still compares addresses.
+2. Switch to Today and back to Web without an App link.
+   - *Why:* Resume keeps the page exactly as it was: no reload, no sign-in.
+
+**Where to look**
+
+The LMS view, the line under the address, and the log's `web
+operation … started` lines.
+
+**Expected**
+
+The App link starts one web operation that opens its page, and
+recovers only if that page asks for a sign-in; Resume starts none.
+
+**Why this is manual**
+
+The entry rule is exercised in the school_browser suite; that the real
+WebKit view and its cookies then sign in is a glance in the real app.
+
+**Covers**
+
+- `crates/app-core/src/school_browser/engine.rs`
+- `crates/app-core/src/school_browser/engine/operation.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
+
+**Last recorded** never run
+
 ### The Connect form says how each Connect ended, and only a success saves (`SCHOOL-CONNECT-OUTCOMES`)
 
 **Area** school · **Persona** Two devices, interrupted work · **Result** —
@@ -10565,6 +10975,45 @@ needs the live school.
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### A refusal the vault cannot save is explained on the account card (`SCHOOL-REFUSAL-UNSAVED-COPY`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with a connected account whose saved password the school
+now rejects, and a vault configuration that permits reading credentials
+but denies writing the device-local school-refusals item.
+
+**Steps**
+
+1. Let the expired account sign in and read its account card.
+   - *Why:* The refusal must hold the credentials back and say that the record
+     lasts only until the app closes, so the person knows it may retry
+     after a restart.
+
+**Where to look**
+
+The account details in desktop Settings.
+
+**Expected**
+
+The refusal reason and the short temporary-record line both appear.
+
+**Why this is manual**
+
+Requires the live school and a real vault that selectively denies the
+refusal write; the vault-state decision is covered by school_auth tests.
+
+**Covers**
+
+- `apps/desktop/src/app/sync-text.ts`
+- `crates/app-core/src/school_auth.rs`
 
 **Last recorded** never run
 
@@ -10813,8 +11262,7 @@ a quarter with classes, assignments and materials.
      means its view left out a table it needs.
 2. Mark a session 休講 on the calendar, pin an assignment, then press
    Refresh in the sync status and wait for LMS to finish.
-   - *Why:* Views are cached per table set until user.db or cache.db changes;
-     a page that keeps the old mark, pin or a removed material means a
+   - *Why:* Views are cached until a table they read changes; a page that keeps the old mark, pin or a removed material means a
      cached view outlived a commit.
 
 **Where to look**

@@ -181,6 +181,7 @@ const SIGN_IN_PROBLEMS: Record<SchoolSignInProblemKind, MessageKey> = {
   network: "schoolSession.problem.network",
   unanswered: "schoolSession.problem.unanswered",
   anomaly: "schoolSession.problem.anomaly",
+  "credential-store": "schoolSession.problem.credentialStore",
 };
 
 /** The site each account's maintenance pauses. */
@@ -214,6 +215,7 @@ export function sessionDetails(
   // A kind this build does not know yet shows Core's own diagnostic.
   const problem = session.problem;
   if (problem) lines.push(signInProblemText(problem.kind) ?? problem.message);
+  if (session.refusalUnsaved) lines.push(t("schoolSession.refusalUnsaved"));
   if (session.state === "needs-web")
     lines.push(t("schoolSession.needsWeb.signInYourself"));
   if (session.maintenance)

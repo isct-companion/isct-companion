@@ -1,39 +1,37 @@
 use super::*;
 use crate::schedule::{CatalogEntry, ExamTimetable, SchoolReads};
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::PoisonError};
 
-/// `PRAGMA data_version` of user.db, cache.db and sync.db on the view
-/// connection.
-type Versions = (i64, i64, i64);
-
-/// The school records only sync.db feeds: freshness and page availability.
-/// A commit there changes nothing else, so only a view that reads them is
-/// read again.
+/// The records dataset_state feeds: freshness and page availability.
 const SYNC_RECORDS: [&str; 2] = ["freshness", "pageAvailability"];
 
-/// The exam timetable as one cache.db version holds it. No user intent can
-/// change it (`WorkspaceWrite` writes user tables only), so it is read,
-/// normalized and validated once per cache.db version and every view of
-/// that version shares it.
+/// The table the exam timetable is read from. A view that reuses the
+/// timetable does not read it, yet carries it (`SchoolReads`).
+const EXAMS: &str = "exams";
+
+/// The exam timetable as of a commit. No user intent changes it
+/// (`WorkspaceWrite` writes user tables only), so it is read, normalized and
+/// validated once per change to its table and every view shares it.
 pub(crate) struct SharedExams {
-    /// cache.db's data version on the view connection, when one is known.
-    version: Option<i64>,
+    as_of: u64,
     timetable: Arc<ExamTimetable>,
 }
 
 impl SharedExams {
-    /// `cached` when it was read at `version`, otherwise read on `connection`.
+    /// `cached` when its table has not changed since it was read, otherwise
+    /// read on `connection`, which sees at least commit `as_of`.
     fn read(
         connection: &Connection,
         cached: Option<&Arc<Self>>,
-        version: Option<i64>,
+        versions: &TableVersions,
+        as_of: u64,
     ) -> Result<Arc<Self>, DataError> {
-        if let Some(cached) = cached.filter(|cached| version.is_some() && cached.version == version)
-        {
+        if let Some(cached) = cached.filter(|cached| versions.latest([EXAMS]) <= cached.as_of) {
             return Ok(cached.clone());
         }
-        let mut rows = Value::Array(read_visible_rows(connection, "exams")?);
+        let mut rows = Value::Array(read_visible_rows(connection, EXAMS)?);
         normalize_optional_nulls(&mut rows);
         Vec::<crate::contracts::Exam>::deserialize(&rows)
             .map_err(|error| format!("workspace validation failed: {error}"))?;
@@ -41,7 +39,7 @@ impl SharedExams {
             return Err(DataError::storage("exams did not read as rows"));
         };
         Ok(Arc::new(Self {
-            version,
+            as_of,
             timetable: Arc::new(ExamTimetable::new(rows)),
         }))
     }
@@ -85,48 +83,75 @@ fn latest_overlay<'a>(rows: &'a [Value], names: impl Fn(&Value) -> bool) -> Opti
 }
 
 pub(super) struct ViewReader {
-    /// A read connection of its own: data versions only compare between
-    /// reads of one connection. Every commit lands on another connection
-    /// (the store's write connection, or another store on the same files),
-    /// so every commit changes them.
+    /// A read connection of its own, because its authorizer records what a
+    /// view reads.
     connection: Connection,
+    /// The tables statements compiled on `connection` read, since `tracking`.
+    read: Arc<Mutex<BTreeSet<String>>>,
     exams: Option<Arc<SharedExams>>,
     /// The latest partial workspaces queries read (`DataStore::view`), most
     /// recent last.
     views: Vec<CachedView>,
 }
 
-/// A view of user.db and cache.db (and sync.db, when it reads freshness)
-/// at `versions` on `day`.
+/// A view as of commit `as_of` on `day`. It holds while none of `tables`, the
+/// tables it read, has changed since.
 struct CachedView {
     fields: BTreeSet<&'static str>,
-    versions: Versions,
+    tables: BTreeSet<String>,
+    as_of: u64,
     day: chrono::NaiveDate,
     workspace: Arc<Value>,
     school: Arc<SchoolReads>,
+}
+
+impl CachedView {
+    fn holds(&self, versions: &TableVersions) -> bool {
+        versions.latest(self.tables.iter().map(String::as_str)) <= self.as_of
+    }
 }
 
 /// Distinct field sets kept; one per query group in use.
 const CACHED_VIEWS: usize = 8;
 
 impl ViewReader {
-    pub(super) fn new(connection: Connection) -> Self {
-        Self {
+    pub(super) fn new(mut connection: Connection) -> Result<Self, DataError> {
+        let read: Arc<Mutex<BTreeSet<String>>> = Arc::default();
+        let sink = read.clone();
+        // SQLite names what a statement reads as it compiles it, so what a
+        // view depends on cannot be left out of a list by hand. A table left
+        // out would show old rows; one too many only reads again.
+        connection.authorizer(Some(move |context: AuthContext<'_>| {
+            if let AuthAction::Read { table_name, .. } = context.action {
+                if !table_name.starts_with("sqlite_") {
+                    sink.lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .insert(table_name.to_string());
+                }
+            }
+            Authorization::Allow
+        }))?;
+        Ok(Self {
             connection,
+            read,
             exams: None,
             views: Vec::new(),
-        }
+        })
     }
 
-    fn versions(&self) -> Result<Versions, DataError> {
-        let version = |schema: &str| {
-            self.connection
-                .query_row(&format!("PRAGMA {schema}.data_version"), [], |row| {
-                    row.get::<_, i64>(0)
-                })
-                .map_err(DataError::from)
-        };
-        Ok((version("main")?, version("cache")?, version("sync")?))
+    /// Starts recording what statements read. Cached statements are dropped:
+    /// one already compiled would not be reported again.
+    fn tracking(&mut self) {
+        self.connection.flush_prepared_statement_cache();
+        self.read
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+    }
+
+    /// The tables read since `tracking`.
+    fn tracked(&self) -> BTreeSet<String> {
+        std::mem::take(&mut *self.read.lock().unwrap_or_else(PoisonError::into_inner))
     }
 }
 
@@ -157,11 +182,10 @@ impl DataStore {
     }
 
     /// The workspace fields `fields` names (`view_from`), with the school
-    /// records queries evaluate it with, from one read of user.db and
-    /// cache.db only. Cached per field set until either file changes or the
-    /// day does; sync.db feeds no view.
-    /// The view's revision names the file versions it was read at, for
-    /// caches of what is computed from it.
+    /// records queries evaluate it with, from one read. Cached per field set
+    /// until a table it read changes or the day does. The view's revision
+    /// names the latest change to those tables, for caches of what is
+    /// computed from it.
     pub(crate) fn view(
         &self,
         fields: &BTreeSet<&'static str>,
@@ -171,42 +195,51 @@ impl DataStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let today = crate::schedule::japan_today(Utc::now());
-        let versions = reader.versions()?;
-        // sync.db feeds only the freshness records.
-        let reads_sync = SYNC_RECORDS.iter().any(|field| fields.contains(field));
-        let files = (
-            versions.0,
-            versions.1,
-            if reads_sync { versions.2 } else { 0 },
-        );
-        let revision = format!("{}:{}:{}:{today}", files.0, files.1, files.2);
+        // Before the rows. A commit that landed but has not moved its tables'
+        // versions yet stamps its rows as older than they are, which reads
+        // them once more; the other way round would keep old rows for good.
+        let as_of = self.commit_seq.get();
+        let versions = &self.table_versions;
+        let revision = |tables: &BTreeSet<String>| {
+            format!(
+                "{}:{today}",
+                versions.latest(tables.iter().map(String::as_str))
+            )
+        };
         if let Some(index) = reader
             .views
             .iter()
-            .position(|view| view.fields == *fields && view.versions == files && view.day == today)
+            .position(|view| view.fields == *fields && view.day == today && view.holds(versions))
         {
             let view = reader.views.remove(index);
-            let found = (view.workspace.clone(), view.school.clone(), revision);
+            let found = (
+                view.workspace.clone(),
+                view.school.clone(),
+                revision(&view.tables),
+            );
             reader.views.push(view);
             return Ok(found);
         }
-        let ViewReader {
-            connection, exams, ..
-        } = &mut *reader;
-        let transaction = super::connection::read_transaction(connection)?;
-        let shared = SharedExams::read(&transaction, exams.as_ref(), Some(versions.1))?;
+        reader.tracking();
+        let cached_exams = reader.exams.clone();
+        let transaction = reader.connection.transaction()?;
+        let shared = SharedExams::read(&transaction, cached_exams.as_ref(), versions, as_of)?;
         let (workspace, school) = Self::view_with(&transaction, fields, &shared)?;
         transaction.commit()?;
-        *exams = Some(shared);
+        let mut tables = reader.tracked();
+        tables.insert(EXAMS.to_string());
+        reader.exams = Some(shared);
         let workspace = Arc::new(workspace);
         let school = Arc::new(school);
+        let revision = revision(&tables);
         reader.views.retain(|view| view.fields != *fields);
         if reader.views.len() >= CACHED_VIEWS {
             reader.views.remove(0);
         }
         reader.views.push(CachedView {
             fields: fields.clone(),
-            versions: files,
+            tables,
+            as_of,
             day: today,
             workspace: workspace.clone(),
             school: school.clone(),
@@ -288,33 +321,29 @@ impl DataStore {
         let today = crate::schedule::japan_today(Utc::now());
         let every = every_field();
         let mut writer = self.connections.writer();
-        let ((result, revision, shared, versions), tables) = commit_then(
+        let ((result, revision, shared), tables) = commit_then(
             &mut writer,
             |transaction| {
-                // Under the write lock no other commit can land, so these are
-                // the versions of the state this transaction starts from.
-                let versions = reader.versions()?;
+                // Under the write lock every commit has moved its tables'
+                // versions (`committed_tables`), so this is the state the
+                // transaction starts from.
+                let as_of = self.commit_seq.get();
+                let versions = &self.table_versions;
                 let actual = intent_revision(transaction)?;
                 if actual != expected_revision {
                     return Err(DataError::conflict(format!(
                         "workspace revision conflict: expected {expected_revision}, actual {actual}"
                     )));
                 }
-                // A user intent writes no school row (it may merge courses
-                // again), so the exam timetable read at this version stays
-                // that of the commit.
+                // A user intent writes no exam row, so the timetable read
+                // here stays that of the commit.
                 let shared =
-                    SharedExams::read(transaction, reader.exams.as_ref(), Some(versions.1))?;
-                // The whole view as `view` cached it at these versions (it
-                // reads no sync.db field), or read here.
+                    SharedExams::read(transaction, reader.exams.as_ref(), versions, as_of)?;
+                // The whole view as `view` cached it, or read here.
                 let cached = reader
                     .views
                     .iter()
-                    .find(|view| {
-                        view.fields == every
-                            && view.versions == (versions.0, versions.1, 0)
-                            && view.day == today
-                    })
+                    .find(|view| view.fields == every && view.day == today && view.holds(versions))
                     .map(|view| (view.workspace.clone(), view.school.clone()));
                 let (current, school) = match cached {
                     Some(current) => current,
@@ -329,9 +358,9 @@ impl DataStore {
                 };
                 let result = operation(&write, &current, &school)?;
                 drop((current, school));
-                Ok((result, shared, versions))
+                Ok((result, shared))
             },
-            |transaction, (result, shared, versions), tables| {
+            |transaction, (result, shared), tables| {
                 // Read after the courses the intent fed were merged again.
                 let fed = crate::workspace_changes::loaded_fields(
                     crate::workspace_changes::changes_for(tables),
@@ -339,28 +368,13 @@ impl DataStore {
                 let (written, _) = Self::view_from(transaction, Some(&fed))?;
                 crate::contracts::Workspace::deserialize(&written)
                     .map_err(|error| format!("workspace validation failed: {error}"))?;
-                Ok((result, intent_revision(transaction)?, shared, versions))
+                Ok((result, intent_revision(transaction)?, shared))
             },
         )?;
-        // The exam timetable read before this commit is that of the versions
-        // after it. They are read before the write lock is released, so no
-        // commit of this store can land in between; only another process
-        // writing the same files could, and the app opens one store per
-        // data folder.
-        match reader.versions() {
-            Ok(after) if after.1 == versions.1 => reader.exams = Some(shared),
-            // Only merged courses changed in cache.db: the exams are those.
-            Ok(after) => {
-                reader.exams = Some(Arc::new(SharedExams {
-                    version: Some(after.1),
-                    timetable: shared.timetable.clone(),
-                }));
-            }
-            Err(_) => {}
-        }
+        reader.exams = Some(shared);
+        self.committed_tables(&tables);
         drop(writer);
         drop(reader);
-        self.committed_tables(&tables);
         self.observer.committed(
             WorkspaceChangeSource::UserIntent,
             Some(revision.clone()),
@@ -570,7 +584,7 @@ impl DataStore {
         Ok(())
     }
 
-    /// The school records sync.db feeds, `SYNC_RECORDS`.
+    /// The records dataset_state feeds, `SYNC_RECORDS`.
     fn sync_records_from(connection: &Connection) -> Result<Value, DataError> {
         let freshness = crate::sync_state::list(connection, None)?;
         Ok(json!({

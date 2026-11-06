@@ -1,21 +1,23 @@
-//! The connections of one store. Every commit queues on one
-//! long-lived write connection; reads use a few long-lived read-only
-//! connections. Each connection opens user.db as `main` and attaches
-//! cache.db as `cache` and sync.db as `sync`. Table names are unique across
-//! the three files, so SQL never names the schema.
+//! The connections of one store: every commit queues on one long-lived write
+//! connection; reads use a few long-lived read-only connections, all on the
+//! store's one file.
 //!
-//! All three files use rollback journals with `synchronous=FULL`
-//! (`approach/attached-store-atomicity`): a transaction that writes more
-//! than one of them commits through SQLite's super-journal, so a crash or a
-//! power loss keeps all of its files or none. WAL would commit each file on
-//! its own. Readers then block a commit while they read, and a commit
-//! blocks new readers, so every connection waits out a busy file. That wait
-//! ends only if a read holding one file never waits for another a commit holds,
-//! so a read transaction starts through [`read_transaction`].
+//! The file uses WAL with `synchronous=FULL` (`approach/single-file-wal-store`):
+//! one log holds every table, so a commit is whole across a crash, a failed
+//! write and a concurrent read, and a read keeps its snapshot without holding a
+//! commit up. A write always begins IMMEDIATE, because a transaction that reads
+//! and then writes would otherwise fail with `SQLITE_BUSY_SNAPSHOT`.
+//!
+//! A commit that reports an error has not happened as far as this process can
+//! tell: it reads the old state, and the next commit writes over its frames. If
+//! the error was a failed sync and the process then dies before another commit,
+//! the next start can find that commit, whole. Callers treat an error as a
+//! rollback, which holds for the run they are in.
 //!
 //! No pool library: the write connection carries the change hooks, and the
 //! order connections close in on reset and exit follows the store, which a
-//! general pool's own lifecycle would have to be worked around for.
+//! general pool's own lifecycle would have to be worked around for. The write
+//! connection closes last, which checkpoints and removes the log.
 
 use super::{migrations, root::StorePaths, DataError};
 use rusqlite::{
@@ -36,25 +38,20 @@ const READERS: usize = 3;
 /// How long a connection waits for another's lock on a file.
 const BUSY: Duration = Duration::from_secs(10);
 
-/// The files of a store's active generations.
-pub(super) struct Files {
-    pub(super) user: PathBuf,
-    pub(super) cache: PathBuf,
-    pub(super) sync: PathBuf,
-}
+/// Where a long read's log stops growing back to: the log is cut to this size
+/// once a checkpoint has caught up, rather than keeping its largest size.
+const LOG_LIMIT_BYTES: u64 = 4 * 1024 * 1024;
 
-impl Files {
-    pub(super) fn of(paths: &StorePaths) -> Self {
-        Self {
-            user: paths.user_db(),
-            cache: paths.cache_db(),
-            sync: paths.sync_db(),
-        }
-    }
-}
+/// Apple's `fsync` does not ask the drive to flush, so a commit that must reach
+/// the disk asks with `F_FULLFSYNC`. With one sync per commit this costs a few
+/// milliseconds, on the write connection only.
+#[cfg(target_vendor = "apple")]
+const DRIVE_FLUSH: &str = "PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;";
+#[cfg(not(target_vendor = "apple"))]
+const DRIVE_FLUSH: &str = "";
 
 pub(super) struct Connections {
-    pub(super) files: Files,
+    pub(super) path: PathBuf,
     // Fields drop in order: the read connections close first, the write
     // connection last.
     readers: Vec<Mutex<Connection>>,
@@ -62,22 +59,19 @@ pub(super) struct Connections {
 }
 
 impl Connections {
-    /// Opens the write connection, then the read connections, on files
-    /// `data::root` made ready at the current schemas.
-    pub(super) fn open(files: Files) -> Result<Self, DataError> {
-        let mut writer = Connection::open(&files.user)?;
+    /// Opens the write connection, then the read connections, on the file
+    /// `data::root` made ready at the current schema.
+    pub(super) fn open(paths: &StorePaths) -> Result<Self, DataError> {
+        let path = paths.store_db();
+        let mut writer = Connection::open(&path)?;
         writer.busy_timeout(BUSY)?;
-        writer.execute_batch(
-            "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
-        )?;
-        migrations::attach(&writer, &files.cache, &files.sync)?;
-        writer.execute_batch(
-            "PRAGMA cache.journal_mode=DELETE; PRAGMA cache.synchronous=FULL;
-             PRAGMA sync.journal_mode=DELETE; PRAGMA sync.synchronous=FULL;",
-        )?;
+        writer.execute_batch(&format!(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
+             PRAGMA journal_size_limit={LOG_LIMIT_BYTES}; {DRIVE_FLUSH}"
+        ))?;
         forbid_truncate(&mut writer)?;
         let mut connections = Self {
-            files,
+            path,
             writer: Mutex::new(writer),
             readers: Vec::with_capacity(READERS),
         };
@@ -94,14 +88,13 @@ impl Connections {
         self.writer.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A new read-only connection to the three files.
+    /// A new read-only connection.
     pub(super) fn open_reader(&self) -> Result<Connection, DataError> {
         let connection = Connection::open_with_flags(
-            &self.files.user,
+            &self.path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         connection.busy_timeout(BUSY)?;
-        migrations::attach(&connection, &self.files.cache, &self.files.sync)?;
         Ok(connection)
     }
 
@@ -145,23 +138,6 @@ impl DerefMut for Reader<'_> {
             Self::Extra(connection) => connection,
         }
     }
-}
-
-/// Starts a read transaction over the three files, holding them in the order a
-/// commit locks them. SQLite takes a file's lock when a statement first reads
-/// it; a transaction that began on `cache` and then read `main` would hold
-/// `cache` while a commit, holding `main`, waits for `cache`. Neither could go
-/// on, and the commit would fail once `BUSY` ran out.
-pub(crate) fn read_transaction(connection: &mut Connection) -> Result<Transaction<'_>, DataError> {
-    let transaction = connection.transaction()?;
-    for schema in ["main", "cache", "sync"] {
-        transaction.query_row(
-            &format!("SELECT count(*) FROM {schema}.sqlite_schema"),
-            [],
-            |_| Ok(()),
-        )?;
-    }
-    Ok(transaction)
 }
 
 /// SQLite skips the update hook when it empties a table with the truncate

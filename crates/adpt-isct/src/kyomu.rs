@@ -21,6 +21,11 @@ pub mod search;
 
 pub use pages::extract_page;
 
+/// The notice of a 教務Web page that says the site is under maintenance now.
+pub fn maintenance_notice(html: &str) -> Option<String> {
+    html::maintenance_notice(&scraper::Html::parse_document(html))
+}
+
 pub const HOST: &str = "kyomu0.gakumu.titech.ac.jp";
 
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;

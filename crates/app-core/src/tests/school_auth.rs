@@ -332,34 +332,158 @@ fn the_retired_candidates_item_is_deleted_unread_at_startup() {
     }
 }
 
-/// A Keychain item iCloud Keychain may replace from another device.
-#[derive(Clone, Default)]
-struct SyncedVault(MemoryVault);
+// A refusal the vault fails to keep still holds the refused credentials
+// back for as long as this process runs, and the caller hears that it was not
+// kept: background sign-ins must never send a refused password again because
+// a keychain write failed.
+#[test]
+fn a_refusal_the_vault_does_not_keep_still_holds_the_credentials_back() {
+    #[derive(Clone, Default)]
+    struct NoRefusals(MemoryVault, Arc<std::sync::atomic::AtomicBool>);
+    impl SecretVault for NoRefusals {
+        fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+            if account == SCHOOL_REFUSAL_ACCOUNT
+                && !self.1.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(SecretError::Access("denied".into()));
+            }
+            self.0.store(account, secret)
+        }
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
+            self.0.load(account)
+        }
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
+            self.0.delete(account)
+        }
+    }
+    let vault = NoRefusals::default();
+    let inspect = vault.0.clone();
+    let allow = vault.1.clone();
+    let service = SchoolAuthService::new(vault);
+    let saved = science_credentials("student", "password");
+    service.promote(SchoolAuthProfile::Science, &saved).unwrap();
+    let failure = SchoolSignInProblem {
+        kind: crate::school_session::SchoolSignInProblemKind::InvalidCredentials,
+        message: "the school did not accept the credentials".into(),
+    };
 
-impl SecretVault for SyncedVault {
-    fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
-        self.0.store(account, secret)
+    assert!(service
+        .record_refusal(SchoolAuthProfile::Science, &saved, &failure)
+        .is_err());
+    assert!(inspect.load(SCHOOL_REFUSAL_ACCOUNT).unwrap().is_none());
+    assert!(service.refusal_unsaved(SchoolAuthProfile::Science));
+    assert_eq!(
+        service.refusal(SchoolAuthProfile::Science),
+        Some(failure.clone())
+    );
+    // A person's re-read of the vault does not lift it either.
+    service.refresh();
+    assert_eq!(
+        service
+            .sign_in_credentials(SchoolAuthProfile::Science)
+            .unwrap()
+            .unwrap()
+            .refusal,
+        Some(failure.clone())
+    );
+    allow.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(service
+        .record_refusal(SchoolAuthProfile::Science, &saved, &failure)
+        .unwrap());
+    assert!(!service.refusal_unsaved(SchoolAuthProfile::Science));
+    assert!(inspect.load(SCHOOL_REFUSAL_ACCOUNT).unwrap().is_some());
+}
+
+// An acceptance marker left by an earlier acceptance that cannot be removed
+// must not lift a later refusal at the next launch. The refusal of the first
+// profile fails its marker and its write; once a write of the refusals lands
+// (the other profile's), both are kept, and a relaunch holds both back. The
+// "not saved" line goes only then. A real acceptance still ends the refusal.
+#[test]
+fn a_refusal_outlives_an_old_acceptance_marker_it_could_not_remove() {
+    use std::sync::atomic::Ordering::SeqCst;
+    #[derive(Clone, Default)]
+    struct Stuck {
+        items: MemoryVault,
+        refuse_writes: Arc<std::sync::atomic::AtomicBool>,
     }
-    fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
-        self.0.load(account)
+    impl SecretVault for Stuck {
+        fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+            if account == SCHOOL_REFUSAL_ACCOUNT && self.refuse_writes.load(SeqCst) {
+                return Err(SecretError::Access("denied".into()));
+            }
+            self.items.store(account, secret)
+        }
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
+            self.items.load(account)
+        }
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
+            if account == SchoolAuthProfile::Science.acceptance_key() {
+                return Err(SecretError::Access("denied".into()));
+            }
+            self.items.delete(account)
+        }
     }
-    fn delete(&self, account: &str) -> Result<(), SecretError> {
-        self.0.delete(account)
-    }
-    fn shared(&self, account: &str) -> bool {
-        crate::ports::vault_item(account).is_ok_and(|item| item.synchronized)
-    }
+    let problem = |message: &str| SchoolSignInProblem {
+        kind: crate::school_session::SchoolSignInProblemKind::InvalidCredentials,
+        message: message.into(),
+    };
+    let vault = Stuck::default();
+    let service = SchoolAuthService::new(vault.clone());
+    let science = science_credentials("student", "password");
+    let tokyo = SchoolCredentials {
+        username: "user".into(),
+        password: "password".into(),
+        otp_secret: String::new(),
+        matrix: (0..70u8).map(|i| (b'A' + i % 26) as char).collect(),
+    };
+    service.promote(SchoolAuthProfile::Science, &science).unwrap();
+    service.promote(SchoolAuthProfile::TokyoTech, &tokyo).unwrap();
+    vault
+        .items
+        .store(SchoolAuthProfile::Science.acceptance_key(), "1")
+        .unwrap();
+
+    vault.refuse_writes.store(true, SeqCst);
+    assert!(service
+        .record_refusal(SchoolAuthProfile::Science, &science, &problem("science"))
+        .is_err());
+    assert!(service.refusal_unsaved(SchoolAuthProfile::Science));
+    vault.refuse_writes.store(false, SeqCst);
+    assert!(service
+        .record_refusal(SchoolAuthProfile::TokyoTech, &tokyo, &problem("tokyo"))
+        .unwrap());
+
+    let relaunched = SchoolAuthService::new(vault.clone());
+    relaunched.load_refusals().unwrap();
+    assert_eq!(
+        relaunched.refusal(SchoolAuthProfile::Science),
+        Some(problem("science")),
+        "a relaunch must not send the refused password again"
+    );
+    assert_eq!(
+        service.refusal_unsaved(SchoolAuthProfile::Science),
+        relaunched.refusal(SchoolAuthProfile::Science).is_none()
+    );
+
+    relaunched.clear_refusal(SchoolAuthProfile::Science, &science).unwrap();
+    assert_eq!(relaunched.refusal(SchoolAuthProfile::Science), None);
+    let again = SchoolAuthService::new(vault);
+    again.load_refusals().unwrap();
+    assert_eq!(again.refusal(SchoolAuthProfile::Science), None);
+    assert_eq!(again.refusal(SchoolAuthProfile::TokyoTech), Some(problem("tokyo")));
 }
 
 // Keychain is the source of truth: another device replacing the synchronized
-// item (a new OTP set on the Mac) must reach this running process at its next
-// session check, end a refusal of the credentials it replaced, and be what
-// blank fields fill from, so a Connect with only a password can never send
-// an old OTP.
+// item (a new OTP set on the Mac), or the person editing it in the system's
+// keychain app, must reach this running process at its next explicit action
+// (Retry, Connect), on every platform, end a refusal of the credentials it
+// replaced, and be what blank fields fill from, so a Connect with only a
+// password can never send an old OTP.
 #[test]
-fn an_external_keychain_change_is_used_from_the_next_session_check() {
-    let vault = SyncedVault::default();
-    let inspect = vault.0.clone();
+fn an_external_keychain_change_is_used_from_the_next_explicit_action() {
+    let vault = MemoryVault::default();
+    let inspect = vault.clone();
     let service = SchoolAuthService::new(vault);
     let saved = science_credentials("student", "password");
     service.promote(SchoolAuthProfile::Science, &saved).unwrap();
@@ -575,16 +699,21 @@ fn repeated_login_does_not_rewrite_unchanged_values() {
     }
     // Connecting again with the verified credentials writes nothing.
     assert_eq!(inspect.writes.load(SeqCst), 0);
-    // An item nothing else replaces is read once per process, whatever
-    // asks: on the macOS login keychain every read of an item another build
-    // wrote asks for the password, and a read per use asked endlessly.
+    // The item is read once per process whatever asks, and again only
+    // after a person's explicit action (`refresh`: Retry, Connect, import),
+    // once, on every platform: on the macOS login keychain every read of an
+    // item another build wrote asks for the password, and a read per use
+    // asked endlessly.
     let reads = inspect.reads.load(SeqCst);
+    service.load(SchoolAuthProfile::Science).unwrap();
+    assert_eq!(inspect.reads.load(SeqCst), reads);
     service.refresh();
     service.load(SchoolAuthProfile::Science).unwrap();
     service
         .promote(SchoolAuthProfile::Science, &test_credentials())
         .unwrap();
-    assert_eq!(inspect.reads.load(SeqCst), reads);
+    assert_eq!(inspect.reads.load(SeqCst), reads + 1);
+    assert_eq!(inspect.writes.load(SeqCst), 0);
 }
 #[test]
 fn changed_credentials_update_cache_only_after_a_successful_write() {

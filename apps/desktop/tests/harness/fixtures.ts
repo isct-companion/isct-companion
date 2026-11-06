@@ -33,6 +33,7 @@ export function schoolProfiles(
 ): SchoolSessionSnapshot["profiles"] {
   const session = (state: SchoolSessionState) => ({
     signOutPending: false,
+    refusalUnsaved: false,
     state,
     problem: null,
     retryAt: null,

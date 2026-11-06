@@ -111,10 +111,9 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     let mut synced = json!({"key":"userPreferences","value":{"dataNoticeAcknowledgedAt":"x"}});
     crate::data::cloud_merge::sanitize_setting(&mut synced);
     assert_eq!(synced["value"], json!({}));
-    // Warm the reader, then commit through the write connection, which the
-    // view reader's connection sees only as another connection's commit.
-    // PRAGMA data_version must invalidate the cached projection, even though
-    // this background update deliberately keeps the user-intent revision.
+    // Warm the reader, then commit a background update. The table it wrote
+    // must invalidate the cached projection, even though this update
+    // deliberately keeps the user-intent revision.
     let warm = service.read_back().unwrap();
     let external = service.store.clone();
     external.record_reference_poll().unwrap();

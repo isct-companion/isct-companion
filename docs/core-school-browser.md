@@ -217,8 +217,8 @@ it as the site's **presenter**:
 
 - `Resume`: the view as it is, popups and a form in progress included; the
   restored or start page when the view has none.
-- `Go(url)`: an app link. Core closes every popup over the view, then
-  navigates the view itself only if it is not at `url` already.
+- `Go(url)`: an app link. Core closes every popup over the view and
+  navigates the view to `url`, even when it shows that address already.
 - `Return(url)`: a surface showing the view again (a confirmation covered the
   LMS reader; the person looked at Today and came back). If it is still the
   presenter, this is `Resume`, even if the person has since moved the view
@@ -307,8 +307,14 @@ else the site's entry (`adpt_isct::urls::entry`), on every host.
 
 While it signs in, the page's `access` is `signing-in`: the host covers the
 view (`SchoolBrowser::cover`) and the surface offers "Cancel, I'll sign in
-myself"; the view comes back once a write already handed to the platform
-ended. Where it stopped, `access` is `problem` (`unreachable`, `rejected`,
+myself"; the view comes back only once a write already handed to the
+platform ended. A write still queued when the operation stops is dropped at
+its turn. A write the platform was handed is the view's fact, not the
+operation's: the next operation waits for it and a navigation sent meanwhile
+is held. An App link's own write leaves its page in view; a write begun under
+a cover keeps the view covered, and one that has not answered within
+`WEB_STORE_LIMIT` keeps it covered with `access` `problem` `storage` until it
+ends. Only Core's exit does not wait for it. Where it stopped, `access` is `problem` (`unreachable`, `rejected`,
 `storage`, `still-sign-in`) until the view shows another page.
 
 Nothing is injected into a school page to show these.

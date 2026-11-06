@@ -247,6 +247,46 @@ fn parse_timetable(raw: &Value, courses: &HashSet<u64>) -> Option<LmsTimetable> 
     })
 }
 
+/// The notice of Moodle's maintenance page (`print_maintenance_message`):
+/// its body is `page-maintenance-message` in the `maintenance` layout, a
+/// heading says the site is under maintenance, and the administrator's
+/// message, if any, is in `.maintenance_message`. Only that page counts: a
+/// course or forum mentioning maintenance is an ordinary page.
+pub fn maintenance_notice(html: &str) -> Option<String> {
+    // Every LMS page passes here: most need no parse.
+    if !html.contains("maintenance") {
+        return None;
+    }
+    let document = Html::parse_document(html);
+    let body = Selector::parse("body").ok()?;
+    let body = document.select(&body).next()?;
+    let maintenance = body.value().id() == Some("page-maintenance-message")
+        || body
+            .value()
+            .classes()
+            .any(|class| class == "pagelayout-maintenance");
+    if !maintenance {
+        return None;
+    }
+    let text = |css: &str| {
+        let selector = Selector::parse(css).ok()?;
+        let text = body
+            .select(&selector)
+            .next()?
+            .text()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!text.is_empty()).then_some(text)
+    };
+    let notice = [text("h2"), text(".maintenance_message")]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(notice.chars().take(1800).collect())
+}
+
 pub fn is_lms_origin(url: &Url) -> bool {
     url.scheme() == "https"
         && url.host_str() == Some("lms.s.isct.ac.jp")

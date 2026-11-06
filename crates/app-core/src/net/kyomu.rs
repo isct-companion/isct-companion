@@ -297,7 +297,14 @@ async fn send(
         Reply::Unexpected(status) if (300..400).contains(&status) => {
             Ok(Fetched::Redirected(status))
         }
-        Reply::Unexpected(status) => Err(NetError::Http(status)),
+        // A maintenance page may come with an error status: it is the page,
+        // for the caller's maintenance check.
+        Reply::Unexpected(status) => match response.text() {
+            Ok(html) if adpt_isct::maintenance_notice(url, &html).is_some() => {
+                Ok(Fetched::Html(html))
+            }
+            _ => Err(NetError::Http(status)),
+        },
     }
 }
 

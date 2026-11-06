@@ -577,6 +577,9 @@ struct State {
     facts: Facts,
     /// Each account as its session snapshot last said, for the status line.
     sessions: HashMap<SchoolAuthProfile, Shown>,
+    /// The revision `sessions` came from: session events may arrive out of
+    /// order, and the highest revision is the current one.
+    sessions_revision: u64,
     inputs: Inputs,
     plan: Vec<Candidate>,
     leases: HashMap<Key, LeaseEntry>,
@@ -720,6 +723,7 @@ impl PlanEngine {
             state: Mutex::new(State {
                 facts,
                 sessions: HashMap::new(),
+                sessions_revision: 0,
                 inputs: Inputs::default(),
                 plan: Vec::new(),
                 leases: HashMap::new(),
@@ -979,7 +983,8 @@ impl PlanEngine {
     /// The school sessions and clients LMS and 教務Web keys read with. The
     /// planner is told whenever their credential facts move.
     pub(crate) fn attach_school(&self, readers: SchoolReaders) {
-        let sessions = shown(&readers.sessions.snapshot());
+        let snapshot = readers.sessions.snapshot();
+        let sessions = shown(&snapshot);
         let hints = self.hints();
         readers
             .sessions
@@ -992,7 +997,10 @@ impl PlanEngine {
         *guard(&self.0.school) = Some(readers);
         {
             let mut state = guard(&self.0.state);
-            state.sessions = sessions;
+            if snapshot.revision >= state.sessions_revision {
+                state.sessions = sessions;
+                state.sessions_revision = snapshot.revision;
+            }
             state.evaluate = true;
         }
         self.0.wake.notify_one();
@@ -1110,6 +1118,10 @@ impl PlanEngine {
         let sessions = shown(snapshot);
         {
             let mut state = guard(&self.0.state);
+            if snapshot.revision < state.sessions_revision {
+                return;
+            }
+            state.sessions_revision = snapshot.revision;
             if state.sessions == sessions {
                 return;
             }

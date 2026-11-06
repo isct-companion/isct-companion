@@ -150,6 +150,7 @@ impl TokenTransport {
                 limits: limits(),
             })
             .await?;
+        MoodleClient::maintenance(attempt, &response)?;
         if response.status != 200 {
             // A gateway refusal is HTML; Moodle's own errors are HTTP 200.
             return Err(MoodleError::Net(NetError::Http(response.status)));

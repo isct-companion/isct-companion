@@ -1,6 +1,6 @@
 //! The database half of a reset (`docs/data-ownership.md`).
-//! School caches are cache.db and its bookkeeping in sync.db, whole, plus
-//! the settings rows below; the rest of user.db belongs to the person.
+//! School caches are the cache and sync tables, whole, plus the settings rows
+//! below; the rest of the user tables belongs to the person.
 use super::*;
 
 /// Rows and bytes a reset removes, or would remove.
@@ -39,22 +39,19 @@ fn cache_setting_rows(connection: &Connection) -> Result<u64, DataError> {
         .map_err(DataError::from)
 }
 
-/// Bytes the used pages of one file hold (`main`, `cache` or `sync`), free pages
-/// excluded: what emptying it gives back, as a hint for the confirmation
-/// panel, never a decision.
-fn used_bytes(connection: &Connection, schema: &str) -> Result<u64, DataError> {
+/// Bytes the used pages of the store hold, free pages excluded: what emptying
+/// it gives back, as a hint for the confirmation panel, never a decision.
+fn used_bytes(connection: &Connection) -> Result<u64, DataError> {
     let pragma = |name: &str| {
         connection
-            .query_row(&format!("PRAGMA {schema}.{name}"), [], |row| {
-                row.get::<_, i64>(0)
-            })
+            .query_row(&format!("PRAGMA {name}"), [], |row| row.get::<_, i64>(0))
             .map(|value| value.max(0) as u64)
             .map_err(DataError::from)
     };
     Ok(pragma("page_count")?.saturating_sub(pragma("freelist_count")?) * pragma("page_size")?)
 }
 
-/// Rows of cache.db and sync.db, which a reset empties together.
+/// Rows of the cache and sync tables, which a reset empties together.
 fn cache_rows(connection: &Connection) -> Result<u64, DataError> {
     let school: Vec<&str> = migrations::CACHE_TABLES
         .iter()
@@ -64,8 +61,26 @@ fn cache_rows(connection: &Connection) -> Result<u64, DataError> {
     Ok(rows_in(connection, &school)? + rows_in(connection, migrations::SYNC_TABLES)?)
 }
 
+/// Bytes the cache and sync tables hold, their indexes and search index
+/// included: every table but the user tables.
 fn cache_bytes(connection: &Connection) -> Result<u64, DataError> {
-    Ok(used_bytes(connection, "cache")? + used_bytes(connection, "sync")?)
+    let user = migrations::USER_TABLES
+        .iter()
+        .map(|table| format!("'{table}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    connection
+        .query_row(
+            &format!(
+                "SELECT COALESCE(SUM(stat.pgsize), 0) FROM dbstat AS stat
+                 JOIN sqlite_master AS object ON object.name = stat.name
+                 WHERE object.tbl_name NOT IN ({user})"
+            ),
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|bytes| bytes.max(0) as u64)
+        .map_err(DataError::from)
 }
 
 fn estimate(connection: &Connection, everything: bool) -> Result<Cleared, DataError> {
@@ -75,7 +90,7 @@ fn estimate(connection: &Connection, everything: bool) -> Result<Cleared, DataEr
     };
     if everything {
         cleared.rows += rows_in(connection, migrations::USER_TABLES)?;
-        cleared.bytes += used_bytes(connection, "main")?;
+        cleared.bytes = used_bytes(connection)?;
     } else {
         cleared.rows += cache_setting_rows(connection)?;
     }
@@ -113,13 +128,9 @@ impl DataStore {
         estimate(&*self.open()?, everything)
     }
 
-    /// Empties cache.db and sync.db under the write lock: every table is
-    /// dropped and created again in one transaction, then the files are
-    /// vacuumed. Returns
-    /// the bytes freed. The file is emptied in place rather than deleted
-    /// because read connections keep it open, and SQLite removes a WAL file
-    /// by name when the last connection to the old file closes, which would
-    /// take the new file's log with it.
+    /// Empties the cache and sync tables under the write lock: every one is
+    /// dropped and created again in one transaction, then the file is
+    /// vacuumed. Returns the bytes freed.
     pub(crate) fn rebuild_cache(&self) -> Result<u64, DataError> {
         let mut writer = self.connections.writer();
         let before = cache_bytes(&writer)?;
@@ -136,19 +147,17 @@ impl DataStore {
         let guarded = connection::forbid_truncate(&mut writer);
         rebuilt?;
         guarded?;
-        self.committed_tables(&BTreeSet::from(["offerings".to_string()]));
+        // Dropped tables reach no update hook.
+        self.committed_tables(&migrations::all_tables());
         // Best effort: a busy reader keeps the free pages for reuse.
-        if let Err(error) = writer.execute_batch(
-            "VACUUM cache; PRAGMA cache.wal_checkpoint(TRUNCATE);
-             VACUUM sync; PRAGMA sync.wal_checkpoint(TRUNCATE);",
-        ) {
-            log::warn!(target: "app_core::reset", "cache.db compaction skipped: {error}");
+        if let Err(error) = writer.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);") {
+            log::warn!(target: "app_core::reset", "The store compaction was skipped: {error}");
         }
         Ok(before.saturating_sub(cache_bytes(&writer)?))
     }
 
-    /// Empties cache.db and sync.db, then deletes the cache settings rows
-    /// and the reference bookkeeping in user.db. Plans, notes, marks,
+    /// Empties the cache and sync tables, then deletes the cache settings rows
+    /// and the reference bookkeeping in the user tables. Plans, notes, marks,
     /// overrides, subscriptions, tasks and settings stay. Shells hear the change
     /// through [`DataStore::announce`] once admission reopens.
     pub(crate) fn clear_school_caches(&self) -> Result<Cleared, DataError> {
@@ -168,7 +177,7 @@ impl DataStore {
         })
     }
 
-    /// Empties cache.db and sync.db, then deletes every row of user.db,
+    /// Empties the cache and sync tables, then deletes every user row,
     /// settings and device identity included, and writes the defaults of a
     /// new database in the same transaction: the first-launch state. No tombstone is
     /// written, so cloud copies and other devices keep their data.
@@ -178,7 +187,7 @@ impl DataStore {
         let user = self.write(None, |transaction| {
             let cleared = Cleared {
                 rows: rows_in(transaction, migrations::USER_TABLES)?,
-                bytes: used_bytes(transaction, "main")?,
+                bytes: used_bytes(transaction)?,
             };
             for table in migrations::USER_TABLES {
                 transaction
@@ -192,9 +201,9 @@ impl DataStore {
         if let Err(error) = self
             .connections
             .writer()
-            .execute_batch("VACUUM main; PRAGMA main.wal_checkpoint(TRUNCATE);")
+            .execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")
         {
-            log::warn!(target: "app_core::reset", "user.db compaction skipped: {error}");
+            log::warn!(target: "app_core::reset", "The store compaction was skipped: {error}");
         }
         Ok(Cleared {
             rows: cache_rows + user.rows,

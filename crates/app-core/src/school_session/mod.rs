@@ -151,6 +151,9 @@ pub enum SchoolSignInProblemKind {
     Unanswered,
     /// A fresh sign-in was sent straight back to the sign-in page.
     Anomaly,
+    /// The system vault refused to give the saved credentials (a locked or
+    /// denied keychain): nothing was sent, and it is not the network.
+    CredentialStore,
 }
 
 impl SchoolSignInProblemKind {
@@ -189,6 +192,7 @@ pub struct SchoolProfileSession {
     pub sign_out_pending: bool,
     pub state: SchoolSessionState,
     pub problem: Option<SchoolSignInProblem>,
+    pub refusal_unsaved: bool,
     /// When Core tries again on its own (`unavailable` only).
     pub retry_at: Option<DateTime<Utc>>,
     /// The account's site (LMS, 教務Web) is paused for maintenance.
@@ -232,11 +236,15 @@ pub enum SchoolConnectOutcome {
     /// one-time password or the Matrix (`reason`).
     Refused {
         reason: SchoolSignInProblemKind,
+        #[serde(rename = "refusalUnsaved")]
+        refusal_unsaved: bool,
     },
     /// The school wants the person on its own page: an emailed code, a new
     /// password, a page Core does not know (`reason`).
     NeedsWeb {
         reason: SchoolSignInProblemKind,
+        #[serde(rename = "refusalUnsaved")]
+        refusal_unsaved: bool,
     },
     /// No verdict: offline, the network, out of time.
     Unreachable,
@@ -451,8 +459,9 @@ struct Inner {
     /// The web views a sign-out stops (the school browser engine).
     views: Mutex<Option<Weak<dyn AccountViews>>>,
     tasks: RuntimeTasks,
-    revision: AtomicU64,
-    published: Mutex<Option<SchoolSessionProfiles>>,
+    /// What shells render, with its revision: built and numbered under this
+    /// one lock, so a revision always carries the view it was taken with.
+    published: Mutex<Option<SchoolSessionSnapshot>>,
     /// The shell reports no network: a sign-in sends nothing.
     offline: AtomicBool,
     credentials: Arc<CredentialSignal>,
@@ -525,22 +534,34 @@ impl WebWrite {
     /// The platform's answer, waited for at most `within`; `None` while it
     /// has not come.
     pub(crate) async fn wait(&mut self, within: Duration) -> Option<Result<(), WebStop>> {
+        tokio::time::timeout(within, self.ended()).await.ok()
+    }
+
+    /// The write's end, however long it takes: the queue answers every
+    /// write it was given, a stale one at once, and all of them once the
+    /// sessions shut down. Whatever shuts down before them must not wait for
+    /// this alone.
+    pub(crate) async fn ended(&mut self) -> Result<(), WebStop> {
         if let Some(answer) = self.answer {
-            return Some(answer);
+            return answer;
         }
-        let answer = match tokio::time::timeout(within, &mut self.wait).await {
-            Err(_) => return None,
-            Ok(Ok(Ok(()))) => Ok(()),
-            Ok(Ok(Err(WebError::Stale))) => Err(WebStop::Stale),
-            Ok(Ok(Err(WebError::Unsupported))) => Err(WebStop::Unsupported),
-            Ok(Ok(Err(error))) => {
+        let answer = match (&mut self.wait).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(WebError::Stale)) => Err(WebStop::Stale),
+            Ok(Err(WebError::Unsupported)) => Err(WebStop::Unsupported),
+            Ok(Err(error)) => {
                 log::warn!(target: "app_core::school_session", "web cookies not written: {error}");
                 Err(WebStop::Storage)
             }
-            Ok(Err(_)) => Err(WebStop::Storage),
+            Err(_) => Err(WebStop::Storage),
         };
         self.answer = Some(answer);
-        Some(answer)
+        answer
+    }
+
+    /// Whether its answer has not come yet: the platform may still write.
+    pub(crate) fn pending(&self) -> bool {
+        self.answer.is_none()
     }
 }
 
@@ -593,7 +614,6 @@ impl SchoolSessions {
             web: WebQueue::default(),
             views: Mutex::new(None),
             tasks: RuntimeTasks::default(),
-            revision: AtomicU64::new(1),
             published: Mutex::new(None),
             offline: AtomicBool::new(false),
             credentials: Arc::new(CredentialSignal::default()),
@@ -626,6 +646,12 @@ impl SchoolSessions {
         self.0.account(profile).identity.set_configured(true);
     }
 
+    /// Lets a test act as if the school just verified an identity.
+    #[cfg(test)]
+    pub(crate) fn assume_verified(&self, profile: SchoolAuthProfile, snapshot: Snapshot) {
+        self.0.account(profile).identity.assume_verified(snapshot);
+    }
+
     /// The shell's write-only web cookie port. Set once.
     pub fn attach_web(&self, seed: Arc<dyn WebCookieSeed>) -> bool {
         self.0.web.attach(seed)
@@ -641,12 +667,10 @@ impl SchoolSessions {
         *guard(&self.0.views) = Some(views);
     }
 
-    /// Both accounts as shells render them.
+    /// Both accounts as shells render them: the published snapshot,
+    /// brought up to date first (`Inner::publish`).
     pub fn snapshot(&self) -> SchoolSessionSnapshot {
-        SchoolSessionSnapshot {
-            revision: self.0.revision.load(Ordering::SeqCst),
-            profiles: self.0.profiles(),
-        }
+        self.0.publish()
     }
 
     /// Signs in with `typed`, the person's authoritative input, its blank
@@ -666,9 +690,17 @@ impl SchoolSessions {
         let Some(permit) = inner.account(profile).owner.permit() else {
             return Ok(SchoolConnectOutcome::Stopped);
         };
-        let intent = inner.account(profile).identity.begin_connect();
+        // The person's Connect replaces the running sign-in at once, before
+        // the vault is read: a read that fails leaves none running.
+        let turn = inner.account(profile).identity.begin_connect();
+        let intent = turn.intent;
+        inner.publish();
+        let Some(blocking) = inner.account(profile).owner.permit_of(permit.generation()) else {
+            return Ok(SchoolConnectOutcome::Stopped);
+        };
         let auth = inner.auth.clone();
         let credentials = tokio::task::spawn_blocking(move || {
+            let _permit = blocking;
             auth.refresh();
             auth.resolve(profile, typed)
         })
@@ -692,10 +724,14 @@ impl SchoolSessions {
             Ok(_) => SchoolConnectOutcome::Connected,
             Err(Ended::Refused(problem)) if problem.kind.needs_web() => {
                 SchoolConnectOutcome::NeedsWeb {
+                    refusal_unsaved: inner.auth.refusal_unsaved(profile)
+                        && inner.auth.refusal(profile).as_ref() == Some(&problem),
                     reason: problem.kind,
                 }
             }
             Err(Ended::Refused(problem)) => SchoolConnectOutcome::Refused {
+                refusal_unsaved: inner.auth.refusal_unsaved(profile)
+                    && inner.auth.refusal(profile).as_ref() == Some(&problem),
                 reason: problem.kind,
             },
             Err(Ended::NotSaved { .. }) => SchoolConnectOutcome::NotSaved,
@@ -717,14 +753,40 @@ impl SchoolSessions {
         let Some(permit) = account.owner.permit() else {
             return self.snapshot();
         };
-        inner.auth.refresh();
+        let turn = account.identity.begin_connect();
+        let intent = turn.intent;
+        inner.publish();
+        let Some(blocking) = account.owner.permit_of(permit.generation()) else {
+            return self.snapshot();
+        };
+        let auth = inner.auth.clone();
+        let read = tokio::task::spawn_blocking(move || {
+            let _permit = blocking;
+            auth.refresh();
+            auth.sign_in_credentials(profile)
+        })
+        .await;
+        if permit.is_cancelled() {
+            return self.snapshot();
+        }
+        // A read that failed says nothing about whether credentials are
+        // saved; the sign-in ends on it, and the snapshot says why.
+        let credentials = match read {
+            Ok(Ok(saved)) => Ok(saved.map(|saved| saved.credentials)),
+            Ok(Err(error)) => Err(error.to_string()),
+            Err(_) => Err("the vault read did not finish".to_owned()),
+        };
         inner.restore(profile).await;
-        account
-            .identity
-            .set_configured(inner.auth.configured(profile));
+        if let Ok(saved) = &credentials {
+            if !account.identity.set_configured_for(intent, saved.is_some()) {
+                return self.snapshot();
+            }
+        }
         let generation = account.identity.generation();
         let how = identity::How::Retry {
             account: permit.generation(),
+            intent,
+            credentials,
         };
         let _ = inner.sign_in(profile, generation, how).await;
         drop(permit);
@@ -1042,13 +1104,16 @@ impl SchoolSessions {
     /// The one exit of an identity into the web view: queues the cookies of
     /// `profile`'s verified generation `identity`, while the account is
     /// usable. The queue drops them if, by their turn, the account was signed
-    /// out or reset or that generation is no longer the one to write.
+    /// out or reset, that generation is no longer the one to write, or
+    /// `cancel` (the web operation's) was cancelled: only a write the
+    /// platform was already handed still lands.
     pub(crate) fn seed(
         &self,
         profile: SchoolAuthProfile,
         identity: u64,
+        cancel: tokio_util::sync::CancellationToken,
     ) -> Result<WebWrite, WebStop> {
-        self.0.seed(profile, identity)
+        self.0.seed(profile, identity, cancel)
     }
 
     pub(crate) fn sign_out_pending(&self, profile: SchoolAuthProfile) -> bool {
@@ -1124,6 +1189,7 @@ impl Inner {
             sign_out_pending: account.owner.sign_out_pending(),
             state,
             problem,
+            refusal_unsaved: self.auth.refusal_unsaved(profile),
             retry_at,
             maintenance: self.maintenance(account),
         }
@@ -1152,29 +1218,46 @@ impl Inner {
         })
     }
 
-    /// Sends `school-session` when what shells render changed.
-    fn publish(&self) {
-        let profiles = self.profiles();
-        {
+    /// Brings the published snapshot up to date and returns it, sending
+    /// `school-session` when what shells render changed. The view is derived
+    /// and numbered under the snapshot's lock: a later revision is always a
+    /// later view. Events may arrive out of order; shells keep the highest
+    /// revision.
+    fn publish(&self) -> SchoolSessionSnapshot {
+        let (snapshot, changed) = {
             let mut published = guard(&self.published);
-            if published.as_ref() == Some(&profiles) {
-                return;
+            let profiles = self.profiles();
+            match published.as_mut() {
+                Some(current) if current.profiles == profiles => (current.clone(), false),
+                Some(current) => {
+                    current.revision += 1;
+                    current.profiles = profiles;
+                    (current.clone(), true)
+                }
+                None => (
+                    published
+                        .insert(SchoolSessionSnapshot {
+                            revision: 1,
+                            profiles,
+                        })
+                        .clone(),
+                    true,
+                ),
             }
-            *published = Some(profiles.clone());
+        };
+        if changed {
+            if let Some(events) = self.events.get() {
+                let _ = events.emit(CoreEvent::SchoolSession(snapshot.clone()));
+            }
         }
-        let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
-        if let Some(events) = self.events.get() {
-            let _ = events.emit(CoreEvent::SchoolSession(SchoolSessionSnapshot {
-                revision,
-                profiles,
-            }));
-        }
+        snapshot
     }
 
     /// Reads the account's vault items once: its identity, the sites' jars
     /// and the refusals kept on this device. The read holds a permit until
     /// what it read is installed, so a barrier forgets and deletes only
-    /// after it.
+    /// after it; the blocking read holds one of its own to its end, since a
+    /// shell's vault is free to write while it reads.
     async fn restore(&self, profile: SchoolAuthProfile) {
         let account = self.account(profile);
         let first = AtomicBool::new(false);
@@ -1183,11 +1266,15 @@ impl Inner {
             .get_or_init(|| async {
                 first.store(true, Ordering::SeqCst);
                 // A barrier is running: it deletes the item anyway.
-                let Some(_permit) = account.owner.permit() else {
+                let Some(permit) = account.owner.permit() else {
+                    return;
+                };
+                let Some(blocking) = account.owner.permit_of(permit.generation()) else {
                     return;
                 };
                 let auth = self.auth.clone();
                 let loaded = tokio::task::spawn_blocking(move || {
+                    let _permit = blocking;
                     if let Err(error) = auth.load_refusals() {
                         log::warn!(target: "app_core::school_session", "refusals not read: {error}");
                     }
@@ -1441,6 +1528,7 @@ impl Inner {
         self: &Arc<Self>,
         profile: SchoolAuthProfile,
         identity: u64,
+        cancel: tokio_util::sync::CancellationToken,
     ) -> Result<WebWrite, WebStop> {
         if !self.web.attached() {
             return Err(WebStop::Unsupported);
@@ -1457,9 +1545,10 @@ impl Inner {
         }
         let sessions = Arc::downgrade(self);
         let valid = Box::new(move || {
-            sessions
-                .upgrade()
-                .is_some_and(|sessions| sessions.writable(profile, identity).is_some())
+            !cancel.is_cancelled()
+                && sessions
+                    .upgrade()
+                    .is_some_and(|sessions| sessions.writable(profile, identity).is_some())
         });
         Ok(WebWrite {
             wait: self

@@ -307,12 +307,6 @@ button.calendarDay.open {
   }
 }
 
-/* ---------- settings: about ---------- */
-.aboutValue {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
 /* Size to the pane: narrow phones must not inherit the matrix's desktop minimums. */
 .settingsPane,
 .schoolAccounts,

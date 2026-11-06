@@ -94,6 +94,18 @@ struct ViewState {
     actions: HashMap<ActionId, bool>,
     /// The web operation signing the view in (`operation`).
     op: Option<WebOp>,
+    /// The operation whose cookie write the platform has not answered: a
+    /// fact of the view, not of that operation, so nothing superseding it
+    /// opens over the write.
+    write_pending: Option<u64>,
+    /// That write began under a cover, which stays until it ends.
+    write_covers: bool,
+    /// It ran past `WEB_STORE_LIMIT`: the view is covered and says so.
+    write_storing: bool,
+    /// Whether a write is pending, for the operation waiting to start.
+    write_changed: tokio::sync::watch::Sender<bool>,
+    /// A navigation sent while a write was pending, sent when it ends.
+    deferred_navigation: Option<(BrowserId, BrowserAction)>,
     /// What the last operation left to say, until the view shows another
     /// page.
     problem: Option<SchoolWebProblem>,
@@ -192,7 +204,10 @@ impl State {
             return page;
         };
         page.access = match &view.op {
-            Some(op) if op.covering => Some(SchoolWebAccess::SigningIn),
+            _ if view.write_storing => Some(SchoolWebAccess::Problem {
+                problem: SchoolWebProblem::Storage,
+            }),
+            _ if view.wants_cover() => Some(SchoolWebAccess::SigningIn),
             _ => view
                 .problem
                 .map(|problem| SchoolWebAccess::Problem { problem }),
@@ -276,6 +291,28 @@ fn site_profile(site: SchoolSite) -> Option<SchoolAuthProfile> {
 
 struct Listener(Weak<Inner>);
 
+/// The target `entry` sends `site`'s view to when `surface` opens it, and
+/// `presenter` showed it last; `None` keeps the page as it is
+/// (`approach/school-web-front-page`). Only the entry and the presenter
+/// decide, never the address the view shows: Resume and a Return to the
+/// surface that presented it keep the page, while Go, a Return from another
+/// surface (taken as a Go) and an unsigned entry always navigate, so an
+/// explicit Go to the page already shown still opens it and may start the
+/// identity's recovery.
+pub(super) fn entry_target(
+    entry: SchoolWebEntry,
+    presenter: Option<&str>,
+    surface: &str,
+    site: SchoolSite,
+) -> Option<String> {
+    match entry {
+        SchoolWebEntry::Resume => None,
+        SchoolWebEntry::Return { .. } if presenter == Some(surface) => None,
+        SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
+        SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
+    }
+}
+
 impl SchoolBrowserEngine {
     pub fn new(
         sessions: SchoolSessions,
@@ -340,15 +377,8 @@ impl SchoolBrowserEngine {
             )
         };
         let already_open = view.is_some();
-        // A surface coming back finds the view as it left it, unless another
-        // surface showed it meanwhile.
         let unsigned = entry == SchoolWebEntry::Unsigned;
-        let target = match entry {
-            SchoolWebEntry::Resume => None,
-            SchoolWebEntry::Return { .. } if presenter.as_deref() == Some(surface) => None,
-            SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
-            SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
-        };
+        let target = entry_target(entry, presenter.as_deref(), surface, site);
         if unsigned {
             self.cancel_sign_in(site)?;
         }
@@ -358,15 +388,10 @@ impl SchoolBrowserEngine {
             .or_else(|| self.restored_target(site))
             .unwrap_or_else(|| site.start_url().to_string());
         let url = interactive_url(&target)?;
-        // A view the App sends somewhere: a new one, or an app link to
-        // another page. Revealing a view as it is navigates nothing, and
-        // keeps its exact native URL.
-        let navigates = match view {
-            None => true,
-            Some(browser) => {
-                explicit_target && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
-            }
-        };
+        // A view the App sends somewhere: a new one, or one an entry gives
+        // a target, whatever page it shows now. Revealing a view as it is
+        // navigates nothing, and keeps its exact native URL.
+        let navigates = view.is_none() || explicit_target;
         // Where the account's identity can be written, a web operation opens
         // the target (`operation`); an unsigned entry never does.
         let operation =
@@ -656,6 +681,11 @@ impl SchoolBrowserEngine {
                     navigation: None,
                     actions: HashMap::new(),
                     op: None,
+                    write_pending: None,
+                    write_covers: false,
+                    write_storing: false,
+                    write_changed: tokio::sync::watch::channel(false).0,
+                    deferred_navigation: None,
                     problem: None,
                     covered: false,
                     visit: Visit::default(),
@@ -1227,12 +1257,21 @@ impl Inner {
             BrowserAction::Navigate(_) | BrowserAction::GoBack | BrowserAction::GoForward
         );
         let mut superseded = None;
+        let mut deferred = false;
         // A navigation Core sends leaves the failure it may fix behind.
         let cleared = navigation
             && self.state.with(|state| {
                 let Some(view) = state.views.get_mut(&browser.site) else {
                     return false;
                 };
+                if view.write_pending.is_some() {
+                    if op.is_none() {
+                        superseded = view.op.take();
+                        view.deferred_navigation = Some((browser, command.clone()));
+                    }
+                    deferred = true;
+                    return false;
+                }
                 if op.is_none() {
                     superseded = view.op.take();
                     view.problem = None;
@@ -1256,8 +1295,11 @@ impl Inner {
             superseded.cancel();
             self.sync_cover(browser.site);
         }
-        if cleared || superseded.is_some() {
+        if cleared || superseded.is_some() || deferred {
             self.publish_page(browser.site);
+        }
+        if deferred {
+            return Ok(action);
         }
         self.sent(
             browser,

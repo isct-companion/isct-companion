@@ -30,9 +30,10 @@
 //! send them again on its own until they change or the person retries.
 
 use super::{
-    guard, login, site::Walked, Inner, Permit, SchoolSessionState, SchoolSignInProblem,
-    SchoolSignInProblemKind as Kind, Snapshot, RETRY_NOT_BEFORE, SIGN_IN_DEADLINE, VERIFIED_FRESH,
-    VERIFY_DEADLINE,
+    guard, login,
+    site::{Site, Walked},
+    Inner, Permit, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind as Kind,
+    Snapshot, RETRY_NOT_BEFORE, SIGN_IN_DEADLINE, VERIFIED_FRESH, VERIFY_DEADLINE,
 };
 use crate::school_auth::{SchoolAuthProfile, SchoolCredentials};
 use chrono::{DateTime, Utc};
@@ -65,7 +66,12 @@ pub(super) enum How {
     Web { past_pause: bool },
     /// The person's Retry: once through a refusal or a pause. It runs in
     /// account generation `account`, whose permit the Retry took first.
-    Retry { account: u64 },
+    Retry {
+        account: u64,
+        intent: u64,
+        /// What its read of the vault gave; `Err` says why it gave nothing.
+        credentials: Result<Option<SchoolCredentials>, String>,
+    },
     /// The person's Connect with these credentials, in account generation
     /// `account`, whose permit the Connect took before it read the vault.
     Connect {
@@ -84,7 +90,7 @@ impl How {
     /// runs only in it, and a sign-out or reset begun since stops it.
     fn bound(&self) -> Option<u64> {
         match self {
-            Self::Retry { account } | Self::Connect { account, .. } => Some(*account),
+            Self::Retry { account, .. } | Self::Connect { account, .. } => Some(*account),
             Self::Background | Self::Web { .. } => None,
         }
     }
@@ -125,7 +131,9 @@ pub(crate) enum SignInAdmission {
     /// until they change or the person retries.
     Person,
     /// A pause after a sign-in without a verdict, until `until`.
-    Paused { until: DateTime<Utc> },
+    Paused {
+        until: DateTime<Utc>,
+    },
 }
 
 /// How a verification ended.
@@ -147,6 +155,36 @@ struct Pause {
     problem: SchoolSignInProblem,
 }
 
+/// The Connect or Retry whose sign-in is about to start, and the channel a
+/// sign-in that would join it waits on. It never sends: it closes when the
+/// person's sign-in took over or the Connect ended without one.
+struct PersonReading {
+    intent: u64,
+    closes: watch::Sender<Option<Result<u64, Ended>>>,
+}
+
+/// A person's Connect or Retry from its first step on. While it reads the
+/// vault no sign-in is running, and without this a background read would
+/// start one in that window and send the saved password right before the
+/// person's own attempt. Dropping it ends the hold however the Connect ended.
+pub(super) struct PersonTurn<'a> {
+    identity: &'a Identity,
+    pub(super) intent: u64,
+}
+
+impl Drop for PersonTurn<'_> {
+    fn drop(&mut self) {
+        let mut state = guard(&self.identity.state);
+        if state
+            .person
+            .as_ref()
+            .is_some_and(|person| person.intent == self.intent)
+        {
+            state.person = None;
+        }
+    }
+}
+
 struct State {
     /// Saved credentials exist (the status metadata).
     configured: bool,
@@ -157,6 +195,9 @@ struct State {
     generation: u64,
     pause: Option<Pause>,
     flight: Option<Flight>,
+    /// A person's Connect or Retry is reading the vault, its sign-in still to
+    /// come (`PersonTurn`). Nothing else starts one meanwhile.
+    person: Option<PersonReading>,
     /// Numbers the sign-ins, so one applies its result only while it is
     /// still the account's.
     flights: u64,
@@ -214,6 +255,7 @@ impl Identity {
                 generation: 0,
                 pause: None,
                 flight: None,
+                person: None,
                 flights: 0,
                 connect_intent: 0,
                 check: None,
@@ -231,14 +273,40 @@ impl Identity {
         guard(&self.state).configured
     }
 
-    pub(super) fn begin_connect(&self) -> u64 {
+    /// The person's Connect begins: in one step, older Connects are
+    /// superseded and the running sign-in is cancelled and retired, so its
+    /// result applies to nothing (`Identity::apply`) whether or not the
+    /// Connect gets as far as its own sign-in. Its intent, which the Connect's
+    /// sign-in checks is still the newest; and until that sign-in starts,
+    /// sign-ins on Core's own wait for it (`PersonTurn`).
+    pub(super) fn begin_connect(&self) -> PersonTurn<'_> {
         let mut state = guard(&self.state);
         state.connect_intent += 1;
-        state.connect_intent
+        if let Some(replaced) = state.flight.take() {
+            replaced.cancel.cancel();
+        }
+        let intent = state.connect_intent;
+        state.person = Some(PersonReading {
+            intent,
+            closes: watch::channel(None).0,
+        });
+        PersonTurn {
+            identity: self,
+            intent,
+        }
     }
 
     pub(super) fn set_configured(&self, configured: bool) {
         guard(&self.state).configured = configured;
+    }
+
+    pub(super) fn set_configured_for(&self, intent: u64, configured: bool) -> bool {
+        let mut state = guard(&self.state);
+        if state.connect_intent != intent {
+            return false;
+        }
+        state.configured = configured;
+        true
     }
 
     /// The snapshot a site may take a new instance from and its generation
@@ -302,7 +370,7 @@ impl Identity {
         Option<DateTime<Utc>>,
     ) {
         let state = guard(&self.state);
-        if state.flight.is_some() {
+        if state.flight.is_some() || state.person.is_some() {
             return (SchoolSessionState::SigningIn, None, None);
         }
         if !state.configured {
@@ -339,6 +407,21 @@ impl Identity {
         state.snapshot = Some(Arc::new(snapshot));
         state.trust = Trust::Unverified;
         Some(state.generation)
+    }
+
+    /// How many sign-ins started.
+    #[cfg(test)]
+    pub(super) fn sign_ins_started(&self) -> u64 {
+        guard(&self.state).flights
+    }
+
+    #[cfg(test)]
+    pub(super) fn assume_verified(&self, snapshot: Snapshot) {
+        let mut state = guard(&self.state);
+        state.generation += 1;
+        state.snapshot = Some(Arc::new(snapshot));
+        state.trust = Trust::Verified(Instant::now());
+        state.configured = true;
     }
 
     /// Drops a pause that ran out. `true` when it did.
@@ -425,6 +508,16 @@ impl Identity {
                 }
                 Err(Ended::Unavailable(problem))
             }
+            End::Maintenance { left } => {
+                let problem = problem(Kind::Network, "the school's site is under maintenance");
+                if !connect {
+                    state.pause = Some(Pause {
+                        until: Instant::now() + left,
+                        problem: problem.clone(),
+                    });
+                }
+                Err(Ended::Unavailable(problem))
+            }
             End::NotConfigured => Err(Ended::NotConfigured),
             End::Offline => Err(Ended::Offline),
             End::Stopped => Err(Ended::Stopped),
@@ -453,15 +546,32 @@ enum End {
     /// No credentials are saved.
     NotConfigured,
     /// The school refused the credentials or wants the person on its page;
-    /// `sent` is false when a refusal kept with them held them back.
+    /// `sent`: a secret of them went out in this sign-in (false when a
+    /// refusal kept with them held them back, or the flow stopped before
+    /// submitting anything). Only a refusal of what was sent is kept.
     Refused {
         problem: SchoolSignInProblem,
         sent: bool,
     },
     Unavailable(SchoolSignInProblem),
+    /// The target site showed its maintenance page (already its session's
+    /// fact): no verdict. A sign-in on Core's own pauses for as long as the
+    /// site's host is paused, `left` from now.
+    Maintenance {
+        left: std::time::Duration,
+    },
     Offline,
     /// Stopped before the school's verdict, the password not yet sent.
     Stopped,
+}
+
+/// The vault would not give the saved credentials: no verdict, and nothing
+/// was sent. The account says so and tries again after a pause.
+fn unreadable(error: &str) -> End {
+    End::Unavailable(problem(
+        Kind::CredentialStore,
+        format!("the saved credentials could not be read: {error}"),
+    ))
 }
 
 impl Inner {
@@ -478,11 +588,15 @@ impl Inner {
     ) -> Result<u64, Ended> {
         let account = self.account(profile);
         let identity = &account.identity;
-        let joins = !matches!(how, How::Connect { .. });
+        let joins = !matches!(how, How::Connect { .. } | How::Retry { .. });
         loop {
+            // A person's Connect or Retry is reading the vault: its sign-in
+            // comes next, and this looks again when it took over.
+            let mut held = false;
             let mut done = {
                 let mut state = guard(&identity.state);
-                if matches!(&how, How::Connect { intent, .. } if state.connect_intent != *intent) {
+                if matches!(&how, How::Connect { intent, .. } | How::Retry { intent, .. } if state.connect_intent != *intent)
+                {
                     return Err(Ended::Stopped);
                 }
                 let newer = state.generation > seen
@@ -495,7 +609,12 @@ impl Inner {
                     .flight
                     .as_ref()
                     .filter(|_| joins)
-                    .map(|flight| flight.done.clone());
+                    .map(|flight| flight.done.clone())
+                    .or_else(|| {
+                        let person = state.person.as_ref().filter(|_| joins)?;
+                        held = true;
+                        Some(person.closes.subscribe())
+                    });
                 match running {
                     Some(done) => done,
                     None => {
@@ -530,6 +649,8 @@ impl Inner {
                             state.flight = previous;
                             return Err(Ended::Stopped);
                         }
+                        // The person's own sign-in took over from its read.
+                        state.person = None;
                         done
                     }
                 }
@@ -539,10 +660,17 @@ impl Inner {
                 Ok(result) => result.clone(),
                 Err(_) => None,
             };
+            if held {
+                continue;
+            }
             match ended.unwrap_or(Err(Ended::Stopped)) {
                 // A Connect replaced the sign-in this waited for: wait for
                 // the Connect's.
-                Err(Ended::Stopped) if joins && guard(&identity.state).flight.is_some() => {}
+                Err(Ended::Stopped)
+                    if joins && {
+                        let state = guard(&identity.state);
+                        state.flight.is_some() || state.person.is_some()
+                    } => {}
                 Err(Ended::NotSaved { generation }) if joins => return Ok(generation),
                 result => return result,
             }
@@ -552,12 +680,7 @@ impl Inner {
     /// Why a sign-in on Core's own (or a web operation's) may not start now.
     /// The one rule: `sign_in` asks it before starting one, and sync asks it
     /// for a background sign-in (`identity_facts`).
-    fn admission(
-        &self,
-        profile: SchoolAuthProfile,
-        state: &State,
-        how: &How,
-    ) -> Result<(), Ended> {
+    fn admission(&self, profile: SchoolAuthProfile, state: &State, how: &How) -> Result<(), Ended> {
         if !state.configured {
             return Err(Ended::NotConfigured);
         }
@@ -607,7 +730,7 @@ impl Inner {
         let submitted = AtomicBool::new(false);
         let mut used = None;
         let end = {
-            let flow = self.sign_in_flow(profile, &how, &submitted, &mut used);
+            let flow = self.sign_in_flow(profile, permit.generation(), &how, &submitted, &mut used);
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => None,
@@ -643,18 +766,35 @@ impl Inner {
     }
 
     /// Reads the credentials `how` signs in with (into `used`) and signs in.
+    /// The vault read holds a permit of account generation `account` to its
+    /// end: the sign-in is cancelled without waiting for it, and a vault
+    /// read may write.
     async fn sign_in_flow(
         &self,
         profile: SchoolAuthProfile,
+        account: u64,
         how: &How,
         submitted: &AtomicBool,
         used: &mut Option<SchoolCredentials>,
     ) -> End {
         let credentials = match how {
             How::Connect { credentials, .. } => credentials.clone(),
-            How::Background | How::Web { .. } | How::Retry { .. } => {
+            How::Retry { credentials, .. } => match credentials {
+                Ok(Some(credentials)) => credentials.clone(),
+                Ok(None) => return End::NotConfigured,
+                Err(error) => return unreadable(error),
+            },
+            How::Background | How::Web { .. } => {
+                let Some(permit) = self.account(profile).owner.permit_of(account) else {
+                    return End::Stopped;
+                };
                 let auth = self.auth.clone();
-                match tokio::task::spawn_blocking(move || auth.sign_in_credentials(profile)).await {
+                match tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    auth.sign_in_credentials(profile)
+                })
+                .await
+                {
                     Ok(Ok(Some(saved))) => {
                         // A refusal kept with exactly these credentials holds
                         // them back.
@@ -667,12 +807,7 @@ impl Inner {
                         saved.credentials
                     }
                     Ok(Ok(None)) => return End::NotConfigured,
-                    Ok(Err(error)) => {
-                        return End::Unavailable(problem(
-                            Kind::Network,
-                            format!("the saved credentials could not be read: {error}"),
-                        ))
-                    }
+                    Ok(Err(error)) => return unreadable(&error.to_string()),
                     Err(_) => return End::Stopped,
                 }
             }
@@ -692,13 +827,33 @@ impl Inner {
         };
         match end {
             login::LoginEnd::SignedIn(snapshot) => End::SignedIn(snapshot),
+            // Only a verdict on a secret the school was sent is about these
+            // credentials.
             login::LoginEnd::Rejected(kind, message) | login::LoginEnd::NeedsWeb(kind, message) => {
                 End::Refused {
                     problem: problem(kind, message),
-                    sent: true,
+                    sent: submitted.load(Ordering::SeqCst),
                 }
             }
             login::LoginEnd::Unavailable(kind, message) => End::Unavailable(problem(kind, message)),
+            // The site's maintenance is its session's fact, not the
+            // credentials': no verdict, and the host's pause bounds the next
+            // sign-in.
+            login::LoginEnd::Maintenance(notice) => {
+                let site = match profile {
+                    SchoolAuthProfile::Science => Site::Lms,
+                    SchoolAuthProfile::TokyoTech => Site::Kyomu,
+                };
+                let left = match self.under_maintenance(site, notice) {
+                    crate::net::NetError::HostPaused { until_unix, .. } => {
+                        u64::try_from(until_unix - Utc::now().timestamp()).unwrap_or(0)
+                    }
+                    _ => 0,
+                };
+                End::Maintenance {
+                    left: std::time::Duration::from_secs(left).max(RETRY_NOT_BEFORE),
+                }
+            }
         }
     }
 
@@ -790,7 +945,7 @@ impl Inner {
                     })
                     .await;
                     if let Ok(Err(error)) = recorded {
-                        log::warn!(target: "app_core::school_session", "refusal not kept profile={profile:?}: {error}");
+                        log::error!(target: "app_core::school_session", "refusal held but not saved profile={profile:?}: {error}");
                     }
                 }
             }

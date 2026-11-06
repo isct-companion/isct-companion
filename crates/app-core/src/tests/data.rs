@@ -1,48 +1,55 @@
 use super::*;
 
-// A read transaction that begins on cache.db and then reads user.db must not
-// hold up a commit across the three files until it fails as "database is
-// locked". Rollback journals make the two wait for each other otherwise: the
-// bug is a 10-second stall and a lost write, not a wrong row.
+// A read holds its snapshot of every table without holding a commit up. A commit
+// across the three groups lands while the read is open and the read still sees
+// none of it, in any order it reads them; the next read sees all of it. Rollback
+// journals made the two wait 10 seconds for each other and fail, and a log per
+// file showed a mix of the two states.
 #[test]
-fn a_read_transaction_in_any_order_does_not_deadlock_a_commit() {
-    let store = store("read-lock-order");
+fn a_read_neither_holds_up_a_commit_nor_sees_part_of_it() {
+    let store = store("read-snapshot");
     let mut reader = store.connections.open_reader().unwrap();
-    let transaction = connection::read_transaction(&mut reader).unwrap();
-    let count = |table: &str| {
-        transaction
-            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                row.get::<_, i64>(0)
-            })
+    let count = |connection: &Connection, table: &str| {
+        connection
+            .query_row(
+                &format!("SELECT count(*) FROM {table} WHERE {}", marker(table)),
+                [],
+                |row| row.get::<_, i64>(0),
+            )
             .unwrap()
     };
-    count("registrations");
-    let writer = {
-        let store = store.clone();
-        std::thread::spawn(move || {
-            let started = std::time::Instant::now();
-            store
-                .write::<_, DataError>(None, |write| {
-                    write.execute_batch(
-                        "INSERT INTO settings VALUES ('lock-order', '1', '', '', '', 1, NULL, NULL);
-                         INSERT INTO registrations VALUES ('lock-order', '{}', '', '', '', 1, NULL, NULL, NULL, NULL);
-                         INSERT INTO dataset_state (dataset, key) VALUES ('lock-order', 'all');",
-                    )?;
-                    Ok(())
-                })
-                .map(|()| started.elapsed())
+    fn marker(table: &str) -> &'static str {
+        match table {
+            "settings" => "key='snapshot'",
+            "registrations" => "id='snapshot'",
+            _ => "dataset='snapshot'",
+        }
+    }
+    let transaction = reader.transaction().unwrap();
+    assert_eq!(count(&transaction, "registrations"), 0);
+    let started = std::time::Instant::now();
+    store
+        .write::<_, DataError>(None, |write| {
+            write.execute_batch(
+                "INSERT INTO settings VALUES ('snapshot', '1', '', '', '', 1, NULL, NULL);
+                 INSERT INTO registrations VALUES ('snapshot', '{}', '', '', '', 1, NULL, NULL, NULL, NULL);
+                 INSERT INTO dataset_state (dataset, key) VALUES ('snapshot', 'all');",
+            )?;
+            Ok(())
         })
-    };
-    // The commit is waiting for this read now.
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    count("settings");
-    count("dataset_state");
-    transaction.finish().unwrap();
-    let elapsed = writer.join().unwrap().unwrap();
+        .unwrap();
     assert!(
-        elapsed < std::time::Duration::from_secs(5),
-        "the commit waited {elapsed:?}"
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "the commit waited {:?}",
+        started.elapsed()
     );
+    for table in ["settings", "dataset_state", "registrations"] {
+        assert_eq!(count(&transaction, table), 0, "{table}");
+    }
+    transaction.finish().unwrap();
+    for table in ["settings", "dataset_state", "registrations"] {
+        assert_eq!(count(&reader, table), 1, "{table}");
+    }
 }
 
 #[test]
@@ -298,9 +305,7 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
     // The next launch writes defaults again; a deleted built-in stays deleted.
     let directory = store.directory().to_path_buf();
     drop(store);
-    let store = DataStore::initialize_dir(directory)
-        .unwrap()
-        .0;
+    let store = DataStore::initialize_dir(directory).unwrap().0;
     let workspace = store.load_workspace().unwrap();
     let tasks = workspace["scheduledTasks"].as_array().unwrap();
     assert_eq!(tasks.len(), 2);
@@ -778,11 +783,12 @@ fn overlay_survives_school_disappearance_and_reappearance() {
         true
     );
 
-    let connection = store.test_connection();
-    connection.execute(
-            "UPDATE assignments SET missing_since='2026-10-07T00:00:00Z',value=json_set(value,'$.missingSince','2026-10-07T00:00:00Z') WHERE id='assignment-1'",
-            [],
-        ).unwrap();
+    let commit = |sql: &str| {
+        store
+            .write::<_, DataError>(None, |transaction| Ok(transaction.execute_batch(sql)?))
+            .unwrap();
+    };
+    commit("UPDATE assignments SET missing_since='2026-10-07T00:00:00Z',value=json_set(value,'$.missingSince','2026-10-07T00:00:00Z') WHERE id='assignment-1'");
     assert_eq!(
         store.load_workspace().unwrap()["assignments"]
             .as_array()
@@ -792,10 +798,7 @@ fn overlay_survives_school_disappearance_and_reappearance() {
     );
     assert_eq!(store.user_rows("assignment_marks").unwrap().len(), 1);
 
-    connection.execute(
-            "UPDATE assignments SET missing_since=NULL,value=json_remove(value,'$.missingSince') WHERE id='assignment-1'",
-            [],
-        ).unwrap();
+    commit("UPDATE assignments SET missing_since=NULL,value=json_remove(value,'$.missingSince') WHERE id='assignment-1'");
     assert_eq!(
         store.load_workspace().unwrap()["assignments"][0]["hidden"],
         true
@@ -993,7 +996,9 @@ fn commits_report_the_tables_they_changed() {
 
 /// Freshness lives in sync.db, so a sync commit that only records it reaches
 /// the views that read it and leaves every other view as cached: the same
-/// workspace, the same intent revision. A cache.db commit reads them again.
+/// workspace, the same intent revision. A commit to a table the view read
+/// reads it again; a commit to one it did not leaves it. The exam timetable
+/// counts as read, though a view reuses it.
 #[test]
 fn a_freshness_commit_refreshes_only_the_views_that_read_it() {
     use crate::sync_state::{Commit, Dataset, Key, Outcome};
@@ -1042,5 +1047,65 @@ fn a_freshness_commit_refreshes_only_the_views_that_read_it() {
     let (rebuilt, _, _) = store.view(&records).unwrap();
     assert!(!Arc::ptr_eq(&refreshed, &rebuilt));
     assert_eq!(rebuilt["grades"].as_array().map(Vec::len), Some(1));
+
+    let row = |table: &str, id: &str, value: &str| {
+        format!(
+            "INSERT INTO {table}(id,value,hash,updated_at,updated_by,rev)
+               VALUES('{id}','{value}','hash','2026-10-01T00:00:00Z','kyomu',1);"
+        )
+    };
+    let commit = |sql: String| {
+        store
+            .write::<_, DataError>(None, |transaction| Ok(transaction.execute_batch(&sql)?))
+            .unwrap();
+    };
+    commit(row("gpa_by_term", "gpa:1", "{\"id\":\"gpa:1\"}"));
+    let (kept, school, _) = store.view(&records).unwrap();
+    assert!(Arc::ptr_eq(&rebuilt, &kept));
+    commit(row(
+        "exams",
+        "exam:1",
+        r#"{"id":"exam:1","academicYear":2026,"level":"undergraduate","quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-13","label":{"ja":"試験"},"periods":[3,4],"room":{"ja":"W9-101"},"rooms":[],"status":"scheduled","sourceIds":["notice"],"sourcePages":[1],"rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"kyomu"}"#,
+    ));
+    let (_, after_exam, _) = store.view(&records).unwrap();
+    assert!(!Arc::ptr_eq(&school.exams, &after_exam.exams));
+
+    // A reset drops every table, which no update hook reports.
+    store.rebuild_cache().unwrap();
+    let (reset, _, _) = store.view(&records).unwrap();
+    assert_eq!(reset["grades"].as_array().map(Vec::len), Some(0));
+    let _ = fs::remove_dir_all(store.directory());
+}
+
+/// Versions move just after a commit lands. A view read in that gap holds the
+/// new rows under the old sequence: it must be read once more, never kept as
+/// if it were older than it is, and a view cached before the commit must not
+/// outlive the move.
+#[test]
+fn a_view_read_as_a_commit_lands_is_read_again_once_the_versions_move() {
+    let store = store("version-gap");
+    let grades: BTreeSet<&'static str> = ["grades"].into_iter().collect();
+    let wider: BTreeSet<&'static str> = ["grades", "lmsCourses"].into_iter().collect();
+    let (before, _, _) = store.view(&grades).unwrap();
+    let (_, tables) = connection::commit_on::<_, DataError>(
+        &mut store.connections.writer(),
+        |transaction| {
+            Ok(transaction.execute_batch(
+                "INSERT INTO grades(id,value,hash,updated_at,updated_by,rev)
+                   VALUES('grade:1','{\"id\":\"grade:1\"}','hash','2026-10-01T00:00:00Z','kyomu',1);",
+            )?)
+        },
+    )
+    .unwrap();
+
+    let (in_gap, _, _) = store.view(&wider).unwrap();
+    assert_eq!(in_gap["grades"].as_array().map(Vec::len), Some(1));
+    store.committed_tables(&tables);
+
+    let (again, _, _) = store.view(&wider).unwrap();
+    assert!(!Arc::ptr_eq(&in_gap, &again));
+    let (after, _, _) = store.view(&grades).unwrap();
+    assert!(!Arc::ptr_eq(&before, &after));
+    assert_eq!(after["grades"].as_array().map(Vec::len), Some(1));
     let _ = fs::remove_dir_all(store.directory());
 }

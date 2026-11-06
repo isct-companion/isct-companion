@@ -73,7 +73,6 @@ struct View {
     id: BrowserId,
     native: NativeWebview,
     page: Arc<AtomicU64>,
-    url: Arc<Mutex<Option<Url>>>,
     /// The WebKit host's shims for this view.
     #[cfg(target_os = "macos")]
     _host: Option<crate::school_webkit::DelegateHandle>,
@@ -82,7 +81,6 @@ struct View {
 /// with the platform host.
 pub(crate) struct PopupRecord {
     pub(crate) page: AtomicU64,
-    pub(crate) url: Mutex<Option<Url>>,
     #[cfg(windows)]
     pub(crate) window: Option<tauri::WebviewWindow>,
 }
@@ -318,20 +316,12 @@ impl NativeBrowser {
                 id,
                 PopupRecord {
                     page: AtomicU64::new(0),
-                    url: Mutex::new(None),
                 },
             );
         }
     }
     /// A popup's page loaded: the next page of that popup.
     pub(crate) fn popup_loaded(&self, id: BrowserId, url: Url) {
-        if let Ok(p) = self.presentation.lock() {
-            if let Some(popup) = p.popups.get(&id) {
-                if let Ok(mut current) = popup.url.lock() {
-                    *current = Some(url.clone());
-                }
-            }
-        }
         if let (Some(page), Some(listener)) = (self.next_page(id), self.listener()) {
             listener.page_loaded(PageLoaded {
                 page,
@@ -456,10 +446,8 @@ impl NativeBrowser {
         }
         let app = self.app()?;
         let sequence = Arc::new(AtomicU64::new(0));
-        let current = Arc::new(Mutex::new(Some(url.clone())));
         let weak = Arc::downgrade(self);
         let loaded_sequence = sequence.clone();
-        let loaded_url = current.clone();
         let download_weak = weak.clone();
         #[cfg(windows)]
         let interim_weak = weak.clone();
@@ -470,9 +458,6 @@ impl NativeBrowser {
                     browser: id,
                     sequence: loaded_sequence.fetch_add(1, Ordering::AcqRel) + 1,
                 };
-                if let Ok(mut value) = loaded_url.lock() {
-                    *value = Some(url.clone())
-                }
                 if let Some(listener) = weak.upgrade().and_then(|n| n.listener()) {
                     // WebKit does not expose a request ID here. Never label a late
                     // callback with the most recently dispatched action.
@@ -520,7 +505,6 @@ impl NativeBrowser {
                     id,
                     native: view.clone(),
                     page: sequence,
-                    url: current,
                     #[cfg(target_os = "macos")]
                     _host: host,
                 },
@@ -658,19 +642,6 @@ impl SchoolBrowser for NativeBrowser {
     }
     fn dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError> {
         self.send(Operation::Dispatch(command))
-    }
-    fn current_url(&self, id: BrowserId) -> Result<Option<Url>, BrowserError> {
-        let p = self
-            .presentation
-            .lock()
-            .map_err(|_| BrowserError::Stopped)?;
-        Ok(match p.views.get(&id.site).filter(|v| v.id == id) {
-            Some(view) => view.url.lock().ok().and_then(|url| url.clone()),
-            None => p
-                .popups
-                .get(&id)
-                .and_then(|popup| popup.url.lock().ok().and_then(|url| url.clone())),
-        })
     }
     fn dispose(&self, id: BrowserId) -> Result<(), BrowserError> {
         self.send(Operation::Dispose(id))

@@ -148,15 +148,15 @@ fn insert(transaction: &Transaction<'_>, key: &str, course_id: &str) -> Result<(
 
 /// Local records that name a course, with the field that names it.
 const COURSE_REFERENCES: &[(&str, &str)] = &[
-    ("main.manual_memberships", "courseId"),
-    ("main.plan_items", "courseId"),
-    ("main.intensive_schedules", "courseId"),
-    ("main.schedule_overrides", "courseId"),
-    ("main.course_overrides", "courseId"),
-    ("cache.memberships", "courseId"),
-    ("cache.assignments", "courseId"),
-    ("cache.lms_items", "courseId"),
-    ("cache.exams", "courseId"),
+    ("manual_memberships", "courseId"),
+    ("plan_items", "courseId"),
+    ("intensive_schedules", "courseId"),
+    ("schedule_overrides", "courseId"),
+    ("course_overrides", "courseId"),
+    ("memberships", "courseId"),
+    ("assignments", "courseId"),
+    ("lms_items", "courseId"),
+    ("exams", "courseId"),
 ];
 
 /// Moves everything that named `from` to `into`: its keys, and the local
@@ -215,7 +215,7 @@ fn absorb(transaction: &Transaction<'_>, from: &str, into: &str) -> Result<(), D
                 .map_err(DataError::from)?;
         }
     }
-    for table in ["main.plan_items", "main.course_overrides"] {
+    for table in ["plan_items", "course_overrides"] {
         transaction
             .execute(
                 &format!("UPDATE {table} SET course_id=?2 WHERE course_id=?1"),
@@ -225,7 +225,7 @@ fn absorb(transaction: &Transaction<'_>, from: &str, into: &str) -> Result<(), D
     }
     transaction
         .execute(
-            "UPDATE main.schedule_overrides
+            "UPDATE schedule_overrides
              SET target_key=json_extract(value, '$.targetKey')
              WHERE json_extract(value, '$.targetKey') LIKE ?1 || '%'",
             [format!("{into}-")],
@@ -341,4 +341,3 @@ fn replace_reference(row: &mut Value, field: &str, from: &str, to: &str) {
         row["targetKey"] = format!("{to}-{rest}").into();
     }
 }
-

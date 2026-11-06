@@ -128,6 +128,7 @@ enum SchoolSessionText {
         case .emailOtp: return t("schoolSession.problem.emailOtp")
         case .passwordChange: return t("schoolSession.problem.passwordChange")
         case .unknownPage: return t("schoolSession.problem.unknownPage")
+        case .credentialStore: return t("schoolSession.problem.credentialStore")
         case .network, .unanswered, .anomaly: return nil
         }
     }

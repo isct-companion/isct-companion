@@ -12,6 +12,20 @@ pub mod login;
 pub mod scripts;
 pub mod urls;
 
+/// The school's notice when `html`, the page `url` answered with, says that
+/// 教務Web or the LMS is under maintenance now; `None` for any other page.
+/// The one maintenance check of sign-in, verification and reads alike.
+pub fn maintenance_notice(url: &url::Url, html: &str) -> Option<String> {
+    if url.scheme() != "https" {
+        return None;
+    }
+    match url.host_str()? {
+        kyomu::HOST => kyomu::maintenance_notice(html),
+        _ if lms::is_lms_origin(url) => lms::maintenance_notice(html),
+        _ => None,
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct SchoolParseError(String);

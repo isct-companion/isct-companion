@@ -40,10 +40,6 @@ impl core::SecretVault for Vault {
     fn delete(&self, account: &str) -> Result<(), core::SecretError> {
         self.0.delete(account.into()).map_err(vault_error)
     }
-    /// Only Apple devices synchronize Keychain items between devices.
-    fn shared(&self, account: &str) -> bool {
-        cfg!(target_os = "ios") && core::vault_item(account).is_ok_and(|item| item.synchronized)
-    }
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -177,7 +173,6 @@ pub trait NativeBrowser: Send + Sync {
     fn attach(&self, events: Arc<BrowserEvents>) -> Result<(), SdkError>;
     fn ensure(&self, browser: BrowserId, initial_url: String) -> Result<(), SdkError>;
     fn dispatch(&self, command: BrowserCommand) -> Result<(), SdkError>;
-    fn current_url(&self, browser: BrowserId) -> Result<Option<String>, SdkError>;
     fn dispose(&self, browser: BrowserId) -> Result<(), SdkError>;
     /// Takes the view, with its popups, out of sight and out of input while
     /// Core signs it in (`covered`), or gives it back; the screen shows Core's
@@ -374,13 +369,6 @@ impl browser::SchoolBrowser for Browser {
                 action,
             })
             .map_err(dispatch_error)
-    }
-    fn current_url(&self, id: browser::BrowserId) -> Result<Option<Url>, browser::BrowserError> {
-        self.native
-            .current_url(project(id).map_err(dispatch_error)?)
-            .map_err(dispatch_error)?
-            .map(|v| parse_url(&v).map_err(dispatch_error))
-            .transpose()
     }
     fn dispose(&self, id: browser::BrowserId) -> Result<(), browser::BrowserError> {
         self.native

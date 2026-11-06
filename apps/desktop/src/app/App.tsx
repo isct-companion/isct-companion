@@ -1432,7 +1432,7 @@ export function WorkspaceApp() {
         </div>
       </aside>
       <main
-        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
+        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : page === "about" ? " aboutMain" : ""}`}
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}

@@ -144,6 +144,40 @@ fn invalid_records_are_rejected_before_any_local_changes() {
     assert_eq!(fixture.events(), ["kept"]);
 }
 
+/// A pass of daily maintenance leaves a copy of the user tables outside the
+/// store, in the format Settings imports, without the school caches.
+#[test]
+fn daily_maintenance_keeps_an_importable_copy_of_the_user_tables() {
+    let fixture = Fixture::new();
+    fixture.add_event("kept outside the store");
+    fixture
+        .store
+        .test_connection()
+        .execute_batch(
+            "INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
+               VALUES('lms-course:42','{}','hash','2026-10-01T00:00:00Z','school',1);",
+        )
+        .unwrap();
+    crate::deadlines::Maintenance::new(
+        fixture.store.clone(),
+        #[cfg(feature = "agent")]
+        None,
+    )
+    .pass(chrono::Utc::now())
+    .unwrap();
+    let path = fixture
+        .store
+        .paths()
+        .local(crate::deadlines::USER_SNAPSHOT_DIR)
+        .join("workspace-latest.json");
+    let document = data::parse_import(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(
+        document["tables"]["personal_events"][0]["title"],
+        "kept outside the store"
+    );
+    assert!(document["tables"].get("lms_courses").is_none());
+}
+
 #[test]
 fn scheduled_export_replaces_a_complete_document_in_the_same_format() {
     let fixture = Fixture::new();

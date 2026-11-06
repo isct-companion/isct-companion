@@ -102,7 +102,6 @@ fn open(
                         id,
                         PopupRecord {
                             page: AtomicU64::new(0),
-                            url: Mutex::new(None),
                             window: Some(window.clone()),
                         },
                     );

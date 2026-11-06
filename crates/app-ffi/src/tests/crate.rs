@@ -874,9 +874,6 @@ impl crate::ports::NativeBrowser for BrowserFixture {
     fn dispatch(&self, _: crate::ports::BrowserCommand) -> Result<(), SdkError> {
         Ok(())
     }
-    fn current_url(&self, _: BrowserId) -> Result<Option<String>, SdkError> {
-        Ok(None)
-    }
     fn dispose(&self, _: BrowserId) -> Result<(), SdkError> {
         Ok(())
     }

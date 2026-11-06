@@ -34,8 +34,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     fileprivate static let log = Logger(subsystem: "app.isctcompanion", category: "school-web")
     private let lock = NSLock()
     private var events: BrowserEvents?
-    /// Last committed URL per view and popup, readable from Core workers.
-    private var urls: [BrowserId: String] = [:]
     private var closedForGood = false
     /// Whether the device has a usable network, read when a load reports
     /// "offline" (see `failure`).
@@ -82,10 +80,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         DispatchQueue.main.async { self.perform(command) }
     }
 
-    func currentUrl(browser: BrowserId) throws -> String? {
-        lock.withLock { urls[browser] }
-    }
-
     func dispose(browser: BrowserId) throws {
         DispatchQueue.main.async {
             self.discard(browser)
@@ -108,7 +102,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     func shutdown() throws {
         lock.withLock {
             closedForGood = true
-            urls.removeAll()
         }
         DispatchQueue.main.async {
             for page in self.popups.reversed() + Array(self.views.values) + Array(self.finishing) {
@@ -238,7 +231,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             try? listener()?.closed(browser: id)
             return
         }
-        lock.withLock { urls[id] = initialUrl }
         page.webView.load(URLRequest(url: url))
     }
 
@@ -299,7 +291,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     @MainActor private func forget(_ page: SchoolPage) {
         page.tearDown()
         if page.downloading { finishing.insert(page) }
-        lock.withLock { _ = urls.removeValue(forKey: page.id) }
     }
 
     /// A popup its page (`window.close()`) or the person closed. Core then
@@ -314,7 +305,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     @MainActor fileprivate func loaded(_ page: SchoolPage, url: URL?) {
         guard let url else { return }
-        lock.withLock { urls[page.id] = url.absoluteString }
         // WebKit exposes no request id here; never label a late load with an action.
         try? listener()?.pageLoaded(page: page.nextPage(), cause: nil, url: url.absoluteString)
     }
@@ -446,7 +436,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             popups.append(popup)
             // Over the view and the site's earlier popups, as their sibling.
             arrangePopups(browser.site)
-            lock.withLock { urls[browser] = facts.url }
             // No history yet: Core's Back closes it until it has some.
             historyChanged(popup)
             return popup.webView

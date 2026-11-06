@@ -223,7 +223,11 @@ impl std::fmt::Display for KeyError {
 pub(crate) fn token_functions(dataset: Dataset) -> &'static [MoodleFunction] {
     use MoodleFunction as F;
     match dataset {
-        Dataset::LmsEnrolment => &[F::SiteInfo, F::EnrolledCoursesByTimeline, F::DashboardBlocks],
+        Dataset::LmsEnrolment => &[
+            F::SiteInfo,
+            F::EnrolledCoursesByTimeline,
+            F::DashboardBlocks,
+        ],
         Dataset::LmsDeadlines => &[
             F::SiteInfo,
             F::ActionEventsByTimesort,
@@ -264,7 +268,9 @@ pub(crate) enum TokenFact {
     /// may still get one (false once the LMS answered that it offers none).
     Absent { launchable: bool },
     /// A token is held; the functions it was found unable to serve.
-    Held { unavailable: HashSet<MoodleFunction> },
+    Held {
+        unavailable: HashSet<MoodleFunction>,
+    },
 }
 
 /// The token of one account generation.
@@ -384,6 +390,17 @@ impl MoodleClient {
         self.signal.changed();
     }
 
+    /// Changes the slot by `change`, which sees it and decides under the one
+    /// lock, so no newer token installed meanwhile is overwritten; listeners
+    /// hear of a change after the lock is released.
+    fn update<R>(&self, change: impl FnOnce(&mut Option<Slot>) -> (R, bool)) -> R {
+        let (result, changed) = change(&mut self.slot());
+        if changed {
+            self.signal.changed();
+        }
+        result
+    }
+
     /// The function `function` failed under `token` in a way the session
     /// cookie may serve: a fact of that token only, dropped with it.
     pub(super) fn function_unavailable(
@@ -392,34 +409,42 @@ impl MoodleClient {
         token: &MoodleToken,
         function: MoodleFunction,
     ) {
-        let added = match self.slot().as_mut() {
-            Some(Slot {
-                generation: held,
-                state:
-                    TokenState::Held {
-                        token: current,
-                        unavailable,
-                    },
-            }) if *held == generation && current == token => unavailable.insert(function),
-            _ => false,
-        };
+        let added = self.update(|slot| {
+            let added = match slot.as_mut() {
+                Some(Slot {
+                    generation: held,
+                    state:
+                        TokenState::Held {
+                            token: current,
+                            unavailable,
+                        },
+                }) if *held == generation && current == token => unavailable.insert(function),
+                _ => false,
+            };
+            (added, added)
+        });
         if added {
             log::warn!(target: "app_core::net::moodle", "LMS token cannot serve {}; its keys read with the session cookie", function.name());
-            self.signal.changed();
         }
     }
 
     /// `token` was refused right after a renewal: it is no token, and a
     /// launch gives none that works.
     pub(super) fn refused(&self, generation: u64, token: &MoodleToken) {
-        let refused = matches!(
-            self.slot().as_ref(),
-            Some(Slot { generation: held, state: TokenState::Held { token: current, .. } })
-                if *held == generation && current == token
-        );
-        if refused {
-            self.set(generation, TokenState::Absent { launchable: false });
-        }
+        self.update(|slot| {
+            let refused = matches!(
+                slot.as_ref(),
+                Some(Slot { generation: held, state: TokenState::Held { token: current, .. } })
+                    if *held == generation && current == token
+            );
+            if refused {
+                *slot = Some(Slot {
+                    generation,
+                    state: TokenState::Absent { launchable: false },
+                });
+            }
+            ((), refused)
+        });
     }
 
     fn envelope_error(attempt: &Attempt, error: EnvelopeError) -> MoodleError {
@@ -438,7 +463,8 @@ impl MoodleClient {
 
     // -- Cookie requests -----------------------------------------------------
 
-    /// One request with the LMS site session's cookies.
+    /// One request with the LMS site session's cookies. Every cookie answer
+    /// passes the maintenance check here, whatever its caller expected.
     async fn cookie_send(
         attempt: &Attempt,
         method: Method,
@@ -446,7 +472,7 @@ impl MoodleClient {
         body: Body,
         limits: fn() -> Limits,
     ) -> Result<Response, MoodleError> {
-        Ok(attempt
+        let response = attempt
             .send(NetRequest {
                 host: Host::Moodle,
                 method,
@@ -455,7 +481,30 @@ impl MoodleClient {
                 body,
                 limits: limits(),
             })
-            .await?)
+            .await?;
+        Self::maintenance(attempt, &response)?;
+        Ok(response)
+    }
+
+    /// Moodle's maintenance page, with any status, is the site session's
+    /// maintenance (`Attempt::maintenance`), never an answer of the request.
+    /// A JSON answer is not that page (`sitemaintenance` in JSON is the
+    /// envelope's) and is not parsed as HTML.
+    pub(super) fn maintenance(attempt: &Attempt, response: &Response) -> Result<(), MoodleError> {
+        if response
+            .content_type()
+            .is_some_and(|kind| kind.contains("json"))
+        {
+            return Ok(());
+        }
+        match response
+            .text()
+            .ok()
+            .and_then(|html| adpt_isct::maintenance_notice(&response.url, &html))
+        {
+            Some(notice) => Err(MoodleError::Net(attempt.maintenance(Some(notice)))),
+            None => Ok(()),
+        }
     }
 
     /// A page GET that must answer 200 with HTML; a redirect to sign-in is
@@ -567,22 +616,35 @@ impl MoodleClient {
 
     // -- Token lifecycle -----------------------------------------------------
 
-    /// The vault's token; `Err` when the vault could not be read, which
-    /// says nothing about whether one is saved.
-    async fn vault_token(&self) -> Result<Option<MoodleToken>, ()> {
+    /// The vault's token; `Ok(Err(()))` when the vault could not be read,
+    /// which says nothing about whether one is saved. The read may delete
+    /// the item (`SchoolAuthService::load_moodle_token`), so it holds a
+    /// permit of `attempt`'s account generation until it ends, however the
+    /// caller ends: a sign-out or reset waits for it, and once one closed the
+    /// generation it does not run (`Cancelled`).
+    async fn vault_token(
+        &self,
+        attempt: &Attempt,
+    ) -> Result<Result<Option<MoodleToken>, ()>, MoodleError> {
+        let permit = attempt
+            .write_permit()
+            .ok_or(MoodleError::Net(NetError::Cancelled))?;
         let auth = self.auth.clone();
-        match tokio::task::spawn_blocking(move || {
-            auth.load_moodle_token(SchoolAuthProfile::Science)
-        })
-        .await
-        {
-            Ok(Ok(token)) => Ok(token),
-            Ok(Err(error)) => {
-                log::warn!(target: "app_core::net::moodle", "LMS token vault read failed: {error}");
-                Err(())
-            }
-            Err(_) => Err(()),
-        }
+        Ok(
+            match tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                auth.load_moodle_token(SchoolAuthProfile::Science)
+            })
+            .await
+            {
+                Ok(Ok(token)) => Ok(token),
+                Ok(Err(error)) => {
+                    log::warn!(target: "app_core::net::moodle", "LMS token vault read failed: {error}");
+                    Err(())
+                }
+                Err(_) => Err(()),
+            },
+        )
     }
 
     /// Keeps `token` (or forgets it) in the vault. The write holds a permit
@@ -621,7 +683,7 @@ impl MoodleClient {
                 ))
             }
             Some(Err(true)) => {}
-            None => match self.vault_token().await {
+            None => match self.vault_token(attempt).await? {
                 Ok(Some(token)) => {
                     self.set(
                         generation,
@@ -652,17 +714,33 @@ impl MoodleClient {
         let generation = attempt.account_generation();
         let _flight = self.flight.lock().await;
         attempt.authorize()?;
-        match self.current(generation) {
-            Some(Ok(current)) if current != *refused => return Ok(current),
-            Some(Err(false)) => {
+        // Refused: absent until a renewal gets another. Decided and set
+        // under the slot's one lock, so a refusal recorded meanwhile stays.
+        let renew = self.update(|slot| {
+            let current = slot.as_ref().filter(|slot| slot.generation == generation);
+            match current.map(|slot| &slot.state) {
+                Some(TokenState::Held { token, .. }) if token != refused => {
+                    (Err(Ok(token.clone())), false)
+                }
+                Some(TokenState::Absent { launchable: false }) => (Err(Err(())), false),
+                _ => {
+                    *slot = Some(Slot {
+                        generation,
+                        state: TokenState::Absent { launchable: true },
+                    });
+                    (Ok(()), true)
+                }
+            }
+        });
+        match renew {
+            Ok(()) => {}
+            Err(Ok(current)) => return Ok(current),
+            Err(Err(())) => {
                 return Err(MoodleError::ServiceUnavailable(
                     "the LMS offers no token".into(),
                 ))
             }
-            _ => {}
         }
-        // Refused: absent until a renewal gets another.
-        self.set(generation, TokenState::Absent { launchable: true });
         self.persist_token(attempt, None).await;
         self.launch_held(attempt, generation).await
     }

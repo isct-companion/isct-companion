@@ -566,8 +566,8 @@ checks:
           (設定での操作を待っています) without a failure or retry time.
       - action: |
           Without reconnecting, press Refresh now on Assignments and wait
-          about a minute. Then read the latest runs in sync.db (read-only):
-          sqlite3 "file:$HOME/Library/Application Support/app.isctcompanion/sync.db?mode=ro"
+          about a minute. Then read the latest runs in the store (read-only):
+          sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db
           "select dataset,key,finished_at,outcome from sync_runs order by finished_at desc limit 40;"
         reason: |
           Deadlines, course outlines and assignment states read over the
@@ -593,7 +593,7 @@ checks:
           waiting must start on its own, without another press.
     observe: |
       The Science Tokyo card in Settings, the status bar, the sync_runs
-      table of sync.db, and the app log.
+      table of the store, and the app log.
     expected: |
       With the refused password the card says Refused and the timetable
       refresh waits for the person, while lms.deadlines, lms.course and
@@ -858,7 +858,7 @@ checks:
           notice and its element. If the data is visible but the selector
           does not match, the selector is broken.
       - action: |
-          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
         reason: |
           Only a complete read sets `fetched_at`, with outcome `complete` or
           `unavailable`. A page without one stays due and backs off after
@@ -2280,13 +2280,50 @@ checks:
           About moved rather than being copied, and the line above it went too.
     observe: The rail, the About page and the browser it opens.
     expected: |
-      About shows the version, updates and welcome tips, then the four links in
-      two groups, license and sponsor last. Settings no longer lists About.
+      About shows the version, updates and welcome tips, and the four links,
+      license and sponsor last. Settings no longer lists About.
     why_manual: |
       A layout and four links a person confirms at a glance in the real app.
     covers:
       - apps/desktop/src/pages/about/AboutPage.tsx
       - apps/desktop/src/app/App.tsx
+  - id: DESKTOP-ABOUT-DESIGN
+    area: desktop
+    title: About has its own open composition in the app's colours, and it fits the window
+    persona: undergraduate-first-term
+    preconditions: |
+      A desktop build from this source.
+    steps:
+      - action: |
+          Open About in light appearance, then dark, and rest the pointer on
+          each of the four link tiles.
+        reason: |
+          The colours come from the app's tokens, so a wrong one shows only on a
+          rendered page. A tile that does not lift, or shows no action word, has
+          lost its hover state.
+      - action: |
+          Shrink the window to its smallest size, then switch to Japanese and
+          large text.
+        reason: |
+          The layout is fixed to the pane. Long labels are where a tile would
+          overlap its neighbour or the page would start to scroll.
+      - action: |
+          Turn on Reduce Motion in the system settings and reopen About.
+        reason: |
+          The shape drifts without end, which must stop; a leftover animation
+          would run at the fast duration and flicker.
+    observe: The About page at each window size and appearance.
+    expected: |
+      Large IsctCompanion name, one soft shape and a tilted icon, with the panel
+      and four equal link tiles level, in the same colours as other pages. Nothing
+      overlaps or scrolls at any size. With Reduce Motion the shape is still and
+      the pieces only fade.
+    why_manual: |
+      A look a person confirms at a glance in the real app; the system's Reduce
+      Motion setting and the native window's sizes are not reachable headlessly.
+    covers:
+      - apps/desktop/src/pages/about/about.css
+      - apps/desktop/src/pages/about/AboutPage.tsx
   - id: DESKTOP-TOOLS-PAGE
     area: desktop
     title: Campus Wi-Fi, VPN and printer are small cards on the Tools page, per platform
@@ -2711,7 +2748,7 @@ checks:
 
   - id: DESKTOP-LEGACY-STORE-CUTOVER
     area: desktop
-    title: The first start after 1.2.x moves the data folder into store generations
+    title: The first start after 1.2.x moves the data folder into one store
     persona: careless-multidevice
     preconditions: |
       A Mac with IsctCompanion 1.2.7 installed and used (courses, a personal
@@ -2723,17 +2760,18 @@ checks:
       - action: |
           Start the new build once, quit it, and list the data folder.
         reason: |
-          The flat user.db is copied into `user/<generation>/` and the folder
-          gains `core.lock`, `store-index.db`, `school/<generation>/` and
-          `local/reminders-fired.json`. The flat files stay (retired, not
-          deleted), so the old release's data remains as recovery material.
+          The user tables of the flat user.db are copied into
+          `store/<generation>/store.db` and the folder gains `core.lock`,
+          `store-index.db` and `local/reminders-fired.json`. The flat files
+          stay (retired, not deleted), so the old release's data remains as
+          recovery material.
       - action: |
           Start the new build again and check Today, the personal event, the
           reminder setting and Settings → AI agent access.
         reason: |
-          User data must be the 1.2.7 data, unchanged; school data may be read
-          again (the school group is rebuilt when 1.2.7's sync.db is of the
-          older schema), and the MCP listener comes back on its own.
+          User data must be the 1.2.7 data, unchanged; school data is read
+          again, since the flat caches are not carried over, and the MCP
+          listener comes back on its own.
       - action: |
           With the new build running, start `yarn desktop:dev` (or a second
           copy of the .app).
@@ -2752,8 +2790,9 @@ checks:
       Finder or `ls -R` on the data folder, the app's Today and Settings, the
       dialog of the second process.
     expected: |
-      The first start of the new build keeps all user data in a new
-      generation, retires the flat files without deleting them, and a second
+      The first start of the new build keeps all user data in a new store
+      generation, fetches school data again, retires the flat files without
+      deleting them, and a second
       process is refused with its message; after 1.2.7 ran again the new
       build still opens its own data.
     why_manual: |
@@ -2766,6 +2805,91 @@ checks:
       - crates/app-core/src/data/migrations.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/native_dialog.rs
+    verified: null
+
+  - id: DESKTOP-STORE-POWER-LOSS
+    area: desktop
+    title: Cutting the power during school reads leaves the store whole
+    persona: careless-multidevice
+    preconditions: |
+      A MacBook you can force off (hold the power button for 10 seconds), and
+      a build of this commit with signed-in school accounts. Note the personal
+      events and plan marks you have. Save nothing else open on that Mac.
+    steps:
+      - action: |
+          Press Refresh in the sync status, mark a class 休講 and add a personal
+          event while LMS and 教務 reads run. Wait until the event shows, then
+          force the Mac off straight away.
+        reason: |
+          The Core tests kill the process, not the machine. Only a real power
+          cut shows whether a commit the app reported survives with
+          `F_FULLFSYNC` and whether the log recovers.
+      - action: |
+          Start the Mac and the app, then run `sqlite3 "$HOME/Library/Application
+          Support/app.isctcompanion"/store/*/store.db "PRAGMA integrity_check;"`
+          with the app closed.
+        reason: |
+          A damaged page in the one file would take user data with the caches.
+      - action: |
+          Compare the event and the mark, and read the sync status.
+        reason: |
+          Every commit is whole: the event and mark are there or the app had
+          not reported them, and a course never appears under two ids.
+      - action: |
+          Repeat the sequence on a Windows laptop and note the result beside
+          the Mac's.
+        reason: |
+          Windows flushes through its own sync path, which no test here reaches.
+    observe: |
+      `PRAGMA integrity_check`, the event and the marked class in the app, and
+      the sync status.
+    expected: |
+      The app opens without a recovery message, the check prints `ok`, the event
+      and mark that were showing are still there, and school pages show the same
+      courses as before, reading again what was not finished.
+    why_manual: |
+      It needs real hardware losing power: a killed process keeps the drive's
+      cache, which is what `F_FULLFSYNC` is there for, so no test can reach it.
+    covers:
+      - crates/app-core/src/data/connection.rs
+      - crates/app-core/src/data/migrations.rs
+      - crates/app-core/src/data/root.rs
+    verified: null
+
+  - id: STORE-READS-WHILE-SYNCING-ON-DEVICES
+    area: native
+    title: Pages stay quick during a first full read on Windows, Android and iPhone
+    persona: undergraduate-senior
+    preconditions: |
+      A build of this commit on a Windows laptop, an Android phone and an
+      iPhone, each with signed-in school accounts and no store yet, so that the
+      whole catalog and LMS are read for the first time.
+    steps:
+      - action: |
+          While the first read runs, switch between Today, the timetable and
+          assignments, and mark an assignment done.
+        reason: |
+          Measurements so far are from one Mac. Sync costs differ by platform,
+          and a first read is the most writing the store ever takes.
+      - action: |
+          On the desktop, repeat with `ISCT_TRACE_READS=1` set and read the
+          queue, work and persist times in the log.
+        reason: |
+          A view read again too often, or a slow commit, shows here as a number
+          rather than a feeling.
+    observe: |
+      How fast pages switch and marks show on each device; on the desktop the
+      trace lines in the log.
+    expected: |
+      No page visibly stalls and marks show at once on all three. On the desktop
+      the 95th-percentile queue and work times stay under 100 ms.
+    why_manual: |
+      It needs the real school, real accounts and three kinds of real device, and
+      the result is how the app feels on each, which the Mac-only benchmark and
+      the headless suites cannot stand in for.
+    covers:
+      - crates/app-core/src/data/connection.rs
+      - crates/app-core/src/data/views.rs
     verified: null
 
   - id: DESKTOP-PDF-TOOLBAR
@@ -5181,17 +5305,8 @@ checks:
     persona: undergraduate-senior
     preconditions: |
       macOS desktop build with signed-in school accounts, a quarter with
-      classes on the calendar, and the data folder of a build from before
-      sync.db (its `cache.db` still holds `dataset_state`). Copy the folder
-      aside first.
+      classes on the calendar.
     steps:
-      - action: |
-          Launch the new build, run `ls "$HOME/Library/Application
-          Support/app.isctcompanion"` and open the sync status.
-        reason: |
-          The first launch moves freshness and run records out of cache.db
-          into a new `sync.db`. A lost move shows as every key fetching again
-          and the status's last-read times reset to never.
       - action: |
           On the calendar, right-click a class and mark it 休講, then 試験,
           then back to the class, a few seconds apart.
@@ -5203,20 +5318,19 @@ checks:
           Press Refresh in the sync status so LMS and 教務 reads run, and
           mark sessions again while they run and right after they finish.
         reason: |
-          A read that finds nothing new now commits only its freshness. The
-          delay this check exists for came back exactly while a sync ran.
+          A read that finds nothing new commits only its freshness, which no
+          calendar view reads. The delay this check exists for came back
+          exactly while a sync ran.
       - action: |
           Switch to the timetable, Today and the course finder, then back.
         reason: |
           Those pages read the mark through other change names; one still
           showing the old state means a view missed its change name.
     observe: |
-      The data folder listing, the sync status times, the marked block on
-      the calendar, and the same class on the timetable, Today and finder.
+      The sync status times, the marked block on the calendar, and the same
+      class on the timetable, Today and finder.
     expected: |
-      `sync.db` sits beside `user.db` and `cache.db`, the sync status keeps
-      its last-read times and does not refetch everything, each mark shows
-      on the calendar with no visible delay with or without a running sync,
+      Each mark shows on the calendar with no visible delay with or without a running sync,
       and every other page shows the same state.
     why_manual: |
       The delay is a felt latency in the real app over the person's own data
@@ -8483,14 +8597,14 @@ checks:
           "Could not update" line or a retry time means the old ordering or
           the old error class is back.
       - action: |
-          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT dataset,key,outcome,error_kind,started_at,finished_at FROM sync_runs WHERE dataset IN ('lms.enrolment','lms.course') ORDER BY started_at DESC LIMIT 12"`.
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db "SELECT dataset,key,outcome,error_kind,started_at,finished_at FROM sync_runs WHERE dataset IN ('lms.enrolment','lms.course') ORDER BY started_at DESC LIMIT 12"`.
         reason: |
           Shows the order on record: the open course's `lms.course` row must
           start after `lms.enrolment/all` finished, with outcome `complete`
           and no `parse` or `not-enrolled` row.
     observe: |
       The open course page in Lectures, the footer status line and the
-      `sync_runs` rows of sync.db.
+      `sync_runs` rows of the store.
     expected: |
       Within seconds of the course list returning, the open course shows its
       materials and assignments; no failure or "retries at" appears for it,
@@ -8958,6 +9072,209 @@ checks:
       - crates/app-core/src/school_session/mod.rs
     verified: null
 
+  - id: SCHOOL-OTP-SUBMITTED-ONCE
+    area: school
+    title: A refused one-time password is sent once per sign-in, never again in a later window
+    persona: careless-multidevice
+    preconditions: |
+      A macOS desktop build from this commit with the Science Tokyo account
+      connected and working, and a second, valid but wrong App OTP setup
+      (any other base32 secret) at hand.
+    steps:
+      - action: |
+          In Settings → School accounts → Science Tokyo, keep the ID and
+          password, enter the wrong OTP setup and press Connect; copy the log.
+        reason: |
+          The school answers a wrong code with 401 or the code page again.
+          The log must show one `step: Extic one-time password` and then the
+          end: a second code line means the sign-in retried the factor in a
+          later window, which can lock the account.
+      - action: |
+          Read the form and the card.
+        reason: |
+          The form says the one-time password was not accepted and nothing
+          was saved; the card stays Connected with the saved credentials.
+    observe: |
+      The Science Tokyo form and card, and the copied log.
+    expected: |
+      Exactly one one-time password line for the Connect; "The one-time
+      password was not accepted", entry kept, card unchanged.
+    why_manual: |
+      Needs the live Extic second factor; Core has no scripted school
+      (approach/school-sign-in-verification).
+    covers:
+      - crates/app-core/src/school_session/login.rs
+    verified: null
+
+  - id: SCHOOL-SIGN-IN-MAINTENANCE
+    area: school
+    title: A maintenance page during sign-in or verification pauses the site and is never a refusal
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build from this commit with both accounts connected, during
+      an announced LMS or 教務Web maintenance window (record `unreached`
+      with `blocked_by` outside one).
+    steps:
+      - action: |
+          While the site shows its maintenance page, press Retry on the
+          account in Settings, then open the site from an App link.
+        reason: |
+          The sign-in must end with no verdict: the card shows the
+          maintenance notice and when Core tries again, never Refused or
+          "needs your attention" (a refusal would stop background sign-in
+          until the person retries), and never Connected (a maintenance page
+          with a session cookie proves nothing).
+      - action: |
+          Still inside the window, press Refresh on the LMS source, once with
+          a saved LMS token and once after signing the LMS token out by a
+          new Connect, so both the REST and the cookie AJAX paths answer.
+        reason: |
+          Neither may read the HTML as a lost session or a refused token:
+          the footer shows the maintenance notice, the account stays usable,
+          and the LMS token is kept. A sign-in attempt starting here means a
+          path took the page for a lost session.
+      - action: |
+          After the window, wait for the pause to end or press Refresh.
+        reason: |
+          The first read that gets through clears the notice; the saved
+          credentials were never held back.
+    observe: |
+      The account card, the workstation footer and the app log.
+    expected: |
+      During maintenance: maintenance notice, host paused, no refusal kept.
+      After: normal sign-in and the notice gone.
+    why_manual: |
+      Only the school's real maintenance pages show the shape the adapter
+      matches; nothing in the suites fakes the school.
+    covers:
+      - crates/adpt-isct/src/lib.rs
+      - crates/adpt-isct/src/lms.rs
+      - crates/app-core/src/school_session/login.rs
+      - crates/app-core/src/school_session/site.rs
+      - crates/app-core/src/school_session/walk.rs
+      - crates/app-core/src/net/moodle/mod.rs
+      - crates/app-core/src/net/moodle/ajax.rs
+      - crates/app-core/src/net/moodle/rest.rs
+      - crates/app-core/src/net/moodle/submission.rs
+      - crates/app-core/src/net/kyomu.rs
+    verified: null
+
+  - id: SCHOOL-RETRY-KEYCHAIN-DENIED
+    area: school
+    title: A Retry the keychain refuses says so, and tries again later
+    persona: careless-multidevice
+    preconditions: |
+      A macOS debug desktop build (it keeps school logins in the login
+      keychain) from this commit with the Science Tokyo account connected,
+      and a login keychain whose item another build wrote, so that reading
+      it asks for permission.
+    steps:
+      - action: |
+          Press Retry on the account in Settings, and answer Deny to the
+          system's keychain prompt.
+        reason: |
+          The account must say the keychain would not give the credentials,
+          with when Core tries again, not "the network connection failed" and
+          not the state from before the press. Nothing goes to the school.
+      - action: |
+          Press Retry again and answer Allow.
+        reason: |
+          The read goes through and the sign-in runs. No prompt appears
+          between the two presses except from those presses and Core's own
+          retry after the pause: a read per use asked endlessly once.
+    observe: |
+      The account card in Settings and the app log's `signing in` lines.
+    expected: |
+      After Deny: the keychain line, no `signing in` line. After Allow: signed
+      in.
+    why_manual: |
+      Only the real keychain prompt can be denied. The snapshot Core gives
+      for a denied read is covered by the school_session suite.
+    covers:
+      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src-tauri/src/secrets.rs
+      - crates/app-core/src/school_session/identity.rs
+    verified: null
+
+  - id: DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE
+    area: desktop
+    title: Secrets held only in an earlier release's keychain place survive the upgrade
+    persona: careless-multidevice
+    preconditions: |
+      A signed macOS release build from this commit, on a Mac user with no
+      Isct Companion items in the keychain, and a test value for the Google
+      Drive credential-sync password, not a real one.
+    steps:
+      - action: |
+          Before launching, add the value under the earlier product name:
+          service `Campus Life`, account
+          `app.campuslife.sciencetokyo.passwords.cloud-credential-sync`.
+        reason: |
+          That is where a person upgrading from the old product has it, and
+          only there. The school-login cleanup removed this path once on a
+          branch; dropping it loses the cloud sync key on upgrade.
+      - action: |
+          Launch the app and use Settings → Cloud to read the credential-sync
+          password state.
+        reason: |
+          The first read finds it in the old place and copies it to the
+          current one, verifying the copy before the old item goes.
+      - action: |
+          Repeat with a school login saved by a build in the login keychain
+          (`IsctCompanion` service), then press Retry once.
+        reason: |
+          A school login in the local keychain moves to the synchronized one
+          on its first read, and the re-read a Retry now does on every
+          platform finds it there without asking again.
+    observe: |
+      Settings, and Keychain Access for where each item is afterwards.
+    expected: |
+      Each value is available after the upgrade and lives only in the current
+      place; nothing is lost and no prompt repeats.
+    why_manual: |
+      Needs a signed bundle with the keychain entitlement and items written
+      by another identity; Core only sees the vault port.
+    covers:
+      - apps/desktop/src-tauri/src/secrets.rs
+    verified: null
+
+  - id: SCHOOL-WEB-GO-SAME-PAGE
+    area: school
+    title: An App link to the page a school view already shows opens it again
+    persona: undergraduate-senior
+    preconditions: |
+      A macOS desktop build from this commit with the Science Tokyo account
+      connected, the LMS open in the Web page on the dashboard.
+    steps:
+      - action: |
+          Log out of the LMS from its own menu, go back to the dashboard
+          address by hand, then open the LMS dashboard from an App link
+          (Today or a course's LMS link that lands on the dashboard).
+        reason: |
+          Go always navigates, whatever address the view shows: the view
+          loads the dashboard again (open first). Where that lands on the
+          sign-in page it is covered by "Signing in to this page…", the
+          identity is written and the dashboard reopens signed in. Nothing
+          happening means Core still compares addresses.
+      - action: |
+          Switch to Today and back to Web without an App link.
+        reason: |
+          Resume keeps the page exactly as it was: no reload, no sign-in.
+    observe: |
+      The LMS view, the line under the address, and the log's `web
+      operation … started` lines.
+    expected: |
+      The App link starts one web operation that opens its page, and
+      recovers only if that page asks for a sign-in; Resume starts none.
+    why_manual: |
+      The entry rule is exercised in the school_browser suite; that the real
+      WebKit view and its cookies then sign in is a glance in the real app.
+    covers:
+      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/operation.rs
+      - apps/desktop/src-tauri/src/school_browser_native.rs
+    verified: null
+
   - id: SCHOOL-CONNECT-OUTCOMES
     area: school
     title: The Connect form says how each Connect ended, and only a success saves
@@ -9122,6 +9439,33 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+    verified: null
+
+  - id: SCHOOL-REFUSAL-UNSAVED-COPY
+    area: school
+    title: A refusal the vault cannot save is explained on the account card
+    persona: careless-multidevice
+    preconditions: |
+      A desktop build with a connected account whose saved password the school
+      now rejects, and a vault configuration that permits reading credentials
+      but denies writing the device-local school-refusals item.
+    steps:
+      - action: |
+          Let the expired account sign in and read its account card.
+        reason: |
+          The refusal must hold the credentials back and say that the record
+          lasts only until the app closes, so the person knows it may retry
+          after a restart.
+    observe: |
+      The account details in desktop Settings.
+    expected: |
+      The refusal reason and the short temporary-record line both appear.
+    why_manual: |
+      Requires the live school and a real vault that selectively denies the
+      refusal write; the vault-state decision is covered by school_auth tests.
+    covers:
+      - apps/desktop/src/app/sync-text.ts
+      - crates/app-core/src/school_auth.rs
     verified: null
 
   - id: DESKTOP-ERROR-CODE-COPY
@@ -9342,8 +9686,7 @@ checks:
           Mark a session 休講 on the calendar, pin an assignment, then press
           Refresh in the sync status and wait for LMS to finish.
         reason: |
-          Views are cached per table set until user.db or cache.db changes;
-          a page that keeps the old mark, pin or a removed material means a
+          Views are cached until a table they read changes; a page that keeps the old mark, pin or a removed material means a
           cached view outlived a commit.
     observe: |
       Each page's content and how fast it appears; the marked block, the

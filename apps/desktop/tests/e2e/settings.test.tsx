@@ -392,7 +392,7 @@ describe("School accounts", () => {
         tokyoTech: notConfigured(),
       };
       const answers = [
-        { kind: "refused", reason: "invalid-otp" },
+        { kind: "refused", reason: "invalid-otp", refusalUnsaved: false },
         { kind: "not-saved" },
         { kind: "connected" },
       ];
@@ -2378,7 +2378,7 @@ describe("desktop app updates", () => {
       ] as const) {
         const button = await wait(() => {
           const found = app!.host.querySelector<HTMLButtonElement>(
-            `[data-setting="${row}"] button`,
+            `button[data-setting="${row}"]`,
           );
           expect(found).not.toBeNull();
           return found!;
