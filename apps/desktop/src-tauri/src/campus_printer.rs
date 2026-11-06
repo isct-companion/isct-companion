@@ -24,6 +24,7 @@ pub async fn campus_printer_status(
 pub enum CampusPrinterSetup {
     Added,
     /// The person dismissed the administrator prompt.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     Cancelled,
     /// No verified student ID: nothing was changed.
     Account {

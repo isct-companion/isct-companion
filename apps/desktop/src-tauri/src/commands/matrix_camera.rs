@@ -123,6 +123,7 @@ fn save_anonymous_samples(cut: &app_core::matrix_scan::MatrixCut) {
     glyphs.truncate(12);
     let save = || -> std::io::Result<()> {
         let directory = std::path::PathBuf::from(directory);
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {

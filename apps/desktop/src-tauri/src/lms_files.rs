@@ -67,7 +67,7 @@ pub(crate) fn display_root(path: &Path) -> String {
             .map(|rest| format!(r"\\{rest}"))
             .or_else(|| value.strip_prefix(r"\\?\").map(str::to_string))
             .unwrap_or_else(|| value.into_owned());
-        return value.replace('\u{5c}', "/");
+        value.replace('\u{5c}', "/")
     }
     #[cfg(not(windows))]
     value.into_owned()

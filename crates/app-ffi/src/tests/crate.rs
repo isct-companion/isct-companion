@@ -941,10 +941,19 @@ async fn ocr_progress_correlates_to_the_operation_and_bad_images_leave_core_usab
         operation.await_result().await,
         Err(SdkError::InvalidInput { .. })
     ));
-    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
-        panic!("missing progress")
-    };
-    assert_eq!(event.name, "ocr-progress");
+    // Core's own events, such as a sync snapshot, may arrive first.
+    let event = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+                panic!("missing progress")
+            };
+            if event.name == "ocr-progress" {
+                return event;
+            }
+        }
+    })
+    .await
+    .expect("no progress event");
     assert_eq!(event.payload.0["operationId"], operation.id());
     let _ = f.revision().await;
     f.finish().await;

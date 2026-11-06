@@ -596,6 +596,12 @@ async fn shutdown_cancels_waiters_and_cleans_partial_files() {
     );
 }
 
+/// What a rename onto a folder reads as: Windows refuses it as access denied.
+#[cfg(unix)]
+const RENAME_ONTO_FOLDER: FetchError = FetchError::Network;
+#[cfg(windows)]
+const RENAME_ONTO_FOLDER: FetchError = FetchError::WriteDenied;
+
 #[tokio::test]
 async fn rename_failure_keeps_the_existing_target_and_removes_temp() {
     let transport = Arc::new(FakeTransport::new(
@@ -607,7 +613,7 @@ async fn rename_failure_keeps_the_existing_target_and_removes_temp() {
     std::fs::create_dir(&path).unwrap();
     assert_eq!(
         downloader.fetch(&url(), path.clone(), None, false).await,
-        Err(FetchError::Network)
+        Err(RENAME_ONTO_FOLDER)
     );
     assert!(path.is_dir());
     assert!(part_files(&path).is_empty());

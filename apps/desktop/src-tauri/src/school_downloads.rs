@@ -10,15 +10,21 @@ use app_core::{
 };
 use std::{
     collections::HashSet,
-    fs::{self, OpenOptions},
-    io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+};
+#[cfg(any(test, target_os = "macos"))]
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Write},
 };
 use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+// Naming and writing a file the app saves itself, which only WebKit's PDF
+// viewer and popups hand over; elsewhere the webview saves its own downloads.
+#[cfg(any(test, target_os = "macos"))]
 const DOWNLOAD_NAME_LIMIT: usize = 200;
 
 #[derive(Default)]
@@ -284,6 +290,7 @@ fn download_destination_ok(destination: &Path, download_dir: &Path) -> bool {
             .is_some_and(safe_file_name)
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn split_extension(name: &str) -> (&str, &str) {
     match name.rfind('.') {
         Some(index) if index > 0 && name.len() - index <= 16 => name.split_at(index),
@@ -291,6 +298,7 @@ fn split_extension(name: &str) -> (&str, &str) {
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn download_file_name(suggested: &str, mime_type: &str) -> String {
     let cleaned = suggested
         .chars()
@@ -324,12 +332,14 @@ fn download_file_name(suggested: &str, mime_type: &str) -> String {
     format!("{}{extension}", stem[..keep].trim_end())
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn download_candidates(name: &str) -> impl Iterator<Item = String> + '_ {
     let (stem, extension) = split_extension(name);
     std::iter::once(name.to_string())
         .chain((1..1000).map(move |number| format!("{stem} ({number}){extension}")))
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn write_unique(directory: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     for candidate in download_candidates(name) {
         let path = directory.join(candidate);

@@ -63,13 +63,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
+      # The same lint as the Mac job: each OS compiles code the other never sees.
+      - name: Desktop lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # GitHub's Windows Server image cannot start the Tauri GUI test host
-      # (STATUS_ENTRYPOINT_NOT_FOUND), but this still compiles and links every
-      # unit and integration test target for Windows.
-      - run: cargo test --workspace --locked --no-run
+      # (STATUS_ENTRYPOINT_NOT_FOUND), so the shell's tests only compile and link.
+      - run: cargo test -p isct-companion --locked --no-run
+      # Everything else runs: Unix accepts what Windows refuses, so a compile
+      # alone misses it (1.3.0 could not open its data folder on Windows). The
+      # features are the shell's, which leaving it out would otherwise turn off.
+      # app-ffi only serves the phones; Native Core SDK runs its tests.
+      - name: Core and adapter tests
+        run: >-
+          cargo test --workspace --exclude isct-companion --exclude app-ffi --locked --no-fail-fast
+          --features app-core/ts,app-core/workspace-archives,app-core/agent,app-core/campus-printer
 
   apple:
     name: Apple Rust (${{ matrix.target }})

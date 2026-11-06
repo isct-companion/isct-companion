@@ -8,7 +8,6 @@ use crate::{
 };
 use std::sync::Arc;
 
-const PROXY: &str = "https://rp.nap.gsic.titech.ac.jp/vpnaccess_apm/service/";
 const PASSWORD_FORM: &str = r#"<form method="post" action="/vpnaccess_apm/service/post;jsessionid=J1">
     <input type="password" id="password" name="password" autocomplete="current-password">
     <button type="submit">OK</button></form>"#;

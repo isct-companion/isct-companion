@@ -80,8 +80,18 @@ fn the_session_end_is_read_from_openconnects_utc_line() {
     );
 }
 
+#[cfg(unix)]
+fn exiting_child() -> std::process::Child {
+    Command::new("/usr/bin/true").spawn().unwrap()
+}
+
+#[cfg(windows)]
+fn exiting_child() -> std::process::Child {
+    Command::new("cmd").args(["/C", "exit"]).spawn().unwrap()
+}
+
 fn inner_with_exited_child(routed: bool) -> Inner {
-    let mut child = Command::new("/usr/bin/true").spawn().unwrap();
+    let mut child = exiting_child();
     child.wait().unwrap();
     Inner {
         child: Some(child),
