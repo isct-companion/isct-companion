@@ -136,6 +136,15 @@ pub(crate) fn net_end(error: NetError, source: String) -> KeyEnd {
     }
 }
 
+/// A 教務Web read's network ending, keeping what the page's reader said: the
+/// kind alone cannot tell which part of a page it did not recognize.
+pub(crate) fn kyomu_read_end(error: NetError, source: String) -> KeyEnd {
+    match &error {
+        NetError::Invalid(reason) => KeyEnd::failed_because(error.kind(), source, reason),
+        _ => net_end(error, source),
+    }
+}
+
 /// One LMS key, as an operation of the LMS session. The reader the worker
 /// keeps across keys opens each transport when a key first needs it.
 struct LmsKey<'a> {
@@ -328,7 +337,7 @@ pub(crate) async fn read_kyomu_page(
                     if !matches!(error, NetError::HostPaused { .. } | NetError::Cancelled) {
                         emit(IngestState::Error, 0, error.to_string());
                     }
-                    net_end(error, source.clone())
+                    kyomu_read_end(error, source.clone())
                 },
             );
         }
@@ -386,8 +395,9 @@ pub(crate) async fn read_kyomu_page(
         // A page projection refused rolled back whole; it backs off like
         // any other failed read.
         Ok(Err(Gated::Failed(error))) => {
-            emit(IngestState::Error, 0, error.to_string());
-            KeyEnd::failed("parse", source)
+            let reason = error.to_string();
+            emit(IngestState::Error, 0, reason.clone());
+            KeyEnd::failed_because("parse", source, &reason)
         }
         Err(_) => KeyEnd::failed("stopped", source),
     }
@@ -463,10 +473,7 @@ fn lms_end(key: &Key, error: &KeyError) -> KeyEnd {
             source,
         };
     }
-    KeyEnd::Failed {
-        kind: error.kind(),
-        source,
-    }
+    KeyEnd::failed(error.kind(), source)
 }
 
 /// A complete key read, ready to commit.

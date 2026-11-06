@@ -611,6 +611,7 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
                 kind: "http-503".into(),
                 keys_failed: 1,
                 retry_at: Some(retry),
+                detail: Some("grades: parse".into()),
             }),
         }],
         sources: vec![],
@@ -625,6 +626,10 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
         matches!(&decoded.runs[0].held, Some(Held::Backoff { until }) if until.starts_with("2026-10-20T03:00:00"))
     );
     assert_eq!(decoded.runs[0].label.args.0["term"], "2026-3Q");
+    assert_eq!(
+        decoded.runs[0].failure.as_ref().unwrap().detail.as_deref(),
+        Some("grades: parse")
+    );
     assert_eq!(serde_json::to_value(&decoded).unwrap(), payload);
 
     let hint = Hint::Open {

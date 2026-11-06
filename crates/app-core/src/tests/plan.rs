@@ -1208,6 +1208,7 @@ fn snapshot_wire_names_match_the_shell_contract() {
                 kind: "timeout".into(),
                 keys_failed: 1,
                 retry_at: None,
+                detail: None,
             }),
         }],
         sources: Vec::new(),
@@ -1482,4 +1483,95 @@ async fn a_late_session_event_does_not_take_a_source_back() {
     assert_eq!(shown(), Some(SchoolSessionState::Refused));
     engine.observe(&session(6, SchoolSessionState::Normal));
     assert_eq!(shown(), Some(SchoolSessionState::Normal));
+}
+
+/// A person reporting a failed 教務Web read can only quote what the run's row
+/// shows: which page, and what its reader or projection said. A kind is the
+/// fallback when nothing was said; a paused host stays a pause, not a failure.
+#[test]
+fn a_failed_kyomu_run_names_each_page_and_its_reason() {
+    let page = |name: &str| Key::new(Dataset::KyomuPage, name);
+    let reason = |end: KeyEnd| match end {
+        KeyEnd::Failed { kind, reason, .. } => (kind, reason),
+        _ => panic!("not a failure"),
+    };
+    let (kind, grades) = reason(school::kyomu_read_end(
+        crate::net::NetError::Invalid("The grade page shape is unknown.".into()),
+        String::new(),
+    ));
+    assert_eq!(kind, "parse");
+    let (kind, gpa) = reason(school::kyomu_read_end(
+        crate::net::NetError::Http(500),
+        String::new(),
+    ));
+    assert_eq!((kind.as_str(), gpa.as_deref()), ("http-500", None));
+    assert!(matches!(
+        school::kyomu_read_end(
+            crate::net::NetError::HostPaused {
+                host: Host::Kyomu,
+                until_unix: 0
+            },
+            String::new()
+        ),
+        KeyEnd::HostPaused { .. }
+    ));
+    let long = reason(KeyEnd::failed_because("parse", "", &"あ".repeat(500))).1;
+    assert_eq!(long.unwrap().chars().count(), 200);
+
+    let failed = |kind: &str, reason: Option<String>| runner::FailedKey {
+        kind: kind.into(),
+        retry: None,
+        reason,
+    };
+    let batch = |dataset| runner::Batch {
+        run: "r".into(),
+        group: planner::Group {
+            dataset,
+            scope: None,
+            term: None,
+        },
+        priority: Priority::Interactive,
+        pending: Default::default(),
+        running: [(page("profile"), None)].into_iter().collect(),
+        done: Default::default(),
+        failed: [
+            (page("gpa"), failed("http-500", None)),
+            (page("grades"), failed("parse", grades.clone())),
+        ]
+        .into_iter()
+        .collect(),
+        held: None,
+        finished_at: None,
+    };
+    let run = snapshot::run_view(&batch(Dataset::KyomuPage));
+    assert_eq!(
+        run.failure.unwrap().detail.as_deref(),
+        Some("gpa: http-500\ngrades: The grade page shape is unknown.")
+    );
+    // The catalogs print `title`, so a key without one must not send null.
+    assert_eq!(run.current.unwrap().args["title"], "profile");
+    // Other datasets' keys are ids a person cannot read.
+    let run = snapshot::run_view(&batch(Dataset::LmsCourse));
+    assert_eq!(run.failure.unwrap().detail, None);
+}
+
+/// A label no catalog has is shown as the raw key on iOS and Android.
+#[test]
+fn every_dataset_has_its_sync_labels_in_every_catalog() {
+    for catalog in [
+        include_str!("../../../../resources/locales/en.json"),
+        include_str!("../../../../resources/locales/ja.json"),
+        include_str!("../../../../resources/locales/zh.json"),
+    ] {
+        let catalog: serde_json::Value = serde_json::from_str(catalog).unwrap();
+        for dataset in Dataset::ALL {
+            let name = snapshot::label_name(dataset);
+            assert!(catalog[format!("sync.run.{name}")].is_string(), "{name}");
+            assert_eq!(
+                catalog[format!("sync.current.{name}")],
+                "{{title}}",
+                "{name}"
+            );
+        }
+    }
 }

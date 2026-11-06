@@ -7,7 +7,7 @@
 //! `sync.current.<dataset>` with `title` and `key`.
 use super::{
     planner::{Candidate, Inputs},
-    runner::Batch,
+    runner::{Batch, FailedKey},
     Held, Label, RunView, SourceView, SyncFailure, SyncSnapshot,
 };
 use crate::{
@@ -38,7 +38,7 @@ pub(super) struct Parts<'a> {
     pub(super) now: DateTime<Utc>,
 }
 
-fn label_name(dataset: Dataset) -> String {
+pub(super) fn label_name(dataset: Dataset) -> String {
     dataset.name().replace('.', "-")
 }
 
@@ -64,14 +64,31 @@ fn failure<'a>(
         kind,
         keys_failed: count,
         retry_at,
+        detail: None,
     })
+}
+
+/// `grades: <reason>`, one line a failed page. Only 教務Web: its keys name
+/// pages a person can recognize and quote, the others are ids.
+fn failed_pages(dataset: Dataset, failed: &BTreeMap<Key, FailedKey>) -> Option<String> {
+    if dataset != Dataset::KyomuPage || failed.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = failed
+        .iter()
+        .map(|(key, failed)| {
+            let reason = failed.reason.as_deref().unwrap_or(&failed.kind);
+            format!("{}: {reason}", key.key)
+        })
+        .collect();
+    Some(lines.join("\n"))
 }
 
 fn count(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
-fn run_view(batch: &Batch) -> RunView {
+pub(super) fn run_view(batch: &Batch) -> RunView {
     let dataset = batch.group.dataset;
     let total = batch.pending.len() + batch.running.len() + batch.done.len() + batch.failed.len();
     RunView {
@@ -86,7 +103,8 @@ fn run_view(batch: &Batch) -> RunView {
         total: Some(count(total)),
         current: batch.running.iter().next().map(|(key, title)| Label {
             key: format!("sync.current.{}", label_name(dataset)),
-            args: json!({ "title": title, "key": key.key }),
+            // The catalogs print `title`; a key without one is its own name.
+            args: json!({ "title": title.as_deref().unwrap_or(&key.key), "key": key.key }),
         }),
         scope: batch.group.scope.clone(),
         held: batch.held.clone(),
@@ -94,8 +112,12 @@ fn run_view(batch: &Batch) -> RunView {
             batch
                 .failed
                 .values()
-                .map(|(kind, retry)| (kind.as_str(), *retry)),
-        ),
+                .map(|failed| (failed.kind.as_str(), failed.retry)),
+        )
+        .map(|failure| SyncFailure {
+            detail: failed_pages(dataset, &batch.failed),
+            ..failure
+        }),
     }
 }
 
