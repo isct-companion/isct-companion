@@ -1441,6 +1441,9 @@ async fn legacy_fired_history_is_merged_before_delivery_starts() {
             .contains_key("assignment:one")
     );
     service.shutdown().await;
+    // Windows cannot delete a folder with files still open.
+    drop(service);
+    drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1471,6 +1474,7 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
         .unwrap()
         .contains_key("assignment:one"));
     service.shutdown().await;
+    drop(service);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1491,6 +1495,7 @@ async fn reminder_passes_after_shutdown_are_rejected_as_stopped() {
             crate::runtime_tasks::RuntimeTaskError::Stopped
         ))
     ));
+    drop(service);
     std::fs::remove_dir_all(root).unwrap();
 }
 

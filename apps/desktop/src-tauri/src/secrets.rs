@@ -1,11 +1,12 @@
-use app_core::ports::{vault_item, vault_key, SecretError, SecretVault, VAULT_SERVICE};
+use app_core::ports::{vault_item, vault_key, SecretError, SecretVault};
 use tauri::AppHandle;
 use tauri_plugin_secure_storage::{OptionsRequest, SecureStorageExt};
 
 const LEGACY_SERVICES: &[&str] = &["app.isctcompanion.legacy", "jp.ac.isct.workstation.cloud"];
 const PREVIOUS_APP_ID: &str = "app.campuslife.sciencetokyo";
 const PREVIOUS_PRODUCT_NAME: &str = "Campus Life";
-const APP_ID: &str = VAULT_SERVICE;
+#[cfg(target_os = "macos")]
+const APP_ID: &str = app_core::ports::VAULT_SERVICE;
 
 fn access(message: impl Into<String>) -> SecretError {
     SecretError::Access(message.into())

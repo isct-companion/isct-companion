@@ -16,6 +16,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - apps/android/**
+      - apps/ios/**
       - crates/**
       - bindings/**
       - scripts/bindings/**
@@ -66,6 +68,20 @@ jobs:
         run: node scripts/bindings/build-ios.mjs
       - name: Run real SDK and OCR on iOS Simulator
         run: node scripts/bindings/ios-smoke.mjs
+      # The same check as iOS release, which otherwise first compiles the app
+      # on a version tag. Last, as the smoke run uses the runner's default Xcode.
+      - name: Compile the app against this SDK
+        working-directory: apps/ios
+        run: |
+          # The app adopts iOS 26 APIs behind availability checks, so it needs
+          # the iOS 26 SDK.
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          xcodegen generate
+          xcodebuild -project IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Debug \
+            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build
       - uses: actions/upload-artifact@v7
         with:
           name: app-core-swift-sdk-dev-ci
@@ -98,7 +114,8 @@ jobs:
           # Google's mirror sometimes serves a truncated NDK archive ("Error on
           # ZipFile unknown archive"); retry instead of failing the job.
           for attempt in 1 2 3; do
-            sdkmanager "platforms;android-34" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
+            # 34 is what the emulator runs; the app compiles against 37.
+            sdkmanager "platforms;android-34" "platforms;android-37.0" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
               test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" && break
             test "$attempt" = 3 && exit 1
             echo "SDK install failed (attempt $attempt); retrying"
@@ -119,6 +136,11 @@ jobs:
           key: native-sdk-android
       - name: Build AAR and both native ABIs
         run: node scripts/bindings/build-android.mjs
+      # Android release otherwise first compiles the app on a version tag, which
+      # is where the Kotlin errors of 1.1.9 and 1.3.0 surfaced.
+      - name: Compile the app against this AAR
+        working-directory: apps/android
+        run: ./gradlew :app:compileDebugKotlin --no-daemon
       - name: Enable Android emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

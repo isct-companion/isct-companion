@@ -14,7 +14,7 @@ use app_core::school_browser::{
     BrowserAction, BrowserId, NavigationDecision, NavigationKind, NavigationRequest,
     NewWindowDecision, NewWindowRequest, WindowFeatures,
 };
-use std::sync::{atomic::AtomicU64, Mutex, Weak};
+use std::sync::{atomic::AtomicU64, Weak};
 use tauri::webview::{NewWindowFeatures, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, WebviewUrl, WebviewWindow, Wry};
 use tauri_plugin_opener::OpenerExt;
