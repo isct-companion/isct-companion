@@ -56,6 +56,8 @@ fn english_names_from_the_english_page_survive_japanese_rereads() {
     assert_eq!(planned["source"]["provider"], "kyomu");
     assert_eq!(planned["title"], "Object-Oriented Programming");
     assert_eq!(planned["meetings"][0]["room"], "M-B07");
+    // Windows cannot delete a folder with files still open.
+    drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
 

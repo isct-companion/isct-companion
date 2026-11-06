@@ -190,6 +190,10 @@ pub struct SyncFailure {
     pub kind: String,
     pub keys_failed: u32,
     pub retry_at: Option<DateTime<Utc>>,
+    /// Which pages of a run failed and why, one `page: reason` line each.
+    /// Diagnostic text a person can quote in a report, not translated; only
+    /// the runs of this launch hold it, `kind` is what is stored.
+    pub detail: Option<String>,
 }
 
 /// One dataset being worked on now (or held). Shells show `total` as a

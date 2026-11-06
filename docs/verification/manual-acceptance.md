@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 187 checks must be re-run before the next release.**
+**8 of 188 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**179 checks have never been run or could not be run:**
+**180 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -134,6 +134,7 @@ an unverified area becomes an assumed-good one.
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
 - `ANDROID-MATRIX-SOURCES` — never verified
+- `SYNC-FAILED-PAGE-REASON` — never verified
 - `ANDROID-TODAY-CLASS-STACK` — never verified
 - `ANDROID-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `ANDROID-COURSE-LESSONS` — never verified
@@ -256,7 +257,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_windows.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
-| `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
+| `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
 | `DESKTOP-STORE-POWER-LOSS` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/root.rs |
 | `STORE-READS-WHILE-SYNCING-ON-DEVICES` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/views.rs |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
@@ -326,6 +327,7 @@ an unverified area becomes an assumed-good one.
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
@@ -3297,27 +3299,34 @@ A Mac with IsctCompanion 1.2.7 installed and used (courses, a personal
 event, a reminder setting, Allow local agents on), a copy of
 `~/Library/Application Support/app.isctcompanion/` saved elsewhere, and
 a build of this commit (`yarn desktop:build --debug --bundles app`).
-`pgrep -lf IsctCompanion` shows nothing running.
+`pgrep -lf IsctCompanion` shows nothing running. For the Windows step, a
+Windows PC with 1.2.7 installed and used, and an installer of this commit.
 
 **Steps**
 
-1. Start the new build once, quit it, and list the data folder.
+1. On the Windows PC, install this commit over 1.2.7 and start it. Then
+   uninstall, remove the data folder and install it fresh.
+   - *Why:* Windows refuses file operations that Unix allows, and the Core tests
+     do not run the installed app's own folder. 1.3.0 passed on a Mac and
+     stopped on Windows with "The data folder could not be opened" (os
+     error 5) while building the first store.
+2. Start the new build once, quit it, and list the data folder.
    - *Why:* The user tables of the flat user.db are copied into
      `store/<generation>/store.db` and the folder gains `core.lock`,
      `store-index.db` and `local/reminders-fired.json`. The flat files
      stay (retired, not deleted), so the old release's data remains as
      recovery material.
-2. Start the new build again and check Today, the personal event, the
+3. Start the new build again and check Today, the personal event, the
    reminder setting and Settings → AI agent access.
    - *Why:* User data must be the 1.2.7 data, unchanged; school data is read
      again, since the flat caches are not carried over, and the MCP
      listener comes back on its own.
-3. With the new build running, start `yarn desktop:dev` (or a second
+4. With the new build running, start `yarn desktop:dev` (or a second
    copy of the .app).
    - *Why:* One Core per data folder: the second process must stop at once with
      the "another copy is using this data folder" message, before it
      opens a database or reads the school.
-4. Quit everything, start 1.2.7 again, then the new build.
+5. Quit everything, start 1.2.7 again, then the new build.
    - *Why:* 1.2.7 does not know the lock or the generations: it works on the
      retired flat files, and nothing it writes reaches the new build.
      The new build must still open its own generations unharmed. Restore
@@ -3347,6 +3356,7 @@ the generations are covered by the Core tests over scratch folders.
 - `crates/app-core/src/data/root.rs`
 - `crates/app-core/src/data/connection.rs`
 - `crates/app-core/src/data/migrations.rs`
+- `crates/app-core/src/storage.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/native_dialog.rs`
 
@@ -7261,6 +7271,56 @@ is Core's, covered by its tests.
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
 - `apps/android/app/src/main/res/xml/file_paths.xml`
+
+**Last recorded** never run
+
+### A failed 教務Web read names the run, the page and the reason on every shell (`SYNC-FAILED-PAGE-REASON`)
+
+**Area** native · **Persona** 修士課程 1年・前期課程 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iOS and Android apps and the desktop app signed in to Tokyo Tech, and
+a debugging proxy on the device that can answer one 教務Web page with an
+empty HTML document.
+
+**Steps**
+
+1. Press refresh and open the 与学校的连接 sheet while the read runs.
+   - *Why:* The row reads 教務Webのページ with the page being read under it. Core
+     sends `sync.run.kyomu-page`, and iOS and Android print a label no
+     catalog has as the raw key.
+2. Answer `PID2_0.aspx` (grades) with the empty document through the
+   proxy and press 再試行 on 教務Web. Read the failed row, select its
+   detail line, then hover the failure in the desktop footer.
+   - *Why:* A person reporting a failure can only quote what the row shows, and
+     a read that fails on one account cannot be reproduced by anyone else.
+     The detail is selectable on the phones and a tooltip on the desktop.
+
+**Where to look**
+
+The run's row in the connection sheet, and the desktop footer.
+
+**Expected**
+
+No `sync.` key is visible anywhere. The failed row shows
+`grades: kyomu extraction was incomplete: The grade page shape is unknown.`
+under the failure line, with one such line per failed page, and the other
+pages still finish. The text can be copied on iOS and Android.
+
+**Why this is manual**
+
+The failed row is drawn by three native shells over a signed-in account;
+a person sees at a glance whether it reads right. The text and the labels
+themselves are checked in Core's plan tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/desktop/src/app/SchoolStatusLine.tsx`
 
 **Last recorded** never run
 

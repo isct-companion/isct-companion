@@ -30,7 +30,7 @@
     ],
     "targets": "all",
     "macOS": {
-      "minimumSystemVersion": "14.0",
+      "minimumSystemVersion": "15.0",
       "entitlements": "Entitlements.plist",
       "bundleVersion": "1.3.0"
     },

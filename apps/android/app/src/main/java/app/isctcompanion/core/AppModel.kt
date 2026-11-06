@@ -1,5 +1,6 @@
 package app.isctcompanion.core
 
+import app.isctcompanion.BackgroundWake
 import app.isctcompanion.design.lookup
 import app.isctcompanion.design.t
 import android.content.BroadcastReceiver

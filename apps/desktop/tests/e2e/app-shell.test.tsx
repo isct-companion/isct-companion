@@ -2019,7 +2019,7 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
       run: "grades",
       dataset: "kyomu.page",
       scope: "grades",
-      failure: { kind: "timeout", keysFailed: 1, retryAt: null },
+      failure: { kind: "timeout", keysFailed: 1, retryAt: null, detail: null },
     }),
   ]);
   const retry = await required(

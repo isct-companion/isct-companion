@@ -419,6 +419,10 @@ private struct SyncRunRow: View {
                 FailureLine(text: SyncText.failure(failure, name: SyncText.dataset(run.dataset))) {
                     model.syncHint(.refresh(scope: SyncText.scope(for: run)))
                 }
+                if let detail = failure.detail {
+                    // Core's diagnostic text, selectable to quote in a report.
+                    Text(verbatim: detail).font(.footnote).foregroundStyle(Theme.muted).textSelection(.enabled)
+                }
             } else if let held = run.held {
                 Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
             }

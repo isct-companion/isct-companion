@@ -300,6 +300,8 @@ pub(crate) enum KeyEnd {
     Failed {
         kind: String,
         source: String,
+        /// What the reader or the projection said, for the run's row.
+        reason: Option<String>,
     },
     /// Already recorded by the executor with its own backoff (a public file
     /// held back after shrinking).
@@ -348,6 +350,21 @@ impl KeyEnd {
         Self::Failed {
             kind: kind.into(),
             source: source.into(),
+            reason: None,
+        }
+    }
+
+    /// A failure with the reason shown on the run's row. Bounded, since a
+    /// storage or client error's text is not ours.
+    pub(crate) fn failed_because(
+        kind: impl Into<String>,
+        source: impl Into<String>,
+        reason: &str,
+    ) -> Self {
+        Self::Failed {
+            kind: kind.into(),
+            source: source.into(),
+            reason: Some(reason.chars().take(MAX_FAILURE_REASON).collect()),
         }
     }
 
@@ -489,6 +506,16 @@ struct LeaseEntry {
     cancel: CancellationToken,
 }
 
+/// Characters of a failure's reason kept for the run's row.
+const MAX_FAILURE_REASON: usize = 200;
+
+/// One failed key of a run.
+pub(super) struct FailedKey {
+    pub(super) kind: String,
+    pub(super) retry: Option<DateTime<Utc>>,
+    pub(super) reason: Option<String>,
+}
+
 /// One run in the snapshot: the keys of one group that became due
 /// together, counted as they finish.
 pub(super) struct Batch {
@@ -498,8 +525,7 @@ pub(super) struct Batch {
     pub(super) pending: BTreeSet<Key>,
     pub(super) running: BTreeMap<Key, Option<String>>,
     pub(super) done: BTreeSet<Key>,
-    /// Failed keys: error kind and retry time.
-    pub(super) failed: BTreeMap<Key, (String, Option<DateTime<Utc>>)>,
+    pub(super) failed: BTreeMap<Key, FailedKey>,
     pub(super) held: Option<super::Held>,
     pub(super) finished_at: Option<Instant>,
 }
@@ -1757,7 +1783,7 @@ impl PlanEngine {
                 .iter()
                 .filter(|batch| {
                     batch.idle()
-                        && batch.failed.values().all(|(_, retry)| retry.is_none())
+                        && batch.failed.values().all(|failed| failed.retry.is_none())
                         && !batch.failed.is_empty()
                 })
                 .filter_map(|batch| batch.finished_at)
@@ -2060,8 +2086,28 @@ fn settle(
                 log::debug!(target: "app_core::sync", "{key} committed, {changed} rows changed");
                 batch.done.insert(key.clone());
             }
-            KeyEnd::Failed { kind, .. } | KeyEnd::Refused { kind } => {
-                batch.failed.insert(key.clone(), (kind.clone(), retry_at));
+            KeyEnd::Failed { kind, reason, .. } => {
+                if let Some(reason) = reason {
+                    log::warn!(target: "app_core::sync", "{key} failed: {reason}");
+                }
+                batch.failed.insert(
+                    key.clone(),
+                    FailedKey {
+                        kind: kind.clone(),
+                        retry: retry_at,
+                        reason: reason.clone(),
+                    },
+                );
+            }
+            KeyEnd::Refused { kind } => {
+                batch.failed.insert(
+                    key.clone(),
+                    FailedKey {
+                        kind: kind.clone(),
+                        retry: retry_at,
+                        reason: None,
+                    },
+                );
             }
             // Still due: the next plan holds or reads it again.
             KeyEnd::Blocked { .. }
@@ -2149,7 +2195,7 @@ fn update_batches(state: &mut State, instant: Instant, now: DateTime<Utc>) {
         if batch.failed.is_empty() {
             return false;
         }
-        let retry = batch.failed.values().filter_map(|(_, at)| *at).min();
+        let retry = batch.failed.values().filter_map(|failed| failed.retry).min();
         match retry {
             Some(retry) => retry > now,
             None => batch

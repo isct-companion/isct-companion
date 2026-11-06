@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -353,6 +354,8 @@ private fun RunRow(run: RunView) {
         val held = run.held
         if (failure != null) {
             FailureLine(failureText(failure, dataset(run.dataset))) { model.refresh(retryScope(run)) }
+            // Core's diagnostic text, selectable to quote in a report.
+            failure.detail?.let { SelectionContainer { Small(it) } }
         } else if (held != null) {
             Small(heldText(held))
         }

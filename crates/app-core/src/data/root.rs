@@ -629,7 +629,7 @@ pub(crate) fn finish_candidate(
         for entry in fs::read_dir(directory)? {
             let path = entry?.path();
             if path.is_file() {
-                fs::File::open(&path)?.sync_all()?;
+                crate::storage::sync_file(&path)?;
             }
         }
         crate::storage::sync_directory(directory)?;

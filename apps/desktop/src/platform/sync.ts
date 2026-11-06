@@ -63,6 +63,8 @@ export type SyncFailure = {
   kind: string;
   keysFailed: number;
   retryAt: string | null;
+  /** Core's diagnostic text: one `page: reason` line per failed page. */
+  detail: string | null;
 };
 
 export type RunView = {

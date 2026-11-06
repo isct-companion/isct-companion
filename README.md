@@ -49,7 +49,7 @@ Every build is on the [download page](https://isctcomp.app/en/#download) and on
 
 | Device | Requires | Get it |
 | --- | --- | --- |
-| macOS · Apple silicon / Intel | macOS 14+ | `.dmg`, signed and notarized by Apple |
+| macOS · Apple silicon / Intel | macOS 15+ | `.dmg`, signed and notarized by Apple |
 | Windows · x64 | Windows 10 / 11 | `.exe` installer (not signed yet: choose **More info → Run anyway**) |
 | Android | Android 9+ | `.apk` (Google Play release on the way) |
 | iPhone / iPad | iOS / iPadOS | [App Store](https://apps.apple.com/app/id6821631471), or the [TestFlight public beta](https://testflight.apple.com/join/kUZNQHG6) |
