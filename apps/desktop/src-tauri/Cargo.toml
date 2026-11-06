@@ -113,7 +113,7 @@ tauri-plugin-single-instance = "2"
 # cookies Core writes into the school store (school_cookies.rs). The versions
 # wry already uses.
 webkit2gtk = { version = "2.0", features = ["v2_38"] }
-soup3 = "0.5"
+soup3 = "0.9"
 
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }
