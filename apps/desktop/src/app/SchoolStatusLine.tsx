@@ -92,7 +92,9 @@ function SyncFailures({
     <ul className="syncFailures" role="status">
       {failures.map((run) => (
         <li key={run.run}>
-          <span>{failureText(run.dataset, run.failure!, locale)}</span>
+          <span title={run.failure!.detail ?? undefined}>
+            {failureText(run.dataset, run.failure!, locale)}
+          </span>
           <UiButton
             type="button"
             className="textButton"

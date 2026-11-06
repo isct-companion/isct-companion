@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 187 checks must be re-run before the next release.**
+**8 of 188 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**179 checks have never been run or could not be run:**
+**180 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -134,6 +134,7 @@ an unverified area becomes an assumed-good one.
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
 - `ANDROID-MATRIX-SOURCES` — never verified
+- `SYNC-FAILED-PAGE-REASON` — never verified
 - `ANDROID-TODAY-CLASS-STACK` — never verified
 - `ANDROID-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `ANDROID-COURSE-LESSONS` — never verified
@@ -326,6 +327,7 @@ an unverified area becomes an assumed-good one.
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
@@ -7269,6 +7271,56 @@ is Core's, covered by its tests.
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
 - `apps/android/app/src/main/res/xml/file_paths.xml`
+
+**Last recorded** never run
+
+### A failed 教務Web read names the run, the page and the reason on every shell (`SYNC-FAILED-PAGE-REASON`)
+
+**Area** native · **Persona** 修士課程 1年・前期課程 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iOS and Android apps and the desktop app signed in to Tokyo Tech, and
+a debugging proxy on the device that can answer one 教務Web page with an
+empty HTML document.
+
+**Steps**
+
+1. Press refresh and open the 与学校的连接 sheet while the read runs.
+   - *Why:* The row reads 教務Webのページ with the page being read under it. Core
+     sends `sync.run.kyomu-page`, and iOS and Android print a label no
+     catalog has as the raw key.
+2. Answer `PID2_0.aspx` (grades) with the empty document through the
+   proxy and press 再試行 on 教務Web. Read the failed row, select its
+   detail line, then hover the failure in the desktop footer.
+   - *Why:* A person reporting a failure can only quote what the row shows, and
+     a read that fails on one account cannot be reproduced by anyone else.
+     The detail is selectable on the phones and a tooltip on the desktop.
+
+**Where to look**
+
+The run's row in the connection sheet, and the desktop footer.
+
+**Expected**
+
+No `sync.` key is visible anywhere. The failed row shows
+`grades: kyomu extraction was incomplete: The grade page shape is unknown.`
+under the failure line, with one such line per failed page, and the other
+pages still finish. The text can be copied on iOS and Android.
+
+**Why this is manual**
+
+The failed row is drawn by three native shells over a signed-in account;
+a person sees at a glance whether it reads right. The text and the labels
+themselves are checked in Core's plan tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/desktop/src/app/SchoolStatusLine.tsx`
 
 **Last recorded** never run
 

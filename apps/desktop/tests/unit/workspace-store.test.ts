@@ -1400,7 +1400,7 @@ describe("sync snapshot surfaces", () => {
     const failed = run({
       run: "failed",
       total: 3,
-      failure: { kind: "http-503", keysFailed: 1, retryAt: null },
+      failure: { kind: "http-503", keysFailed: 1, retryAt: null, detail: null },
     });
     const background = run({ run: "bg", priority: "background" });
     expect(progressLine(syncOf(failed, held, background))).toMatchObject({
