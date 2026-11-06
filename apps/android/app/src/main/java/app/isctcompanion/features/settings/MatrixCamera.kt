@@ -158,7 +158,11 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
         while (granted && isActive && !camera.stopped) {
             delay(100)
             if (SystemClock.elapsedRealtime() - camera.lastFrame >= 100) {
-                when (val next = withContext(Dispatchers.IO) { camera.poll() }) {
+                val next = withContext(Dispatchers.IO) { camera.poll() }
+                // A frame callback or cancellation may have stopped this scan
+                // while the poll was running. Do not deliver its late result.
+                if (camera.stopped) break
+                when (next) {
                     is LiveCamera.Update.State -> {
                         state = next.state
                         if (next.state.phase == MatrixCameraPhase.COMPLETE) finish(next.state.cells)
@@ -333,7 +337,13 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
                 .setOutputImageRotationEnabled(true)
                 .build()
             analysis.setAnalyzer(executor) { image ->
-                image.use { analyse(it)?.let { result -> main.execute { if (!closed.get()) update(result) } } }
+                image.use {
+                    analyse(it)?.let { result ->
+                        // The dialog delivers COMPLETE/failure before stopping.
+                        // Stopping here would close this gate and lose the result.
+                        main.execute { if (!closed.get()) update(result) }
+                    }
+                }
             }
             runCatching {
                 cameras.unbindAll()
@@ -369,10 +379,8 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
             capturedMs = (SystemClock.elapsedRealtime() - started).toDouble(),
         )
         val state = runCatching { scan.submit(frame) }.getOrElse {
-            stop()
             return Update.Failed(AppModel.describe(it))
         }
-        if (state.phase == MatrixCameraPhase.COMPLETE) stop()
         // Only an outline fitted on this frame; a stale one would point
         // where the card was.
         val outline = if (state.boundsFrameId == frameId) state.bounds else emptyList()
@@ -385,11 +393,10 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
         control?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
     }
 
-    /** Core's state without a frame; a failure stops the scan, as on iOS. */
+    /** Core's state without a frame; the dialog handles terminal updates. */
     fun poll(): Update? {
         if (closed.get()) return null
         return runCatching { Update.State(scan.poll()) }.getOrElse {
-            stop()
             Update.Failed(AppModel.describe(it))
         }
     }
