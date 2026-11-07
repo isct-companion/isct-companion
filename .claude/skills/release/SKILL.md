@@ -20,8 +20,8 @@ git status --short
 ```
 
 Work in the main checkout on `main`, level with `origin/main` (neither ahead
-nor behind), then `git switch -c release/<version>`. Files the user has changed
-but not committed are theirs: leave them alone and stage only by path in step 5.
+nor behind), then `git switch -c dev`. Files the user has changed but not
+committed are theirs: leave them alone and stage only by path in step 5.
 
 ## 2. Bump
 
@@ -89,23 +89,29 @@ attribution line.
 
 ## 6. Merge, tag and push
 
-`main` takes a commit only from a pull request whose required checks passed.
+`main` takes a commit only from a pull request from the `dev` branch, once
+`Main release gate` has passed. The gate waits for `Platform checks` on that
+exact commit of `dev`. If `origin/dev` exists, someone else's candidate is on
+it: stop and ask.
 
 ```bash
-git push origin release/<version>
-gh pr create --base main --head release/<version> \
+git push origin dev
+gh pr create --base main --head dev \
   --title "Release IsctCompanion <version>" --body-file docs/releases/<version>.md
 ```
 
 Once every check on the pull request has passed, fast-forward `main` to the
 commit, tag it and push the tag. GitHub accepts the push and marks the pull
-request merged. The rebase button would rewrite the commit instead.
+request merged, and the gate's workflow then deletes `origin/dev`. The rebase
+button would rewrite the commit instead.
 
 ```bash
-git push origin release/<version>:main
-git tag -a v<version> -m "IsctCompanion <version>"
+git push origin dev:main
+git tag -a v<version> -m "IsctCompanion <version>" dev
 git push origin v<version>
-git push origin --delete release/<version>
+git switch main
+git pull --ff-only origin main
+git branch -d dev
 ```
 
 These pushes need no further approval.
