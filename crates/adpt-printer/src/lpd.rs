@@ -249,7 +249,7 @@ fn truncate(text: &str, max_chars: usize) -> String {
 
 /// This machine's name for the control file's `H` line, never empty.
 pub fn local_hostname() -> String {
-    let name: String = raw_hostname()
+    let name: String = std::env::var("COMPUTERNAME")
         .unwrap_or_default()
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '.')
@@ -259,17 +259,6 @@ pub fn local_hostname() -> String {
     } else {
         name
     }
-}
-
-/// The macOS test build: no control file there names a real host.
-#[cfg(not(windows))]
-fn raw_hostname() -> Option<String> {
-    None
-}
-
-#[cfg(windows)]
-fn raw_hostname() -> Option<String> {
-    std::env::var("COMPUTERNAME").ok()
 }
 
 /// LPD job numbers have three digits. Start somewhere unlikely to repeat a
