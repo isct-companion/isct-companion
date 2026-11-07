@@ -64,15 +64,12 @@ const bundled2026 = repositoryJson<{ departments: BundledDepartment[] }>(
 );
 
 describe("the bundled undergraduate departments", () => {
-  it("lists the same departments as the bundled 2026 subscription data", () => {
+  it("matches the bundled 2026 departments and their official fields", () => {
     const shipped = SYLLABUS_DEPARTMENTS.map((department) => department.id);
     const bundled = bundled2026.departments.map((department) => department.id);
     expect(shipped.length).toBeGreaterThan(0);
     expect(new Set(shipped).size).toBe(shipped.length);
     expect([...shipped].sort()).toEqual([...bundled].sort());
-  });
-
-  it("gives every department an official syllabus scope and unit code", () => {
     const scopes = SYLLABUS_DEPARTMENTS.map((department) => department.scope);
     const unitCodes = SYLLABUS_DEPARTMENTS.map(
       (department) => department.unitCode,
@@ -85,14 +82,11 @@ describe("the bundled undergraduate departments", () => {
       expect(department.name.ja, department.id).toBeTruthy();
       expect(department.name.en, department.id).toBeTruthy();
     }
-  });
-
-  it("agrees with the bundled 2026 data on every name, unit code and scope", () => {
-    const bundled = new Map(
+    const bundledById = new Map(
       bundled2026.departments.map((department) => [department.id, department]),
     );
     for (const department of SYLLABUS_DEPARTMENTS) {
-      const source = bundled.get(department.id);
+      const source = bundledById.get(department.id);
       expect(source, department.id).toBeDefined();
       expect(department.name, department.id).toEqual(source!.name);
       expect(department.unitCode, department.id).toBe(source!.unitCode);
@@ -213,5 +207,83 @@ describe("the state label shown beside an assignment", () => {
 
   it("shows the unknown label when Core recorded no state at all", () => {
     expect(submissionLabel(assignment(), label, false)).toBe("unknown");
+  });
+});
+
+describe("bundled public subscription data", () => {
+  type Source = { title: string; url: string };
+  type Department = {
+    id: string;
+    name: { ja: string; en: string };
+    syllabusScope: string;
+    guidePdf: string;
+    recommended: { code: string; group: string; mark?: string }[];
+  };
+  const readDepartments = (year: "2025" | "2026") =>
+    JSON.parse(
+      readRepoFile(
+        `crates/app-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
+      ),
+    ) as {
+      admissionYear: number;
+      source: Source[];
+      departments: Department[];
+    };
+
+  it("ships the 17 documented department guides with names and cited sources", () => {
+    const data = readDepartments("2026");
+    expect(data.source.length).toBeGreaterThan(0);
+    for (const source of data.source) {
+      expect(source.title.trim()).not.toBe("");
+      const url = new URL(source.url);
+      expect(url.protocol).toBe("https:");
+      expect(url.hostname.endsWith("titech.ac.jp")).toBe(true);
+    }
+    expect(data.departments).toHaveLength(17);
+    expect(
+      new Set(data.departments.map((department) => department.id)).size,
+    ).toBe(17);
+    expect(
+      data.departments.every(
+        (department) =>
+          department.name.ja.trim() !== "" &&
+          department.name.en.trim() !== "" &&
+          /^\d\/[^/]+$/.test(department.syllabusScope) &&
+          department.guidePdf.startsWith("https://www.titech.ac.jp/"),
+      ),
+    ).toBe(true);
+    expect(
+      data.departments.find((department) => department.id === "cs")?.name.ja,
+    ).toBe("情報工学系");
+  });
+
+  it("cites an official source for the academic-calendar day list", () => {
+    const calendar = JSON.parse(
+      readRepoFile(
+        "crates/app-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json",
+      ),
+    ) as { source: Source[]; days: unknown[] };
+    expect(calendar.days.length).toBeGreaterThan(0);
+    expect(calendar.source.length).toBeGreaterThan(0);
+    for (const source of calendar.source) {
+      expect(source.title.trim()).not.toBe("");
+      const url = new URL(source.url);
+      expect(url.protocol).toBe("https:");
+      expect(url.hostname.endsWith("titech.ac.jp")).toBe(true);
+    }
+  });
+
+  it("keeps the two admission cohorts distinct", () => {
+    const current = readDepartments("2026");
+    const previous = readDepartments("2025");
+    expect(current.admissionYear).toBe(2026);
+    expect(previous.admissionYear).toBe(2025);
+    expect(current.source[0].url).not.toBe(previous.source[0].url);
+    const previousPdfs = new Set(
+      previous.departments.map((department) => department.guidePdf),
+    );
+    for (const department of current.departments) {
+      expect(previousPdfs.has(department.guidePdf), department.id).toBe(false);
+    }
   });
 });

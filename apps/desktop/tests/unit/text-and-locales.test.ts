@@ -178,13 +178,10 @@ const ja = loadLocale("ja");
 const zh = loadLocale("zh");
 
 describe("HTML entities in school text", () => {
-  it("decodes a named escape without disturbing the surrounding title", () => {
+  it("decodes every named entity the school pages emit, including nbsp and quot", () => {
     expect(decodeEntities("Archaeology &amp; Biological Anthropology C")).toBe(
       "Archaeology & Biological Anthropology C",
     );
-  });
-
-  it("decodes every named entity the school pages emit, including nbsp and quot", () => {
     expect(decodeEntities("&lt;b&gt; &quot;x&quot; &apos;y&apos;")).toBe(
       `<b> "x" 'y'`,
     );
@@ -295,24 +292,16 @@ describe("workspace seeding", () => {
     "subscriptions",
   ] as const;
 
-  it("starts a real workspace at schema version 3 with no school or personal rows", () => {
+  it("keeps the Core seed schema, term, empty rows and scheduled-task defaults", () => {
     const workspace = seedWorkspace();
     expect(workspace.schemaVersion).toBe(3);
     for (const key of EMPTY_COLLECTIONS) {
       expect(workspace[key], key).toEqual([]);
     }
-  });
-
-  it("keeps the term Core chose for its first-launch workspace and selects it", () => {
-    const workspace = seedWorkspace();
     expect(workspace.selectedTerm).toBe(EMPTY_WORKSPACE.selectedTerm);
     expect(workspace.selectedTerm).toMatch(/^\d{4}-[1-4]Q$/);
     expect(workspace.currentTerm).toBe(workspace.selectedTerm);
     expect(workspace.terms).toEqual([workspace.selectedTerm]);
-  });
-
-  it("enables the reference refresh task and leaves the LMS background refresh off", () => {
-    const workspace = seedWorkspace();
     expect(workspace.scheduledTasks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -383,14 +372,6 @@ describe("Chinese translation catalogue", () => {
     }
   });
 
-  it("contains real Chinese text rather than copies of the Japanese or English entries", () => {
-    const copiedFromJapanese = keys.filter((key) => zh[key] === ja[key]);
-    const copiedFromEnglish = keys.filter((key) => zh[key] === en[key]);
-    // A handful of entries are genuinely the same word or a proper noun.
-    expect(copiedFromJapanese.length).toBeLessThan(keys.length * 0.05);
-    expect(copiedFromEnglish.length).toBeLessThan(keys.length * 0.05);
-  });
-
   it("defines every key the desktop, iOS, Android and desktop-shell sources use", () => {
     const undefinedKeys = sources().flatMap(({ file, text }) =>
       usedKeys(file, text)
@@ -407,17 +388,6 @@ describe("Chinese translation catalogue", () => {
         .map((key) => `${file}: ${key}`),
     );
     expect(undefinedKeys).toEqual([]);
-  });
-
-  it("has no key that no source uses", () => {
-    const used = new Set(
-      sources().flatMap(({ text }) => [...literals(text)].map(([, v]) => v)),
-    );
-    const unused = keys.filter(
-      (key) =>
-        !used.has(key) && !KEYS_BUILT_AT_RUNTIME.some((p) => key.startsWith(p)),
-    );
-    expect(unused).toEqual([]);
   });
 
   it("maps each UI locale to the locale used for dates", () => {

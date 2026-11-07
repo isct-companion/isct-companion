@@ -106,6 +106,10 @@ Then decide whether the behaviour belongs in a test at all:
   scripting an e2e test that rebuilds the screen over a fake host. Logic behind
   the screen still gets its test at the layer that owns it, usually Core.
 
+One-time migration, refactor cutover, and upgrade acceptance checks do not enter
+the long-lasting manual checklist. Remind the user to perform them in the
+current conversation; retain checks for ongoing product risks.
+
 A check whose covered paths are all already exercised by the suites is rejected,
 and so is a step with no reason: "the manual table" must not become the place
 where hard tests go to be forgotten.

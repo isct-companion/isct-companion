@@ -17,30 +17,23 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 189 checks must be re-run before the next release.**
+**5 of 161 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
-- `SCHOOL-LMS-YEAR-ROLLOVER` — covered paths changed after b598ae6
 - `OCR-CAMPUS-CARD` — covered paths changed after 7fdf1b6
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
-- `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
-- `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**181 checks have never been run or could not be run:**
+**156 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
-- `IDENTITY-MASTERS-CREDITS` — never verified
-- `IDENTITY-DOCTORAL-RULES` — never verified
-- `IDENTITY-TRANSFER-COHORT` — never verified
 - `SCHOOL-KYOMU-GRADUATE-TABLES` — unreached: No graduate account available; a borrowed account is pending.
 - `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` — never verified
-- `IDENTITY-LANGUAGE-SWITCH` — never verified
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-CREDENTIAL-BACKUP` — never verified
 - `CLOUD-RESILIENCE` — never verified
@@ -55,8 +48,6 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-CLOSE-WINDOW` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-PAGE-OVERLAYS` — never verified
-- `DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP` — never verified
-- `DESKTOP-LECTURE-PANE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-CAMPUS-PRINTER-QUEUE` — never verified
@@ -73,18 +64,14 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-FILE-SHARE-MACOS` — never verified
 - `DESKTOP-FILE-SHARE-WINDOWS` — never verified
-- `DESKTOP-LECTURES-PANE-MOTION` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
 - `DESKTOP-SYNC-STATUS` — never verified
 - `DESKTOP-PLANNING-PANEL` — never verified
 - `DESKTOP-FINDER-CATALOG-DOWNLOAD` — never verified
 - `DESKTOP-FINDER-COMMIT` — never verified
-- `DESKTOP-FINDER-SLOT-HIGHLIGHT` — never verified
 - `DESKTOP-FINDER-IME-KANA` — never verified
 - `DESKTOP-FINDER-IME-PINYIN` — never verified
-- `DESKTOP-FINDER-ADD-SAVING` — never verified
-- `DESKTOP-FINDER-ADD-WHILE-TYPING` — never verified
 - `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
@@ -101,18 +88,14 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-DEV-BUILD-UPDATES` — never verified
 - `DESKTOP-WINDOWS-SCHOOL-PULL` — never verified
 - `DESKTOP-LMS-SESSION-RECOVERY` — never verified
-- `DESKTOP-WINDOWS-SIGNED-INSTALL` — never verified
-- `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO` — never verified
 - `SCHOOL-SESSION-RESTART` — never verified
 - `SCHOOL-WEB-RESTORED-IDENTITY` — never verified
 - `SCHOOL-WEB-RELOAD-SIGN-IN` — never verified
 - `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` — never verified
-- `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` — never verified
 - `DESKTOP-SCHOOL-COOKIES-WINDOWS` — never verified
 - `DESKTOP-SCHOOL-COOKIES-LINUX` — never verified
-- `NATIVE-SCHOOL-BACKGROUND-READ` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `MOBILE-OTP-AUTHENTICATOR-EXPORT` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
@@ -140,7 +123,6 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-COURSE-LESSONS` — never verified
 - `ANDROID-COURSE-ZOOM-BACK` — never verified
 - `ANDROID-ORIENTATION` — never verified
-- `ANDROID-DEPENDENCY-UPGRADE` — never verified
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
@@ -151,14 +133,10 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-SCHOOL-PRINT` — never verified
 - `ANDROID-SCHOOL-NATIVE-CONFIRM` — never verified
 - `ANDROID-SCHOOL-SELECT-AND-FILES` — never verified
-- `ANDROID-COURSE-ZOOM-AND-FIGURES` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
 - `DESKTOP-COURSE-OUTLINE-STILL` — never verified
-- `IOS-COURSE-LESSON-PAGING` — never verified
-- `IOS-COURSE-LESSON-MARK` — never verified
 - `COURSE-LESSON-SERIES-LABELS` — never verified
-- `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
 - `DESKTOP-DEBUG-ICLOUD` — never verified
 - `CLOUD-PROVIDER-COMBINATIONS` — never verified
@@ -166,18 +144,14 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-PRIVACY-POLICY` — never verified
 - `IOS-LOG-EXPORT` — never verified
-- `IOS-LOG-ROW-TAP` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
 - `SCHOOL-KYOMU-RUST-TLS` — never verified
 - `SETTINGS-RESET` — never verified
-- `TODAY-NOW-LINE-NEXT-DAY` — never verified
 - `MOBILE-SETTINGS-RESET` — never verified
 - `MOBILE-BACKGROUND-SYNC` — never verified
 - `MOBILE-CORE-BACKGROUND-DEADLINE` — never verified
 - `GUIDE-FIRST-RUN` — never verified
-- `VISUAL-NOW-GRADIENT` — never verified
-- `DESKTOP-RADIX-APPEARANCE` — never verified
 - `NOW-TINT-APPEARANCE` — never verified
 - `DESKTOP-WINDOW-MATERIAL` — never verified
 - `DESKTOP-NATIVE-CHROME` — never verified
@@ -205,8 +179,6 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-ERROR-CODE-COPY` — never verified
 - `DESKTOP-WEEKLY-EVENTS` — never verified
 - `MOBILE-ERROR-CODE-COPY` — never verified
-- `DESKTOP-COURSE-KEYS-UPGRADE` — never verified
-- `DESKTOP-VIEWS-FROM-TABLES` — never verified
 - `DESKTOP-QUERY-CACHE-INVALIDATION` — never verified
 - `MOBILE-VIEW-QUERIES` — never verified
 - `DESKTOP-BACKUP-IMPORT-REQUERIES` — never verified
@@ -223,13 +195,8 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/planner.rs<br>docs/lms-api/README.md |
 | `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
-| `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
-| `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/app-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
-| `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/app-core/src/subscriptions.rs<br>crates/app-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/app-core/src/kyomu_ingest.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/study_profile.rs |
 | `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/kyomu_ingest.rs |
-| `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
@@ -244,9 +211,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-CLOSE-WINDOW` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/window_close.rs<br>apps/desktop/src-tauri/src/window_close_macos.rs<br>apps/desktop/src-tauri/src/window_close_windows.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
-| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
-| `DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css |
-| `DESKTOP-LECTURE-PANE-OVERLAYS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/styles.css |
+| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/lectures/lectures.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
@@ -264,28 +229,22 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
-| `DESKTOP-LECTURES-PANE-MOTION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
-| `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
-| `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/workspace.rs |
+| `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/app/App.tsx<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/workspace.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/app-core/src/course_query/mod.rs |
 | `DESKTOP-FINDER-IME-KANA` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
-| `DESKTOP-FINDER-ADD-SAVING` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
-| `DESKTOP-FINDER-ADD-WHILE-TYPING` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/app-core/src/course_query/mod.rs |
 | `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/search.rs |
-| `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/app-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
-| `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/app-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/app-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
 | `RELEASE-DRAFT-ASSEMBLY` | release | Two devices, interrupted work | —<br>not run | .github/workflows/desktop-release.yml<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
-| `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
+| `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml<br>apps/desktop/src-tauri/src/main.rs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
-| `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/core_ports.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/app-core/src/schedule/alternation.rs |
@@ -295,18 +254,14 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
 | `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/downloads.rs<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
-| `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
-| `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_import.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
 | `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
 | `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
 | `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
-| `DESKTOP-SCHOOL-DRAG-DIAGNOSTICS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
 | `DESKTOP-SCHOOL-COOKIES-LINUX` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs |
-| `NATIVE-SCHOOL-BACKGROUND-READ` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>crates/app-core/src/plan/planner.rs |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift |
 | `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -315,7 +270,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
 | `TIMETABLE-BLOCK-STATES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 | `BACKGROUND-THEMES` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/theme.json<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx<br>crates/app-core/src/data/settings.rs |
-| `MOTION-AND-LOADING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/desktop/src/styles.css |
+| `MOTION-AND-LOADING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/desktop/src/styles.css<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx |
 | `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
@@ -334,7 +289,6 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-COURSE-ZOOM-BACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/build.gradle.kts |
 | `ANDROID-ORIENTATION` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/AndroidManifest.xml |
-| `ANDROID-DEPENDENCY-UPGRADE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/build.gradle.kts<br>apps/android/build.gradle.kts<br>apps/android/gradle/wrapper/gradle-wrapper.properties<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt |
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
@@ -345,14 +299,10 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-SELECT-AND-FILES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
-| `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/lib/timetable-layout.ts<br>resources/locales/en.json<br>resources/locales/ja.json<br>resources/locales/zh.json<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
+| `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
+| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/lib/timetable-layout.ts<br>resources/locales/en.json<br>resources/locales/ja.json<br>resources/locales/zh.json<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
-| `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
-| `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
-| `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>crates/app-core/src/schedule/lms_html.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/content.ts<br>apps/desktop/src/features/lms/lms.css<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift |
-| `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>crates/app-core/src/schedule/lms_html.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/content.ts<br>apps/desktop/src/features/lms/lms.css<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
@@ -360,18 +310,14 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
-| `IOS-LOG-ROW-TAP` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/mod.rs<br>crates/app-core/src/school_session/site.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
-| `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt |
 | `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
 | `MOBILE-CORE-BACKGROUND-DEADLINE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Info.plist<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>crates/app-ffi/src/session.rs |
 | `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
-| `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
-| `DESKTOP-RADIX-APPEARANCE` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/settings/settings.css |
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
@@ -399,9 +345,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
-| `DESKTOP-COURSE-KEYS-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/course_keys.rs<br>crates/app-core/src/data/course_merge.rs<br>crates/app-core/src/data/backup_store.rs |
-| `DESKTOP-VIEWS-FROM-TABLES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs |
-| `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts |
+| `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>crates/app-core/src/lms_ingest.rs |
 | `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-BACKUP-IMPORT-REQUERIES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>apps/desktop/src/store/workspace.ts |
 | `ANDROID-START-FAILURE-COPY` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt |
@@ -1013,143 +957,6 @@ screen can show.
 
 **Last recorded** never run
 
-### Master's requirements and 500-level rules after the first semester (`IDENTITY-MASTERS-CREDITS`)
-
-**Area** identity · **Persona** 修士課程 1年・前期課程 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A master's study profile with an undergraduate record already imported.
-
-**Steps**
-
-1. Open the grades and GPA panels and compare them with 教務Web.
-   - *Why:* The master's panels must not be computed from the undergraduate
-     table; a plausible-looking number from the wrong table is the
-     failure here.
-2. Try to register a 500-level course before and after the first
-   semester boundary (or with the profile set to each state).
-   - *Why:* The rule is semester-dependent, so a single-point test cannot tell
-     "allowed" from "allowed too early".
-3. Open the requirement panels and read which requirements apply.
-   - *Why:* Requirements that apply only to a master's student must be visible
-     as such; silently omitting them is the failure the automated rules
-     cannot express.
-
-**Where to look**
-
-The grades, GPA and requirements panels for the master's profile, and
-the registration outcome for the 500-level course.
-
-**Expected**
-
-Credits and GPA come from the master's record, the 500-level rule
-applies from the correct semester, and the applicable requirements are
-named.
-
-**Why this is manual**
-
-Needs a real master's account so the 教務Web tables and the requirement
-set are the ones a master's student actually receives.
-
-**Covers**
-
-- `crates/app-core/src/study_profile.rs`
-- `crates/app-core/src/kyomu_ingest.rs`
-- `apps/desktop/src/pages/courses/**`
-
-**Last recorded** never run
-
-### Doctoral registration and approval rules are stated (`IDENTITY-DOCTORAL-RULES`)
-
-**Area** identity · **Persona** 博士後期課程 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A doctoral study profile.
-
-**Steps**
-
-1. Open the registration and requirement panels.
-   - *Why:* Doctoral students reach a different panel than master's students; a
-     wrong panel means the identity is not driving the view.
-2. Attempt a course whose registration requires doctoral approval.
-   - *Why:* The rule is an approval, not a hard block, so the check is whether
-     the app says so rather than refusing silently.
-
-**Where to look**
-
-The requirement and registration panels, and the message shown for the
-approval-gated course.
-
-**Expected**
-
-The doctoral-specific requirement is visible, and an approval-gated
-course explains that approval is needed.
-
-**Why this is manual**
-
-Needs a real doctoral account; the rule set is account-specific and the
-current fixtures do not represent it.
-
-**Covers**
-
-- `crates/app-core/src/study_profile.rs`
-- `apps/desktop/src/pages/courses/**`
-
-**Last recorded** never run
-
-### A transfer student sees their own admission cohort's guidance (`IDENTITY-TRANSFER-COHORT`)
-
-**Area** identity · **Persona** 編入生 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A transfer study profile whose admission year differs from the cohort
-year of the courses being planned.
-
-**Steps**
-
-1. Open the recommended-courses and guidance panel.
-   - *Why:* The panel is keyed by admission cohort; the wrong key silently
-     produces a plausible list from another cohort's guide.
-2. Confirm the guide PDF and the recommended list match the transfer
-   admission year, not the course year.
-   - *Why:* This is the exact confusion the cohort namespacing exists to
-     prevent, and it is invisible without reading the guide.
-3. Edit the admission year and reopen the panel.
-   - *Why:* Confirms the key is read from the profile rather than cached from
-     the first open.
-
-**Where to look**
-
-The recommended-courses panel, the cited guide PDF name and path, and
-the admission year shown in the study profile.
-
-**Expected**
-
-The guidance and recommendations come from the transfer admission
-cohort's dataset, and changing the admission year changes them.
-
-**Why this is manual**
-
-Requires a real transfer record; the bundled cohort datasets are real
-but which one applies is only knowable from the account.
-
-**Covers**
-
-- `crates/app-core/src/subscriptions.rs`
-- `crates/app-core/src/course_query/mod.rs`
-- `apps/desktop/src/lib/departments.ts`
-
-**Last recorded** never run
-
 ### Graduate 教務Web tables against a real graduate account (`SCHOOL-KYOMU-GRADUATE-TABLES`)
 
 **Area** school · **Persona** 修士課程 1年・前期課程 · **Result** **unreached**
@@ -1272,105 +1079,6 @@ portal serves while registration is open.
 - `crates/app-core/src/kyomu_ingest.rs`
 
 **Last recorded** never run
-
-### English UI and English content stay English (`IDENTITY-LANGUAGE-SWITCH`)
-
-**Area** identity · **Persona** International student · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The UI language set to English and the school-content language set to
-English.
-
-**Steps**
-
-1. Walk the main screens: today, courses, a syllabus page, the LMS, and
-   settings.
-   - *Why:* Untranslated strings cluster on the screens nobody visits during a
-     happy-path demo, so the walk has to be broad rather than deep.
-2. Open a syllabus page that has an English page and read every date.
-   - *Why:* The failure mode is not a Japanese word but a date whose format is
-     unstated, which reads as correct to whoever wrote it.
-3. Trigger a refusal or an error on purpose.
-   - *Why:* Error text is where translations are most often missing, and it is
-     exactly where this persona cannot afford to guess.
-
-**Where to look**
-
-Every screen text, the syllabus page in English, and the error or refusal
-message.
-
-**Expected**
-
-No Japanese appears in the English UI or in English content, dates state
-or unambiguously imply their format, and error messages are translated.
-
-**Why this is manual**
-
-Needs the real school content in English; the shipped English content
-only exists for courses that publish it, so completeness can only be
-judged against the live catalogue.
-
-**Covers**
-
-- `resources/locales/**`
-- `apps/desktop/src/i18n/**`
-- `apps/desktop/src/lib/model.ts`
-
-**Last recorded** never run
-
-### LMS pull after the academic year moves (`SCHOOL-LMS-YEAR-ROLLOVER`)
-
-**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
-
-> Needs re-running: covered paths changed after b598ae6
-
-**Preconditions**
-
-The school has moved the LMS to a new academic-year path.
-
-**Steps**
-
-1. Run `yarn test:live` and read the LMS year it reports.
-   - *Why:* The pinned year must come from the site, not from memory. This step
-     is the trigger for the rest of the check.
-2. If it differs from the pinned year, update LMS_HOME in
-   crates/app-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
-   crates/adpt-isct/src/lms.rs.
-   - *Why:* A stale literal does not fail loudly; it silently extracts nothing.
-     The edit is mechanical, which is exactly why it must be paired with
-     the real pull below rather than trusted.
-3. Sign in again and repeat SCHOOL-LMS-PULL.
-   - *Why:* Only a real account proves the new path is the right one; a fixture
-     cannot tell a moved site from a removed one.
-
-**Where to look**
-
-The `yarn test:live` output and the course list after the repeated pull.
-
-**Expected**
-
-The live suite reports one year for both the redirect and every path
-literal, and the repeated pull matches the LMS again.
-
-**Why this is manual**
-
-The school has served the LMS under a fixed 2025 path since the merger,
-so the path is pinned rather than derived. When it moves, the automated
-suite fails but only a real account can confirm the new path works.
-
-**Covers**
-
-- `crates/app-core/src/school_session/site.rs`
-- `crates/adpt-isct/src/lms.rs`
-
-**Last recorded** pass · 2026-10-16 · agent · `b598ae6` · `1.0.0-rc.3`
-
-The LMS root still redirects to /2025/ and every pinned literal agrees.
-
-Evidence: `apps/desktop/tests/live/school-site.test.ts`
 
 ### Google Drive upload, pull and restore through the consent screen (`CLOUD-DRIVE-WRITE`)
 
@@ -2363,7 +2071,7 @@ Depends on real window sizing, real focus and real keyboard events.
 
 **Last recorded** never run
 
-### Popovers and dialogs stay on top and leave with their page (`DESKTOP-PAGE-OVERLAYS`)
+### Page and course overlays remain positioned and usable (`DESKTOP-PAGE-OVERLAYS`)
 
 **Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
 
@@ -2371,49 +2079,28 @@ Depends on real window sizing, real focus and real keyboard events.
 
 **Preconditions**
 
-A desktop build with classes on Today and an upcoming exam.
+A desktop build with classes, a Lectures course with an exam, and tips reset in Settings → About.
 
 **Steps**
 
-1. On the timetable page open the ▾ export menu beside Export ICS, then
-   right-click a class on Today's calendar near the window's right and
-   bottom edges.
-   - *Why:* Page overlays now mount inside the page's own layer, under a main
-     area that clips overflow; a menu cut off at the page edge or not
-     flipping at the window edge is the regression to look for.
-2. Open an exam's editor on Today and click where the navigation rail
-   and the status bar sit.
-   - *Why:* The dialog's backdrop must cover the rail and the status bar; a rail
-     that stays clickable means the overlay lost its stacking order.
-3. With a menu open press ⌘2, look, then press ⌘1.
-   - *Why:* The menu must vanish with its page and be there again, still
-     closable, on return; it used to float over the next page unclosable.
-4. About → Show again, finish the welcome sheet, and on
-   Today switch pages from the rail before pressing Got it.
-   - *Why:* This is the reported flow: the tip stayed on every page and Got it
-     did nothing until Today came back.
-5. Show tips again, open a course with lessons on Lectures, and while
-   the lesson tip points at the rail switch the sidebar to Exams, then
-   back to Lectures.
-   - *Why:* Course workspaces are retained inside the Lectures page; their tip
-     used to stay on the Exams list, pinned to the window's top-left
-     corner, because it portaled to the page layer, not the course's.
+1. Open the timetable export menu, then right-click a Today calendar class near window edges. Step weeks and right-click both during and after the slide.
+   - *Why:* Menus must flip at edges and stay anchored to the pointer during week transitions.
+2. Open a Today exam editor and a Lectures course exam editor; inspect the backdrop, dialog and a tip near the course pane edge.
+   - *Why:* Dialogs and tips must escape pane clipping and cover the navigation rail and status bar.
+3. With a menu or tip open, switch pages and return; switch the Lectures sidebar between a course and Exams. Collapse the lecture sidebar and return to Lectures while moving the pointer over the rail.
+   - *Why:* Overlays must follow their page or course, remain closable, and the floating list must not jump during entry.
 
 **Where to look**
 
-The menus, the dialog backdrop over the rail and status bar, and the
-page shown after each shortcut.
+Menus, dialogs, tips and the floating Lectures list.
 
 **Expected**
 
-Menus show whole and flip at the window edge, the backdrop dims the rail
-and status bar and blocks them, and every overlay hides with its page
-and returns with it; Got it closes the tip.
+Menus remain whole and anchored, dialogs cover and block the full window, tips hide with their page or course and close normally, and the floating list stays beside the rail.
 
 **Why this is manual**
 
-Clipping and stacking are glance checks on the real WebKit window. The
-hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
+Native WebKit clipping, stacking and animated position are visual checks; page retention is covered by the app-shell suite.
 
 **Covers**
 
@@ -2421,117 +2108,11 @@ hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
 - `apps/desktop/src/pages/today/CourseFinder.tsx`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/components/guide.tsx`
-
-**Last recorded** never run
-
-### The calendar's right-click menu opens at the pointer after a week step (`DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A desktop build of this commit with classes in this week and the next.
-
-**Steps**
-
-1. On Today's calendar click › to show next week, then right-click any
-   class.
-   - *Why:* The reported bug: after a week step the sliding grid kept its
-     animation in effect, became the containing block of the menu's
-     fixed anchor, and the menu opened down and right of the pointer by
-     the grid's offset from the window corner.
-2. Click ‹ and › several times quickly and right-click a class while
-   the grid is still sliding in.
-   - *Why:* During the 250 ms slide the grid is transformed whatever its fill
-     mode; only a menu anchored to the pointer itself stays put then.
-3. Click This week and right-click a class again.
-   - *Why:* Returning to this week used to clear the slide and hide the bug, so
-     a menu that is right here but wrong after › is still broken.
-
-**Where to look**
-
-Where the menu's top-left corner sits relative to the pointer.
-
-**Expected**
-
-Each time the menu opens touching the pointer, down and to the right
-(flipped only at a window edge), and its marks still apply.
-
-**Why this is manual**
-
-Where a menu lands is a glance on the real WebKit window; jsdom has no
-layout, so no automated suite can see a containing block. Which marks
-the menu offers and what they send is in
-tests/e2e/today-and-lectures.test.tsx.
-
-**Covers**
-
 - `apps/desktop/src/components/timetable/timetable.tsx`
 - `apps/desktop/src/components/ui/overlays.tsx`
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/styles.css`
-
-**Last recorded** never run
-
-### Overlays from a Lectures course cover the window and are not clipped (`DESKTOP-LECTURE-PANE-OVERLAYS`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A desktop build of this commit with a Lectures course that has an exam
-on its LMS workspace, and the in-app tips reset (About →
-Show again).
-
-**Steps**
-
-1. On Lectures open the course with an exam and click Edit on its exam
-   card.
-   - *Why:* A course's overlays used to mount inside the content pane, which has
-     `contain: layout paint`; the dialog was then centred in that pane,
-     its backdrop left the rail and the list undimmed, and its edges were
-     cut off.
-2. Close the dialog and, while a course tip is showing, look at the
-   tip near the pane's left edge.
-   - *Why:* Anchored popovers kept their position but were clipped at the
-     pane's edges for the same reason.
-3. Collapse the lecture sidebar, switch to Today and straight back to
-   Lectures, and at once move the pointer onto the navigation rail.
-   - *Why:* The floating list was fixed to the window; during the page's
-     entrance the page became its containing block and the list jumped
-     right and down by the page's own offset.
-
-**Where to look**
-
-The dialog and its backdrop, the tip's outline, and the floating list
-while the page is still entering.
-
-**Expected**
-
-The backdrop dims the whole window including the rail and the list, the
-dialog sits in the window's centre whole; the tip is drawn whole; the
-floating list opens at the page's left edge beside the rail and does not
-move while the page settles.
-
-**Why this is manual**
-
-Clipping, centring and a list that jumps for 200 ms are glance checks on
-the real WebKit window; jsdom has no layout or animations. That
-overlays hide and return with their page is in
-tests/e2e/app-shell.test.tsx, and with their course in
-DESKTOP-PAGE-OVERLAYS.
-
-**Covers**
-
-- `apps/desktop/src/app/KeptPage.tsx`
-- `apps/desktop/src/components/ui/overlays.tsx`
-- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/pages/lectures/lectures.css`
-- `apps/desktop/src/styles.css`
 
 **Last recorded** never run
 
@@ -3640,52 +3221,6 @@ covered by the app-core suite.
 
 **Last recorded** never run
 
-### Choosing a course on Lectures moves only the course pane (`DESKTOP-LECTURES-PANE-MOTION`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-Desktop build of this commit with a quarter of lectures.
-
-**Steps**
-
-1. On Lectures, click one course in the list, then another, then an
-   exam under Exams.
-   - *Why:* Only the right-hand pane may enter; the list, the quarter picker
-     and the page fading as well means the page transition still runs
-     for a change within Lecture Desk.
-2. Open a course from a Today row, then go back to Today.
-   - *Why:* Coming from another page keeps its page transition and the morph
-     from the clicked row; the pane must not slide in on top of it.
-3. Turn on Reduce Motion in the system settings and click another
-   course.
-   - *Why:* Under Reduce Motion the pane only fades.
-
-**Where to look**
-
-The list column and the course pane while each course opens.
-
-**Expected**
-
-The list stays still and the course pane slides in from the right
-(fades under Reduce Motion); opening from Today still morphs the row.
-
-**Why this is manual**
-
-Whether a column moves during a 250 ms animation is seen at a glance in
-the real app; a headless DOM runs no View Transitions or animations.
-
-**Covers**
-
-- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
-- `apps/desktop/src/pages/lectures/lectures.css`
-- `apps/desktop/src/app/App.tsx`
-
-**Last recorded** never run
-
 ### Application logs saved to a file and copied to the clipboard (`DESKTOP-LOG-EXPORT`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
@@ -3978,7 +3513,7 @@ check.
 
 **Last recorded** never run
 
-### A course-search condition commits at once (`DESKTOP-FINDER-COMMIT`)
+### Search and add courses without visible stalls (`DESKTOP-FINDER-COMMIT`)
 
 **Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
 
@@ -3986,88 +3521,40 @@ check.
 
 **Preconditions**
 
-A desktop build with the year's catalog stored, on the timetable.
+A desktop build with the current catalog and an eligible course not yet on the timetable.
 
 **Steps**
 
-1. Type a condition such as 4q or 火3-4 and press Enter.
-   - *Why:* The field must empty and the suggestion list close in the same
-     frame, with the condition shown as a faint pill. A list that stays
-     open, or text that lingers until the results change, is the lag
-     this change removed.
-2. Type a word, press ↓ to reopen the list, then press Escape; click
-   into the results; tab out of the field.
-   - *Why:* The list opens only on typing, focus or ↑↓, and closes on Escape,
-     blur and a click into the results; a list that reopens by itself
-     covers the results being read.
+1. Type 4q or 火3-4 and press Enter; reopen suggestions with the arrow keys, then close them with Escape, blur and a click in the results.
+   - *Why:* The condition should commit immediately and suggestions should not obscure results after dismissal.
+2. Click an empty timetable cell, Command-click another, then clear the first. Select cells quickly, change quarters and return.
+   - *Why:* Highlights must respond immediately and old selections must not flash in the new quarter.
+3. Type a long query quickly and immediately add a result; repeat while kana composition is open. Watch the result and timetable, then Undo.
+   - *Why:* Adding must not wait behind searches; the saving state prevents duplicate adds and Undo must restore the result.
 
 **Where to look**
 
-The search field, its suggestion list and the condition pills.
+The search field, suggestions, condition pills, timetable and result row.
 
 **Expected**
 
-Enter empties the field and closes the list at once; the faint pill
-turns into the normal condition pill when the results update.
+Conditions and highlights respond at once, results match the selected quarter, and adding settles from saving to Added without visible delay or flicker. Undo removes the course and restores Add.
 
 **Why this is manual**
 
-Whether it feels instant is a glance in the real app; the order of
-state changes is covered in tests/e2e/planner.test.tsx.
+Perceived latency with the real catalog, native command runner and IME is judged in the real app; Core and planner tests cover selection and rollback rules.
 
 **Covers**
 
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 - `apps/desktop/src/pages/courses/useFinder.ts`
-
-**Last recorded** never run
-
-### A clicked timetable slot lights up before the results change (`DESKTOP-FINDER-SLOT-HIGHLIGHT`)
-
-**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A desktop build with the year's catalog stored, on the timetable.
-
-**Steps**
-
-1. Click an empty timetable cell, then ⌘-click another, then click the
-   first again.
-   - *Why:* Each cell must light up (or go dark) the moment it is clicked; the
-     results and pills may follow a moment later. A cell that waits for
-     the results is the stall this change removed.
-2. Select two cells quickly, switch quarters before the results settle,
-   then return and add a course followed immediately by Undo.
-   - *Why:* The final highlight and results must belong to the shown quarter;
-     old queued selections must not flash back after navigation. The
-     added course must disappear after Undo, without a second click.
-
-**Where to look**
-
-The timetable cells and the condition pills above the results.
-
-**Expected**
-
-The first click highlights one cell, ⌘-click adds a second, and
-clicking the first again clears it, each instantly. Rapid quarter
-changes leave no old highlight or result flash, and Undo removes the add.
-
-**Why this is manual**
-
-Perceived latency is a glance check; the toggle rules are Core's
-(crates/app-core/src/tests/course_query.rs) and the local highlight
-before Core answers is in tests/e2e/planner.test.tsx.
-
-**Covers**
-
 - `apps/desktop/src/app/App.tsx`
-- `apps/desktop/src/pages/courses/useFinder.ts`
 - `apps/desktop/src/platform/query-client.ts`
 - `apps/desktop/src/store/workspace.ts`
 - `crates/app-core/src/workspace.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/commands/read_models.rs`
+- `crates/app-core/src/course_query/mod.rs`
 
 **Last recorded** never run
 
@@ -4157,98 +3644,6 @@ Needs the real Windows input method and WebView2's event order.
 
 **Last recorded** never run
 
-### An added course shows as saving, then settles (`DESKTOP-FINDER-ADD-SAVING`)
-
-**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A desktop build with the year's catalog stored and an eligible course
-not yet on the timetable.
-
-**Steps**
-
-1. Click Add on a result row.
-   - *Why:* The row must say it is added and saving in the same frame; a row
-     that keeps its Add button until the timetable redraws invites a
-     second click.
-2. Wait for the timetable to show the course, then press Undo.
-   - *Why:* The row must settle on Added without flickering back to Add, and
-     Undo must offer Add again at once.
-
-**Where to look**
-
-The result row's Add / Added label and the timetable.
-
-**Expected**
-
-Add → "Added · saving" at once → "Added" with the course on the
-timetable; Undo returns the row to Add.
-
-**Why this is manual**
-
-The saving state passes in a moment on a real database and is a glance
-check; the rollback on a failed write is in
-tests/e2e/planner.test.tsx.
-
-**Covers**
-
-- `apps/desktop/src/pages/courses/CourseFinder.tsx`
-
-**Last recorded** never run
-
-### Adding a course is not held up by searches typed just before (`DESKTOP-FINDER-ADD-WHILE-TYPING`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A desktop build with the year's catalog stored (about 2,700 courses)
-and an eligible course not yet on the timetable.
-
-**Steps**
-
-1. Type a long query quickly, e.g. a title word letter by letter,
-   then immediately click Add on a result row while the list is still
-   updating.
-   - *Why:* Searches run outside the write queue now. Before, every keystroke's
-     search queued ahead of the add, so the course reached the timetable
-     only after all of them; the add must land as quickly as it does
-     with the field idle.
-2. Repeat with an IME (kana) composition still open in the search
-   field.
-   - *Why:* The composition's end sends one search; the add must not wait for
-     it either.
-
-**Where to look**
-
-The time from the click to the course drawn on the timetable, and the
-row's Added label. With ISCT_TRACE_READS=1 the app log shows each
-command's queue_ms; the add's must stay near zero.
-
-**Expected**
-
-The course appears on the timetable within a fraction of a second of
-the click, typing or not, and the row settles on Added.
-
-**Why this is manual**
-
-The queueing only shows with the real Tauri command runner, a real
-database of the real catalog's size and real typing speed; the fake
-host in tests/e2e answers every command at once.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/lib.rs`
-- `apps/desktop/src-tauri/src/commands/read_models.rs`
-- `crates/app-core/src/course_query/mod.rs`
-
-**Last recorded** never run
-
 ### Syllabus pages open inside the app; the catalog comes from 教務 only (`DESKTOP-SYLLABUS-IN-APP`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
@@ -4310,95 +3705,6 @@ glance check (AGENTS.md §5).
 - `crates/adpt-isct/src/kyomu/search.rs`
 
 **Last recorded** never run
-
-### Swift SDK and OCR on an iOS simulator (`NATIVE-IOS-SIMULATOR`)
-
-**Area** native · **Persona** Narrow window, keyboard only · **Result** pass ⚠
-
-> Needs re-running: covered paths changed after 7fdf1b6
-
-**Preconditions**
-
-macOS with Xcode, an installed simulator runtime, and the generated
-framework.
-
-**Steps**
-
-1. Run `yarn sdk:ios`, then `node scripts/bindings/ios-smoke.mjs`.
-   - *Why:* Confirms the generated Swift package links against the packaged
-     XCFramework rather than the host build.
-2. Read the smoke client's output for its pass marker.
-   - *Why:* A build that succeeds while the client never runs proves nothing
-     about the binding; the marker is the difference.
-
-**Where to look**
-
-The build output and the simulator's console for the pass marker.
-
-**Expected**
-
-The Swift package builds against the XCFramework, the smoke client
-passes, and OCR preparation and inference run on the simulator.
-
-**Why this is manual**
-
-Needs macOS, Xcode, a simulator runtime and a generated framework.
-
-**Covers**
-
-- `crates/app-ffi/**`
-- `bindings/swift/**`
-- `scripts/bindings/build-ios.mjs`
-
-**Last recorded** pass · 2026-10-15 · human · `7fdf1b6` · `1.0.0-rc.1`
-
-Recorded in docs/verification/native-sdk.md.
-
-Evidence: `docs/verification/native-sdk.md`
-
-### Kotlin AAR on an Android emulator (`NATIVE-ANDROID-EMULATOR`)
-
-**Area** native · **Persona** Narrow window, keyboard only · **Result** pass ⚠
-
-> Needs re-running: covered paths changed after 7fdf1b6
-
-**Preconditions**
-
-Android SDK, NDK, a running emulator with KVM acceleration.
-
-**Steps**
-
-1. Build the AAR, then run `node scripts/bindings/android-smoke.mjs`.
-   - *Why:* Loading the AAR on ART exercises the Kotlin and native library
-     wiring, which a host JVM run does not.
-2. Read the device output for the pass marker and check the ABI.
-   - *Why:* A wrong ABI silently loads the host library on one machine and fails
-     on a device; the ABI assertion is what catches that.
-
-**Where to look**
-
-The build output, the device's `logcat`/stdout, and the reported ABI.
-
-**Expected**
-
-The AAR loads its libraries on ART, the smoke client prints its pass
-marker, and the ABI is arm64-v8a or x86_64.
-
-**Why this is manual**
-
-Needs the Android SDK, an NDK and a KVM-accelerated emulator.
-
-**Covers**
-
-- `crates/app-ffi/**`
-- `bindings/kotlin/**`
-- `scripts/bindings/build-android.mjs`
-
-**Last recorded** pass · 2026-10-15 · human · `7fdf1b6` · `1.0.0-rc.1`
-
-Recorded in docs/verification/native-sdk.md.
-
-Evidence: `docs/verification/native-sdk.md`
 
 ### Native shells on physical devices (`NATIVE-DEVICE-FLOWS`)
 
@@ -4644,7 +3950,7 @@ Releases and App Store Connect; no tag may be pushed to rehearse it.
 
 **Last recorded** never run
 
-### Installers on a clean machine of each platform (`RELEASE-INSTALL`)
+### Install and launch releases on clean macOS and Windows systems (`RELEASE-INSTALL`)
 
 **Area** release · **Persona** Two devices, interrupted work · **Result** —
 
@@ -4652,41 +3958,30 @@ Releases and App Store Connect; no tag may be pushed to rehearse it.
 
 **Preconditions**
 
-The published installers, a clean machine and a separate installation with
-an existing workspace (including schema 6 for the 1.0 update).
+Published installers, clean macOS machines for both architectures, and Windows 11 with Smart App Control and Controlled folder access; an existing installation, backup, school account, and signed and unsigned Windows builds.
 
 **Steps**
 
-1. Install on macOS (both architectures) and Windows x64.
-   - *Why:* Build success does not establish runtime compatibility; the release
-     notes say so explicitly.
-2. Launch, complete first-run, and open a workspace from a backup.
-   - *Why:* An existing workspace must import into a fresh install, independently of the
-     normal update path.
-3. On the existing installation, change a timetable and a preference,
-   quit, replace the application with the new installer, and relaunch
-   without exporting or importing a backup.
-   - *Why:* Checks that an actual OS installer uses the same application-data
-     directory and retains data across a normal update. SQL migration
-     tests cannot exercise app replacement and installed identities.
-4. Observe the Gatekeeper and SmartScreen prompts.
-   - *Why:* The release notes promise a specific prompt behaviour; a mismatch
-     makes the notes wrong rather than the build.
+1. Install and launch macOS and Windows releases, complete first run, and import a backup. Observe Gatekeeper and SmartScreen prompts.
+   - *Why:* A build must run on the target OS and native installer prompts must match the release notes.
+2. Change a timetable and preference on an existing install, replace it with the new installer, and relaunch.
+   - *Why:* The installed identity and data directory must preserve existing data across ordinary updates.
+3. On Windows launch from Explorer, open a course workspace file, inspect the signed installer certificate, and download a course file.
+   - *Why:* The release must not open a console, and the trusted signature must permit protected-folder writes.
+4. With Smart App Control off but Controlled folder access on, install the unsigned build and open another undownloaded course file.
+   - *Why:* A blocked write must identify the Windows protection and course folder setting.
 
 **Where to look**
 
-Each installer's prompts, the first-run screens, and the imported
-workspace.
+Installer prompts, first run and restored workspace; Windows signature, app, file card and Protection history.
 
 **Expected**
 
-Installation succeeds, the OS prompts match the release notes, and
-existing workspace data imports and survives ordinary app updates.
+Install and launch succeed without a companion console, data imports and survives an update, and prompts match release notes. The signed Windows app saves the course file; the unsigned app explains any protected-folder refusal.
 
 **Why this is manual**
 
-Requires clean machines and real installers; build success is not
-runtime compatibility.
+Clean machines, real OS installers and Windows security policy, signing credentials and a school account cannot be exercised by CI.
 
 **Covers**
 
@@ -4694,6 +3989,10 @@ runtime compatibility.
 - `apps/desktop/src-tauri/src/lib.rs`
 - `scripts/desktop/desktop-release.mjs`
 - `.github/workflows/desktop-release.yml`
+- `apps/desktop/src-tauri/src/main.rs`
+- `scripts/desktop/tauri.mjs`
+- `apps/desktop/src-tauri/src/lms_protocol.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
 
 **Last recorded** never run
 
@@ -4711,7 +4010,9 @@ Run the updated signed macOS desktop build with a school account available.
 
 1. Open a school service in Web, drag the separator in both directions,
    and move the pointer across the school page before releasing it.
-   - *Why:* WKWebView is a separate native surface and can intercept the pointer;
+   Drag the divider toward its minimum, then past the collapse threshold.
+   - *Why:* The pane should hold at its minimum before collapsing beyond the threshold.
+     WKWebView is a separate native surface and can intercept the pointer;
      a DOM splitter test cannot prove that the drag stays captured.
 2. Release the separator, then slowly move the pointer across blank page
    areas, links and text in the native browser, including near its edges.
@@ -4738,7 +4039,8 @@ the document tool panel in the lecture reader.
 
 **Expected**
 
-The separator follows the pointer until release. The native page stays
+The separator follows the pointer until release, holds at the minimum and
+collapses beyond the threshold. The native page stays
 inside its content area and both toolbars remain clickable after resizing.
 The resize cursor appears only on the separator; page cursors stay stable.
 
@@ -4773,6 +4075,7 @@ school content; jsdom and the browser preview render only the DOM host.
 
 Updated signed desktop bundle, a real LMS account, an open assignment
 accepting test files, and a workspace with files in submit/.
+On macOS, open the Science Tokyo Portal before the LMS submission page and have a PDF in Finder.
 
 **Steps**
 
@@ -4803,6 +4106,8 @@ accepting test files, and a workspace with files in submit/.
    - *Why:* Verifies native WebView focus, composition and inherited-origin editor
      frames, plus external navigation. Headless routing tests cannot run
      the live Moodle editor or native IME.
+6. Drag a PDF from Finder into the LMS draft area while the Portal view remains open.
+   - *Why:* A hidden Portal WebView must not intercept the native Finder drop intended for the LMS.
 
 **Where to look**
 
@@ -4816,12 +4121,14 @@ draft. Only user action can save or submit; unsupported uploads show the
 normal LMS error. Reopening does not duplicate files. Online text accepts
 typing, IME composition, paste and formatting; external pages keep their
 query parameters and Back returns to the LMS without auto-submitting.
+The Finder PDF lands in the correct LMS draft area.
 
 **Why this is manual**
 
 Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
 Headless tests verify injection and routing but cannot execute the remote
 uploader, site restrictions or the signed native browser.
+The Finder drag needs the real AppKit hit test and native WebViews.
 
 **Covers**
 
@@ -4832,6 +4139,8 @@ uploader, site restrictions or the signed native browser.
 - `crates/adpt-isct/assets/assignment-upload.js`
 - `apps/desktop/src-tauri/src/workspaces.rs`
 - `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
 
 **Last recorded** never run
 
@@ -5333,85 +4642,6 @@ real school session.
 
 **Last recorded** never run
 
-### Signed Windows installer passes Smart App Control and can save course files (`DESKTOP-WINDOWS-SIGNED-INSTALL`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A Desktop release run with sign_windows enabled, an unsigned build of the
-same source, and a Windows 11 PC with Smart App Control On and
-Controlled folder access On.
-
-**Steps**
-
-1. Download the signed installer, run it, then open its Properties > Digital Signatures.
-   - *Why:* Smart App Control blocks unsigned installers with no "Run anyway"; only the real policy shows whether the signature is trusted.
-2. In the signed app, open a course file that is not downloaded yet.
-   - *Why:* Course files default to Documents, which Controlled folder access guards; a trusted signature is what lets the app write there.
-3. Install the unsigned build with Smart App Control Off, keep Controlled folder access On, and open another undownloaded course file.
-   - *Why:* A refused write must name Controlled folder access and the course folder setting instead of a generic download failure.
-
-**Where to look**
-
-The Smart App Control dialog, the signature tab, the course file card, and Windows Security > Protection history.
-
-**Expected**
-
-The signed installer runs without a block and its signature tab lists
-the Artifact Signing certificate. The signed app saves and previews the
-file. The unsigned app shows "Windows blocked saving to the course
-folder…" on the file card, and Protection history lists IsctCompanion.
-
-**Why this is manual**
-
-Needs Azure signing credentials, a real Windows 11 security policy, and a school account; none run in CI.
-
-**Covers**
-
-- `.github/workflows/desktop-release.yml`
-- `scripts/desktop/tauri.mjs`
-- `apps/desktop/src-tauri/src/lms_protocol.rs`
-- `apps/desktop/src/features/lms/FilePreview.tsx`
-
-**Last recorded** never run
-
-### Windows release launches without a companion terminal (`DESKTOP-WINDOWS-LAUNCH`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A Windows release installer built from the current desktop source and a real Windows desktop.
-
-**Steps**
-
-1. Install the release, launch it from Explorer, and open a course workspace file.
-   - *Why:* Windows subsystem and child-process consoles cannot be observed by headless Unix tests.
-
-**Where to look**
-
-The Windows desktop, app window and taskbar.
-
-**Expected**
-
-The app and workspace open without an accompanying console window.
-
-**Why this is manual**
-
-Requires a native Windows release executable, Explorer and the real desktop shell.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/main.rs`
-- `.github/workflows/desktop-release.yml`
-
-**Last recorded** never run
-
 ### Authenticator QR import and the saved OTP shown as a QR (`SCHOOL-OTP-QR`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
@@ -5774,54 +5004,6 @@ reachable from them.
 
 **Last recorded** never run
 
-### A file dropped on the LMS draft area is logged with the view that took it (`DESKTOP-SCHOOL-DRAG-DIAGNOSTICS`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A macOS desktop build from this source with the Science Tokyo account
-connected. Open the Science Tokyo Portal in the Web page first, then an
-assignment's LMS submission page, as in the report where the drop went
-to the hidden Portal.
-
-**Steps**
-
-1. Clear the log, drag a PDF from Finder onto the LMS draft area and
-   drop it.
-   - *Why:* The diagnostics name the view instance AppKit asked, its window,
-     whether it is mounted and hidden, whether it is in front, and why a
-     view refused. A `drag hit` line for the Portal with `accepted=true`
-     is the defect, with the evidence to decide how hidden views leave
-     the input layer.
-2. Copy the log lines with `[school-web] drag hit` and
-   `[school-web] presentation`.
-   - *Why:* They carry no URL, cookie or page content, only view ids, windows
-     and presentation state, so they can be shared as they are.
-
-**Where to look**
-
-The LMS draft area and the copied log lines.
-
-**Expected**
-
-The file lands in the LMS draft area and the log names the LMS view as
-the receiver; any other view that answered is listed with its reason.
-
-**Why this is manual**
-
-AppKit's drag hit test runs only with a real drag from Finder over real
-WKWebViews; nothing headless reaches `_hitTest:dragTypes:`.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/school_webkit.rs`
-- `apps/desktop/src-tauri/src/school_browser_native.rs`
-
-**Last recorded** never run
-
 ### Windows school views receive Core's identity cookies (`DESKTOP-SCHOOL-COOKIES-WINDOWS`)
 
 **Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
@@ -5916,54 +5098,6 @@ school sessions; no suite runs WebKitGTK here.
 **Covers**
 
 - `apps/desktop/src-tauri/src/school_cookies.rs`
-
-**Last recorded** never run
-
-### Phones read school data in the background without opening a school page (`NATIVE-SCHOOL-BACKGROUND-READ`)
-
-**Area** native · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-An iPhone build and an Android build from this source, both school
-accounts signed in from 設定, and data at least an hour old.
-
-**Steps**
-
-1. Put the app in the background for longer than the data's freshness
-   (or leave it overnight), then open it on Today without opening ウェブ.
-   - *Why:* Reads no longer need the app in front or a school web view: Core
-     signs in and reads over HTTP whenever the shell gives it time. Data
-     that only refreshes once a school page is opened means a shell still
-     gates reads on the web view.
-2. Open ウェブ → LMS and 教務Web.
-   - *Why:* The pages must open signed in from the identity Core seeded, not
-     ask for a sign-in the background reads already did.
-
-**Where to look**
-
-Today's sync status on each phone and the two school pages.
-
-**Expected**
-
-Today shows fresh data with no sign-in prompt, and both pages open
-signed in.
-
-**Why this is manual**
-
-Background scheduling and the phones' WebKit and Android WebView cookie
-stores exist only on real devices; iOS was compiled only and Android
-not built on this machine.
-
-**Covers**
-
-- `apps/ios/IsctCompanion/Core/AppModel.swift`
-- `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
-- `crates/app-core/src/plan/planner.rs`
 
 **Last recorded** never run
 
@@ -6488,7 +5622,7 @@ the value is stored, validated and kept in the synced preferences.
 
 **Last recorded** never run
 
-### Quiet motion, the week slide, the course zoom, skeletons and Reduce Motion (`MOTION-AND-LOADING`)
+### Motion, loading and accessibility on desktop and phones (`MOTION-AND-LOADING`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -6496,54 +5630,30 @@ the value is stored, validated and kept in the synced preferences.
 
 **Preconditions**
 
-Desktop, iPhone and Android with the current quarter pulled; then the
-same three with a fresh install or cleared data before the first read.
+Desktop, iPhone and Android with current data, then a fresh install or cleared data; use a teaching day and normal animation settings.
 
 **Steps**
 
-1. On each phone swipe 時間割 slowly half a week to the left and let go,
-   then swipe quickly; on desktop click the next-week arrow.
-   - *Why:* A slow half swipe follows the finger and settles back; a full swipe
-     or a fling slides the week out and the next one in from the right.
-     A grid that moves a third of the finger's distance and then swaps
-     content in place is the old behaviour. Nothing may bounce past its
-     rest position.
-2. Open a course from a timetable block, then go back; repeat from a
-   Today row.
-   - *Why:* The course page grows out of the block or row and returns into it,
-     on desktop too (View Transitions). A plain push or fade on desktop
-     means the shared element is missing.
-3. Clear the data (or install fresh) and open Today, 時間割 and a
-   course page before the first read completes.
-   - *Why:* Grey stand-ins shaped like rows and blocks show until content fades
-     in; once anything is cached, the cached content shows at once with
-     no stand-ins. A spinner in the middle of an empty page is the old
-     loading state.
-4. Turn on Reduce Motion (iOS), Remove animations (Android) or Reduce
-   motion (macOS/Windows), then repeat the week change and the course
-   open.
-   - *Why:* Movement becomes a short cross-fade: the week does not slide, the
-     course does not zoom, figures jump; something still changes visibly
-     so the state change is not lost.
-5. On a phone, pin and hide an assignment, mark a class as an exam,
-   then swipe the Today card stack and change weeks.
-   - *Why:* Only the writes (pin, hide, mark) give a haptic tap; swiping cards
-     and changing weeks are silent.
+1. Swipe the timetable slowly and quickly on phones, step a week on desktop, and open and close courses from timetable blocks and Today rows; on an Android tablet also open a Lectures row.
+   - *Why:* Week movement should follow the gesture and courses should transition from the selected source without overshoot.
+2. On desktop Lectures select another course and an exam, then open a course from Today.
+   - *Why:* Only the course pane should animate during an in-page selection; navigation from Today retains its transition.
+3. Watch Android changing minute digits and the week range, then clear data and open Today, timetable and a course during the first read.
+   - *Why:* Changing digits should roll, and uncached screens should show shaped placeholders while cached screens show content immediately.
+4. Enable Reduce Motion or remove animations on each platform and repeat; pin or hide an assignment and mark a class, then swipe cards and change weeks.
+   - *Why:* Reduced-motion behavior must follow each platform setting and haptics must distinguish writes from navigation.
 
 **Where to look**
 
-時間割, Today and a course page on the three devices.
+Today, timetable, Lectures and course pages on each device.
 
 **Expected**
 
-Motion follows the finger, never overshoots, keeps the clicked element
-continuous, gives way to cross-fades under Reduce Motion, loading shows
-stand-ins only without cache, and haptics mark writes only.
+Motion is continuous and bounded, desktop in-page selection moves only the course pane, Android changing digits roll, and placeholders appear only without cached content. Reduced motion suppresses zoom and slides according to platform settings; writes give phone haptics and navigation does not.
 
 **Why this is manual**
 
-Motion, haptics and system accessibility settings are felt on the real
-devices; no headless suite renders springs or vibrates.
+Motion, haptics, loading appearance and system accessibility settings require real devices and native shells.
 
 **Covers**
 
@@ -6552,6 +5662,12 @@ devices; no headless suite renders springs or vibrates.
 - `apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
 - `apps/desktop/src/styles.css`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Components.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/app/App.tsx`
 
 **Last recorded** never run
 
@@ -7649,70 +6765,6 @@ is seen at a glance.
 
 **Last recorded** never run
 
-### The Android app behaves as before on the latest Compose, AGP and Kotlin (`ANDROID-DEPENDENCY-UPGRADE`)
-
-**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A release APK built from the dependency upgrade (Compose BOM 2026.09,
-AGP 9, Kotlin 2.4, compileSdk 37) on a phone with the current quarter
-pulled and at least one open and one hidden assignment.
-
-**Steps**
-
-1. Visit every tab (今日, 時間割, ウェブ, 設定) and scroll each to the end.
-   - *Why:* Every screen now runs on new Compose, material3 and navigation
-     libraries; a blank tab, a lost large title or a crash on first
-     composition shows a broken API or a class R8 stripped.
-2. Open a course from a 時間割 block and from a 今日 card, collapse its
-   title, then go back with the arrow and with a predictive back swipe.
-   - *Why:* The course zoom uses the shared-transition API, which left
-     experimental in this upgrade; the page must still grow out of and
-     shrink into its source (ANDROID-COURSE-ZOOM-BACK has the detail).
-3. Swipe an assignment row right, then left; under すべての課題 swipe
-   a hidden row left.
-   - *Why:* The rows moved off the deprecated veto callback: the row now slides
-     all the way, comes back, and then pins, hides or restores once. A
-     row left off screen or acting twice means the reset is wrong.
-4. Open the bottom sheets: the sync status sheet from the title bar,
-   the week picker on 時間割, the welcome sheet and the hand-in sheet;
-   drag each down to close.
-   - *Why:* The sheets come from material3's ModalBottomSheet, still
-     experimental and the likeliest to change between versions.
-5. Open a school page under ウェブ, pull to refresh, and go back.
-   - *Why:* The WebView sits in a newer SwipeRefreshLayout and activity
-     version; the page must load, refresh and hand back to the tab.
-6. Turn the phone on its side on 今日 and on a course page.
-   - *Why:* The app stays portrait; the lock is set from the activity, whose
-     library this upgrade moved (ANDROID-ORIENTATION has tablets).
-
-**Where to look**
-
-Each screen, sheet and gesture on the phone; the app must stay open.
-
-**Expected**
-
-Every tab, sheet, swipe, the course zoom, the school page and the
-portrait lock work as before the upgrade, and the app never closes.
-
-**Why this is manual**
-
-The whole Compose shell has to be exercised by touch in a release build
-with R8 on a real phone; whether each screen still looks and moves as
-before is judged by eye.
-
-**Covers**
-
-- `apps/android/app/build.gradle.kts`
-- `apps/android/build.gradle.kts`
-- `apps/android/gradle/wrapper/gradle-wrapper.properties`
-- `apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt`
-
-**Last recorded** never run
-
 ### Android Today lists upcoming exams and shows the school connection (`ANDROID-TODAY-EXAMS-AND-STATUS`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
@@ -8270,58 +7322,7 @@ windows a person sees at a glance.
 
 **Last recorded** never run
 
-### Android courses grow out of what was tapped and counting figures roll (`ANDROID-COURSE-ZOOM-AND-FIGURES`)
-
-**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The Android app signed in, on a teaching day during or before a class,
-with system animations on (Developer options › animation scales 1x).
-
-**Steps**
-
-1. Tap a block in 時間割, press back; tap the front class card on 今日,
-   press back; on a tablet, tap a row in 授業.
-   - *Why:* Each course page grows out of the block, card or row and shrinks
-     back into it on back, as iOS's zoom transition does. A plain cross
-     fade means the shared bounds did not match; a page that grows from
-     the wrong place means two sources share a zoom id.
-2. Watch the minutes on the current class card and the あと N 分 chip
-   on the next card when the minute turns; swipe 時間割 a week.
-   - *Why:* The figures roll: only the digits that change slide, as SwiftUI's
-     numericText does, and the week range rolls with the swipe. Whole
-     numbers jumping means the counting text is not used.
-3. Set the animation scales to off and repeat both.
-   - *Why:* With animations removed both changes are instant, as Reduce Motion
-     makes them on iOS.
-
-**Where to look**
-
-今日, 時間割 and the course page on the device.
-
-**Expected**
-
-Courses zoom in and out of their source, figures roll digit by digit,
-and both are instant with animations off.
-
-**Why this is manual**
-
-Motion is judged by eye on a device; there is nothing behind it for
-Core to test.
-
-**Covers**
-
-- `apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/design/Components.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt`
-
-**Last recorded** never run
-
-### Phone language rows switch the whole app and follow the desktop (`MOBILE-UI-LANGUAGE`)
+### UI and school-content language on mobile and desktop (`MOBILE-UI-LANGUAGE`)
 
 **Area** native · **Persona** Two devices, interrupted work · **Result** —
 
@@ -8331,6 +7332,9 @@ Core to test.
 
 The iPhone or Android app and the desktop app on the same workspace
 with cloud sync on.
+
+The UI language set to English and the school-content language set to
+English.
 
 **Steps**
 
@@ -8346,15 +7350,28 @@ with cloud sync on.
 3. Check the desktop's Appearance settings after sync.
    - *Why:* Both are workspace settings (locale, contentLanguage), so the
      desktop shows the same choices.
+4. On desktop, set both UI and school-content language to English, then walk the main screens: Today, courses, a syllabus, LMS and settings.
+   - *Why:* Untranslated strings cluster on the screens nobody visits during a
+     happy-path demo, so the walk has to be broad rather than deep.
+5. Open a syllabus page that has an English page and read every date.
+   - *Why:* The failure mode is not a Japanese word but a date whose format is
+     unstated, which reads as correct to whoever wrote it.
+6. Trigger a refusal or an error on purpose.
+   - *Why:* Error text is where translations are most often missing, and it is
+     exactly where this persona cannot afford to guess.
 
 **Where to look**
 
 設定, 今日 and 時間割 on the phone, and the desktop settings.
+Every screen text, the syllabus page in English, and the error or refusal
+message.
 
 **Expected**
 
 The UI and school text switch independently and immediately, and the
 desktop shows the same two choices.
+
+The English UI and error messages are translated; English school content appears where published, and dates state or unambiguously imply their format.
 
 **Why this is manual**
 
@@ -8362,16 +7379,23 @@ The live switch and how each screen reads in three languages is a
 glance on a device; the catalog's coverage and placeholders are
 checked by the text-and-locales suite.
 
+Needs the real school content in English; the shipped English content
+only exists for courses that publish it, so completeness can only be
+judged against the live catalogue.
+
 **Covers**
 
 - `apps/ios/IsctCompanion/Design/Localization.swift`
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `resources/locales/**`
+- `apps/desktop/src/i18n/**`
+- `apps/desktop/src/lib/model.ts`
 
 **Last recorded** never run
 
-### Desktop calendar tints today, draws the moving now line and labels the break band (`DESKTOP-CALENDAR-NOW-LINE`)
+### Today tint and now line remain correct, including after sleep (`DESKTOP-CALENDAR-NOW-LINE`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -8379,45 +7403,28 @@ checked by the text-and-locales suite.
 
 **Preconditions**
 
-The desktop app during a teaching hour on a weekday.
+The desktop app during a teaching weekday, with a class or exam and a Mac able to sleep overnight.
 
 **Steps**
 
-1. Open 今日 › Calendar and look at today's column.
-   - *Why:* Today's column has the accent tint and the red now line at the
-     current time; the planner's current quarter shows the same. Both
-     come from one isToday flag in agendaColumns, which commit 06e0a36
-     had dropped.
-2. Wait a minute.
-   - *Why:* The line moves; a line that never moves was computed once.
-3. During a period that holds an exam or a class marked as a quiz,
-   look where the now line crosses that block.
-   - *Why:* The line runs across the block from edge to edge. Only the dot and
-     the 3px gutters showing means a block kind is raised over the line
-     again (exam blocks once carried their own z-index).
-4. Look at the date field beside This week.
-   - *Why:* WebKit lays a date field's value at the top of its box; the date
-     must sit centred and start where a text field's value starts.
-5. Look at the half-row band between periods 3-4 and 5-6 on the time
-   axis, in English, Japanese and Chinese (Settings › Appearance ›
-   Language), with Text size at its largest.
-   - *Why:* The band reads BREAK, 休憩 or 休息 on one line inside the band. A
-     second line crossing the 5-6 rule is the old CLASS BREAK / 课间休息
-     label, which did not fit the 50px axis column.
+1. Open Today → Calendar and Timetable; wait a minute and inspect the line across a class or exam.
+   - *Why:* Both views must tint today and update the line above all blocks.
+2. Inspect the date field and the break label in English, Japanese and Chinese at the largest text size.
+   - *Why:* The date must be aligned and the translated label must fit on one line.
+3. Leave Today hidden while the Mac sleeps overnight; wake it and immediately return to Today and Timetable.
+   - *Why:* The new day must be selected on the first frame after a throttled clock resumes.
 
 **Where to look**
 
-The Calendar view and the planner's current quarter.
+Today Calendar and Timetable, especially the tinted column, line and break band.
 
 **Expected**
 
-Today is tinted and the now line tracks the clock on both, drawn over
-every block it crosses; the break band's label stays on one line.
+The line tracks the clock over every block in today’s column, moves to the new day after sleep, and the date and translated break label remain aligned and legible.
 
 **Why this is manual**
 
-A line position read at a glance; agendaColumns' isToday is covered by
-the schedule-and-dates unit test.
+Position and typography are visual; real sleep and WebView timer throttling require the native app. Clock recovery is covered by schedule-and-dates.
 
 **Covers**
 
@@ -8429,6 +7436,8 @@ the schedule-and-dates unit test.
 - `apps/desktop/src/components/timetable/workspace.ts`
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/ui/ui.css`
+- `apps/desktop/src/pages/courses/CoursesPage.tsx`
+- `apps/desktop/src/app/useCoreLifecycle.ts`
 
 **Last recorded** never run
 
@@ -8475,7 +7484,7 @@ spring-scroll.ts.
 
 **Last recorded** never run
 
-### iPhone course page turns lessons by swipe, as one piece, both ways (`IOS-COURSE-LESSON-PAGING`)
+### Course lessons, exams and gestures on desktop, iPhone and iPad (`COURSE-LESSON-SERIES-LABELS`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -8483,178 +7492,32 @@ spring-scroll.ts.
 
 **Preconditions**
 
-The iPhone app with LMS content pulled for a course whose LMS numbers at
-least three lessons (第1回, 第2回, …), at least one with 授業計画 text.
+Desktop and iOS devices on the same account with LMS lessons, a course with mixed lecture and recitation sections, a lesson schedule table, an assignment and exams.
 
 **Steps**
 
-1. Open the course from 時間割 and swipe left across the lesson card,
-   then right.
-   - *Why:* The pager must turn to the next lesson on a left swipe and back on a
-     right one; the old page leaves toward the side the finger moved and
-     the new one comes from the other. A transition fixed to one edge
-     made "previous" look like "next".
-2. Watch the card with the 授業計画 text as it moves in.
-   - *Why:* The text used to arrive after the card (a progress placeholder, then
-     the rendered HTML), so the card grew and its text slid separately.
-     It must arrive at full height and move with its background.
-3. Drag slowly a little under a third of the width and let go; then
-   flick quickly a short distance.
-   - *Why:* A slow short drag springs back; a flick over 300 pt/s turns the
-     page. Either rule breaking makes paging feel random.
-4. On the first lesson drag right; on the last drag left.
-   - *Why:* At an end there is only a damped pull, never a turn.
-5. Start a swipe at the very left edge of the screen.
-   - *Why:* Edge drags belong to the navigation back gesture; the page must pop
-     back to the timetable rather than turn a lesson.
-6. Scroll the page vertically with a slightly diagonal drag, and tap a
-   file row.
-   - *Why:* The pager runs alongside scrolling and taps; a drag that starts
-     vertical stays a scroll for its whole length.
-7. Flick the page so it is still scrolling, and swipe left across the
-   lesson card before it stops; repeat a few times in quick
-   succession, then swipe back from the left edge mid-scroll.
-   - *Why:* The app quit here. A turn renders the next lesson's HTML, and
-     WebKit's import spins the run loop; done inside the pager's gesture
-     update it can corrupt SwiftUI's graph. The page must turn, or pop,
-     and the app keep running.
+1. Compare desktop and iPad lesson labels, headings, schedule table marks and assignment placement.
+   - *Why:* Both shells must render the same Core lesson order, summary, current and cancelled rows, and assignment section.
+2. On iPhone inspect visible, cancelled and hidden exams, then swipe lessons in both directions, at the ends and with the edge-back gesture. Scroll vertically and tap a file.
+   - *Why:* Exam labels and paging must remain legible and gestures must coexist with navigation, scrolling and taps.
+3. While a lesson page is still scrolling, repeatedly swipe lessons and then use edge-back.
+   - *Why:* This interaction previously crashed during HTML rendering and must leave the app running.
+4. Long-press a lesson chip to mark it for the displayed class date, compare the current lesson with the desktop rail, and try a course without meetings.
+   - *Why:* The date and shared mark must agree and the mark action must be absent without a class.
+5. Open a lesson containing consecutive image-only labels and a page activity.
+   - *Why:* Images should form a coherent grid and page text should remain inline without opening a document panel.
 
 **Where to look**
 
-The course page pushed from 時間割.
+Desktop lesson rail and course pane, iPad course page, and iPhone course page.
 
 **Expected**
 
-Lessons turn in the direction of the swipe, each page moves as one piece
-with its text already laid out, ends only rubber-band, the edge swipe
-pops, and scrolling and taps work as before.
+Desktop and iPad labels and marks agree; exam states are correct; lessons move as a single card with working bounds and gestures, no crash, and matching current lesson marks across devices. Consecutive images form a grid and page activity text is inline.
 
 **Why this is manual**
 
-Gesture feel and animation are judged by eye on a phone; an e2e test over
-a fake host would rebuild the screen rather than test it.
-
-**Covers**
-
-- `apps/ios/IsctCompanion/Design/HorizontalPager.swift`
-- `apps/ios/IsctCompanion/Design/HTMLText.swift`
-- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
-
-**Last recorded** never run
-
-### iPhone lesson chip long press marks the lesson for the class (`IOS-COURSE-LESSON-MARK`)
-
-**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The iPhone app with a course that has class meetings on the timetable
-and numbered LMS lessons, and the desktop app signed in to the same
-workspace.
-
-**Steps**
-
-1. Open the course page and note which chip has the small dot under it.
-   - *Why:* The dot is Core's current lesson; it must be distinct from the filled
-     chip of the lesson being read.
-2. Long press another lesson chip and choose "この回を M/D の授業にする".
-   - *Why:* M/D must be the class the mark attaches to (today's class if it has
-     begun, else the next one, in Tokyo time); a wrong date means the mark
-     lands on the wrong occurrence.
-3. Open the same course on the desktop Lecture Desk.
-   - *Why:* The mark is the desktop's double-click mark (lessonLog); both shells
-     must agree on the current lesson.
-4. Long press a chip on a course with no class meetings.
-   - *Why:* Without a class to attach to there is nothing to mark; the menu item
-     must not appear.
-
-**Where to look**
-
-The lesson chip row on the course page, and the desktop lesson rail.
-
-**Expected**
-
-A success haptic, the dot moves to the marked chip, the desktop rail shows
-the same lesson as current, and the menu is absent without class times.
-
-**Why this is manual**
-
-The context menu, haptic and dot are read at a glance on a phone, and the
-cross-device agreement needs the real desktop; Core's rule is covered by
-`course_content_follows_the_desktop_lecture_desk`.
-
-**Covers**
-
-- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
-
-**Last recorded** never run
-
-### Course pages show Core's lesson labels, summaries and schedule marks on desktop and iPad (`COURSE-LESSON-SERIES-LABELS`)
-
-**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-LMS content pulled for Linear Algebra II【X】 (lms-course:12470), whose
-sections interleave 第1回–第14回 with 演習第1回–演習第7回, and for a course
-whose text holds a lesson schedule table (rows such as 1回目, 2回目, 休講)
-and an assignment set in one of its lessons; the desktop app and the iPad
-app on the same account.
-
-**Steps**
-
-1. Open Linear Algebra II【X】 on the desktop Lecture Desk and read the
-   lesson rail from left to right.
-   - *Why:* The rail shows Core's labels: 1–14 for the lectures and 演習 1–演習 7
-     for the recitations, in section order. Before, the desktop counted
-     positions 1–21, so 第7回 showed as 10.
-2. Open the same course on the iPad and read the lesson chips; scroll
-   the row to its end.
-   - *Why:* The chips used to read 5, 6, 3, 7, 4, 8 … because 演習第3回 lost its
-     演習 and showed a bare 3. They must match the desktop rail exactly,
-     with no chip cut off for 演習 labels.
-3. On the desktop, read the heading of a lesson page beside its big
-   number; then open the same lesson on the iPad and read its heading.
-   - *Why:* Both are Core's summary, the first line of the lesson's 授業計画
-     without its "授業計画：" label. The desktop used to cut it in the
-     shell and the iPad showed the bare title; a heading that still
-     starts with the label, or differs between the two, means a shell
-     kept its own rule.
-4. Open the course with the schedule table on the desktop and on the
-   iPad, and find the row of the lesson the course is at.
-   - *Why:* Core marks the rows against the current lesson. On the desktop the
-     current row is highlighted, earlier rows are dimmed and 休講 rows
-     are struck through; on the iPad the current row is bold and 休講
-     rows are struck through. An unmarked table means the shell's HTML
-     cleaning dropped Core's row classes.
-5. On that course's iPad page, turn to the lesson that holds the
-   assignment, then to the first page.
-   - *Why:* The assignment card sits on its own lesson's page, as on the
-     desktop. Assignments outside any section go with the first page; the
-     iPad used to place them by a section number of its own.
-
-**Where to look**
-
-The desktop lesson rail, lesson headings and schedule table; the iPad chip row, page headings and schedule table.
-
-**Expected**
-
-Both rails read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般
-and 連絡先・オフィスアワー ahead of them. Lesson headings are the plan's first
-line without its label, the same on both. The schedule table marks the
-current row and struck-through 休講 rows on both, and the assignment
-shows on its lesson's page.
-
-**Why this is manual**
-
-Labels, headings and table marks are read at a glance on two real
-shells over real LMS courses. The rules are covered by
-`course_content_follows_the_desktop_lecture_desk` and the `lms_html`
-tests; this checks that each shell renders Core's answer unchanged.
+Real LMS data, native gestures, haptics and cross-device rendering are required; Core tests cover course-content and HTML rules.
 
 **Covers**
 
@@ -8665,42 +7528,7 @@ tests; this checks that each shell renders Core's answer unchanged.
 - `apps/desktop/src/features/lms/lms.css`
 - `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
 - `apps/ios/IsctCompanion/Design/HTMLText.swift`
-
-**Last recorded** never run
-
-### iPhone course page shows its exams under the subtitle (`IOS-COURSE-EXAM-LINE`)
-
-**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The iPhone app with the exam timetable pulled and a course that has an
-exam, and another whose exam was marked cancelled on the desktop.
-
-**Steps**
-
-1. Open each course page and read the lines under the subtitle.
-   - *Why:* One orange line per visible exam, "試験 · 11/27 5–6限 · W9-202" (times
-     when periods are unknown); a cancelled exam struck through; a hidden
-     exam absent.
-
-**Where to look**
-
-The course page header.
-
-**Expected**
-
-The exam line matches the desktop exam list for that course.
-
-**Why this is manual**
-
-A label read at a glance; the data is Core's CourseDetail.exams.
-
-**Covers**
-
-- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+- `apps/ios/IsctCompanion/Design/HorizontalPager.swift`
 
 **Last recorded** never run
 
@@ -9080,7 +7908,7 @@ a headless mock screen would not verify the installed app or public URL.
 
 **Last recorded** never run
 
-### iOS application logs saved to Files and copied (`IOS-LOG-EXPORT`)
+### iOS application log menu, export and redaction (`IOS-LOG-EXPORT`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -9088,81 +7916,26 @@ a headless mock screen would not verify the installed app or public URL.
 
 **Preconditions**
 
-The app on a real iPhone has opened its session and pulled school data
-at least once since launch.
+The app on a real iPhone and iPad, after a school data pull.
 
 **Steps**
 
-1. Settings → Application logs → Save to file; keep the suggested name
-   and save to On My iPhone, then open the file in Files.
-   - *Why:* The save goes through the system export sheet; a sheet that does not
-     open, a missing .txt extension or an empty file is the failure.
-2. Tap Copy, then paste into Notes.
-   - *Why:* UIPasteboard receives the whole text; an empty or cut-off paste means
-     the write failed.
-3. Search both texts for the student id, password and any token.
-   - *Why:* The export must carry only Core's redacted log.
+1. Tap the empty right side of Settings → Application logs, inspect its icon and row height, then dismiss the menu.
+   - *Why:* The full row must be a usable hit target without clipping or changing its height.
+2. Save logs to Files and copy them to a note. Inspect both for startup and pull entries, the device header and credentials.
+   - *Why:* The native export and pasteboard must carry the redacted Core log.
 
 **Where to look**
 
-The saved IsctCompanion-logs-<date>.txt and the pasted note.
+The menu on both devices, saved file and pasted log.
 
 **Expected**
 
-Both start with "IsctCompanion <version> · iOS <version> · iPhone",
-list "Application started" and the pull's entries, and contain no
-credential. On an iPad the header names iPadOS.
+The menu opens from anywhere on the row with an unclipped icon; saved and copied logs identify the device and contain entries but no credentials.
 
 **Why this is manual**
 
-The export sheet and the pasteboard exist only on a device; the SDK
-smoke tests prove a session installs the logger and the export reaches
-Swift, and Core's test pins the format and redaction.
-
-**Covers**
-
-- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
-
-**Last recorded** never run
-
-### iOS Application logs row opens its menu from anywhere on the row (`IOS-LOG-ROW-TAP`)
-
-**Area** native · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The app on a real iPhone and a real iPad, on the Settings page.
-
-**Steps**
-
-1. Tap the empty right side of Settings → Application logs, away from
-   the icon and the text; then dismiss the menu by tapping outside it.
-   - *Why:* The row is a Menu, which List does not treat as a row; a tap that
-     only works on the icon or text means the label shrank back to its
-     content.
-2. Watch the icon while the menu opens, stays open and closes.
-   - *Why:* The menu's preview is cut from the label's frame; an icon clipped
-     top and bottom means the preview no longer contains it.
-3. Compare the row's height with Privacy policy above it.
-   - *Why:* The label is padded into the row insets and taken back outside; a
-     taller row means the two no longer cancel out.
-
-**Where to look**
-
-The Application logs row and its menu on both devices.
-
-**Expected**
-
-The menu (Save to file, Copy) opens from any point on the row, the
-whole icon stays visible throughout, and the row is as tall as its
-neighbours.
-
-**Why this is manual**
-
-Hit area and menu preview are a glance check on the native List; a
-headless screen would not exercise UIKit's menu presentation.
+UIKit menu presentation, the Files export sheet and pasteboard require real devices; Core tests cover format and redaction.
 
 **Covers**
 
@@ -9391,57 +8164,6 @@ and what a person sees.
 
 - `apps/desktop/src/pages/settings/ResetSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/reset.rs`
-
-**Last recorded** never run
-
-### The now line moves to the new day's column after the app stays open overnight (`TODAY-NOW-LINE-NEXT-DAY`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The desktop app open on a weekday of a running quarter, with the Mac
-allowed to sleep overnight.
-
-**Steps**
-
-1. In the evening open Today → Week, then switch to Lectures and leave
-   the app running; let the Mac sleep through the night.
-   - *Why:* A hidden page used to stop its own clock: the week view kept
-     yesterday as "today" while the line read the current time.
-2. The next morning wake the Mac, bring the window forward and go back
-   to Today → Week straight away.
-   - *Why:* The column must be right on the first frame, not a minute later
-     when a timer catches up.
-3. Open Timetable.
-   - *Why:* The course timetable marks today's weekday from the same clock and
-     must also show the line in the new day's column.
-
-**Where to look**
-
-The red now line and the tinted today column in Today → Week and in
-Timetable.
-
-**Expected**
-
-Both views tint the new day's column and draw the line at the current
-time inside it, with nothing left in yesterday's column.
-
-**Why this is manual**
-
-It needs a real night: OS sleep and WebView timer throttling cannot be
-reproduced over the fake host. The clock itself (a fresh minute after a
-stalled timer, resync on return) is covered by
-`apps/desktop/tests/unit/schedule-and-dates.test.ts`; this check is what
-a person sees in the two week views.
-
-**Covers**
-
-- `apps/desktop/src/pages/today/CalendarView.tsx`
-- `apps/desktop/src/pages/courses/CoursesPage.tsx`
-- `apps/desktop/src/app/useCoreLifecycle.ts`
 
 **Last recorded** never run
 
@@ -9684,101 +8406,6 @@ the app-shell e2e suite.
 - `apps/desktop/src/components/timetable/timetable.tsx`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/ios/IsctCompanion/Design/Guide.swift`
-
-**Last recorded** never run
-
-### The 'now' gradient reads the same on desktop Today and the iPhone hero card (`VISUAL-NOW-GRADIENT`)
-
-**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-Desktop and iPhone from the same commit, opened during or just before a
-class.
-
-**Steps**
-
-1. Put the desktop Today agenda and the iPhone 今日 side by side, in
-   light and then dark appearance.
-   - *Why:* The highlighted row on desktop and the hero card on the phone are the
-     same signal (design/README.md): the course tint peaking at the top
-     leading corner and fading to the surface, with a hairline in the
-     tint. A flat block, a different hue, or a gradient that turns muddy
-     in dark mode means the token or the CSS mix drifted.
-2. Look over the rest of each Today page.
-   - *Why:* Only the class or deadline happening now carries the gradient; rows,
-     cards and blocks stay flat.
-
-**Where to look**
-
-Desktop Home → Today agenda; iPhone 今日.
-
-**Expected**
-
-Both surfaces show the same course colour as a soft corner gradient in
-both appearances, and nothing else on either page is graded.
-
-**Why this is manual**
-
-A colour judgement across two devices, read at a glance; the value is
-one token generated for both shells.
-
-**Covers**
-
-- `design/tokens/course.json`
-- `apps/desktop/src/styles.css`
-- `apps/ios/IsctCompanion/Design/Polish.swift`
-
-**Last recorded** never run
-
-### Radix migration preserves desktop controls and overlay appearance (`DESKTOP-RADIX-APPEARANCE`)
-
-**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-Before and after desktop builds with the same workspace, window size,
-language, density and text-size settings.
-
-**Steps**
-
-1. Click every main sidebar destination, return to Settings / Appearance,
-   and toggle a switch on and off. Open Web and inspect the embedded pane.
-   - *Why:* Shell stacking contexts can intercept sidebar clicks; generic button
-     rules can collapse switch tracks, and removing AppShell can lose the
-     viewport height needed by native embedded webviews.
-2. Compare Today, Timetable and Settings in light and dark appearance;
-   open the course editor, a select, the export menu and a confirmation.
-   - *Why:* Removing framework CSS can change control heights, wrapping, borders,
-     surface colours and overlay spacing even when behaviour tests pass.
-3. Snap the window narrower, enlarge the text, and show a notification.
-   Inspect the dialog body and dropdowns near the window edges.
-   - *Why:* Native webview font metrics and clipping determine whether content
-     remains readable; a headless DOM cannot reveal visual regressions.
-
-**Where to look**
-
-The native desktop window, shared form controls, dialogs, menus and toasts.
-
-**Expected**
-
-Existing spacing, typography and colours remain consistent; controls,
-overlays and notifications are legible and neither clipped nor overlapping.
-
-**Why this is manual**
-
-Visual comparison at a glance in the native webview; automated suites
-cover actions and state, not rendered layout, colour or font metrics.
-
-**Covers**
-
-- `apps/desktop/src/components/ui/ui.css`
-- `apps/desktop/src/styles.css`
-- `apps/desktop/src/pages/settings/settings.css`
 
 **Last recorded** never run
 
@@ -11252,64 +9879,7 @@ shells' message mapping has no automated suite.
 
 **Last recorded** never run
 
-### Course ids survive merges and cloud sync between devices (`DESKTOP-COURSE-KEYS-UPGRADE`)
-
-**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-Two macOS desktop builds of this commit on two machines, both signed
-in to the same school accounts and the same cloud provider. On the
-first, courses on the timetable, a course renamed or recoloured, a
-session marked 休講, and a plan item.
-
-**Steps**
-
-1. Press Refresh in the sync status and wait for LMS and 教務 to
-   finish, then look for a course listed twice on the timetable.
-   - *Why:* LMS courses now join catalog and 教務 courses only by exact
-     offering id; a twin means a key was not matched, or that the
-     removed code-and-quarter match was still needed for this course.
-2. In the course finder, download this year's catalog for one
-   department, then open a course of that department on the
-   timetable and look at its credits and Japanese title.
-   - *Why:* Courses are merged when a source is written; a catalog download
-     writes no LMS row. Credits or titles that appear only after a
-     restart mean the catalog write did not merge its courses again.
-3. Sync to the cloud, then on the second machine pull and open the
-   same course and the marked session.
-   - *Why:* Synced copies name courses by external key; a rename or mark that
-     does not arrive, or arrives on a different course, means a key
-     was not converted on the way out or in.
-
-**Where to look**
-
-The timetable, the course page's title and colour, the marked block on
-the calendar, and the same on the second machine.
-
-**Expected**
-
-Every course keeps its rename, colour, marks and plan items, no
-course appears twice, and the second machine shows the
-same edits on the same courses after a sync.
-
-**Why this is manual**
-
-Needs real school reads and two machines on
-one cloud account; the key resolution, merge and conversion
-themselves are pinned by the Core data suite.
-
-**Covers**
-
-- `crates/app-core/src/data/course_keys.rs`
-- `crates/app-core/src/data/course_merge.rs`
-- `crates/app-core/src/data/backup_store.rs`
-
-**Last recorded** never run
-
-### Pages read their own tables and stay current after changes (`DESKTOP-VIEWS-FROM-TABLES`)
+### Pages refresh after local, school, agent, cloud and backup changes (`DESKTOP-QUERY-CACHE-INVALIDATION`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -11317,94 +9887,28 @@ themselves are pinned by the Core data suite.
 
 **Preconditions**
 
-macOS desktop build of this commit with signed-in school accounts and
-a quarter with classes, assignments and materials.
+A signed-in desktop app with classes, assignments, an earlier backup, automatic cloud sync, an MCP client and a second device on the same account.
 
 **Steps**
 
-1. Open the calendar, Today, the timetable, a course page with its
-   lessons, and the course finder, in that order, right after launch.
-   - *Why:* Each page now reads only the tables its queries name instead of
-     the whole workspace; a page that opens empty or slower than before
-     means its view left out a table it needs.
-2. Mark a session 休講 on the calendar, pin an assignment, then press
-   Refresh in the sync status and wait for LMS to finish.
-   - *Why:* Views are cached until a table they read changes; a page that keeps the old mark, pin or a removed material means a
-     cached view outlived a commit.
+1. Open Calendar, Today, timetable, course lessons and finder. Mark a class, pin an assignment, change a preference and rename a course; refresh school data. Mark sessions repeatedly during and after the school refresh.
+   - *Why:* Each visible page must reflect local writes and school updates without becoming blank. Marks must appear without visible delay even during a real sync.
+2. Open an LMS assignment in the Web tab and switch to Assignments; create a weekly event through the MCP client. Hide the window while the other device adds another event, then return.
+   - *Why:* Real WebView ingestion, agent writes and changes made while hidden must reach the app without a manual reload.
+3. Edit an event and course note, then check the second device and cloud status. Import the earlier backup, verify Calendar and planner, and mark a session immediately afterward; reset and reimport the backup.
+   - *Why:* Cloud propagation and restoration must refresh views, and a subsequent write must use the restored revision.
 
 **Where to look**
 
-Each page's content and how fast it appears; the marked block, the
-pinned assignment and the course lessons after the refresh.
+Calendar, Today, timetable, course lessons, finder, Assignments, cloud status and the second device.
 
 **Expected**
 
-Every page shows the same content as before this change, appears at
-least as fast, and shows each change at once.
+Pages remain populated and show current changes; remote and agent events appear without restart, edits reach the second device, backup restore and reset refresh the pages and sync, and the first post-import mark saves successfully.
 
 **Why this is manual**
 
-Felt speed and completeness of real pages over the person's data; the
-view-versus-whole-workspace equality is pinned by the Core facade
-suite and by trace_read_models on a data copy.
-
-**Covers**
-
-- `crates/app-core/src/data/views.rs`
-- `crates/app-core/src/facade.rs`
-- `crates/app-core/src/workspace_changes.rs`
-
-**Last recorded** never run
-
-### Cached pages refresh on the changes Core names and when the window returns (`DESKTOP-QUERY-CACHE-INVALIDATION`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-macOS desktop build of this commit with signed-in school accounts and
-a quarter with classes and assignments; a second device or the MCP
-agent able to add a weekly event.
-
-**Steps**
-
-1. Open the calendar, mark a session 試験, then switch to Today and
-   back.
-   - *Why:* A write invalidates only the answers that read what it changed; a
-     mark that Today or the calendar still shows the old way means an
-     answer was kept although its reads named the change.
-2. Hide the window for a minute while the other device or the agent
-   adds a weekly event, then bring the window back.
-   - *Why:* Coming back refetches every query in use, so a missed event cannot
-     leave a page stale; the weekly event missing until another change means
-     the window's return was not heard.
-3. Press Refresh in the sync status while the calendar is open.
-   - *Why:* Background reads arrive as merged events; the calendar flickering
-     empty, or answering twice per event, means stale answers replaced
-     fresh ones or were not kept on screen while refreshing.
-4. In Settings change the appearance and the department, then rename
-   a course from its panel.
-   - *Why:* Pages hold no copy of the records; an edit shows once Core answers
-     again. A value that flips back, or a page that keeps the old name,
-     means an answer was not refetched after the commit.
-
-**Where to look**
-
-The marked block, Today's list, the new weekly event on the calendar, and the
-calendar while the sync runs.
-
-**Expected**
-
-Each change shows at once on every page that reads it, the weekly event shows
-as soon as the window returns, and the calendar never goes blank.
-
-**Why this is manual**
-
-Window visibility and cross-device events need the real shell and a
-second writer; the invalidation and sequence rules themselves are
-pinned by the workspace-store suite.
+Real school ingestion, the native file picker, a second device, MCP and cloud provider are needed; the workspace-store suite covers invalidation and sequencing. Marking latency during real sync is a perceived responsiveness check.
 
 **Covers**
 
@@ -11412,6 +9916,18 @@ pinned by the workspace-store suite.
 - `apps/desktop/src/platform/view-query.ts`
 - `apps/desktop/src/platform/records.ts`
 - `apps/desktop/src/store/workspace.ts`
+- `crates/app-core/src/data/views.rs`
+- `crates/app-core/src/facade.rs`
+- `crates/app-core/src/workspace_changes.rs`
+- `apps/desktop/src-tauri/src/commands/workspace.rs`
+- `apps/desktop/src-tauri/src/lms_files.rs`
+- `apps/desktop/src-tauri/src/agent_server.rs`
+- `crates/app-core/src/data/mod.rs`
+- `crates/app-core/src/runtime.rs`
+- `crates/app-core/src/notes.rs`
+- `apps/desktop/src-tauri/src/commands/backup.rs`
+- `apps/desktop/src/storage/repository.ts`
+- `crates/app-core/src/lms_ingest.rs`
 
 **Last recorded** never run
 

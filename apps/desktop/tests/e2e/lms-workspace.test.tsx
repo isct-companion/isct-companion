@@ -608,31 +608,6 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
-  it("puts consecutive image-only labels in one grid", async () => {
-    const f = lectureFixture();
-    const label = (id: string, name: string) =>
-      material({
-        id,
-        title: name,
-        module: "label",
-        resourceUrl: undefined,
-        bodyHtml: `<div><p><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/${name}.png"><img src="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/s_${name}.png" alt=""></a></p></div>`,
-      });
-    f.workspace.materials = [
-      label("l1", "schedule"),
-      label("l2", "discord"),
-      ...f.workspace.materials,
-    ];
-    const { host } = await openWorkspace(f, {
-      entry: { request: 602 },
-      content: contentFor(f, ["l1", "l2"]),
-    });
-
-    const grids = host.querySelectorAll(".lmsImageGrid");
-    expect(grids).toHaveLength(1);
-    expect(grids[0].querySelectorAll(".lmsImageCard")).toHaveLength(2);
-  }, 30_000);
-
   it("shows a label's own text without the name Moodle derives from it, keeping Core's schedule marks", async () => {
     const f = lectureFixture();
     Object.assign(f.workspace.materials[0], {

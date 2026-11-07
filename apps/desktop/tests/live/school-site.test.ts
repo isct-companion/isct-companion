@@ -49,7 +49,7 @@ describe.skipIf(!enabled)("live Science Tokyo school sites", () => {
       `the LMS root should redirect to its academic-year path, got ${response.status} ${location}`,
     ).toBeDefined();
 
-    const session = readRepoFile("crates/app-core/src/lms_session.rs");
+    const session = readRepoFile("crates/app-core/src/school_session/login.rs");
     expect(session, `LMS_HOME must name the live LMS year (${year})`).toContain(
       `lms.s.isct.ac.jp/${year}/`,
     );

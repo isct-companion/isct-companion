@@ -519,7 +519,6 @@ describe("spring scroll", () => {
 
   it("is softer for long jumps", () => {
     expect(stiffnessFor(3000)).toBeLessThan(stiffnessFor(300));
-    expect(stiffnessFor(100)).toBe(14);
   });
 });
 

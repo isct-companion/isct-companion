@@ -658,117 +658,6 @@ checks:
       - apps/desktop/src/pages/courses/**
     verified: null
 
-  - id: IDENTITY-MASTERS-CREDITS
-    area: identity
-    title: Master's requirements and 500-level rules after the first semester
-    persona: masters-student
-    preconditions: |
-      A master's study profile with an undergraduate record already imported.
-    steps:
-      - action: |
-          Open the grades and GPA panels and compare them with 教務Web.
-        reason: |
-          The master's panels must not be computed from the undergraduate
-          table; a plausible-looking number from the wrong table is the
-          failure here.
-      - action: |
-          Try to register a 500-level course before and after the first
-          semester boundary (or with the profile set to each state).
-        reason: |
-          The rule is semester-dependent, so a single-point test cannot tell
-          "allowed" from "allowed too early".
-      - action: |
-          Open the requirement panels and read which requirements apply.
-        reason: |
-          Requirements that apply only to a master's student must be visible
-          as such; silently omitting them is the failure the automated rules
-          cannot express.
-    observe: |
-      The grades, GPA and requirements panels for the master's profile, and
-      the registration outcome for the 500-level course.
-    expected: |
-      Credits and GPA come from the master's record, the 500-level rule
-      applies from the correct semester, and the applicable requirements are
-      named.
-    why_manual: |
-      Needs a real master's account so the 教務Web tables and the requirement
-      set are the ones a master's student actually receives.
-    covers:
-      - crates/app-core/src/study_profile.rs
-      - crates/app-core/src/kyomu_ingest.rs
-      - apps/desktop/src/pages/courses/**
-    verified: null
-
-  - id: IDENTITY-DOCTORAL-RULES
-    area: identity
-    title: Doctoral registration and approval rules are stated
-    persona: doctoral-student
-    preconditions: |
-      A doctoral study profile.
-    steps:
-      - action: |
-          Open the registration and requirement panels.
-        reason: |
-          Doctoral students reach a different panel than master's students; a
-          wrong panel means the identity is not driving the view.
-      - action: |
-          Attempt a course whose registration requires doctoral approval.
-        reason: |
-          The rule is an approval, not a hard block, so the check is whether
-          the app says so rather than refusing silently.
-    observe: |
-      The requirement and registration panels, and the message shown for the
-      approval-gated course.
-    expected: |
-      The doctoral-specific requirement is visible, and an approval-gated
-      course explains that approval is needed.
-    why_manual: |
-      Needs a real doctoral account; the rule set is account-specific and the
-      current fixtures do not represent it.
-    covers:
-      - crates/app-core/src/study_profile.rs
-      - apps/desktop/src/pages/courses/**
-    verified: null
-
-  - id: IDENTITY-TRANSFER-COHORT
-    area: identity
-    title: A transfer student sees their own admission cohort's guidance
-    persona: transfer-student
-    preconditions: |
-      A transfer study profile whose admission year differs from the cohort
-      year of the courses being planned.
-    steps:
-      - action: |
-          Open the recommended-courses and guidance panel.
-        reason: |
-          The panel is keyed by admission cohort; the wrong key silently
-          produces a plausible list from another cohort's guide.
-      - action: |
-          Confirm the guide PDF and the recommended list match the transfer
-          admission year, not the course year.
-        reason: |
-          This is the exact confusion the cohort namespacing exists to
-          prevent, and it is invisible without reading the guide.
-      - action: |
-          Edit the admission year and reopen the panel.
-        reason: |
-          Confirms the key is read from the profile rather than cached from
-          the first open.
-    observe: |
-      The recommended-courses panel, the cited guide PDF name and path, and
-      the admission year shown in the study profile.
-    expected: |
-      The guidance and recommendations come from the transfer admission
-      cohort's dataset, and changing the admission year changes them.
-    why_manual: |
-      Requires a real transfer record; the bundled cohort datasets are real
-      but which one applies is only knowable from the account.
-    covers:
-      - crates/app-core/src/subscriptions.rs
-      - crates/app-core/src/course_query/mod.rs
-      - apps/desktop/src/lib/departments.ts
-    verified: null
-
   - id: SCHOOL-KYOMU-GRADUATE-TABLES
     area: school
     title: Graduate 教務Web tables against a real graduate account
@@ -881,92 +770,6 @@ checks:
       - crates/adpt-isct/src/kyomu.rs
       - crates/app-core/src/kyomu_ingest.rs
     verified: null
-
-  - id: IDENTITY-LANGUAGE-SWITCH
-    area: identity
-    title: English UI and English content stay English
-    persona: international-student
-    preconditions: |
-      The UI language set to English and the school-content language set to
-      English.
-    steps:
-      - action: |
-          Walk the main screens: today, courses, a syllabus page, the LMS, and
-          settings.
-        reason: |
-          Untranslated strings cluster on the screens nobody visits during a
-          happy-path demo, so the walk has to be broad rather than deep.
-      - action: |
-          Open a syllabus page that has an English page and read every date.
-        reason: |
-          The failure mode is not a Japanese word but a date whose format is
-          unstated, which reads as correct to whoever wrote it.
-      - action: |
-          Trigger a refusal or an error on purpose.
-        reason: |
-          Error text is where translations are most often missing, and it is
-          exactly where this persona cannot afford to guess.
-    observe: |
-      Every screen text, the syllabus page in English, and the error or refusal
-      message.
-    expected: |
-      No Japanese appears in the English UI or in English content, dates state
-      or unambiguously imply their format, and error messages are translated.
-    why_manual: |
-      Needs the real school content in English; the shipped English content
-      only exists for courses that publish it, so completeness can only be
-      judged against the live catalogue.
-    covers:
-      - resources/locales/**
-      - apps/desktop/src/i18n/**
-      - apps/desktop/src/lib/model.ts
-    verified: null
-
-  - id: SCHOOL-LMS-YEAR-ROLLOVER
-    area: school
-    title: LMS pull after the academic year moves
-    persona: undergraduate-senior
-    preconditions: |
-      The school has moved the LMS to a new academic-year path.
-    steps:
-      - action: |
-          Run `yarn test:live` and read the LMS year it reports.
-        reason: |
-          The pinned year must come from the site, not from memory. This step
-          is the trigger for the rest of the check.
-      - action: |
-          If it differs from the pinned year, update LMS_HOME in
-          crates/app-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
-          crates/adpt-isct/src/lms.rs.
-        reason: |
-          A stale literal does not fail loudly; it silently extracts nothing.
-          The edit is mechanical, which is exactly why it must be paired with
-          the real pull below rather than trusted.
-      - action: |
-          Sign in again and repeat SCHOOL-LMS-PULL.
-        reason: |
-          Only a real account proves the new path is the right one; a fixture
-          cannot tell a moved site from a removed one.
-    observe: |
-      The `yarn test:live` output and the course list after the repeated pull.
-    expected: |
-      The live suite reports one year for both the redirect and every path
-      literal, and the repeated pull matches the LMS again.
-    why_manual: |
-      The school has served the LMS under a fixed 2025 path since the merger,
-      so the path is pinned rather than derived. When it moves, the automated
-      suite fails but only a real account can confirm the new path works.
-    covers:
-      - crates/app-core/src/school_session/site.rs
-      - crates/adpt-isct/src/lms.rs
-    verified:
-      version: 1.0.0-rc.3
-      date: 2026-10-16
-      commit: b598ae6
-      by: agent
-      result: pass
-      notes: The LMS root still redirects to /2025/ and every pinned literal agrees.
-      evidence: apps/desktop/tests/live/school-site.test.ts
 
   - id: CLOUD-DRIVE-WRITE
     area: cloud
@@ -1888,155 +1691,41 @@ checks:
 
   - id: DESKTOP-PAGE-OVERLAYS
     area: desktop
-    title: Popovers and dialogs stay on top and leave with their page
+    title: Page and course overlays remain positioned and usable
     persona: narrow-window-keyboard
-    preconditions: |
-      A desktop build with classes on Today and an upcoming exam.
+    preconditions: A desktop build with classes, a Lectures course with an exam, and tips
+      reset in Settings → About.
     steps:
-      - action: |
-          On the timetable page open the ▾ export menu beside Export ICS, then
-          right-click a class on Today's calendar near the window's right and
-          bottom edges.
-        reason: |
-          Page overlays now mount inside the page's own layer, under a main
-          area that clips overflow; a menu cut off at the page edge or not
-          flipping at the window edge is the regression to look for.
-      - action: |
-          Open an exam's editor on Today and click where the navigation rail
-          and the status bar sit.
-        reason: |
-          The dialog's backdrop must cover the rail and the status bar; a rail
-          that stays clickable means the overlay lost its stacking order.
-      - action: |
-          With a menu open press ⌘2, look, then press ⌘1.
-        reason: |
-          The menu must vanish with its page and be there again, still
-          closable, on return; it used to float over the next page unclosable.
-      - action: |
-          About → Show again, finish the welcome sheet, and on
-          Today switch pages from the rail before pressing Got it.
-        reason: |
-          This is the reported flow: the tip stayed on every page and Got it
-          did nothing until Today came back.
-      - action: |
-          Show tips again, open a course with lessons on Lectures, and while
-          the lesson tip points at the rail switch the sidebar to Exams, then
-          back to Lectures.
-        reason: |
-          Course workspaces are retained inside the Lectures page; their tip
-          used to stay on the Exams list, pinned to the window's top-left
-          corner, because it portaled to the page layer, not the course's.
-    observe: |
-      The menus, the dialog backdrop over the rail and status bar, and the
-      page shown after each shortcut.
-    expected: |
-      Menus show whole and flip at the window edge, the backdrop dims the rail
-      and status bar and blocks them, and every overlay hides with its page
-      and returns with it; Got it closes the tip.
-    why_manual: |
-      Clipping and stacking are glance checks on the real WebKit window. The
-      hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
+      - action: Open the timetable export menu, then right-click a Today calendar class near
+          window edges. Step weeks and right-click both during and after the slide.
+        reason: Menus must flip at edges and stay anchored to the pointer during week transitions.
+      - action: Open a Today exam editor and a Lectures course exam editor; inspect the backdrop,
+          dialog and a tip near the course pane edge.
+        reason: Dialogs and tips must escape pane clipping and cover the navigation rail and
+          status bar.
+      - action: With a menu or tip open, switch pages and return; switch the Lectures sidebar
+          between a course and Exams. Collapse the lecture sidebar and return to Lectures
+          while moving the pointer over the rail.
+        reason: Overlays must follow their page or course, remain closable, and the floating list
+          must not jump during entry.
+    observe: Menus, dialogs, tips and the floating Lectures list.
+    expected: Menus remain whole and anchored, dialogs cover and block the full window, tips
+      hide with their page or course and close normally, and the floating list stays beside
+      the rail.
+    why_manual: Native WebKit clipping, stacking and animated position are visual checks; page
+      retention is covered by the app-shell suite.
     covers:
       - apps/desktop/src/app/KeptPage.tsx
       - apps/desktop/src/pages/today/CourseFinder.tsx
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/components/guide.tsx
-    verified: null
-
-  - id: DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP
-    area: desktop
-    title: The calendar's right-click menu opens at the pointer after a week step
-    persona: undergraduate-senior
-    preconditions: |
-      A desktop build of this commit with classes in this week and the next.
-    steps:
-      - action: |
-          On Today's calendar click › to show next week, then right-click any
-          class.
-        reason: |
-          The reported bug: after a week step the sliding grid kept its
-          animation in effect, became the containing block of the menu's
-          fixed anchor, and the menu opened down and right of the pointer by
-          the grid's offset from the window corner.
-      - action: |
-          Click ‹ and › several times quickly and right-click a class while
-          the grid is still sliding in.
-        reason: |
-          During the 250 ms slide the grid is transformed whatever its fill
-          mode; only a menu anchored to the pointer itself stays put then.
-      - action: |
-          Click This week and right-click a class again.
-        reason: |
-          Returning to this week used to clear the slide and hide the bug, so
-          a menu that is right here but wrong after › is still broken.
-    observe: |
-      Where the menu's top-left corner sits relative to the pointer.
-    expected: |
-      Each time the menu opens touching the pointer, down and to the right
-      (flipped only at a window edge), and its marks still apply.
-    why_manual: |
-      Where a menu lands is a glance on the real WebKit window; jsdom has no
-      layout, so no automated suite can see a containing block. Which marks
-      the menu offers and what they send is in
-      tests/e2e/today-and-lectures.test.tsx.
-    covers:
       - apps/desktop/src/components/timetable/timetable.tsx
       - apps/desktop/src/components/ui/overlays.tsx
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/styles.css
+      - apps/desktop/src/pages/lectures/lectures.css
     verified: null
 
-  - id: DESKTOP-LECTURE-PANE-OVERLAYS
-    area: desktop
-    title: Overlays from a Lectures course cover the window and are not clipped
-    persona: undergraduate-senior
-    preconditions: |
-      A desktop build of this commit with a Lectures course that has an exam
-      on its LMS workspace, and the in-app tips reset (About →
-      Show again).
-    steps:
-      - action: |
-          On Lectures open the course with an exam and click Edit on its exam
-          card.
-        reason: |
-          A course's overlays used to mount inside the content pane, which has
-          `contain: layout paint`; the dialog was then centred in that pane,
-          its backdrop left the rail and the list undimmed, and its edges were
-          cut off.
-      - action: |
-          Close the dialog and, while a course tip is showing, look at the
-          tip near the pane's left edge.
-        reason: |
-          Anchored popovers kept their position but were clipped at the
-          pane's edges for the same reason.
-      - action: |
-          Collapse the lecture sidebar, switch to Today and straight back to
-          Lectures, and at once move the pointer onto the navigation rail.
-        reason: |
-          The floating list was fixed to the window; during the page's
-          entrance the page became its containing block and the list jumped
-          right and down by the page's own offset.
-    observe: |
-      The dialog and its backdrop, the tip's outline, and the floating list
-      while the page is still entering.
-    expected: |
-      The backdrop dims the whole window including the rail and the list, the
-      dialog sits in the window's centre whole; the tip is drawn whole; the
-      floating list opens at the page's left edge beside the rail and does not
-      move while the page settles.
-    why_manual: |
-      Clipping, centring and a list that jumps for 200 ms are glance checks on
-      the real WebKit window; jsdom has no layout or animations. That
-      overlays hide and return with their page is in
-      tests/e2e/app-shell.test.tsx, and with their course in
-      DESKTOP-PAGE-OVERLAYS.
-    covers:
-      - apps/desktop/src/app/KeptPage.tsx
-      - apps/desktop/src/components/ui/overlays.tsx
-      - apps/desktop/src/pages/lectures/LectureDesk.tsx
-      - apps/desktop/src/pages/lectures/lectures.css
-      - apps/desktop/src/styles.css
-    verified: null
 
   - id: DESKTOP-WINDOWS-SNAP-LAYOUT
     area: desktop
@@ -3059,44 +2748,6 @@ checks:
       - apps/desktop/src/features/lms/FilePreview.tsx
     verified: null
 
-  - id: DESKTOP-LECTURES-PANE-MOTION
-    area: desktop
-    title: Choosing a course on Lectures moves only the course pane
-    persona: undergraduate-senior
-    preconditions: |
-      Desktop build of this commit with a quarter of lectures.
-    steps:
-      - action: |
-          On Lectures, click one course in the list, then another, then an
-          exam under Exams.
-        reason: |
-          Only the right-hand pane may enter; the list, the quarter picker
-          and the page fading as well means the page transition still runs
-          for a change within Lecture Desk.
-      - action: |
-          Open a course from a Today row, then go back to Today.
-        reason: |
-          Coming from another page keeps its page transition and the morph
-          from the clicked row; the pane must not slide in on top of it.
-      - action: |
-          Turn on Reduce Motion in the system settings and click another
-          course.
-        reason: |
-          Under Reduce Motion the pane only fades.
-    observe: |
-      The list column and the course pane while each course opens.
-    expected: |
-      The list stays still and the course pane slides in from the right
-      (fades under Reduce Motion); opening from Today still morphs the row.
-    why_manual: |
-      Whether a column moves during a 250 ms animation is seen at a glance in
-      the real app; a headless DOM runs no View Transitions or animations.
-    covers:
-      - apps/desktop/src/pages/lectures/LectureDesk.tsx
-      - apps/desktop/src/pages/lectures/lectures.css
-      - apps/desktop/src/app/App.tsx
-    verified: null
-
   - id: DESKTOP-LOG-EXPORT
     area: desktop
     title: Application logs saved to a file and copied to the clipboard
@@ -3359,76 +3010,41 @@ checks:
 
   - id: DESKTOP-FINDER-COMMIT
     area: desktop
-    title: A course-search condition commits at once
+    title: Search and add courses without visible stalls
     persona: narrow-window-keyboard
-    preconditions: |
-      A desktop build with the year's catalog stored, on the timetable.
+    preconditions: A desktop build with the current catalog and an eligible course not yet on
+      the timetable.
     steps:
-      - action: |
-          Type a condition such as 4q or 火3-4 and press Enter.
-        reason: |
-          The field must empty and the suggestion list close in the same
-          frame, with the condition shown as a faint pill. A list that stays
-          open, or text that lingers until the results change, is the lag
-          this change removed.
-      - action: |
-          Type a word, press ↓ to reopen the list, then press Escape; click
-          into the results; tab out of the field.
-        reason: |
-          The list opens only on typing, focus or ↑↓, and closes on Escape,
-          blur and a click into the results; a list that reopens by itself
-          covers the results being read.
-    observe: |
-      The search field, its suggestion list and the condition pills.
-    expected: |
-      Enter empties the field and closes the list at once; the faint pill
-      turns into the normal condition pill when the results update.
-    why_manual: |
-      Whether it feels instant is a glance in the real app; the order of
-      state changes is covered in tests/e2e/planner.test.tsx.
+      - action: Type 4q or 火3-4 and press Enter; reopen suggestions with the arrow keys, then
+          close them with Escape, blur and a click in the results.
+        reason: The condition should commit immediately and suggestions should not obscure results
+          after dismissal.
+      - action: Click an empty timetable cell, Command-click another, then clear the first. Select
+          cells quickly, change quarters and return.
+        reason: Highlights must respond immediately and old selections must not flash in the new
+          quarter.
+      - action: Type a long query quickly and immediately add a result; repeat while kana
+          composition is open. Watch the result and timetable, then Undo.
+        reason: Adding must not wait behind searches; the saving state prevents duplicate adds and
+          Undo must restore the result.
+    observe: The search field, suggestions, condition pills, timetable and result row.
+    expected: Conditions and highlights respond at once, results match the selected quarter,
+      and adding settles from saving to Added without visible delay or flicker. Undo removes
+      the course and restores Add.
+    why_manual: Perceived latency with the real catalog, native command runner and IME is
+      judged in the real app; Core and planner tests cover selection and rollback rules.
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
-    verified: null
-
-  - id: DESKTOP-FINDER-SLOT-HIGHLIGHT
-    area: desktop
-    title: A clicked timetable slot lights up before the results change
-    persona: undergraduate-first-term
-    preconditions: |
-      A desktop build with the year's catalog stored, on the timetable.
-    steps:
-      - action: |
-          Click an empty timetable cell, then ⌘-click another, then click the
-          first again.
-        reason: |
-          Each cell must light up (or go dark) the moment it is clicked; the
-          results and pills may follow a moment later. A cell that waits for
-          the results is the stall this change removed.
-      - action: |
-          Select two cells quickly, switch quarters before the results settle,
-          then return and add a course followed immediately by Undo.
-        reason: |
-          The final highlight and results must belong to the shown quarter;
-          old queued selections must not flash back after navigation. The
-          added course must disappear after Undo, without a second click.
-    observe: |
-      The timetable cells and the condition pills above the results.
-    expected: |
-      The first click highlights one cell, ⌘-click adds a second, and
-      clicking the first again clears it, each instantly. Rapid quarter
-      changes leave no old highlight or result flash, and Undo removes the add.
-    why_manual: |
-      Perceived latency is a glance check; the toggle rules are Core's
-      (crates/app-core/src/tests/course_query.rs) and the local highlight
-      before Core answers is in tests/e2e/planner.test.tsx.
-    covers:
       - apps/desktop/src/app/App.tsx
-      - apps/desktop/src/pages/courses/useFinder.ts
       - apps/desktop/src/platform/query-client.ts
       - apps/desktop/src/store/workspace.ts
       - crates/app-core/src/workspace.rs
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/commands/read_models.rs
+      - crates/app-core/src/course_query/mod.rs
     verified: null
+
 
   - id: DESKTOP-FINDER-IME-KANA
     area: desktop
@@ -3496,78 +3112,6 @@ checks:
       - apps/desktop/src/pages/courses/useFinder.ts
     verified: null
 
-  - id: DESKTOP-FINDER-ADD-SAVING
-    area: desktop
-    title: An added course shows as saving, then settles
-    persona: undergraduate-first-term
-    preconditions: |
-      A desktop build with the year's catalog stored and an eligible course
-      not yet on the timetable.
-    steps:
-      - action: |
-          Click Add on a result row.
-        reason: |
-          The row must say it is added and saving in the same frame; a row
-          that keeps its Add button until the timetable redraws invites a
-          second click.
-      - action: |
-          Wait for the timetable to show the course, then press Undo.
-        reason: |
-          The row must settle on Added without flickering back to Add, and
-          Undo must offer Add again at once.
-    observe: |
-      The result row's Add / Added label and the timetable.
-    expected: |
-      Add → "Added · saving" at once → "Added" with the course on the
-      timetable; Undo returns the row to Add.
-    why_manual: |
-      The saving state passes in a moment on a real database and is a glance
-      check; the rollback on a failed write is in
-      tests/e2e/planner.test.tsx.
-    covers:
-      - apps/desktop/src/pages/courses/CourseFinder.tsx
-    verified: null
-
-  - id: DESKTOP-FINDER-ADD-WHILE-TYPING
-    area: desktop
-    title: Adding a course is not held up by searches typed just before
-    persona: undergraduate-senior
-    preconditions: |
-      A desktop build with the year's catalog stored (about 2,700 courses)
-      and an eligible course not yet on the timetable.
-    steps:
-      - action: |
-          Type a long query quickly, e.g. a title word letter by letter,
-          then immediately click Add on a result row while the list is still
-          updating.
-        reason: |
-          Searches run outside the write queue now. Before, every keystroke's
-          search queued ahead of the add, so the course reached the timetable
-          only after all of them; the add must land as quickly as it does
-          with the field idle.
-      - action: |
-          Repeat with an IME (kana) composition still open in the search
-          field.
-        reason: |
-          The composition's end sends one search; the add must not wait for
-          it either.
-    observe: |
-      The time from the click to the course drawn on the timetable, and the
-      row's Added label. With ISCT_TRACE_READS=1 the app log shows each
-      command's queue_ms; the add's must stay near zero.
-    expected: |
-      The course appears on the timetable within a fraction of a second of
-      the click, typing or not, and the row settles on Added.
-    why_manual: |
-      The queueing only shows with the real Tauri command runner, a real
-      database of the real catalog's size and real typing speed; the fake
-      host in tests/e2e answers every command at once.
-    covers:
-      - apps/desktop/src-tauri/src/lib.rs
-      - apps/desktop/src-tauri/src/commands/read_models.rs
-      - crates/app-core/src/course_query/mod.rs
-    verified: null
-
   - id: DESKTOP-SYLLABUS-IN-APP
     area: desktop
     title: Syllabus pages open inside the app; the catalog comes from 教務 only
@@ -3623,81 +3167,6 @@ checks:
       - crates/app-core/src/net/kyomu.rs
       - crates/adpt-isct/src/kyomu/search.rs
     verified: null
-
-  - id: NATIVE-IOS-SIMULATOR
-    area: native
-    title: Swift SDK and OCR on an iOS simulator
-    persona: narrow-window-keyboard
-    preconditions: |
-      macOS with Xcode, an installed simulator runtime, and the generated
-      framework.
-    steps:
-      - action: |
-          Run `yarn sdk:ios`, then `node scripts/bindings/ios-smoke.mjs`.
-        reason: |
-          Confirms the generated Swift package links against the packaged
-          XCFramework rather than the host build.
-      - action: |
-          Read the smoke client's output for its pass marker.
-        reason: |
-          A build that succeeds while the client never runs proves nothing
-          about the binding; the marker is the difference.
-    observe: |
-      The build output and the simulator's console for the pass marker.
-    expected: |
-      The Swift package builds against the XCFramework, the smoke client
-      passes, and OCR preparation and inference run on the simulator.
-    why_manual: |
-      Needs macOS, Xcode, a simulator runtime and a generated framework.
-    covers:
-      - crates/app-ffi/**
-      - bindings/swift/**
-      - scripts/bindings/build-ios.mjs
-    verified:
-      version: 1.0.0-rc.1
-      date: 2026-10-15
-      commit: 7fdf1b6
-      by: human
-      result: pass
-      notes: Recorded in docs/verification/native-sdk.md.
-      evidence: docs/verification/native-sdk.md
-
-  - id: NATIVE-ANDROID-EMULATOR
-    area: native
-    title: Kotlin AAR on an Android emulator
-    persona: narrow-window-keyboard
-    preconditions: |
-      Android SDK, NDK, a running emulator with KVM acceleration.
-    steps:
-      - action: |
-          Build the AAR, then run `node scripts/bindings/android-smoke.mjs`.
-        reason: |
-          Loading the AAR on ART exercises the Kotlin and native library
-          wiring, which a host JVM run does not.
-      - action: |
-          Read the device output for the pass marker and check the ABI.
-        reason: |
-          A wrong ABI silently loads the host library on one machine and fails
-          on a device; the ABI assertion is what catches that.
-    observe: |
-      The build output, the device's `logcat`/stdout, and the reported ABI.
-    expected: |
-      The AAR loads its libraries on ART, the smoke client prints its pass
-      marker, and the ABI is arm64-v8a or x86_64.
-    why_manual: |
-      Needs the Android SDK, an NDK and a KVM-accelerated emulator.
-    covers:
-      - crates/app-ffi/**
-      - bindings/kotlin/**
-      - scripts/bindings/build-android.mjs
-    verified:
-      version: 1.0.0-rc.1
-      date: 2026-10-15
-      commit: 7fdf1b6
-      by: human
-      result: pass
-      notes: Recorded in docs/verification/native-sdk.md.
-      evidence: docs/verification/native-sdk.md
 
   - id: NATIVE-DEVICE-FLOWS
     area: native
@@ -3925,50 +3394,45 @@ checks:
 
   - id: RELEASE-INSTALL
     area: release
-    title: Installers on a clean machine of each platform
+    title: Install and launch releases on clean macOS and Windows systems
     persona: careless-multidevice
-    preconditions: |
-      The published installers, a clean machine and a separate installation with
-      an existing workspace (including schema 6 for the 1.0 update).
+    preconditions: Published installers, clean macOS machines for both architectures, and
+      Windows 11 with Smart App Control and Controlled folder access; an existing
+      installation, backup, school account, and signed and unsigned Windows builds.
     steps:
-      - action: |
-          Install on macOS (both architectures) and Windows x64.
-        reason: |
-          Build success does not establish runtime compatibility; the release
-          notes say so explicitly.
-      - action: |
-          Launch, complete first-run, and open a workspace from a backup.
-        reason: |
-          An existing workspace must import into a fresh install, independently of the
-          normal update path.
-      - action: |
-          On the existing installation, change a timetable and a preference,
-          quit, replace the application with the new installer, and relaunch
-          without exporting or importing a backup.
-        reason: |
-          Checks that an actual OS installer uses the same application-data
-          directory and retains data across a normal update. SQL migration
-          tests cannot exercise app replacement and installed identities.
-      - action: |
-          Observe the Gatekeeper and SmartScreen prompts.
-        reason: |
-          The release notes promise a specific prompt behaviour; a mismatch
-          makes the notes wrong rather than the build.
-    observe: |
-      Each installer's prompts, the first-run screens, and the imported
-      workspace.
-    expected: |
-      Installation succeeds, the OS prompts match the release notes, and
-      existing workspace data imports and survives ordinary app updates.
-    why_manual: |
-      Requires clean machines and real installers; build success is not
-      runtime compatibility.
+      - action: Install and launch macOS and Windows releases, complete first run, and import a
+          backup. Observe Gatekeeper and SmartScreen prompts.
+        reason: A build must run on the target OS and native installer prompts must match the
+          release notes.
+      - action: Change a timetable and preference on an existing install, replace it with the new
+          installer, and relaunch.
+        reason: The installed identity and data directory must preserve existing data across
+          ordinary updates.
+      - action: On Windows launch from Explorer, open a course workspace file, inspect the signed
+          installer certificate, and download a course file.
+        reason: The release must not open a console, and the trusted signature must permit
+          protected-folder writes.
+      - action: With Smart App Control off but Controlled folder access on, install the unsigned
+          build and open another undownloaded course file.
+        reason: A blocked write must identify the Windows protection and course folder setting.
+    observe: Installer prompts, first run and restored workspace; Windows signature, app, file
+      card and Protection history.
+    expected: Install and launch succeed without a companion console, data imports and
+      survives an update, and prompts match release notes. The signed Windows app saves the
+      course file; the unsigned app explains any protected-folder refusal.
+    why_manual: Clean machines, real OS installers and Windows security policy, signing
+      credentials and a school account cannot be exercised by CI.
     covers:
       - crates/app-core/src/data/migrations.rs
       - apps/desktop/src-tauri/src/lib.rs
       - scripts/desktop/desktop-release.mjs
       - .github/workflows/desktop-release.yml
+      - apps/desktop/src-tauri/src/main.rs
+      - scripts/desktop/tauri.mjs
+      - apps/desktop/src-tauri/src/lms_protocol.rs
+      - apps/desktop/src/features/lms/FilePreview.tsx
     verified: null
+
 
   - id: WORKSPACE-NATIVE-RESIZE
     area: native
@@ -3980,7 +3444,9 @@ checks:
       - action: |
           Open a school service in Web, drag the separator in both directions,
           and move the pointer across the school page before releasing it.
+          Drag the divider toward its minimum, then past the collapse threshold.
         reason: |
+          The pane should hold at its minimum before collapsing beyond the threshold.
           WKWebView is a separate native surface and can intercept the pointer;
           a DOM splitter test cannot prove that the drag stays captured.
       - action: |
@@ -4012,7 +3478,8 @@ checks:
       The native page edges, workspace separator, Web service header and
       the document tool panel in the lecture reader.
     expected: |
-      The separator follows the pointer until release. The native page stays
+      The separator follows the pointer until release, holds at the minimum and
+      collapses beyond the threshold. The native page stays
       inside its content area and both toolbars remain clickable after resizing.
       The resize cursor appears only on the separator; page cursors stay stable.
     why_manual: |
@@ -4036,9 +3503,13 @@ checks:
     area: school
     title: Prepare assignment files in the official LMS draft area
     persona: undergraduate-senior
-    preconditions: |
+    preconditions: >-
       Updated signed desktop bundle, a real LMS account, an open assignment
+
       accepting test files, and a workspace with files in submit/.
+
+      On macOS, open the Science Tokyo Portal before the LMS submission page and have a PDF
+      in Finder.
     steps:
       - action: |
           On an assignment whose description links files, choose Create
@@ -4077,19 +3548,24 @@ checks:
           Verifies native WebView focus, composition and inherited-origin editor
           frames, plus external navigation. Headless routing tests cannot run
           the live Moodle editor or native IME.
+      - action: Drag a PDF from Finder into the LMS draft area while the Portal view remains open.
+        reason: A hidden Portal WebView must not intercept the native Finder drop intended for the
+          LMS.
     observe: |
       The LMS draft file manager, its upload progress/errors, the assignment
       name/URL and the untouched official Save/Submit controls in the right pane.
-    expected: |
+    expected: |-
       Exactly the chosen workspace files appear in the requested assignment's
       draft. Only user action can save or submit; unsupported uploads show the
       normal LMS error. Reopening does not duplicate files. Online text accepts
       typing, IME composition, paste and formatting; external pages keep their
       query parameters and Back returns to the LMS without auto-submitting.
-    why_manual: |
+      The Finder PDF lands in the correct LMS draft area.
+    why_manual: |-
       Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
       Headless tests verify injection and routing but cannot execute the remote
       uploader, site restrictions or the signed native browser.
+      The Finder drag needs the real AppKit hit test and native WebViews.
     covers:
       - crates/app-core/src/workspaces.rs
       - crates/app-core/src/school_browser/policy.rs
@@ -4098,7 +3574,10 @@ checks:
       - crates/adpt-isct/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
+      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
+
 
   - id: SCHOOL-ASSIGNMENT-LMS-EXIT
     area: school
@@ -4536,62 +4015,6 @@ checks:
     verified: null
 
 
-  - id: DESKTOP-WINDOWS-SIGNED-INSTALL
-    area: desktop
-    title: Signed Windows installer passes Smart App Control and can save course files
-    persona: undergraduate-senior
-    preconditions: |
-      A Desktop release run with sign_windows enabled, an unsigned build of the
-      same source, and a Windows 11 PC with Smart App Control On and
-      Controlled folder access On.
-    steps:
-      - action: Download the signed installer, run it, then open its
-          Properties > Digital Signatures.
-        reason: Smart App Control blocks unsigned installers with no "Run
-          anyway"; only the real policy shows whether the signature is trusted.
-      - action: In the signed app, open a course file that is not downloaded yet.
-        reason: Course files default to Documents, which Controlled folder
-          access guards; a trusted signature is what lets the app write there.
-      - action: Install the unsigned build with Smart App Control Off, keep
-          Controlled folder access On, and open another undownloaded course file.
-        reason: A refused write must name Controlled folder access and the
-          course folder setting instead of a generic download failure.
-    observe: The Smart App Control dialog, the signature tab, the course file
-      card, and Windows Security > Protection history.
-    expected: |
-      The signed installer runs without a block and its signature tab lists
-      the Artifact Signing certificate. The signed app saves and previews the
-      file. The unsigned app shows "Windows blocked saving to the course
-      folder…" on the file card, and Protection history lists IsctCompanion.
-    why_manual: Needs Azure signing credentials, a real Windows 11 security
-      policy, and a school account; none run in CI.
-    covers:
-      - .github/workflows/desktop-release.yml
-      - scripts/desktop/tauri.mjs
-      - apps/desktop/src-tauri/src/lms_protocol.rs
-      - apps/desktop/src/features/lms/FilePreview.tsx
-    verified: null
-
-  - id: DESKTOP-WINDOWS-LAUNCH
-    area: desktop
-    title: Windows release launches without a companion terminal
-    persona: undergraduate-senior
-    preconditions: A Windows release installer built from the current desktop source
-      and a real Windows desktop.
-    steps:
-      - action: Install the release, launch it from Explorer, and open a course
-          workspace file.
-        reason: Windows subsystem and child-process consoles cannot be observed by
-          headless Unix tests.
-    observe: The Windows desktop, app window and taskbar.
-    expected: The app and workspace open without an accompanying console window.
-    why_manual: Requires a native Windows release executable, Explorer and the real
-      desktop shell.
-    covers:
-      - apps/desktop/src-tauri/src/main.rs
-      - .github/workflows/desktop-release.yml
-    verified: null
-
   - id: SCHOOL-OTP-QR
     area: school
     title: Authenticator QR import and the saved OTP shown as a QR
@@ -4913,45 +4336,6 @@ checks:
       - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
     verified: null
 
-  - id: DESKTOP-SCHOOL-DRAG-DIAGNOSTICS
-    area: desktop
-    title: A file dropped on the LMS draft area is logged with the view that took it
-    persona: undergraduate-senior
-    preconditions: |
-      A macOS desktop build from this source with the Science Tokyo account
-      connected. Open the Science Tokyo Portal in the Web page first, then an
-      assignment's LMS submission page, as in the report where the drop went
-      to the hidden Portal.
-    steps:
-      - action: |
-          Clear the log, drag a PDF from Finder onto the LMS draft area and
-          drop it.
-        reason: |
-          The diagnostics name the view instance AppKit asked, its window,
-          whether it is mounted and hidden, whether it is in front, and why a
-          view refused. A `drag hit` line for the Portal with `accepted=true`
-          is the defect, with the evidence to decide how hidden views leave
-          the input layer.
-      - action: |
-          Copy the log lines with `[school-web] drag hit` and
-          `[school-web] presentation`.
-        reason: |
-          They carry no URL, cookie or page content, only view ids, windows
-          and presentation state, so they can be shared as they are.
-    observe: |
-      The LMS draft area and the copied log lines.
-    expected: |
-      The file lands in the LMS draft area and the log names the LMS view as
-      the receiver; any other view that answered is listed with its reason.
-    why_manual: |
-      AppKit's drag hit test runs only with a real drag from Finder over real
-      WKWebViews; nothing headless reaches `_hitTest:dragTypes:`.
-    covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
-      - apps/desktop/src-tauri/src/school_browser_native.rs
-    verified: null
-
-
   - id: DESKTOP-SCHOOL-COOKIES-WINDOWS
     area: desktop
     title: Windows school views receive Core's identity cookies
@@ -5034,45 +4418,6 @@ checks:
       school sessions; no suite runs WebKitGTK here.
     covers:
       - apps/desktop/src-tauri/src/school_cookies.rs
-    verified: null
-
-
-  - id: NATIVE-SCHOOL-BACKGROUND-READ
-    area: native
-    title: Phones read school data in the background without opening a school page
-    persona: careless-multidevice
-    preconditions: |
-      An iPhone build and an Android build from this source, both school
-      accounts signed in from 設定, and data at least an hour old.
-    steps:
-      - action: |
-          Put the app in the background for longer than the data's freshness
-          (or leave it overnight), then open it on Today without opening ウェブ.
-        reason: |
-          Reads no longer need the app in front or a school web view: Core
-          signs in and reads over HTTP whenever the shell gives it time. Data
-          that only refreshes once a school page is opened means a shell still
-          gates reads on the web view.
-      - action: |
-          Open ウェブ → LMS and 教務Web.
-        reason: |
-          The pages must open signed in from the identity Core seeded, not
-          ask for a sign-in the background reads already did.
-    observe: |
-      Today's sync status on each phone and the two school pages.
-    expected: |
-      Today shows fresh data with no sign-in prompt, and both pages open
-      signed in.
-    why_manual: |
-      Background scheduling and the phones' WebKit and Android WebView cookie
-      stores exist only on real devices; iOS was compiled only and Android
-      not built on this machine.
-    covers:
-      - apps/ios/IsctCompanion/Core/AppModel.swift
-      - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
-      - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
-      - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt
-      - crates/app-core/src/plan/planner.rs
     verified: null
 
 
@@ -5554,65 +4899,49 @@ checks:
 
   - id: MOTION-AND-LOADING
     area: native
-    title: Quiet motion, the week slide, the course zoom, skeletons and Reduce Motion
+    title: Motion, loading and accessibility on desktop and phones
     persona: undergraduate-first-term
-    preconditions: |
-      Desktop, iPhone and Android with the current quarter pulled; then the
-      same three with a fresh install or cleared data before the first read.
+    preconditions: Desktop, iPhone and Android with current data, then a fresh install or
+      cleared data; use a teaching day and normal animation settings.
     steps:
-      - action: |
-          On each phone swipe 時間割 slowly half a week to the left and let go,
-          then swipe quickly; on desktop click the next-week arrow.
-        reason: |
-          A slow half swipe follows the finger and settles back; a full swipe
-          or a fling slides the week out and the next one in from the right.
-          A grid that moves a third of the finger's distance and then swaps
-          content in place is the old behaviour. Nothing may bounce past its
-          rest position.
-      - action: |
-          Open a course from a timetable block, then go back; repeat from a
-          Today row.
-        reason: |
-          The course page grows out of the block or row and returns into it,
-          on desktop too (View Transitions). A plain push or fade on desktop
-          means the shared element is missing.
-      - action: |
-          Clear the data (or install fresh) and open Today, 時間割 and a
-          course page before the first read completes.
-        reason: |
-          Grey stand-ins shaped like rows and blocks show until content fades
-          in; once anything is cached, the cached content shows at once with
-          no stand-ins. A spinner in the middle of an empty page is the old
-          loading state.
-      - action: |
-          Turn on Reduce Motion (iOS), Remove animations (Android) or Reduce
-          motion (macOS/Windows), then repeat the week change and the course
-          open.
-        reason: |
-          Movement becomes a short cross-fade: the week does not slide, the
-          course does not zoom, figures jump; something still changes visibly
-          so the state change is not lost.
-      - action: |
-          On a phone, pin and hide an assignment, mark a class as an exam,
-          then swipe the Today card stack and change weeks.
-        reason: |
-          Only the writes (pin, hide, mark) give a haptic tap; swiping cards
-          and changing weeks are silent.
-    observe: 時間割, Today and a course page on the three devices.
-    expected: |
-      Motion follows the finger, never overshoots, keeps the clicked element
-      continuous, gives way to cross-fades under Reduce Motion, loading shows
-      stand-ins only without cache, and haptics mark writes only.
-    why_manual: |
-      Motion, haptics and system accessibility settings are felt on the real
-      devices; no headless suite renders springs or vibrates.
+      - action: Swipe the timetable slowly and quickly on phones, step a week on desktop, and open
+          and close courses from timetable blocks and Today rows; on an Android tablet also
+          open a Lectures row.
+        reason: Week movement should follow the gesture and courses should transition from the
+          selected source without overshoot.
+      - action: On desktop Lectures select another course and an exam, then open a course from
+          Today.
+        reason: Only the course pane should animate during an in-page selection; navigation from
+          Today retains its transition.
+      - action: Watch Android changing minute digits and the week range, then clear data and open
+          Today, timetable and a course during the first read.
+        reason: Changing digits should roll, and uncached screens should show shaped placeholders
+          while cached screens show content immediately.
+      - action: Enable Reduce Motion or remove animations on each platform and repeat; pin or hide
+          an assignment and mark a class, then swipe cards and change weeks.
+        reason: Reduced-motion behavior must follow each platform setting and haptics must
+          distinguish writes from navigation.
+    observe: Today, timetable, Lectures and course pages on each device.
+    expected: Motion is continuous and bounded, desktop in-page selection moves only the
+      course pane, Android changing digits roll, and placeholders appear only without cached
+      content. Reduced motion suppresses zoom and slides according to platform settings;
+      writes give phone haptics and navigation does not.
+    why_manual: Motion, haptics, loading appearance and system accessibility settings require
+      real devices and native shells.
     covers:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift
       - apps/ios/IsctCompanion/Design/Polish.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
       - apps/desktop/src/styles.css
+      - apps/android/app/src/main/java/app/isctcompanion/design/Components.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/app/App.tsx
     verified: null
+
 
   - id: IOS-NATIVE-CHROME
     area: native
@@ -6592,67 +5921,6 @@ checks:
       - apps/android/app/src/main/AndroidManifest.xml
     verified: null
 
-  - id: ANDROID-DEPENDENCY-UPGRADE
-    area: native
-    title: The Android app behaves as before on the latest Compose, AGP and Kotlin
-    persona: undergraduate-first-term
-    preconditions: |
-      A release APK built from the dependency upgrade (Compose BOM 2026.09,
-      AGP 9, Kotlin 2.4, compileSdk 37) on a phone with the current quarter
-      pulled and at least one open and one hidden assignment.
-    steps:
-      - action: |
-          Visit every tab (今日, 時間割, ウェブ, 設定) and scroll each to the end.
-        reason: |
-          Every screen now runs on new Compose, material3 and navigation
-          libraries; a blank tab, a lost large title or a crash on first
-          composition shows a broken API or a class R8 stripped.
-      - action: |
-          Open a course from a 時間割 block and from a 今日 card, collapse its
-          title, then go back with the arrow and with a predictive back swipe.
-        reason: |
-          The course zoom uses the shared-transition API, which left
-          experimental in this upgrade; the page must still grow out of and
-          shrink into its source (ANDROID-COURSE-ZOOM-BACK has the detail).
-      - action: |
-          Swipe an assignment row right, then left; under すべての課題 swipe
-          a hidden row left.
-        reason: |
-          The rows moved off the deprecated veto callback: the row now slides
-          all the way, comes back, and then pins, hides or restores once. A
-          row left off screen or acting twice means the reset is wrong.
-      - action: |
-          Open the bottom sheets: the sync status sheet from the title bar,
-          the week picker on 時間割, the welcome sheet and the hand-in sheet;
-          drag each down to close.
-        reason: |
-          The sheets come from material3's ModalBottomSheet, still
-          experimental and the likeliest to change between versions.
-      - action: |
-          Open a school page under ウェブ, pull to refresh, and go back.
-        reason: |
-          The WebView sits in a newer SwipeRefreshLayout and activity
-          version; the page must load, refresh and hand back to the tab.
-      - action: |
-          Turn the phone on its side on 今日 and on a course page.
-        reason: |
-          The app stays portrait; the lock is set from the activity, whose
-          library this upgrade moved (ANDROID-ORIENTATION has tablets).
-    observe: Each screen, sheet and gesture on the phone; the app must stay open.
-    expected: |
-      Every tab, sheet, swipe, the course zoom, the school page and the
-      portrait lock work as before the upgrade, and the app never closes.
-    why_manual: |
-      The whole Compose shell has to be exercised by touch in a release build
-      with R8 on a real phone; whether each screen still looks and moves as
-      before is judged by eye.
-    covers:
-      - apps/android/app/build.gradle.kts
-      - apps/android/build.gradle.kts
-      - apps/android/gradle/wrapper/gradle-wrapper.properties
-      - apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt
-    verified: null
-
   - id: ANDROID-TODAY-EXAMS-AND-STATUS
     area: native
     title: Android Today lists upcoming exams and shows the school connection
@@ -7132,55 +6400,16 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/App.kt
     verified: null
 
-  - id: ANDROID-COURSE-ZOOM-AND-FIGURES
-    area: native
-    title: Android courses grow out of what was tapped and counting figures roll
-    persona: undergraduate-first-term
-    preconditions: |
-      The Android app signed in, on a teaching day during or before a class,
-      with system animations on (Developer options › animation scales 1x).
-    steps:
-      - action: |
-          Tap a block in 時間割, press back; tap the front class card on 今日,
-          press back; on a tablet, tap a row in 授業.
-        reason: |
-          Each course page grows out of the block, card or row and shrinks
-          back into it on back, as iOS's zoom transition does. A plain cross
-          fade means the shared bounds did not match; a page that grows from
-          the wrong place means two sources share a zoom id.
-      - action: |
-          Watch the minutes on the current class card and the あと N 分 chip
-          on the next card when the minute turns; swipe 時間割 a week.
-        reason: |
-          The figures roll: only the digits that change slide, as SwiftUI's
-          numericText does, and the week range rolls with the swipe. Whole
-          numbers jumping means the counting text is not used.
-      - action: |
-          Set the animation scales to off and repeat both.
-        reason: |
-          With animations removed both changes are instant, as Reduce Motion
-          makes them on iOS.
-    observe: 今日, 時間割 and the course page on the device.
-    expected: |
-      Courses zoom in and out of their source, figures roll digit by digit,
-      and both are instant with animations off.
-    why_manual: |
-      Motion is judged by eye on a device; there is nothing behind it for
-      Core to test.
-    covers:
-      - apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt
-      - apps/android/app/src/main/java/app/isctcompanion/design/Components.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt
-    verified: null
-
   - id: MOBILE-UI-LANGUAGE
     area: native
-    title: Phone language rows switch the whole app and follow the desktop
+    title: UI and school-content language on mobile and desktop
     persona: careless-multidevice
     preconditions: |
       The iPhone or Android app and the desktop app on the same workspace
       with cloud sync on.
+
+      The UI language set to English and the school-content language set to
+      English.
     steps:
       - action: |
           In 設定 set Language to English, then 中文, then 日本語, watching
@@ -7199,62 +6428,73 @@ checks:
         reason: |
           Both are workspace settings (locale, contentLanguage), so the
           desktop shows the same choices.
-    observe: 設定, 今日 and 時間割 on the phone, and the desktop settings.
-    expected: |
+      - action: "On desktop, set both UI and school-content language to English, then walk the
+          main screens: Today, courses, a syllabus, LMS and settings."
+        reason: |
+          Untranslated strings cluster on the screens nobody visits during a
+          happy-path demo, so the walk has to be broad rather than deep.
+      - action: |
+          Open a syllabus page that has an English page and read every date.
+        reason: |
+          The failure mode is not a Japanese word but a date whose format is
+          unstated, which reads as correct to whoever wrote it.
+      - action: |
+          Trigger a refusal or an error on purpose.
+        reason: |
+          Error text is where translations are most often missing, and it is
+          exactly where this persona cannot afford to guess.
+    observe: |
+      設定, 今日 and 時間割 on the phone, and the desktop settings.
+      Every screen text, the syllabus page in English, and the error or refusal
+      message.
+    expected: >
       The UI and school text switch independently and immediately, and the
+
       desktop shows the same two choices.
+
+
+      The English UI and error messages are translated; English school content appears where
+      published, and dates state or unambiguously imply their format.
     why_manual: |
       The live switch and how each screen reads in three languages is a
       glance on a device; the catalog's coverage and placeholders are
       checked by the text-and-locales suite.
+
+      Needs the real school content in English; the shipped English content
+      only exists for courses that publish it, so completeness can only be
+      judged against the live catalogue.
     covers:
       - apps/ios/IsctCompanion/Design/Localization.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - resources/locales/**
+      - apps/desktop/src/i18n/**
+      - apps/desktop/src/lib/model.ts
     verified: null
+
 
   - id: DESKTOP-CALENDAR-NOW-LINE
     area: desktop
-    title: Desktop calendar tints today, draws the moving now line and labels the break band
+    title: Today tint and now line remain correct, including after sleep
     persona: undergraduate-senior
-    preconditions: |
-      The desktop app during a teaching hour on a weekday.
+    preconditions: The desktop app during a teaching weekday, with a class or exam and a Mac
+      able to sleep overnight.
     steps:
-      - action: Open 今日 › Calendar and look at today's column.
-        reason: |
-          Today's column has the accent tint and the red now line at the
-          current time; the planner's current quarter shows the same. Both
-          come from one isToday flag in agendaColumns, which commit 06e0a36
-          had dropped.
-      - action: Wait a minute.
-        reason: The line moves; a line that never moves was computed once.
-      - action: |
-          During a period that holds an exam or a class marked as a quiz,
-          look where the now line crosses that block.
-        reason: |
-          The line runs across the block from edge to edge. Only the dot and
-          the 3px gutters showing means a block kind is raised over the line
-          again (exam blocks once carried their own z-index).
-      - action: Look at the date field beside This week.
-        reason: |
-          WebKit lays a date field's value at the top of its box; the date
-          must sit centred and start where a text field's value starts.
-      - action: |
-          Look at the half-row band between periods 3-4 and 5-6 on the time
-          axis, in English, Japanese and Chinese (Settings › Appearance ›
-          Language), with Text size at its largest.
-        reason: |
-          The band reads BREAK, 休憩 or 休息 on one line inside the band. A
-          second line crossing the 5-6 rule is the old CLASS BREAK / 课间休息
-          label, which did not fit the 50px axis column.
-    observe: The Calendar view and the planner's current quarter.
-    expected: |
-      Today is tinted and the now line tracks the clock on both, drawn over
-      every block it crosses; the break band's label stays on one line.
-    why_manual: |
-      A line position read at a glance; agendaColumns' isToday is covered by
-      the schedule-and-dates unit test.
+      - action: Open Today → Calendar and Timetable; wait a minute and inspect the line across a
+          class or exam.
+        reason: Both views must tint today and update the line above all blocks.
+      - action: Inspect the date field and the break label in English, Japanese and Chinese at the
+          largest text size.
+        reason: The date must be aligned and the translated label must fit on one line.
+      - action: Leave Today hidden while the Mac sleeps overnight; wake it and immediately return
+          to Today and Timetable.
+        reason: The new day must be selected on the first frame after a throttled clock resumes.
+    observe: Today Calendar and Timetable, especially the tinted column, line and break band.
+    expected: The line tracks the clock over every block in today’s column, moves to the new
+      day after sleep, and the date and translated break label remain aligned and legible.
+    why_manual: Position and typography are visual; real sleep and WebView timer throttling
+      require the native app. Clock recovery is covered by schedule-and-dates.
     covers:
       - apps/desktop/src/styles.css
       - apps/desktop/src/lib/timetable-layout.ts
@@ -7264,7 +6504,10 @@ checks:
       - apps/desktop/src/components/timetable/workspace.ts
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/ui/ui.css
+      - apps/desktop/src/pages/courses/CoursesPage.tsx
+      - apps/desktop/src/app/useCoreLifecycle.ts
     verified: null
+
 
   - id: DESKTOP-COURSE-OUTLINE-STILL
     area: desktop
@@ -7296,176 +6539,41 @@ checks:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
     verified: null
 
-  - id: IOS-COURSE-LESSON-PAGING
-    area: native
-    title: iPhone course page turns lessons by swipe, as one piece, both ways
-    persona: undergraduate-first-term
-    preconditions: |
-      The iPhone app with LMS content pulled for a course whose LMS numbers at
-      least three lessons (第1回, 第2回, …), at least one with 授業計画 text.
-    steps:
-      - action: |
-          Open the course from 時間割 and swipe left across the lesson card,
-          then right.
-        reason: |
-          The pager must turn to the next lesson on a left swipe and back on a
-          right one; the old page leaves toward the side the finger moved and
-          the new one comes from the other. A transition fixed to one edge
-          made "previous" look like "next".
-      - action: |
-          Watch the card with the 授業計画 text as it moves in.
-        reason: |
-          The text used to arrive after the card (a progress placeholder, then
-          the rendered HTML), so the card grew and its text slid separately.
-          It must arrive at full height and move with its background.
-      - action: |
-          Drag slowly a little under a third of the width and let go; then
-          flick quickly a short distance.
-        reason: |
-          A slow short drag springs back; a flick over 300 pt/s turns the
-          page. Either rule breaking makes paging feel random.
-      - action: |
-          On the first lesson drag right; on the last drag left.
-        reason: |
-          At an end there is only a damped pull, never a turn.
-      - action: |
-          Start a swipe at the very left edge of the screen.
-        reason: |
-          Edge drags belong to the navigation back gesture; the page must pop
-          back to the timetable rather than turn a lesson.
-      - action: |
-          Scroll the page vertically with a slightly diagonal drag, and tap a
-          file row.
-        reason: |
-          The pager runs alongside scrolling and taps; a drag that starts
-          vertical stays a scroll for its whole length.
-      - action: |
-          Flick the page so it is still scrolling, and swipe left across the
-          lesson card before it stops; repeat a few times in quick
-          succession, then swipe back from the left edge mid-scroll.
-        reason: |
-          The app quit here. A turn renders the next lesson's HTML, and
-          WebKit's import spins the run loop; done inside the pager's gesture
-          update it can corrupt SwiftUI's graph. The page must turn, or pop,
-          and the app keep running.
-    observe: The course page pushed from 時間割.
-    expected: |
-      Lessons turn in the direction of the swipe, each page moves as one piece
-      with its text already laid out, ends only rubber-band, the edge swipe
-      pops, and scrolling and taps work as before.
-    why_manual: |
-      Gesture feel and animation are judged by eye on a phone; an e2e test over
-      a fake host would rebuild the screen rather than test it.
-    covers:
-      - apps/ios/IsctCompanion/Design/HorizontalPager.swift
-      - apps/ios/IsctCompanion/Design/HTMLText.swift
-      - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
-    verified: null
-
-  - id: IOS-COURSE-LESSON-MARK
-    area: native
-    title: iPhone lesson chip long press marks the lesson for the class
-    persona: undergraduate-first-term
-    preconditions: |
-      The iPhone app with a course that has class meetings on the timetable
-      and numbered LMS lessons, and the desktop app signed in to the same
-      workspace.
-    steps:
-      - action: |
-          Open the course page and note which chip has the small dot under it.
-        reason: |
-          The dot is Core's current lesson; it must be distinct from the filled
-          chip of the lesson being read.
-      - action: |
-          Long press another lesson chip and choose "この回を M/D の授業にする".
-        reason: |
-          M/D must be the class the mark attaches to (today's class if it has
-          begun, else the next one, in Tokyo time); a wrong date means the mark
-          lands on the wrong occurrence.
-      - action: |
-          Open the same course on the desktop Lecture Desk.
-        reason: |
-          The mark is the desktop's double-click mark (lessonLog); both shells
-          must agree on the current lesson.
-      - action: |
-          Long press a chip on a course with no class meetings.
-        reason: |
-          Without a class to attach to there is nothing to mark; the menu item
-          must not appear.
-    observe: The lesson chip row on the course page, and the desktop lesson rail.
-    expected: |
-      A success haptic, the dot moves to the marked chip, the desktop rail shows
-      the same lesson as current, and the menu is absent without class times.
-    why_manual: |
-      The context menu, haptic and dot are read at a glance on a phone, and the
-      cross-device agreement needs the real desktop; Core's rule is covered by
-      `course_content_follows_the_desktop_lecture_desk`.
-    covers:
-      - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
-    verified: null
-
   - id: COURSE-LESSON-SERIES-LABELS
     area: native
-    title: Course pages show Core's lesson labels, summaries and schedule marks on desktop and iPad
+    title: Course lessons, exams and gestures on desktop, iPhone and iPad
     persona: undergraduate-first-term
-    preconditions: |
-      LMS content pulled for Linear Algebra II【X】 (lms-course:12470), whose
-      sections interleave 第1回–第14回 with 演習第1回–演習第7回, and for a course
-      whose text holds a lesson schedule table (rows such as 1回目, 2回目, 休講)
-      and an assignment set in one of its lessons; the desktop app and the iPad
-      app on the same account.
+    preconditions: Desktop and iOS devices on the same account with LMS lessons, a course with
+      mixed lecture and recitation sections, a lesson schedule table, an assignment and
+      exams.
     steps:
-      - action: |
-          Open Linear Algebra II【X】 on the desktop Lecture Desk and read the
-          lesson rail from left to right.
-        reason: |
-          The rail shows Core's labels: 1–14 for the lectures and 演習 1–演習 7
-          for the recitations, in section order. Before, the desktop counted
-          positions 1–21, so 第7回 showed as 10.
-      - action: |
-          Open the same course on the iPad and read the lesson chips; scroll
-          the row to its end.
-        reason: |
-          The chips used to read 5, 6, 3, 7, 4, 8 … because 演習第3回 lost its
-          演習 and showed a bare 3. They must match the desktop rail exactly,
-          with no chip cut off for 演習 labels.
-      - action: |
-          On the desktop, read the heading of a lesson page beside its big
-          number; then open the same lesson on the iPad and read its heading.
-        reason: |
-          Both are Core's summary, the first line of the lesson's 授業計画
-          without its "授業計画：" label. The desktop used to cut it in the
-          shell and the iPad showed the bare title; a heading that still
-          starts with the label, or differs between the two, means a shell
-          kept its own rule.
-      - action: |
-          Open the course with the schedule table on the desktop and on the
-          iPad, and find the row of the lesson the course is at.
-        reason: |
-          Core marks the rows against the current lesson. On the desktop the
-          current row is highlighted, earlier rows are dimmed and 休講 rows
-          are struck through; on the iPad the current row is bold and 休講
-          rows are struck through. An unmarked table means the shell's HTML
-          cleaning dropped Core's row classes.
-      - action: |
-          On that course's iPad page, turn to the lesson that holds the
-          assignment, then to the first page.
-        reason: |
-          The assignment card sits on its own lesson's page, as on the
-          desktop. Assignments outside any section go with the first page; the
-          iPad used to place them by a section number of its own.
-    observe: The desktop lesson rail, lesson headings and schedule table; the iPad chip row, page headings and schedule table.
-    expected: |
-      Both rails read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般
-      and 連絡先・オフィスアワー ahead of them. Lesson headings are the plan's first
-      line without its label, the same on both. The schedule table marks the
-      current row and struck-through 休講 rows on both, and the assignment
-      shows on its lesson's page.
-    why_manual: |
-      Labels, headings and table marks are read at a glance on two real
-      shells over real LMS courses. The rules are covered by
-      `course_content_follows_the_desktop_lecture_desk` and the `lms_html`
-      tests; this checks that each shell renders Core's answer unchanged.
+      - action: Compare desktop and iPad lesson labels, headings, schedule table marks and
+          assignment placement.
+        reason: Both shells must render the same Core lesson order, summary, current and cancelled
+          rows, and assignment section.
+      - action: On iPhone inspect visible, cancelled and hidden exams, then swipe lessons in both
+          directions, at the ends and with the edge-back gesture. Scroll vertically and tap
+          a file.
+        reason: Exam labels and paging must remain legible and gestures must coexist with
+          navigation, scrolling and taps.
+      - action: While a lesson page is still scrolling, repeatedly swipe lessons and then use
+          edge-back.
+        reason: This interaction previously crashed during HTML rendering and must leave the app
+          running.
+      - action: Long-press a lesson chip to mark it for the displayed class date, compare the
+          current lesson with the desktop rail, and try a course without meetings.
+        reason: The date and shared mark must agree and the mark action must be absent without a
+          class.
+      - action: Open a lesson containing consecutive image-only labels and a page activity.
+        reason: Images should form a coherent grid and page text should remain inline without
+          opening a document panel.
+    observe: Desktop lesson rail and course pane, iPad course page, and iPhone course page.
+    expected: Desktop and iPad labels and marks agree; exam states are correct; lessons move
+      as a single card with working bounds and gestures, no crash, and matching current
+      lesson marks across devices. Consecutive images form a grid and page activity text is
+      inline.
+    why_manual: Real LMS data, native gestures, haptics and cross-device rendering are
+      required; Core tests cover course-content and HTML rules.
     covers:
       - crates/app-core/src/schedule/course_content.rs
       - crates/app-core/src/schedule/lms_html.rs
@@ -7474,27 +6582,9 @@ checks:
       - apps/desktop/src/features/lms/lms.css
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
       - apps/ios/IsctCompanion/Design/HTMLText.swift
+      - apps/ios/IsctCompanion/Design/HorizontalPager.swift
     verified: null
 
-  - id: IOS-COURSE-EXAM-LINE
-    area: native
-    title: iPhone course page shows its exams under the subtitle
-    persona: undergraduate-first-term
-    preconditions: |
-      The iPhone app with the exam timetable pulled and a course that has an
-      exam, and another whose exam was marked cancelled on the desktop.
-    steps:
-      - action: Open each course page and read the lines under the subtitle.
-        reason: |
-          One orange line per visible exam, "試験 · 11/27 5–6限 · W9-202" (times
-          when periods are unknown); a cancelled exam struck through; a hidden
-          exam absent.
-    observe: The course page header.
-    expected: The exam line matches the desktop exam list for that course.
-    why_manual: A label read at a glance; the data is Core's CourseDetail.exams.
-    covers:
-      - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
-    verified: null
 
   - id: IOS-ICLOUD-BACKUP
     area: cloud
@@ -7840,75 +6930,25 @@ checks:
 
   - id: IOS-LOG-EXPORT
     area: native
-    title: iOS application logs saved to Files and copied
+    title: iOS application log menu, export and redaction
     persona: undergraduate-senior
-    preconditions: |
-      The app on a real iPhone has opened its session and pulled school data
-      at least once since launch.
+    preconditions: The app on a real iPhone and iPad, after a school data pull.
     steps:
-      - action: |
-          Settings → Application logs → Save to file; keep the suggested name
-          and save to On My iPhone, then open the file in Files.
-        reason: |
-          The save goes through the system export sheet; a sheet that does not
-          open, a missing .txt extension or an empty file is the failure.
-      - action: |
-          Tap Copy, then paste into Notes.
-        reason: |
-          UIPasteboard receives the whole text; an empty or cut-off paste means
-          the write failed.
-      - action: |
-          Search both texts for the student id, password and any token.
-        reason: |
-          The export must carry only Core's redacted log.
-    observe: |
-      The saved IsctCompanion-logs-<date>.txt and the pasted note.
-    expected: |
-      Both start with "IsctCompanion <version> · iOS <version> · iPhone",
-      list "Application started" and the pull's entries, and contain no
-      credential. On an iPad the header names iPadOS.
-    why_manual: |
-      The export sheet and the pasteboard exist only on a device; the SDK
-      smoke tests prove a session installs the logger and the export reaches
-      Swift, and Core's test pins the format and redaction.
+      - action: Tap the empty right side of Settings → Application logs, inspect its icon and row
+          height, then dismiss the menu.
+        reason: The full row must be a usable hit target without clipping or changing its height.
+      - action: Save logs to Files and copy them to a note. Inspect both for startup and pull
+          entries, the device header and credentials.
+        reason: The native export and pasteboard must carry the redacted Core log.
+    observe: The menu on both devices, saved file and pasted log.
+    expected: The menu opens from anywhere on the row with an unclipped icon; saved and copied
+      logs identify the device and contain entries but no credentials.
+    why_manual: UIKit menu presentation, the Files export sheet and pasteboard require real
+      devices; Core tests cover format and redaction.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
     verified: null
 
-  - id: IOS-LOG-ROW-TAP
-    area: native
-    title: iOS Application logs row opens its menu from anywhere on the row
-    persona: careless-multidevice
-    preconditions: |
-      The app on a real iPhone and a real iPad, on the Settings page.
-    steps:
-      - action: |
-          Tap the empty right side of Settings → Application logs, away from
-          the icon and the text; then dismiss the menu by tapping outside it.
-        reason: |
-          The row is a Menu, which List does not treat as a row; a tap that
-          only works on the icon or text means the label shrank back to its
-          content.
-      - action: |
-          Watch the icon while the menu opens, stays open and closes.
-        reason: |
-          The menu's preview is cut from the label's frame; an icon clipped
-          top and bottom means the preview no longer contains it.
-      - action: Compare the row's height with Privacy policy above it.
-        reason: |
-          The label is padded into the row insets and taken back outside; a
-          taller row means the two no longer cancel out.
-    observe: The Application logs row and its menu on both devices.
-    expected: |
-      The menu (Save to file, Copy) opens from any point on the row, the
-      whole icon stays visible throughout, and the row is as tall as its
-      neighbours.
-    why_manual: |
-      Hit area and menu preview are a glance check on the native List; a
-      headless screen would not exercise UIKit's menu presentation.
-    covers:
-      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
-    verified: null
 
   - id: ANDROID-LOG-EXPORT
     area: native
@@ -8102,49 +7142,6 @@ checks:
     covers:
       - apps/desktop/src/pages/settings/ResetSettings.tsx
       - apps/desktop/src-tauri/src/commands/reset.rs
-    verified: null
-
-  - id: TODAY-NOW-LINE-NEXT-DAY
-    area: desktop
-    title: The now line moves to the new day's column after the app stays open overnight
-    persona: undergraduate-senior
-    preconditions: |
-      The desktop app open on a weekday of a running quarter, with the Mac
-      allowed to sleep overnight.
-    steps:
-      - action: |
-          In the evening open Today → Week, then switch to Lectures and leave
-          the app running; let the Mac sleep through the night.
-        reason: |
-          A hidden page used to stop its own clock: the week view kept
-          yesterday as "today" while the line read the current time.
-      - action: |
-          The next morning wake the Mac, bring the window forward and go back
-          to Today → Week straight away.
-        reason: |
-          The column must be right on the first frame, not a minute later
-          when a timer catches up.
-      - action: |
-          Open Timetable.
-        reason: |
-          The course timetable marks today's weekday from the same clock and
-          must also show the line in the new day's column.
-    observe: |
-      The red now line and the tinted today column in Today → Week and in
-      Timetable.
-    expected: |
-      Both views tint the new day's column and draw the line at the current
-      time inside it, with nothing left in yesterday's column.
-    why_manual: |
-      It needs a real night: OS sleep and WebView timer throttling cannot be
-      reproduced over the fake host. The clock itself (a fresh minute after a
-      stalled timer, resync on return) is covered by
-      `apps/desktop/tests/unit/schedule-and-dates.test.ts`; this check is what
-      a person sees in the two week views.
-    covers:
-      - apps/desktop/src/pages/today/CalendarView.tsx
-      - apps/desktop/src/pages/courses/CoursesPage.tsx
-      - apps/desktop/src/app/useCoreLifecycle.ts
     verified: null
 
   - id: MOBILE-SETTINGS-RESET
@@ -8359,81 +7356,6 @@ checks:
       - apps/ios/IsctCompanion/Design/Guide.swift
     verified: null
 
-  - id: VISUAL-NOW-GRADIENT
-    area: native
-    title: The 'now' gradient reads the same on desktop Today and the iPhone hero card
-    persona: undergraduate-first-term
-    preconditions: |
-      Desktop and iPhone from the same commit, opened during or just before a
-      class.
-    steps:
-      - action: |
-          Put the desktop Today agenda and the iPhone 今日 side by side, in
-          light and then dark appearance.
-        reason: |
-          The highlighted row on desktop and the hero card on the phone are the
-          same signal (design/README.md): the course tint peaking at the top
-          leading corner and fading to the surface, with a hairline in the
-          tint. A flat block, a different hue, or a gradient that turns muddy
-          in dark mode means the token or the CSS mix drifted.
-      - action: |
-          Look over the rest of each Today page.
-        reason: |
-          Only the class or deadline happening now carries the gradient; rows,
-          cards and blocks stay flat.
-    observe: Desktop Home → Today agenda; iPhone 今日.
-    expected: |
-      Both surfaces show the same course colour as a soft corner gradient in
-      both appearances, and nothing else on either page is graded.
-    why_manual: |
-      A colour judgement across two devices, read at a glance; the value is
-      one token generated for both shells.
-    covers:
-      - design/tokens/course.json
-      - apps/desktop/src/styles.css
-      - apps/ios/IsctCompanion/Design/Polish.swift
-    verified: null
-
-  - id: DESKTOP-RADIX-APPEARANCE
-    area: desktop
-    title: Radix migration preserves desktop controls and overlay appearance
-    persona: windows-snap-user
-    preconditions: |
-      Before and after desktop builds with the same workspace, window size,
-      language, density and text-size settings.
-    steps:
-      - action: |
-          Click every main sidebar destination, return to Settings / Appearance,
-          and toggle a switch on and off. Open Web and inspect the embedded pane.
-        reason: |
-          Shell stacking contexts can intercept sidebar clicks; generic button
-          rules can collapse switch tracks, and removing AppShell can lose the
-          viewport height needed by native embedded webviews.
-      - action: |
-          Compare Today, Timetable and Settings in light and dark appearance;
-          open the course editor, a select, the export menu and a confirmation.
-        reason: |
-          Removing framework CSS can change control heights, wrapping, borders,
-          surface colours and overlay spacing even when behaviour tests pass.
-      - action: |
-          Snap the window narrower, enlarge the text, and show a notification.
-          Inspect the dialog body and dropdowns near the window edges.
-        reason: |
-          Native webview font metrics and clipping determine whether content
-          remains readable; a headless DOM cannot reveal visual regressions.
-    observe: |
-      The native desktop window, shared form controls, dialogs, menus and toasts.
-    expected: |
-      Existing spacing, typography and colours remain consistent; controls,
-      overlays and notifications are legible and neither clipped nor overlapping.
-    why_manual: |
-      Visual comparison at a glance in the native webview; automated suites
-      cover actions and state, not rendered layout, colour or font metrics.
-    covers:
-      - apps/desktop/src/components/ui/ui.css
-      - apps/desktop/src/styles.css
-      - apps/desktop/src/pages/settings/settings.css
-    verified: null
   - id: NOW-TINT-APPEARANCE
     area: native
     title: The 'now' card is a quiet course tint with a slight top-to-bottom fade on desktop, iPhone and Android
@@ -9674,144 +8596,55 @@ checks:
       - crates/app-ffi/src/error.rs
     verified: null
 
-  - id: DESKTOP-COURSE-KEYS-UPGRADE
-    area: desktop
-    title: Course ids survive merges and cloud sync between devices
-    persona: careless-multidevice
-    preconditions: |
-      Two macOS desktop builds of this commit on two machines, both signed
-      in to the same school accounts and the same cloud provider. On the
-      first, courses on the timetable, a course renamed or recoloured, a
-      session marked 休講, and a plan item.
-    steps:
-      - action: |
-          Press Refresh in the sync status and wait for LMS and 教務 to
-          finish, then look for a course listed twice on the timetable.
-        reason: |
-          LMS courses now join catalog and 教務 courses only by exact
-          offering id; a twin means a key was not matched, or that the
-          removed code-and-quarter match was still needed for this course.
-      - action: |
-          In the course finder, download this year's catalog for one
-          department, then open a course of that department on the
-          timetable and look at its credits and Japanese title.
-        reason: |
-          Courses are merged when a source is written; a catalog download
-          writes no LMS row. Credits or titles that appear only after a
-          restart mean the catalog write did not merge its courses again.
-      - action: |
-          Sync to the cloud, then on the second machine pull and open the
-          same course and the marked session.
-        reason: |
-          Synced copies name courses by external key; a rename or mark that
-          does not arrive, or arrives on a different course, means a key
-          was not converted on the way out or in.
-    observe: |
-      The timetable, the course page's title and colour, the marked block on
-      the calendar, and the same on the second machine.
-    expected: |
-      Every course keeps its rename, colour, marks and plan items, no
-      course appears twice, and the second machine shows the
-      same edits on the same courses after a sync.
-    why_manual: |
-      Needs real school reads and two machines on
-      one cloud account; the key resolution, merge and conversion
-      themselves are pinned by the Core data suite.
-    covers:
-      - crates/app-core/src/data/course_keys.rs
-      - crates/app-core/src/data/course_merge.rs
-      - crates/app-core/src/data/backup_store.rs
-    verified: null
-
-  - id: DESKTOP-VIEWS-FROM-TABLES
-    area: desktop
-    title: Pages read their own tables and stay current after changes
-    persona: undergraduate-senior
-    preconditions: |
-      macOS desktop build of this commit with signed-in school accounts and
-      a quarter with classes, assignments and materials.
-    steps:
-      - action: |
-          Open the calendar, Today, the timetable, a course page with its
-          lessons, and the course finder, in that order, right after launch.
-        reason: |
-          Each page now reads only the tables its queries name instead of
-          the whole workspace; a page that opens empty or slower than before
-          means its view left out a table it needs.
-      - action: |
-          Mark a session 休講 on the calendar, pin an assignment, then press
-          Refresh in the sync status and wait for LMS to finish.
-        reason: |
-          Views are cached until a table they read changes; a page that keeps the old mark, pin or a removed material means a
-          cached view outlived a commit.
-    observe: |
-      Each page's content and how fast it appears; the marked block, the
-      pinned assignment and the course lessons after the refresh.
-    expected: |
-      Every page shows the same content as before this change, appears at
-      least as fast, and shows each change at once.
-    why_manual: |
-      Felt speed and completeness of real pages over the person's data; the
-      view-versus-whole-workspace equality is pinned by the Core facade
-      suite and by trace_read_models on a data copy.
-    covers:
-      - crates/app-core/src/data/views.rs
-      - crates/app-core/src/facade.rs
-      - crates/app-core/src/workspace_changes.rs
-    verified: null
-
   - id: DESKTOP-QUERY-CACHE-INVALIDATION
     area: desktop
-    title: Cached pages refresh on the changes Core names and when the window returns
+    title: Pages refresh after local, school, agent, cloud and backup changes
     persona: undergraduate-senior
-    preconditions: |
-      macOS desktop build of this commit with signed-in school accounts and
-      a quarter with classes and assignments; a second device or the MCP
-      agent able to add a weekly event.
+    preconditions: A signed-in desktop app with classes, assignments, an earlier backup,
+      automatic cloud sync, an MCP client and a second device on the same account.
     steps:
-      - action: |
-          Open the calendar, mark a session 試験, then switch to Today and
-          back.
-        reason: |
-          A write invalidates only the answers that read what it changed; a
-          mark that Today or the calendar still shows the old way means an
-          answer was kept although its reads named the change.
-      - action: |
-          Hide the window for a minute while the other device or the agent
-          adds a weekly event, then bring the window back.
-        reason: |
-          Coming back refetches every query in use, so a missed event cannot
-          leave a page stale; the weekly event missing until another change means
-          the window's return was not heard.
-      - action: |
-          Press Refresh in the sync status while the calendar is open.
-        reason: |
-          Background reads arrive as merged events; the calendar flickering
-          empty, or answering twice per event, means stale answers replaced
-          fresh ones or were not kept on screen while refreshing.
-      - action: |
-          In Settings change the appearance and the department, then rename
-          a course from its panel.
-        reason: |
-          Pages hold no copy of the records; an edit shows once Core answers
-          again. A value that flips back, or a page that keeps the old name,
-          means an answer was not refetched after the commit.
-    observe: |
-      The marked block, Today's list, the new weekly event on the calendar, and the
-      calendar while the sync runs.
-    expected: |
-      Each change shows at once on every page that reads it, the weekly event shows
-      as soon as the window returns, and the calendar never goes blank.
-    why_manual: |
-      Window visibility and cross-device events need the real shell and a
-      second writer; the invalidation and sequence rules themselves are
-      pinned by the workspace-store suite.
+      - action: Open Calendar, Today, timetable, course lessons and finder. Mark a class, pin an
+          assignment, change a preference and rename a course; refresh school data. Mark
+          sessions repeatedly during and after the school refresh.
+        reason: Each visible page must reflect local writes and school updates without becoming
+          blank. Marks must appear without visible delay even during a real sync.
+      - action: Open an LMS assignment in the Web tab and switch to Assignments; create a weekly
+          event through the MCP client. Hide the window while the other device adds another
+          event, then return.
+        reason: Real WebView ingestion, agent writes and changes made while hidden must reach the
+          app without a manual reload.
+      - action: Edit an event and course note, then check the second device and cloud status.
+          Import the earlier backup, verify Calendar and planner, and mark a session
+          immediately afterward; reset and reimport the backup.
+        reason: Cloud propagation and restoration must refresh views, and a subsequent write must
+          use the restored revision.
+    observe: Calendar, Today, timetable, course lessons, finder, Assignments, cloud status and
+      the second device.
+    expected: Pages remain populated and show current changes; remote and agent events appear
+      without restart, edits reach the second device, backup restore and reset refresh the
+      pages and sync, and the first post-import mark saves successfully.
+    why_manual: Real school ingestion, the native file picker, a second device, MCP and cloud
+      provider are needed; the workspace-store suite covers invalidation and sequencing.
+      Marking latency during real sync is a perceived responsiveness check.
     covers:
       - apps/desktop/src/platform/query-client.ts
       - apps/desktop/src/platform/view-query.ts
       - apps/desktop/src/platform/records.ts
       - apps/desktop/src/store/workspace.ts
+      - crates/app-core/src/data/views.rs
+      - crates/app-core/src/facade.rs
+      - crates/app-core/src/workspace_changes.rs
+      - apps/desktop/src-tauri/src/commands/workspace.rs
+      - apps/desktop/src-tauri/src/lms_files.rs
+      - apps/desktop/src-tauri/src/agent_server.rs
+      - crates/app-core/src/data/mod.rs
+      - crates/app-core/src/runtime.rs
+      - crates/app-core/src/notes.rs
+      - apps/desktop/src-tauri/src/commands/backup.rs
+      - apps/desktop/src/storage/repository.ts
+      - crates/app-core/src/lms_ingest.rs
     verified: null
+
 
   - id: MOBILE-VIEW-QUERIES
     area: native
