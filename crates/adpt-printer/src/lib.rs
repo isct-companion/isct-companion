@@ -13,13 +13,11 @@
 mod endpoint;
 mod student_id;
 
-// Windows prints with these. Their tests also run on macOS, which, like
-// Windows, lets any user send from a port below 1024; Linux does not.
-#[cfg(any(windows, all(test, target_os = "macos")))]
+#[cfg(windows)]
 pub mod document;
-#[cfg(any(windows, all(test, target_os = "macos")))]
+#[cfg(windows)]
 pub mod lpd;
-#[cfg(any(windows, all(test, target_os = "macos")))]
+#[cfg(windows)]
 pub mod pjl;
 
 pub use endpoint::{ADDRESS, HOST, PORT, QUEUE};
