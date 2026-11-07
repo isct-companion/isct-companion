@@ -3,8 +3,7 @@ use std::net::TcpListener;
 use std::thread;
 
 /// An address that refuses connections: bound, so no parallel test takes
-/// the port, and never listening. (Linux refuses at once; macOS takes about
-/// eight seconds to give up on it.)
+/// the port, and never listening.
 pub(crate) fn refusing() -> (Socket, SocketAddr) {
     let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP)).unwrap();
     socket
