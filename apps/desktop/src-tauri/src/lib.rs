@@ -13,6 +13,8 @@ mod campus_printer;
 mod campus_printer_cups;
 #[cfg(windows)]
 mod campus_printer_windows;
+#[cfg(windows)]
+mod campus_menu_install_windows;
 #[cfg(target_os = "macos")]
 mod campus_wifi;
 mod cloud;
