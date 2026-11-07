@@ -20,8 +20,8 @@ git status --short
 ```
 
 Work in the main checkout on `main`, level with `origin/main` (neither ahead
-nor behind). Files the user has changed but not committed are theirs: leave
-them alone and stage only by path in step 5.
+nor behind), then `git switch -c release/<version>`. Files the user has changed
+but not committed are theirs: leave them alone and stage only by path in step 5.
 
 ## 2. Bump
 
@@ -75,26 +75,40 @@ is stale (this is what broke the first push of 1.1.7).
 
 Fix any failure before going on. Never tag a red gate.
 
-## 5. Commit and tag
+## 5. Commit
 
 ```bash
 git add Cargo.lock package.json apps/desktop/package.json \
   apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/tauri.conf.json \
   docs/releases/<version>.md   # plus any fix the gate needed
 git commit -m "Release IsctCompanion <version>"
-git tag -a v<version> -m "IsctCompanion <version>"
 ```
 
 The commit carries the user's name only: no `Co-Authored-By` or other AI
 attribution line.
 
-## 6. Push
+## 6. Merge, tag and push
+
+`main` takes a commit only from a pull request whose required checks passed.
 
 ```bash
-git push origin main v<version>
+git push origin release/<version>
+gh pr create --base main --head release/<version> \
+  --title "Release IsctCompanion <version>" --body-file docs/releases/<version>.md
 ```
 
-Pushing `main` and the tag needs no further approval.
+Once every check on the pull request has passed, fast-forward `main` to the
+commit, tag it and push the tag. GitHub accepts the push and marks the pull
+request merged. The rebase button would rewrite the commit instead.
+
+```bash
+git push origin release/<version>:main
+git tag -a v<version> -m "IsctCompanion <version>"
+git push origin v<version>
+git push origin --delete release/<version>
+```
+
+These pushes need no further approval.
 
 ## 7. Watch the verify job
 
@@ -109,20 +123,6 @@ builds take much longer; report that they are running and give the run link.
 ## If the release fails after the push
 
 Read the failed step with `gh run view <run-id> --log-failed`, fix the cause,
-and run the gate again. Then, if the user asks to amend:
-
-1. Check nothing landed on `origin/main` after the release commit and that no
-   GitHub release exists yet (`gh release view v<version>` says "release not
-   found").
-2. Amend the release commit (stage the fix by path), then move main and the
-   tag:
-
-   ```bash
-   git commit --amend --no-edit
-   git tag -f -a v<version> -m "IsctCompanion <version>"
-   git push --force-with-lease=main:<old-release-sha> origin main
-   git push --force origin v<version>
-   ```
-
-Without that request, or once a release is published, ship the fix as the next
-patch version instead.
+and run the gate again. `main` refuses a force push, so the release commit cannot
+be amended: land the fix through a pull request and ship it as the next patch
+version.
