@@ -38,6 +38,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -78,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
@@ -393,9 +395,19 @@ private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier
                 ) {
                     Text("$period", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
                     if (period == first) {
+                        // A time of five characters is wider than the column:
+                        // it shrinks to fit, as iOS's minimumScaleFactor(0.8).
+                        // The floor is in dp because the column is: a floor in
+                        // sp would grow past it with the system font size.
+                        val style = MaterialTheme.typography.labelSmall.tabular()
                         Text(
-                            row.startTime.removePrefix("0"), style = MaterialTheme.typography.labelSmall.tabular(),
+                            row.startTime.removePrefix("0"), style = style,
                             color = Theme.colors.muted, maxLines = 1,
+                            autoSize = TextAutoSize.StepBased(
+                                minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
+                                maxFontSize = style.fontSize,
+                                stepSize = 0.25.sp,
+                            ),
                         )
                     }
                 }

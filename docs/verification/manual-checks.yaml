@@ -6368,6 +6368,12 @@ checks:
           and half a row. A grid that scrolls on a phone or a full-height lunch
           row means the shell still uses its own period table.
       - action: |
+          Read the start times in the left column at the default font size,
+          then with the system font size at 130%.
+        reason: |
+          A five-character time is wider than the 26 dp period column and
+          shrinks to fit; a clipped 10:4 means it no longer does.
+      - action: |
           On a small tablet turned on its side (or in split screen), scroll
           the grid to the bottom.
         reason: |
@@ -6410,9 +6416,10 @@ checks:
           desktop's ICSを書き出す; another quarter or an empty file is wrong.
     observe: The 時間割 tab on the device or emulator.
     expected: |
-      The week fits, the picker labels and jumps as Core says, marks redraw at
-      once, the now line tracks the clock and the shared .ics holds this
-      quarter's classes; nearby weeks appear without an empty flash.
+      The week fits, every start time reads in full, the picker labels and
+      jumps as Core says, marks redraw at once, the now line tracks the clock
+      and the shared .ics holds this quarter's classes; nearby weeks appear
+      without an empty flash.
     why_manual: |
       Layout, the long-press menu, the moving line, swipe redraws and the
       share sheet are read at a glance on a device; the axis maths and
@@ -9883,4 +9890,31 @@ checks:
       - apps/desktop/src-tauri/src/commands/backup.rs
       - apps/desktop/src/storage/repository.ts
       - apps/desktop/src/store/workspace.ts
+    verified: null
+
+  - id: ANDROID-START-FAILURE-COPY
+    area: native
+    title: Android names why Core could not open, in words
+    persona: careless-multidevice
+    preconditions: |
+      An Android emulator build of this commit whose app data holds a
+      single-file files/core/school.db from an install before the store split.
+    steps:
+      - action: |
+          Open the app over that data.
+        reason: |
+          The session fails before it can report settings.locale, so nothing
+          but the application start loads a language; a screen of raw keys
+          means the catalogs are again waiting for the first snapshot.
+    observe: |
+      The screen shown in place of the tabs.
+    expected: |
+      A translated title and error.compatibility's copy, in the system
+      language; neither message keys nor the generic internal error.
+    why_manual: |
+      Needs the Compose shell on a device holding data of an old install; a
+      person sees the result at a glance. The refusal itself is covered by
+      Core's data-root suite.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
     verified: null

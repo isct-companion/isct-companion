@@ -31,8 +31,12 @@ object Localizer {
     private var loaded: String? = null
     private var context: Context? = null
 
+    /** `settings.locale` lives in the session, and a session that fails to
+     * open never delivers it: the system's language speaks until then, so the
+     * failure screen is never left without a catalog. */
     fun attach(context: Context) {
         this.context = context.applicationContext
+        use(context.resources.configuration.locales[0].language)
     }
 
     /** Switches to a stored `settings.locale`; anything unknown reads English. */

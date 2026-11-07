@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 188 checks must be re-run before the next release.**
+**8 of 189 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -28,7 +28,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**180 checks have never been run or could not be run:**
+**181 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -210,6 +210,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-QUERY-CACHE-INVALIDATION` — never verified
 - `MOBILE-VIEW-QUERIES` — never verified
 - `DESKTOP-BACKUP-IMPORT-REQUERIES` — never verified
+- `ANDROID-START-FAILURE-COPY` — never verified
 
 ## Status
 
@@ -403,6 +404,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts |
 | `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-BACKUP-IMPORT-REQUERIES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>apps/desktop/src/store/workspace.ts |
+| `ANDROID-START-FAILURE-COPY` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt |
 
 ## Personas
 
@@ -7407,33 +7409,37 @@ between the first period's start and the last period's end (Tokyo time).
      leaves, so on a phone the whole week fits; the lunch band is shaded
      and half a row. A grid that scrolls on a phone or a full-height lunch
      row means the shell still uses its own period table.
-2. On a small tablet turned on its side (or in split screen), scroll
+2. Read the start times in the left column at the default font size,
+   then with the system font size at 130%.
+   - *Why:* A five-character time is wider than the 26 dp period column and
+     shrinks to fit; a clipped 10:4 means it no longer does.
+3. On a small tablet turned on its side (or in split screen), scroll
    the grid to the bottom.
    - *Why:* Past the row floor the grid scrolls and the last period is
      reachable; before, the columns were cut off and the late classes
      could not be seen or tapped.
-3. Tap the week chip, step a year back and forward, tap a quarter chip,
+4. Tap the week chip, step a year back and forward, tap a quarter chip,
    then a week row.
    - *Why:* The sheet lists Core's TimetableYear weeks under their months with
      each week's quarter label; a quarter chip jumps to that quarter's
      first week. A week that lands elsewhere means the jump target is
      wrong.
-4. Long press a class and choose 試験にする, then 休講にする, then
+5. Long press a class and choose 試験にする, then 休講にする, then
    通常の授業に戻す, reopening the menu each time.
    - *Why:* Each choice is Core's MarkSession and must redraw at once: a warn
      border with 試験 before the room, then a faded struck-through title
      with 休講, then the plain block; the tick follows the state. Planned
      blocks offer no menu.
-5. Look at today's column during a teaching hour.
+6. Look at today's column during a teaching hour.
    - *Why:* The red now line sits at the current time and moves every half
      minute; outside the axis there is no line by design.
-6. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
+7. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
    then back past this week.
    - *Why:* The week is read with four weeks on either side in one query, as on
      iOS, so each swipe within that reach draws its blocks at once.
      Columns that flash empty before filling mean each week is still
      queried on its own.
-7. Tap the share button in the header, choose 授業のみ, send the file to
+8. Tap the share button in the header, choose 授業のみ, send the file to
    Google Calendar or Files and open it.
    - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
      desktop's ICSを書き出す; another quarter or an empty file is wrong.
@@ -7444,9 +7450,10 @@ The 時間割 tab on the device or emulator.
 
 **Expected**
 
-The week fits, the picker labels and jumps as Core says, marks redraw at
-once, the now line tracks the clock and the shared .ics holds this
-quarter's classes; nearby weeks appear without an empty flash.
+The week fits, every start time reads in full, the picker labels and
+jumps as Core says, marks redraw at once, the now line tracks the clock
+and the shared .ics holds this quarter's classes; nearby weeks appear
+without an empty flash.
 
 **Why this is manual**
 
@@ -11502,5 +11509,44 @@ workspace-store suite, but not the whole round trip in the app.
 - `apps/desktop/src-tauri/src/commands/backup.rs`
 - `apps/desktop/src/storage/repository.ts`
 - `apps/desktop/src/store/workspace.ts`
+
+**Last recorded** never run
+
+### Android names why Core could not open, in words (`ANDROID-START-FAILURE-COPY`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An Android emulator build of this commit whose app data holds a
+single-file files/core/school.db from an install before the store split.
+
+**Steps**
+
+1. Open the app over that data.
+   - *Why:* The session fails before it can report settings.locale, so nothing
+     but the application start loads a language; a screen of raw keys
+     means the catalogs are again waiting for the first snapshot.
+
+**Where to look**
+
+The screen shown in place of the tabs.
+
+**Expected**
+
+A translated title and error.compatibility's copy, in the system
+language; neither message keys nor the generic internal error.
+
+**Why this is manual**
+
+Needs the Compose shell on a device holding data of an old install; a
+person sees the result at a glance. The refusal itself is covered by
+Core's data-root suite.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt`
 
 **Last recorded** never run
