@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { nativeOAuthEnv } from "../lib/oauth-config.mjs";
@@ -11,6 +11,28 @@ import { developmentVersion } from "../lib/build-version.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const command = process.argv.slice(2);
+// Build the dedicated menu installer before Tauri collects bundle resources.
+// It must also ship in dev builds: the Add button exercises the real installer.
+const campusMenuPayload = process.platform === "win32" &&
+  (command.includes("build") || command.includes("dev"));
+if (campusMenuPayload) {
+  const targetIndex = command.indexOf("--target");
+  const target = targetIndex >= 0 ? command[targetIndex + 1] : undefined;
+  const build = spawnSync("cargo", ["build", "--locked", "--release", "-p", "isct-campus-menu-setup",
+    ...(target ? ["--target", target] : [])], { cwd: root, stdio: "inherit" });
+  if (build.error || build.status !== 0) throw build.error ?? new Error("Campus menu installer build failed");
+  const targetDir = path.resolve(root, process.env.CARGO_TARGET_DIR ?? "target");
+  const helper = path.join(targetDir, ...(target ? [target] : []), "release/isct-campus-menu-setup.exe");
+  const directory = path.join(root, "apps/desktop/src-tauri/resources/campus-print");
+  mkdirSync(directory, { recursive: true });
+  const bundledHelper = path.join(directory, "isct-campus-menu-setup.exe");
+  copyFileSync(helper, bundledHelper);
+  if (process.env.AZURE_ARTIFACT_SIGNING_ENDPOINT) {
+    const signed = spawnSync("artifact-signing-cli", ["-e", process.env.AZURE_ARTIFACT_SIGNING_ENDPOINT,
+      "-d", "IsctCompanion", bundledHelper], { stdio: "inherit" });
+    if (signed.error || signed.status !== 0) throw signed.error ?? new Error("Campus menu installer signing failed");
+  }
+}
 const development = command.includes("dev") || command.includes("--debug");
 const packageVersion = JSON.parse(
   readFileSync(path.join(root, "package.json"), "utf8"),
@@ -79,13 +101,14 @@ const vpnHelper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[pr
 const vpnPayload =
   vpnHelper !== undefined &&
   existsSync(path.join(root, "apps/desktop/src-tauri/resources/vpn", vpnHelper));
-const vpnBundle = vpnPayload
+const vpnBundle = vpnPayload || campusMenuPayload
   ? {
       resources: [
         ...JSON.parse(
           readFileSync(path.join(root, "apps/desktop/src-tauri/tauri.conf.json"), "utf8"),
         ).bundle.resources,
-        "resources/vpn/",
+        ...(vpnPayload ? ["resources/vpn/"] : []),
+        ...(campusMenuPayload ? ["resources/campus-print/"] : []),
       ],
     }
   : undefined;

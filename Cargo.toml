@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["apps/desktop/src-tauri", "crates/adpt-cups", "crates/adpt-isct", "crates/adpt-printer", "crates/app-core", "crates/app-ocr", "crates/app-ffi", "crates/vpn-helper", "crates/vpn-protocol"]
+members = ["apps/desktop/src-tauri", "crates/adpt-cups", "crates/adpt-isct", "crates/adpt-printer", "crates/app-core", "crates/app-ocr", "crates/app-ffi", "crates/vpn-helper", "crates/vpn-protocol", "crates/campus-menu-setup"]
 default-members = ["apps/desktop/src-tauri"]
 
 [profile.release]

@@ -79,6 +79,8 @@ libc = "0.2"
 vpn-protocol = { path = "../../../crates/vpn-protocol" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+isct-campus-menu-setup = { path = "../../../crates/campus-menu-setup" }
+tempfile = "3"
 # Native Windows toast delivery returns the WinRT result synchronously so test
 # notifications and reminder claims reflect the native result.
 tauri-winrt-notification = "0.8.1"
@@ -94,6 +96,8 @@ windows = { version = "0.62", features = [
     "Storage_Streams",
     "Win32_Foundation",
     "Win32_System_DataExchange",
+    "Win32_System_Com",
+    "Win32_System_Variant",
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_System_Registry",
