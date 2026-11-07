@@ -14,6 +14,7 @@ jobs:
     if: github.event.action != 'closed'
     name: Main release gate
     runs-on: ubuntu-latest
+    timeout-minutes: 65
     permissions:
       actions: read
       contents: read
@@ -38,32 +39,48 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const headSha = process.env.HEAD_SHA;
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              owner,
-              repo,
-              workflow_id: 'platform-checks.yml',
-              branch: 'dev',
-              event: 'push',
-              head_sha: headSha,
-              per_page: 100,
-            });
+            const pollIntervalMs = 30_000;
+            const maxAttempts = 120;
 
-            const run = data.workflow_runs.find((candidate) =>
-              candidate.head_branch === 'dev' &&
-              candidate.head_sha === headSha &&
-              candidate.event === 'push' &&
-              candidate.conclusion === 'success'
-            );
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'platform-checks.yml',
+                branch: 'dev',
+                event: 'push',
+                head_sha: headSha,
+                per_page: 100,
+              });
 
-            if (!run) {
-              core.setFailed(
-                `Platform checks have not passed for dev commit ${headSha}. ` +
-                'Push the final candidate to dev and wait for the full workflow to succeed.'
-              );
-              return;
+              const run = data.workflow_runs
+                .filter((candidate) =>
+                  candidate.head_branch === 'dev' &&
+                  candidate.head_sha === headSha &&
+                  candidate.event === 'push'
+                )
+                .sort((left, right) => right.run_attempt - left.run_attempt)[0];
+
+              if (!run) {
+                core.info(`Waiting for Platform checks to start for ${headSha} (${attempt}/${maxAttempts}).`);
+              } else if (run.status !== 'completed') {
+                core.info(`Waiting for ${run.html_url} (${run.status}, ${attempt}/${maxAttempts}).`);
+              } else if (run.conclusion === 'success') {
+                core.info(`Using successful Platform checks run ${run.html_url}`);
+                return;
+              } else {
+                core.setFailed(
+                  `Platform checks ${run.html_url} completed with ${run.conclusion} for dev commit ${headSha}.`
+                );
+                return;
+              }
+
+              if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+              }
             }
 
-            core.info(`Using successful Platform checks run ${run.html_url}`);
+            core.setFailed(`Timed out waiting for Platform checks for dev commit ${headSha}.`);
 
       - name: Check the release diff for whitespace errors
         uses: actions/checkout@v7
