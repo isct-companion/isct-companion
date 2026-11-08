@@ -25,7 +25,7 @@ const SETUP_TEXT: Record<
  * The campus printer: Core verifies the Tokyo Tech account and tries the
  * printer once each time the page opens and on Check, never in the
  * background. macOS and Linux add a system print queue; Windows adds a PDF
- * right-click entry.
+ * right-click entry and a system queue backed by the local IPP receiver.
  */
 export function CampusPrinter({
   notify,
@@ -57,11 +57,11 @@ export function CampusPrinter({
     };
   }, [check]);
 
-  const add = async () => {
+  const add = async (menu = windows) => {
     setAdding(true);
     setResult(undefined);
     try {
-      const outcome = windows
+      const outcome = menu
         ? await desktopBridge?.addCampusPrintMenu?.(
             t("tools.campusPrinter.printToCampusPrinter"),
           )
@@ -99,6 +99,9 @@ export function CampusPrinter({
                 : t("tools.campusPrinter.cannotReachThePrinter")}
           </span>
           {status && <span>{accountText(status.account)}</span>}
+          {windows && (
+            <span>{t("tools.campusPrinter.windowsSystemPrinter")}</span>
+          )}
           {result && <span>{result}</span>}
         </>
       }
@@ -130,6 +133,19 @@ export function CampusPrinter({
                   : "tools.campusPrinter.addSystemPrinter",
             )}
           </UiButton>
+          {windows && (
+            <UiButton
+              className="button small"
+              disabled={!ready || adding || checking}
+              onClick={() => void add(false)}
+            >
+              {t(
+                adding
+                  ? "tools.campusPrinter.adding"
+                  : "tools.campusPrinter.addSystemPrinter",
+              )}
+            </UiButton>
+          )}
         </>
       }
     />

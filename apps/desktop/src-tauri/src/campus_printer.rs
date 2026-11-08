@@ -1,8 +1,8 @@
 //! The campus printer setting, on every desktop. Core decides whose jobs
 //! the printer bills and whether it answers (`app_core::campus_printer`);
 //! this shell adds the printer to the system: the CUPS queue on macOS and
-//! Linux (`campus_printer_cups`), the PDF right-click entry on Windows
-//! (`campus_printer_windows`).
+//! Linux (`campus_printer_cups`), the PDF right-click entry and local IPP
+//! queue on Windows (`campus_printer_windows`, `campus_printer_ipp_windows`).
 use crate::{core_ports, CommandError};
 use app_core::campus_printer::{CampusPrinterStatus, PrinterAccount};
 use serde::Serialize;
@@ -24,7 +24,6 @@ pub async fn campus_printer_status(
 pub enum CampusPrinterSetup {
     Added,
     /// The person dismissed the administrator prompt.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     Cancelled,
     /// No verified student ID: nothing was changed.
     Account {
