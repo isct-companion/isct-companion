@@ -148,6 +148,19 @@ cards beyond the third. The per-platform recognition backends (Core ML on
 Apple, LiteRT on Android; `approach/matrix-inference-backends`) are later
 steps with their own parity checks.
 
+The NSIS installer from the `desktop-release` workflow (run 42470220248,
+unsigned, built from this branch) places `libLiteRt.dll` at the install root
+beside `isct-companion.exe`, with the pinned SHA-256, and carries the LiteRT
+licence and README. Against the published 1.3.1 installer:
+
+| Windows installer | download | installed exe | beside it | installed total |
+| --- | ---: | ---: | ---: | ---: |
+| 1.3.1 (release) | 31.4 MB | 66.4 MB | | 66.4 MB |
+| this branch (CI) | 24.6 MB | 40.9 MB | 12.2 MB | 53.0 MB |
+
+The macOS builds of the same run (ONNX Runtime with the float source)
+compile and bundle.
+
 ## Model promotion gate
 
 The float16 LiteRT model is a new default on Android and Windows, so it
