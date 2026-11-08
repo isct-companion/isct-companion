@@ -5546,9 +5546,9 @@ checks:
     title: Android Matrix sources match iOS, with the system camera and a pasted image
     persona: undergraduate-senior
     preconditions: |
-      The Android app on an arm64 phone (the x86_64 emulator has no OCR and
-      shows only 貼り付け and 入力), camera permission not yet granted, and a
-      photo of a Matrix card in the gallery.
+      The release APK (arm64 only) on an arm64 phone, camera permission not yet
+      granted, a photo of a Matrix card and a screenshot of an authenticator
+      QR code in the gallery.
     steps:
       - action: |
           Open 設定 › Tokyo Tech (旧) and read the マトリクス表 row.
@@ -5569,17 +5569,29 @@ checks:
         reason: |
           A pasted image is read like a photo, as on iOS; text must be the 70
           letters, otherwise the row's red message shows.
-    observe: The Tokyo Tech account page and its grid.
+      - action: |
+          Open Science Tokyo, choose 認証アプリから › 写真から and pick the QR
+          screenshot.
+        reason: |
+          Screenshot QR codes are decoded by the Play services ML Kit, whose
+          model is fetched at install rather than bundled; a missing model
+          would read as "no QR code".
+    observe: The Tokyo Tech and Science Tokyo account pages.
     expected: |
       Four sources as on iOS; a taken, picked or pasted photo fills the grid
-      with confidence tints; wrong text is rejected with the message.
+      with confidence tints; wrong text is rejected with the message; the QR
+      screenshot fills the one-time password.
     why_manual: |
-      The system camera, its permission prompt and the clipboard's image
-      exist only on an arm64 phone with the OCR runtime; recognition itself
-      is Core's, covered by its tests.
+      The system camera, its permission prompt, the clipboard's image and the
+      Play services barcode model exist only on a phone; the Matrix grid is
+      read by the LiteRT library the app bundles, which only an arm64 device
+      loads. Recognition accuracy is Core's, covered by its tests and replay.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
       - apps/android/app/src/main/res/xml/file_paths.xml
+      - apps/android/app/src/main/AndroidManifest.xml
+      - apps/android/app/build.gradle.kts
+      - crates/app-ocr/src/engine/letters/litert.rs
     verified: null
 
   - id: SYNC-FAILED-PAGE-REASON

@@ -282,7 +282,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
-| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/build.gradle.kts<br>crates/app-ocr/src/engine/letters/litert.rs |
 | `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
@@ -6350,9 +6350,9 @@ read model, covered by its test.
 
 **Preconditions**
 
-The Android app on an arm64 phone (the x86_64 emulator has no OCR and
-shows only 貼り付け and 入力), camera permission not yet granted, and a
-photo of a Matrix card in the gallery.
+The release APK (arm64 only) on an arm64 phone, camera permission not yet
+granted, a photo of a Matrix card and a screenshot of an authenticator
+QR code in the gallery.
 
 **Steps**
 
@@ -6369,26 +6369,36 @@ photo of a Matrix card in the gallery.
    貼り付け again.
    - *Why:* A pasted image is read like a photo, as on iOS; text must be the 70
      letters, otherwise the row's red message shows.
+4. Open Science Tokyo, choose 認証アプリから › 写真から and pick the QR
+   screenshot.
+   - *Why:* Screenshot QR codes are decoded by the Play services ML Kit, whose
+     model is fetched at install rather than bundled; a missing model
+     would read as "no QR code".
 
 **Where to look**
 
-The Tokyo Tech account page and its grid.
+The Tokyo Tech and Science Tokyo account pages.
 
 **Expected**
 
 Four sources as on iOS; a taken, picked or pasted photo fills the grid
-with confidence tints; wrong text is rejected with the message.
+with confidence tints; wrong text is rejected with the message; the QR
+screenshot fills the one-time password.
 
 **Why this is manual**
 
-The system camera, its permission prompt and the clipboard's image
-exist only on an arm64 phone with the OCR runtime; recognition itself
-is Core's, covered by its tests.
+The system camera, its permission prompt, the clipboard's image and the
+Play services barcode model exist only on a phone; the Matrix grid is
+read by the LiteRT library the app bundles, which only an arm64 device
+loads. Recognition accuracy is Core's, covered by its tests and replay.
 
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
 - `apps/android/app/src/main/res/xml/file_paths.xml`
+- `apps/android/app/src/main/AndroidManifest.xml`
+- `apps/android/app/build.gradle.kts`
+- `crates/app-ocr/src/engine/letters/litert.rs`
 
 **Last recorded** never run
 

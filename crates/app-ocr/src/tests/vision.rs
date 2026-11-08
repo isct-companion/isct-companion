@@ -67,20 +67,16 @@ fn a_photo_and_live_frames_of_one_card_read_the_same_letters() {
     let (y, uv) = nv12(&rgb);
     let yuv = frame(rgb.width(), rgb.height(), &y, &uv);
     let decoded = crate::matrix_picture(CARD).unwrap();
-    let converted = crate::matrix_picture_from_yuv(&yuv).unwrap();
+    let analysis = crate::matrix_analysis_from_yuv(&yuv).unwrap();
+    let full = crate::matrix_full_luma_from_yuv(&yuv).unwrap();
     assert_eq!(
         (
-            decoded.width,
-            decoded.height,
-            decoded.analysis_width,
-            decoded.analysis_height
+            decoded.full.width,
+            decoded.full.height,
+            decoded.analysis.width,
+            decoded.analysis.height
         ),
-        (
-            converted.width,
-            converted.height,
-            converted.analysis_width,
-            converted.analysis_height
-        )
+        (full.width, full.height, analysis.width, analysis.height)
     );
     // Saturated edges clamp in YUV→RGB, so compare means, not single pixels.
     let mean = |a: &[u8], b: &[u8]| {
@@ -90,9 +86,13 @@ fn a_photo_and_live_frames_of_one_card_read_the_same_letters() {
             .sum::<f64>()
             / a.len() as f64
     };
-    let luma = mean(&decoded.luma, &converted.luma);
-    let chroma = mean(&decoded.analysis_chroma, &converted.analysis_chroma);
-    assert!(luma < 0.5 && chroma < 1., "luma {luma}, R−G {chroma}");
+    let luma = mean(&decoded.full.luma, &full.luma);
+    let small = mean(&decoded.analysis.luma, &analysis.luma);
+    let chroma = mean(&decoded.analysis.chroma, &analysis.chroma);
+    assert!(
+        luma < 0.5 && small < 1. && chroma < 1.,
+        "luma {luma}, analysis luma {small}, R−G {chroma}"
+    );
 
     let id = driver.begin().unwrap();
     let consumer = std::thread::scope(|scope| {
@@ -131,7 +131,8 @@ fn a_photo_and_live_frames_of_one_card_read_the_same_letters() {
 fn malformed_native_frames_are_rejected_before_conversion() {
     let (y, uv) = (vec![0; 64 * 64], vec![128; 64 * 32]);
     let good = frame(64, 64, &y, &uv);
-    assert!(crate::matrix_picture_from_yuv(&good).is_ok());
+    assert!(matrix_vision().analyse(&good).is_ok());
+    assert!(matrix_vision().full_luma(&good).is_ok());
     for bad in [
         MatrixYuvFrame {
             y_row_stride: 32,
@@ -152,8 +153,64 @@ fn malformed_native_frames_are_rejected_before_conversion() {
         frame(16, 16, &y, &uv),
     ] {
         assert!(matches!(
-            matrix_vision().convert(&bad),
+            matrix_vision().analyse(&bad),
             Err(MatrixScanError::Unreadable(_))
         ));
+        assert!(matches!(
+            matrix_vision().full_luma(&bad),
+            Err(MatrixScanError::Unreadable(_))
+        ));
+    }
+}
+
+/// The cells, and so every training export, are cut from this plane: the
+/// tabulated conversion must give byte for byte the luma of the per-pixel
+/// YUV→RGB formula, in every matrix and range a camera reports.
+#[test]
+fn camera_full_luma_matches_the_per_pixel_conversion_exactly() {
+    let (w, h) = (512usize, 256usize);
+    let mut state = 20261108u32;
+    let mut next = || {
+        state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+        (state >> 24) as u8
+    };
+    let y: Vec<u8> = (0..w * h).map(|_| next()).collect();
+    let uv: Vec<u8> = (0..w * h / 2).map(|_| next()).collect();
+    for matrix in [MatrixYuvMatrix::Bt601, MatrixYuvMatrix::Bt709] {
+        for full_range in [true, false] {
+            let yuv = MatrixYuvFrame {
+                matrix,
+                full_range,
+                ..frame(w as u32, h as u32, &y, &uv)
+            };
+            let (kr, kgu, kgv, kb) = match matrix {
+                MatrixYuvMatrix::Bt601 => (1.402, 0.344136, 0.714136, 1.772),
+                MatrixYuvMatrix::Bt709 => (1.5748, 0.187324, 0.468124, 1.8556),
+            };
+            let (ys, yo, cs) = if full_range {
+                (1., 0., 1.)
+            } else {
+                (255. / 219., 16., 255. / 224.)
+            };
+            let clamp = |v: f64| v.round().clamp(0., 255.) as u8;
+            let full = crate::matrix_full_luma_from_yuv(&yuv).unwrap();
+            for (i, &actual) in full.luma.iter().enumerate() {
+                let (px, py) = (i % w, i / w);
+                let c = (py / 2) * w + (px / 2) * 2;
+                let luma = (y[i] as f64 - yo) * ys;
+                let cb = (uv[c] as f64 - 128.) * cs;
+                let cr = (uv[c + 1] as f64 - 128.) * cs;
+                let (r, g, b) = (
+                    clamp(luma + kr * cr) as u32,
+                    clamp(luma - kgu * cb - kgv * cr) as u32,
+                    clamp(luma + kb * cb) as u32,
+                );
+                let expected = ((19595 * r + 38470 * g + 7471 * b + 32768) >> 16) as u8;
+                assert_eq!(
+                    actual, expected,
+                    "{matrix:?} full {full_range} at {px},{py}"
+                );
+            }
+        }
     }
 }

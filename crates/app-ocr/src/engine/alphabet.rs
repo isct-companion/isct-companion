@@ -1,12 +1,9 @@
-use super::{decode_image, geometry, illumination, model_error};
+use super::letters::{Letters, CLASSES, SIZE};
+use super::{decode_image, geometry, illumination};
 use crate::{MatrixCaptureFrame, MatrixCaptureGlyph, MatrixOcrError, Recognition};
 use image::{imageops::FilterType, GrayImage, Rgb, RgbImage};
 use imageproc::geometric_transformations::{warp_into, Border, Interpolation, Projection};
-use ort::{session::Session, value::Tensor};
 use std::sync::{Arc, Mutex, TryLockError};
-
-const SIZE: usize = 96;
-const MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/matrix-alphabet.onnx"));
 
 /// Locate ink without discarding a fixed fraction of a cell. Keep grayscale
 /// pixels for inference; the binary mask is only used to separate grid edges.
@@ -384,6 +381,24 @@ pub fn capture_matrix_training_frame(
     )
 }
 
+/// Maps `f` over `items` on up to four threads, in order. The 70 cells are
+/// independent, and a camera keyframe is cut on the frame thread, so a split
+/// cut lets the next frame be analysed sooner without changing any value.
+fn in_parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4));
+    let chunk = items.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        let parts: Vec<_> = items
+            .chunks(chunk)
+            .map(|part| scope.spawn(|| part.iter().map(&f).collect::<Vec<_>>()))
+            .collect();
+        parts
+            .into_iter()
+            .flat_map(|part| part.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    })
+}
+
 fn capture_quads(
     source: CellSource<'_>,
     quads: Vec<[[f64; 2]; 4]>,
@@ -396,94 +411,92 @@ fn capture_quads(
         CellSource::Rgb(image, _) => (image.width() as f64, image.height() as f64),
         CellSource::Luma(image) => (image.width() as f64, image.height() as f64),
     };
-    let patches = quads
-        .iter()
-        .map(|&quad| match source {
-            CellSource::Rgb(image, projection) => {
-                let rgb = rectified_rgb(image, quad)?;
-                let gray = project_glyph(&rgb, crate::MatrixGlyphProjection::Luma);
-                let light = illumination::analyze(&gray);
-                // Physical admission stays in luminance for a controlled ablation.
-                let projected = (!matches!(projection, crate::MatrixGlyphProjection::Luma))
-                    .then(|| project_glyph(&rgb, projection));
-                Ok((gray, light, projected))
-            }
-            CellSource::Luma(image) => {
-                let gray = rectified_luma(image, quad)?;
-                let light = illumination::analyze(&gray);
-                Ok((gray, light, None))
-            }
-        })
-        .collect::<Result<Vec<_>, MatrixOcrError>>()?;
+    let patches = in_parallel(&quads, |&quad| match source {
+        CellSource::Rgb(image, projection) => {
+            let rgb = rectified_rgb(image, quad)?;
+            let gray = project_glyph(&rgb, crate::MatrixGlyphProjection::Luma);
+            let light = illumination::analyze(&gray);
+            // Physical admission stays in luminance for a controlled ablation.
+            let projected = (!matches!(projection, crate::MatrixGlyphProjection::Luma))
+                .then(|| project_glyph(&rgb, projection));
+            Ok((gray, light, projected))
+        }
+        CellSource::Luma(image) => {
+            let gray = rectified_luma(image, quad)?;
+            let light = illumination::analyze(&gray);
+            Ok((gray, light, None))
+        }
+    })
+    .into_iter()
+    .collect::<Result<Vec<_>, MatrixOcrError>>()?;
     let mut paper: Vec<_> = patches.iter().map(|(_, light, _)| light.paper).collect();
     paper.sort_by(f64::total_cmp);
     // The upper quartile preserves well-lit cells on a partly shadowed card,
     // while isolated saturated rows/columns stand out against normal paper.
     let reference = paper.get(paper.len() * 3 / 4).copied().unwrap_or(255.);
-    let glyphs = patches
-        .into_iter()
-        .zip(&quads)
-        .map(|((gray, light, projected), &quad)| {
-            // Ignore grid edges when measuring texture, but retain the entire
-            // cell for recognition: a fixed inset can turn a complete L into I.
-            let interior =
-                image::imageops::crop_imm(light.corrected.as_ref().unwrap_or(&gray), 9, 9, 78, 78)
-                    .to_image();
-            let acuity = edge_acuity(&image::imageops::resize(
-                &interior,
-                48,
-                48,
-                FilterType::Triangle,
-            ));
-            let measured = image::imageops::resize(&interior, 32, 32, FilterType::Triangle);
-            let mean = measured.pixels().map(|p| p[0] as f64).sum::<f64>() / 1024.;
-            let contrast = (measured
-                .pixels()
-                .map(|p| (p[0] as f64 - mean).powi(2))
-                .sum::<f64>()
-                / 1024.)
-                .sqrt();
-            let deviation = |points: Vec<f64>| {
-                let mean = points.iter().sum::<f64>() / points.len() as f64;
-                (points.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / points.len() as f64)
-                    .sqrt()
-            };
-            let interior = deviation(
-                (4..28)
-                    .flat_map(|y| (4..28).map(move |x| (x, y)))
-                    .map(|(x, y)| measured.get_pixel(x, y)[0] as f64)
-                    .collect(),
-            );
-            let border = deviation(
-                (0..32)
-                    .flat_map(|y| (0..32).map(move |x| (x, y)))
-                    .filter(|&(x, y)| !(4..28).contains(&x) || !(4..28).contains(&y))
-                    .map(|(x, y)| measured.get_pixel(x, y)[0] as f64)
-                    .collect(),
-            );
-            let centering = interior / (interior + border).max(1.);
-            let laplacian = imageproc::filter::laplacian_filter(&measured);
-            let sharpness = (1..31)
-                .flat_map(|y| (1..31).map(move |x| (x, y)))
-                .map(|(x, y)| (laplacian.get_pixel(x, y)[0] as f64).powi(2))
-                .sum::<f64>()
-                / 900.;
-            let distance =
-                |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]) * width).hypot((a[1] - b[1]) * height);
-            let source_size = (0..4)
-                .map(|i| distance(quad[i], quad[(i + 1) % 4]))
-                .fold(f64::INFINITY, f64::min);
-            Ok(MatrixCaptureGlyph {
-                gray: projected.unwrap_or(gray).into_raw(),
-                contrast,
-                sharpness,
-                source_size,
-                centering,
-                glare: light.glare_against(reference),
-                acuity,
-            })
+    let cells: Vec<_> = patches.into_iter().zip(quads.iter().copied()).collect();
+    let glyphs = in_parallel(&cells, |((gray, light, projected), quad)| {
+        let quad = *quad;
+        // Ignore grid edges when measuring texture, but retain the entire
+        // cell for recognition: a fixed inset can turn a complete L into I.
+        let interior =
+            image::imageops::crop_imm(light.corrected.as_ref().unwrap_or(gray), 9, 9, 78, 78)
+                .to_image();
+        let acuity = edge_acuity(&image::imageops::resize(
+            &interior,
+            48,
+            48,
+            FilterType::Triangle,
+        ));
+        let measured = image::imageops::resize(&interior, 32, 32, FilterType::Triangle);
+        let mean = measured.pixels().map(|p| p[0] as f64).sum::<f64>() / 1024.;
+        let contrast = (measured
+            .pixels()
+            .map(|p| (p[0] as f64 - mean).powi(2))
+            .sum::<f64>()
+            / 1024.)
+            .sqrt();
+        let deviation = |points: Vec<f64>| {
+            let mean = points.iter().sum::<f64>() / points.len() as f64;
+            (points.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / points.len() as f64).sqrt()
+        };
+        let interior = deviation(
+            (4..28)
+                .flat_map(|y| (4..28).map(move |x| (x, y)))
+                .map(|(x, y)| measured.get_pixel(x, y)[0] as f64)
+                .collect(),
+        );
+        let border = deviation(
+            (0..32)
+                .flat_map(|y| (0..32).map(move |x| (x, y)))
+                .filter(|&(x, y)| !(4..28).contains(&x) || !(4..28).contains(&y))
+                .map(|(x, y)| measured.get_pixel(x, y)[0] as f64)
+                .collect(),
+        );
+        let centering = interior / (interior + border).max(1.);
+        let laplacian = imageproc::filter::laplacian_filter(&measured);
+        let sharpness = (1..31)
+            .flat_map(|y| (1..31).map(move |x| (x, y)))
+            .map(|(x, y)| (laplacian.get_pixel(x, y)[0] as f64).powi(2))
+            .sum::<f64>()
+            / 900.;
+        let distance =
+            |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]) * width).hypot((a[1] - b[1]) * height);
+        let source_size = (0..4)
+            .map(|i| distance(quad[i], quad[(i + 1) % 4]))
+            .fold(f64::INFINITY, f64::min);
+        Ok(MatrixCaptureGlyph {
+            gray: projected.as_ref().unwrap_or(gray).as_raw().clone(),
+            contrast,
+            sharpness,
+            source_size,
+            centering,
+            glare: light.glare_against(reference),
+            acuity,
         })
-        .collect::<Result<Vec<_>, MatrixOcrError>>()?;
+    })
+    .into_iter()
+    .collect::<Result<Vec<_>, MatrixOcrError>>()?;
     Ok(MatrixCaptureFrame {
         quads,
         glyphs,
@@ -498,7 +511,7 @@ fn capture_quads(
 }
 
 #[derive(Clone, Default)]
-pub struct MatrixAlphabetService(Arc<Mutex<Option<Session>>>);
+pub struct MatrixAlphabetService(Arc<Mutex<Option<Letters>>>);
 
 /// The exact model views for one retained cell. Training tools use this same
 /// boundary; a rejected shape must not become an invented training label.
@@ -596,41 +609,16 @@ impl MatrixAlphabetService {
             }
         };
         if resident.is_none() {
-            *resident = Some(
-                Session::builder()
-                    .map_err(model_error)?
-                    .with_intra_threads(2)
-                    .map_err(model_error)?
-                    .with_inter_threads(1)
-                    .map_err(model_error)?
-                    .commit_from_memory(MODEL)
-                    .map_err(model_error)?,
-            );
+            *resident = Some(Letters::new()?);
         }
-        let session = resident
+        let letters = resident
             .as_mut()
             .ok_or_else(|| MatrixOcrError::Model("Alphabet model did not initialize.".into()))?;
-        let input = Tensor::from_array((
-            [images.len(), 1, SIZE, SIZE],
-            images
-                .iter()
-                .flatten()
-                .map(|p| *p as f32 / 127.5 - 1.)
-                .collect::<Vec<_>>(),
-        ))
-        .map_err(model_error)?;
-        let output = session.run(ort::inputs![input]).map_err(model_error)?;
-        let Some((_, output)) = output.into_iter().next() else {
-            return Err(MatrixOcrError::Model("Missing alphabet output.".into()));
-        };
-        let (shape, data) = output.try_extract_tensor::<f32>().map_err(model_error)?;
-        if shape.as_ref() != [images.len() as i64, 27]
-            || data.len() != images.len() * 27
-            || data.iter().any(|v| !v.is_finite())
-        {
+        let data = letters.logits(images)?;
+        if data.len() != images.len() * CLASSES || data.iter().any(|v| !v.is_finite()) {
             return Err(MatrixOcrError::Model("Invalid alphabet output.".into()));
         }
-        data.as_chunks::<27>()
+        data.as_chunks::<CLASSES>()
             .0
             .iter()
             .map(|row| {
@@ -641,7 +629,7 @@ impl MatrixAlphabetService {
                     .ok_or_else(|| MatrixOcrError::Model("Empty alphabet output.".into()))?;
                 let sum = row.iter().map(|v| (*v - max).exp()).sum::<f32>();
                 Ok(Recognition {
-                    text: if winner == 26 {
+                    text: if winner == CLASSES - 1 {
                         String::new()
                     } else {
                         ((b'A' + winner as u8) as char).to_string()

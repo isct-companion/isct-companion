@@ -20,6 +20,8 @@ struct Scripted {
     /// A cell that is read, but never clearly.
     weak: Option<u8>,
     cuts: AtomicU32,
+    /// Native frames converted at full resolution.
+    full_lumas: AtomicU32,
     /// Where the tracker finds the grid on the next frame.
     body: Arc<Mutex<[MatrixPoint; 4]>>,
 }
@@ -66,9 +68,14 @@ impl MatrixVision for Scripted {
     fn decode(&self, _: &[u8]) -> Result<MatrixPicture, MatrixScanError> {
         Ok(picture())
     }
-    fn convert(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixPicture, MatrixScanError> {
+    fn analyse(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixAnalysis, MatrixScanError> {
         assert_eq!((frame.width, frame.height), (64, 32));
-        Ok(picture())
+        Ok(picture().analysis)
+    }
+    fn full_luma(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixFullLuma, MatrixScanError> {
+        assert_eq!((frame.width, frame.height), (64, 32));
+        self.full_lumas.fetch_add(1, Ordering::Relaxed);
+        Ok(picture().full)
     }
     fn cut(
         &self,
@@ -114,13 +121,17 @@ impl MatrixVision for Scripted {
 }
 fn picture() -> MatrixPicture {
     MatrixPicture {
-        analysis_width: 32,
-        analysis_height: 16,
-        analysis_luma: vec![0; 512],
-        analysis_chroma: vec![128; 512],
-        width: 128,
-        height: 64,
-        luma: vec![0; 128 * 64],
+        analysis: MatrixAnalysis {
+            width: 32,
+            height: 16,
+            luma: vec![0; 512],
+            chroma: vec![128; 512],
+        },
+        full: MatrixFullLuma {
+            width: 128,
+            height: 64,
+            luma: vec![0; 128 * 64],
+        },
     }
 }
 fn scripted(
@@ -131,6 +142,7 @@ fn scripted(
         glyph,
         weak,
         cuts: AtomicU32::new(0),
+        full_lumas: AtomicU32::new(0),
         body: Arc::new(Mutex::new(BODY)),
     });
     (Arc::new(MatrixCameraDriver::new(vision.clone())), vision)
@@ -207,6 +219,11 @@ fn desktop_and_native_transports_drive_one_session_to_the_same_votes() {
         let report = driver.stop(&id).unwrap();
         let cuts = vision.cuts.load(Ordering::Relaxed) as usize;
         assert_eq!(cuts, report.keyframes, "native={native}");
+        // A phone frame pays for its full-resolution luma only when it is cut.
+        assert_eq!(
+            vision.full_lumas.load(Ordering::Relaxed) as usize,
+            if native { cuts } else { 0 },
+        );
         assert!(cuts >= 3, "native={native} cuts={cuts}");
         assert!(matches!(driver.poll(&id), Err(MatrixScanError::Ended)));
     }

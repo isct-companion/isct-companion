@@ -5,6 +5,8 @@ dist/
 target/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+# The LiteRT DLL app-ocr fetches for Windows bundles (crates/app-ocr/build.rs).
+apps/desktop/src-tauri/vendor/
 *.tsbuildinfo
 coverage/
 

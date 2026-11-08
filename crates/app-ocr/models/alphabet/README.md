@@ -10,6 +10,14 @@ letters plus explicitly authorized, de-identified glyphs of two test cards,
 cut by the production camera path. Promoted as the default at the user's
 request on 2026-10-24. SHA-256:
 `f9ca9cc5489dab804923bc3446c01e0b6fb6491ad9ddcd4b12731a23b4ce79c5`.
+It is the float source: training continues from it and other runtimes'
+models are converted from it. ONNX Runtime builds (macOS, iOS) embed it
+unchanged; the INT8 export below read one card cell fewer, which the
+promotion gate does not allow.
+
+`alphabet-printed-fp16.tflite` is what Android and Windows builds embed, for
+LiteRT (see "2026-11-08 LiteRT" below). SHA-256:
+`519d41e9f9102e29ae1713f64eee963f07ce35db0e06e7a1d453f71581165189`.
 
 MobileNetV2, 27 logits (A–Z then blank), dynamic batch, input N×1×96×96.
 Input is Rec.601 grayscale normalized to [-1, 1]. The camera retains the complete
@@ -70,7 +78,7 @@ For a local experimental build, `ISCT_MATRIX_ALPHABET_MODEL=/absolute/model.onnx
 selects other weights at compile time. Camera datasets and their provenance
 stay local. The authorized video-adapted candidate is now the normal build's
 default; other camera-adapted experiments stay local. Runtime is the existing
-pinned ONNX Runtime; its license and notices are in `../paddle/`.
+pinned ONNX Runtime; its license and notices are in `../onnxruntime/`.
 
 The later 2026-10-20 video experiment produced the 2026-10-21 default model,
 SHA-256 `368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`.
@@ -93,3 +101,57 @@ backup stay in `.cache/ocr-video-20261020/`; the local `run-candidate.zsh` and
 desktop development. The original synthetic-only model SHA-256 is
 `592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177`;
 it can also be recovered from Git before the default-model promotion.
+
+## 2026-11-08 INT8 (rejected)
+
+`scripts/ocr/alphabet_quantize.py` quantizes the float source to QDQ INT8:
+weights per channel, activations per tensor at the 99.99th percentile,
+calibrated on 1000 cells (up to 40 per class) of the camera-path training
+split. 10,215,510 bytes become 2,955,225; a ten-cell batch takes 6.5 ms
+instead of 10.7 ms in ONNX Runtime on one x86-64 host.
+
+| Held-out third card, 1014 sharp admitted cells | Float | INT8 |
+| --- | ---: | ---: |
+| Correct | 1006 | 1005 |
+| Confident errors (>= 0.8) | 0 | 0 |
+| Keyframes with all cells correct | 11 / 15 | 10 / 15 |
+
+On the 3156 validation cells both make 4 confident errors (3117 and 3119
+qualified). The 512-input Rust/Python parity check gives a largest
+confidence difference of 7e-7; one reading at confidence 0.26 breaks an E/L
+near-tie differently between the two ONNX Runtime versions, which the check
+allows only below the 0.8 vote threshold. Session replay of four recordings
+(24 windows, `docs/verification/matrix-size-speed.md`) completes 23 with no
+wrong pass, the same as the float model on the same frame path. It was not
+kept: one fewer correct cell fails the promotion gate's no-loss rule.
+
+## 2026-11-08 LiteRT
+
+Android and Windows run the classifier with LiteRT (`engine/letters/litert.rs`).
+`scripts/ocr/alphabet_litert.py`, run in WSL because litert-torch has no
+Windows build, rebuilds the float source as the native PyTorch module
+(`alphabet_model.load`), folds the one-to-three channel expand into the first
+convolution (the three channels are equal), converts it with litert-torch
+0.10 for batches of one to ten, and stores float16 weights with
+ai-edge-quantizer 0.10 (`FLOAT_CASTING`, float32 compute). The input stays
+[batch, 1, 96, 96].
+
+Every export is judged by the same `matrix_video.py evaluate` report (a
+`.tflite` model runs in the ai-edge-litert 2.3 interpreter with XNNPACK):
+
+| Model | bytes | third card correct | its confident errors | validation confident errors |
+| --- | ---: | ---: | ---: | ---: |
+| float ONNX source | 10,215,510 | 1006 | 0 | 4 |
+| ONNX INT8 (rejected) | 2,955,225 | 1005 | 0 | 4 |
+| LiteRT float | 10,238,332 | 1006 | 0 | 4 |
+| LiteRT INT8 (`--precision int8`) | 3,088,416 | 1005 | 0 | 5 |
+| LiteRT float16 weights (Android, Windows) | 5,208,704 | 1006 | 0 | 4 |
+
+The LiteRT INT8 candidate lifted one N→Y misreading, which every model makes,
+above the 0.8 vote threshold; float16 weights read exactly like the float
+source for 2.1 MB more, so they were chosen. The runtimes compute in float32
+from them. Rounding the weights to bfloat16 instead also reads like the float
+source, with nine times the weight error (0.37 % against 0.04 %) and almost
+no runtime support; running the whole network in float16 or bfloat16 in
+PyTorch reads like the float source too.
+

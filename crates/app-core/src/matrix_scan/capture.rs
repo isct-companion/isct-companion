@@ -317,7 +317,7 @@ pub fn read_matrix_photo(
             ));
         }
         for ((cell, _), reading) in chunk.iter().zip(readings) {
-            evidence[*cell].collect(reading, 0, false);
+            evidence[*cell].collect(reading, false);
         }
         done += chunk.len();
         if !progress(done, CELLS) {
@@ -589,7 +589,7 @@ impl MatrixCameraScanner {
         for ((&cell, reading), captured) in batch.cells.iter().zip(readings).zip(captured) {
             let before = s.evidence[cell].vote();
             let confirms = reading.confidence >= HIGH_CONFIDENCE && reading.text == before.text;
-            s.evidence[cell].collect(reading, s.revision, true);
+            s.evidence[cell].collect(reading, true);
             let after = s.evidence[cell].vote();
             if before.stable && (!after.stable || before.text != after.text) {
                 s.verifying_since = None;

@@ -1,4 +1,5 @@
 use super::fit::{anchored, column_gaps, fit, HEADER, LABELS};
+use super::track::REFIT_EVERY;
 use super::*;
 use image::{GrayImage, Luma};
 
@@ -185,11 +186,14 @@ fn tracker_follows_motion_refits_on_schedule_and_confirms_jumps() {
         modes.push(step.mode);
     }
     assert_eq!(modes[0], TrackMode::Detected);
+    // Refits (each a keyframe candidate) come every REFIT_EVERY frames.
     assert!(
-        modes[1..8].iter().all(|&m| m == TrackMode::Tracked),
+        modes[1..REFIT_EVERY]
+            .iter()
+            .all(|&m| m == TrackMode::Tracked),
         "{modes:?}"
     );
-    assert_eq!(modes[8], TrackMode::Refitted, "{modes:?}");
+    assert_eq!(modes[REFIT_EVERY], TrackMode::Refitted, "{modes:?}");
     // A sudden jump in size and place needs a second agreeing detection.
     let moved = pose(300., 40., [300., 300.], 0.);
     let first = tracker.step(&render(&moved, true), 20. / 30.);

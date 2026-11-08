@@ -196,7 +196,9 @@ impl MatrixCameraDriver {
         self.with(|s| s.observe(id, Some(frame), (self.clock)()))?
     }
     /// A native camera frame: tracked and, when Core asks for it, cut at once
-    /// from the full resolution this call already holds.
+    /// from the full resolution this call already holds. Only that keyframe
+    /// pays for the full-resolution luma; every other frame converts just
+    /// its analysis planes.
     pub fn submit(
         &self,
         id: &str,
@@ -208,10 +210,11 @@ impl MatrixCameraDriver {
         if current.phase != MatrixCameraPhase::Capturing {
             return Ok(current);
         }
-        let picture = self.vision.convert(frame)?;
-        let snapshot = self.track(id, frame_id, picture.planes(), captured_ms)?;
+        let analysis = self.vision.analyse(frame)?;
+        let snapshot = self.track(id, frame_id, analysis.planes(), captured_ms)?;
         if snapshot.keyframe_frame_id == Some(frame_id) {
-            return self.keyframe(id, frame_id, picture.full());
+            let full = self.vision.full_luma(frame)?;
+            return self.keyframe(id, frame_id, full.view());
         }
         Ok(snapshot)
     }

@@ -79,15 +79,24 @@ const vpnHelper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[pr
 const vpnPayload =
   vpnHelper !== undefined &&
   existsSync(path.join(root, "apps/desktop/src-tauri/resources/vpn", vpnHelper));
+// `--config` is merged last and replaces the resource list, so extend the one
+// this platform bundles: tauri.windows.conf.json's map on Windows (it adds
+// LiteRT's DLL beside the executable), tauri.conf.json's list elsewhere.
+const platformResources = () => {
+  const config = (name) => path.join(root, "apps/desktop/src-tauri", name);
+  const windows = config("tauri.windows.conf.json");
+  const file =
+    process.platform === "win32" && existsSync(windows)
+      ? windows
+      : config("tauri.conf.json");
+  return JSON.parse(readFileSync(file, "utf8")).bundle.resources;
+};
+const withVpn = (resources) =>
+  Array.isArray(resources)
+    ? [...resources, "resources/vpn/"]
+    : { ...resources, "resources/vpn/": "resources/vpn/" };
 const vpnBundle = vpnPayload
-  ? {
-      resources: [
-        ...JSON.parse(
-          readFileSync(path.join(root, "apps/desktop/src-tauri/tauri.conf.json"), "utf8"),
-        ).bundle.resources,
-        "resources/vpn/",
-      ],
-    }
+  ? { resources: withVpn(platformResources()) }
   : undefined;
 if (vpnPayload) console.log("Campus VPN payload: included.");
 const tauriCommand = [...process.argv.slice(2)];

@@ -44,6 +44,9 @@ const ndk =
 if (!sdk || !ndk || !existsSync(ndk))
   throw new Error("Set ANDROID_HOME and NDK_HOME");
 const assemble = process.argv.includes("--assemble-debug");
+// The app ships arm64 only. `--with-emulator` adds x86_64 so the SDK can be
+// loaded on an x86_64 emulator (the CI smoke test).
+const emulator = process.argv.includes("--with-emulator");
 const profile = process.env.ISCT_SDK_PROFILE ?? "release";
 const ocr = !process.argv.includes("--no-ocr");
 const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr });
@@ -69,18 +72,23 @@ const exe = windows ? ".exe" : "";
 const stage = join(output, "android-aar");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
-for (const [triple, abi, clang] of [
+const abis = [
   [
     "aarch64-linux-android",
     "arm64-v8a",
     `aarch64-linux-android${androidMinSdk}-clang`,
   ],
-  [
-    "x86_64-linux-android",
-    "x86_64",
-    `x86_64-linux-android${androidMinSdk}-clang`,
-  ],
-]) {
+  ...(emulator
+    ? [
+        [
+          "x86_64-linux-android",
+          "x86_64",
+          `x86_64-linux-android${androidMinSdk}-clang`,
+        ],
+      ]
+    : []),
+];
+for (const [triple, abi, clang] of abis) {
   const env = {
     ...process.env,
     CARGO_TARGET_DIR: target,
@@ -90,6 +98,10 @@ for (const [triple, abi, clang] of [
     ),
     [`CC_${triple.replaceAll("-", "_")}`]: join(toolchain, clang + wrapper),
     [`AR_${triple.replaceAll("-", "_")}`]: join(toolchain, "llvm-ar" + exe),
+    // Packed relative relocations (RELR, API 30+; the SDK floor is 34) shrink
+    // the arm64 library's 2.3 MB relocation table to about 40 KB.
+    [`CARGO_TARGET_${triple.replaceAll("-", "_").toUpperCase()}_RUSTFLAGS`]:
+      "-C link-arg=-Wl,-z,pack-relative-relocs",
   };
   run(
     "cargo",
@@ -204,7 +216,12 @@ const version = JSON.parse(
 ).version;
 writeFileSync(
   join(artifacts, "app-core.pom"),
-  `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>app.isctcompanion</groupId><artifactId>app-core</artifactId><version>${version}</version><packaging>aar</packaging><dependencies><dependency><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version><type>aar</type></dependency><dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-android</artifactId><version>1.10.2</version></dependency><dependency><groupId>androidx.annotation</groupId><artifactId>annotation-jvm</artifactId><version>1.9.1</version></dependency></dependencies></project>`,
+  `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>app.isctcompanion</groupId><artifactId>app-core</artifactId><version>${version}</version><packaging>aar</packaging><dependencies><dependency><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version><type>aar</type></dependency><dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-android</artifactId><version>1.10.2</version></dependency><dependency><groupId>androidx.annotation</groupId><artifactId>annotation-jvm</artifactId><version>1.9.1</version></dependency>${
+    // The OCR build opens LiteRT's native library at run time.
+    ocr
+      ? "<dependency><groupId>com.google.ai.edge.litert</groupId><artifactId>litert</artifactId><version>2.3.2</version></dependency>"
+      : ""
+  }</dependencies></project>`,
 );
 await androidJna();
 writeFileSync(
@@ -216,7 +233,7 @@ writeFileSync(
       ocr,
       minSdk: androidMinSdk,
       compileSdk: androidCompileSdk,
-      abis: ["arm64-v8a", "x86_64"],
+      abis: abis.map(([, abi]) => abi),
     },
     null,
     2,
