@@ -102,10 +102,7 @@ async fn blocking<T: Send + 'static>(
 }
 
 #[tauri::command]
-async fn status(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-) -> Result<VpnStatus, CommandError> {
+async fn status(webview: tauri::Webview, app: tauri::AppHandle) -> Result<VpnStatus, CommandError> {
     require_local_main(&webview)?;
     let status = settled(service(&app), VpnService::refresh).await?;
     // A build without the payload (Intel Macs) has nothing to offer unless a

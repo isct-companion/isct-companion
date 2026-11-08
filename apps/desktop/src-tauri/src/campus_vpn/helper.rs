@@ -85,7 +85,9 @@ impl VpnPort for platform::HelperSocket {
 }
 
 pub(crate) fn service() -> Arc<VpnService> {
-    Arc::new(VpnService::new(Arc::new(platform::HelperSocket::installed())))
+    Arc::new(VpnService::new(Arc::new(
+        platform::HelperSocket::installed(),
+    )))
 }
 
 /// How often a tunnel that is up, or auto-continue, is checked: a local
@@ -161,11 +163,9 @@ async fn act(
                 Ok(_) if !service.keeps() => service.state(),
                 Ok(login) => {
                     let connecting = service.clone();
-                    tauri::async_runtime::spawn_blocking(move || {
-                        connecting.connect(&login.cookie)
-                    })
-                    .await
-                    .unwrap_or(state)
+                    tauri::async_runtime::spawn_blocking(move || connecting.connect(&login.cookie))
+                        .await
+                        .unwrap_or(state)
                 }
                 Err(error) => service.failed(VpnError::Login(error)),
             };
@@ -196,10 +196,9 @@ pub(crate) fn watch(app: tauri::AppHandle) {
                 continue;
             }
             let checking = service.clone();
-            let Ok(check) = tauri::async_runtime::spawn_blocking(move || {
-                checking.watch(chrono::Utc::now())
-            })
-            .await
+            let Ok(check) =
+                tauri::async_runtime::spawn_blocking(move || checking.watch(chrono::Utc::now()))
+                    .await
             else {
                 continue;
             };
