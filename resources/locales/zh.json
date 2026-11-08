@@ -844,7 +844,6 @@
   "tools.campusPrinter.accountIsNotAStudentId": "Tokyo Tech 账号名不是学号",
   "tools.campusPrinter.accountNeedsAttention": "请在学校账号中处理 Tokyo Tech 账号",
   "tools.campusPrinter.accountNotVerified": "无法验证 Tokyo Tech 账号。联网后请再检查一次。",
-  "tools.campusPrinter.windowsSystemPrinter": "通过管理员授权添加系统打印机后，可从其他应用的打印窗口使用。打印时请保持 IsctCompanion 运行。支持 A4/Letter、单面彩色、单份。",
   "tools.campusPrinter.addsTheSystemPrinter": "用管理员密码把打印机 InstitutePrinter 添加到本机，任何应用都能在打印对话框里使用。再次添加会覆盖；删除请在系统的打印机设置里进行。",
   "tools.campusPrinter.addsTheRightClickEntry": "在文件资源管理器中 PDF 文件的右键菜单里添加「用校内打印机打印」（Windows 11 在「显示更多选项」里）。不需要管理员权限。",
   "tools.campusPrinter.addSystemPrinter": "添加系统打印机",

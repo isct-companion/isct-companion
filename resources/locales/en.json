@@ -844,7 +844,6 @@
   "tools.campusPrinter.accountIsNotAStudentId": "The Tokyo Tech account name is not a student ID",
   "tools.campusPrinter.accountNeedsAttention": "The Tokyo Tech account needs attention in School accounts",
   "tools.campusPrinter.accountNotVerified": "Couldn't verify the Tokyo Tech account. Check again when online.",
-  "tools.campusPrinter.windowsSystemPrinter": "Add the system printer with administrator approval to print from other apps. Keep IsctCompanion running while printing. Supports A4/Letter, single-sided color, one copy.",
   "tools.campusPrinter.addsTheSystemPrinter": "Adds the printer InstitutePrinter to this computer with your administrator password, so any app can print to it from its print dialog. Adding it again replaces it; remove it in the system's printer settings.",
   "tools.campusPrinter.addsTheRightClickEntry": "Adds Print to campus printer to the right-click menu of PDF files in File Explorer (on Windows 11 under Show more options). No administrator rights needed.",
   "tools.campusPrinter.addSystemPrinter": "Add system printer",

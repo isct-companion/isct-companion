@@ -844,7 +844,6 @@
   "tools.campusPrinter.accountIsNotAStudentId": "Tokyo Tech アカウント名が学籍番号ではありません",
   "tools.campusPrinter.accountNeedsAttention": "学校アカウントで Tokyo Tech アカウントを確認してください",
   "tools.campusPrinter.accountNotVerified": "Tokyo Tech アカウントを確認できませんでした。オンラインのときにもう一度確認してください。",
-  "tools.campusPrinter.windowsSystemPrinter": "管理者の承認でシステムプリンタを追加すると、他のアプリから印刷できます。印刷中は IsctCompanion を起動したままにしてください。A4・レター、片面カラー、1 部に対応しています。",
   "tools.campusPrinter.addsTheSystemPrinter": "管理者パスワードでこのコンピュータにプリンタ InstitutePrinter を追加し、どのアプリの印刷ダイアログからも使えるようにします。再度追加すると置き換わります。削除はシステムのプリンタ設定で行います。",
   "tools.campusPrinter.addsTheRightClickEntry": "エクスプローラーで PDF ファイルの右クリックメニューに「学内プリンタで印刷」を追加します（Windows 11 では「その他のオプションを確認」の中）。管理者権限は不要です。",
   "tools.campusPrinter.addSystemPrinter": "システムプリンタを追加",

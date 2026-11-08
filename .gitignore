@@ -70,4 +70,3 @@ bindings/kotlin/artifacts/
 .project/run/
 # Built by scripts/desktop/bundle-vpn.mjs
 apps/desktop/src-tauri/resources/vpn/
-apps/desktop/src-tauri/resources/campus-print/
