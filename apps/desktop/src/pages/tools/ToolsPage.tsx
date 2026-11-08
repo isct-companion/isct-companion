@@ -1,10 +1,21 @@
+import type { ComponentType } from "react";
 import { t } from "../../i18n";
 import type { Platform } from "../../app/shared";
 import { CampusPrinter } from "./CampusPrinter";
 import { CampusVpn } from "./CampusVpn";
 import { CampusWifi } from "./CampusWifi";
 import { availableTools } from "./registry";
+import type { DesktopTool } from "../../platform/desktop-bridge";
 import "./tools.css";
+
+const cards: Record<
+  DesktopTool,
+  ComponentType<{ notify: (message: string) => void }>
+> = {
+  "campus-wifi": CampusWifi,
+  "campus-vpn": CampusVpn,
+  "campus-printer": CampusPrinter,
+};
 
 /**
  * What the desktop app does on the campus network, as opposed to how it is
@@ -21,15 +32,10 @@ export function Tools({
     <div className="page tools">
       <h2>{t("common.tools")}</h2>
       <div className="toolCards">
-        {availableTools(platform).map((tool) =>
-          tool === "wifi" ? (
-            <CampusWifi key={tool} notify={notify} />
-          ) : tool === "vpn" ? (
-            <CampusVpn key={tool} notify={notify} />
-          ) : (
-            <CampusPrinter key={tool} notify={notify} />
-          ),
-        )}
+        {availableTools(platform).map((tool) => {
+          const Card = cards[tool];
+          return <Card key={tool} notify={notify} />;
+        })}
       </div>
     </div>
   );

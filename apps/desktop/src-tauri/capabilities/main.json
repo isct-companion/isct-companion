@@ -3,5 +3,9 @@
   "identifier": "main",
   "description": "Local bundled application shell only",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-theme"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme",
+    "campus-printer:default"
+  ]
 }

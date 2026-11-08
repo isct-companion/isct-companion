@@ -214,8 +214,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/lectures/lectures.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
-| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
-| `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer_windows.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
+| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer/windows.rs<br>apps/desktop/src-tauri/src/campus_printer/mod.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
@@ -2206,7 +2206,7 @@ Requires the campus network and OS-level wireless configuration.
 
 **Last recorded** never run
 
-### Campus printer queue on macOS and Linux bills the verified student ID (`DESKTOP-CAMPUS-PRINTER-QUEUE`)
+### Campus printer queue on macOS bills the verified student ID (`DESKTOP-CAMPUS-PRINTER-QUEUE`)
 
 **Area** desktop · **Persona** 修士課程 1年・前期課程 · **Result** —
 
@@ -2214,8 +2214,7 @@ Requires the campus network and OS-level wireless configuration.
 
 **Preconditions**
 
-A desktop build of this commit on a Mac (then again on a Linux desktop
-with CUPS and a polkit agent), the Tokyo Tech Portal account of a
+A desktop build of this commit on a Mac, the Tokyo Tech Portal account of a
 master's student (24M… or similar) saved in 学校アカウント, the
 administrator password, a short PDF, and access to the print release
 or billing page that shows which student ID a job was charged to.
@@ -2232,12 +2231,11 @@ ScienceTokyo Wi-Fi for the printing steps.
 2. Read the student ID on the card, then press システムプリンタを追加 and cancel the
    administrator prompt.
    - *Why:* The card must show the Tokyo Tech account's own student ID in
-     capitals, and the prompt must be the system's (macOS: the app's
-     text; Linux: polkit's). Cancelling must say キャンセルしました and
-     leave no InstitutePrinter queue.
+     capitals, and the prompt must be the system's, with the app's
+     text. Cancelling must say キャンセルしました and leave no
+     InstitutePrinter queue.
 3. Press it again and authenticate, read the card, then open System
-   Settings → Printers & Scanners (Linux: the printer settings or
-   `lpstat -v`).
+   Settings → Printers & Scanners.
    - *Why:* One root step installs the titech-lpd backend and the queue, and the
      card must say it was added: macOS's CUPS refuses `cupsenable` to root,
      which used to report a working queue as failed. The
@@ -2245,7 +2243,7 @@ ScienceTokyo Wi-Fi for the printing steps.
      (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
      `lpstat -l -p InstitutePrinter` must allow only this login and the
      queue must not be shared.
-4. Print the PDF from Preview (Linux: any viewer) to InstitutePrinter,
+4. Print the PDF from Preview to InstitutePrinter,
    two copies, two-sided, black and white, then check the billing page.
    - *Why:* Only the real printer shows that a non-B student ID is accepted and
      billed, and that the PPD's duplex and color options reach it
@@ -2290,7 +2288,8 @@ crates/app-core/src/tests.
 - `crates/adpt-cups/src/install.rs`
 - `crates/adpt-cups/src/backend.rs`
 - `crates/adpt-cups/build.rs`
-- `apps/desktop/src-tauri/src/campus_printer_cups.rs`
+- `apps/desktop/src-tauri/src/campus_printer/cups.rs`
+- `apps/desktop/src-tauri/src/campus_printer/mod.rs`
 - `apps/desktop/src/pages/tools/CampusPrinter.tsx`
 
 **Last recorded** never run
@@ -2309,13 +2308,19 @@ billing page.
 
 **Steps**
 
-1. Open 工具 → 校内打印机 and press 添加 PDF 右键菜单.
+1. Open a File Explorer window on the PDF's folder, then open 工具 →
+   校内打印机 and press 添加 PDF 右键菜单.
    - *Why:* The entry goes under HKCU without an administrator prompt; a UAC
-     prompt here means it was written somewhere it should not be.
-2. Quit the app, right-click the PDF in File Explorer (on Windows 11
-   under 显示更多选项) and choose 用校内打印机打印.
-   - *Why:* A cold start must open the print window for that file, in the UI
-     language, not just the main window.
+     prompt here means it was written somewhere it should not be. The
+     card says it was added only after the entry read back as written.
+2. In the Explorer window that was already open, right-click the PDF
+   (on Windows 11 under 显示更多选项): the entry must be there. Then
+   quit the app and choose 用校内打印机打印.
+   - *Why:* The app tells Explorer the associations changed, so a window open
+     before the entry existed offers it without restarting Explorer. A
+     cold start must open the print window for that file, in the UI
+     language, not just the main window, and the window's printing
+     commands must answer under its own permission grant.
 3. Close it, keep the app running, and use the entry again.
    - *Why:* A running app gets the second launch's arguments from the
      single-instance plugin; without them only the main window comes
@@ -2354,7 +2359,8 @@ crates/adpt-printer/src/tests.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/campus_printer_windows.rs`
+- `apps/desktop/src-tauri/src/campus_printer/windows.rs`
+- `apps/desktop/src-tauri/src/campus_printer/mod.rs`
 - `apps/desktop/src/features/campus-print/CampusPrintWindow.tsx`
 - `apps/desktop/src-tauri/capabilities/campus-print.json`
 

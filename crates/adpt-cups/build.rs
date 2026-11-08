@@ -1,5 +1,5 @@
 //! Builds the two root programs of the CUPS queue for the target being
-//! built, macOS and Linux only: `titech-lpd`, the backend, then the
+//! built, macOS only: `titech-lpd`, the backend, then the
 //! installer, which embeds it. The library embeds the installer
 //! (`INSTALLER`), so the app never downloads code that runs as root. They
 //! use std only, so rustc builds them directly: a nested cargo would wait on
@@ -18,7 +18,7 @@ fn main() {
     }
     println!("cargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if os != "macos" && os != "linux" {
+    if os != "macos" {
         return;
     }
     let target = env::var("TARGET").expect("cargo sets TARGET");

@@ -41,6 +41,12 @@ export const nativeOs = (): NativeOs | undefined =>
   typeof window === "undefined"
     ? undefined
     : window.__ISCT_COMPANION_NATIVE_OS__;
+/** The desktop tools this binary was built with (`src-tauri/build.rs`). */
+export type DesktopTool = "campus-wifi" | "campus-vpn" | "campus-printer";
+export const nativeTools = (): readonly DesktopTool[] =>
+  (typeof window === "undefined"
+    ? undefined
+    : window.__ISCT_COMPANION_TOOLS__) ?? [];
 /** The system material behind the window (Windows 11 Mica), when there is one. */
 export const windowMaterial = (): "mica" | undefined =>
   typeof window === "undefined"
@@ -895,12 +901,14 @@ export function createTauriDesktopBridge(
       };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
-    campusPrinterStatus: () => result("campus_printer_status"),
+    campusPrinterStatus: () => result("plugin:campus-printer|status"),
     installCampusPrinter: (prompt) =>
-      result("install_campus_printer", { prompt }),
-    addCampusPrintMenu: (label) => result("add_campus_print_menu", { label }),
-    campusPrintRequest: () => result("campus_print_request"),
-    campusPrint: (options) => result("campus_print", { options }),
+      result("plugin:campus-printer|install", { prompt }),
+    addCampusPrintMenu: (label) =>
+      result("plugin:campus-printer|add_menu", { label }),
+    campusPrintRequest: () => result("plugin:campus-printer|print_request"),
+    campusPrint: (options) =>
+      result("plugin:campus-printer|print", { options }),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     vpnStatus: () => invokeCommand("vpn_status"),
     vpnInstall: () => invokeCommand("vpn_install"),
@@ -1169,6 +1177,8 @@ declare global {
     __ISCT_COMPANION_NATIVE_TARGET__?: NativeTarget;
     /** Set by the same bootstrap from the binary's compile-time OS. */
     __ISCT_COMPANION_NATIVE_OS__?: NativeOs;
+    /** Set by the same bootstrap: the tools compiled into the binary. */
+    __ISCT_COMPANION_TOOLS__?: readonly DesktopTool[];
     /** Set by the same bootstrap: the material the native window draws. */
     __ISCT_COMPANION_WINDOW_MATERIAL__?: "mica" | "";
     /** Set by a window that shows one view instead of the app: the

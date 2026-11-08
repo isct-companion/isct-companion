@@ -42,16 +42,6 @@ pub fn run(args: &[String]) -> Result<i32, String> {
 }
 
 /// The system lpd backend: where macOS keeps it.
-#[cfg(target_os = "macos")]
 fn lpd_backend() -> Result<PathBuf, String> {
     Ok(PathBuf::from(queue::SERVER_BIN).join("backend/lpd"))
-}
-
-/// The system lpd backend: in the `ServerBin` cupsd reports to every
-/// backend, which differs between distributions.
-#[cfg(target_os = "linux")]
-fn lpd_backend() -> Result<PathBuf, String> {
-    env::var_os("CUPS_SERVERBIN")
-        .map(|serverbin| PathBuf::from(serverbin).join("backend/lpd"))
-        .ok_or_else(|| "CUPS_SERVERBIN is not set; titech-lpd runs only under cupsd".to_string())
 }

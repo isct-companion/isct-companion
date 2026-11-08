@@ -72,8 +72,7 @@ fn write_file(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
         .map_err(|e| format!("failed to chmod {mode:o} {}: {e}", path.display()))
 }
 
-/// Writes `bytes` to `path` owned by root (uid and gid 0, `wheel` on macOS
-/// and `root` on Linux) with `mode`, replacing it in one rename.
+/// Writes `bytes` to `path` owned by root (uid 0, gid 0 `wheel`) with `mode`, replacing it in one rename.
 fn install_file_atomic(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
     let parent = path
         .parent()

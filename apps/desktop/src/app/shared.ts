@@ -1,6 +1,5 @@
 export type Page =
   "home" | "timetable" | "lectures" | "web" | "tools" | "settings" | "about";
-export type Tool = "wifi" | "vpn" | "printer";
 export type Section =
   | "accounts"
   | "study"

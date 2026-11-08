@@ -5,7 +5,7 @@ import type {
 } from "@app/lib/workspace-intents";
 import type { WorkspaceChange } from "@app/generated/persistence";
 import type { Workspace } from "@app/lib/model";
-import type { SchoolRecords } from "@app/platform/desktop-bridge";
+import type { DesktopTool, SchoolRecords } from "@app/platform/desktop-bridge";
 import type { SyncSnapshot } from "@app/platform/sync";
 import {
   DEFAULT_TIMETABLE_AXIS,
@@ -47,6 +47,9 @@ export type QueryTable = Record<string, QueryAnswer>;
 
 export type FakeCoreOptions = {
   workspace: Workspace;
+  /** The tools the scripted binary reports it was built with, as the native
+   * bootstrap injects them. Default: the printer, which every desktop has. */
+  tools?: readonly DesktopTool[];
   schoolRecords?: SchoolRecords;
   /** Starts at `revision`; `mutateWorkspace` advances it. */
   revision?: string;
@@ -174,6 +177,7 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     commands: (name) => calls.filter((call) => call.command === name),
     restore() {
       delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+      delete window.__ISCT_COMPANION_TOOLS__;
     },
   };
 
@@ -314,6 +318,7 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     }
   };
 
+  window.__ISCT_COMPANION_TOOLS__ = options.tools ?? ["campus-printer"];
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     invoke,
     transformCallback(callback: (payload: unknown) => void) {
