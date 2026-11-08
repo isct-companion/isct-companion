@@ -1,8 +1,8 @@
-//! Desktop side of the campus VPN: the helper's local socket behind
-//! app-core's `VpnPort`, and the one-time administrator install. Decisions
-//! and the APM sign-in stay in app-core; this file and its platform halves
-//! (`vpn_macos.rs`: launchd and a Unix socket, `vpn_windows.rs`: a service
-//! and a named pipe) do the IO. Blocking calls run under `spawn_blocking`.
+//! The helper's local socket behind app-core's `VpnPort`, and the watch that
+//! checks a tunnel that is up. Decisions and the APM sign-in stay in
+//! app-core; this file and its platform halves (`macos.rs`: launchd and a
+//! Unix socket, `windows.rs`: a service and a named pipe) do the IO.
+//! Blocking calls run under `spawn_blocking`.
 use app_core::vpn::{
     HelperReport, VpnAction, VpnCheck, VpnError, VpnNotice, VpnPort, VpnService, VpnState,
 };
@@ -14,9 +14,9 @@ use std::{
 use vpn_protocol::{Reply, Request, SessionCookie};
 
 #[cfg(target_os = "macos")]
-use crate::vpn_macos as platform;
+use super::macos as platform;
 #[cfg(target_os = "windows")]
-use crate::vpn_windows as platform;
+use super::windows as platform;
 pub(crate) use platform::{run_install, HELPER};
 
 /// Status answers at once and a stop within the helper's 5-second wait for
@@ -204,7 +204,7 @@ pub(crate) fn watch(app: tauri::AppHandle) {
                 continue;
             };
             let (state, notice) = act(&app, &service, check).await;
-            let status = crate::commands::vpn::report(&service, state);
+            let status = super::report(&service, state);
             if let Err(error) = app.emit_to("main", "vpn-status", &status) {
                 log::warn!("[vpn] status was not delivered: {error}");
             }

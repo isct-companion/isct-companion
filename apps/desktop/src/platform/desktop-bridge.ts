@@ -909,12 +909,12 @@ export function createTauriDesktopBridge(
     campusPrintRequest: () => result("plugin:campus-printer|print_request"),
     campusPrint: (options) =>
       result("plugin:campus-printer|print", { options }),
-    campusWifiStatus: () => invokeCommand("campus_wifi_status"),
-    vpnStatus: () => invokeCommand("vpn_status"),
-    vpnInstall: () => invokeCommand("vpn_install"),
-    vpnConnect: () => invokeCommand("vpn_connect"),
-    vpnDisconnect: () => invokeCommand("vpn_disconnect"),
-    vpnKeep: (hours) => invokeCommand("vpn_keep", { hours }),
+    campusWifiStatus: () => invokeCommand("plugin:campus-wifi|status"),
+    vpnStatus: () => invokeCommand("plugin:campus-vpn|status"),
+    vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
+    vpnConnect: () => invokeCommand("plugin:campus-vpn|connect"),
+    vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
+    vpnKeep: (hours) => invokeCommand("plugin:campus-vpn|keep", { hours }),
     onVpnStatus: (callback) =>
       subscribe<VpnStatus>(
         "vpn-status",
@@ -935,7 +935,7 @@ export function createTauriDesktopBridge(
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();
       steps.onmessage = onStep;
-      return invokeCommand("campus_wifi_connect", {
+      return invokeCommand("plugin:campus-wifi|connect", {
         leaveScienceTokyoX,
         onStep: steps,
       });

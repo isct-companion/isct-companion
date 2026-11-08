@@ -219,8 +219,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
-| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
-| `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_windows.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
+| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
+| `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
 | `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
@@ -2602,10 +2602,10 @@ install on macOS. None of that is reachable from automated suites.
 - `crates/app-core/src/tests/school_session__vpn.rs`
 - `crates/adpt-isct/src/login.rs`
 - `crates/vpn-helper/src/unix.rs`
-- `apps/desktop/src-tauri/src/vpn.rs`
-- `apps/desktop/src-tauri/src/vpn_macos.rs`
+- `apps/desktop/src-tauri/src/campus_vpn/helper.rs`
+- `apps/desktop/src-tauri/src/campus_vpn/macos.rs`
 - `apps/desktop/src-tauri/src/tests/vpn_macos.rs`
-- `apps/desktop/src-tauri/src/commands/vpn.rs`
+- `apps/desktop/src-tauri/src/campus_vpn/mod.rs`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 - `scripts/desktop/bundle-vpn.mjs`
 
@@ -2710,9 +2710,9 @@ order, the service command line) are covered by the vpn-helper tests.
 - `crates/vpn-helper/src/tests/windows_net.rs`
 - `crates/vpn-helper/assets/isct-vpn-script.js`
 - `crates/vpn-protocol/src/lib.rs`
-- `apps/desktop/src-tauri/src/vpn.rs`
-- `apps/desktop/src-tauri/src/vpn_windows.rs`
-- `apps/desktop/src-tauri/src/commands/vpn.rs`
+- `apps/desktop/src-tauri/src/campus_vpn/helper.rs`
+- `apps/desktop/src-tauri/src/campus_vpn/windows.rs`
+- `apps/desktop/src-tauri/src/campus_vpn/mod.rs`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 - `apps/desktop/src/pages/settings/registry.ts`
 - `scripts/desktop/bundle-vpn.mjs`

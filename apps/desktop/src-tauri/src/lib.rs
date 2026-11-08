@@ -10,6 +10,8 @@ use secrets::OsSecretVault;
 mod agent_server;
 #[cfg(tool = "campus-printer")]
 mod campus_printer;
+#[cfg(tool = "campus-vpn")]
+mod campus_vpn;
 #[cfg(tool = "campus-wifi")]
 mod campus_wifi;
 mod cloud;
@@ -53,12 +55,6 @@ mod window_close;
 mod window_close_macos;
 #[cfg(target_os = "windows")]
 mod window_close_windows;
-#[cfg(tool = "campus-vpn")]
-mod vpn;
-#[cfg(target_os = "macos")]
-mod vpn_macos;
-#[cfg(target_os = "windows")]
-mod vpn_windows;
 mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
@@ -72,6 +68,18 @@ fn native_bootstrap() -> String {
         std::env::consts::OS,
         window_material().unwrap_or(""),
         tools_json()
+    )
+}
+
+/// Lets the main window's bundled page call a tool plugin's `default`
+/// commands (`build.rs`). Each plugin grants this itself when it starts, so
+/// no capability file names a tool or the systems it is built for.
+#[cfg(any(tool = "campus-wifi", tool = "campus-vpn", tool = "campus-printer"))]
+fn grant_main(app: &tauri::AppHandle, tool: &str) -> tauri::Result<()> {
+    app.add_capability(
+        tauri::ipc::CapabilityBuilder::new(tool)
+            .window("main")
+            .permission(format!("{tool}:default")),
     )
 }
 
@@ -282,9 +290,9 @@ pub fn run() {
     #[cfg(tool = "campus-printer")]
     let builder = builder.plugin(campus_printer::init());
     #[cfg(tool = "campus-vpn")]
-    let builder = builder.manage(vpn::service());
+    let builder = builder.plugin(campus_vpn::init());
     #[cfg(tool = "campus-wifi")]
-    let builder = builder.manage(campus_wifi::CampusWifi::default());
+    let builder = builder.plugin(campus_wifi::init());
     #[cfg(target_os = "macos")]
     let builder = builder.menu(owned_macos_menu).on_menu_event(|app, event| {
         if event.id() == "owned-quit" {
@@ -385,20 +393,6 @@ pub fn run() {
             commands::backup::save_file,
             commands::backup::import_data,
             commands::agent::agent_connection,
-            #[cfg(tool = "campus-wifi")]
-            campus_wifi::campus_wifi_connect,
-            #[cfg(tool = "campus-wifi")]
-            campus_wifi::campus_wifi_status,
-            #[cfg(tool = "campus-vpn")]
-            commands::vpn::vpn_status,
-            #[cfg(tool = "campus-vpn")]
-            commands::vpn::vpn_connect,
-            #[cfg(tool = "campus-vpn")]
-            commands::vpn::vpn_disconnect,
-            #[cfg(tool = "campus-vpn")]
-            commands::vpn::vpn_keep,
-            #[cfg(tool = "campus-vpn")]
-            commands::vpn::vpn_install
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -512,8 +506,6 @@ pub fn run() {
             // delivery both refer to it.
             core_ports::DesktopRuntime::start(app.handle());
             desktop_updates::load_last_install(app.handle());
-            #[cfg(tool = "campus-vpn")]
-            vpn::watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

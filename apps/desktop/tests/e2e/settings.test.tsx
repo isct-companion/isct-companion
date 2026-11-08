@@ -2418,8 +2418,8 @@ describe("Campus VPN", () => {
         const mounted = await mountSettings(paths.tools(), {
           tools: ["campus-vpn", "campus-printer"],
           handle: (command) => {
-            if (command === "vpn_status") return failed;
-            if (command === "vpn_connect")
+            if (command === "plugin:campus-vpn|status") return failed;
+            if (command === "plugin:campus-vpn|connect")
               return {
                 ...status,
                 state: "connected",
@@ -2444,7 +2444,9 @@ describe("Campus VPN", () => {
         ).toEqual(["Campus VPN", "Campus printer"]);
         await clickButton(pane, "Connect");
         await wait(() =>
-          expect(mounted.core.commands("vpn_connect")).toHaveLength(1),
+          expect(
+            mounted.core.commands("plugin:campus-vpn|connect"),
+          ).toHaveLength(1),
         );
       } finally {
         delete window.__ISCT_COMPANION_NATIVE_OS__;

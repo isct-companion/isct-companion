@@ -1,6 +1,6 @@
 //! The macOS campus VPN helper: a launchd daemon on a root:staff Unix
 //! socket, installed once with the system's administrator prompt.
-use crate::vpn::{converse, io_error};
+use super::helper::{converse, io_error};
 use app_core::vpn::{HelperReport, VpnError};
 use std::{
     io::ErrorKind,
@@ -168,5 +168,5 @@ pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
 }
 
 #[cfg(test)]
-#[path = "tests/vpn_macos.rs"]
+#[path = "../tests/vpn_macos.rs"]
 mod tests;

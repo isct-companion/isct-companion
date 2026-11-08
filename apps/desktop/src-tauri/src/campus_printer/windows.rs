@@ -25,8 +25,20 @@ const VERB_KEY: &str =
 /// The argument before the file in the verb's command line.
 const PRINT_FLAG: &str = "--campus-print";
 /// Print windows are `campus-print-<n>`; `capabilities/campus-print.json`
-/// matches the same prefix.
+/// (core permissions) and `setup` (printing) match the same prefix.
 const WINDOW_PREFIX: &str = "campus-print-";
+
+/// The print windows' state, and their grant: the two printing commands,
+/// for the bundled page only.
+pub(super) fn setup(app: &AppHandle) -> tauri::Result<()> {
+    app.manage(PrintRequests::default());
+    app.add_capability(
+        tauri::ipc::CapabilityBuilder::new("campus-print-window")
+            .window(format!("{WINDOW_PREFIX}*"))
+            .permission("campus-printer:allow-print-request")
+            .permission("campus-printer:allow-print"),
+    )
+}
 
 /// The file each open print window prints, by window label.
 #[derive(Default)]

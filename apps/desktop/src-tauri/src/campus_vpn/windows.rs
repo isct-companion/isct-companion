@@ -1,7 +1,7 @@
 //! The Windows campus VPN helper: a LocalSystem service on a named pipe,
 //! installed once through the UAC prompt. The helper binary is its own
 //! installer (`isct-vpn-helper.exe install`, crates/vpn-helper/src/windows.rs).
-use crate::vpn::{converse, io_error};
+use super::helper::{converse, io_error};
 use app_core::vpn::{HelperReport, VpnError};
 use std::{
     fs::OpenOptions,

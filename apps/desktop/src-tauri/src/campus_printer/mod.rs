@@ -3,8 +3,8 @@
 //! (`app_core::campus_printer`); this plugin adds the printer to the system:
 //! the CUPS queue on macOS (`cups`), the PDF right-click entry and its print
 //! window on Windows (`windows`). Its commands are
-//! `plugin:campus-printer|<name>`; which window may call which is in
-//! `build.rs` and `capabilities/`.
+//! `plugin:campus-printer|<name>`: `build.rs` lists them and which the main
+//! window may call, and the Windows half grants its print windows theirs.
 use crate::{core_ports, CommandError};
 use app_core::campus_printer::{CampusPrinterStatus, PrinterAccount};
 use serde::Serialize;
@@ -33,8 +33,9 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
         ])
         .setup(|app, _| {
             app.manage(Setup::default());
+            crate::grant_main(app, "campus-printer")?;
             #[cfg(windows)]
-            app.manage(windows::PrintRequests::default());
+            windows::setup(app)?;
             Ok(())
         })
         // After the app's setup, so the main window and Core's runtime exist

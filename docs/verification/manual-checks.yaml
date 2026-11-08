@@ -2167,10 +2167,10 @@ checks:
       - crates/app-core/src/tests/school_session__vpn.rs
       - crates/adpt-isct/src/login.rs
       - crates/vpn-helper/src/unix.rs
-      - apps/desktop/src-tauri/src/vpn.rs
-      - apps/desktop/src-tauri/src/vpn_macos.rs
+      - apps/desktop/src-tauri/src/campus_vpn/helper.rs
+      - apps/desktop/src-tauri/src/campus_vpn/macos.rs
       - apps/desktop/src-tauri/src/tests/vpn_macos.rs
-      - apps/desktop/src-tauri/src/commands/vpn.rs
+      - apps/desktop/src-tauri/src/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - scripts/desktop/bundle-vpn.mjs
     verified: null
@@ -2279,9 +2279,9 @@ checks:
       - crates/vpn-helper/src/tests/windows_net.rs
       - crates/vpn-helper/assets/isct-vpn-script.js
       - crates/vpn-protocol/src/lib.rs
-      - apps/desktop/src-tauri/src/vpn.rs
-      - apps/desktop/src-tauri/src/vpn_windows.rs
-      - apps/desktop/src-tauri/src/commands/vpn.rs
+      - apps/desktop/src-tauri/src/campus_vpn/helper.rs
+      - apps/desktop/src-tauri/src/campus_vpn/windows.rs
+      - apps/desktop/src-tauri/src/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - apps/desktop/src/pages/settings/registry.ts
       - scripts/desktop/bundle-vpn.mjs

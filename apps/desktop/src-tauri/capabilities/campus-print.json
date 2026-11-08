@@ -4,10 +4,5 @@
   "description": "The Windows print window for the campus printer: bundled application only",
   "platforms": ["windows"],
   "windows": ["campus-print-*"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-close",
-    "campus-printer:allow-print-request",
-    "campus-printer:allow-print"
-  ]
+  "permissions": ["core:default", "core:window:allow-close"]
 }

@@ -1,32 +1,38 @@
 /// The desktop tools, in page order, and the systems each is built for: the
-/// one place a tool's platforms are named. The code tests the tool, not the
-/// system (`#[cfg(tool = "campus-printer")]`), and the page lists what the
-/// binary reports (`__ISCT_COMPANION_TOOLS__`).
+/// one place a tool's platforms are named. Each tool is a Tauri plugin of the
+/// same name (`src/campus_*`); the code tests the tool, not the system
+/// (`#[cfg(tool = "campus-printer")]`), and the page lists what the binary
+/// reports (`__ISCT_COMPANION_TOOLS__`).
 const TOOLS: &[(&str, &[&str])] = &[
     ("campus-wifi", &["macos"]),
     ("campus-vpn", &["macos", "windows"]),
     ("campus-printer", &["macos", "windows"]),
 ];
 
-/// The campus printer plugin's commands on `os`, and which of them the main
-/// window may call (`campus-printer:default`). The Windows print window has
-/// its own grant (`capabilities/campus-print.json`).
-fn campus_printer(os: &str) -> tauri_build::InlinedPlugin {
+/// A tool plugin's commands on `os`, and which of them its `default`
+/// permission allows: what the plugin grants the main window when it starts.
+/// The Windows print window gets the printer's two printing commands from
+/// the printer plugin instead.
+fn plugin(tool: &str, os: &str) -> tauri_build::InlinedPlugin {
     use tauri_build::{DefaultPermissionRule, InlinedPlugin};
-    let (commands, main): (&'static [&'static str], &'static [&'static str]) = match os {
-        "windows" => (
+    let (commands, main): (&'static [&'static str], &'static [&'static str]) = match (tool, os) {
+        ("campus-printer", "windows") => (
             &["status", "add_menu", "print_request", "print"],
             &["allow-status", "allow-add-menu"],
         ),
-        _ => (&["status", "install"], &["allow-status", "allow-install"]),
+        ("campus-printer", _) => (&["status", "install"], &[]),
+        ("campus-vpn", _) => (&["status", "connect", "disconnect", "keep", "install"], &[]),
+        ("campus-wifi", _) => (&["status", "connect"], &[]),
+        _ => panic!("{tool} has no plugin"),
+    };
+    let default = if main.is_empty() {
+        DefaultPermissionRule::AllowAllCommands
+    } else {
+        DefaultPermissionRule::Allow(main.iter().map(|grant| grant.to_string()).collect())
     };
     InlinedPlugin::new()
         .commands(commands)
-        .default_permission(DefaultPermissionRule::Allow(
-            main.iter()
-                .map(|permission| permission.to_string())
-                .collect(),
-        ))
+        .default_permission(default)
 }
 
 fn main() {
@@ -78,10 +84,8 @@ fn main() {
             std::fs::copy(dll, staged.join("libLiteRt.dll")).expect("Staging libLiteRt.dll failed");
         }
     }
-    let mut attributes = tauri_build::Attributes::new();
-    if tools.contains(&"campus-printer") {
-        attributes = attributes.plugin("campus-printer", campus_printer(&os));
-    }
+    let attributes =
+        tauri_build::Attributes::new().plugins(tools.iter().map(|tool| (*tool, plugin(tool, &os))));
     if let Err(error) = tauri_build::try_build(attributes) {
         panic!("{error:#}");
     }
