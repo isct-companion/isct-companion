@@ -302,6 +302,23 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
 }
 
 #[test]
+fn a_poisoned_model_lock_is_cleared_for_the_next_call() {
+    let model = MatrixAlphabetService::default();
+    let interrupted = model.clone();
+    let stopped = std::thread::spawn(move || {
+        let _resident = interrupted.0.lock().unwrap();
+        panic!("simulate an interrupted recognition");
+    });
+    assert!(stopped.join().is_err());
+    let blank = [vec![255; 96 * 96]];
+    assert!(matches!(
+        model.recognize(&blank),
+        Err(MatrixOcrError::Model(message)) if message.contains("recovered")
+    ));
+    assert!(model.recognize(&blank).is_ok());
+}
+
+#[test]
 fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
     // Public Times Italic L/Z/I, with complete ink inside each cell. The old
     // fixed 9% inset turned all 24 Ls into confidently accepted Is.

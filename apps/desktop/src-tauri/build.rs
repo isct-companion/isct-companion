@@ -19,5 +19,15 @@ fn main() {
     if apple && (os != "macos" || !debug || entitled) {
         println!("cargo::rustc-cfg=icloud");
     }
+    // Windows reads the Matrix card with LiteRT. app-ocr's build fetched the
+    // pinned DLL; stage it where tauri.windows.conf.json bundles it beside
+    // the executable (before tauri_build checks that the resource exists).
+    if os == "windows" {
+        if let Some(dll) = std::env::var_os("DEP_LITERT_DLL") {
+            let staged = std::path::Path::new("vendor/litert");
+            std::fs::create_dir_all(staged).expect("Creating vendor/litert failed");
+            std::fs::copy(dll, staged.join("libLiteRt.dll")).expect("Staging libLiteRt.dll failed");
+        }
+    }
     tauri_build::build()
 }

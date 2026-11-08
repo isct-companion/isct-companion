@@ -110,18 +110,18 @@ function crateComponents(target) {
 }
 
 function modelComponents() {
-  const dir = path.join(root, "crates/app-ocr/models/paddle");
-  const read = (name) => {
-    const file = path.join(dir, name);
+  const read = (name, folder = "onnxruntime") => {
+    const file = path.join(root, "crates/app-ocr/models", folder, name);
     return existsSync(file) ? [readFileSync(file, "utf8").trim()] : [];
   };
   return [
+    // The letter model's runtime on Windows (and Android); ONNX Runtime on macOS.
     {
       group: "models",
-      name: "PaddleOCR PP-OCRv5 model",
+      name: "LiteRT",
       license: "Apache-2.0",
-      url: "https://github.com/PaddlePaddle/PaddleOCR",
-      texts: read("PADDLE-LICENSE"),
+      url: "https://github.com/google-ai-edge/LiteRT",
+      texts: read("LICENSE", "litert"),
     },
     {
       group: "models",
@@ -129,8 +129,8 @@ function modelComponents() {
       license: "MIT",
       url: "https://github.com/microsoft/onnxruntime",
       texts: [
-        ...read("ONNX-RUNTIME-LICENSE"),
-        ...read("ONNX-THIRD-PARTY-NOTICES.txt"),
+        ...read("LICENSE"),
+        ...read("THIRD-PARTY-NOTICES.txt"),
       ],
     },
   ];

@@ -1,25 +1,23 @@
 # app-ocr
 
-`app-ocr` is the optional, UI-independent matrix-card recognition library.
-Its default `onnx` feature embeds the Paddle model and is available on targets
-supported by the pinned ONNX Runtime release. Intel macOS and
-`--no-default-features` builds expose the same small API and return
-`MatrixOcrError::Unavailable` without linking image or ONNX dependencies.
+`app-ocr` is the optional, UI-independent matrix-card recognition library and
+Core's image capability: `matrix_vision()` gives every shell the tracker, cell
+cut and letter model that `app_core::matrix_scan::MatrixCameraDriver` drives.
+Its default `onnx` feature embeds the alphabet classifier (`models/alphabet/`)
+and its runtime, chosen per target at compile time (`engine/letters`): LiteRT
+with the float16 export on Android arm64 and Windows (the app's bundled
+library on Android, Google's prebuilt `libLiteRt.dll` beside the executable
+on Windows; see `models/litert/`), ONNX Runtime with the float source on macOS
+and iOS.
+Intel Apple, Android x86 and `--no-default-features` builds expose the same
+small API and return `MatrixOcrError::Unavailable` without linking image or
+ONNX dependencies.
 
-`MatrixOcrService::scan` accepts one encoded image as raw bytes. The crate
-validates the 20 MiB and 40-megapixel bounds, applies file orientation and
-alpha compositing, then creates the 2200 px source and 600 px geometry image.
-It owns geometry, preprocessing, model inference and result acceptance. Shells
-only provide codecs unavailable to the crate (currently HEIC to JPEG), run the
-synchronous call on a blocking worker, pass an optional debug directory and
-forward `OcrProgress { completed, total }`. Returning `false` from the progress
-callback cancels with `MatrixOcrError::Cancelled`.
-
-Invalid input, missing grids, model failures, cancellation and concurrent scans
-return typed errors; the same service may be called again afterward. Unsupported
-image formats are `InvalidImage`, while builds without the model backend return
-`Unavailable`. Debug crop export is best-effort and never changes a successful
-recognition result.
+A still photo is read as one keyframe of a session
+(`MatrixCameraDriver::scan_photo`). The crate validates the 20 MiB and 40-megapixel bounds, applies
+file orientation and alpha compositing, locates the grid and cuts the cells;
+invalid input, missing grids and model failures return typed errors, and the
+same service may be called again afterward.
 
 This crate isolates an optional dependency and its failure handling at the API
 boundary. It runs in the caller's process and does not claim to contain a native
@@ -37,7 +35,7 @@ from top to bottom rows, stay convex and unmirrored, be well conditioned, beat
 every half- and whole-cell shift on the printed anchors (the indexing check)
 and keep the column gaps clear of ink. Between fits the tracker follows
 Shi-Tomasi corners with pyramidal Lucas-Kanade (`optical-flow-lk`) and a RANSAC
-frame-to-frame homography, refits every 8 frames or when tracking weakens,
+frame-to-frame homography, refits every 4 frames or when tracking weakens,
 re-detects only when no grid survives, needs a second detection to accept a
 sudden jump, and One-Euro-smooths only the drawn corners. The design and its
 measurements are recorded in slotledger (`approach/matrix-locator-tuning`).
@@ -53,7 +51,7 @@ measurement window never trims the pixels retained for recognition. Cell
 quality is measured after bounded local illumination correction so a dim but
 readable glyph can start acquisition without lowering the texture gates. The
 retained candidate remains the original grayscale image. Still photos
-(`capture_matrix_frame`, `MatrixOcrService`) use the same detector on one frame.
+(`capture_matrix_frame`, `scan_photo`) use the same detector on one frame.
 
 `app_core::matrix_scan::MatrixCameraScanner` owns the bounded acquisition.
 Starting the session starts its ten-second deadline; the first plausible Matrix
@@ -125,12 +123,6 @@ frame, cell coordinates or predictions are saved. The directory must not exist;
 Unix permissions are 0700 for the directory and 0600 for each file. Keep these
 samples local, out of commits and training uploads. Ordinary launches leave
 this export disabled.
-
-Photo imports retain the existing Paddle service and acceptance rules. The
-older `scan_live_frame` and `MatrixScanner` API remain for its adaptive replay
-profiler. That path scans all 70 cells, refines unsettled cells and verifies the
-whole card before completion; its policies are not a second owner of the new
-camera acquisition session.
 
 Replay the two-stage camera flow (the input files are `capture-*.jpg`):
 
@@ -216,12 +208,7 @@ recordings, cells and weights stay local.
 
 The diagnostic uses bilinear perspective correction and Rec.601 grayscale to
 match PIL/TorchVision training pixels, then normalizes to [-1, 1]; it does not
-binarize inputs. It evaluates all 70 cells in batches of ten. Core
-`MatrixScanner::full_frame()` rejects frames with fewer than 49 qualified cells
-to keep false background grids and motion blur out of the vote pool. Accepted
-frames still vote independently per cell at confidence >= 0.8. Live adapters
-should replace `latest.jpg` atomically at camera speed; the consumer has no
-fixed inference frequency or frame queue. This legacy diagnostic does not change the app's embedded model.
+binarize inputs.
 
 ## Reproducing the lighting replay
 

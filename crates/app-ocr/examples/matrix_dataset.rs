@@ -47,13 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut buffer, mut keyframes) = (Vec::new(), 0usize);
     for index in 0..video.times.len() {
         video.read(index, &mut buffer)?;
-        let picture = vision.convert(&video.yuv(&buffer))?;
-        let track = tracker.track(picture.planes(), video.times[index])?;
+        let frame = video.yuv(&buffer);
+        let analysis = vision.analyse(&frame)?;
+        let track = tracker.track(analysis.planes(), video.times[index])?;
         let mut row = json!({"frame": index, "t": video.times[index],
             "located": track.body.is_some(), "trackMs": track.elapsed_ms,
             "body": track.body.map(|b| b.map(|p| [p.x, p.y]))});
         if let (true, Some(body)) = (keyframe_ready(&track), track.body) {
-            let cut = vision.cut(picture.full(), body)?;
+            let cut = vision.cut(vision.full_luma(&frame)?.view(), body)?;
             let mut readings = Vec::with_capacity(cut.glyphs.len());
             for chunk in cut.glyphs.chunks(10) {
                 let images: Vec<_> = chunk.iter().map(|g| g.gray.clone()).collect();

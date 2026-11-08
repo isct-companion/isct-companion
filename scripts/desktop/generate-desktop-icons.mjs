@@ -62,9 +62,11 @@ try {
     path.join(mac, "icon.icns"),
     path.join(root, "apps/desktop/src-tauri/icons/icon.icns"),
   );
-  const web = generate("web", 0, 1024);
+  // The page's favicon only: the window, taskbar and installer use the
+  // native icons above. 64 px keeps it about 1 % of the 1024 px file's size.
+  const web = generate("web", 0, 64);
   copyFileSync(
-    path.join(web, "1024x1024.png"),
+    path.join(web, "64x64.png"),
     path.join(root, "apps/desktop/public/icon.png"),
   );
   // Mobile icons intentionally keep full-bleed artwork: iOS and Android apply
