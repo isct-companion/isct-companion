@@ -1,6 +1,6 @@
 /// The desktop tools, in page order, and the systems each is built for: the
 /// one place a tool's platforms are named. Each tool is a Tauri plugin of the
-/// same name (`src/campus_*`); the code tests the tool, not the system
+/// same name (`src/plugins/`); the code tests the tool, not the system
 /// (`#[cfg(tool = "campus-printer")]`), and the page lists what the binary
 /// reports (`__ISCT_COMPANION_TOOLS__`).
 const TOOLS: &[(&str, &[&str])] = &[

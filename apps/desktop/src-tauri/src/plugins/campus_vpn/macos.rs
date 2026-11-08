@@ -176,5 +176,5 @@ pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
 }
 
 #[cfg(test)]
-#[path = "../tests/vpn_macos.rs"]
+#[path = "../../tests/vpn_macos.rs"]
 mod tests;

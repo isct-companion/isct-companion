@@ -8,12 +8,6 @@ use school_web::SchoolWebController;
 use secrets::OsSecretVault;
 
 mod agent_server;
-#[cfg(tool = "campus-printer")]
-mod campus_printer;
-#[cfg(tool = "campus-vpn")]
-mod campus_vpn;
-#[cfg(tool = "campus-wifi")]
-mod campus_wifi;
 mod cloud;
 mod cloud_sync;
 mod command_error;
@@ -36,6 +30,7 @@ mod lms_protocol;
 mod native_dialog;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
+mod plugins;
 #[cfg(matrix_ocr)]
 use app_ocr as matrix_ocr;
 mod core_ports;
@@ -67,29 +62,8 @@ fn native_bootstrap() -> String {
          Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});         Object.defineProperty(window,'__ISCT_COMPANION_TOOLS__',{{value:Object.freeze({}),writable:false,configurable:false}});",
         std::env::consts::OS,
         window_material().unwrap_or(""),
-        tools_json()
+        plugins::tools_json()
     )
-}
-
-/// Lets the main window's bundled page call a tool plugin's `default`
-/// commands (`build.rs`). Each plugin grants this itself when it starts, so
-/// no capability file names a tool or the systems it is built for.
-#[cfg(any(tool = "campus-wifi", tool = "campus-vpn", tool = "campus-printer"))]
-fn grant_main(app: &tauri::AppHandle, tool: &str) -> tauri::Result<()> {
-    app.add_capability(
-        tauri::ipc::CapabilityBuilder::new(tool)
-            .window("main")
-            .permission(format!("{tool}:default")),
-    )
-}
-
-/// The tools this binary was built with (`build.rs`), as a JSON array.
-fn tools_json() -> String {
-    let tools = env!("ISCT_DESKTOP_TOOLS")
-        .split(',')
-        .filter(|tool| !tool.is_empty())
-        .collect::<Vec<_>>();
-    serde_json::to_string(&tools).unwrap_or_else(|_| "[]".into())
 }
 
 /// The system material drawn behind the transparent page, which then keeps
@@ -242,7 +216,7 @@ pub fn run() {
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
         #[cfg(tool = "campus-printer")]
-        if campus_printer::handles_launch(app, args) {
+        if plugins::campus_printer::handles_launch(app, args) {
             return;
         }
         window_close::show_main(app);
@@ -287,12 +261,7 @@ pub fn run() {
         .manage(commands::matrix_camera::MatrixScan::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
-    #[cfg(tool = "campus-printer")]
-    let builder = builder.plugin(campus_printer::init());
-    #[cfg(tool = "campus-vpn")]
-    let builder = builder.plugin(campus_vpn::init());
-    #[cfg(tool = "campus-wifi")]
-    let builder = builder.plugin(campus_wifi::init());
+    let builder = plugins::register(builder);
     #[cfg(target_os = "macos")]
     let builder = builder.menu(owned_macos_menu).on_menu_event(|app, event| {
         if event.id() == "owned-quit" {

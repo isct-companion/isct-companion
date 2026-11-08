@@ -33,7 +33,7 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
         ])
         .setup(|app, _| {
             app.manage(Setup::default());
-            crate::grant_main(app, "campus-printer")?;
+            super::grant_main(app, "campus-printer")?;
             #[cfg(windows)]
             windows::setup(app)?;
             Ok(())

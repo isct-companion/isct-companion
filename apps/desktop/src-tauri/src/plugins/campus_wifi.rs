@@ -94,7 +94,7 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .invoke_handler(tauri::generate_handler![status, connect])
         .setup(|app, _| {
             app.manage(CampusWifi::default());
-            crate::grant_main(app, "campus-wifi")?;
+            super::grant_main(app, "campus-wifi")?;
             Ok(())
         })
         .build()
@@ -416,5 +416,5 @@ impl reqwest::dns::Resolve for WifiResolver {
 }
 
 #[cfg(test)]
-#[path = "tests/campus_wifi.rs"]
+#[path = "../tests/campus_wifi.rs"]
 mod tests;

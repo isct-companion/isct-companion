@@ -1796,7 +1796,7 @@ checks:
     why_manual: |
       Requires the campus network and OS-level wireless configuration.
     covers:
-      - apps/desktop/src-tauri/src/campus_wifi.rs
+      - apps/desktop/src-tauri/src/plugins/campus_wifi.rs
     verified: null
 
   - id: DESKTOP-CAMPUS-PRINTER-QUEUE
@@ -1882,8 +1882,8 @@ checks:
       - crates/adpt-cups/src/install.rs
       - crates/adpt-cups/src/backend.rs
       - crates/adpt-cups/build.rs
-      - apps/desktop/src-tauri/src/campus_printer/cups.rs
-      - apps/desktop/src-tauri/src/campus_printer/mod.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
     verified: null
 
@@ -1951,8 +1951,8 @@ checks:
       printer; the LPD client, PJL header and copy uploads are tested in
       crates/adpt-printer/src/tests.
     covers:
-      - apps/desktop/src-tauri/src/campus_printer/windows.rs
-      - apps/desktop/src-tauri/src/campus_printer/mod.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/features/campus-print/CampusPrintWindow.tsx
       - apps/desktop/src-tauri/capabilities/campus-print.json
   - id: DESKTOP-ABOUT-PAGE
@@ -2167,10 +2167,10 @@ checks:
       - crates/app-core/src/tests/school_session__vpn.rs
       - crates/adpt-isct/src/login.rs
       - crates/vpn-helper/src/unix.rs
-      - apps/desktop/src-tauri/src/campus_vpn/helper.rs
-      - apps/desktop/src-tauri/src/campus_vpn/macos.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs
       - apps/desktop/src-tauri/src/tests/vpn_macos.rs
-      - apps/desktop/src-tauri/src/campus_vpn/mod.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - scripts/desktop/bundle-vpn.mjs
     verified: null
@@ -2279,9 +2279,9 @@ checks:
       - crates/vpn-helper/src/tests/windows_net.rs
       - crates/vpn-helper/assets/isct-vpn-script.js
       - crates/vpn-protocol/src/lib.rs
-      - apps/desktop/src-tauri/src/campus_vpn/helper.rs
-      - apps/desktop/src-tauri/src/campus_vpn/windows.rs
-      - apps/desktop/src-tauri/src/campus_vpn/mod.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - apps/desktop/src/pages/settings/registry.ts
       - scripts/desktop/bundle-vpn.mjs

@@ -23,7 +23,7 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         ])
         .setup(|app, _| {
             app.manage(helper::service());
-            crate::grant_main(app, "campus-vpn")?;
+            super::grant_main(app, "campus-vpn")?;
             Ok(())
         })
         // After the app's setup: the watch reads Core's sessions and emits to
