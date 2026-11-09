@@ -169,11 +169,15 @@ version = "1.0.0-rc.1"
 dependencies = [
  "app-core",
  "base64 0.23.1",
+ "block2",
  "fast_image_resize",
  "image",
  "imageproc",
  "libloading 0.9.0",
  "nalgebra",
+ "objc2",
+ "objc2-core-ml",
+ "objc2-foundation",
  "optical-flow-lk",
  "ort",
  "serde",
@@ -3621,6 +3625,17 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca347214e24bc973fc025fd0d36ebb179ff30536ed1f80252706db19ee452009"
 dependencies = [
+ "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-core-ml"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "201b055e6acfa0f9f15568255d3f03ce2b54bc86d1814442dc69138e36813e18"
+dependencies = [
+ "block2",
  "objc2",
  "objc2-foundation",
 ]

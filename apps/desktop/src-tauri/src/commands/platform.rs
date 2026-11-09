@@ -1,10 +1,7 @@
-#[cfg(matrix_ocr)]
 use crate::matrix_ocr;
 use crate::require_local_main;
-#[cfg(matrix_ocr)]
 use crate::shell;
 use crate::{coded, CommandError};
-#[cfg(matrix_ocr)]
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 
@@ -21,7 +18,6 @@ pub(crate) struct RuntimeCapabilities {
 }
 
 /// A still photo is read by the same driver as a camera frame.
-#[cfg(matrix_ocr)]
 #[tauri::command]
 pub(crate) async fn recognize_matrix_image(
     webview: tauri::Webview,
@@ -57,17 +53,6 @@ pub(crate) async fn recognize_matrix_image(
     .map_err(|e| format!("Matrix recognition task failed: {e}"))?
 }
 
-/// Intel macOS has no prebuilt ONNX Runtime; manual matrix entry still works.
-#[cfg(not(matrix_ocr))]
-#[tauri::command]
-pub(crate) fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), CommandError> {
-    require_local_main(&webview)?;
-    Err(
-        "Scan image is not available on Intel Macs yet. Type or paste the 70 letters instead."
-            .into(),
-    )
-}
-
 #[tauri::command]
 pub(crate) fn runtime_capabilities(
     webview: tauri::Webview,
@@ -81,7 +66,7 @@ pub(crate) fn runtime_capabilities(
         notification_unavailable_reason,
         background_schedule: true,
         cloud_sync: true,
-        matrix_ocr: cfg!(matrix_ocr),
+        matrix_ocr: matrix_ocr::available(),
     })
 }
 

@@ -11,11 +11,15 @@ links = "litert"
 default = ["onnx"]
 onnx = [
     "dep:base64",
+    "dep:block2",
     "dep:fast_image_resize",
     "dep:image",
     "dep:imageproc",
     "dep:libloading",
     "dep:nalgebra",
+    "dep:objc2",
+    "dep:objc2-core-ml",
+    "dep:objc2-foundation",
     "dep:optical-flow-lk",
     "dep:ort",
     "dep:serde_json",
@@ -40,10 +44,9 @@ app-core = { path = "../app-core" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
-# The pinned ONNX distribution has no Intel macOS, Intel iOS simulator or
-# Android x86_64 binary. Excluding the whole backend leaves unsupported targets
-# free of image/ORT.
-[target.'cfg(not(any(all(any(target_os = "macos", target_os = "ios"), target_arch = "x86_64"), all(target_os = "android", not(target_arch = "aarch64")))))'.dependencies]
+# Android x86 has no packaged letter runtime (the app ships arm64 only).
+# Excluding the whole backend leaves it free of image and model dependencies.
+[target.'cfg(not(all(target_os = "android", not(target_arch = "aarch64"))))'.dependencies]
 base64 = { version = "0.23", optional = true }
 # SIMD (SSE4.1/AVX2/NEON) resampling of the camera planes on every frame.
 fast_image_resize = { version = "=6.1.0", optional = true }
@@ -56,9 +59,18 @@ optical-flow-lk = { version = "=0.6.0", optional = true }
 serde_json = { version = "1", optional = true }
 
 # The letter model's runtime (`engine/letters`): ONNX Runtime, statically
-# linked, on Apple targets.
-[target.'cfg(not(any(target_os = "android", target_os = "windows", all(any(target_os = "macos", target_os = "ios"), target_arch = "x86_64"))))'.dependencies]
+# linked, where the system has none of its own (Linux).
+[target.'cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos", target_os = "ios")))'.dependencies]
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"], optional = true }
+
+# macOS and iOS run it on the system's Core ML (Apple silicon and Intel), so
+# the Apple apps link no inference library of their own. Same objc2 releases
+# as tauri and wry already use.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+block2 = { version = "0.6", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSString", "NSValue"], optional = true }
+objc2-core-ml = { version = "0.3", default-features = false, features = ["std", "block2", "MLDictionaryFeatureProvider", "MLFeatureProvider", "MLFeatureValue", "MLModel", "MLModelAsset", "MLModelConfiguration", "MLMultiArray"], optional = true }
 
 # Android and Windows open the LiteRT library packaged beside the app (5.6 MB
 # on Android against ONNX Runtime's 18 MB with libc++).

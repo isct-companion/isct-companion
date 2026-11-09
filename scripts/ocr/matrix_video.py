@@ -333,9 +333,41 @@ class LiteRtSession:
         return [np.concatenate(logits)]
 
 
+class CoreMlSession:
+    """A Core ML specification (`.mlmodel` with inline weights, as Core embeds
+    it) behind the same slice of the session interface. It runs batches of
+    ten, as Core does, on the CPU, as Core does, so the report reads what the
+    apps read. macOS only: coremltools predicts nowhere else."""
+
+    class _Input:
+        name = "cells"
+
+    def __init__(self, path, compute_units="CPU_ONLY"):
+        import coremltools as ct
+        import tempfile
+        self._weights = tempfile.TemporaryDirectory()
+        self.model = ct.models.MLModel(ct.utils.load_spec(str(path)), weights_dir=self._weights.name,
+                                       compute_units=getattr(ct.ComputeUnit, compute_units))
+
+    def get_inputs(self):
+        return [self._Input()]
+
+    def run(self, _outputs, feeds):
+        cells = next(iter(feeds.values())).astype(np.float32)
+        logits = []
+        for start in range(0, len(cells), 10):
+            # The export's batch is fixed at ten; pad as Core does.
+            batch = cells[start:start + 10]
+            padded = np.concatenate([batch, np.ones((10 - len(batch), *batch.shape[1:]), np.float32)])
+            logits.append(self.model.predict({"cells": padded})["logits"][:len(batch)])
+        return [np.concatenate(logits).astype(np.float32)]
+
+
 def model_session(model):
     if model.suffix == ".tflite":
         return LiteRtSession(model)
+    if model.suffix == ".mlmodel":
+        return CoreMlSession(model)
     import onnxruntime as ort
     ort.disable_telemetry_events()
     options = ort.SessionOptions()

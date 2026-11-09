@@ -44,7 +44,7 @@ defines the API suffix on a Clang target triple as `minSdkVersion`, while the
 as the output DEX compatibility floor. A lower product floor needs a complete
 AAR test on that API, including JNA and the arm64 OCR runtime; the API 34 value is
 therefore retained pending that decision. The `ort` Cargo feature `api-24` selects
-ONNX Runtime 1.24's C API (desktop and iOS) and is unrelated to Android API level 24.
+ONNX Runtime 1.24's C API (the Linux desktop only) and is unrelated to Android API level 24.
 
 The Swift wrapper target uses Swift 5 language mode because this pinned UniFFI
 version's async foreign-callback template fails Swift 6 region-isolation
@@ -191,8 +191,10 @@ The letter model runs on LiteRT on Android arm64: Core opens the
 `libLiteRt.so` the app packages from `com.google.ai.edge.litert:litert`
 (no Google Play services), so an SDK consumer that wants OCR declares that
 dependency too; without it `prepareScanner()` reports a model error. iOS
-device/simulator use the pinned ONNX Runtime. Intel macOS and Android x86_64
-build the unavailable backend, including when the SDK's OCR feature is selected. Consumers use `capabilities().ocr` rather than
+device and simulator (arm64 and x86_64) run it on the system's Core ML from
+the model Core embeds, so the SDK links no inference library and needs only
+the CoreML framework. Android x86_64 builds the unavailable backend, including
+when the SDK's OCR feature is selected. Consumers use `capabilities().ocr` rather than
 checking operating-system strings. Android emulator tests cover this fallback;
 iOS simulator tests exercise model preparation and inference.
 

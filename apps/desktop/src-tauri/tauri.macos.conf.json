@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": [
+      "../../../crates/app-ocr/models/alphabet/README.md",
+      "../../../crates/app-ocr/models/alphabet/MIT-LICENSE",
+      "../../../LICENSE",
+      "../../../docs/legal/NOTICE.md",
+      "../../../docs/legal/NOTICE.ja.md"
+    ]
+  }
+}

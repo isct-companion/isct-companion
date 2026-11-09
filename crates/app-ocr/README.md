@@ -7,11 +7,12 @@ Its default `onnx` feature embeds the alphabet classifier (`models/alphabet/`)
 and its runtime, chosen per target at compile time (`engine/letters`): LiteRT
 with the float16 export on Android arm64 and Windows (the app's bundled
 library on Android, Google's prebuilt `libLiteRt.dll` beside the executable
-on Windows; see `models/litert/`), ONNX Runtime with the float source on macOS
-and iOS.
-Intel Apple, Android x86 and `--no-default-features` builds expose the same
-small API and return `MatrixOcrError::Unavailable` without linking image or
-ONNX dependencies.
+on Windows; see `models/litert/`), the system's Core ML with the float16 ML
+Program export on macOS and iOS (Apple silicon and Intel, loaded from memory),
+and ONNX Runtime with the float source on Linux.
+Android x86 and `--no-default-features` builds expose the same small API and
+return `MatrixOcrError::Unavailable` without linking image or model
+dependencies.
 
 A still photo is read as one keyframe of a session
 (`MatrixCameraDriver::scan_photo`). The crate validates the 20 MiB and 40-megapixel bounds, applies

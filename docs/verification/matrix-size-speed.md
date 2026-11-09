@@ -45,9 +45,9 @@ the frame path, not the model, limited scan time.
   gave the same completion count at a higher per-frame cost.
 - **Model** (`models/alphabet/README.md`). LiteRT builds embed float16
   weights (5.2 MB instead of 10.2 MB) that read exactly like the float source.
-  ONNX Runtime builds (macOS, iOS) keep the float source: an INT8 export
-  (2.96 MB) read one held-out cell fewer, which the model promotion gate
-  rejects. Apple's smaller model waits for a Core ML float16 backend.
+  ONNX Runtime keeps the float source: an INT8 export (2.96 MB) read one
+  held-out cell fewer, which the model promotion gate rejects. macOS and iOS
+  now run float16 weights on Core ML (below); ONNX Runtime remains on Linux.
 - **Removed**: the PaddleOCR model, `MatrixOcrService`, Core's
   `MatrixScanner` and their tests (about 1,900 lines). The release linker had
   already dropped the unused Paddle model, so its removal does not shrink the
@@ -144,9 +144,8 @@ time.)
 ## Not covered
 
 Physical scanning (`OCR-CAMPUS-CARD`), phone CPU timings and independent
-cards beyond the third. The per-platform recognition backends (Core ML on
-Apple, LiteRT on Android; `approach/matrix-inference-backends`) are later
-steps with their own parity checks.
+cards beyond the third. The recognition backend per platform is slotledger
+`approach/matrix-inference-backends`.
 
 The NSIS installer from the `desktop-release` workflow (run 42470220248,
 unsigned, built from this branch) places `libLiteRt.dll` at the install root
@@ -160,6 +159,53 @@ licence and README. Against the published 1.3.1 installer:
 
 The macOS builds of the same run (ONNX Runtime with the float source)
 compile and bundle.
+
+## macOS and iOS (Core ML, 2026-11-09)
+
+macOS and iOS, Apple silicon and Intel, run the letter model on the system's
+Core ML (`engine/letters/coreml.rs`), so the Apple builds link no inference
+library: ONNX Runtime and its static library leave them, and Intel Macs,
+which ONNX Runtime had no binary for, read the card for the first time. The
+model is `alphabet-printed-fp16.mlmodel` (5.2 MB): float16 weights expanded
+to float32 at load, float32 arithmetic on the CPU, weights inline so Core
+loads it from memory, a fixed batch of ten. Why each of those, and the
+rejected float16-arithmetic export, are in
+`crates/app-ocr/models/alphabet/README.md`. Measured on one M-series Mac.
+
+Size, release builds on the same host from dev `9c2c9b9a` (ONNX Runtime) and
+this change:
+
+| Release build (aarch64-apple-darwin) | ONNX Runtime | Core ML |
+| --- | ---: | ---: |
+| `matrix_capture` replay (the OCR stack alone) | 27.6 MB | 6.3 MB |
+| desktop executable `isct-companion` | 51.8 MB | 30.5 MB |
+
+A ten-cell batch takes about 10 ms on the CPU, as ONNX Runtime took; model
+time does not limit scan time (above).
+
+Gate rows run on the Mac, Core ML against the ONNX Runtime build of
+`9c2c9b9a` (float source), both `matrix_capture --release`:
+
+| Check | ONNX Runtime | Core ML |
+| --- | --- | --- |
+| 2026-10-20 video evaluation, 1190 + 1540 observations | 304 / 361 correct, 15 / 3 qualified wrong | identical letters, identical labelled counts |
+| Lighting replay, 12 sequences | per sequence as above (glare stripe 63, its four wrong cells) | identical recognition, cell for cell |
+| L/Z/I boundary replay, 3 offsets (Times New Roman Italic) | 70 / 70 each, none wrong | 70 / 70 each, none wrong |
+| `app-ocr` tests, aarch64 and x86_64 (Rosetta) | pass | pass |
+
+The iOS SDK (device and arm64 simulator XCFramework, `app-ffi --features
+ocr` tests) and the iOS app (`xcodebuild`, generic iOS device, unsigned)
+build against it; the SDK's static library has no C++ runtime reference left,
+so `bindings/swift/Package.swift` no longer links libc++. The simulator smoke
+(`ios-smoke.mjs`, real `prepareScanner()` on Core ML) did not run: the Mac had
+no iPhone simulator device.
+
+Not run on the Mac, because their data stays on the Windows host: the
+held-out third card (`dataset-v6`, 1014 cells) and the session replay of the
+four recordings. Run them there before a release
+(`matrix_video.py evaluate --model crates/app-ocr/models/alphabet/alphabet-printed-fp16.mlmodel`
+needs macOS for coremltools, so the third card's cells are evaluated on a Mac
+or the Core ML replay binary is run on one).
 
 ## Model promotion gate
 

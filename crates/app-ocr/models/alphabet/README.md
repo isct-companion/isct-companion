@@ -155,3 +155,56 @@ source, with nine times the weight error (0.37 % against 0.04 %) and almost
 no runtime support; running the whole network in float16 or bfloat16 in
 PyTorch reads like the float source too.
 
+
+## 2026-11-08 Core ML
+
+macOS and iOS run the classifier with the system's Core ML
+(`engine/letters/coreml.rs`), so the Apple apps no longer link ONNX Runtime.
+`scripts/ocr/alphabet_coreml.py` (macOS, coremltools 9.0, torch 2.7.0)
+rebuilds the float source as the native PyTorch module, folds the channel
+expand into the first convolution as the LiteRT export does, traces a batch
+of ten and converts to an ML Program for iOS 17 / macOS 14 (the Core SDK's
+floor) that computes in
+float32 from float16 weights: each float32 weight becomes a `constexpr_cast`
+of its float16 rounding, expanded once at load, the Core ML form of LiteRT's
+FLOAT_CASTING. Every weight is written inline into the single specification
+`alphabet-printed-fp16.mlmodel` (5,169,810 bytes, SHA-256
+`d8981ca015d6579e959d4d9366f00013354bac243b879925db2f247269e9b843`), because
+Core embeds it and loads it from memory: an in-memory ML Program must not
+reference a weight blob file. Input `cells` [10, 1, 96, 96] in [-1, 1],
+output `logits` [10, 27]: the batch is fixed at ten, Core's batch, because
+Core ML failed to resize a flexible one (`ct.RangeDim`) below its default;
+Core pads a smaller batch with paper and reads only its rows. Two exports of
+the same source are not byte-identical (coremltools' serialization), so an
+export is judged by what it reads, never by its digest.
+
+Core ML runs it on the CPU (`CPUOnly`) on every device, about 10 ms for a
+ten-cell batch on one M-series Mac, as ONNX Runtime took. Two rejected
+alternatives, judged by the same report:
+
+- float16 arithmetic (`ct.precision.FLOAT16`, 5,174,407 bytes): on the Neural
+  Engine it read like the float source at 0.7 ms a batch, but on the CPU,
+  where Macs without a Neural Engine run it, one correct validation cell fell
+  below the 0.8 vote threshold, which the gate's no-loss rule rejects;
+- the Neural Engine or GPU for this float32 model: the Neural Engine computes
+  only in float16, and iOS refuses GPU work from a background app, where a
+  scan's recognition may still be running. Model time does not limit scan
+  time (`docs/verification/matrix-size-speed.md`).
+
+`matrix_video.py evaluate` reads a `.mlmodel` through coremltools on the CPU,
+as Core does. On the 2026-10-20 video evaluation sets available on the Mac
+(`.cache/ocr-video-20261020/prepared-all-frames`: 1190 validation and 1540
+test observations, labels by human-checked truth), against the float source:
+
+| Model | validation correct / qualified correct / qualified wrong | test correct / qualified correct / qualified wrong | letters unlike float | cells crossing 0.8 |
+| --- | --- | --- | ---: | ---: |
+| float ONNX source | 304 / 301 / 15 | 361 / 356 / 3 | — | — |
+| LiteRT float16 weights | 304 / 301 / 15 | 361 / 356 / 3 | 0 | 2 |
+| Core ML float16 weights (shipped) | 304 / 301 / 15 | 361 / 356 / 3 | 0 | 2 |
+| Core ML float16 arithmetic, CPU (rejected) | 304 / **300** / 15 | 361 / 356 / 3 | 3 | 6 |
+
+The cells crossing the vote threshold in the shipped export are ambiguous
+ones (no truth); every labelled count is identical to the float source. The
+held-out third card of the gate (`dataset-v6`) and the recordings for session
+replay are not on the Mac; see `docs/verification/matrix-size-speed.md` for
+which gate rows were run where.

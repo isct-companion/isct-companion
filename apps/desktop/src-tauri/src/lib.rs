@@ -37,7 +37,6 @@ mod lms_protocol;
 mod native_dialog;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
-#[cfg(matrix_ocr)]
 use app_ocr as matrix_ocr;
 mod core_ports;
 pub(crate) use app_core::school_auth;

@@ -13,19 +13,18 @@ fn main() {
     let onnx = std::env::var_os("CARGO_FEATURE_ONNX").is_some();
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let intel_apple = (os == "macos" || os == "ios") && arch == "x86_64";
-    if onnx && !(intel_apple || os == "android" && arch != "aarch64") {
+    if onnx && !(os == "android" && arch != "aarch64") {
         println!("cargo::rustc-cfg=matrix_ocr");
         println!("cargo::rerun-if-env-changed=ISCT_MATRIX_ALPHABET_MODEL");
         let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo output"));
         // Each runtime embeds its export of the same trained weights
-        // (models/alphabet/README.md): LiteRT with float16 weights on Android
-        // and Windows, the float source itself with ONNX Runtime elsewhere.
-        let litert = os == "android" || os == "windows";
-        let (format, file) = if litert {
-            ("tflite", "alphabet-printed-fp16.tflite")
-        } else {
-            ("onnx", "alphabet-printed.onnx")
+        // (models/alphabet/README.md): Core ML's float16 ML Program on macOS
+        // and iOS, LiteRT with float16 weights on Android and Windows, the
+        // float source itself with ONNX Runtime elsewhere.
+        let (format, file) = match os.as_str() {
+            "macos" | "ios" => ("mlmodel", "alphabet-printed-fp16.mlmodel"),
+            "android" | "windows" => ("tflite", "alphabet-printed-fp16.tflite"),
+            _ => ("onnx", "alphabet-printed.onnx"),
         };
         let model = std::env::var_os("ISCT_MATRIX_ALPHABET_MODEL")
             .map(PathBuf::from)
