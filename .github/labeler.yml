@@ -1,0 +1,32 @@
+# Pull request labels, read by .github/workflows/triage-labels.yml.
+# A moved directory silently stops matching: update these globs with the move.
+
+area:desktop:
+  - changed-files:
+      - any-glob-to-any-file: apps/desktop/**
+
+area:ios:
+  - changed-files:
+      - any-glob-to-any-file: [apps/ios/**, bindings/swift/**]
+
+area:android:
+  - changed-files:
+      - any-glob-to-any-file: [apps/android/**, bindings/kotlin/**]
+
+area:core:
+  - changed-files:
+      - any-glob-to-any-file: crates/**
+
+area:ci:
+  - changed-files:
+      - any-glob-to-any-file: .github/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: [docs/**, README*.md, CONTRIBUTING.md]
+
+bug:
+  - head-branch: ['^fix/']
+
+enhancement:
+  - head-branch: ['^feat/']
