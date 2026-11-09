@@ -1,5 +1,8 @@
 #![recursion_limit = "256"]
 
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+compile_error!("The IsctCompanion desktop app is built for macOS and Windows only (AGENTS.md).");
+
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use cloud::DesktopCloudService;
@@ -43,7 +46,6 @@ mod school_webkit;
 #[cfg(windows)]
 mod school_windows;
 mod secrets;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod window_close;
 #[cfg(target_os = "macos")]
 mod window_close_macos;
@@ -267,7 +269,6 @@ pub fn run() {
             app.exit(0);
         }
     });
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let builder = builder.on_window_event(|window, event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             window_close::close_requested(window, api);
@@ -453,16 +454,7 @@ pub fn run() {
                                 if require_local_main(&webview).is_err() {
                                     return PermissionResponse::Deny;
                                 }
-                                // WebKitGTK has no default camera prompt. The
-                                // local scanner requests video on a user click.
-                                #[cfg(target_os = "linux")]
-                                {
-                                    PermissionResponse::Allow
-                                }
-                                #[cfg(not(target_os = "linux"))]
-                                {
-                                    PermissionResponse::Default
-                                }
+                                PermissionResponse::Default
                             }
                             PermissionKind::Microphone => PermissionResponse::Deny,
                             _ => PermissionResponse::Default,

@@ -43,8 +43,7 @@ defines the API suffix on a Clang target triple as `minSdkVersion`, while the
 [D8 documentation](https://developer.android.com/tools/d8) defines `--min-api`
 as the output DEX compatibility floor. A lower product floor needs a complete
 AAR test on that API, including JNA and the arm64 OCR runtime; the API 34 value is
-therefore retained pending that decision. The `ort` Cargo feature `api-24` selects
-ONNX Runtime 1.24's C API (the Linux desktop only) and is unrelated to Android API level 24.
+therefore retained pending that decision.
 
 The Swift wrapper target uses Swift 5 language mode because this pinned UniFFI
 version's async foreign-callback template fails Swift 6 region-isolation

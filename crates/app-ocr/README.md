@@ -3,14 +3,14 @@
 `app-ocr` is the optional, UI-independent matrix-card recognition library and
 Core's image capability: `matrix_vision()` gives every shell the tracker, cell
 cut and letter model that `app_core::matrix_scan::MatrixCameraDriver` drives.
-Its default `onnx` feature embeds the alphabet classifier (`models/alphabet/`)
+Its default `engine` feature embeds the alphabet classifier (`models/alphabet/`)
 and its runtime, chosen per target at compile time (`engine/letters`): LiteRT
 with the float16 export on Android arm64 and Windows (the app's bundled
 library on Android, Google's prebuilt `libLiteRt.dll` beside the executable
-on Windows; see `models/litert/`), the system's Core ML with the float16 ML
-Program export on macOS and iOS (Apple silicon and Intel, loaded from memory),
-and ONNX Runtime with the float source on Linux.
-Android x86 and `--no-default-features` builds expose the same small API and
+on Windows; see `models/litert/`), and the system's Core ML with the float16 ML
+Program export on macOS and iOS (Apple silicon and Intel, loaded from memory).
+Every other target (Android x86_64, a Linux build host running the binding
+generator) and `--no-default-features` builds expose the same small API and
 return `MatrixOcrError::Unavailable` without linking image or model
 dependencies.
 
@@ -114,16 +114,6 @@ Desktop debug builds also log per-frame stage timings and min/median/max
 source-pixel size, contrast, sharpness and centering, without pixels or letters.
 The development profile optimizes OCR and image dependencies so unoptimized
 pixel loops do not dominate live tracking.
-
-For an explicitly authorized local diagnosis, launch a debug app with
-`ISCT_MATRIX_GLYPH_SAMPLES` pointing to a new directory under an ignored local
-cache. Once a frame has 60 usable cells of at least 25 source pixels, it saves
-12 shuffled glyphs with random filenames, then stops exporting for that process.
-Each `.gray` file is 96×96 unsigned 8-bit grayscale in row-major order. No card
-frame, cell coordinates or predictions are saved. The directory must not exist;
-Unix permissions are 0700 for the directory and 0600 for each file. Keep these
-samples local, out of commits and training uploads. Ordinary launches leave
-this export disabled.
 
 Replay the two-stage camera flow (the input files are `capture-*.jpg`):
 

@@ -47,7 +47,8 @@ the frame path, not the model, limited scan time.
   weights (5.2 MB instead of 10.2 MB) that read exactly like the float source.
   ONNX Runtime keeps the float source: an INT8 export (2.96 MB) read one
   held-out cell fewer, which the model promotion gate rejects. macOS and iOS
-  now run float16 weights on Core ML (below); ONNX Runtime remains on Linux.
+  now run float16 weights on Core ML (below). The ONNX Runtime backend left
+  with Linux as a product target; the float source stays as the export source.
 - **Removed**: the PaddleOCR model, `MatrixOcrService`, Core's
   `MatrixScanner` and their tests (about 1,900 lines). The release linker had
   already dropped the unused Paddle model, so its removal does not shrink the
@@ -206,6 +207,24 @@ four recordings. Run them there before a release
 (`matrix_video.py evaluate --model crates/app-ocr/models/alphabet/alphabet-printed-fp16.mlmodel`
 needs macOS for coremltools, so the third card's cells are evaluated on a Mac
 or the Core ML replay binary is run on one).
+
+## One luma cut path (2026-11-09)
+
+`capture_matrix_frame`, the path of the `matrix_capture` replay, used to cut RGB
+cells and convert each to luma. It now cuts from the Rec.601 luma plane like a
+camera keyframe, so the two are not byte-identical; the model and the live
+keyframe and `scan_photo` paths did not change. Release builds on one Mac, before
+(dev `a49e521d`) and after, over the same generated frames:
+
+| Check | before | after |
+| --- | --- | --- |
+| Lighting replay, 12 sequences | per sequence as below | same correct count and wrong cells in each |
+| L/Z/I boundary replay, 3 offsets (Times New Roman Italic) | 70 / 70 each, none wrong | 70 / 70 each, none wrong |
+
+Glare stripe has the same seven wrong cells (30-33, 35-37) in both. How many of
+them settle depends on replay timing: of four runs, the old binary settled
+33, 35, 36, 37 twice and 33, 35, 37 twice, the new one always the four. Not run:
+the held-out third card and the session replay, whose data stays on the Windows host.
 
 ## Model promotion gate
 

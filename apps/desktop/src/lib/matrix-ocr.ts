@@ -1,19 +1,11 @@
 import { t } from "../i18n";
 import { Channel, isTauri } from "@tauri-apps/api/core";
+import type { MatrixVote } from "../generated/persistence";
 import { invoke } from "../platform/native-error";
 
 export const MATRIX_ROWS = 7;
 export const MATRIX_COLUMNS = 10;
 export const MATRIX_SIZE = MATRIX_ROWS * MATRIX_COLUMNS;
-export type MatrixConfidence = "high" | "medium" | "low";
-export function matrixConfidence(
-  text: string,
-  confidence: number,
-): MatrixConfidence {
-  if (!text || !Number.isFinite(confidence) || confidence < 0.75) return "low";
-  return confidence >= 0.9 ? "high" : "medium";
-}
-export type Recognition = { text: string; confidence: number };
 export type OcrProgress = { completed: number; total: number };
 
 export function normalizeMatrixText(value: string): string {
@@ -74,18 +66,14 @@ export async function prepareMatrixImage(file: File): Promise<string> {
 export async function recognizeMatrixImage(
   file: File,
   onProgress?: (completed: number, total: number) => void,
-): Promise<Recognition[]> {
+): Promise<MatrixVote[]> {
   if (!isTauri()) throw new Error(t("matrixScan.scanImageIsAvailableIn"));
   const image = await prepareMatrixImage(file);
   const onProgressChannel = new Channel<OcrProgress>();
   onProgressChannel.onmessage = (progress) =>
     onProgress?.(progress.completed, progress.total);
-  try {
-    return await invoke<Recognition[]>("recognize_matrix_image", {
-      image,
-      onProgress: onProgressChannel,
-    });
-  } catch (error) {
-    throw error instanceof Error ? error : new Error(String(error));
-  }
+  return invoke<MatrixVote[]>("recognize_matrix_image", {
+    image,
+    onProgress: onProgressChannel,
+  });
 }

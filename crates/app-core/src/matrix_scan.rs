@@ -48,11 +48,13 @@ pub enum MatrixConfidence {
     Low,
 }
 
-/// The review level of one recognized cell; every shell colours by this.
-pub fn matrix_confidence(text: &str, confidence: f64) -> MatrixConfidence {
+/// The review level of one recognized cell; every shell colours by this. A
+/// camera cell without enough agreeing observations (`stable` false) is at most
+/// Medium, however high its score.
+fn matrix_confidence(text: &str, confidence: f64, stable: bool) -> MatrixConfidence {
     if text.is_empty() || !confidence.is_finite() || confidence < 0.75 {
         MatrixConfidence::Low
-    } else if confidence >= 0.9 {
+    } else if confidence >= 0.9 && stable {
         MatrixConfidence::High
     } else {
         MatrixConfidence::Medium
@@ -65,6 +67,7 @@ pub struct MatrixVote {
     pub text: String,
     pub confidence: f64,
     pub stable: bool,
+    pub level: MatrixConfidence,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -166,16 +169,29 @@ impl CellEvidence {
         } else {
             0.
         };
+        let text = if total > 0. {
+            ((b'A' + winner as u8) as char).to_string()
+        } else {
+            String::new()
+        };
+        let confidence = mean * share;
+        let stable = self.samples.len() >= MIN_CELL_SAMPLES
+            && counts[winner] * 2 > self.samples.len()
+            && share > 0.5;
         MatrixVote {
-            text: if total > 0. {
-                ((b'A' + winner as u8) as char).to_string()
-            } else {
-                String::new()
-            },
-            confidence: mean * share,
-            stable: self.samples.len() >= MIN_CELL_SAMPLES
-                && counts[winner] * 2 > self.samples.len()
-                && share > 0.5,
+            level: matrix_confidence(&text, confidence, stable),
+            text,
+            confidence,
+            stable,
+        }
+    }
+    /// The vote of a still photo. Every cell has one reading at most, so
+    /// agreement between readings means nothing here and does not cap the level.
+    fn photo_vote(&self) -> MatrixVote {
+        let vote = self.vote();
+        MatrixVote {
+            level: matrix_confidence(&vote.text, vote.confidence, true),
+            ..vote
         }
     }
     fn collect(&mut self, reading: MatrixReading, reopen: bool) {

@@ -51,8 +51,10 @@ Every build is on the [download page](https://isctcomp.app/en/#download) and on
 | --- | --- | --- |
 | macOS · Apple silicon / Intel | macOS 15+ | `.dmg`, signed and notarized by Apple |
 | Windows · x64 | Windows 10 / 11 | `.exe` installer (not signed yet: choose **More info → Run anyway**) |
-| Android | Android 9+ | `.apk` (Google Play release on the way) |
+| Android · arm64 | Android 14+ | `.apk` (Google Play release on the way) |
 | iPhone / iPad | iOS / iPadOS | [App Store](https://apps.apple.com/app/id6821631471), or the [TestFlight public beta](https://testflight.apple.com/join/kUZNQHG6) |
+
+These are the supported platforms. Android supports arm64-v8a only; 32-bit ARM (armeabi-v7a) and x86/x86_64 devices are not supported. Linux and HarmonyOS are not supported.
 
 After installing, sign in to your school accounts in Settings and refresh.
 

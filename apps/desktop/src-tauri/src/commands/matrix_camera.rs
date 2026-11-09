@@ -17,10 +17,7 @@ impl Default for MatrixScan {
     fn default() -> Self {
         let driver = MatrixCameraDriver::new(app_ocr::matrix_vision());
         #[cfg(debug_assertions)]
-        let driver = driver.with_inspector(|cut| {
-            log_frame_quality(cut);
-            save_anonymous_samples(cut);
-        });
+        let driver = driver.with_inspector(log_frame_quality);
         Self(Arc::new(driver))
     }
 }
@@ -92,63 +89,6 @@ fn log_frame_quality(cut: &app_core::matrix_scan::MatrixCut) {
         range(|g| g.sharpness),
         range(|g| g.centering),
     );
-}
-#[cfg(debug_assertions)]
-fn save_anonymous_samples(cut: &app_core::matrix_scan::MatrixCut) {
-    use rand::seq::SliceRandom;
-    use std::{
-        io::Write,
-        sync::atomic::{AtomicBool, Ordering},
-    };
-    static SAVED: AtomicBool = AtomicBool::new(false);
-    let Some(directory) = std::env::var_os("ISCT_MATRIX_GLYPH_SAMPLES") else {
-        return;
-    };
-    if SAVED.load(Ordering::Relaxed) {
-        return;
-    }
-    let mut glyphs: Vec<_> = cut
-        .glyphs
-        .iter()
-        .filter(|g| {
-            g.source_size >= 25. && g.centering >= 0.5 && g.contrast >= 12. && g.sharpness >= 10.
-        })
-        .collect();
-    if glyphs.len() < 60 || SAVED.swap(true, Ordering::Relaxed) {
-        return;
-    }
-    // Explicit local opt-in, once per process. Discard cell positions before
-    // writing at most twelve shuffled raw 96×96 samples; never retain a card.
-    glyphs.shuffle(&mut rand::rng());
-    glyphs.truncate(12);
-    let save = || -> std::io::Result<()> {
-        let directory = std::path::PathBuf::from(directory);
-        #[cfg_attr(not(unix), allow(unused_mut))]
-        let mut builder = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder.create(&directory)?;
-        for glyph in glyphs {
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            options
-                .open(directory.join(format!("{}.gray", uuid::Uuid::new_v4())))?
-                .write_all(&glyph.gray)?;
-        }
-        Ok(())
-    };
-    match save() {
-        Ok(()) => log::info!("[matrix-camera] saved twelve anonymous glyph samples"),
-        Err(error) => log::error!("[matrix-camera] anonymous sample export failed: {error}"),
-    }
 }
 /// Explicit local opt-in for replay: `ISCT_MATRIX_RECORD_DIR` makes a debug
 /// build save every analysed frame's raw planes (`.planes`: luma then R-G)

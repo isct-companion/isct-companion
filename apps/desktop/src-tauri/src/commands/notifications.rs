@@ -15,10 +15,6 @@ pub(crate) fn unavailable_reason() -> Option<&'static str> {
     {
         None
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        Some("Native desktop notifications are available on macOS and Windows.")
-    }
 }
 
 #[tauri::command]
@@ -33,10 +29,6 @@ pub(crate) async fn notification_permission(
     #[cfg(target_os = "windows")]
     {
         Ok("granted")
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        Err("Native desktop notifications are available on macOS and Windows.".into())
     }
 }
 
@@ -54,10 +46,7 @@ pub(crate) fn open_notification_settings(
     );
     #[cfg(target_os = "windows")]
     let url = "ms-settings:notifications";
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    return app.opener().open_url(url, None::<&str>).map_err(shell);
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    Err("Notification settings are unavailable on this platform.".into())
+    app.opener().open_url(url, None::<&str>).map_err(shell)
 }
 
 impl app_core::schedule::NotificationSink for DesktopNotifications {
@@ -113,11 +102,6 @@ async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(
     .map_err(|error| format!("notification task failed: {error}"))??)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-async fn show(_app: &tauri::AppHandle, _content: &NotificationContent) -> Result<(), CommandError> {
-    Err("Native desktop notifications are available on macOS and Windows.".into())
-}
-
 #[tauri::command]
 pub(crate) async fn notify(
     webview: tauri::Webview,
@@ -163,13 +147,4 @@ pub(crate) fn request_notification_permission(
     // returns the actual WinRT error instead of reporting a detached attempt as
     // success; global notification and Focus Assist policy remain user-owned.
     Ok("granted")
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-#[tauri::command]
-pub(crate) fn request_notification_permission(
-    webview: tauri::Webview,
-) -> Result<&'static str, CommandError> {
-    require_local_main(&webview)?;
-    Ok("denied")
 }

@@ -110,28 +110,15 @@ function crateComponents(target) {
 }
 
 function modelComponents() {
-  const read = (name, folder = "onnxruntime") => {
-    const file = path.join(root, "crates/app-ocr/models", folder, name);
-    return existsSync(file) ? [readFileSync(file, "utf8").trim()] : [];
-  };
+  const licence = path.join(root, "crates/app-ocr/models/litert/LICENSE");
   return [
-    // The letter model's runtime on Windows (and Android); ONNX Runtime on macOS.
+    // The letter model's runtime on Windows and Android; Apple's is the system's.
     {
       group: "models",
       name: "LiteRT",
       license: "Apache-2.0",
       url: "https://github.com/google-ai-edge/LiteRT",
-      texts: read("LICENSE", "litert"),
-    },
-    {
-      group: "models",
-      name: "ONNX Runtime",
-      license: "MIT",
-      url: "https://github.com/microsoft/onnxruntime",
-      texts: [
-        ...read("LICENSE"),
-        ...read("THIRD-PARTY-NOTICES.txt"),
-      ],
+      texts: [readFileSync(licence, "utf8").trim()],
     },
   ];
 }

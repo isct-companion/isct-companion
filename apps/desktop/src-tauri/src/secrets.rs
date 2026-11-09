@@ -186,7 +186,7 @@ impl OsSecretVault {
         delete_entry(&entry)
     }
 
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     fn load_current(&self, account: &str) -> Result<Option<String>, SecretError> {
         // The plugin turns every read error into None on desktop. Query its
         // exact service/key directly so denied access cannot trigger migration
@@ -220,7 +220,6 @@ impl OsSecretVault {
         delete_entry(&self.previous_entry(account)?)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn load_legacy(&self, account: &str) -> Result<Option<String>, SecretError> {
         for service in LEGACY_SERVICES {
             let entry = keyring::Entry::new(service, account)
@@ -234,23 +233,12 @@ impl OsSecretVault {
         Ok(None)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    fn load_legacy(&self, _account: &str) -> Result<Option<String>, SecretError> {
-        Ok(None)
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn delete_legacy(&self, account: &str) -> Result<(), SecretError> {
         for service in LEGACY_SERVICES {
             let entry = keyring::Entry::new(service, account)
                 .map_err(|_| access("Legacy credential vault is unavailable."))?;
             delete_entry(&entry)?;
         }
-        Ok(())
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    fn delete_legacy(&self, _account: &str) -> Result<(), SecretError> {
         Ok(())
     }
 }

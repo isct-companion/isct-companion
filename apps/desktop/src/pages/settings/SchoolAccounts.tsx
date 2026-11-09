@@ -26,12 +26,11 @@ import {
   MATRIX_COLUMNS,
   MATRIX_ROWS,
   MATRIX_SIZE,
-  matrixConfidence,
-  type MatrixConfidence,
   normalizeMatrixText,
   parseMatrixText,
   recognizeMatrixImage,
 } from "../../lib/matrix-ocr";
+import type { MatrixConfidence } from "../../generated/persistence";
 import type {
   SchoolAuthProfile,
   SchoolConnectOutcome,
@@ -131,7 +130,6 @@ function MatrixEditor({
   disabled,
   onScanState,
   onCopy,
-  matrixOcrAvailable,
 }: {
   disabled: boolean;
   onScanState: (scanning: boolean) => void;
@@ -141,7 +139,6 @@ function MatrixEditor({
   onChange: (value: string[]) => void;
   notify: (message: string) => void;
   onCopy: () => void;
-  matrixOcrAvailable: boolean;
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const [recognizing, setRecognizing] = useState(false);
@@ -154,7 +151,7 @@ function MatrixEditor({
   }, [cameraOpen, recognizing]);
   const resetScanInput = useRef<(() => void) | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
-  const [confidence, setConfidence] = useState<Array<number | undefined>>([]);
+  const [confidence, setConfidence] = useState<Array<MatrixConfidence | undefined>>([]);
   useEffect(() => {
     if (masked || value.every((cell) => !cell)) setConfidence([]);
   }, [masked, value]);
@@ -202,7 +199,7 @@ function MatrixEditor({
       }
       onBeginEdit();
       onChange(result.map((cell) => cell.text));
-      setConfidence(result.map((cell) => cell.confidence));
+      setConfidence(result.map((cell) => cell.level));
       notify(t("settings.schoolAccounts.scanCompleteVerifyAllLetters"));
     } catch (error) {
       appNotify.error(error);
@@ -217,19 +214,17 @@ function MatrixEditor({
       <div className="matrixTools">
         <b>{t("settings.schoolAccounts.matrix")}</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
-        {matrixOcrAvailable && (
-          <Button
-            variant="default"
-            size="compact-xs"
-            disabled={recognizing || disabled || cameraOpen}
-            onClick={() => {
-              setCameraOpen(true);
-              onScanState(true);
-            }}
-          >
-            {t("settings.schoolAccounts.scanWithCamera")}
-          </Button>
-        )}
+        <Button
+          variant="default"
+          size="compact-xs"
+          disabled={recognizing || disabled || cameraOpen}
+          onClick={() => {
+            setCameraOpen(true);
+            onScanState(true);
+          }}
+        >
+          {t("settings.schoolAccounts.scanWithCamera")}
+        </Button>
         {cameraOpen && (
           <MatrixCamera
             onClose={() => {
@@ -239,37 +234,35 @@ function MatrixEditor({
             onComplete={(cells) => {
               onBeginEdit();
               onChange(cells.map((cell) => cell.text));
-              setConfidence(cells.map((cell) => cell.confidence));
+              setConfidence(cells.map((cell) => cell.level));
               setCameraOpen(false);
               onScanState(false);
               notify(t("settings.schoolAccounts.scanCompleteVerifyAllLetters"));
             }}
           />
         )}
-        {matrixOcrAvailable && (
-          <FileButton
-            resetRef={resetScanInput}
-            disabled={recognizing || disabled || cameraOpen}
-            onChange={(file) => void recognize(file ?? undefined)}
-            accept="image/*,.heic,.heif"
-          >
-            {(props) => (
-              <Button
-                {...props}
-                variant="default"
-                size="compact-xs"
-                loading={recognizing}
-                disabled={disabled}
-              >
-                {recognizing
-                  ? t("settings.schoolAccounts.readingCount70", {
-                      count: scanProgress,
-                    })
-                  : t("settings.schoolAccounts.scanImage")}
-              </Button>
-            )}
-          </FileButton>
-        )}
+        <FileButton
+          resetRef={resetScanInput}
+          disabled={recognizing || disabled || cameraOpen}
+          onChange={(file) => void recognize(file ?? undefined)}
+          accept="image/*,.heic,.heif"
+        >
+          {(props) => (
+            <Button
+              {...props}
+              variant="default"
+              size="compact-xs"
+              loading={recognizing}
+              disabled={disabled}
+            >
+              {recognizing
+                ? t("settings.schoolAccounts.readingCount70", {
+                    count: scanProgress,
+                  })
+                : t("settings.schoolAccounts.scanImage")}
+            </Button>
+          )}
+        </FileButton>
         {masked && (
           <Button
             variant="default"
@@ -320,21 +313,13 @@ function MatrixEditor({
                   }}
                   disabled={recognizing || disabled || cameraOpen}
                   aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
-                  data-confidence={
-                    !masked && confidence[index] !== undefined
-                      ? matrixConfidence(value[index], confidence[index]!)
-                      : undefined
-                  }
+                  data-confidence={masked ? undefined : confidence[index]}
                   title={
                     masked
                       ? t("settings.schoolAccounts.savedHidden")
                       : confidence[index] === undefined
                         ? t("settings.schoolAccounts.manualEntry")
-                        : t(
-                            CONFIDENCE_NOTE[
-                              matrixConfidence(value[index], confidence[index]!)
-                            ],
-                          )
+                        : t(CONFIDENCE_NOTE[confidence[index]])
                   }
                   value={masked ? "" : value[index]}
                   placeholder={masked ? "•" : ""}
@@ -417,7 +402,6 @@ function Account({
   refresh,
   notify,
   showLoginPage,
-  matrixOcrAvailable,
 }: {
   profile: SchoolAuthProfile;
   title: string;
@@ -430,7 +414,6 @@ function Account({
     profile: SchoolAuthProfile,
     options?: { unsigned: true },
   ) => void;
-  matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -659,7 +642,6 @@ function Account({
           onChange={(matrix) => edit({ ...draft, matrix })}
           notify={notify}
           onCopy={() => void copyMatrix()}
-          matrixOcrAvailable={matrixOcrAvailable}
         />
       )}
       <div className="actions schoolAccountActions">
@@ -712,14 +694,12 @@ const SAVED_SECRET = "••••••••";
 export function SchoolAccounts({
   notify,
   showLoginPage,
-  matrixOcrAvailable,
 }: {
   notify: (message: string) => void;
   showLoginPage: (
     profile: SchoolAuthProfile,
     options?: { unsigned: true },
   ) => void;
-  matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);
   const [science, setScience] = useState(emptyDraft);
@@ -758,7 +738,6 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
-        matrixOcrAvailable={matrixOcrAvailable}
       />
       <Account
         profile="tokyo-tech"
@@ -769,7 +748,6 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
-        matrixOcrAvailable={matrixOcrAvailable}
       />
     </div>
   );

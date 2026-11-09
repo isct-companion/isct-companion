@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 161 checks must be re-run before the next release.**
+**5 of 160 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**156 checks have never been run or could not be run:**
+**155 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -95,7 +95,6 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-WEB-RELOAD-SIGN-IN` — never verified
 - `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` — never verified
 - `DESKTOP-SCHOOL-COOKIES-WINDOWS` — never verified
-- `DESKTOP-SCHOOL-COOKIES-LINUX` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `MOBILE-OTP-AUTHENTICATOR-EXPORT` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
@@ -261,7 +260,6 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
 | `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
-| `DESKTOP-SCHOOL-COOKIES-LINUX` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift |
 | `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -1153,8 +1151,8 @@ that cannot be automated without live credentials.
 
 **Preconditions**
 
-Two desktops (Windows or Linux on one side makes the Drive file the only
-path, since Macs also share logins through iCloud Keychain), both with
+Two desktops (Windows on one side makes the Drive file the only path,
+since Macs also share logins through iCloud Keychain), both with
 Google Drive on under the same account. Desktop A has a working school
 login; desktop B has none.
 
@@ -1255,8 +1253,8 @@ Needs OS-level power transitions and a real provider session.
 
 **Preconditions**
 
-A supported desktop target with OCR, a physical campus card, and a
-camera or a photo of the card. For the phone steps: a TestFlight build
+The desktop app, a physical campus card, and a camera or a photo of the
+card. For the phone steps: a TestFlight build
 on an iPhone and a CI-built APK on an arm64 Android phone.
 
 **Steps**
@@ -1360,9 +1358,8 @@ corrected values are what get saved.
 
 **Why this is manual**
 
-Needs a physical card and a camera. Intel Mac builds ship without the
-OCR runtime, so the target must be chosen deliberately. The phone steps
-need signed iOS and Android builds with camera hardware.
+Needs a physical card and a camera. The phone steps need signed iOS and
+Android builds with camera hardware.
 
 **Covers**
 
@@ -5059,51 +5056,6 @@ carry over to another engine.
 
 - `apps/desktop/src-tauri/src/school_cookies.rs`
 - `apps/desktop/src-tauri/src/school_windows.rs`
-
-**Last recorded** never run
-
-### Linux school views receive Core's identity cookies (`DESKTOP-SCHOOL-COOKIES-LINUX`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A Linux build from this source (WebKitGTK 2.38 or later) with both
-school accounts signed in from Settings, and no school page opened
-since launch.
-
-**Steps**
-
-1. Open 教務Web from the site list.
-   - *Why:* The writer parses each `Set-Cookie` with libsoup and adds it to the
-     WebKitGTK cookie manager; a domain cookie that lost its scope shows
-     the agreement page or the resource menu instead of 学生トップ.
-2. Open the LMS from the site list.
-   - *Why:* The host-only Extic identity must carry the LMS through its SAML
-     hand-off.
-3. Copy the log in Settings → Diagnostics.
-   - *Why:* Separates a failed write (`web cookies not written`) from a write
-     with the wrong scope.
-
-**Where to look**
-
-The two school pages and the copied log.
-
-**Expected**
-
-Both pages open signed in, and the log has no `web cookies not written`
-for the opened views.
-
-**Why this is manual**
-
-Needs WebKitGTK's cookie manager on a real Linux desktop and live
-school sessions; no suite runs WebKitGTK here.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/school_cookies.rs`
 
 **Last recorded** never run
 

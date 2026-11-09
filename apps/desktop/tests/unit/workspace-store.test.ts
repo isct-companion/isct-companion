@@ -788,7 +788,6 @@ const runtime = (
     notifications: true,
     backgroundSchedule: true,
     cloudSync: true,
-    matrixOcr: true,
   },
   background: { scheduler: "off" },
   noBackendPush: true,

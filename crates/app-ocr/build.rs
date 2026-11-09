@@ -10,22 +10,23 @@ const LITERT_WINDOWS_SHA256: &str =
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(matrix_ocr)");
 
-    let onnx = std::env::var_os("CARGO_FEATURE_ONNX").is_some();
+    let engine = std::env::var_os("CARGO_FEATURE_ENGINE").is_some();
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    if onnx && !(os == "android" && arch != "aarch64") {
+    // Each runtime embeds its export of the same trained weights
+    // (models/alphabet/README.md): Core ML's float16 ML Program on macOS and
+    // iOS, LiteRT with float16 weights on Android arm64 and Windows. Anything
+    // else (Android x86_64, a Linux host running the binding generator) has no
+    // backend and builds the stubs in lib.rs.
+    let backend = match (os.as_str(), arch.as_str()) {
+        ("macos" | "ios", _) => Some(("mlmodel", "alphabet-printed-fp16.mlmodel")),
+        ("android", "aarch64") | ("windows", _) => Some(("tflite", "alphabet-printed-fp16.tflite")),
+        _ => None,
+    };
+    if let Some((format, file)) = backend.filter(|_| engine) {
         println!("cargo::rustc-cfg=matrix_ocr");
         println!("cargo::rerun-if-env-changed=ISCT_MATRIX_ALPHABET_MODEL");
         let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo output"));
-        // Each runtime embeds its export of the same trained weights
-        // (models/alphabet/README.md): Core ML's float16 ML Program on macOS
-        // and iOS, LiteRT with float16 weights on Android and Windows, the
-        // float source itself with ONNX Runtime elsewhere.
-        let (format, file) = match os.as_str() {
-            "macos" | "ios" => ("mlmodel", "alphabet-printed-fp16.mlmodel"),
-            "android" | "windows" => ("tflite", "alphabet-printed-fp16.tflite"),
-            _ => ("onnx", "alphabet-printed.onnx"),
-        };
         let model = std::env::var_os("ISCT_MATRIX_ALPHABET_MODEL")
             .map(PathBuf::from)
             .unwrap_or_else(|| Path::new("models/alphabet").join(file));

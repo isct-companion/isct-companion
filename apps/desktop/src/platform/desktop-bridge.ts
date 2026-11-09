@@ -17,7 +17,7 @@ import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
 /** Rust's `std::env::consts::OS` for this build, injected at startup. */
-export type NativeOs = "macos" | "windows" | "linux";
+export type NativeOs = "macos" | "windows";
 export type WorkspaceChangedEvent = {
   source:
     | "user-intent"
@@ -371,7 +371,6 @@ export type NativeCapabilitySnapshot = {
   notificationUnavailableReason?: MessageKey | null;
   backgroundSchedule: boolean;
   cloudSync: boolean;
-  matrixOcr: boolean;
 };
 export type CampusWifiOutcome =
   | "signed-in"
@@ -661,8 +660,8 @@ export interface DesktopBridge {
   ): Promise<CampusWifiOutcome>;
   /** The verified student ID and whether the printer answers, found once. */
   campusPrinterStatus?(): Promise<CampusPrinterStatus>;
-  /** macOS and Linux: adds the InstitutePrinter queue behind the system's
-   * administrator prompt, which shows `prompt` on macOS. */
+  /** macOS: adds the InstitutePrinter queue behind the system's administrator
+   * prompt, which shows `prompt`. */
   installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
   /** Windows: adds `label` to File Explorer's PDF right-click menu. */
   addCampusPrintMenu?(label: string): Promise<CampusPrinterSetup>;

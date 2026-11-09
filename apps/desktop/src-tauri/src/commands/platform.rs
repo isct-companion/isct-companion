@@ -14,7 +14,6 @@ pub(crate) struct RuntimeCapabilities {
     notification_unavailable_reason: Option<&'static str>,
     background_schedule: bool,
     cloud_sync: bool,
-    matrix_ocr: bool,
 }
 
 /// A still photo is read by the same driver as a camera frame.
@@ -24,7 +23,7 @@ pub(crate) async fn recognize_matrix_image(
     scan: tauri::State<'_, crate::commands::matrix_camera::MatrixScan>,
     image: String,
     on_progress: tauri::ipc::Channel<matrix_ocr::OcrProgress>,
-) -> Result<Vec<matrix_ocr::Recognition>, CommandError> {
+) -> Result<Vec<app_core::matrix_scan::MatrixVote>, CommandError> {
     require_local_main(&webview)?;
     let driver = scan.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -40,14 +39,7 @@ pub(crate) async fn recognize_matrix_image(
                     .is_ok()
             })
             .map_err(coded)?;
-        Ok(scan
-            .cells
-            .into_iter()
-            .map(|vote| matrix_ocr::Recognition {
-                text: vote.text,
-                confidence: vote.confidence,
-            })
-            .collect())
+        Ok(scan.cells)
     })
     .await
     .map_err(|e| format!("Matrix recognition task failed: {e}"))?
@@ -66,7 +58,6 @@ pub(crate) fn runtime_capabilities(
         notification_unavailable_reason,
         background_schedule: true,
         cloud_sync: true,
-        matrix_ocr: matrix_ocr::available(),
     })
 }
 

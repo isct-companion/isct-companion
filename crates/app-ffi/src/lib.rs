@@ -32,7 +32,7 @@ mod session;
 pub use events::{Event, StreamUpdate, Subscription};
 pub use matrix::{
     MatrixCameraFrame, MatrixCameraPhase, MatrixCameraSession, MatrixCameraState, MatrixCell,
-    MatrixPoint,
+    MatrixConfidence, MatrixPoint,
 };
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};
 pub use session::{decode_sync_snapshot, Capabilities, Session, SessionConfig};

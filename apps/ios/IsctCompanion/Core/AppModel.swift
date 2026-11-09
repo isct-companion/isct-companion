@@ -757,7 +757,7 @@ final class AppModel {
     }
 
     /// Reads the 70 Matrix cells from one photo, in row order (A1…J1, A2…).
-    func scanMatrix(_ image: Data) async throws -> [Recognition] {
+    func scanMatrix(_ image: Data) async throws -> [MatrixCell] {
         guard let session else { return [] }
         ocrProgress = 0
         guard case let .recognitions(cells) = try await session.scanMatrix(image: image).value() else { return [] }

@@ -891,21 +891,3 @@ pub fn import_otp(payload: String) -> Result<Vec<OtpImportAccount>, OtpImportErr
             E::Unsupported => OtpImportError::Unsupported,
         })
 }
-
-#[derive(Clone, Copy, Debug, uniffi::Enum)]
-pub enum MatrixConfidence {
-    High,
-    Medium,
-    Low,
-}
-
-/// How a scanned Matrix cell is shown for review, the same on every shell.
-#[uniffi::export]
-pub fn matrix_confidence(text: String, confidence: f64) -> MatrixConfidence {
-    use app_core::matrix_scan::MatrixConfidence as C;
-    match app_core::matrix_scan::matrix_confidence(&text, confidence) {
-        C::High => MatrixConfidence::High,
-        C::Medium => MatrixConfidence::Medium,
-        C::Low => MatrixConfidence::Low,
-    }
-}

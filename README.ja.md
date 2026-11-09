@@ -44,8 +44,10 @@
 | --- | --- | --- |
 | macOS · Apple silicon / Intel | macOS 15 以降 | `.dmg`（Apple の署名・公証済み） |
 | Windows · x64 | Windows 10 / 11 | `.exe` インストーラー（未署名のため **詳細情報 → 実行** を選択） |
-| Android | Android 9 以降 | `.apk`（Google Play 版は準備中） |
+| Android · arm64 | Android 14 以降 | `.apk`（Google Play 版は準備中） |
 | iPhone / iPad | iOS / iPadOS | [App Store](https://apps.apple.com/app/id6821631471)、または [TestFlight 公開ベータ](https://testflight.apple.com/join/kUZNQHG6) |
+
+対応プラットフォームは上記のとおりです。Android は arm64-v8a のみに対応し、32 ビット ARM（armeabi-v7a）と x86/x86_64 の端末には対応していません。Linux と HarmonyOS には対応していません。
 
 インストール後、設定で学内アカウントにサインインし、データを更新してください。
 

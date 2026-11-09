@@ -10,10 +10,9 @@ letters plus explicitly authorized, de-identified glyphs of two test cards,
 cut by the production camera path. Promoted as the default at the user's
 request on 2026-10-24. SHA-256:
 `f9ca9cc5489dab804923bc3446c01e0b6fb6491ad9ddcd4b12731a23b4ce79c5`.
-It is the float source: training continues from it and other runtimes'
-models are converted from it. ONNX Runtime builds (macOS, iOS) embed it
-unchanged; the INT8 export below read one card cell fewer, which the
-promotion gate does not allow.
+It is the float source: training continues from it and the runtimes' models
+are converted from it. No build embeds it; the INT8 export below read one card
+cell fewer, which the promotion gate does not allow.
 
 `alphabet-printed-fp16.tflite` is what Android and Windows builds embed, for
 LiteRT (see "2026-11-08 LiteRT" below). SHA-256:
@@ -74,11 +73,11 @@ such frames from the model in the app. One short recording of one card is
 not an independent-card accuracy claim; physical check `OCR-CAMPUS-CARD`
 remains. Training data, truth, lineage and the candidate history stay local.
 
-For a local experimental build, `ISCT_MATRIX_ALPHABET_MODEL=/absolute/model.onnx`
-selects other weights at compile time. Camera datasets and their provenance
-stay local. The authorized video-adapted candidate is now the normal build's
-default; other camera-adapted experiments stay local. Runtime is the existing
-pinned ONNX Runtime; its license and notices are in `../onnxruntime/`.
+For a local experimental build, `ISCT_MATRIX_ALPHABET_MODEL=/absolute/model`
+selects other weights at compile time, in the format that target's runtime
+reads (`.mlmodel` on Apple, `.tflite` on Android and Windows). Camera datasets
+and their provenance stay local. The authorized video-adapted candidate is now
+the normal build's default; other camera-adapted experiments stay local.
 
 The later 2026-10-20 video experiment produced the 2026-10-21 default model,
 SHA-256 `368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`.
