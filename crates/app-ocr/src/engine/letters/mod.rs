@@ -1,6 +1,6 @@
 //! The letter classifier's runtime, chosen when the crate is compiled: Core ML
-//! on macOS and iOS, LiteRT on Android and Windows, ONNX Runtime elsewhere
-//! (Linux). Each one only turns ten normalized 96×96 cells into 27 logits;
+//! on macOS and iOS, LiteRT on Android and Windows. Each one only turns ten
+//! normalized 96×96 cells into 27 logits;
 //! glyph preparation, the two-rendering fusion and the softmax stay in
 //! `alphabet` for every target.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -12,21 +12,6 @@ pub(super) use coreml::Letters;
 mod litert;
 #[cfg(any(target_os = "android", target_os = "windows"))]
 pub(super) use litert::Letters;
-
-#[cfg(not(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "android",
-    target_os = "windows"
-)))]
-mod onnx;
-#[cfg(not(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "android",
-    target_os = "windows"
-)))]
-pub(super) use onnx::Letters;
 
 /// Classes: A–Z, then blank.
 pub(super) const CLASSES: usize = 27;

@@ -40,7 +40,6 @@ updates:
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       # Matrix OCR results are verified against these exact builds; moving
       # them needs the private-photo replay, not a weekly PR.
-      - dependency-name: ort
       - dependency-name: optical-flow-lk
     groups:
       tauri:

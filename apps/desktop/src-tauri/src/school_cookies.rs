@@ -26,11 +26,6 @@
 //!   (`school_web::school_profile`), so a clear removes all of that
 //!   profile's browsing data (`ClearBrowsingDataAll`), awaited through its
 //!   completion handler.
-//! - Linux: libsoup's `soup_cookie_parse` into WebKitGTK's cookie manager,
-//!   each write awaited through its callback. The school views share
-//!   WebKitGTK's default data manager with the app's own view, so a clear
-//!   removes every kind of data of the school sites' records only, found
-//!   by their domain, awaited through its callback.
 
 use app_core::{
     net::BoxFuture,
@@ -420,122 +415,6 @@ mod native {
         match url.path().rfind('/') {
             Some(0) | None => "/".into(),
             Some(end) => url.path()[..end].to_owned(),
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-mod native {
-    use super::WebCookie;
-    use app_core::school_session::is_school_domain;
-    use soup3::glib;
-    use std::{cell::RefCell, rc::Rc};
-    use tokio::sync::oneshot::Sender;
-    use webkit2gtk::{
-        gio, CookieManagerExt, WebContextExt, WebViewExt, WebsiteData, WebsiteDataManagerExt,
-        WebsiteDataManagerExtManual, WebsiteDataTypes,
-    };
-
-    /// Removes every kind of data (cookies, storage, caches) of the school
-    /// sites' records, found by their domain: the school views share
-    /// WebKitGTK's default data manager with the app's own view, whose data
-    /// stays. Answers once WebKitGTK has. Runs on the main thread.
-    pub(super) fn clear(
-        platform: tauri::webview::PlatformWebview,
-        done: Sender<Result<(), String>>,
-    ) {
-        let Some(manager) = platform.inner().website_data_manager() else {
-            let _ = done.send(Err("the school store has no data manager".into()));
-            return;
-        };
-        let remover = manager.clone();
-        manager.fetch(
-            WebsiteDataTypes::ALL,
-            None::<&gio::Cancellable>,
-            move |records| {
-                let records = match records {
-                    Ok(records) => records,
-                    Err(error) => {
-                        let _ = done.send(Err(error.to_string()));
-                        return;
-                    }
-                };
-                let school: Vec<WebsiteData> = records
-                    .into_iter()
-                    .filter(|record| {
-                        record
-                            .name()
-                            .is_some_and(|name| is_school_domain(name.as_str()))
-                    })
-                    .collect();
-                log::info!(
-                    "[school-web] clearing {} school website records",
-                    school.len()
-                );
-                if school.is_empty() {
-                    let _ = done.send(Ok(()));
-                    return;
-                }
-                let chosen: Vec<&WebsiteData> = school.iter().collect();
-                remover.remove(
-                    WebsiteDataTypes::ALL,
-                    &chosen,
-                    None::<&gio::Cancellable>,
-                    move |result| {
-                        let _ = done.send(result.map_err(|error| error.to_string()));
-                    },
-                );
-            },
-        );
-    }
-
-    /// Parses each value with libsoup for its URL, as WebKitGTK receives a
-    /// response's cookies, adds it to the view's cookie manager, and answers
-    /// once WebKitGTK has called back for the last one.
-    pub(super) fn write(
-        platform: tauri::webview::PlatformWebview,
-        cookies: &[WebCookie],
-        done: Sender<Result<(), String>>,
-    ) {
-        let Some(manager) = platform
-            .inner()
-            .context()
-            .and_then(|context| context.cookie_manager())
-        else {
-            let _ = done.send(Err("the school store has no cookie manager".into()));
-            return;
-        };
-        let mut parsed = Vec::new();
-        for cookie in cookies {
-            let Ok(origin) = glib::Uri::parse(&cookie.url, glib::UriFlags::NONE) else {
-                let _ = done.send(Err("a cookie URL is invalid".into()));
-                return;
-            };
-            let Some(cookie) = soup3::Cookie::parse(&cookie.set_cookie, Some(&origin)) else {
-                let _ = done.send(Err("libsoup could not read a cookie".into()));
-                return;
-            };
-            parsed.push(cookie);
-        }
-        if parsed.is_empty() {
-            let _ = done.send(Ok(()));
-            return;
-        }
-        let left = Rc::new(RefCell::new(parsed.len()));
-        let done = Rc::new(RefCell::new(Some(done)));
-        for mut cookie in parsed {
-            let left = left.clone();
-            let done = done.clone();
-            manager.add_cookie(&mut cookie, None::<&gio::Cancellable>, move |result| {
-                let failed = result.err().map(|error| error.to_string());
-                let mut count = left.borrow_mut();
-                *count -= 1;
-                if failed.is_some() || *count == 0 {
-                    if let Some(done) = done.borrow_mut().take() {
-                        let _ = done.send(failed.map_or(Ok(()), Err));
-                    }
-                }
-            });
         }
     }
 }

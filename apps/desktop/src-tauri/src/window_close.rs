@@ -1,7 +1,7 @@
 //! Closing the main window: quit, keep running in the background (macOS
 //! keeps the Dock icon, Windows a tray icon), or ask with the system's own
 //! prompt, which can remember the answer as the `closeWindow` device
-//! preference. Linux keeps the default: closing the window quits.
+//! preference.
 use crate::core_ports;
 use app_core::workspace::{WorkspaceIntent, WorkspaceMutation};
 use serde_json::Value;

@@ -42,6 +42,12 @@ The same holds for anything else a platform fixes in advance:
   service reports about itself, software the person installed). When the
   answer is missing, fail with a clear error instead of guessing.
 
+The product targets are macOS (Apple silicon and Intel), Windows, iOS/iPadOS
+and Android arm64. Linux and HarmonyOS are not supported: do not add branches,
+dependencies, fallbacks or checks for them. Linux stays only as a build host
+(CI runners, NDK host tools, model training). The desktop crate refuses to
+compile for any other system.
+
 Allowed exceptions:
 
 - iOS vs iPadOS. One iOS binary runs on both, so telling them apart at runtime
