@@ -54,7 +54,7 @@ Every build is on the [download page](https://isctcomp.app/en/#download) and on
 | Android · arm64 | Android 14+ | `.apk` (Google Play release on the way) |
 | iPhone / iPad | iOS / iPadOS | [App Store](https://apps.apple.com/app/id6821631471), or the [TestFlight public beta](https://testflight.apple.com/join/kUZNQHG6) |
 
-These are the supported platforms. Linux and HarmonyOS are not supported.
+These are the supported platforms. Android supports arm64-v8a only; 32-bit ARM (armeabi-v7a) and x86/x86_64 devices are not supported. Linux and HarmonyOS are not supported.
 
 After installing, sign in to your school accounts in Settings and refresh.
 

@@ -43,10 +43,12 @@ The same holds for anything else a platform fixes in advance:
   answer is missing, fail with a clear error instead of guessing.
 
 The product targets are macOS (Apple silicon and Intel), Windows, iOS/iPadOS
-and Android arm64. Linux and HarmonyOS are not supported: do not add branches,
-dependencies, fallbacks or checks for them. Linux stays only as a build host
-(CI runners, NDK host tools, model training). The desktop crate refuses to
-compile for any other system.
+and Android arm64-v8a only. Linux, HarmonyOS, 32-bit Android (armeabi-v7a) and
+Android x86/x86_64 are not supported: do not add branches, dependencies,
+fallbacks or checks for them. Linux stays only as a build host (CI runners, NDK
+host tools, model training), and `--with-emulator` and the x86_64 SDK smoke stay
+as CI infrastructure on x86_64 runners, not a product target. The desktop crate
+refuses to compile for any other system.
 
 Allowed exceptions:
 
