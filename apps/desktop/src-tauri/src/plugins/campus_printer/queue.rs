@@ -185,6 +185,31 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
 /// done well within this.
 const BODY_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// A request for a path the receiver does not serve: logged, so a client
+/// posting jobs somewhere unexpected shows in the application log. The
+/// route's token is never logged.
+async fn unmatched(request: Request) -> Response {
+    let path = request
+        .uri()
+        .path()
+        .split('/')
+        .map(|part| {
+            if uuid::Uuid::parse_str(part).is_ok() {
+                "[token]"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    log::warn!(
+        "[campus-printer] no route for {} {path} (content type {:?})",
+        request.method(),
+        request.headers().get(header::CONTENT_TYPE)
+    );
+    StatusCode::NOT_FOUND.into_response()
+}
+
 async fn receiver_ready() -> Response {
     (
         StatusCode::OK,
@@ -297,6 +322,7 @@ impl PrintServer {
                 &format!("{}/jobs/{{id}}", endpoint.path()),
                 get(receiver_ready).post(receive),
             )
+            .fallback(unmatched)
             .with_state(state);
         let stop = CancellationToken::new();
         let stopped = stop.clone();
