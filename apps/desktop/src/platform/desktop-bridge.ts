@@ -417,6 +417,12 @@ export type CampusPrinterStatus = {
   account: PrinterAccount;
   reach: "reachable" | "unreachable";
 };
+/** Windows: the system printer, as the tool card shows it. */
+export type CampusPrinterQueue =
+  | "not-installed"
+  | "ready"
+  | "repair-required"
+  | "unavailable";
 /** How adding the printer to the system ended. */
 export type CampusPrinterSetup =
   | { kind: "added" }
@@ -660,9 +666,11 @@ export interface DesktopBridge {
   ): Promise<CampusWifiOutcome>;
   /** The verified student ID and whether the printer answers, found once. */
   campusPrinterStatus?(): Promise<CampusPrinterStatus>;
-  /** macOS: adds the InstitutePrinter queue behind the system's administrator
-   * prompt, which shows `prompt`. */
+  /** Adds or repairs the system printer behind the system's administrator
+   * prompt, which shows `prompt` on macOS. */
   installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
+  /** Windows: whether the system printer is installed and served. */
+  campusPrinterQueue?(): Promise<CampusPrinterQueue>;
   /** Windows: adds `label` to File Explorer's PDF right-click menu. */
   addCampusPrintMenu?(label: string): Promise<CampusPrinterSetup>;
   /** Windows print window: its file and this device's look. */
@@ -903,6 +911,7 @@ export function createTauriDesktopBridge(
     campusPrinterStatus: () => result("plugin:campus-printer|status"),
     installCampusPrinter: (prompt) =>
       result("plugin:campus-printer|install", { prompt }),
+    campusPrinterQueue: () => result("plugin:campus-printer|queue_status"),
     addCampusPrintMenu: (label) =>
       result("plugin:campus-printer|add_menu", { label }),
     campusPrintRequest: () => result("plugin:campus-printer|print_request"),

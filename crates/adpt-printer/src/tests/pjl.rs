@@ -8,6 +8,14 @@ fn detect_recognizes_pdf_and_postscript() {
         Some(Language::PostScript)
     );
     assert_eq!(Language::detect(b"PK\x03\x04"), None);
+    // A prefix before the header is tolerated up to the 1024-byte window.
+    assert_eq!(
+        Language::detect(b"\xef\xbb\xbf%PDF-1.4"),
+        Some(Language::Pdf)
+    );
+    let mut late = vec![b' '; 1020];
+    late.extend_from_slice(b"%PDF-1.4");
+    assert_eq!(Language::detect(&late), None);
     assert_eq!(Language::detect(b""), None);
 }
 

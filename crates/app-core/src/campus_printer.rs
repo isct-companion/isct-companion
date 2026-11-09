@@ -21,6 +21,15 @@ use serde::Serialize;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+#[cfg(windows)]
+pub mod ipp;
+
+#[cfg(windows)]
+enum PrintDocument {
+    File(std::path::PathBuf),
+    Rendered { bytes: Vec<u8>, title: String },
+}
+
 /// The account whose name is the student ID.
 const STUDENT_ACCOUNT: SchoolAuthProfile = SchoolAuthProfile::TokyoTech;
 /// Long enough for a slow campus network, short enough to answer a
@@ -177,6 +186,16 @@ impl Core {
         path: std::path::PathBuf,
         options: PrintOptions,
     ) -> CampusPrintOutcome {
+        self.print_document(PrintDocument::File(path), options)
+            .await
+    }
+
+    #[cfg(windows)]
+    async fn print_document(
+        &self,
+        input: PrintDocument,
+        options: PrintOptions,
+    ) -> CampusPrintOutcome {
         use crate::runtime_tasks::RuntimeTaskError;
         use adpt_printer::{document, lpd};
         let account = self.campus_printer_account().await;
@@ -192,7 +211,18 @@ impl Core {
             .tasks()
             .run(async move {
                 tokio::task::spawn_blocking(move || {
-                    let sent = document::print(adpt_printer::ADDRESS, &student, &path, &options);
+                    let sent = match input {
+                        PrintDocument::File(path) => {
+                            document::print(adpt_printer::ADDRESS, &student, &path, &options)
+                        }
+                        PrintDocument::Rendered { bytes, title } => document::print_bytes(
+                            adpt_printer::ADDRESS,
+                            &student,
+                            &bytes,
+                            &title,
+                            &options,
+                        ),
+                    };
                     log::info!("[campus-printer] print {sent:?}");
                     sent
                 })

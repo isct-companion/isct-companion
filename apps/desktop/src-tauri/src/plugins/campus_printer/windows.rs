@@ -5,9 +5,10 @@
 //!
 //! The entry is one named verb under the current user's
 //! `SystemFileAssociations\.pdf`, so it needs no administrator and leaves
-//! the default PDF app, double-click and Open with alone. No port monitor or
-//! driver is installed: a port monitor needs SYSTEM, and Windows Protected
-//! Print mode blocks third-party ones anyway.
+//! the default PDF app, double-click and Open with alone. Every other format
+//! prints through the system printer (`queue`), which uses Windows' own IPP
+//! class driver: a port monitor needs SYSTEM, and Windows Protected Print
+//! mode blocks third-party ones anyway.
 use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, CommandError};
 use app_core::campus_printer::{CampusPrintOutcome, PrintOptions};

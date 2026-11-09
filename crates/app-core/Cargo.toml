@@ -14,7 +14,7 @@ workspace-archives = ["dep:zip"]
 agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
 # The campus printer; desktop only, the phones never print to it.
-campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "tokio/net"]
+campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "dep:ipp", "tokio/net"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
@@ -67,6 +67,9 @@ adpt-cups = { path = "../adpt-cups", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+
+[target.'cfg(windows)'.dependencies]
+ipp = { version = "8", default-features = false, optional = true }
 
 [[example]]
 name = "export-types"

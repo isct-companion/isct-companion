@@ -64,14 +64,28 @@ pub fn print(
         return Err(PrintError::Copies);
     }
     let document = std::fs::read(path).map_err(PrintError::File)?;
-    let language = pjl::Language::detect(&document).ok_or(PrintError::NotPrintable)?;
+    let title = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    print_bytes(server, student, &document, &title, options)
+}
+
+/// Sends `copies` uploads of a document already in memory, such as the PDF
+/// Windows rendered for the system print queue. Same contract as [`print`].
+pub fn print_bytes(
+    server: SocketAddr,
+    student: &StudentId,
+    document: &[u8],
+    title: &str,
+    options: &PrintOptions,
+) -> Result<u32, PrintError> {
+    if !(1..=MAX_COPIES).contains(&options.copies) {
+        return Err(PrintError::Copies);
+    }
+    let language = pjl::Language::detect(document).ok_or(PrintError::NotPrintable)?;
     let header = pjl::header(language, &options.settings);
-    let title = lpd::sanitize(
-        &path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-    );
+    let title = lpd::sanitize(title);
     let host = lpd::local_hostname();
     let data_len = (header.len() + document.len() + pjl::JOB_END.len()) as u64;
     let mut number = lpd::first_job_number();
@@ -83,10 +97,7 @@ pub fn print(
             title: &title,
         };
         number = (number + 1) % 1000;
-        let mut data = header
-            .as_slice()
-            .chain(document.as_slice())
-            .chain(pjl::JOB_END);
+        let mut data = header.as_slice().chain(document).chain(pjl::JOB_END);
         lpd::send(server, QUEUE, &job, &mut data, data_len)
             .map_err(|error| PrintError::Lpd { accepted, error })?;
     }

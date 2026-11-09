@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 160 checks must be re-run before the next release.**
+**5 of 161 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**155 checks have never been run or could not be run:**
+**156 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -51,6 +51,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-CAMPUS-PRINTER-QUEUE` — never verified
+- `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` — never verified
 - `DESKTOP-CAMPUS-PRINTER-WINDOWS` — never verified
 - `DESKTOP-ABOUT-PAGE` — never verified
 - `DESKTOP-ABOUT-DESIGN` — never verified
@@ -214,6 +215,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_wifi.rs |
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
@@ -2288,6 +2290,80 @@ crates/app-core/src/tests.
 - `apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs`
 - `apps/desktop/src/pages/tools/CampusPrinter.tsx`
+
+**Last recorded** never run
+
+### The Windows system printer sends any app's print to the campus printer (`DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE`)
+
+**Area** desktop · **Persona** 修士課程 1年・前期課程 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows 11 desktop build of this commit (then a Windows 10 22H2 one),
+the Tokyo Tech Portal account of a master's student saved in
+学校アカウント, administrator approval, a Word or PowerPoint file and a
+photo, ScienceTokyo Wi-Fi, and access to the print release or billing
+page. WSL or Docker installed on one of the two machines.
+
+**Steps**
+
+1. Open ツール → 学内プリンタ, press システムプリンタを追加 and approve
+   the administrator prompt; then run
+   `netsh int ipv4 show excludedportrange protocol=tcp` and compare it
+   with the port in Settings → Printers & scanners → the queue's port.
+   - *Why:* Windows queries the receiver while it installs the IPP class-driver
+     queue, so only a real install shows the attributes are enough. The
+     port must lie in 21000–28999 and outside every excluded range, or
+     a reboot can take it away.
+2. Print the Word file (two copies, collate unchecked, two-sided,
+   colour) and the photo from Photos, then watch the Windows print
+   list and check the billing page.
+   - *Why:* Windows renders each app's output to PDF only through its own class
+     driver. The jobs must leave the Windows list within seconds (the
+     printer gives no feedback, so the queue never waits for it), the
+     uncollated request must still print, and both must be billed to
+     the student and wait for release.
+3. Quit IsctCompanion from the tray, print the photo again, then start
+   the app.
+   - *Why:* With no receiver Windows marks the job failed. Once the app runs,
+     the job must be sent again rather than dropped; only a job that
+     still fails after that becomes a system notification.
+4. Leave ScienceTokyo Wi-Fi, print once more, and read the
+   notification.
+   - *Why:* Delivery fails after Windows has finished the job, so the only
+     report is the app's own notification, in the UI language.
+5. Reboot the machine with WSL or Docker, start the app, and print.
+   - *Why:* Hyper-V reserves port ranges at boot; the saved port must still
+     bind and the queue must print without a repair.
+
+**Where to look**
+
+The 学内プリンタ page, Printers & scanners and its print list, the
+excluded port ranges, the system notifications, and the billing page.
+
+**Expected**
+
+The queue installs on both Windows versions on a port outside the
+dynamic range; prints from Word and Photos are billed to the student
+and leave the Windows list at once; a job printed while the app was
+closed is sent when it starts; an off-campus delivery failure is a
+notification; printing works after a reboot with WSL or Docker.
+
+**Why this is manual**
+
+Needs administrator approval, the Windows spooler and IPP class
+driver, real apps' print dialogs, the campus network and the
+printer's billing. Option parsing and the queue cleanup rules are in
+crates/app-core/src/tests/campus_printer_ipp.rs and
+apps/desktop/src-tauri/src/tests/campus_printer_queue.rs.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs`
+- `crates/app-core/src/campus_printer/ipp.rs`
+- `crates/app-core/src/campus_printer/ipp/attributes.rs`
 
 **Last recorded** never run
 

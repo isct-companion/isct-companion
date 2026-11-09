@@ -17,8 +17,8 @@ fn plugin(tool: &str, os: &str) -> tauri_build::InlinedPlugin {
     use tauri_build::{DefaultPermissionRule, InlinedPlugin};
     let (commands, main): (&'static [&'static str], &'static [&'static str]) = match (tool, os) {
         ("campus-printer", "windows") => (
-            &["status", "add_menu", "print_request", "print"],
-            &["allow-status", "allow-add-menu"],
+            &["status", "add_menu", "install", "queue_status", "print_request", "print"],
+            &["allow-status", "allow-add-menu", "allow-install", "allow-queue-status"],
         ),
         ("campus-printer", _) => (&["status", "install"], &[]),
         ("campus-vpn", _) => (&["status", "connect", "disconnect", "keep", "install"], &[]),
