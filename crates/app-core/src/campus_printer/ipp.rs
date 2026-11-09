@@ -258,6 +258,12 @@ impl CampusPrintQueue {
             }
             _ => status(&mut response, StatusCode::ServerErrorOperationNotSupported),
         }
+        // Job operations, and any refusal, say what Windows asked and got;
+        // the printer and job polls that succeed are not logged.
+        let answer = response.header().operation_or_status;
+        if answer != StatusCode::SuccessfulOk as i16 || !matches!(operation, 9..=11) {
+            log::info!("[campus-printer] IPP operation 0x{operation:04x} answered 0x{answer:04x}");
+        }
         Ok(response.to_bytes().to_vec())
     }
     fn submit(

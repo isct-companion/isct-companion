@@ -9,6 +9,31 @@
 //! failures reach the person as notifications.
 use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, CommandError};
+use ::windows::{
+    core::{w, HSTRING, PCWSTR},
+    Win32::{
+        Foundation::{CloseHandle, GetLastError, ERROR_CANCELLED},
+        Graphics::{
+            Gdi::DEVMODEW,
+            Printing::{
+                ClosePrinter, EnumJobsW, OpenPrinterW, SetJobW, JOB_CONTROL_DELETE,
+                JOB_CONTROL_RESTART, JOB_INFO_1W, JOB_STATUS_BLOCKED_DEVQ, JOB_STATUS_COMPLETE,
+                JOB_STATUS_DELETED, JOB_STATUS_DELETING, JOB_STATUS_ERROR, JOB_STATUS_OFFLINE,
+                JOB_STATUS_PAPEROUT, JOB_STATUS_PAUSED, JOB_STATUS_PRINTED, JOB_STATUS_PRINTING,
+                JOB_STATUS_RENDERING_LOCALLY, JOB_STATUS_RESTART, JOB_STATUS_RETAINED,
+                JOB_STATUS_SPOOLING, JOB_STATUS_USER_INTERVENTION, PRINTER_ACCESS_ADMINISTER,
+                PRINTER_DEFAULTSW, PRINTER_HANDLE,
+            },
+        },
+        System::Threading::{GetExitCodeProcess, WaitForSingleObject},
+        UI::{
+            Shell::{
+                ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+            },
+            WindowsAndMessaging::SW_HIDE,
+        },
+    },
+};
 use app_core::campus_printer::{
     ipp::{CampusPrintQueue, MAX_DOCUMENT_BYTES},
     CampusPrintOutcome, PrinterAccount,
@@ -35,31 +60,6 @@ use std::{
 use tauri::Manager;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use ::windows::{
-    core::{w, HSTRING, PCWSTR},
-    Win32::{
-        Foundation::{CloseHandle, GetLastError, ERROR_CANCELLED},
-        Graphics::{
-            Gdi::DEVMODEW,
-            Printing::{
-                ClosePrinter, EnumJobsW, OpenPrinterW, SetJobW, JOB_CONTROL_DELETE,
-                JOB_CONTROL_RESTART, JOB_INFO_1W, JOB_STATUS_BLOCKED_DEVQ, JOB_STATUS_COMPLETE,
-                JOB_STATUS_DELETED, JOB_STATUS_DELETING, JOB_STATUS_ERROR, JOB_STATUS_OFFLINE,
-                JOB_STATUS_PAPEROUT, JOB_STATUS_PAUSED, JOB_STATUS_PRINTED, JOB_STATUS_PRINTING,
-                JOB_STATUS_RENDERING_LOCALLY, JOB_STATUS_RESTART, JOB_STATUS_RETAINED,
-                JOB_STATUS_SPOOLING, JOB_STATUS_USER_INTERVENTION, PRINTER_ACCESS_ADMINISTER,
-                PRINTER_DEFAULTSW, PRINTER_HANDLE,
-            },
-        },
-        System::Threading::{GetExitCodeProcess, WaitForSingleObject},
-        UI::{
-            Shell::{
-                ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-            },
-            WindowsAndMessaging::SW_HIDE,
-        },
-    },
-};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Endpoint {
@@ -72,10 +72,14 @@ impl Endpoint {
     fn path(&self) -> String {
         format!("/ipp/{}", self.token)
     }
-    /// The one URL the Windows queue stores and the receiver reports as
-    /// `printer-uri-supported`, so Windows never switches scheme mid-job.
+    /// The URL the Windows queue stores.
     fn http_uri(&self) -> String {
         format!("http://127.0.0.1:{}{}", self.port, self.path())
+    }
+    /// The same endpoint as the receiver reports it (`printer-uri-supported`,
+    /// `job-uri`): Windows' IPP client expects the `ipp` scheme there.
+    fn ipp_uri(&self) -> String {
+        format!("ipp://127.0.0.1:{}{}", self.port, self.path())
     }
     /// A private token on a port outside the range Windows hands out and
     /// reserves for Hyper-V, WSL and Docker at boot. Anything else is
@@ -143,6 +147,7 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.trim_start().starts_with("application/ipp"))
     {
+        log::warn!("[campus-printer] refused a request that is not IPP");
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
     // No CORS and an unguessable per-user route; the Windows queue is also ACLed.
@@ -158,8 +163,14 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
     .await
     {
         Ok(Ok(body)) => body,
-        Ok(Err(_)) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-        Err(_) => return StatusCode::REQUEST_TIMEOUT.into_response(),
+        Ok(Err(error)) => {
+            log::warn!("[campus-printer] refused a request body: {error}");
+            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+        }
+        Err(_) => {
+            log::warn!("[campus-printer] a request body did not arrive within {BODY_TIMEOUT:?}");
+            return StatusCode::REQUEST_TIMEOUT.into_response();
+        }
     };
     match state.queue.handle(body).await {
         Ok(bytes) => ([(header::CONTENT_TYPE, "application/ipp")], bytes).into_response(),
@@ -266,7 +277,7 @@ impl PrintServer {
         let state = HttpState {
             queue: CampusPrintQueue::new_with_delivery_reporter(
                 core_ports::core(app),
-                endpoint.http_uri(),
+                endpoint.ipp_uri(),
                 format!("urn:uuid:{}", endpoint.token),
                 Arc::new(move |title: String, outcome: CampusPrintOutcome| {
                     let app = app_for_report.clone();
@@ -435,6 +446,15 @@ async fn cleanup_queue(app: tauri::AppHandle, stop: CancellationToken) {
     let mut tracked = HashMap::<u32, Tracked>::new();
     let mut reported = HashSet::<u32>::new();
     let mut interval = tokio::time::interval(QUEUE_POLL_INTERVAL);
+    // The same failure every two seconds (the queue not installed yet) is
+    // logged once, until it changes.
+    let mut last_warning = None::<String>;
+    let mut warn_once = move |message: String| {
+        if last_warning.as_ref() != Some(&message) {
+            log::warn!("[campus-printer] {message}");
+            last_warning = Some(message);
+        }
+    };
     loop {
         tokio::select! {
             _ = stop.cancelled() => break,
@@ -443,7 +463,7 @@ async fn cleanup_queue(app: tauri::AppHandle, stop: CancellationToken) {
                     match tauri::async_runtime::spawn_blocking(identity).await {
                         Ok(Ok((_, _, name))) => printer_name = Some(name),
                         Ok(Err(error)) => {
-                            log::warn!("[campus-printer] could not identify the Windows queue for cleanup: {error}");
+                            warn_once(format!("could not identify the Windows queue for cleanup: {error}"));
                             continue;
                         }
                         Err(error) => {
@@ -456,7 +476,7 @@ async fn cleanup_queue(app: tauri::AppHandle, stop: CancellationToken) {
                 let jobs = match tauri::async_runtime::spawn_blocking(move || enum_spool_jobs(&name)).await {
                     Ok(Ok(jobs)) => jobs,
                     Ok(Err(error)) => {
-                        log::warn!("[campus-printer] could not inspect print queue: {error}");
+                        warn_once(format!("could not inspect print queue: {error}"));
                         continue;
                     }
                     Err(error) => {
