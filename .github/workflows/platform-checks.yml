@@ -2,23 +2,60 @@ name: Platform checks
 
 on:
   workflow_dispatch:
-  # dev is the disposable, release-candidate branch. Every new candidate SHA
-  # gets the complete platform suite once; main's release gate reuses this
-  # exact run instead of rebuilding the same tree.
+  # Every push to a working branch gets the full suite. A merge into main does
+  # not: the branch had to be up to date and pass, so main holds a tree that
+  # already passed.
   push:
-    branches: [dev]
+    branches-ignore: [main]
+  # A fork's pushes happen outside this repository, so only this trigger sees
+  # them. The pull request's run is the one main requires.
+  pull_request:
+    branches: [main]
+  # Branches can read only their own caches and the default branch's, and one
+  # set nearly fills the repository's 10 GB, so only main saves them. This run
+  # exists to save them: it gates nothing, and a failure needs no fix on main.
+  schedule:
+    - cron: '0 18 * * 0' # Monday 03:00 in Japan
 
 permissions:
   contents: read
 
-# A newer release candidate supersedes the run still in progress.
+# A newer commit supersedes the run still in progress.
 concurrency:
   group: platform-checks-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  route:
+    name: Route
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+    steps:
+      # A push to a branch with an open pull request also starts that pull
+      # request's run, so the suite would run twice for every fix.
+      - id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          run=true
+          if [[ "$EVENT" == push ]]; then
+            open=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq length)
+            [[ "$open" == 0 ]] || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   app-store-tools:
     name: App Store tooling
+    needs: route
+    if: needs.route.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +73,8 @@ jobs:
 
   frontend:
     name: Frontend
+    needs: route
+    if: needs.route.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -60,6 +99,8 @@ jobs:
 
   windows:
     name: Windows backend
+    needs: route
+    if: needs.route.outputs.run == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -69,6 +110,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       # The same lint as the Mac job: each OS compiles code the other never sees.
       - name: Desktop lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -86,6 +129,8 @@ jobs:
 
   apple:
     name: Apple Rust (${{ matrix.target }})
+    needs: route
+    if: needs.route.outputs.run == 'true'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -104,6 +149,8 @@ jobs:
         with:
           workspaces: . -> target
           key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       - name: Check desktop shell or portable Core
         shell: bash
         run: |
@@ -124,6 +171,8 @@ jobs:
 
   android:
     name: Android Core (arm64)
+    needs: route
+    if: needs.route.outputs.run == 'true'
     runs-on: ubuntu-latest
     env:
       NDK_VERSION: 27.2.12479018
@@ -146,6 +195,8 @@ jobs:
         with:
           workspaces: . -> target
           key: aarch64-linux-android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       - name: Configure Android toolchain
         run: |
           toolchain="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64"
@@ -153,3 +204,29 @@ jobs:
           echo "CC_aarch64_linux_android=$toolchain/bin/aarch64-linux-android34-clang" >> "$GITHUB_ENV"
           echo "AR_aarch64_linux_android=$toolchain/bin/llvm-ar" >> "$GITHUB_ENV"
       - run: cargo check -p app-core --locked --target aarch64-linux-android
+
+  # The one check main's ruleset requires. Only a pull request's run reports
+  # under that name: GitHub counts a skipped job as passed, so a skipped branch
+  # push must not be able to satisfy it.
+  result:
+    name: ${{ github.event_name == 'pull_request' && 'Platform checks' || 'Platform checks (branch)' }}
+    if: always()
+    needs: [route, app-store-tools, frontend, windows, apple, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          ROUTE: ${{ needs.route.result }}
+          RUN: ${{ needs.route.outputs.run }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          if [[ "$ROUTE" == success && "$RUN" == false ]]; then
+            echo "The open pull request's run covers this commit."
+            exit 0
+          fi
+          for result in $RESULTS; do
+            if [[ "$result" != success ]]; then
+              echo "Job results: $RESULTS" >&2
+              exit 1
+            fi
+          done

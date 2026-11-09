@@ -20,8 +20,8 @@ git status --short
 ```
 
 Work in the main checkout on `main`, level with `origin/main` (neither ahead
-nor behind), then `git switch -c dev`. Files the user has changed but not
-committed are theirs: leave them alone and stage only by path in step 5.
+nor behind), then `git switch -c release/<version>`. Files the user has changed
+but not committed are theirs: leave them alone and stage only by path in step 5.
 
 ## 2. Bump
 
@@ -89,32 +89,32 @@ attribution line.
 
 ## 6. Merge, tag and push
 
-`main` takes a commit only from a pull request from the `dev` branch, once
-`Main release gate` has passed. The gate waits for `Platform checks` on that
-exact commit of `dev`. If `origin/dev` exists, someone else's candidate is on
-it: stop and ask.
+`main` takes a commit only from a squashed pull request whose `Platform checks`
+passed on a branch level with `main`. Opening the pull request needs the user's
+approval, each time.
 
 ```bash
-git push origin dev
-gh pr create --base main --head dev \
+git push -u origin release/<version>
+gh pr create --base main --head release/<version> \
   --title "Release IsctCompanion <version>" --body-file docs/releases/<version>.md
 ```
 
-Once every check on the pull request has passed, fast-forward `main` to the
-commit, tag it and push the tag. GitHub accepts the push and marks the pull
-request merged, and the gate's workflow then deletes `origin/dev`. The rebase
-button would rewrite the commit instead.
+Once the check has passed, squash the pull request. The squash creates the
+commit to release, so tag `main` only after it. Before tagging, confirm the tip
+of `origin/main` is the release commit.
 
 ```bash
-git push origin dev:main
-git tag -a v<version> -m "IsctCompanion <version>" dev
-git push origin v<version>
+gh pr merge release/<version> --squash
 git switch main
 git pull --ff-only origin main
-git branch -d dev
+git log -1 --format=%s
+git tag -a v<version> -m "IsctCompanion <version>"
+git push origin v<version>
+git branch -D release/<version>
 ```
 
-These pushes need no further approval.
+The merge and the tag push need no further approval. The branch needs `-D`:
+after a squash its own commits are not in `main`.
 
 ## 7. Watch the verify job
 
