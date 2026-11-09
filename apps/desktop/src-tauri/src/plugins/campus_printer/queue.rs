@@ -17,7 +17,7 @@ use ::windows::{
             Gdi::DEVMODEW,
             Printing::{
                 ClosePrinter, EnumJobsW, OpenPrinterW, SetJobW, JOB_CONTROL_DELETE,
-                JOB_CONTROL_RESTART, JOB_INFO_1W, JOB_STATUS_BLOCKED_DEVQ, JOB_STATUS_COMPLETE,
+                JOB_CONTROL_RESTART, JOB_INFO_2W, JOB_STATUS_BLOCKED_DEVQ, JOB_STATUS_COMPLETE,
                 JOB_STATUS_DELETED, JOB_STATUS_DELETING, JOB_STATUS_ERROR, JOB_STATUS_OFFLINE,
                 JOB_STATUS_PAPEROUT, JOB_STATUS_PAUSED, JOB_STATUS_PRINTED, JOB_STATUS_PRINTING,
                 JOB_STATUS_RENDERING_LOCALLY, JOB_STATUS_RESTART, JOB_STATUS_RETAINED,
@@ -372,10 +372,13 @@ const RETRY_GRACE: Duration = Duration::from_secs(30);
 /// How long a job may sit in a state none of the rules name.
 const UNKNOWN_JOB_GRACE: Duration = Duration::from_secs(60);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct SpoolJob {
     id: u32,
     status: u32,
+    /// What Windows says about the job (its status text, data type, driver
+    /// and size), for the log when it fails.
+    detail: String,
 }
 
 /// What the cleanup loop does with one Windows job. The receiver answers
@@ -496,6 +499,7 @@ async fn cleanup_queue(app: tauri::AppHandle, stop: CancellationToken) {
                     let command = match action {
                         SpoolAction::Keep => continue,
                         SpoolAction::Restart => {
+                            log::info!("[campus-printer] Windows job {} failed (0x{:08X}): {}", job.id, job.status, job.detail);
                             entry.restarted = true;
                             entry.since = Instant::now();
                             JOB_CONTROL_RESTART
@@ -505,7 +509,7 @@ async fn cleanup_queue(app: tauri::AppHandle, stop: CancellationToken) {
                             if reported.insert(job.id) {
                                 let message = crate::window_close::text(&app, "campusPrint.notice.queueFailed")
                                     .replace("{{code}}", &format!("0x{code:08X}"));
-                                log::warn!("[campus-printer] Windows job {} failed with status 0x{code:08X}", job.id);
+                                log::warn!("[campus-printer] Windows job {} failed with status 0x{code:08X}: {}", job.id, job.detail);
                                 notify(&app, message).await;
                             }
                             JOB_CONTROL_DELETE
@@ -583,7 +587,7 @@ fn enum_spool_jobs(printer_name: &str) -> Result<Vec<SpoolJob>, String> {
     let result = (|| {
         let mut needed = 0u32;
         let mut returned = 0u32;
-        let _ = unsafe { EnumJobsW(printer, 0, u32::MAX, 1, None, &mut needed, &mut returned) };
+        let _ = unsafe { EnumJobsW(printer, 0, u32::MAX, 2, None, &mut needed, &mut returned) };
         if needed == 0 {
             return Ok(Vec::new());
         }
@@ -602,29 +606,48 @@ fn enum_spool_jobs(printer_name: &str) -> Result<Vec<SpoolJob>, String> {
                 printer,
                 0,
                 u32::MAX,
-                1,
+                2,
                 Some(bytes),
                 &mut needed,
                 &mut returned,
             )
         }
         .map_err(|error| format!("EnumJobsW: {error}"))?;
-        if returned as usize > byte_len / std::mem::size_of::<JOB_INFO_1W>() {
+        if returned as usize > byte_len / std::mem::size_of::<JOB_INFO_2W>() {
             return Err("Windows returned an invalid print-job count".into());
         }
         let infos = unsafe {
-            std::slice::from_raw_parts(buffer.as_ptr().cast::<JOB_INFO_1W>(), returned as usize)
+            std::slice::from_raw_parts(buffer.as_ptr().cast::<JOB_INFO_2W>(), returned as usize)
         };
         Ok(infos
             .iter()
             .map(|job| SpoolJob {
                 id: job.JobId,
                 status: job.Status,
+                detail: format!(
+                    "status text {:?}, data type {:?}, processor {:?}, driver {:?}, {} bytes, {} pages",
+                    text(job.pStatus),
+                    text(job.pDatatype),
+                    text(job.pPrintProcessor),
+                    text(job.pDriverName),
+                    job.Size,
+                    job.TotalPages,
+                ),
             })
             .collect())
     })();
     let _ = unsafe { ClosePrinter(printer) };
     result
+}
+
+/// A string the spooler returned inside the job buffer, or empty.
+fn text(value: ::windows::core::PWSTR) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    // SAFETY: EnumJobsW points these into the buffer it filled, which
+    // outlives this call, and each is NUL-terminated.
+    unsafe { value.to_string() }.unwrap_or_default()
 }
 
 fn control_spool_job(printer_name: &str, job_id: u32, command: u32) -> Result<(), String> {
