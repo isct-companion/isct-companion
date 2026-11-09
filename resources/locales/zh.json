@@ -852,6 +852,7 @@
   "tools.campusPrinter.systemPrinterReady": "系统打印机已添加",
   "tools.campusPrinter.systemPrinterMissing": "未添加系统打印机",
   "tools.campusPrinter.systemPrinterNeedsRepair": "系统打印机需要修复",
+  "tools.campusPrinter.systemPrinterUnknown": "无法读取系统打印机状态",
   "tools.campusPrinter.addPdfMenu": "添加 PDF 右键菜单",
   "tools.campusPrinter.adding": "正在添加…",
   "tools.campusPrinter.added": "已添加",

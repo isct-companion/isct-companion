@@ -852,6 +852,7 @@
   "tools.campusPrinter.systemPrinterReady": "システムプリンタ追加済み",
   "tools.campusPrinter.systemPrinterMissing": "システムプリンタ未追加",
   "tools.campusPrinter.systemPrinterNeedsRepair": "システムプリンタの修復が必要です",
+  "tools.campusPrinter.systemPrinterUnknown": "システムプリンタの状態を確認できません",
   "tools.campusPrinter.addPdfMenu": "PDF 右クリックメニューを追加",
   "tools.campusPrinter.adding": "追加中…",
   "tools.campusPrinter.added": "追加しました",

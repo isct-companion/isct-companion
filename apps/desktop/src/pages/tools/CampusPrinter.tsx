@@ -22,11 +22,12 @@ const SETUP_TEXT: Record<
   failed: "tools.campusPrinter.couldNotAdd",
 };
 
-/** Windows: the system printer's line on the card; nothing when unknown. */
-const QUEUE_TEXT: Partial<Record<CampusPrinterQueue, MessageKey>> = {
+/** Windows: the system printer's line on the card. */
+const QUEUE_TEXT: Record<CampusPrinterQueue, MessageKey> = {
   ready: "tools.campusPrinter.systemPrinterReady",
   "not-installed": "tools.campusPrinter.systemPrinterMissing",
   "repair-required": "tools.campusPrinter.systemPrinterNeedsRepair",
+  unavailable: "tools.campusPrinter.systemPrinterUnknown",
 };
 
 /**

@@ -852,6 +852,7 @@
   "tools.campusPrinter.systemPrinterReady": "System printer added",
   "tools.campusPrinter.systemPrinterMissing": "System printer not added",
   "tools.campusPrinter.systemPrinterNeedsRepair": "System printer needs repair",
+  "tools.campusPrinter.systemPrinterUnknown": "Couldn't read the system printer",
   "tools.campusPrinter.addPdfMenu": "Add PDF right-click entry",
   "tools.campusPrinter.adding": "Adding…",
   "tools.campusPrinter.added": "Added",

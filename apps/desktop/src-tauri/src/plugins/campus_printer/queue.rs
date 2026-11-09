@@ -767,7 +767,7 @@ try {{
  if ($existing -and ($existing.DriverName -ne 'Microsoft IPP Class Driver' -or $existing.Location -ne $owner)) {{ throw 'Printer name belongs to another queue' }}
  # Only migrate this user's old app queues, never arbitrary printers or jobs.
  $stage='inspect-legacy-queues'
- $legacy=@(Get-Printer -Full | Where-Object {{ $_.Name -match '^IsctCompanion Campus Printer - [0-9a-f]{{32}}$' -and $_.DriverName -eq 'Microsoft IPP Class Driver' -and $_.PermissionSDDL -and $_.PermissionSDDL.Contains(';;;{sid})') }})
+ $legacy=@(Get-Printer -Name 'IsctCompanion Campus Printer - *' -Full -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -match '^IsctCompanion Campus Printer - [0-9a-f]{{32}}$' -and $_.DriverName -eq 'Microsoft IPP Class Driver' -and $_.PermissionSDDL -and $_.PermissionSDDL.Contains(';;;{sid})') }})
  $replace=$existing -and $existing.Comment -ne $marker
  $remove=@($legacy)
  if ($replace) {{ $remove+= $existing }}
@@ -919,7 +919,10 @@ pub(super) async fn queue_status(
         tauri::async_runtime::spawn_blocking(move || probe_queue(marker.as_deref()))
             .await
             .map_err(|e| e.to_string())?
-            .unwrap_or(QueueState::Unavailable),
+            .unwrap_or_else(|error| {
+                log::warn!("[campus-printer] could not read the system printer: {error}");
+                QueueState::Unavailable
+            }),
     )
 }
 
@@ -930,7 +933,7 @@ fn probe_queue(marker: Option<&str>) -> Result<QueueState, String> {
 $p=Get-Printer -Name '{name}' -Full -ErrorAction SilentlyContinue
 if ($p) {{ $p | Select-Object DriverName,Location,Comment | ConvertTo-Json -Compress }}
 else {{
- $old=@(Get-Printer -Full | Where-Object {{ $_.Name -match '^IsctCompanion Campus Printer - [0-9a-f]{{32}}$' -and $_.DriverName -eq 'Microsoft IPP Class Driver' -and $_.PermissionSDDL -and $_.PermissionSDDL.Contains(';;;{sid})') }})
+ $old=@(Get-Printer -Name 'IsctCompanion Campus Printer - *' -Full -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -match '^IsctCompanion Campus Printer - [0-9a-f]{{32}}$' -and $_.DriverName -eq 'Microsoft IPP Class Driver' -and $_.PermissionSDDL -and $_.PermissionSDDL.Contains(';;;{sid})') }})
  if ($old.Count -gt 0) {{ '{{}}' }}
 }}"#
     );
@@ -940,7 +943,10 @@ else {{
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
-        return Err("Could not inspect Windows printers".into());
+        return Err(format!(
+            "Windows printers could not be read: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
     if output.stdout.iter().all(u8::is_ascii_whitespace) {
         return Ok(QueueState::NotInstalled);
