@@ -911,7 +911,11 @@ export function createTauriDesktopBridge(
     campusPrinterStatus: () => result("plugin:campus-printer|status"),
     installCampusPrinter: (prompt) =>
       result("plugin:campus-printer|install", { prompt }),
-    campusPrinterQueue: () => result("plugin:campus-printer|queue_status"),
+    campusPrinterQueue: async () =>
+      requireString(
+        "plugin:campus-printer|queue_status",
+        await invokeCommand("plugin:campus-printer|queue_status"),
+      ) as CampusPrinterQueue,
     addCampusPrintMenu: (label) =>
       result("plugin:campus-printer|add_menu", { label }),
     campusPrintRequest: () => result("plugin:campus-printer|print_request"),
