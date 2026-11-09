@@ -177,7 +177,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "notes.rs",
         "../../adpt-isct/src/lms.rs",
         "../../adpt-isct/src/kyomu/search.rs",
-        "../../app-ocr/src/recognition.rs",
     ];
     let mut output = quote! { use crate::json::JsonValue; use serde::{Serialize, Deserialize}; use std::collections::HashMap; };
     for name in files {

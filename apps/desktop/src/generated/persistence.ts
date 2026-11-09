@@ -1908,7 +1908,12 @@ export type MatrixPoint = { x: number; y: number };
 
 export type MatrixReading = { text: string; confidence: number };
 
-export type MatrixVote = { text: string; confidence: number; stable: boolean };
+export type MatrixVote = {
+  text: string;
+  confidence: number;
+  stable: boolean;
+  level: MatrixConfidence;
+};
 
 export type MatrixConfidence = "high" | "medium" | "low";
 

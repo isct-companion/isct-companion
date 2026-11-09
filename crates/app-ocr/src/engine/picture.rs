@@ -9,7 +9,7 @@ use crate::MatrixOcrError;
 use app_core::matrix_scan::{
     MatrixAnalysis, MatrixFullLuma, MatrixPicture, MatrixYuvFrame, MatrixYuvMatrix,
 };
-use image::{imageops::FilterType, RgbImage};
+use image::{imageops::FilterType, GrayImage, Luma, RgbImage};
 
 /// Long side of the luma the cells are cut from (`KEYFRAME_SIDE` in the
 /// desktop camera transport).
@@ -42,14 +42,19 @@ fn analysis(image: &RgbImage) -> MatrixAnalysis {
     }
 }
 
+/// The Rec.601 luma plane cells are cut from.
+pub(super) fn rec601(image: &RgbImage) -> GrayImage {
+    GrayImage::from_fn(image.width(), image.height(), |x, y| {
+        let p = image.get_pixel(x, y);
+        Luma([grid::luma(p[0], p[1], p[2])])
+    })
+}
+
 fn full_luma(image: &RgbImage) -> MatrixFullLuma {
     MatrixFullLuma {
         width: image.width(),
         height: image.height(),
-        luma: image
-            .pixels()
-            .map(|p| grid::luma(p[0], p[1], p[2]))
-            .collect(),
+        luma: rec601(image).into_raw(),
     }
 }
 

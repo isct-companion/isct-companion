@@ -313,7 +313,7 @@ struct MatrixImportSection: View {
     @Binding var matrix: String
     @Environment(AppModel.self) private var model
     @State private var cells = Array(repeating: "", count: 70)
-    @State private var confidence: [Double?] = Array(repeating: nil, count: 70)
+    @State private var confidence: [MatrixConfidence?] = Array(repeating: nil, count: 70)
     @State private var editing = false
     @State private var camera: LiveScan?
     @State private var photo: PhotosPickerItem?
@@ -466,7 +466,7 @@ struct MatrixImportSection: View {
     private func apply(_ result: [MatrixCell]) {
         guard result.count == 70 else { return }
         cells = result.map(\.text)
-        confidence = result.map(\.confidence)
+        confidence = result.map(\.level)
         editing = true
         note = t("settings.credentialImport.checkTheColouredCellsAgainst")
     }
@@ -483,7 +483,7 @@ struct MatrixImportSection: View {
                 return
             }
             cells = result.map(\.text)
-            confidence = result.map(\.confidence)
+            confidence = result.map(\.level)
             editing = true
             note = t("settings.credentialImport.checkTheColouredCellsAgainst")
         } catch {
@@ -507,7 +507,7 @@ struct MatrixImportSection: View {
 /// 7 rows × 10 columns (A–J), one letter each, tinted by Core's review level.
 private struct MatrixGrid: View {
     @Binding var cells: [String]
-    @Binding var confidence: [Double?]
+    @Binding var confidence: [MatrixConfidence?]
     @FocusState private var focus: Int?
 
     var body: some View {
@@ -550,8 +550,8 @@ private struct MatrixGrid: View {
     }
 
     private func fill(_ index: Int) -> Color {
-        guard let score = confidence[index] else { return Theme.surface2 }
-        switch matrixConfidence(text: cells[index], confidence: score) {
+        switch confidence[index] {
+        case nil: return Theme.surface2
         case .high: return Theme.okSoft
         case .medium: return Theme.warnSoft
         case .low: return Theme.dangerSoft

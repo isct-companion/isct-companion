@@ -24,7 +24,7 @@ pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
     }
 }
 
-#[cfg(any(test, feature = "training-tools"))]
+#[cfg(test)]
 pub(super) fn body_cells(corners: [Point; 4]) -> Vec<[Point; 4]> {
     (0..70)
         .map(|index| {

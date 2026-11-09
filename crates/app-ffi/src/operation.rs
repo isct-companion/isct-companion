@@ -67,7 +67,7 @@ pub enum OperationResult {
         file: crate::services::SchoolFile,
     },
     Recognitions {
-        cells: Vec<Recognition>,
+        cells: Vec<crate::MatrixCell>,
     },
     Document {
         value: JsonValue,

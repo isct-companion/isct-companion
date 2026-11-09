@@ -6,7 +6,8 @@ use crate::session::unavailable;
 use crate::{SdkError, Session};
 #[cfg(feature = "ocr")]
 use app_core::matrix_scan::{
-    MatrixCameraDriver, MatrixCameraSnapshot, MatrixScanError, MatrixYuvFrame, MatrixYuvMatrix,
+    MatrixCameraDriver, MatrixCameraSnapshot, MatrixScanError, MatrixVote, MatrixYuvFrame,
+    MatrixYuvMatrix,
 };
 use std::sync::Arc;
 
@@ -42,12 +43,34 @@ pub struct MatrixPoint {
     pub x: f64,
     pub y: f64,
 }
+/// How a scanned cell is shown for review; Core decides it, shells colour by it.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum MatrixConfidence {
+    High,
+    Medium,
+    Low,
+}
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MatrixCell {
     pub text: String,
-    pub confidence: f64,
     /// Confirmed by enough independent observations.
     pub stable: bool,
+    pub level: MatrixConfidence,
+}
+#[cfg(feature = "ocr")]
+impl From<MatrixVote> for MatrixCell {
+    fn from(vote: MatrixVote) -> Self {
+        use app_core::matrix_scan::MatrixConfidence as C;
+        Self {
+            text: vote.text,
+            stable: vote.stable,
+            level: match vote.level {
+                C::High => MatrixConfidence::High,
+                C::Medium => MatrixConfidence::Medium,
+                C::Low => MatrixConfidence::Low,
+            },
+        }
+    }
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MatrixCameraState {
@@ -80,15 +103,7 @@ impl From<MatrixCameraSnapshot> for MatrixCameraState {
             ready_cells: s.ready_cells as u32,
             elapsed_ms: s.capture_elapsed_ms,
             timed_out: s.timed_out,
-            cells: s
-                .cells
-                .into_iter()
-                .map(|c| MatrixCell {
-                    text: c.text,
-                    confidence: c.confidence,
-                    stable: c.stable,
-                })
-                .collect(),
+            cells: s.cells.into_iter().map(MatrixCell::from).collect(),
         }
     }
 }

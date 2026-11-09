@@ -307,10 +307,7 @@ fn a_photo_is_read_with_the_live_admission_and_evidence_rules() {
             assert!(vote.text.is_empty(), "cell {cell} must be left for review");
         } else {
             assert_eq!(vote.text, letter(cell));
-            assert_eq!(
-                matrix_confidence(&vote.text, vote.confidence),
-                MatrixConfidence::High
-            );
+            assert_eq!(vote.level, MatrixConfidence::High);
         }
         assert!(!vote.stable, "one photo is one observation");
     }

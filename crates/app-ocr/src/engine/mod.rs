@@ -1,12 +1,7 @@
 mod alphabet;
-pub use alphabet::{
-    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
-    MatrixAlphabetService,
-};
+pub use alphabet::{capture_matrix_frame, capture_matrix_keyframe, MatrixAlphabetService};
 #[cfg(feature = "training-tools")]
-pub use alphabet::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
-};
+pub use alphabet::{prepare_matrix_alphabet_input, MatrixAlphabetInput};
 mod geometry;
 mod grid;
 mod illumination;

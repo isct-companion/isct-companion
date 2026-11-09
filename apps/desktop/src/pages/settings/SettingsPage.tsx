@@ -92,7 +92,6 @@ function SettingsBody({
   showLoginPage,
   runScheduledTask,
   refreshReferences,
-  matrixOcrAvailable = false,
   capabilitiesReady = true,
 }: {
   platform: Platform;
@@ -115,7 +114,6 @@ function SettingsBody({
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   /** Whether reference data can be checked now (the desktop app). */
   refreshReferences?: boolean;
-  matrixOcrAvailable?: boolean;
   capabilitiesReady?: boolean;
 }) {
   const [developer, setDeveloper] = useDeveloperMode();
@@ -202,7 +200,6 @@ function SettingsBody({
         <SchoolAccounts
           notify={notify}
           showLoginPage={showLoginPage}
-          matrixOcrAvailable={matrixOcrAvailable}
         />
       </>
     ) : current === "study" ? (

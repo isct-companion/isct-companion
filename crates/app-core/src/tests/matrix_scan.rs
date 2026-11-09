@@ -62,11 +62,50 @@ fn each_cell_votes_only_over_its_own_qualified_frames_including_point_eight() {
 
 #[test]
 fn review_levels_split_at_the_shared_thresholds() {
-    assert_eq!(matrix_confidence("A", 0.9), MatrixConfidence::High);
-    assert_eq!(matrix_confidence("A", 0.89), MatrixConfidence::Medium);
-    assert_eq!(matrix_confidence("A", 0.75), MatrixConfidence::Medium);
-    assert_eq!(matrix_confidence("A", 0.74), MatrixConfidence::Low);
+    assert_eq!(matrix_confidence("A", 0.9, true), MatrixConfidence::High);
+    assert_eq!(matrix_confidence("A", 0.89, true), MatrixConfidence::Medium);
+    assert_eq!(matrix_confidence("A", 0.75, true), MatrixConfidence::Medium);
+    assert_eq!(matrix_confidence("A", 0.74, true), MatrixConfidence::Low);
+    // Without agreeing observations a high score is only worth a check, and a
+    // low one stays low.
+    assert_eq!(
+        matrix_confidence("A", 0.99, false),
+        MatrixConfidence::Medium
+    );
+    assert_eq!(
+        matrix_confidence("A", 0.75, false),
+        MatrixConfidence::Medium
+    );
+    assert_eq!(matrix_confidence("A", 0.74, false), MatrixConfidence::Low);
     // An empty or non-finite reading is never trusted, whatever the score.
-    assert_eq!(matrix_confidence("", 1.0), MatrixConfidence::Low);
-    assert_eq!(matrix_confidence("A", f64::NAN), MatrixConfidence::Low);
+    assert_eq!(matrix_confidence("", 1.0, true), MatrixConfidence::Low);
+    assert_eq!(
+        matrix_confidence("A", f64::NAN, true),
+        MatrixConfidence::Low
+    );
+    assert_eq!(
+        matrix_confidence("A", f64::INFINITY, true),
+        MatrixConfidence::Low
+    );
+}
+
+#[test]
+fn camera_votes_cap_unsettled_cells_but_one_photo_reading_is_not_capped() {
+    let reading = |text: &str| MatrixReading {
+        text: text.into(),
+        confidence: 0.95,
+    };
+    let mut cell = CellEvidence::default();
+    assert_eq!(cell.vote().level, MatrixConfidence::Low);
+    assert_eq!(cell.photo_vote().level, MatrixConfidence::Low);
+    cell.collect(reading("A"), false);
+    // One clear reading: a camera cell still waits for agreement; a photo never
+    // gets a second reading, so its score decides.
+    assert!(!cell.vote().stable);
+    assert_eq!(cell.vote().level, MatrixConfidence::Medium);
+    assert_eq!(cell.photo_vote().level, MatrixConfidence::High);
+    cell.collect(reading("A"), false);
+    cell.collect(reading("A"), false);
+    assert!(cell.vote().stable);
+    assert_eq!(cell.vote().level, MatrixConfidence::High);
 }

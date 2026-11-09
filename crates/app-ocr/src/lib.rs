@@ -22,24 +22,6 @@ pub use recognition::Recognition;
 use serde::Serialize;
 use thiserror::Error;
 
-pub const MATRIX_CELLS: usize = 70;
-
-/// Projection of the original RGB cell into the alphabet model's one channel.
-#[derive(Clone, Copy, Debug, Default)]
-pub enum MatrixGlyphProjection {
-    #[default]
-    Luma,
-    /// Diagnostic red-opponent projection; neutral paper loses ink contrast.
-    RedChroma,
-    /// RGB distance below the cell's upper-quartile paper color.
-    PaperDistance,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct MatrixCaptureConfig {
-    pub glyph_projection: MatrixGlyphProjection,
-}
-
 /// One camera frame for the geometry loop: two row-major planes of one byte
 /// per pixel, Rec.601 luma and `clamp(R - G + 128, 0, 255)`. The R-G plane
 /// carries the pink/white row boundaries, which luma alone does not place
@@ -101,14 +83,6 @@ pub struct MatrixTrack {
     pub elapsed_ms: f64,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct MatrixFrameTiming {
-    pub decode_ms: f64,
-    pub geometry_ms: f64,
-    pub preprocess_ms: f64,
-    pub inference_ms: f64,
-    pub total_ms: f64,
-}
 /// Capability measurements only; capture admission and lifetime belong to core.
 pub struct MatrixCaptureGlyph {
     pub gray: Vec<u8>,
@@ -126,7 +100,6 @@ pub struct MatrixCaptureGlyph {
 pub struct MatrixCaptureFrame {
     pub quads: Vec<[[f64; 2]; 4]>,
     pub glyphs: Vec<MatrixCaptureGlyph>,
-    pub timing: MatrixFrameTiming,
 }
 
 /// Compile-time backend availability; model initialization remains lazy.
@@ -179,26 +152,12 @@ pub enum MatrixOcrError {
 
 #[cfg(matrix_ocr)]
 pub use engine::{
-    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
-    matrix_analysis_from_yuv, matrix_analysis_image, matrix_full_luma_from_yuv, matrix_picture,
-    MatrixAlphabetService, MatrixTracker,
+    capture_matrix_frame, capture_matrix_keyframe, matrix_analysis_from_yuv, matrix_analysis_image,
+    matrix_full_luma_from_yuv, matrix_picture, MatrixAlphabetService, MatrixTracker,
 };
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
-pub use engine::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
-};
+pub use engine::{prepare_matrix_alphabet_input, MatrixAlphabetInput};
 
-#[cfg(not(matrix_ocr))]
-pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    Err(MatrixOcrError::Unavailable)
-}
-#[cfg(not(matrix_ocr))]
-pub fn capture_matrix_frame_configured(
-    _bytes: &[u8],
-    _config: MatrixCaptureConfig,
-) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    Err(MatrixOcrError::Unavailable)
-}
 #[cfg(not(matrix_ocr))]
 pub fn capture_matrix_keyframe(
     _luma: &[u8],
@@ -227,10 +186,6 @@ pub fn matrix_full_luma_from_yuv(
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
-pub fn matrix_analysis_image(_bytes: &[u8]) -> Result<MatrixAnalysisImage, MatrixOcrError> {
-    Err(MatrixOcrError::Unavailable)
-}
-#[cfg(not(matrix_ocr))]
 #[derive(Default)]
 pub struct MatrixTracker(());
 #[cfg(not(matrix_ocr))]
@@ -242,7 +197,7 @@ impl MatrixTracker {
         Err(MatrixOcrError::Unavailable)
     }
 }
-// The stubs keep a private field like the ONNX types, so callers build both
+// The stubs keep a private field like the real types, so callers build both
 // with `default()`; a unit struct would invite `Type` literals that only
 // compile where `matrix_ocr` is off.
 #[cfg(not(matrix_ocr))]

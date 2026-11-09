@@ -845,7 +845,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         get() = runCatching { session?.capabilities()?.ocr }.getOrNull() == true
 
     /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
-    suspend fun scanMatrix(image: ByteArray): List<Recognition> {
+    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
         val session = session ?: return emptyList()
         ocrProgress = 0
         return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()

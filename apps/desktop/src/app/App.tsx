@@ -1234,7 +1234,6 @@ export function WorkspaceApp() {
           : undefined
       }
       refreshReferences={syncAvailable()}
-      matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
       showLoginPage={(profile, options) => {
         const site = profile === "science" ? "science-portal" : "tokyo-portal";
         sessionStorage.setItem("isct-companion-active-school-site", site);

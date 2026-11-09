@@ -31,7 +31,6 @@ import {
 } from "@app/features/lms/spring-scroll";
 import {
   MATRIX_SIZE,
-  matrixConfidence,
   normalizeMatrixText,
   parseMatrixText,
   prepareMatrixImage,
@@ -557,21 +556,7 @@ function heicFile(name: string): File {
   return new File([header], name, { type: "image/heic" });
 }
 
-describe("matrix confidence and text", () => {
-  it("keeps the review bands on their thresholds", () => {
-    expect(matrixConfidence("A", 0.95)).toBe("high");
-    expect(matrixConfidence("A", 0.9)).toBe("high");
-    expect(matrixConfidence("A", 0.89)).toBe("medium");
-    expect(matrixConfidence("A", 0.75)).toBe("medium");
-    expect(matrixConfidence("I", 0.74)).toBe("low");
-  });
-
-  it("treats a missing, non-finite or empty reading as low confidence", () => {
-    expect(matrixConfidence("", 0.99)).toBe("low");
-    expect(matrixConfidence("A", Number.NaN)).toBe("low");
-    expect(matrixConfidence("A", Number.POSITIVE_INFINITY)).toBe("low");
-  });
-
+describe("matrix text", () => {
   it("normalizes a manual paste to the letters it contains, capped at the Matrix size", () => {
     expect(normalizeMatrixText("a, b 0 1 8")).toBe("AB");
     expect(normalizeMatrixText("a".repeat(80))).toHaveLength(MATRIX_SIZE);
@@ -671,8 +656,8 @@ describe("matrix image recognition", () => {
   it("sends one raw image and forwards typed native progress", async () => {
     pretendDesktopApp(true);
     const recognitions = [
-      { text: "A", confidence: 0.95 },
-      { text: "B", confidence: 0.9 },
+      { text: "A", confidence: 0.95, stable: false, level: "high" },
+      { text: "B", confidence: 0.9, stable: false, level: "high" },
     ];
     const progress: [number, number][] = [];
     const { core, channels } = installHostWithChannels({
@@ -825,7 +810,7 @@ describe("Live Matrix camera ownership", () => {
       ...processing,
       phase: "complete",
       completedSamples: 210,
-      cells: [{ text: "A", confidence: 0.99, stable: true }],
+      cells: [{ text: "A", confidence: 0.99, stable: true, level: "high" }],
     };
     let deliver!: (snapshot: unknown) => void;
     let finish!: (snapshot: unknown) => void;

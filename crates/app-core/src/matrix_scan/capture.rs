@@ -283,7 +283,8 @@ fn admits(glyphs: &[MatrixCaptureGlyph]) -> bool {
 /// A still photo is one keyframe of a session that never sees a second:
 /// the same validation, admission, glare gate and evidence vote as a live
 /// frame. Rejected cells stay blank for review; one reading cannot become
-/// `stable`, so every photo cell is checked against the card.
+/// `stable`, so every photo cell is checked against the card, coloured by its
+/// score alone (`CellEvidence::photo_vote`).
 pub fn read_matrix_photo(
     cut: MatrixCut,
     mut recognize: impl FnMut(&[Vec<u8>]) -> Result<Vec<MatrixReading>, MatrixScanError>,
@@ -324,7 +325,7 @@ pub fn read_matrix_photo(
             return Err(MatrixScanError::Ended);
         }
     }
-    Ok(evidence.iter().map(CellEvidence::vote).collect())
+    Ok(evidence.iter().map(CellEvidence::photo_vote).collect())
 }
 #[derive(Default)]
 pub struct MatrixCameraScanner {
