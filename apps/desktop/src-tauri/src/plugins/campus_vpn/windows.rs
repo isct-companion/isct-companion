@@ -1,15 +1,10 @@
 //! The Windows campus VPN helper: a LocalSystem service on a named pipe,
 //! installed once through the UAC prompt. The helper binary is its own
 //! installer (`isct-vpn-helper.exe install`, crates/vpn-helper/src/windows.rs).
-use crate::vpn::{converse, io_error};
+use super::helper::{converse, io_error};
 use app_core::vpn::{HelperReport, VpnError};
 use std::{
-    fs::OpenOptions,
-    io::ErrorKind,
-    os::windows::ffi::OsStrExt,
-    path::Path,
-    sync::mpsc,
-    thread,
+    fs::OpenOptions, io::ErrorKind, os::windows::ffi::OsStrExt, path::Path, sync::mpsc, thread,
     time::Duration,
 };
 use vpn_protocol::{Request, PIPE_PATH, SERVICE_NAME};
@@ -48,7 +43,9 @@ impl HelperSocket {
         thread::spawn(move || {
             let _ = sender.send(converse(&pipe, &request));
         });
-        answer.recv_timeout(timeout).unwrap_or(Err(VpnError::Timeout))
+        answer
+            .recv_timeout(timeout)
+            .unwrap_or(Err(VpnError::Timeout))
     }
 }
 
@@ -77,8 +74,7 @@ fn open_pipe() -> Result<std::fs::File, VpnError> {
 
 fn service_registered() -> bool {
     unsafe {
-        let Ok(manager) = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)
-        else {
+        let Ok(manager) = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT) else {
             return false;
         };
         let service = OpenServiceW(manager, &HSTRING::from(SERVICE_NAME), SERVICE_QUERY_STATUS);
@@ -116,7 +112,9 @@ pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
         if error.code() == ERROR_CANCELLED.to_hresult() {
             return Ok(false);
         }
-        return Err(format!("the campus VPN helper could not be installed: {error}"));
+        return Err(format!(
+            "the campus VPN helper could not be installed: {error}"
+        ));
     }
     let process = info.hProcess;
     if process.is_invalid() {

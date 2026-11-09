@@ -9,7 +9,7 @@
 //! clicks the setting, never in the background, and never ICMP (often
 //! filtered, privileged on some systems, and blind to whether LPD answers).
 //!
-//! Shells do the platform part: on macOS and Linux they run the root
+//! Shells do the platform part: on macOS they run the root
 //! installer Core hands them (`CupsInstall`) behind the system's admin prompt; on
 //! Windows Core sends the file itself (`Core::campus_print`).
 
@@ -98,7 +98,7 @@ pub async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
 
 /// The root step that installs the CUPS queue: run `installer`, written to
 /// an executable file, as root with `args`.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 pub struct CupsInstall {
     pub installer: &'static [u8],
     pub args: [String; 2],
@@ -156,7 +156,7 @@ impl Core {
     /// The queue's root step for the verified student ID, printable only by
     /// `login` (the system account installing it, which the installer checks),
     /// or why there is no ID. Installing again updates the same queue.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     pub async fn campus_printer_install(
         &self,
         login: String,

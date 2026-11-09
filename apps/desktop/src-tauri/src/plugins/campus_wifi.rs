@@ -1,5 +1,6 @@
-//! ScienceTokyo campus Wi-Fi sign-in (macOS only; the module is compiled out
-//! elsewhere).
+//! ScienceTokyo campus Wi-Fi sign-in, as the `campus-wifi` plugin
+//! (`plugin:campus-wifi|status`, `connect`). `build.rs` builds it for macOS
+//! only.
 //!
 //! `ScienceTokyo` is WPA2-PSK with a passphrase the NOC publishes, followed by
 //! a Cisco Meraki sign-on splash that lasts 12 hours. Science and engineering
@@ -86,17 +87,28 @@ pub enum CampusWifiStep {
 
 /// Serialises clicks: one sign-in at a time.
 #[derive(Default)]
-pub struct CampusWifi(tokio::sync::Mutex<()>);
+struct CampusWifi(tokio::sync::Mutex<()>);
+
+pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("campus-wifi")
+        .invoke_handler(tauri::generate_handler![status, connect])
+        .setup(|app, _| {
+            app.manage(CampusWifi::default());
+            super::grant_main(app, "campus-wifi")?;
+            Ok(())
+        })
+        .build()
+}
 
 #[tauri::command]
-pub async fn campus_wifi_status(webview: tauri::Webview) -> Result<CampusWifiStatus, CommandError> {
+async fn status(webview: tauri::Webview) -> Result<CampusWifiStatus, CommandError> {
     crate::require_local_main(&webview)?;
-    let result = status().await;
+    let result = read_status().await;
     log::info!("[campus-wifi] status {result:?}");
     result
 }
 
-async fn status() -> Result<CampusWifiStatus, CommandError> {
+async fn read_status() -> Result<CampusWifiStatus, CommandError> {
     let interface = wifi_interface().ok_or("No Wi-Fi interface found.")?;
     let Some(address) = campus_address(&interface) else {
         return Ok(if on_science_tokyo_x(&interface) {
@@ -114,7 +126,7 @@ async fn status() -> Result<CampusWifiStatus, CommandError> {
 /// Joins ScienceTokyo if needed, then signs in once. Leaving ScienceTokyoX
 /// needs `leave_science_tokyo_x`, so the user can confirm it first.
 #[tauri::command]
-pub async fn campus_wifi_connect(
+async fn connect(
     webview: tauri::Webview,
     app: AppHandle,
     state: tauri::State<'_, CampusWifi>,
@@ -129,12 +141,12 @@ pub async fn campus_wifi_connect(
     let step = |step| {
         let _ = on_step.send(step);
     };
-    let result = connect(&app, leave_science_tokyo_x, step).await;
+    let result = sign_in(&app, leave_science_tokyo_x, step).await;
     log::info!("[campus-wifi] {result:?}");
     result
 }
 
-async fn connect(
+async fn sign_in(
     app: &AppHandle,
     leave_science_tokyo_x: bool,
     step: impl Fn(CampusWifiStep),
@@ -404,5 +416,5 @@ impl reqwest::dns::Resolve for WifiResolver {
 }
 
 #[cfg(test)]
-#[path = "tests/campus_wifi.rs"]
+#[path = "../tests/campus_wifi.rs"]
 mod tests;

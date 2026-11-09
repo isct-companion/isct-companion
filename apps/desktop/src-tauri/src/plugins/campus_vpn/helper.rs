@@ -1,8 +1,8 @@
-//! Desktop side of the campus VPN: the helper's local socket behind
-//! app-core's `VpnPort`, and the one-time administrator install. Decisions
-//! and the APM sign-in stay in app-core; this file and its platform halves
-//! (`vpn_macos.rs`: launchd and a Unix socket, `vpn_windows.rs`: a service
-//! and a named pipe) do the IO. Blocking calls run under `spawn_blocking`.
+//! The helper's local socket behind app-core's `VpnPort`, and the watch that
+//! checks a tunnel that is up. Decisions and the APM sign-in stay in
+//! app-core; this file and its platform halves (`macos.rs`: launchd and a
+//! Unix socket, `windows.rs`: a service and a named pipe) do the IO.
+//! Blocking calls run under `spawn_blocking`.
 use app_core::vpn::{
     HelperReport, VpnAction, VpnCheck, VpnError, VpnNotice, VpnPort, VpnService, VpnState,
 };
@@ -14,9 +14,9 @@ use std::{
 use vpn_protocol::{Reply, Request, SessionCookie};
 
 #[cfg(target_os = "macos")]
-use crate::vpn_macos as platform;
+use super::macos as platform;
 #[cfg(target_os = "windows")]
-use crate::vpn_windows as platform;
+use super::windows as platform;
 pub(crate) use platform::{run_install, HELPER};
 
 /// Status answers at once and a stop within the helper's 5-second wait for
@@ -85,7 +85,9 @@ impl VpnPort for platform::HelperSocket {
 }
 
 pub(crate) fn service() -> Arc<VpnService> {
-    Arc::new(VpnService::new(Arc::new(platform::HelperSocket::installed())))
+    Arc::new(VpnService::new(Arc::new(
+        platform::HelperSocket::installed(),
+    )))
 }
 
 /// How often a tunnel that is up, or auto-continue, is checked: a local
@@ -161,11 +163,9 @@ async fn act(
                 Ok(_) if !service.keeps() => service.state(),
                 Ok(login) => {
                     let connecting = service.clone();
-                    tauri::async_runtime::spawn_blocking(move || {
-                        connecting.connect(&login.cookie)
-                    })
-                    .await
-                    .unwrap_or(state)
+                    tauri::async_runtime::spawn_blocking(move || connecting.connect(&login.cookie))
+                        .await
+                        .unwrap_or(state)
                 }
                 Err(error) => service.failed(VpnError::Login(error)),
             };
@@ -196,15 +196,14 @@ pub(crate) fn watch(app: tauri::AppHandle) {
                 continue;
             }
             let checking = service.clone();
-            let Ok(check) = tauri::async_runtime::spawn_blocking(move || {
-                checking.watch(chrono::Utc::now())
-            })
-            .await
+            let Ok(check) =
+                tauri::async_runtime::spawn_blocking(move || checking.watch(chrono::Utc::now()))
+                    .await
             else {
                 continue;
             };
             let (state, notice) = act(&app, &service, check).await;
-            let status = crate::commands::vpn::report(&service, state);
+            let status = super::report(&service, state);
             if let Err(error) = app.emit_to("main", "vpn-status", &status) {
                 log::warn!("[vpn] status was not delivered: {error}");
             }

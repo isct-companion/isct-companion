@@ -1,18 +1,46 @@
-//! Campus VPN from the Settings page: install once, then one press signs in
-//! to the APM with the saved Tokyo Tech account and connects; auto-continue
-//! keeps it connected for a chosen time. Decisions are
-//! app-core's; this file carries them to the webview.
-use crate::{core_ports::core, require_local_main, vpn, CommandError};
+//! The campus VPN tool, as the `campus-vpn` plugin
+//! (`plugin:campus-vpn|status`, `connect`, `disconnect`, `keep`,
+//! `install`): install once, then one press signs in to the APM with the
+//! saved Tokyo Tech account and connects; auto-continue keeps it connected
+//! for a chosen time. Decisions are app-core's; this plugin carries them to
+//! the webview and does the IO (`helper`).
+use crate::{core_ports::core, require_local_main, CommandError};
 use app_core::vpn::{VpnError, VpnService, VpnState};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::Manager;
 
+mod helper;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
+
+pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("campus-vpn")
+        .invoke_handler(tauri::generate_handler![
+            status, connect, disconnect, keep, install
+        ])
+        .setup(|app, _| {
+            app.manage(helper::service());
+            super::grant_main(app, "campus-vpn")?;
+            Ok(())
+        })
+        // After the app's setup: the watch reads Core's sessions and emits to
+        // the main window, both of which exist by then.
+        .on_event(|app, event| {
+            if let tauri::RunEvent::Ready = event {
+                helper::watch(app.clone());
+            }
+        })
+        .build()
+}
+
 /// What the webview renders: a stable state name plus, for failures, the
 /// error code the UI keys its guidance on.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct VpnStatus {
+struct VpnStatus {
     state: &'static str,
     address: Option<String>,
     /// When the APM session ends (RFC 3339), for the countdown.
@@ -54,7 +82,7 @@ impl From<VpnState> for VpnStatus {
 }
 
 /// The webview's status: `state` with auto-continue's end.
-pub(crate) fn report(service: &VpnService, state: VpnState) -> VpnStatus {
+fn report(service: &VpnService, state: VpnState) -> VpnStatus {
     VpnStatus {
         keep_until: service.keep_until().map(|at| at.to_rfc3339()),
         ..state.into()
@@ -74,10 +102,7 @@ async fn blocking<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub(crate) async fn vpn_status(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-) -> Result<VpnStatus, CommandError> {
+async fn status(webview: tauri::Webview, app: tauri::AppHandle) -> Result<VpnStatus, CommandError> {
     require_local_main(&webview)?;
     let status = settled(service(&app), VpnService::refresh).await?;
     // A build without the payload (Intel Macs) has nothing to offer unless a
@@ -100,7 +125,7 @@ fn payload(app: &tauri::AppHandle) -> Result<std::path::PathBuf, CommandError> {
         .resource_dir()
         .map_err(|error| CommandError::from(error.to_string()))?
         .join("resources/vpn")
-        .join(vpn::HELPER))
+        .join(helper::HELPER))
 }
 
 /// Runs `work` off the main thread and reports where it left the service.
@@ -116,7 +141,7 @@ async fn settled(
 /// Signs in to the APM and connects. The helper is asked first: a login is
 /// one-time, so none is spent on a missing helper or a tunnel already up.
 #[tauri::command]
-pub(crate) async fn vpn_connect(
+async fn connect(
     webview: tauri::Webview,
     app: tauri::AppHandle,
 ) -> Result<VpnStatus, CommandError> {
@@ -155,7 +180,7 @@ pub(crate) async fn vpn_connect(
 
 /// Turns auto-continue on for `hours`, which it always needs, or off (`None`).
 #[tauri::command]
-pub(crate) async fn vpn_keep(
+async fn keep(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     hours: Option<u32>,
@@ -169,7 +194,7 @@ pub(crate) async fn vpn_keep(
 }
 
 #[tauri::command]
-pub(crate) async fn vpn_disconnect(
+async fn disconnect(
     webview: tauri::Webview,
     app: tauri::AppHandle,
 ) -> Result<VpnStatus, CommandError> {
@@ -180,7 +205,7 @@ pub(crate) async fn vpn_disconnect(
 /// One administrator prompt installs or updates the helper and its
 /// openconnect. A cancelled prompt returns the unchanged status.
 #[tauri::command]
-pub(crate) async fn vpn_install(
+async fn install(
     webview: tauri::Webview,
     app: tauri::AppHandle,
 ) -> Result<VpnStatus, CommandError> {
@@ -193,7 +218,7 @@ pub(crate) async fn vpn_install(
         .parent()
         .ok_or("this build does not include the campus VPN helper")?
         .to_path_buf();
-    let installed = blocking(move || vpn::run_install(&resources))
+    let installed = blocking(move || helper::run_install(&resources))
         .await?
         .map_err(CommandError::from)?;
     let service = service(&app);

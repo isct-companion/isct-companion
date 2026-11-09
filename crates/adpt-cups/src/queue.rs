@@ -18,10 +18,7 @@ const DELEGATE_SCHEME: &str = "lpd://";
 const STUDENT_PARAMETER: &str = "student=";
 
 /// CUPS's program folder (`ServerBin`), where backends live.
-#[cfg(target_os = "macos")]
 pub const SERVER_BIN: &str = "/usr/libexec/cups";
-#[cfg(target_os = "linux")]
-pub const SERVER_BIN: &str = "/usr/lib/cups";
 
 /// The system's CUPS administration tools.
 pub const LPADMIN: &str = "/usr/sbin/lpadmin";
@@ -185,7 +182,6 @@ pub fn check_kyocera_driver(files: &[std::path::PathBuf]) -> Result<(), String> 
 
 /// The queue's copy of the PPD and how it renders: unchanged when
 /// Kyocera's driver software is usable, otherwise without its lines.
-#[cfg(target_os = "macos")]
 pub fn queue_ppd() -> (Vec<u8>, String) {
     let filters = Path::new(SERVER_BIN).join("filter");
     match check_kyocera_driver(&kyocera_driver_files(PPD, &filters)) {
@@ -195,15 +191,6 @@ pub fn queue_ppd() -> (Vec<u8>, String) {
             format!("standard CUPS filters ({reason})"),
         ),
     }
-}
-
-/// Kyocera's driver software does not exist for Linux: CUPS's own filters.
-#[cfg(target_os = "linux")]
-pub fn queue_ppd() -> (Vec<u8>, String) {
-    (
-        without_kyocera_driver(PPD),
-        "standard CUPS filters".to_string(),
-    )
 }
 
 /// The system lpd backend's arguments for the job CUPS gave this backend

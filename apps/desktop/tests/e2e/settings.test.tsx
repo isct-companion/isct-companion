@@ -138,11 +138,13 @@ function mountSettings(
     handle?: Handler;
     apply?: Apply;
     queries?: FakeCoreOptions["queries"];
+    tools?: FakeCoreOptions["tools"];
   } = {},
 ): Promise<MountedApp> {
   return mountApp(
     {
       workspace: options.workspace ?? workspaceFixture(),
+      tools: options.tools,
       capabilities: options.capabilities ?? {},
       queries: {
         workspaceOverview: (_query, core) => overviewFor(core.workspace),
@@ -2412,10 +2414,12 @@ describe("Campus VPN", () => {
         detail: "the tunnel ended",
       };
       try {
+        // What a Windows binary reports: no campus Wi-Fi sign-in.
         const mounted = await mountSettings(paths.tools(), {
+          tools: ["campus-vpn", "campus-printer"],
           handle: (command) => {
-            if (command === "vpn_status") return failed;
-            if (command === "vpn_connect")
+            if (command === "plugin:campus-vpn|status") return failed;
+            if (command === "plugin:campus-vpn|connect")
               return {
                 ...status,
                 state: "connected",
@@ -2432,7 +2436,7 @@ describe("Campus VPN", () => {
             "The campus VPN could not be established.",
           ),
         );
-        // A Windows build has no campus Wi-Fi sign-in to list.
+        // The page lists what the binary reports, in its order.
         expect(
           [...pane.querySelectorAll(".toolCard h3")].map(
             (title) => title.textContent,
@@ -2440,7 +2444,9 @@ describe("Campus VPN", () => {
         ).toEqual(["Campus VPN", "Campus printer"]);
         await clickButton(pane, "Connect");
         await wait(() =>
-          expect(mounted.core.commands("vpn_connect")).toHaveLength(1),
+          expect(
+            mounted.core.commands("plugin:campus-vpn|connect"),
+          ).toHaveLength(1),
         );
       } finally {
         delete window.__ISCT_COMPANION_NATIVE_OS__;

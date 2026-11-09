@@ -6,8 +6,8 @@
 //!
 //! This crate holds no state and decides nothing. On every desktop it holds
 //! the printer's address and the student ID's format; on Windows also the
-//! LPD client and PJL header that print a PDF without a driver. macOS and
-//! Linux print through a CUPS queue instead (`adpt-cups`). Ported from
+//! LPD client and PJL header that print a PDF without a driver. macOS
+//! prints through a CUPS queue instead (`adpt-cups`). Ported from
 //! InstitutePrinter's `cross-platform` branch.
 
 mod endpoint;

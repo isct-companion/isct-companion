@@ -1,6 +1,6 @@
 //! The macOS campus VPN helper: a launchd daemon on a root:staff Unix
 //! socket, installed once with the system's administrator prompt.
-use crate::vpn::{converse, io_error};
+use super::helper::{converse, io_error};
 use app_core::vpn::{HelperReport, VpnError};
 use std::{
     io::ErrorKind,
@@ -85,10 +85,18 @@ pub(crate) fn install_script(resources: &Path) -> String {
             sh_quote(HELPER_DEST),
             sh_quote(SCRIPT_DEST)
         ),
-        format!("chmod 755 {} {}", sh_quote(HELPER_DEST), sh_quote(SCRIPT_DEST)),
+        format!(
+            "chmod 755 {} {}",
+            sh_quote(HELPER_DEST),
+            sh_quote(SCRIPT_DEST)
+        ),
         format!("chown -R root:wheel {}", sh_quote(SUPPORT_DIR)),
         format!("chmod -R go-w {}", sh_quote(SUPPORT_DIR)),
-        format!("printf '%s' {} > {}", sh_quote(&plist), sh_quote(PLIST_DEST)),
+        format!(
+            "printf '%s' {} > {}",
+            sh_quote(&plist),
+            sh_quote(PLIST_DEST)
+        ),
         format!(
             "chown root:wheel {} && chmod 644 {}",
             sh_quote(PLIST_DEST),
@@ -168,5 +176,5 @@ pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
 }
 
 #[cfg(test)]
-#[path = "tests/vpn_macos.rs"]
+#[path = "../../tests/vpn_macos.rs"]
 mod tests;

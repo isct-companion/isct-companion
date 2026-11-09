@@ -8,13 +8,6 @@ use school_web::SchoolWebController;
 use secrets::OsSecretVault;
 
 mod agent_server;
-mod campus_printer;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-mod campus_printer_cups;
-#[cfg(windows)]
-mod campus_printer_windows;
-#[cfg(target_os = "macos")]
-mod campus_wifi;
 mod cloud;
 mod cloud_sync;
 mod command_error;
@@ -37,6 +30,7 @@ mod lms_protocol;
 mod native_dialog;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
+mod plugins;
 use app_ocr as matrix_ocr;
 mod core_ports;
 pub(crate) use app_core::school_auth;
@@ -55,12 +49,6 @@ mod window_close;
 mod window_close_macos;
 #[cfg(target_os = "windows")]
 mod window_close_windows;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-mod vpn;
-#[cfg(target_os = "macos")]
-mod vpn_macos;
-#[cfg(target_os = "windows")]
-mod vpn_windows;
 mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
@@ -70,9 +58,10 @@ fn native_bootstrap() -> String {
     format!(
         "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'native-desktop',writable:false,configurable:false}});\
          Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});\
-         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});",
+         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});         Object.defineProperty(window,'__ISCT_COMPANION_TOOLS__',{{value:Object.freeze({}),writable:false,configurable:false}});",
         std::env::consts::OS,
-        window_material().unwrap_or("")
+        window_material().unwrap_or(""),
+        plugins::tools_json()
     )
 }
 
@@ -221,21 +210,15 @@ pub fn run() {
     let _ = app_core::diagnostics::initialize();
     let builder = tauri::Builder::default();
     // Registered first, so a second launch hands over before anything starts.
+    // A running app gets a second launch's arguments here: the PDF
+    // right-click entry's file to print, or nothing, which shows the window.
     #[cfg(target_os = "windows")]
-    // The PDF right-click entry starts the app with a file to print; a
-    // running app gets that launch's arguments here. This runs inside the
-    // plugin's window-message handler, where building a window can deadlock
-    // on Windows, so the print window is built from a task.
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
-        match campus_printer_windows::print_request(args) {
-            Some(file) => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    campus_printer_windows::open_print_window(&app, file);
-                });
-            }
-            None => window_close::show_main(app),
+        #[cfg(tool = "campus-printer")]
+        if plugins::campus_printer::handles_launch(app, args) {
+            return;
         }
+        window_close::show_main(app);
     }));
     let builder = builder
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
@@ -276,21 +259,14 @@ pub fn run() {
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
         .manage(desktop_updates::DesktopUpdates::default())
-        .manage(campus_printer::Setup::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let builder = builder.manage(vpn::service());
+    let builder = plugins::register(builder);
     #[cfg(target_os = "macos")]
-    let builder = builder
-        .manage(campus_wifi::CampusWifi::default())
-        .menu(owned_macos_menu)
-        .on_menu_event(|app, event| {
-            if event.id() == "owned-quit" {
-                app.exit(0);
-            }
-        });
-    #[cfg(windows)]
-    let builder = builder.manage(campus_printer_windows::PrintRequests::default());
+    let builder = builder.menu(owned_macos_menu).on_menu_event(|app, event| {
+        if event.id() == "owned-quit" {
+            app.exit(0);
+        }
+    });
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let builder = builder.on_window_event(|window, event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -385,29 +361,6 @@ pub fn run() {
             commands::backup::save_file,
             commands::backup::import_data,
             commands::agent::agent_connection,
-            campus_printer::campus_printer_status,
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
-            campus_printer_cups::install_campus_printer,
-            #[cfg(windows)]
-            campus_printer_windows::add_campus_print_menu,
-            #[cfg(windows)]
-            campus_printer_windows::campus_print_request,
-            #[cfg(windows)]
-            campus_printer_windows::campus_print,
-            #[cfg(target_os = "macos")]
-            campus_wifi::campus_wifi_connect,
-            #[cfg(target_os = "macos")]
-            campus_wifi::campus_wifi_status,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            commands::vpn::vpn_status,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            commands::vpn::vpn_connect,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            commands::vpn::vpn_disconnect,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            commands::vpn::vpn_keep,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            commands::vpn::vpn_install
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -520,14 +473,7 @@ pub fn run() {
             // After the main window exists: the initial focus fact and event
             // delivery both refer to it.
             core_ports::DesktopRuntime::start(app.handle());
-            // Started by the PDF right-click entry with no app running.
-            #[cfg(windows)]
-            if let Some(file) = campus_printer_windows::print_request(std::env::args_os()) {
-                campus_printer_windows::open_print_window(app.handle(), file);
-            }
             desktop_updates::load_last_install(app.handle());
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            vpn::watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

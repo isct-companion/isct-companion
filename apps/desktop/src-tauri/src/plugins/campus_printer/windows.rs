@@ -8,7 +8,7 @@
 //! the default PDF app, double-click and Open with alone. No port monitor or
 //! driver is installed: a port monitor needs SYSTEM, and Windows Protected
 //! Print mode blocks third-party ones anyway.
-use crate::campus_printer::{CampusPrinterSetup, Setup};
+use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, CommandError};
 use app_core::campus_printer::{CampusPrintOutcome, PrintOptions};
 use serde::Serialize;
@@ -25,15 +25,44 @@ const VERB_KEY: &str =
 /// The argument before the file in the verb's command line.
 const PRINT_FLAG: &str = "--campus-print";
 /// Print windows are `campus-print-<n>`; `capabilities/campus-print.json`
-/// matches the same prefix.
+/// (core permissions) and `setup` (printing) match the same prefix.
 const WINDOW_PREFIX: &str = "campus-print-";
+
+/// The print windows' state, and their grant: the two printing commands,
+/// for the bundled page only.
+pub(super) fn setup(app: &AppHandle) -> tauri::Result<()> {
+    app.manage(PrintRequests::default());
+    app.add_capability(
+        tauri::ipc::CapabilityBuilder::new("campus-print-window")
+            .window(format!("{WINDOW_PREFIX}*"))
+            .permission("campus-printer:allow-print-request")
+            .permission("campus-printer:allow-print"),
+    )
+}
 
 /// The file each open print window prints, by window label.
 #[derive(Default)]
-pub struct PrintRequests(Mutex<HashMap<String, PathBuf>>);
+pub(super) struct PrintRequests(Mutex<HashMap<String, PathBuf>>);
+
+/// Opens a print window when a launch's arguments ask to print a file, from
+/// a task: a second launch reaches the app inside the single-instance
+/// plugin's window-message handler, where building a window can deadlock.
+/// False when they ask for nothing to print.
+pub(crate) fn handles_launch<I, S>(app: &AppHandle, args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let Some(file) = requested_print(args) else {
+        return false;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { open_print_window(&app, file) });
+    true
+}
 
 /// The file a launch's arguments ask to print, if any.
-pub(crate) fn print_request<I, S>(args: I) -> Option<PathBuf>
+fn requested_print<I, S>(args: I) -> Option<PathBuf>
 where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
@@ -44,7 +73,7 @@ where
 }
 
 /// Opens a print window for `file`, one per request.
-pub(crate) fn open_print_window(app: &AppHandle, file: PathBuf) {
+fn open_print_window(app: &AppHandle, file: PathBuf) {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let label = format!("{WINDOW_PREFIX}{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let requests = app.state::<PrintRequests>();
@@ -114,7 +143,7 @@ fn requested_file(app: &AppHandle, label: &str) -> Result<PathBuf, CommandError>
 /// the verified student. Adding it again rewrites it, with this copy of the
 /// app as its program.
 #[tauri::command]
-pub async fn add_campus_print_menu(
+pub(super) async fn add_menu(
     webview: tauri::Webview,
     app: AppHandle,
     state: tauri::State<'_, Setup>,
@@ -143,9 +172,13 @@ pub async fn add_campus_print_menu(
     Ok(outcome)
 }
 
+/// Writes the verb, reads it back, and tells Explorer the associations
+/// changed so an open window offers the entry without a restart.
 fn register(label: &str) -> Result<(), String> {
+    use ::windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNF_IDLIST};
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe = exe.to_str().ok_or("the app's path is not Unicode")?;
+    let command = format!("\"{exe}\" {PRINT_FLAG} \"%1\"");
     let verb = windows_registry::CURRENT_USER
         .create(VERB_KEY)
         .map_err(|e| e.to_string())?;
@@ -153,8 +186,18 @@ fn register(label: &str) -> Result<(), String> {
     verb.set_string("Icon", format!("\"{exe}\",0"))
         .map_err(|e| e.to_string())?;
     verb.create("command")
-        .and_then(|command| command.set_string("", format!("\"{exe}\" {PRINT_FLAG} \"%1\"")))
-        .map_err(|e| e.to_string())
+        .and_then(|key| key.set_string("", &command))
+        .map_err(|e| e.to_string())?;
+    let written = windows_registry::CURRENT_USER
+        .open(VERB_KEY)
+        .and_then(|key| Ok((key.get_string("")?, key.open("command")?.get_string("")?)))
+        .map_err(|e| e.to_string())?;
+    if written != (label.to_owned(), command) {
+        return Err("the right-click entry did not read back as written".into());
+    }
+    // SAFETY: SHCNE_ASSOCCHANGED takes no items; both pointers are null.
+    unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
+    Ok(())
 }
 
 /// What the print window shows before printing.
@@ -170,7 +213,7 @@ pub struct CampusPrintRequest {
 }
 
 #[tauri::command]
-pub fn campus_print_request(
+pub(super) fn print_request(
     webview: tauri::Webview,
     app: AppHandle,
 ) -> Result<CampusPrintRequest, CommandError> {
@@ -192,7 +235,7 @@ pub fn campus_print_request(
 /// Prints the window's file with `options`, billed to the verified student
 /// ID.
 #[tauri::command]
-pub async fn campus_print(
+pub(super) async fn print(
     webview: tauri::Webview,
     app: AppHandle,
     options: PrintOptions,
