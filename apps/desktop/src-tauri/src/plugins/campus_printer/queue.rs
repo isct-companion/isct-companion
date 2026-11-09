@@ -930,7 +930,7 @@ async fn bind_receiver(port: u16) -> std::io::Result<tokio::net::TcpListener> {
 }
 
 /// The system printer as the tool card shows it.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum QueueState {
     NotInstalled,
@@ -958,15 +958,15 @@ pub(super) async fn queue_status(
         .as_ref()
         .filter(|r| !r.task.is_finished())
         .map(|r| r.endpoint.marker());
-    Ok(
-        tauri::async_runtime::spawn_blocking(move || probe_queue(marker.as_deref()))
-            .await
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|error| {
-                log::warn!("[campus-printer] could not read the system printer: {error}");
-                QueueState::Unavailable
-            }),
-    )
+    let state = tauri::async_runtime::spawn_blocking(move || probe_queue(marker.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|error| {
+            log::warn!("[campus-printer] could not read the system printer: {error}");
+            QueueState::Unavailable
+        });
+    log::info!("[campus-printer] system printer state {state:?}");
+    Ok(state)
 }
 
 fn probe_queue(marker: Option<&str>) -> Result<QueueState, String> {
