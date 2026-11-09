@@ -1,4 +1,43 @@
 use super::*;
+use std::collections::BTreeMap;
+
+/// A4 and Letter, in hundredths of a millimetre, as `media-size` reports them.
+const MEDIA: [(&str, i32, i32); 2] = [
+    ("iso_a4_210x297mm", 21000, 29700),
+    ("na_letter_8.5x11in", 21590, 27940),
+];
+/// The Kyocera's unprintable edge, 4.23 mm on each side.
+const MARGIN: i32 = 423;
+
+fn collection(members: Vec<(&str, IppValue)>) -> Result<IppValue, PrintQueueError> {
+    let mut map = BTreeMap::new();
+    for (name, value) in members {
+        map.insert(name.try_into()?, value);
+    }
+    Ok(IppValue::Collection(map))
+}
+
+fn media_size(x: i32, y: i32) -> Result<IppValue, PrintQueueError> {
+    collection(vec![
+        ("x-dimension", IppValue::Integer(x)),
+        ("y-dimension", IppValue::Integer(y)),
+    ])
+}
+
+/// One sheet as Windows' IPP class driver builds its paper list from it:
+/// without `media-col-database` it has no page size to render to, and a job
+/// fails in the spooler with nothing sent.
+fn media_col(x: i32, y: i32) -> Result<IppValue, PrintQueueError> {
+    collection(vec![
+        ("media-size", media_size(x, y)?),
+        ("media-top-margin", IppValue::Integer(MARGIN)),
+        ("media-bottom-margin", IppValue::Integer(MARGIN)),
+        ("media-left-margin", IppValue::Integer(MARGIN)),
+        ("media-right-margin", IppValue::Integer(MARGIN)),
+        ("media-source", IppValue::new_keyword("auto")?),
+        ("media-type", IppValue::new_keyword("stationery")?),
+    ])
+}
 
 pub(super) fn printer(
     response: &mut IppRequestResponse,
@@ -129,6 +168,80 @@ pub(super) fn printer(
             "orientation-requested-supported",
             IppValue::Array([3, 4, 5, 6].into_iter().map(IppValue::Enum).collect()),
         ),
+        (
+            "media-col-database",
+            IppValue::Array(
+                MEDIA
+                    .iter()
+                    .map(|(_, x, y)| media_col(*x, *y))
+                    .collect::<Result<_, _>>()?,
+            ),
+        ),
+        ("media-col-default", media_col(MEDIA[0].1, MEDIA[0].2)?),
+        (
+            "media-col-ready",
+            IppValue::Array(vec![media_col(MEDIA[0].1, MEDIA[0].2)?]),
+        ),
+        ("media-ready", IppValue::Array(vec![keyword(MEDIA[0].0)?])),
+        (
+            "media-size-supported",
+            IppValue::Array(
+                MEDIA
+                    .iter()
+                    .map(|(_, x, y)| media_size(*x, *y))
+                    .collect::<Result<_, _>>()?,
+            ),
+        ),
+        (
+            "media-col-supported",
+            IppValue::Array(
+                [
+                    "media-size",
+                    "media-top-margin",
+                    "media-bottom-margin",
+                    "media-left-margin",
+                    "media-right-margin",
+                    "media-source",
+                    "media-type",
+                ]
+                .into_iter()
+                .map(keyword)
+                .collect::<Result<_, _>>()?,
+            ),
+        ),
+        (
+            "media-top-margin-supported",
+            IppValue::Array(vec![IppValue::Integer(MARGIN)]),
+        ),
+        (
+            "media-bottom-margin-supported",
+            IppValue::Array(vec![IppValue::Integer(MARGIN)]),
+        ),
+        (
+            "media-left-margin-supported",
+            IppValue::Array(vec![IppValue::Integer(MARGIN)]),
+        ),
+        (
+            "media-right-margin-supported",
+            IppValue::Array(vec![IppValue::Integer(MARGIN)]),
+        ),
+        (
+            "media-source-supported",
+            IppValue::Array(vec![keyword("auto")?]),
+        ),
+        (
+            "media-type-supported",
+            IppValue::Array(vec![keyword("stationery")?]),
+        ),
+        ("output-bin-default", keyword("face-down")?),
+        (
+            "output-bin-supported",
+            IppValue::Array(vec![keyword("face-down")?]),
+        ),
+        (
+            "document-format-preferred",
+            IppValue::new_mime_media_type("application/pdf")?,
+        ),
         ("print-quality-default", IppValue::Enum(4)),
         (
             "print-quality-supported",
@@ -143,6 +256,7 @@ pub(super) fn printer(
                 "document-format",
                 "copies",
                 "media",
+                "media-col",
                 "sides",
                 "print-color-mode",
             ]
