@@ -24,7 +24,7 @@ const SETUP_TEXT: Record<
 /**
  * The campus printer: Core verifies the Tokyo Tech account and tries the
  * printer once each time the page opens and on Check, never in the
- * background. macOS and Linux add a system print queue; Windows adds a PDF
+ * background. macOS adds a system print queue; Windows adds a PDF
  * right-click entry.
  */
 export function CampusPrinter({

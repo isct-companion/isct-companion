@@ -58,6 +58,10 @@ android {
         // Release builds take both from the tag (.github/workflows/android-release.yml).
         versionCode = providers.gradleProperty("appVersionCode").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("appVersionName").orNull ?: "1.0.0"
+        // The app ships for arm64 phones only. Without the filter, every
+        // dependency's other ABIs (x86, armeabi-v7a, mips) are packaged too,
+        // although the Core library exists for none of them.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     // The release key lives only in CI secrets; without it, release builds
@@ -126,8 +130,19 @@ dependencies {
     // The live preview and tap-to-focus points, as the system camera shows them.
     implementation("androidx.camera:camera-view:1.6.2")
     // OTP QR codes: Google's scanner UI for the camera, ML Kit for screenshots.
+    // Both run in Google Play services, which also holds the barcode model
+    // (the bundled ML Kit adds about 5 MB of native code per ABI).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
+    // The Matrix letter model's runtime. Core opens its native library through
+    // the TFLite C API (crates/app-ocr/src/engine/letters/litert.rs); bundled,
+    // not the Play services build, so phones without Google services read the
+    // card too.
+    // Only its native library is used: the Kotlin API it brings is built
+    // with a newer Kotlin than this app's and is never called.
+    implementation("com.google.ai.edge.litert:litert:2.3.2") {
+        exclude(group = "com.google.ai.edge.litert", module = "litert-api")
+    }
     // Google Drive: the authorization API hands Core drive.appdata tokens.
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")

@@ -74,7 +74,7 @@ describe("third-party notices", () => {
     });
     const names = notices.components.map((item) => item.name);
     expect(names).toEqual(
-      expect.arrayContaining(["react", "react-dom", "ONNX Runtime"]),
+      expect.arrayContaining(["react", "react-dom", "LiteRT"]),
     );
     // Every component must carry a licence text, or the release ships none.
     for (const item of notices.components) {

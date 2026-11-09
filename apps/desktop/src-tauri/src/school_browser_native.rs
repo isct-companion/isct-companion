@@ -362,8 +362,6 @@ impl NativeBrowser {
         if let Some(window) = record.window {
             let _ = window.destroy();
         }
-        #[cfg(not(any(target_os = "macos", windows)))]
-        let _ = record;
     }
     fn popup_dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError> {
         let id = command.browser;
@@ -395,13 +393,6 @@ impl NativeBrowser {
                 .ok_or_else(|| BrowserError::Unavailable("The popup is gone.".into()))?;
             crate::school_windows::popup_command(&window, command.command)
                 .map_err(BrowserError::Dispatch)
-        }
-        #[cfg(not(any(target_os = "macos", windows)))]
-        {
-            let _ = command;
-            Err(BrowserError::Unavailable(format!(
-                "{id:?}: popups need a platform host."
-            )))
         }
     }
     fn with_view(

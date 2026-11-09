@@ -57,8 +57,8 @@ update bundle using `TAURI_SIGNING_PRIVATE_KEY`. The complete set produces
 
 Mac signing and notarization are controlled by `sign_macos` or
 `MACOS_SIGNING_ENABLED`; Windows signing by `sign_windows` or
-`WINDOWS_SIGNING_ENABLED`. Intel Mac currently
-excludes campus-card OCR because ONNX Runtime has no prebuilt Intel macOS library.
+`WINDOWS_SIGNING_ENABLED`. Both Mac builds read the campus card with the
+system's Core ML, so the Intel build includes OCR too.
 Build success does not establish runtime compatibility on every supported OS.
 
 Installer document sources are `docs/distribution/README.md` and

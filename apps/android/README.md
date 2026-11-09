@@ -25,17 +25,18 @@ Without `ANDROID_HOME`/`NDK_HOME` the builder takes the SDK from
 
 On Windows: Android Studio's bundled JDK works. Its Kotlin plugin compiler is
 not a full distribution; put the standalone `kotlin-compiler-2.2.21` (the
-version CI pins) on `PATH`, unzipped to a folder whose name has no dot, since
-`kotlinc.bat` otherwise starts from the 8.3 short path and misses its own
-stdlib. yarn 4 needs `corepack enable` once.
+version CI pins) on `PATH`, unzipped to a folder whose name is at most eight
+characters with no dot (e.g. `%USERPROFILE%\tools\kt2221`), since `kotlinc.bat`
+otherwise starts from the 8.3 short path and misses its own stdlib
+("unresolved reference 'println'"). yarn 4 needs `corepack enable` once.
 
 ```bash
 cd apps/android && ./gradlew :app:installDebug
 ```
 
-`--no-ocr` leaves out the arm64 OCR runtime that reads the Matrix card. The
-x86_64 emulator slice always reports OCR unavailable, so the Matrix page there
-offers only paste and manual entry. Rebuild the AAR whenever Core changes:
+`--no-ocr` leaves out the arm64 OCR runtime that reads the Matrix card. The app
+packages arm64 only (`abiFilters`); run it on a phone or an arm64 emulator
+image. Rebuild the AAR whenever Core changes:
 UniFFI checks signatures when the library loads.
 
 ## Layout

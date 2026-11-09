@@ -283,14 +283,102 @@ def build(args):
     print(json.dumps(report["splits"]), flush=True)
 
 
-def evaluate(args):
+class LiteRtSession:
+    """A .tflite model behind the slice of the ONNX Runtime session interface
+    `infer` uses, so every runtime's export is judged by the same report. It
+    runs batches of ten, as Core does, on two threads with the interpreter's
+    default XNNPACK delegate, as Android does."""
+
+    class _Input:
+        name = "input"
+
+    def __init__(self, path):
+        try:
+            from ai_edge_litert.interpreter import Interpreter
+        except ImportError:
+            from tensorflow.lite import Interpreter
+        self.interpreter = Interpreter(model_path=str(path), num_threads=2)
+        self.batch = None
+
+    def get_inputs(self):
+        return [self._Input()]
+
+    def run(self, _outputs, feeds):
+        cells = next(iter(feeds.values()))
+        # One channel: NCHW (litert-torch keeps PyTorch's layout) and NHWC
+        # hold the same values; match whichever the model declares.
+        if self.interpreter.get_input_details()[0]["shape"][1] != 1:
+            cells = np.transpose(cells, (0, 2, 3, 1))
+        logits = []
+        for start in range(0, len(cells), 10):
+            batch = cells[start:start + 10]
+            index = self.interpreter.get_input_details()[0]["index"]
+            if self.batch != len(batch):
+                self.interpreter.resize_tensor_input(index, batch.shape)
+                self.interpreter.allocate_tensors()
+                self.batch = len(batch)
+            source = self.interpreter.get_input_details()[0]
+            if source["dtype"] == np.int8:
+                # A fully integer model: quantize with its declared input scale.
+                scale, zero = source["quantization"]
+                batch = np.clip(np.round(batch / scale) + zero, -128, 127).astype(np.int8)
+            self.interpreter.set_tensor(index, batch.astype(source["dtype"]))
+            self.interpreter.invoke()
+            target = self.interpreter.get_output_details()[0]
+            values = self.interpreter.get_tensor(target["index"])
+            if target["dtype"] == np.int8:
+                scale, zero = target["quantization"]
+                values = (values.astype(np.float32) - zero) * scale
+            logits.append(values.astype(np.float32))
+        return [np.concatenate(logits)]
+
+
+class CoreMlSession:
+    """A Core ML specification (`.mlmodel` with inline weights, as Core embeds
+    it) behind the same slice of the session interface. It runs batches of
+    ten, as Core does, on the CPU, as Core does, so the report reads what the
+    apps read. macOS only: coremltools predicts nowhere else."""
+
+    class _Input:
+        name = "cells"
+
+    def __init__(self, path, compute_units="CPU_ONLY"):
+        import coremltools as ct
+        import tempfile
+        self._weights = tempfile.TemporaryDirectory()
+        self.model = ct.models.MLModel(ct.utils.load_spec(str(path)), weights_dir=self._weights.name,
+                                       compute_units=getattr(ct.ComputeUnit, compute_units))
+
+    def get_inputs(self):
+        return [self._Input()]
+
+    def run(self, _outputs, feeds):
+        cells = next(iter(feeds.values())).astype(np.float32)
+        logits = []
+        for start in range(0, len(cells), 10):
+            # The export's batch is fixed at ten; pad as Core does.
+            batch = cells[start:start + 10]
+            padded = np.concatenate([batch, np.ones((10 - len(batch), *batch.shape[1:]), np.float32)])
+            logits.append(self.model.predict({"cells": padded})["logits"][:len(batch)])
+        return [np.concatenate(logits).astype(np.float32)]
+
+
+def model_session(model):
+    if model.suffix == ".tflite":
+        return LiteRtSession(model)
+    if model.suffix == ".mlmodel":
+        return CoreMlSession(model)
     import onnxruntime as ort
-    from alphabet_calibration import fuse, infer_views, metrics
     ort.disable_telemetry_events()
     options = ort.SessionOptions()
     options.intra_op_num_threads = 2
     options.inter_op_num_threads = 1
-    session = ort.InferenceSession(str(args.model), options, providers=["CPUExecutionProvider"])
+    return ort.InferenceSession(str(model), options, providers=["CPUExecutionProvider"])
+
+
+def evaluate(args):
+    from alphabet_calibration import fuse, infer_views, metrics
+    session = model_session(args.model)
     data = np.load(args.data, allow_pickle=False)
     lineage = read_json(args.lineage) if args.lineage else []
     report = {"modelSha256": digest(args.model), "dataSha256": digest(args.data), "splits": {}}

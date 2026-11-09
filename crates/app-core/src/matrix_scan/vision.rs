@@ -41,32 +41,50 @@ pub struct MatrixYuvFrame<'a> {
     pub matrix: MatrixYuvMatrix,
     pub full_range: bool,
 }
-/// One picture in the two sizes the pipeline reads: the analysis planes for
-/// the grid tracker and the full-resolution luma for the cell cut.
-pub struct MatrixPicture {
-    pub analysis_width: u32,
-    pub analysis_height: u32,
-    pub analysis_luma: Vec<u8>,
-    pub analysis_chroma: Vec<u8>,
+/// Owned analysis planes of one picture, the grid tracker's input.
+pub struct MatrixAnalysis {
+    pub width: u32,
+    pub height: u32,
+    pub luma: Vec<u8>,
+    pub chroma: Vec<u8>,
+}
+impl MatrixAnalysis {
+    pub fn planes(&self) -> MatrixPlanes<'_> {
+        MatrixPlanes {
+            width: self.width,
+            height: self.height,
+            luma: &self.luma,
+            chroma: &self.chroma,
+        }
+    }
+}
+/// Owned full-resolution luma of one picture, the plane cells are cut from.
+pub struct MatrixFullLuma {
     pub width: u32,
     pub height: u32,
     pub luma: Vec<u8>,
 }
-impl MatrixPicture {
-    pub fn planes(&self) -> MatrixPlanes<'_> {
-        MatrixPlanes {
-            width: self.analysis_width,
-            height: self.analysis_height,
-            luma: &self.analysis_luma,
-            chroma: &self.analysis_chroma,
-        }
-    }
-    pub fn full(&self) -> MatrixLuma<'_> {
+impl MatrixFullLuma {
+    pub fn view(&self) -> MatrixLuma<'_> {
         MatrixLuma {
             width: self.width,
             height: self.height,
             luma: &self.luma,
         }
+    }
+}
+/// One picture in the two sizes the pipeline reads: the analysis planes for
+/// the grid tracker and the full-resolution luma for the cell cut.
+pub struct MatrixPicture {
+    pub analysis: MatrixAnalysis,
+    pub full: MatrixFullLuma,
+}
+impl MatrixPicture {
+    pub fn planes(&self) -> MatrixPlanes<'_> {
+        self.analysis.planes()
+    }
+    pub fn full(&self) -> MatrixLuma<'_> {
+        self.full.view()
     }
 }
 /// The tracker's verdict on one frame, in normalized frame coordinates.
@@ -110,8 +128,11 @@ pub trait MatrixVision: Send + Sync {
     fn tracker(&self) -> Box<dyn MatrixGridTracker>;
     /// An encoded photo (PNG, JPEG, WebP), oriented and alpha-composited.
     fn decode(&self, encoded: &[u8]) -> Result<MatrixPicture, MatrixScanError>;
-    /// A native camera frame.
-    fn convert(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixPicture, MatrixScanError>;
+    /// The analysis planes of a native camera frame, on every frame.
+    fn analyse(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixAnalysis, MatrixScanError>;
+    /// The full-resolution luma of a native camera frame, only for the
+    /// keyframes Core asks for.
+    fn full_luma(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixFullLuma, MatrixScanError>;
     fn cut(
         &self,
         luma: MatrixLuma<'_>,

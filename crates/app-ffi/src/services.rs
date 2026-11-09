@@ -257,16 +257,8 @@ impl Session {
                             !cancel.is_cancelled()
                         })
                         .map_err(crate::matrix::scan_error)?;
-                    let cells: Vec<_> = scan
-                        .cells
-                        .into_iter()
-                        .map(|vote| app_ocr::Recognition {
-                            text: vote.text,
-                            confidence: vote.confidence,
-                        })
-                        .collect();
                     Ok(OperationResult::Recognitions {
-                        cells: project(cells)?,
+                        cells: scan.cells.into_iter().map(Into::into).collect(),
                     })
                 })
                 .await

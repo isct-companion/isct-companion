@@ -13,7 +13,7 @@ each generated language rather than introducing a mobile HTTP server.
 | `yarn sdk:test`       | Real Core calls from Swift 6 and Kotlin/JVM                                                 |
 | `yarn sdk:test --ocr` | Same clients with optional scanner preparation/inference                                    |
 | `yarn sdk:ios`        | Device + Apple Silicon simulator XCFramework and a local Swift package in `bindings/swift/` |
-| `yarn sdk:android`    | Android arm64/x86_64 AAR, dependency POM and generated Kotlin source in `bindings/kotlin/`  |
+| `yarn sdk:android`    | Android arm64 AAR (`--with-emulator` adds x86_64), dependency POM and generated Kotlin source in `bindings/kotlin/` |
 
 Builders default to release; `ISCT_SDK_PROFILE=dev` selects a faster debug SDK
 and is recorded in `artifacts/sdk-build.json`. Generated sources and binaries
@@ -43,8 +43,7 @@ defines the API suffix on a Clang target triple as `minSdkVersion`, while the
 [D8 documentation](https://developer.android.com/tools/d8) defines `--min-api`
 as the output DEX compatibility floor. A lower product floor needs a complete
 AAR test on that API, including JNA and the arm64 OCR runtime; the API 34 value is
-therefore retained pending that decision. The `ort` Cargo feature `api-24` selects
-ONNX Runtime 1.24's C API and is unrelated to Android API level 24.
+therefore retained pending that decision.
 
 The Swift wrapper target uses Swift 5 language mode because this pinned UniFFI
 version's async foreign-callback template fails Swift 6 region-isolation
@@ -187,9 +186,14 @@ an inference warmup, which also allows device-side verification without private
 images. Model failure affects only this capability. Scan progress arrives as
 `ocr-progress` with the operation ID; the shell converts HEIC to a supported image format before calling.
 
-The pinned ONNX distribution supports Android arm64 and iOS device/simulator.
-Intel macOS and Android x86_64 build the unavailable backend, including when the
-SDK's OCR feature is selected. Consumers use `capabilities().ocr` rather than
+The letter model runs on LiteRT on Android arm64: Core opens the
+`libLiteRt.so` the app packages from `com.google.ai.edge.litert:litert`
+(no Google Play services), so an SDK consumer that wants OCR declares that
+dependency too; without it `prepareScanner()` reports a model error. iOS
+device and simulator (arm64 and x86_64) run it on the system's Core ML from
+the model Core embeds, so the SDK links no inference library and needs only
+the CoreML framework. Android x86_64 builds the unavailable backend, including
+when the SDK's OCR feature is selected. Consumers use `capabilities().ocr` rather than
 checking operating-system strings. Android emulator tests cover this fallback;
 iOS simulator tests exercise model preparation and inference.
 

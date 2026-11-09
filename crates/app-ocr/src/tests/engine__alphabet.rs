@@ -1,4 +1,5 @@
 use super::*;
+use image::Rgb;
 
 #[test]
 #[ignore = "requires an explicitly supplied private camera frame"]
@@ -7,7 +8,6 @@ fn supplied_camera_frame_geometry() {
     let bytes = std::fs::read(path).unwrap();
     let captured =
         capture_matrix_frame(&bytes).expect("camera frame should contain a complete Matrix grid");
-    eprintln!("camera frame timing: {:?}", captured.timing);
     assert_eq!(captured.quads.len(), 70);
     assert_eq!(captured.glyphs.len(), 70);
     let usable = captured
@@ -129,93 +129,20 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         (dim - levels[0]).abs() < 0.1 * levels[0],
         "dim {dim} vs {levels:?}"
     );
-    // Keep black ink on both paper colors, and prevent input whitening from
-    // changing physical glare/admission measurements.
-    for paper in [[245, 205, 205], [240; 3], [130, 110, 100]] {
-        let rgb = RgbImage::from_fn(96, 96, |x, y| {
-            if (38..52).contains(&x) && (20..76).contains(&y) {
-                Rgb([20; 3])
-            } else {
-                Rgb(paper)
-            }
-        });
-        let projected = project_glyph(&rgb, crate::MatrixGlyphProjection::PaperDistance);
-        assert!(projected.get_pixel(30, 30)[0] >= 250);
-        assert!(projected.get_pixel(45, 45)[0] < 55);
-        assert!(prepare_matrix_alphabet_input(projected.as_raw())
-            .unwrap()
-            .is_some());
-    }
-    for projection in [
-        crate::MatrixGlyphProjection::RedChroma,
-        crate::MatrixGlyphProjection::PaperDistance,
-    ] {
-        let color = capture_matrix_frame_configured(
-            fixture,
-            crate::MatrixCaptureConfig {
-                glyph_projection: projection,
-            },
-        )
-        .unwrap();
-        assert_eq!(captured.quads, color.quads);
-        assert!(captured
-            .glyphs
-            .iter()
-            .zip(&color.glyphs)
-            .any(|(a, b)| a.gray != b.gray));
-        for (a, b) in captured.glyphs.iter().zip(color.glyphs) {
-            assert_eq!(
-                (
-                    a.contrast,
-                    a.sharpness,
-                    a.centering,
-                    a.glare,
-                    a.source_size,
-                    a.acuity
-                ),
-                (
-                    b.contrast,
-                    b.sharpness,
-                    b.centering,
-                    b.glare,
-                    b.source_size,
-                    b.acuity
-                )
-            );
-        }
-    }
-    #[cfg(feature = "training-tools")]
-    {
-        let body = [
-            captured.quads[0][0],
-            captured.quads[9][1],
-            captured.quads[69][2],
-            captured.quads[60][3],
-        ];
-        let recovered = capture_matrix_training_frame(fixture, body).unwrap();
-        let model = MatrixAlphabetService::default();
-        for (batch_index, glyphs) in recovered.glyphs.chunks(10).enumerate() {
-            let inputs = glyphs.iter().map(|g| g.gray.clone()).collect::<Vec<_>>();
-            for (offset, reading) in model.recognize(&inputs).unwrap().iter().enumerate() {
-                let cell = batch_index * 10 + offset;
-                assert_eq!(
-                    reading.text,
-                    ((b'A' + (cell % 26) as u8) as char).to_string(),
-                    "assisted cell {cell}"
-                );
-            }
-        }
-        for invalid in [
-            [[0., 0.]; 4],
-            [body[0], body[2], body[1], body[3]],
-            [[f64::NAN, 0.], body[1], body[2], body[3]],
-            [[-0.1, 0.], body[1], body[2], body[3]],
-        ] {
-            assert!(matches!(
-                capture_matrix_training_frame(fixture, invalid),
-                Err(MatrixOcrError::InvalidImage(_))
-            ));
-        }
+    // A still photo and a camera keyframe of the same pixels cut the same
+    // cells: there is one luma path, not one for each.
+    let body = [
+        captured.quads[0][0],
+        captured.quads[9][1],
+        captured.quads[69][2],
+        captured.quads[60][3],
+    ];
+    let luma = crate::engine::picture::rec601(&decode_image(fixture).unwrap());
+    let keyframe =
+        capture_matrix_keyframe(luma.as_raw(), luma.width(), luma.height(), body).unwrap();
+    for (photo, frame) in captured.glyphs.iter().zip(&keyframe.glyphs) {
+        assert!(photo.gray == frame.gray);
+        assert_eq!(photo.glare, frame.glare);
     }
     assert!(captured
         .glyphs
@@ -299,6 +226,23 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
     ));
     drop(guard);
     assert!(capture_matrix_frame(b"invalid image").is_err());
+}
+
+#[test]
+fn a_poisoned_model_lock_is_cleared_for_the_next_call() {
+    let model = MatrixAlphabetService::default();
+    let interrupted = model.clone();
+    let stopped = std::thread::spawn(move || {
+        let _resident = interrupted.0.lock().unwrap();
+        panic!("simulate an interrupted recognition");
+    });
+    assert!(stopped.join().is_err());
+    let blank = [vec![255; 96 * 96]];
+    assert!(matches!(
+        model.recognize(&blank),
+        Err(MatrixOcrError::Model(message)) if message.contains("recovered")
+    ));
+    assert!(model.recognize(&blank).is_ok());
 }
 
 #[test]

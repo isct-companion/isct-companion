@@ -839,8 +839,8 @@ checks:
     title: School logins back up to Drive and restore on a second desktop
     persona: careless-multidevice
     preconditions: |
-      Two desktops (Windows or Linux on one side makes the Drive file the only
-      path, since Macs also share logins through iCloud Keychain), both with
+      Two desktops (Windows on one side makes the Drive file the only path,
+      since Macs also share logins through iCloud Keychain), both with
       Google Drive on under the same account. Desktop A has a working school
       login; desktop B has none.
     steps:
@@ -923,8 +923,8 @@ checks:
     title: Campus-card OCR on a physical card
     persona: undergraduate-first-term
     preconditions: |
-      A supported desktop target with OCR, a physical campus card, and a
-      camera or a photo of the card. For the phone steps: a TestFlight build
+      The desktop app, a physical campus card, and a camera or a photo of the
+      card. For the phone steps: a TestFlight build
       on an iPhone and a CI-built APK on an arm64 Android phone.
     steps:
       - action: |
@@ -1036,9 +1036,8 @@ checks:
       Every expected cell is recognised, no wrong cell is accepted, and the
       corrected values are what get saved.
     why_manual: |
-      Needs a physical card and a camera. Intel Mac builds ship without the
-      OCR runtime, so the target must be chosen deliberately. The phone steps
-      need signed iOS and Android builds with camera hardware.
+      Needs a physical card and a camera. The phone steps need signed iOS and
+      Android builds with camera hardware.
     covers:
       - crates/app-ffi/src/matrix.rs
       - crates/app-ffi/src/services.rs
@@ -1796,16 +1795,15 @@ checks:
     why_manual: |
       Requires the campus network and OS-level wireless configuration.
     covers:
-      - apps/desktop/src-tauri/src/campus_wifi.rs
+      - apps/desktop/src-tauri/src/plugins/campus_wifi.rs
     verified: null
 
   - id: DESKTOP-CAMPUS-PRINTER-QUEUE
     area: desktop
-    title: Campus printer queue on macOS and Linux bills the verified student ID
+    title: Campus printer queue on macOS bills the verified student ID
     persona: masters-student
     preconditions: |
-      A desktop build of this commit on a Mac (then again on a Linux desktop
-      with CUPS and a polkit agent), the Tokyo Tech Portal account of a
+      A desktop build of this commit on a Mac, the Tokyo Tech Portal account of a
       master's student (24M… or similar) saved in 学校アカウント, the
       administrator password, a short PDF, and access to the print release
       or billing page that shows which student ID a job was charged to.
@@ -1824,13 +1822,12 @@ checks:
           administrator prompt.
         reason: |
           The card must show the Tokyo Tech account's own student ID in
-          capitals, and the prompt must be the system's (macOS: the app's
-          text; Linux: polkit's). Cancelling must say キャンセルしました and
-          leave no InstitutePrinter queue.
+          capitals, and the prompt must be the system's, with the app's
+          text. Cancelling must say キャンセルしました and leave no
+          InstitutePrinter queue.
       - action: |
           Press it again and authenticate, read the card, then open System
-          Settings → Printers & Scanners (Linux: the printer settings or
-          `lpstat -v`).
+          Settings → Printers & Scanners.
         reason: |
           One root step installs the titech-lpd backend and the queue, and the
           card must say it was added: macOS's CUPS refuses `cupsenable` to root,
@@ -1840,7 +1837,7 @@ checks:
           `lpstat -l -p InstitutePrinter` must allow only this login and the
           queue must not be shared.
       - action: |
-          Print the PDF from Preview (Linux: any viewer) to InstitutePrinter,
+          Print the PDF from Preview to InstitutePrinter,
           two copies, two-sided, black and white, then check the billing page.
         reason: |
           Only the real printer shows that a non-B student ID is accepted and
@@ -1884,7 +1881,8 @@ checks:
       - crates/adpt-cups/src/install.rs
       - crates/adpt-cups/src/backend.rs
       - crates/adpt-cups/build.rs
-      - apps/desktop/src-tauri/src/campus_printer_cups.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
     verified: null
 
@@ -1898,16 +1896,22 @@ checks:
       billing page.
     steps:
       - action: |
-          Open 工具 → 校内打印机 and press 添加 PDF 右键菜单.
+          Open a File Explorer window on the PDF's folder, then open 工具 →
+          校内打印机 and press 添加 PDF 右键菜单.
         reason: |
           The entry goes under HKCU without an administrator prompt; a UAC
-          prompt here means it was written somewhere it should not be.
+          prompt here means it was written somewhere it should not be. The
+          card says it was added only after the entry read back as written.
       - action: |
-          Quit the app, right-click the PDF in File Explorer (on Windows 11
-          under 显示更多选项) and choose 用校内打印机打印.
+          In the Explorer window that was already open, right-click the PDF
+          (on Windows 11 under 显示更多选项): the entry must be there. Then
+          quit the app and choose 用校内打印机打印.
         reason: |
-          A cold start must open the print window for that file, in the UI
-          language, not just the main window.
+          The app tells Explorer the associations changed, so a window open
+          before the entry existed offers it without restarting Explorer. A
+          cold start must open the print window for that file, in the UI
+          language, not just the main window, and the window's printing
+          commands must answer under its own permission grant.
       - action: |
           Close it, keep the app running, and use the entry again.
         reason: |
@@ -1946,7 +1950,8 @@ checks:
       printer; the LPD client, PJL header and copy uploads are tested in
       crates/adpt-printer/src/tests.
     covers:
-      - apps/desktop/src-tauri/src/campus_printer_windows.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/features/campus-print/CampusPrintWindow.tsx
       - apps/desktop/src-tauri/capabilities/campus-print.json
   - id: DESKTOP-ABOUT-PAGE
@@ -2161,10 +2166,10 @@ checks:
       - crates/app-core/src/tests/school_session__vpn.rs
       - crates/adpt-isct/src/login.rs
       - crates/vpn-helper/src/unix.rs
-      - apps/desktop/src-tauri/src/vpn.rs
-      - apps/desktop/src-tauri/src/vpn_macos.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs
       - apps/desktop/src-tauri/src/tests/vpn_macos.rs
-      - apps/desktop/src-tauri/src/commands/vpn.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - scripts/desktop/bundle-vpn.mjs
     verified: null
@@ -2273,9 +2278,9 @@ checks:
       - crates/vpn-helper/src/tests/windows_net.rs
       - crates/vpn-helper/assets/isct-vpn-script.js
       - crates/vpn-protocol/src/lib.rs
-      - apps/desktop/src-tauri/src/vpn.rs
-      - apps/desktop/src-tauri/src/vpn_windows.rs
-      - apps/desktop/src-tauri/src/commands/vpn.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - apps/desktop/src/pages/settings/registry.ts
       - scripts/desktop/bundle-vpn.mjs
@@ -4383,44 +4388,6 @@ checks:
     verified: null
 
 
-  - id: DESKTOP-SCHOOL-COOKIES-LINUX
-    area: desktop
-    title: Linux school views receive Core's identity cookies
-    persona: undergraduate-senior
-    preconditions: |
-      A Linux build from this source (WebKitGTK 2.38 or later) with both
-      school accounts signed in from Settings, and no school page opened
-      since launch.
-    steps:
-      - action: |
-          Open 教務Web from the site list.
-        reason: |
-          The writer parses each `Set-Cookie` with libsoup and adds it to the
-          WebKitGTK cookie manager; a domain cookie that lost its scope shows
-          the agreement page or the resource menu instead of 学生トップ.
-      - action: |
-          Open the LMS from the site list.
-        reason: |
-          The host-only Extic identity must carry the LMS through its SAML
-          hand-off.
-      - action: |
-          Copy the log in Settings → Diagnostics.
-        reason: |
-          Separates a failed write (`web cookies not written`) from a write
-          with the wrong scope.
-    observe: |
-      The two school pages and the copied log.
-    expected: |
-      Both pages open signed in, and the log has no `web cookies not written`
-      for the opened views.
-    why_manual: |
-      Needs WebKitGTK's cookie manager on a real Linux desktop and live
-      school sessions; no suite runs WebKitGTK here.
-    covers:
-      - apps/desktop/src-tauri/src/school_cookies.rs
-    verified: null
-
-
   - id: IOS-CREDENTIAL-SOURCE-TILES
     area: native
     title: iPhone second-factor sources are one row of equal tiles
@@ -5546,9 +5513,9 @@ checks:
     title: Android Matrix sources match iOS, with the system camera and a pasted image
     persona: undergraduate-senior
     preconditions: |
-      The Android app on an arm64 phone (the x86_64 emulator has no OCR and
-      shows only 貼り付け and 入力), camera permission not yet granted, and a
-      photo of a Matrix card in the gallery.
+      The release APK (arm64 only) on an arm64 phone, camera permission not yet
+      granted, a photo of a Matrix card and a screenshot of an authenticator
+      QR code in the gallery.
     steps:
       - action: |
           Open 設定 › Tokyo Tech (旧) and read the マトリクス表 row.
@@ -5569,17 +5536,29 @@ checks:
         reason: |
           A pasted image is read like a photo, as on iOS; text must be the 70
           letters, otherwise the row's red message shows.
-    observe: The Tokyo Tech account page and its grid.
+      - action: |
+          Open Science Tokyo, choose 認証アプリから › 写真から and pick the QR
+          screenshot.
+        reason: |
+          Screenshot QR codes are decoded by the Play services ML Kit, whose
+          model is fetched at install rather than bundled; a missing model
+          would read as "no QR code".
+    observe: The Tokyo Tech and Science Tokyo account pages.
     expected: |
       Four sources as on iOS; a taken, picked or pasted photo fills the grid
-      with confidence tints; wrong text is rejected with the message.
+      with confidence tints; wrong text is rejected with the message; the QR
+      screenshot fills the one-time password.
     why_manual: |
-      The system camera, its permission prompt and the clipboard's image
-      exist only on an arm64 phone with the OCR runtime; recognition itself
-      is Core's, covered by its tests.
+      The system camera, its permission prompt, the clipboard's image and the
+      Play services barcode model exist only on a phone; the Matrix grid is
+      read by the LiteRT library the app bundles, which only an arm64 device
+      loads. Recognition accuracy is Core's, covered by its tests and replay.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
       - apps/android/app/src/main/res/xml/file_paths.xml
+      - apps/android/app/src/main/AndroidManifest.xml
+      - apps/android/app/build.gradle.kts
+      - crates/app-ocr/src/engine/letters/litert.rs
     verified: null
 
   - id: SYNC-FAILED-PAGE-REASON

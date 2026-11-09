@@ -135,7 +135,9 @@ jobs:
           workspaces: . -> target
           key: native-sdk-android
       - name: Build AAR and both native ABIs
-        run: node scripts/bindings/build-android.mjs
+        # x86_64 only so the SDK can load on the runner's emulator; the app
+        # packages arm64 alone.
+        run: node scripts/bindings/build-android.mjs --with-emulator
       # Android release otherwise first compiles the app on a version tag, which
       # is where the Kotlin errors of 1.1.9 and 1.3.0 surfaced.
       - name: Compile the app against this AAR

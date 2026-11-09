@@ -24,7 +24,6 @@ export type CapabilityRuntime = {
     notificationUnavailableReason?: MessageKey | null;
     backgroundSchedule: boolean;
     cloudSync: boolean;
-    matrixOcr: boolean;
   };
   background: { scheduler: "active" | "off" | "failed" };
   noBackendPush: true;

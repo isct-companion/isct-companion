@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 161 checks must be re-run before the next release.**
+**5 of 160 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**156 checks have never been run or could not be run:**
+**155 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -95,7 +95,6 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-WEB-RELOAD-SIGN-IN` — never verified
 - `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` — never verified
 - `DESKTOP-SCHOOL-COOKIES-WINDOWS` — never verified
-- `DESKTOP-SCHOOL-COOKIES-LINUX` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `MOBILE-OTP-AUTHENTICATOR-EXPORT` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
@@ -213,14 +212,14 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/lectures/lectures.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
-| `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
-| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/campus_printer_cups.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
-| `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/campus_printer_windows.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
+| `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_wifi.rs |
+| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
-| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
-| `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/vpn.rs<br>apps/desktop/src-tauri/src/vpn_windows.rs<br>apps/desktop/src-tauri/src/commands/vpn.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
+| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
+| `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
 | `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
@@ -261,7 +260,6 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
 | `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
-| `DESKTOP-SCHOOL-COOKIES-LINUX` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift |
 | `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -282,7 +280,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
-| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/build.gradle.kts<br>crates/app-ocr/src/engine/letters/litert.rs |
 | `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
@@ -1153,8 +1151,8 @@ that cannot be automated without live credentials.
 
 **Preconditions**
 
-Two desktops (Windows or Linux on one side makes the Drive file the only
-path, since Macs also share logins through iCloud Keychain), both with
+Two desktops (Windows on one side makes the Drive file the only path,
+since Macs also share logins through iCloud Keychain), both with
 Google Drive on under the same account. Desktop A has a working school
 login; desktop B has none.
 
@@ -1255,8 +1253,8 @@ Needs OS-level power transitions and a real provider session.
 
 **Preconditions**
 
-A supported desktop target with OCR, a physical campus card, and a
-camera or a photo of the card. For the phone steps: a TestFlight build
+The desktop app, a physical campus card, and a camera or a photo of the
+card. For the phone steps: a TestFlight build
 on an iPhone and a CI-built APK on an arm64 Android phone.
 
 **Steps**
@@ -1360,9 +1358,8 @@ corrected values are what get saved.
 
 **Why this is manual**
 
-Needs a physical card and a camera. Intel Mac builds ship without the
-OCR runtime, so the target must be chosen deliberately. The phone steps
-need signed iOS and Android builds with camera hardware.
+Needs a physical card and a camera. The phone steps need signed iOS and
+Android builds with camera hardware.
 
 **Covers**
 
@@ -2202,11 +2199,11 @@ Requires the campus network and OS-level wireless configuration.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/campus_wifi.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_wifi.rs`
 
 **Last recorded** never run
 
-### Campus printer queue on macOS and Linux bills the verified student ID (`DESKTOP-CAMPUS-PRINTER-QUEUE`)
+### Campus printer queue on macOS bills the verified student ID (`DESKTOP-CAMPUS-PRINTER-QUEUE`)
 
 **Area** desktop · **Persona** 修士課程 1年・前期課程 · **Result** —
 
@@ -2214,8 +2211,7 @@ Requires the campus network and OS-level wireless configuration.
 
 **Preconditions**
 
-A desktop build of this commit on a Mac (then again on a Linux desktop
-with CUPS and a polkit agent), the Tokyo Tech Portal account of a
+A desktop build of this commit on a Mac, the Tokyo Tech Portal account of a
 master's student (24M… or similar) saved in 学校アカウント, the
 administrator password, a short PDF, and access to the print release
 or billing page that shows which student ID a job was charged to.
@@ -2232,12 +2228,11 @@ ScienceTokyo Wi-Fi for the printing steps.
 2. Read the student ID on the card, then press システムプリンタを追加 and cancel the
    administrator prompt.
    - *Why:* The card must show the Tokyo Tech account's own student ID in
-     capitals, and the prompt must be the system's (macOS: the app's
-     text; Linux: polkit's). Cancelling must say キャンセルしました and
-     leave no InstitutePrinter queue.
+     capitals, and the prompt must be the system's, with the app's
+     text. Cancelling must say キャンセルしました and leave no
+     InstitutePrinter queue.
 3. Press it again and authenticate, read the card, then open System
-   Settings → Printers & Scanners (Linux: the printer settings or
-   `lpstat -v`).
+   Settings → Printers & Scanners.
    - *Why:* One root step installs the titech-lpd backend and the queue, and the
      card must say it was added: macOS's CUPS refuses `cupsenable` to root,
      which used to report a working queue as failed. The
@@ -2245,7 +2240,7 @@ ScienceTokyo Wi-Fi for the printing steps.
      (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
      `lpstat -l -p InstitutePrinter` must allow only this login and the
      queue must not be shared.
-4. Print the PDF from Preview (Linux: any viewer) to InstitutePrinter,
+4. Print the PDF from Preview to InstitutePrinter,
    two copies, two-sided, black and white, then check the billing page.
    - *Why:* Only the real printer shows that a non-B student ID is accepted and
      billed, and that the PPD's duplex and color options reach it
@@ -2290,7 +2285,8 @@ crates/app-core/src/tests.
 - `crates/adpt-cups/src/install.rs`
 - `crates/adpt-cups/src/backend.rs`
 - `crates/adpt-cups/build.rs`
-- `apps/desktop/src-tauri/src/campus_printer_cups.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs`
 - `apps/desktop/src/pages/tools/CampusPrinter.tsx`
 
 **Last recorded** never run
@@ -2309,13 +2305,19 @@ billing page.
 
 **Steps**
 
-1. Open 工具 → 校内打印机 and press 添加 PDF 右键菜单.
+1. Open a File Explorer window on the PDF's folder, then open 工具 →
+   校内打印机 and press 添加 PDF 右键菜单.
    - *Why:* The entry goes under HKCU without an administrator prompt; a UAC
-     prompt here means it was written somewhere it should not be.
-2. Quit the app, right-click the PDF in File Explorer (on Windows 11
-   under 显示更多选项) and choose 用校内打印机打印.
-   - *Why:* A cold start must open the print window for that file, in the UI
-     language, not just the main window.
+     prompt here means it was written somewhere it should not be. The
+     card says it was added only after the entry read back as written.
+2. In the Explorer window that was already open, right-click the PDF
+   (on Windows 11 under 显示更多选项): the entry must be there. Then
+   quit the app and choose 用校内打印机打印.
+   - *Why:* The app tells Explorer the associations changed, so a window open
+     before the entry existed offers it without restarting Explorer. A
+     cold start must open the print window for that file, in the UI
+     language, not just the main window, and the window's printing
+     commands must answer under its own permission grant.
 3. Close it, keep the app running, and use the entry again.
    - *Why:* A running app gets the second launch's arguments from the
      single-instance plugin; without them only the main window comes
@@ -2354,7 +2356,8 @@ crates/adpt-printer/src/tests.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/campus_printer_windows.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs`
 - `apps/desktop/src/features/campus-print/CampusPrintWindow.tsx`
 - `apps/desktop/src-tauri/capabilities/campus-print.json`
 
@@ -2596,10 +2599,10 @@ install on macOS. None of that is reachable from automated suites.
 - `crates/app-core/src/tests/school_session__vpn.rs`
 - `crates/adpt-isct/src/login.rs`
 - `crates/vpn-helper/src/unix.rs`
-- `apps/desktop/src-tauri/src/vpn.rs`
-- `apps/desktop/src-tauri/src/vpn_macos.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs`
 - `apps/desktop/src-tauri/src/tests/vpn_macos.rs`
-- `apps/desktop/src-tauri/src/commands/vpn.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 - `scripts/desktop/bundle-vpn.mjs`
 
@@ -2704,9 +2707,9 @@ order, the service command line) are covered by the vpn-helper tests.
 - `crates/vpn-helper/src/tests/windows_net.rs`
 - `crates/vpn-helper/assets/isct-vpn-script.js`
 - `crates/vpn-protocol/src/lib.rs`
-- `apps/desktop/src-tauri/src/vpn.rs`
-- `apps/desktop/src-tauri/src/vpn_windows.rs`
-- `apps/desktop/src-tauri/src/commands/vpn.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 - `apps/desktop/src/pages/settings/registry.ts`
 - `scripts/desktop/bundle-vpn.mjs`
@@ -5056,51 +5059,6 @@ carry over to another engine.
 
 **Last recorded** never run
 
-### Linux school views receive Core's identity cookies (`DESKTOP-SCHOOL-COOKIES-LINUX`)
-
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A Linux build from this source (WebKitGTK 2.38 or later) with both
-school accounts signed in from Settings, and no school page opened
-since launch.
-
-**Steps**
-
-1. Open 教務Web from the site list.
-   - *Why:* The writer parses each `Set-Cookie` with libsoup and adds it to the
-     WebKitGTK cookie manager; a domain cookie that lost its scope shows
-     the agreement page or the resource menu instead of 学生トップ.
-2. Open the LMS from the site list.
-   - *Why:* The host-only Extic identity must carry the LMS through its SAML
-     hand-off.
-3. Copy the log in Settings → Diagnostics.
-   - *Why:* Separates a failed write (`web cookies not written`) from a write
-     with the wrong scope.
-
-**Where to look**
-
-The two school pages and the copied log.
-
-**Expected**
-
-Both pages open signed in, and the log has no `web cookies not written`
-for the opened views.
-
-**Why this is manual**
-
-Needs WebKitGTK's cookie manager on a real Linux desktop and live
-school sessions; no suite runs WebKitGTK here.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/school_cookies.rs`
-
-**Last recorded** never run
-
 ### iPhone second-factor sources are one row of equal tiles (`IOS-CREDENTIAL-SOURCE-TILES`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
@@ -6350,9 +6308,9 @@ read model, covered by its test.
 
 **Preconditions**
 
-The Android app on an arm64 phone (the x86_64 emulator has no OCR and
-shows only 貼り付け and 入力), camera permission not yet granted, and a
-photo of a Matrix card in the gallery.
+The release APK (arm64 only) on an arm64 phone, camera permission not yet
+granted, a photo of a Matrix card and a screenshot of an authenticator
+QR code in the gallery.
 
 **Steps**
 
@@ -6369,26 +6327,36 @@ photo of a Matrix card in the gallery.
    貼り付け again.
    - *Why:* A pasted image is read like a photo, as on iOS; text must be the 70
      letters, otherwise the row's red message shows.
+4. Open Science Tokyo, choose 認証アプリから › 写真から and pick the QR
+   screenshot.
+   - *Why:* Screenshot QR codes are decoded by the Play services ML Kit, whose
+     model is fetched at install rather than bundled; a missing model
+     would read as "no QR code".
 
 **Where to look**
 
-The Tokyo Tech account page and its grid.
+The Tokyo Tech and Science Tokyo account pages.
 
 **Expected**
 
 Four sources as on iOS; a taken, picked or pasted photo fills the grid
-with confidence tints; wrong text is rejected with the message.
+with confidence tints; wrong text is rejected with the message; the QR
+screenshot fills the one-time password.
 
 **Why this is manual**
 
-The system camera, its permission prompt and the clipboard's image
-exist only on an arm64 phone with the OCR runtime; recognition itself
-is Core's, covered by its tests.
+The system camera, its permission prompt, the clipboard's image and the
+Play services barcode model exist only on a phone; the Matrix grid is
+read by the LiteRT library the app bundles, which only an arm64 device
+loads. Recognition accuracy is Core's, covered by its tests and replay.
 
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
 - `apps/android/app/src/main/res/xml/file_paths.xml`
+- `apps/android/app/src/main/AndroidManifest.xml`
+- `apps/android/app/build.gradle.kts`
+- `crates/app-ocr/src/engine/letters/litert.rs`
 
 **Last recorded** never run
 

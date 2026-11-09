@@ -82,7 +82,6 @@ import app.isctcompanion.core.MatrixConfidence
 import app.isctcompanion.core.OtpImportAccount
 import app.isctcompanion.core.OtpImportException
 import app.isctcompanion.core.importOtp
-import app.isctcompanion.core.matrixConfidence
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -339,7 +338,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cells = remember { mutableStateListOf(*Array(70) { "" }) }
-    val confidence = remember { mutableStateListOf<Double?>(*Array(70) { null }) }
+    val confidence = remember { mutableStateListOf<MatrixConfidence?>(*Array(70) { null }) }
     var editing by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
@@ -361,7 +360,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 } else {
                     result.forEachIndexed { index, cell ->
                         cells[index] = cell.text
-                        confidence[index] = cell.confidence
+                        confidence[index] = cell.level
                     }
                     publish()
                     editing = true
@@ -382,7 +381,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
             if (result != null && result.size == 70) {
                 result.forEachIndexed { index, cell ->
                     cells[index] = cell.text
-                    confidence[index] = cell.confidence
+                    confidence[index] = cell.level
                 }
                 publish()
                 editing = true
@@ -504,7 +503,7 @@ private fun Swatch(color: Color, label: String) {
 
 /** 7 rows × 10 columns (A–J), one letter each, tinted by Core's review level. */
 @Composable
-private fun MatrixGrid(cells: MutableList<String>, confidence: MutableList<Double?>, changed: () -> Unit) {
+private fun MatrixGrid(cells: MutableList<String>, confidence: MutableList<MatrixConfidence?>, changed: () -> Unit) {
     val focus = remember { List(70) { FocusRequester() } }
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -521,13 +520,12 @@ private fun MatrixGrid(cells: MutableList<String>, confidence: MutableList<Doubl
                 Text("${row + 1}", modifier = Modifier.width(16.dp), style = MaterialTheme.typography.labelSmall, color = Theme.colors.muted)
                 for (column in 0 until 10) {
                     val index = row * 10 + column
-                    val fill = confidence[index]?.let {
-                        when (matrixConfidence(cells[index], it)) {
-                            MatrixConfidence.HIGH -> Theme.colors.okSoft
-                            MatrixConfidence.MEDIUM -> Theme.colors.warnSoft
-                            MatrixConfidence.LOW -> Theme.colors.dangerSoft
-                        }
-                    } ?: Theme.colors.surface2
+                    val fill = when (confidence[index]) {
+                        MatrixConfidence.HIGH -> Theme.colors.okSoft
+                        MatrixConfidence.MEDIUM -> Theme.colors.warnSoft
+                        MatrixConfidence.LOW -> Theme.colors.dangerSoft
+                        null -> Theme.colors.surface2
+                    }
                     BasicTextField(
                         value = cells[index],
                         onValueChange = { value ->

@@ -1,14 +1,7 @@
-use image::RgbImage;
-
 #[derive(Clone, Copy, Debug)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
-}
-
-// Match JavaScript Math.round, including negative half values.
-fn round(value: f64) -> f64 {
-    (value + 0.5).floor()
 }
 
 pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
@@ -31,7 +24,7 @@ pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
     }
 }
 
-#[cfg(any(test, feature = "training-tools"))]
+#[cfg(test)]
 pub(super) fn body_cells(corners: [Point; 4]) -> Vec<[Point; 4]> {
     (0..70)
         .map(|index| {
@@ -45,22 +38,4 @@ pub(super) fn body_cells(corners: [Point; 4]) -> Vec<[Point; 4]> {
             .map(|(u, v)| project(&corners, u, v))
         })
         .collect()
-}
-
-pub fn crop(image: &RgbImage, corners: &[Point; 4]) -> RgbImage {
-    crop_at(image, corners, 64)
-}
-
-pub(super) fn crop_at(image: &RgbImage, corners: &[Point; 4], size: u32) -> RgbImage {
-    image::ImageBuffer::from_fn(size, size, |x, y| {
-        let point = project(
-            corners,
-            0.09 + x as f64 / size.saturating_sub(1).max(1) as f64 * 0.82,
-            0.09 + y as f64 / size.saturating_sub(1).max(1) as f64 * 0.82,
-        );
-        *image.get_pixel(
-            round(point.x).clamp(0., (image.width() - 1) as f64) as u32,
-            round(point.y).clamp(0., (image.height() - 1) as f64) as u32,
-        )
-    })
 }

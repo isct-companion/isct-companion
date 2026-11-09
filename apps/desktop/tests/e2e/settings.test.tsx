@@ -138,11 +138,13 @@ function mountSettings(
     handle?: Handler;
     apply?: Apply;
     queries?: FakeCoreOptions["queries"];
+    tools?: FakeCoreOptions["tools"];
   } = {},
 ): Promise<MountedApp> {
   return mountApp(
     {
       workspace: options.workspace ?? workspaceFixture(),
+      tools: options.tools,
       capabilities: options.capabilities ?? {},
       queries: {
         workspaceOverview: (_query, core) => overviewFor(core.workspace),
@@ -617,7 +619,12 @@ describe("School accounts", () => {
 /* -------------------------------------------------------------- matrix input */
 
 const recognitions = (text: string, confidence: number) =>
-  Array.from({ length: 70 }, () => ({ text, confidence }));
+  Array.from({ length: 70 }, () => ({
+    text,
+    confidence,
+    stable: false,
+    level: text ? "high" : "low",
+  }));
 
 const PNG = () => new File(["test"], "card.png", { type: "image/png" });
 
@@ -728,7 +735,6 @@ describe("Matrix scan and paste", () => {
       };
       try {
         const mounted = await mountAccounts({
-          capabilities: { matrixOcr: true },
           handle: (command) => {
             if (command === "school_credential_status")
               return { science: notConfigured(), tokyoTech: notConfigured() };
@@ -763,6 +769,8 @@ describe("Matrix scan and paste", () => {
                       text: attempt === 0 ? "" : "A",
                       confidence: attempt === 0 ? 0 : 0.98,
                       stable: i !== 69,
+                      level:
+                        attempt === 0 ? "low" : i === 69 ? "medium" : "high",
                     })),
                   });
               });
@@ -874,46 +882,6 @@ describe("Matrix scan and paste", () => {
   );
 
   it(
-    "hides image scanning when this build cannot read Matrix photographs",
-    async () => {
-      const mounted = await mountAccounts({
-        capabilities: { matrixOcr: false },
-        handle: (command) => {
-          if (command === "school_credential_status")
-            return { science: notConfigured(), tokyoTech: notConfigured() };
-          if (command === "school_session_snapshot") return noSession;
-          return undefined;
-        },
-      });
-      const pane = settingsPane(mounted);
-      // The capability is read once at launch; wait for that read to settle so
-      // the absence below is about the resolved capability, not a pending one.
-      await wait(() =>
-        expect(
-          mounted.core.commands("runtime_capabilities").length,
-        ).toBeGreaterThan(0),
-      );
-      await flush();
-      expect(cardButtons(matrixCard(mounted))).not.toContain("Scan image");
-      expect(cardButtons(matrixCard(mounted))).not.toContain(
-        "Scan with camera",
-      );
-      expect(
-        matrixCard(mounted).querySelector('input[type="file"]'),
-      ).toBeNull();
-      // QR reading is independent of native Matrix OCR availability.
-      await clickButton(
-        account(mounted, "science"),
-        "From an authenticator app",
-      );
-      expect(
-        account(mounted, "science").querySelector('input[type="file"]'),
-      ).not.toBeNull();
-    },
-    TIMEOUT,
-  );
-
-  it(
     "shows scan confidence in three bands and masks the Matrix after Connect saves",
     async () => {
       const status: SchoolCredentialStatus = {
@@ -921,7 +889,6 @@ describe("Matrix scan and paste", () => {
         tokyoTech: notConfigured(),
       };
       const mounted = await mountAccounts({
-        capabilities: { matrixOcr: true },
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
@@ -929,6 +896,8 @@ describe("Matrix scan and paste", () => {
             return Array.from({ length: 70 }, (_, index) => ({
               text: "A",
               confidence: index === 0 ? 0.96 : index === 1 ? 0.82 : 0.7,
+              stable: false,
+              level: index === 0 ? "high" : index === 1 ? "medium" : "low",
             }));
           if (command === "connect_school") return { kind: "connected" };
           return undefined;
@@ -984,7 +953,6 @@ describe("Matrix scan and paste", () => {
     "refuses an incomplete scan and keeps the letters it could read",
     async () => {
       const mounted = await mountAccounts({
-        capabilities: { matrixOcr: true },
         handle: (command) => {
           if (command === "school_credential_status")
             return { science: notConfigured(), tokyoTech: notConfigured() };
@@ -993,6 +961,8 @@ describe("Matrix scan and paste", () => {
             return Array.from({ length: 70 }, (_, index) => ({
               text: index === 0 ? "L" : "",
               confidence: index === 0 ? 0.92 : 0,
+              stable: false,
+              level: index === 0 ? "high" : "low",
             }));
           return undefined;
         },
@@ -1024,7 +994,6 @@ describe("Matrix scan and paste", () => {
     "keeps the scanned letters and their confidence when saving fails",
     async () => {
       const mounted = await mountAccounts({
-        capabilities: { matrixOcr: true },
         handle: (command) => {
           if (command === "school_credential_status")
             return { science: notConfigured(), tokyoTech: notConfigured() };
@@ -1058,7 +1027,6 @@ describe("Matrix scan and paste", () => {
     async (outcome) => {
       let scanned = 0;
       const mounted = await mountAccounts({
-        capabilities: { matrixOcr: true },
         handle: (command) => {
           if (command === "school_credential_status")
             return { science: notConfigured(), tokyoTech: notConfigured() };
@@ -1114,7 +1082,6 @@ describe("Matrix scan and paste", () => {
     "pastes whitespace-formatted letters into the right grid cells",
     async () => {
       const mounted = await mountAccounts({
-        capabilities: { matrixOcr: true },
         handle: (command) => {
           if (command === "school_credential_status")
             return { science: notConfigured(), tokyoTech: notConfigured() };
@@ -1153,7 +1120,6 @@ describe("Matrix scan and paste", () => {
     async () => {
       const status = matrixStatus();
       const mounted = await mountAccounts({
-        capabilities: { matrixOcr: true },
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
@@ -2412,10 +2378,12 @@ describe("Campus VPN", () => {
         detail: "the tunnel ended",
       };
       try {
+        // What a Windows binary reports: no campus Wi-Fi sign-in.
         const mounted = await mountSettings(paths.tools(), {
+          tools: ["campus-vpn", "campus-printer"],
           handle: (command) => {
-            if (command === "vpn_status") return failed;
-            if (command === "vpn_connect")
+            if (command === "plugin:campus-vpn|status") return failed;
+            if (command === "plugin:campus-vpn|connect")
               return {
                 ...status,
                 state: "connected",
@@ -2432,7 +2400,7 @@ describe("Campus VPN", () => {
             "The campus VPN could not be established.",
           ),
         );
-        // A Windows build has no campus Wi-Fi sign-in to list.
+        // The page lists what the binary reports, in its order.
         expect(
           [...pane.querySelectorAll(".toolCard h3")].map(
             (title) => title.textContent,
@@ -2440,7 +2408,9 @@ describe("Campus VPN", () => {
         ).toEqual(["Campus VPN", "Campus printer"]);
         await clickButton(pane, "Connect");
         await wait(() =>
-          expect(mounted.core.commands("vpn_connect")).toHaveLength(1),
+          expect(
+            mounted.core.commands("plugin:campus-vpn|connect"),
+          ).toHaveLength(1),
         );
       } finally {
         delete window.__ISCT_COMPANION_NATIVE_OS__;

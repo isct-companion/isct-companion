@@ -122,7 +122,6 @@ const CAPABILITIES = {
   notifications: false,
   backgroundSchedule: false,
   cloudSync: false,
-  matrixOcr: false,
 };
 
 type Handle = NonNullable<FakeCoreOptions["handle"]>;

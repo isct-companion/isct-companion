@@ -1,4 +1,4 @@
-//! Installs the `InstitutePrinter` CUPS queue (macOS and Linux) behind one
+//! Installs the `InstitutePrinter` CUPS queue on macOS behind one
 //! administrator prompt: Core hands over the root installer and its
 //! arguments for the verified student ID, this writes the installer to a
 //! private folder and runs it as root. Nothing is downloaded, and nothing records whether
@@ -6,12 +6,10 @@
 //! settings remove it.
 //!
 //! The prompt is the system's own: AppleScript's `with administrator
-//! privileges` on macOS, polkit's `pkexec` on Linux. `runas`, the crate for
-//! this, does not fit: on Linux it only calls `sudo`, which has no window
-//! and would wait on a terminal the app does not have, and on macOS it uses
+//! privileges`. `runas`, the crate for this, does not fit: on macOS it uses
 //! the deprecated `AuthorizationExecuteWithPrivileges` and does not report
 //! the child's exit status reliably.
-use crate::campus_printer::{CampusPrinterSetup, Setup};
+use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, shell, CommandError};
 use app_core::campus_printer::CupsInstall;
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -28,10 +26,9 @@ enum Elevated {
     Failed(String),
 }
 
-/// `prompt` is the macOS dialog's text, in the UI language; polkit words
-/// its own.
+/// `prompt` is the administrator dialog's text, in the UI language.
 #[tauri::command]
-pub async fn install_campus_printer(
+pub(super) async fn install(
     webview: tauri::Webview,
     app: AppHandle,
     state: tauri::State<'_, Setup>,
@@ -62,7 +59,7 @@ fn run(cache: &Path, install: &CupsInstall, prompt: &str) -> CampusPrinterSetup 
         fs::create_dir_all(cache)?;
         DirBuilder::new().mode(0o700).create(&dir)?;
         let installer = dir.join("institute-printer-installer");
-        // Closed before it runs: Linux refuses to execute a file open for writing.
+        // Closed before it runs.
         OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -113,7 +110,6 @@ fn login_name() -> io::Result<String> {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn elevate(installer: &Path, args: &[String; 2], prompt: &str) -> io::Result<Elevated> {
     // Every value goes in as an argument and through `quoted form of`, so no
     // text reaches the shell unquoted.
@@ -138,16 +134,5 @@ fn elevate(installer: &Path, args: &[String; 2], prompt: &str) -> io::Result<Ele
         Elevated::Cancelled
     } else {
         Elevated::Failed(stderr.trim().to_owned())
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn elevate(installer: &Path, args: &[String; 2], _prompt: &str) -> io::Result<Elevated> {
-    let output = Command::new("pkexec").arg(installer).args(args).output()?;
-    Ok(match output.status.code() {
-        Some(0) => Elevated::Done,
-        // pkexec: the person dismissed the authentication dialog.
-        Some(126) => Elevated::Cancelled,
-        _ => Elevated::Failed(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
     })
 }

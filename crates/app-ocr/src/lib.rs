@@ -20,27 +20,7 @@ mod engine;
 
 pub use recognition::Recognition;
 use serde::Serialize;
-#[cfg(not(matrix_ocr))]
-use std::path::PathBuf;
 use thiserror::Error;
-
-pub const MATRIX_CELLS: usize = 70;
-
-/// Projection of the original RGB cell into the alphabet model's one channel.
-#[derive(Clone, Copy, Debug, Default)]
-pub enum MatrixGlyphProjection {
-    #[default]
-    Luma,
-    /// Diagnostic red-opponent projection; neutral paper loses ink contrast.
-    RedChroma,
-    /// RGB distance below the cell's upper-quartile paper color.
-    PaperDistance,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct MatrixCaptureConfig {
-    pub glyph_projection: MatrixGlyphProjection,
-}
 
 /// One camera frame for the geometry loop: two row-major planes of one byte
 /// per pixel, Rec.601 luma and `clamp(R - G + 128, 0, 255)`. The R-G plane
@@ -103,26 +83,6 @@ pub struct MatrixTrack {
     pub elapsed_ms: f64,
 }
 
-/// One frame's readings and normalized cell corners (top-left clockwise).
-pub struct MatrixFrame {
-    pub cells: Vec<Recognition>,
-    pub quads: Vec<[[f64; 2]; 4]>,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct MatrixFrameTiming {
-    pub decode_ms: f64,
-    pub geometry_ms: f64,
-    pub preprocess_ms: f64,
-    pub inference_ms: f64,
-    pub total_ms: f64,
-}
-pub struct MatrixLiveFrame {
-    /// Selected readings in the same order as the requested cell indices.
-    pub cells: Vec<Recognition>,
-    pub quads: Vec<[[f64; 2]; 4]>,
-    pub timing: MatrixFrameTiming,
-}
 /// Capability measurements only; capture admission and lifetime belong to core.
 pub struct MatrixCaptureGlyph {
     pub gray: Vec<u8>,
@@ -140,7 +100,6 @@ pub struct MatrixCaptureGlyph {
 pub struct MatrixCaptureFrame {
     pub quads: Vec<[[f64; 2]; 4]>,
     pub glyphs: Vec<MatrixCaptureGlyph>,
-    pub timing: MatrixFrameTiming,
 }
 
 /// Compile-time backend availability; model initialization remains lazy.
@@ -165,6 +124,7 @@ pub(crate) fn image_too_large() -> MatrixOcrError {
     MatrixOcrError::InvalidImage("Choose a valid image smaller than 20 MB.".into())
 }
 
+/// Photo recognition progress the desktop shell forwards: settled cells out of 70.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OcrProgress {
@@ -192,26 +152,12 @@ pub enum MatrixOcrError {
 
 #[cfg(matrix_ocr)]
 pub use engine::{
-    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
-    matrix_analysis_image, matrix_picture, matrix_picture_from_yuv, MatrixAlphabetService,
-    MatrixOcrService, MatrixTracker,
+    capture_matrix_frame, capture_matrix_keyframe, matrix_analysis_from_yuv, matrix_analysis_image,
+    matrix_full_luma_from_yuv, matrix_picture, MatrixAlphabetService, MatrixTracker,
 };
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
-pub use engine::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
-};
+pub use engine::{prepare_matrix_alphabet_input, MatrixAlphabetInput};
 
-#[cfg(not(matrix_ocr))]
-pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    Err(MatrixOcrError::Unavailable)
-}
-#[cfg(not(matrix_ocr))]
-pub fn capture_matrix_frame_configured(
-    _bytes: &[u8],
-    _config: MatrixCaptureConfig,
-) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    Err(MatrixOcrError::Unavailable)
-}
 #[cfg(not(matrix_ocr))]
 pub fn capture_matrix_keyframe(
     _luma: &[u8],
@@ -228,13 +174,15 @@ pub fn matrix_picture(
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
-pub fn matrix_picture_from_yuv(
+pub fn matrix_analysis_from_yuv(
     _frame: &app_core::matrix_scan::MatrixYuvFrame<'_>,
-) -> Result<app_core::matrix_scan::MatrixPicture, MatrixOcrError> {
+) -> Result<app_core::matrix_scan::MatrixAnalysis, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
-pub fn matrix_analysis_image(_bytes: &[u8]) -> Result<MatrixAnalysisImage, MatrixOcrError> {
+pub fn matrix_full_luma_from_yuv(
+    _frame: &app_core::matrix_scan::MatrixYuvFrame<'_>,
+) -> Result<app_core::matrix_scan::MatrixFullLuma, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
@@ -249,7 +197,7 @@ impl MatrixTracker {
         Err(MatrixOcrError::Unavailable)
     }
 }
-// The stubs keep a private field like the ONNX types, so callers build both
+// The stubs keep a private field like the real types, so callers build both
 // with `default()`; a unit struct would invite `Type` literals that only
 // compile where `matrix_ocr` is off.
 #[cfg(not(matrix_ocr))]
@@ -262,61 +210,6 @@ impl MatrixAlphabetService {
     }
 }
 
-#[cfg(not(matrix_ocr))]
-#[derive(Clone, Default)]
-pub struct MatrixOcrService(());
-
-#[cfg(not(matrix_ocr))]
-impl MatrixOcrService {
-    pub fn warm_up(&self) -> Result<(), MatrixOcrError> {
-        Err(MatrixOcrError::Unavailable)
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn with_debug_dir(self, _directory: Option<PathBuf>) -> Self {
-        self
-    }
-
-    pub fn scan_live_frame(
-        &self,
-        _image: &[u8],
-        _indices: &[usize],
-        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
-        _progress: impl Fn(OcrProgress) -> bool,
-    ) -> Result<MatrixLiveFrame, MatrixOcrError> {
-        Err(MatrixOcrError::Unavailable)
-    }
-
-    pub fn scan_frame_with_geometry(
-        &self,
-        _image: &[u8],
-        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
-        _progress: impl Fn(OcrProgress) -> bool,
-    ) -> Result<MatrixFrame, MatrixOcrError> {
-        Err(MatrixOcrError::Unavailable)
-    }
-
-    pub fn scan_frame(
-        &self,
-        _image: &[u8],
-        _progress: impl Fn(OcrProgress) -> bool,
-    ) -> Result<MatrixFrame, MatrixOcrError> {
-        Err(MatrixOcrError::Unavailable)
-    }
-
-    pub fn scan(
-        &self,
-        _image: &[u8],
-        _progress: impl Fn(OcrProgress) -> bool,
-    ) -> Result<Vec<Recognition>, MatrixOcrError> {
-        Err(MatrixOcrError::Unavailable)
-    }
-}
-
 #[cfg(test)]
 #[path = "tests/crate__limit_tests.rs"]
 mod limit_tests;
-
-#[cfg(all(test, not(matrix_ocr)))]
-#[path = "tests/crate.rs"]
-mod tests;

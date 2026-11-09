@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../../../crates/app-ocr/models/alphabet/README.md": "_up_/_up_/_up_/crates/app-ocr/models/alphabet/README.md",
+      "../../../crates/app-ocr/models/alphabet/MIT-LICENSE": "_up_/_up_/_up_/crates/app-ocr/models/alphabet/MIT-LICENSE",
+      "../../../crates/app-ocr/models/litert/README.md": "_up_/_up_/_up_/crates/app-ocr/models/litert/README.md",
+      "../../../crates/app-ocr/models/litert/LICENSE": "_up_/_up_/_up_/crates/app-ocr/models/litert/LICENSE",
+      "../../../LICENSE": "_up_/_up_/_up_/LICENSE",
+      "../../../docs/legal/NOTICE.md": "_up_/_up_/_up_/docs/legal/NOTICE.md",
+      "../../../docs/legal/NOTICE.ja.md": "_up_/_up_/_up_/docs/legal/NOTICE.ja.md",
+      "vendor/litert/libLiteRt.dll": "libLiteRt.dll"
+    }
+  }
+}

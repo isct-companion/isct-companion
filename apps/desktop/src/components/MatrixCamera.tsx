@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, ErrorBanner, Modal, Progress, Stack, Text } from "./ui";
-import type { MatrixScanOutline } from "../generated/persistence";
-import type { Recognition } from "../lib/matrix-ocr";
+import type { MatrixScanOutline, MatrixVote } from "../generated/persistence";
 import { openMatrixCamera } from "../platform/matrix-camera";
 import { t } from "../i18n";
 import "./matrix-camera.css";
@@ -12,7 +11,7 @@ export function MatrixCamera({
   onComplete,
 }: {
   onClose: () => void;
-  onComplete: (cells: Recognition[]) => void;
+  onComplete: (cells: MatrixVote[]) => void;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [display, setDisplay] = useState<HTMLCanvasElement | null>(null);
@@ -48,15 +47,7 @@ export function MatrixCamera({
           setError(t("matrixCamera.noReadableLettersFoundCheck"));
           return;
         }
-        if (next.phase === "complete")
-          complete.current(
-            next.cells.map((cell) => ({
-              text: cell.text,
-              confidence: cell.stable
-                ? cell.confidence
-                : Math.min(cell.confidence, 0.79),
-            })),
-          );
+        if (next.phase === "complete") complete.current(next.cells);
       },
       (failure) => setError(failure.message),
     );

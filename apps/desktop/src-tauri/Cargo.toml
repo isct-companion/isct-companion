@@ -24,21 +24,22 @@ serde_json = "1"
 tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
 tauri-plugin-opener = "2.5"
 # Native file dialogs (native_dialog.rs); the same rfd and backends
-# tauri-plugin-dialog used (GTK 3 on Linux), without that plugin's init script
-# in the school webviews.
-rfd = { version = "0.17", default-features = false, features = ["gtk3", "common-controls-v6"] }
+# tauri-plugin-dialog used, without that plugin's init script in the school
+# webviews.
+rfd = { version = "0.17", default-features = false, features = ["common-controls-v6"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 base64 = "0.23"
 keyring = "4.2"
-rand = "0.10"
 # TLS comes from Core: build clients with `app_core::net::client_builder()`.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
 url = "2.5"
 scraper = "0.29"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
+# The campus VPN helper's wire format (`src/vpn.rs`).
+vpn-protocol = { path = "../../../crates/vpn-protocol" }
 
 # The embedded MCP HTTP transport.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
@@ -49,6 +50,8 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The login name the campus printer queue is restricted to (campus_printer_cups.rs).
+libc = "0.2"
 security-framework = { version = "3.7", features = ["OSX_10_15"] }
 block2 = "0.6"
 objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
@@ -69,14 +72,6 @@ objc2-user-notifications = { version = "0.3.2", default-features = false, featur
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSHTTPCookie", "NSSet", "NSString", "NSUUID", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
-
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
-# The login name the campus printer queue is restricted to (campus_printer_cups.rs).
-libc = "0.2"
-
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-# The campus VPN helper's wire format (`src/vpn.rs`).
-vpn-protocol = { path = "../../../crates/vpn-protocol" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test
@@ -115,13 +110,6 @@ tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
 # A second launch shows the running app's hidden window instead of starting
 # another copy against the same data. It injects no script into webviews.
 tauri-plugin-single-instance = "2"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-# WebKitGTK's cookie manager and libsoup's Set-Cookie parser: the identity
-# cookies Core writes into the school store (school_cookies.rs). The versions
-# wry already uses.
-webkit2gtk = { version = "2.0", features = ["v2_38"] }
-soup3 = "0.5"
 
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }

@@ -147,8 +147,7 @@ them the way its browser parses a response:
   dot, while the stored cookie is `.titech.ac.jp`. Do not judge scope from the
   read-back string.
 - Windows (WebView2 `CreateCookie`/`AddOrUpdateCookie`, leading dot restored)
-  and Linux (`soup3` `Cookie::parse`, WebKitGTK `add_cookie`) follow the same
-  rule but were not measured; see the manual checks below.
+  follows the same rule but was not measured; see the manual check below.
 
 Read back after the native write:
 
@@ -247,9 +246,8 @@ for the two refusals was not determined.
 
 ## 6. Not verified
 
-1. The app's own school views on Windows and Linux: the native cookie writers
-   compile but were not run (`DESKTOP-SCHOOL-COOKIES-WINDOWS`,
-   `DESKTOP-SCHOOL-COOKIES-LINUX`).
+1. The app's own school views on Windows: the native cookie writer compiles
+   but was not run (`DESKTOP-SCHOOL-COOKIES-WINDOWS`).
 2. iOS and Android `WebCookieSeed` implementations: iOS compiled only,
    Android code only.
 3. Session expiry over hours and Core's own recovery afterwards.

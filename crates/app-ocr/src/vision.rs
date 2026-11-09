@@ -3,8 +3,9 @@
 //! shell wires the tracker, the cut or the model itself.
 use crate::{MatrixAlphabetService, MatrixAnalysisFrame, MatrixOcrError, MatrixTracker};
 use app_core::matrix_scan::{
-    MatrixCaptureGlyph, MatrixCut, MatrixGridTrack, MatrixGridTracker, MatrixLuma, MatrixPicture,
-    MatrixPlanes, MatrixPoint, MatrixReading, MatrixScanError, MatrixVision, MatrixYuvFrame,
+    MatrixAnalysis, MatrixCaptureGlyph, MatrixCut, MatrixFullLuma, MatrixGridTrack,
+    MatrixGridTracker, MatrixLuma, MatrixPicture, MatrixPlanes, MatrixPoint, MatrixReading,
+    MatrixScanError, MatrixVision, MatrixYuvFrame,
 };
 use std::sync::Arc;
 
@@ -69,8 +70,11 @@ impl MatrixVision for Vision {
     fn decode(&self, encoded: &[u8]) -> Result<MatrixPicture, MatrixScanError> {
         crate::matrix_picture(encoded).map_err(scan_error)
     }
-    fn convert(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixPicture, MatrixScanError> {
-        crate::matrix_picture_from_yuv(frame).map_err(scan_error)
+    fn analyse(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixAnalysis, MatrixScanError> {
+        crate::matrix_analysis_from_yuv(frame).map_err(scan_error)
+    }
+    fn full_luma(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixFullLuma, MatrixScanError> {
+        crate::matrix_full_luma_from_yuv(frame).map_err(scan_error)
     }
     fn cut(
         &self,

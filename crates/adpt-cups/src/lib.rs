@@ -1,4 +1,4 @@
-//! The `InstitutePrinter` CUPS queue (macOS and Linux), so every
+//! The `InstitutePrinter` CUPS queue on macOS, so every
 //! application prints to the campus printer from its own print dialog with
 //! all of the PPD's options. Ported from InstitutePrinter's `master` branch.
 //!
@@ -14,7 +14,7 @@
 //!
 //! Installing again updates the same queue; removing it is the system
 //! printer settings' business. On other systems this crate is empty.
-#![cfg(any(target_os = "macos", target_os = "linux"))]
+#![cfg(target_os = "macos")]
 
 pub mod backend;
 pub mod install;

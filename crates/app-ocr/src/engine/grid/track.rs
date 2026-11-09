@@ -11,7 +11,7 @@ use optical_flow_lk::{
     DEFAULT_MIN_EIGEN_THRESHOLD,
 };
 
-const REFIT_EVERY: usize = 8;
+pub(super) const REFIT_EVERY: usize = 4;
 const LEVELS: usize = 4;
 const PARAMS: TrackParams = TrackParams {
     window_size: 21,
