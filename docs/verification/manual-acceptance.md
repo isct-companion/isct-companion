@@ -2382,7 +2382,7 @@ billing page.
 **Steps**
 
 1. Open a File Explorer window on the PDF's folder, then open 工具 →
-   校内打印机 and press 添加 PDF 右键菜单.
+   校内打印机 and press 添加右键菜单.
    - *Why:* The entry goes under HKCU without an administrator prompt; a UAC
      prompt here means it was written somewhere it should not be. The
      card says it was added only after the entry read back as written.

@@ -5,21 +5,25 @@ import { desktopBridge } from "../../app/native";
 import {
   nativeOs,
   type CampusPrinterQueue,
-  type CampusPrinterSetup,
   type CampusPrinterStatus,
+  type PrinterAccount,
 } from "../../platform/desktop-bridge";
 import { accountText } from "../../features/campus-print/account";
 import { UiButton } from "../../components/ui";
 import { ToolCard } from "./ToolCard";
 import { errorText } from "../../app/shared";
 
-const SETUP_TEXT: Record<
-  Exclude<CampusPrinterSetup["kind"], "account">,
-  MessageKey
-> = {
-  added: "tools.campusPrinter.added",
-  cancelled: "tools.campusPrinter.cancelled",
-  failed: "tools.campusPrinter.couldNotAdd",
+type Target = "menu" | "printer";
+
+/** What the last Add said, kept as data so it follows a language switch. */
+type Result =
+  | { kind: "key"; key: MessageKey }
+  | { kind: "account"; account: PrinterAccount }
+  | { kind: "error"; text: string };
+
+const ADDED_TEXT: Record<Target, MessageKey> = {
+  menu: "tools.campusPrinter.menuAdded",
+  printer: "tools.campusPrinter.printerAdded",
 };
 
 /** Windows: the system printer's line on the card. */
@@ -29,6 +33,21 @@ const QUEUE_TEXT: Record<CampusPrinterQueue, MessageKey> = {
   "repair-required": "tools.campusPrinter.systemPrinterNeedsRepair",
   unavailable: "tools.campusPrinter.systemPrinterUnknown",
 };
+
+/** Windows: the system printer button names what it will do now. */
+const QUEUE_ACTION: Record<CampusPrinterQueue, MessageKey> = {
+  ready: "tools.campusPrinter.readdSystemPrinter",
+  "not-installed": "tools.campusPrinter.addSystemPrinter",
+  "repair-required": "tools.campusPrinter.repairSystemPrinter",
+  unavailable: "tools.campusPrinter.repairSystemPrinter",
+};
+
+const resultText = (result: Result) =>
+  result.kind === "key"
+    ? t(result.key)
+    : result.kind === "account"
+      ? accountText(result.account)
+      : result.text;
 
 /**
  * The campus printer: Core verifies the Tokyo Tech account and tries the
@@ -45,8 +64,8 @@ export function CampusPrinter({
   const [status, setStatus] = useState<CampusPrinterStatus>();
   const [checking, setChecking] = useState(true);
   const [queue, setQueue] = useState<CampusPrinterQueue>();
-  const [adding, setAdding] = useState<"menu" | "printer">();
-  const [result, setResult] = useState<string>();
+  const [adding, setAdding] = useState<Target>();
+  const [result, setResult] = useState<Result>();
   const latest = useRef(0);
 
   const check = useCallback(async () => {
@@ -74,7 +93,7 @@ export function CampusPrinter({
     };
   }, [check]);
 
-  const add = async (target: "menu" | "printer") => {
+  const add = async (target: Target) => {
     setAdding(target);
     setResult(undefined);
     try {
@@ -91,11 +110,20 @@ export function CampusPrinter({
         setStatus((current) =>
           current ? { ...current, account: outcome.account } : current,
         );
-        setResult(accountText(outcome.account));
-      } else setResult(t(SETUP_TEXT[outcome.kind]));
+        setResult({ kind: "account", account: outcome.account });
+      } else
+        setResult({
+          kind: "key",
+          key:
+            outcome.kind === "added"
+              ? ADDED_TEXT[target]
+              : outcome.kind === "cancelled"
+                ? "tools.campusPrinter.cancelled"
+                : "tools.campusPrinter.couldNotAdd",
+        });
     } catch (error) {
       const message = errorText(error) ?? t("tools.campusPrinter.couldNotAdd");
-      setResult(message);
+      setResult({ kind: "error", text: message });
       notify(message);
     } finally {
       setAdding(undefined);
@@ -104,7 +132,7 @@ export function CampusPrinter({
   };
 
   const ready = status?.account.kind === "ready";
-  const queueText = queue && QUEUE_TEXT[queue];
+  const busy = !ready || adding !== undefined || checking;
   return (
     <ToolCard
       icon={<Printer aria-hidden strokeWidth={1.75} />}
@@ -119,8 +147,8 @@ export function CampusPrinter({
                 : t("tools.campusPrinter.cannotReachThePrinter")}
           </span>
           {status && <span>{accountText(status.account)}</span>}
-          {queueText && <span>{t(queueText)}</span>}
-          {result && <span>{result}</span>}
+          {queue && <span>{t(QUEUE_TEXT[queue])}</span>}
+          {result && <span>{resultText(result)}</span>}
         </>
       }
       note="tools.campusPrinter.printsToTheKyoceraPrinter"
@@ -136,7 +164,7 @@ export function CampusPrinter({
           {windows && (
             <UiButton
               className="button small"
-              disabled={!ready || adding !== undefined || checking}
+              disabled={busy}
               title={t("tools.campusPrinter.addsTheRightClickEntry")}
               onClick={() => void add("menu")}
             >
@@ -149,7 +177,7 @@ export function CampusPrinter({
           )}
           <UiButton
             className="button small"
-            disabled={!ready || adding !== undefined || checking}
+            disabled={busy}
             title={t(
               windows
                 ? "tools.campusPrinter.addsTheWindowsPrinter"
@@ -160,9 +188,7 @@ export function CampusPrinter({
             {t(
               adding === "printer"
                 ? "tools.campusPrinter.adding"
-                : queue === "repair-required"
-                  ? "tools.campusPrinter.repairSystemPrinter"
-                  : "tools.campusPrinter.addSystemPrinter",
+                : QUEUE_ACTION[queue ?? "not-installed"],
             )}
           </UiButton>
         </>
