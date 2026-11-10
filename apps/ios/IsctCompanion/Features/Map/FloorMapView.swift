@@ -40,7 +40,7 @@ struct FloorMapView: UIViewRepresentable {
     let emphasizedBuildingId: String?
     let floor: CampusMapFloor?
     let highlighted: Set<String>
-    /// The ways into the building in focus.
+    /// The ways into the building in focus, on the floor shown.
     let entrances: [CampusMapEntrance]
     let selectedEntranceId: String?
     let framing: CampusMapFraming?

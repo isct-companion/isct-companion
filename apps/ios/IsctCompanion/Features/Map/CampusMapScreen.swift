@@ -16,6 +16,11 @@ struct CampusMapRequest: Identifiable {
 /// camera (its focus rule), what a tap hits and the Maps links; this page
 /// keeps only the ids on screen and adds what the platform has, the blue
 /// dot. There is no route: an entrance opens in Maps.
+///
+/// The card describes the selection and nothing else: its title, building,
+/// floor and Maps links all come from it, so a camera move never changes
+/// the card. The camera decides only which building's floor is drawn and
+/// what the floor picker lists.
 struct CampusMapScreen: View {
     let request: CampusMapRequest
     @Environment(AppModel.self) private var model
@@ -35,14 +40,15 @@ struct CampusMapScreen: View {
     @State private var location = CampusMapLocation()
     @State private var cardHeight: CGFloat = 0
 
-    /// What the card describes.
+    /// What the card describes. A tapped room or entrance keeps the building
+    /// (and floor) it was tapped on, wherever the camera goes after.
     private enum Selection {
         /// The room string's chosen target.
         case target
-        /// A room tapped on the floor.
-        case unit(CampusMapUnit)
-        /// An entrance tapped on the map, by id.
-        case entrance(String)
+        /// A room tapped on the floor drawn then.
+        case unit(CampusMapUnit, buildingId: String, levelId: String)
+        /// An entrance tapped on the map, by id, with its building.
+        case entrance(String, buildingId: String)
 
         var isTarget: Bool {
             if case .target = self { return true }
@@ -65,6 +71,16 @@ struct CampusMapScreen: View {
         building(buildingId ?? (target?.levels.isEmpty == true ? target?.buildingId : nil))
     }
 
+    /// The entrance marks on the map: while a floor is shown, only the shown
+    /// building's entrances on that floor; with no floor plan in focus, all
+    /// of them, those without a floor too. The card's links list every
+    /// entrance whatever the floor.
+    private var drawnEntrances: [CampusMapEntrance] {
+        let entrances = shownBuilding?.entrances ?? []
+        guard let levelId else { return entrances }
+        return entrances.filter { $0.levelId == levelId }
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             FloorMapView(
@@ -72,7 +88,7 @@ struct CampusMapScreen: View {
                 emphasizedBuildingId: buildingId ?? target?.buildingId,
                 floor: floor,
                 highlighted: Set(highlighted),
-                entrances: shownBuilding?.entrances ?? [],
+                entrances: drawnEntrances,
                 selectedEntranceId: selectedEntranceId,
                 framing: framing,
                 bottomInset: cardHeight,
@@ -80,7 +96,7 @@ struct CampusMapScreen: View {
                 animatesCamera: !reduceMotion,
                 onCamera: cameraMoved,
                 onTap: tapped,
-                onEntrance: { selection = .entrance($0) })
+                onEntrance: tappedEntrance)
                 .ignoresSafeArea()
             VStack(alignment: .leading, spacing: 8) {
                 if let attribution = overview?.attribution, !attribution.isEmpty {
@@ -175,30 +191,50 @@ struct CampusMapScreen: View {
     private func title(_ target: CampusMapTarget) -> String {
         switch selection {
         case .target: target.label
-        case let .unit(unit): unit.label ?? target.label
-        case let .entrance(id):
-            shownBuilding?.entrances.first { $0.id == id }?.name ?? t("campusMap.entrance")
+        case let .unit(unit, _, _): unit.label ?? selectedBuilding?.name ?? ""
+        case .entrance: selectedEntrance?.name ?? t("campusMap.entrance")
         }
     }
 
-    /// `西9号館 · 2F`
-    private var summary: String {
-        let name = selection.isTarget ? target?.buildingName : shownBuilding?.name ?? target?.buildingName
-        let level = levels.first { $0.id == levelId }?.name
-        return [name, level].compactMap { $0 }.joined(separator: " · ")
+    /// The selection's building, never the camera's: the target's, or the
+    /// one a room or entrance was tapped on.
+    private var selectedBuilding: CampusMapBuilding? {
+        switch selection {
+        case .target: building(target?.buildingId)
+        case let .unit(_, id, _), let .entrance(_, id): building(id)
+        }
     }
 
+    private var selectedEntrance: CampusMapEntrance? {
+        guard case let .entrance(id, _) = selection else { return nil }
+        return selectedBuilding?.entrances.first { $0.id == id }
+    }
+
+    /// Styles the tapped entrance's mark. Entrance ids are unique across
+    /// buildings, so it matches a mark only while its building is drawn.
     private var selectedEntranceId: String? {
-        if case let .entrance(id) = selection { return id }
+        if case let .entrance(id, _) = selection { return id }
         return nil
     }
 
-    /// One "Open in Maps" per entrance of the building, the tapped one first;
-    /// the building's centre when it has none. No route is drawn here.
+    /// `西9号館 · 2F`: the selection's building and its floor (the target
+    /// room's, the tapped room's, the tapped entrance's).
+    private var summary: String {
+        let name = selection.isTarget ? target?.buildingName : selectedBuilding?.name
+        let level: CampusMapLevel? = switch selection {
+        case .target: target?.levels.first { $0.id == target?.levelId }
+        case let .unit(_, _, roomLevelId): selectedBuilding?.levels.first { $0.id == roomLevelId }
+        case .entrance: selectedBuilding?.levels.first { $0.id == selectedEntrance?.levelId }
+        }
+        return [name, level?.name].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// One "Open in Maps" per entrance of the selection's building, the
+    /// tapped one first; the building's centre when it has none. No route is
+    /// drawn here.
     @ViewBuilder
     private var links: some View {
-        let card = selection.isTarget ? building(target?.buildingId) : shownBuilding ?? building(target?.buildingId)
-        if let card {
+        if let card = selectedBuilding {
             let entrances = card.entrances.sorted {
                 ($0.id == selectedEntranceId ? 0 : 1) < ($1.id == selectedEntranceId ? 0 : 1)
             }
@@ -272,8 +308,7 @@ struct CampusMapScreen: View {
         guard request.targets.indices.contains(index) else { return }
         chosen = index
         let target = request.targets[index]
-        selection = .target
-        highlighted = target.highlightedUnitIds
+        showTarget()
         if target.levels.isEmpty {
             buildingId = nil
             levels = []
@@ -290,10 +325,25 @@ struct CampusMapScreen: View {
         Binding(get: { levelId }, set: { levelId = $0 })
     }
 
-    /// The floor the target room is on, marked in the picker.
+    /// The card back on the chosen target, its rooms highlighted; the camera
+    /// stays where it is.
+    private func showTarget() {
+        selection = .target
+        highlighted = target?.highlightedUnitIds ?? []
+    }
+
+    /// The floor the selected room is on (the target's or a tapped one),
+    /// marked while the picker lists that room's building.
     private var markedLevel: String? {
-        guard let target, target.matched == .room, target.buildingId == buildingId else { return nil }
-        return target.levelId
+        switch selection {
+        case .target:
+            guard let target, target.matched == .room, target.buildingId == buildingId else { return nil }
+            return target.levelId
+        case let .unit(_, roomBuildingId, roomLevelId):
+            return roomBuildingId == buildingId ? roomLevelId : nil
+        case .entrance:
+            return nil
+        }
     }
 
     private func cameraMoved(_ report: CampusMapCameraReport) {
@@ -307,22 +357,37 @@ struct CampusMapScreen: View {
             buildingId = focus.buildingId
             levels = focus.levels
             levelId = focus.levelId
-            if case .entrance = selection { selection = .target }
         }
     }
 
+    /// A tap on a room of the floor drawn selects it, with that floor and
+    /// its building; its highlight stays while the camera is elsewhere. A
+    /// tap that hits no room, or with no floor drawn, goes back to the
+    /// target. Taps on marks and double taps never get here.
     private func tapped(_ point: CampusMapPoint) {
-        guard let levelId else { return }
-        Task {
-            guard let unit = await model.campusMapUnit(at: point, levelId: levelId) else { return }
-            highlighted = [unit.id]
-            selection = .unit(unit)
+        guard let floor else {
+            showTarget()
+            return
         }
+        Task {
+            guard let unit = await model.campusMapUnit(at: point, levelId: floor.levelId) else {
+                showTarget()
+                return
+            }
+            highlighted = [unit.id]
+            selection = .unit(unit, buildingId: floor.buildingId, levelId: floor.levelId)
+        }
+    }
+
+    /// An entrance mark belongs to the building whose entrances are drawn.
+    private func tappedEntrance(_ id: String) {
+        guard let building = shownBuilding else { return }
+        selection = .entrance(id, buildingId: building.id)
     }
 }
 
 /// Floors in the order of the building, top floor on top, as in Apple Maps.
-/// A dot marks the floor the room is on.
+/// A dot marks the floor the selected room is on.
 private struct LevelPicker: View {
     let levels: [CampusMapLevel]
     let marked: String?
