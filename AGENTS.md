@@ -99,20 +99,25 @@ Prefer the real thing over a mock: a suite that replaces the code under test
 with a mock proves nothing about the app. Reach for the harness first, and mock
 only a dependency with no headless mode, with a comment saying why.
 
+Never build hand-made fake data, fixtures or mocks of school pages or Isct-Data
+files: verify against real data. Checks on the data itself (format, references,
+coverage) live in the repository that holds it, Isct-Data, as Python scripts.
+
 Then decide whether the behaviour belongs in a test at all:
 
 - Automatable and cheap to run every commit: put it in `apps/desktop/tests/unit`
   or `apps/desktop/tests/e2e`.
-- Needs real credentials, a consent screen, hardware, a signed bundle or a native
-  shell: add a check to `docs/verification/manual-checks.yaml`, not a test. Each
-  check names a persona, states why each step exists, says where to observe the
-  result, and justifies in `why_manual` why automation cannot reach it. Run
+- A lasting product risk that needs real credentials, a consent screen,
+  hardware, a signed bundle or a native shell: add a check to
+  `docs/verification/manual-checks.yaml`, not a test. Each check names a
+  persona, states why each step exists, says where to observe the result, and
+  justifies in `why_manual` why automation cannot reach it. Run
   `yarn verify:manual stale` to see which checks a change invalidated.
-- A person can confirm it at a glance in the real app (a layout, a split cell, a
-  label, which page a click opens): add a short check to
-  `docs/verification/manual-checks.yaml` and tell the user its id, rather than
-  scripting an e2e test that rebuilds the screen over a fake host. Logic behind
-  the screen still gets its test at the layer that owns it, usually Core.
+- A newly added feature working at all (it opens, it shows, a tap does what it
+  should): no check and no e2e script. The person tries new features
+  themselves; manual checks are only for lasting product risks the suites
+  cannot reach. Logic behind the screen still gets its test at the layer that
+  owns it, usually Core.
 
 One-time migration, refactor cutover, and upgrade acceptance checks do not enter
 the long-lasting manual checklist. Remind the user to perform them in the

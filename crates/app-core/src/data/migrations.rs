@@ -25,7 +25,15 @@ const USER_WITH_PLANS_VERSION: i64 = 2;
 /// new generation, never in their own file.
 pub(super) const READABLE_USER_VERSIONS: std::ops::RangeInclusive<i64> =
     USER_IDENTITY_MAP_VERSION..=USER_SCHEMA_VERSION;
+/// The school tables' format. A build with the campus map (iOS) has one
+/// table more, `campus_map`, so its format is one more; every other build
+/// never creates that table. A store belongs to one build, and a store of
+/// another format has its cache rebuilt like any format change. A change to
+/// the school tables raises both.
+#[cfg(not(feature = "campus-map"))]
 pub const SCHOOL_SCHEMA_VERSION: i64 = 1;
+#[cfg(feature = "campus-map")]
+pub const SCHOOL_SCHEMA_VERSION: i64 = 2;
 pub(super) const STORE_VERSION: i64 = store_version(USER_SCHEMA_VERSION, SCHOOL_SCHEMA_VERSION);
 
 /// `PRAGMA user_version` of a store: its user and school formats, which change
@@ -83,6 +91,8 @@ pub(crate) const CACHE_TABLES: &[&str] = &[
     "class_schedules",
     "merged_rows",
     "merge_state",
+    #[cfg(feature = "campus-map")]
+    "campus_map",
 ];
 
 /// Cache tables derived from the others (`data::course_merge`): a reset
@@ -291,6 +301,15 @@ CREATE TABLE class_schedules (
 );
 "#;
 
+/// The campus map's file (`data::campus_map_store`), only in builds that
+/// have the map.
+#[cfg(feature = "campus-map")]
+const CAMPUS_MAP_SCHEMA: &str = r#"
+CREATE TABLE campus_map (
+  format INTEGER PRIMARY KEY, hash TEXT NOT NULL, data BLOB NOT NULL, units INTEGER NOT NULL
+);
+"#;
+
 /// Courses merged when their sources are written (`data::course_merge`),
 /// and whether every course has been merged once.
 const MERGED_SCHEMA: &str = r#"
@@ -407,6 +426,8 @@ fn shared_columns(connection: &Connection, table: &str) -> Result<String, DataEr
 
 fn create_school(connection: &Connection) -> Result<(), DataError> {
     connection.execute_batch(CACHE_SCHEMA)?;
+    #[cfg(feature = "campus-map")]
+    connection.execute_batch(CAMPUS_MAP_SCHEMA)?;
     connection.execute_batch(MERGED_SCHEMA)?;
     connection.execute_batch(SYNC_SCHEMA)?;
     Ok(())

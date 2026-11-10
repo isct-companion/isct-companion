@@ -535,3 +535,55 @@ impl Session {
         })
     }
 }
+
+/// The campus map over the file Core downloaded. Each call runs off the
+/// caller's thread like every other read: the first one unpacks the file.
+/// Until the file is stored `has` answers false, so shells show no map, and
+/// `open` fails as unavailable.
+///
+/// The page is Core's, one per session: the shell opens it (replacing any
+/// other), sends each intent with the page from the scene, draws the scene
+/// with the highest `revision` it has seen, and closes the page when it
+/// leaves the screen. Intents for a replaced page answer `None`.
+#[cfg(feature = "campus-map")]
+#[uniffi::export]
+impl Session {
+    /// Whether the map knows the room string; false means no map button.
+    pub fn campus_map_has(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i.core.campus_map.has(&room)?,
+            })
+        })
+    }
+    /// Opens a map page on a room string, replacing any other; answers its
+    /// first scene. The page's id is taken now, before the file loads, so a
+    /// close or a later open that comes first supersedes this one.
+    pub fn campus_map_open(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+        let page = self.inner.core.campus_map.reserve();
+        self.blocking(move |i| {
+            Ok(OperationResult::CampusMapScene {
+                scene: Some(project(i.core.campus_map.open(page, &room)?)?),
+            })
+        })
+    }
+    /// One intent on an open page; answers the new scene, or `None` when
+    /// nothing drawn changed.
+    pub fn campus_map_send(
+        &self,
+        page: u64,
+        intent: CampusMapIntent,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let intent: app_core::campus_map::CampusMapIntent = project_input(intent)?;
+            Ok(OperationResult::CampusMapScene {
+                scene: project(i.core.campus_map.send(page, intent))?,
+            })
+        })
+    }
+    /// Forgets the page, and any open still loading; their scenes name
+    /// nothing afterwards.
+    pub fn campus_map_close(&self) {
+        self.inner.core.campus_map.close();
+    }
+}

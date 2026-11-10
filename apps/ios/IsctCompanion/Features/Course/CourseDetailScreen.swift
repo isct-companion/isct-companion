@@ -34,6 +34,7 @@ struct CourseDetailScreen: View {
                         .foregroundStyle(Theme.muted)
                     examLines
                     links(title: title)
+                    roomLinks(course)
                 }
                 if !lessons.isEmpty {
                     LessonChips(
@@ -214,6 +215,27 @@ struct CourseDetailScreen: View {
             let day = (row["days"] as? [NSNumber])?.first?.intValue ?? 0
             return Meeting(day: day, start: start, end: end, room: row.text("room") ?? "")
         }
+    }
+
+    /// The course's distinct room strings, in meeting order.
+    private func rooms(_ course: [String: Any]) -> [String] {
+        var seen = Set<String>()
+        return meetings(course).map(\.room).filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// The way to the campus map, one chip per room string; a chip shows only
+    /// once Core can place its string.
+    private func roomLinks(_ course: [String: Any]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(rooms(course), id: \.self) { room in
+                    RoomMapButton(room: room) {
+                        LinkChip(title: room, icon: "map").lineLimit(1)
+                    }
+                }
+            }
+        }
+        .scrollClipDisabled()
     }
 
     /// `CSC.T273 · 月 3–4限 · W5-101`, `CSC.T273 · Mon Periods 3–4 · W5-101`

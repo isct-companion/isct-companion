@@ -25,8 +25,14 @@ import { readRepoFile, repositoryRoot } from "@tests/harness";
 const KEY_SHAPE = /^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/;
 
 /** Keys no source spells out whole. Core rejects with a code and the shells
- * show `error.<code>`; every shell reads Core's sync label keys with `lookup`. */
-const KEYS_BUILT_AT_RUNTIME = ["error.", "sync.run.", "sync.current."];
+ * show `error.<code>`; every shell reads Core's sync label keys with `lookup`;
+ * a campus map amenity is named after the key Core gives it. */
+const KEYS_BUILT_AT_RUNTIME = [
+  "error.",
+  "sync.run.",
+  "sync.current.",
+  "campusMap.amenity.",
+];
 
 /** Dotted strings in the sources that look like keys but are not: Core's
  * dataset ids, storage names, hosts and file names. */

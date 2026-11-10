@@ -2233,13 +2233,13 @@ fn load_inputs(
         let courses = crate::lms_ingest::stored_courses(transaction)
             .map_err(|error| DataError::Storage(error.to_string()))?;
         let mut references = Vec::new();
-        for (kind, year, index_url) in followed {
-            let key = crate::reference_refresh::reference_key(&kind, year);
+        for (kind, scope, index_url) in followed {
+            let key = crate::reference_refresh::reference_key(&kind, scope);
             let (due, stale_at) = crate::reference_refresh::reference_due(
                 transaction,
                 &key,
                 &kind,
-                year,
+                scope,
                 &index_url,
                 now,
             )?;

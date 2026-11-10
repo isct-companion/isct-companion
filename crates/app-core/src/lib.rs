@@ -15,6 +15,8 @@
 pub mod agent;
 pub mod app_updates;
 pub mod backup;
+#[cfg(feature = "campus-map")]
+pub mod campus_map;
 #[cfg(feature = "campus-printer")]
 pub mod campus_printer;
 pub mod catalog;

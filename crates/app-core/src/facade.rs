@@ -32,6 +32,9 @@ pub struct Core {
     submissions: crate::agent::Submissions,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
+    /// The campus map's reads over the stored Isct-Data file.
+    #[cfg(feature = "campus-map")]
+    pub campus_map: crate::campus_map::CampusMapService,
     /// When all background work runs: every network read of school and
     /// reference data, and the deadline duties (`crate::deadlines`);
     /// `Core::reset` closes its admission.
@@ -330,6 +333,8 @@ impl Core {
             submissions,
             workspace: WorkspaceService::new(store.clone()),
             reminders,
+            #[cfg(feature = "campus-map")]
+            campus_map: crate::campus_map::CampusMapService::new(store.clone()),
             sync,
             #[cfg(feature = "agent")]
             agent_access,

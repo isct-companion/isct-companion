@@ -641,6 +641,39 @@ final class AppModel {
         return detail
     }
 
+    // MARK: Campus map
+
+    /// Whether Core's map knows a room string; false (also before Core has
+    /// the map's file) means no map button.
+    func campusMapHas(_ room: String) async -> Bool {
+        guard !room.isEmpty, let session,
+            case let .flag(known)? = try? await session.campusMapHas(room: room).value()
+        else { return false }
+        return known
+    }
+
+    /// Opens Core's map page on a room string; `nil` when Core has no map
+    /// file (the page then says the map is unavailable).
+    func campusMapOpen(_ room: String) async -> CampusMapScene? {
+        guard let session,
+            case let .campusMapScene(scene)? = try? await session.campusMapOpen(room: room).value()
+        else { return nil }
+        return scene
+    }
+
+    /// One intent on an open map page; `nil` when nothing drawn changed.
+    func campusMapSend(_ page: UInt64, _ intent: CampusMapIntent) async -> CampusMapScene? {
+        guard let session,
+            case let .campusMapScene(scene)? = try? await session.campusMapSend(page: page, intent: intent).value()
+        else { return nil }
+        return scene
+    }
+
+    /// Drops Core's map page, and its open if it is still loading.
+    func campusMapClose() {
+        session?.campusMapClose()
+    }
+
     // MARK: Intents
 
     func setHidden(_ item: DeadlineItem, _ hidden: Bool) async {

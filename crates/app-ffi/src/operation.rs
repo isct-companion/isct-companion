@@ -71,6 +71,11 @@ pub enum OperationResult {
     Recognitions {
         cells: Vec<crate::MatrixCell>,
     },
+    /// A map page's scene; `None` when the intent changed nothing drawn.
+    #[cfg(feature = "campus-map")]
+    CampusMapScene {
+        scene: Option<CampusMapScene>,
+    },
     Document {
         value: JsonValue,
     },

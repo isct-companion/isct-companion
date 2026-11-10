@@ -217,6 +217,7 @@ private struct ClassStack: View {
             StackCard(item: first, now: now, leads: true)
                 .frame(height: Self.cardHeight)
                 .opensCourse(first.occurrence.courseId, zoom: "stack-0")
+                .roomMapButton(first.occurrence.room)
             if items.count > 1 {
                 // A card's day is said only where it changes; the row keeps
                 // one line for it when any of its cards needs one.
@@ -265,6 +266,7 @@ private struct ClassStack: View {
                     StackCard(item: item, now: now, leads: position == 0)
                         .frame(height: Self.cardHeight)
                         .opensCourse(item.occurrence.courseId, zoom: "stack-\(position)")
+                        .roomMapButton(item.occurrence.room)
                         .scaleEffect(depth <= 0 ? 1 : 1 - depth * Self.shrink, anchor: .top)
                         .brightness(depth > 0 ? -0.04 * depth : 0)
                         .offset(y: offset(depth, isFront: position == index))
@@ -349,6 +351,8 @@ private struct StackCard: View {
                     .font(.display.monospacedDigit())
                 Text(item.occurrence.room)
                     .font(.title2.bold())
+                // The map button sits over the card here, beside the room.
+                Spacer(minLength: 44)
             }
             .foregroundStyle(Theme.ink)
             .minimumScaleFactor(0.6)
@@ -560,6 +564,24 @@ private struct OpensCourse: ViewModifier {
 
 private extension View {
     func opensCourse(_ id: String?, zoom: String = "hero") -> some View { modifier(OpensCourse(id: id, zoom: zoom)) }
+
+    /// Beside the next class's room, over the card: a button cannot sit
+    /// inside the button that opens the course. Nothing shows until Core can
+    /// place the room.
+    func roomMapButton(_ room: String) -> some View {
+        overlay(alignment: .trailing) {
+            RoomMapButton(room: room) {
+                Image(systemName: "map")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.surface, in: Circle())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .padding(.trailing, 6)
+        }
+    }
 }
 
 /// Opens the assignment's page, read from LMS by Core; long press offers

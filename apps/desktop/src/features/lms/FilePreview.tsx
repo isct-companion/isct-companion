@@ -365,9 +365,12 @@ export function FilePreview({
 function FileActions({
   course,
   openInApp,
+  menu = false,
 }: {
   course: CourseFile;
   openInApp?: () => void;
+  /** In a file card: one labelled row per action, like a native menu. */
+  menu?: boolean;
 }) {
   const { url, context, view } = course;
   const reveal = async (open = false) => {
@@ -392,13 +395,14 @@ function FileActions({
     const { x, y, width, height } = button.getBoundingClientRect();
     return withStored((path) => shareStoredFile(path, { x, y, width, height }));
   };
-  // In the reader panel these collapse to icons; the label stays as tooltip and name.
-  const label = (text: MessageKey) => ({
-    "aria-label": t(text),
-    title: t(text),
-  });
+  // In the reader panel these collapse to icons; the label stays as tooltip
+  // and name. As menu rows the visible label is both.
+  const label = (text: MessageKey) =>
+    menu
+      ? { className: "uiMenuItem" }
+      : { "aria-label": t(text), title: t(text) };
   return (
-    <div className="lmsFileActions">
+    <div className="lmsFileActions" data-layout={menu ? "menu" : undefined}>
       {view.state === "ready" && course.managed && (
         <button
           type="button"
@@ -522,7 +526,7 @@ function FileCard({
       <p role={view.state === "failed" ? "alert" : undefined}>{note}</p>
       <div className="lmsFileCardActions">
         {primary && <span className="lmsPrimaryAction">{primary}</span>}
-        <FileActions course={course} openInApp={openInApp} />
+        <FileActions course={course} openInApp={openInApp} menu />
       </div>
     </div>
   );

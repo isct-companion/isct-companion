@@ -216,6 +216,16 @@ macro_rules! coded {
     };
 }
 
+#[cfg(feature = "campus-map")]
+coded!(crate::campus_map::CampusMapError, |e| {
+    use crate::campus_map::CampusMapError as E;
+    match e {
+        E::Format(_) => C::Compatibility,
+        E::Invalid(_) | E::Storage(_) => C::Storage,
+        E::Unavailable => C::Unavailable,
+    }
+});
+
 coded!(DataError, |e| match e {
     DataError::InvalidInput(_) => C::InvalidInput,
     DataError::Conflict(_) => C::Conflict,

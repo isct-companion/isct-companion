@@ -248,12 +248,14 @@ function MatrixEditor({
           accept="image/*,.heic,.heif"
         >
           {(props) => (
+            // The label itself shows the progress, so it stays readable
+            // instead of giving way to the Button's pending spinner.
             <Button
               {...props}
               variant="default"
               size="compact-xs"
-              loading={recognizing}
-              disabled={disabled}
+              aria-busy={recognizing || undefined}
+              disabled={disabled || recognizing}
             >
               {recognizing
                 ? t("settings.schoolAccounts.readingCount70", {

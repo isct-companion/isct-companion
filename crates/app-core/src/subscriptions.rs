@@ -368,6 +368,10 @@ struct SubscriptionIndex {
     academic_years: BTreeMap<String, AcademicYearEntry>,
     #[serde(default)]
     admission_years: BTreeMap<String, AdmissionYearEntry>,
+    /// The campus map by format version; this app reads only `"1"`.
+    #[cfg(feature = "campus-map")]
+    #[serde(default)]
+    campus_map: BTreeMap<String, IndexedSource>,
 }
 
 #[derive(Clone, Debug)]
@@ -851,10 +855,21 @@ impl SubscriptionClient {
         Ok(hash)
     }
     async fn get(&self, url: Url, limit: usize) -> Result<String, SubscriptionError> {
+        let bytes = self.get_bytes(url, limit, "application/json").await?;
+        String::from_utf8(bytes).map_err(|_| "subscription response is not UTF-8".into())
+    }
+
+    /// The response body as bytes, at most `limit` of them, over HTTPS only.
+    async fn get_bytes(
+        &self,
+        url: Url,
+        limit: usize,
+        accept: &str,
+    ) -> Result<Vec<u8>, SubscriptionError> {
         let mut response = self
             .client
             .get(url.clone())
-            .header("Accept", "application/json")
+            .header("Accept", accept)
             .send()
             .await
             .map_err(SubscriptionError::from)?;
@@ -879,7 +894,7 @@ impl SubscriptionClient {
             }
             bytes.extend_from_slice(&chunk);
         }
-        String::from_utf8(bytes).map_err(|_| "subscription response is not UTF-8".into())
+        Ok(bytes)
     }
 
     async fn fetch_index(
@@ -1048,6 +1063,52 @@ impl SubscriptionClient {
         let value = validate_class_schedules(&raw, year)?;
         Ok(ReferenceFetch {
             value: Some(value),
+            data_url: url.to_string(),
+            remote_hash: source.hash.clone(),
+            source_ts: source.ts.clone(),
+        })
+    }
+
+    /// The campus map of format 1: its `.gz` bytes, checked against the
+    /// index hash (which covers those bytes) and unpacked and parsed before
+    /// anything is stored. An index without format 1, a bad hash or a file
+    /// of another format fails the read and keeps the stored copy.
+    #[cfg(feature = "campus-map")]
+    pub async fn fetch_campus_map(
+        &self,
+        index_url: &str,
+        expected_index_hash: Option<&str>,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<crate::campus_map::CampusMapFile>, SubscriptionError> {
+        let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
+        let source = index
+            .campus_map
+            .get(crate::campus_map::FORMAT_KEY)
+            .ok_or("the campus map of format 1 is not published in this index")?;
+        let url = source_url(&base, source)?;
+        if known_hash == Some(source.hash.as_str()) {
+            return Ok(ReferenceFetch {
+                value: None,
+                data_url: url.to_string(),
+                remote_hash: source.hash.clone(),
+                source_ts: source.ts.clone(),
+            });
+        }
+        let bytes = self
+            .get_bytes(
+                url.clone(),
+                crate::campus_map::MAX_COMPRESSED_BYTES,
+                "application/gzip",
+            )
+            .await?;
+        let actual = data_encoding::HEXLOWER.encode(&Sha256::digest(&bytes));
+        if actual != source.hash.to_ascii_lowercase() {
+            return Err("the campus map does not match the hash declared by index.json".into());
+        }
+        let file = crate::campus_map::CampusMapFile::read(bytes, source.hash.clone())
+            .map_err(|error| SubscriptionError::Validation(error.to_string()))?;
+        Ok(ReferenceFetch {
+            value: Some(file),
             data_url: url.to_string(),
             remote_hash: source.hash.clone(),
             source_ts: source.ts.clone(),
