@@ -928,16 +928,18 @@ fn reference_runs(snapshot: &SyncSnapshot) -> Vec<&RunView> {
 #[tokio::test]
 async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     let (engine, store) = engine("counts");
-    // Four followed reference files, all missing.
+    // Four followed reference files, all missing; the campus map is a fifth
+    // in builds that have it.
+    let followed = 4 + usize::from(cfg!(feature = "campus-map"));
     let plan = engine.evaluate_now().await;
     let references: Vec<_> = plan
         .iter()
         .filter(|candidate| candidate.key.dataset == Dataset::Reference)
         .collect();
-    assert_eq!(references.len(), 4);
+    assert_eq!(references.len(), followed);
     let snapshot = engine.snapshot();
     let run = reference_runs(&snapshot)[0].clone();
-    assert_eq!((run.done, run.total), (0, Some(4)));
+    assert_eq!((run.done, run.total), (0, Some(followed as u32)));
     assert_eq!(run.label.key, "sync.run.reference");
 
     let first = engine.lease_for_test(Lane::IsctData).unwrap();
@@ -954,7 +956,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
         .iter()
         .filter(|candidate| candidate.key.dataset == Dataset::Reference)
         .count();
-    assert_eq!(pressed, 3);
+    assert_eq!(pressed, followed - 1);
 
     let leased = first.key.clone();
     engine
@@ -962,7 +964,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
         .await;
     let snapshot = engine.snapshot();
     let run = reference_runs(&snapshot)[0];
-    assert_eq!((run.done, run.total), (0, Some(4)));
+    assert_eq!((run.done, run.total), (0, Some(followed as u32)));
     let failure = run.failure.clone().unwrap();
     assert_eq!((failure.kind.as_str(), failure.keys_failed), ("network", 1));
     assert!(failure.retry_at.is_some());
@@ -1574,4 +1576,39 @@ fn every_dataset_has_its_sync_labels_in_every_catalog() {
             );
         }
     }
+}
+
+/// The campus map is read ahead of other background work, and on cellular
+/// even when the person keeps reference updates to Wi-Fi.
+#[cfg(feature = "campus-map")]
+#[test]
+fn campus_map_reads_on_cellular_ahead_of_background_work() {
+    use crate::reference_refresh::{reference_key, FileScope, CAMPUS_MAP_KIND, PUBLIC_INDEX};
+    let map = reference_key(CAMPUS_MAP_KIND, FileScope::Campus);
+    let calendar = key(Dataset::Reference, "calendar/2026");
+    let mut inputs = inputs(Vec::new());
+    inputs.references = [map.clone(), calendar.clone()]
+        .into_iter()
+        .map(|key| ReferenceWatch {
+            key,
+            index_url: PUBLIC_INDEX.into(),
+            due: Due::Missing,
+            stale_at: None,
+        })
+        .collect();
+    let cellular = Facts {
+        network: Network::Cellular,
+        ..facts()
+    };
+    let planned = plan(&inputs, &cellular, &[], &[]);
+    let map_candidate = find(&planned, &map).unwrap();
+    assert_eq!(
+        (map_candidate.priority, map_candidate.held.clone()),
+        (Priority::Visible, None)
+    );
+    let calendar_candidate = find(&planned, &calendar).unwrap();
+    assert_eq!(
+        (calendar_candidate.priority, calendar_candidate.held.clone()),
+        (Priority::Background, Some(Held::Cellular))
+    );
 }

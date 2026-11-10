@@ -17,7 +17,7 @@ use std::path::Path;
 
 pub(super) const STORE_FILE: &str = "store.db";
 pub const USER_SCHEMA_VERSION: i64 = 3;
-pub const SCHOOL_SCHEMA_VERSION: i64 = 1;
+pub const SCHOOL_SCHEMA_VERSION: i64 = 2;
 pub(super) const STORE_VERSION: i64 = store_version(USER_SCHEMA_VERSION, SCHOOL_SCHEMA_VERSION);
 
 /// `PRAGMA user_version` of a store: its user and school formats, which change
@@ -75,6 +75,7 @@ pub(crate) const CACHE_TABLES: &[&str] = &[
     "class_schedules",
     "merged_rows",
     "merge_state",
+    "campus_map",
 ];
 
 /// Cache tables derived from the others (`data::course_merge`): a reset
@@ -280,6 +281,9 @@ CREATE TABLE class_schedules (
   id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+);
+CREATE TABLE campus_map (
+  format INTEGER PRIMARY KEY, hash TEXT NOT NULL, data BLOB NOT NULL, units INTEGER NOT NULL
 );
 "#;
 

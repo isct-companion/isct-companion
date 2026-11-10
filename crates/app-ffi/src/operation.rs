@@ -69,6 +69,26 @@ pub enum OperationResult {
     Recognitions {
         cells: Vec<crate::MatrixCell>,
     },
+    #[cfg(feature = "campus-map")]
+    CampusMapOverview {
+        overview: CampusMapOverview,
+    },
+    #[cfg(feature = "campus-map")]
+    CampusMapTargets {
+        targets: Vec<CampusMapTarget>,
+    },
+    #[cfg(feature = "campus-map")]
+    CampusMapFloor {
+        floor: CampusMapFloor,
+    },
+    #[cfg(feature = "campus-map")]
+    CampusMapFocus {
+        focus: CampusMapFocus,
+    },
+    #[cfg(feature = "campus-map")]
+    CampusMapUnit {
+        unit: Option<CampusMapUnit>,
+    },
     Document {
         value: JsonValue,
     },

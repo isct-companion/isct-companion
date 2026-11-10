@@ -262,6 +262,9 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("schedule_overrides", &[Calendar], Owner::User),
     ("intensive_schedules", &[Calendar], Owner::User),
     ("exams", &[Exams], Owner::Cache),
+    // The campus map's file; its key's freshness, committed with it, is the
+    // change map shells hear.
+    ("campus_map", &[], Owner::Cache),
     ("plan_items", &[Plans], Owner::User),
     ("personal_events", &[Events], Owner::User),
     ("subscriptions", &[Subscriptions], Owner::User),

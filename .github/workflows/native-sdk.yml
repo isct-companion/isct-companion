@@ -52,7 +52,11 @@ jobs:
         run: |
           cargo test -p app-core -p app-ffi --locked -j 2
           cargo test -p app-ffi --features ocr --locked -j 2
+          # The campus map is compiled into the iOS SDK only; its tests and
+          # lint run with the feature, the rest of the suite without it.
+          cargo test -p app-core -p app-ffi --features campus-map --locked -j 2 campus_map
           cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
+          cargo clippy -p app-core -p app-ffi --features campus-map --all-targets --locked -j 2 -- -D warnings
       - name: Swift 6 and Kotlin host clients with OCR
         run: node scripts/bindings/host-smoke.mjs --ocr
       - name: Build device and simulator XCFramework

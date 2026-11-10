@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 160 checks must be re-run before the next release.**
+**5 of 162 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**155 checks have never been run or could not be run:**
+**157 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -74,6 +74,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-FINDER-IME-PINYIN` — never verified
 - `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
+- `IOS-CAMPUS-MAP-OPEN` — never verified
+- `IOS-CAMPUS-MAP-MOVE` — never verified
 - `RELEASE-SIGNING` — never verified
 - `IOS-TESTFLIGHT-RELEASE` — never verified
 - `RELEASE-DRAFT-ASSEMBLY` — never verified
@@ -238,6 +240,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/search.rs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/app-ffi/** |
+| `IOS-CAMPUS-MAP-OPEN` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Map/**<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
+| `IOS-CAMPUS-MAP-MOVE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Map/**<br>apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
 | `RELEASE-DRAFT-ASSEMBLY` | release | Two devices, interrupted work | —<br>not run | .github/workflows/desktop-release.yml<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
@@ -3810,6 +3814,127 @@ Blocked by: The SwiftUI and Compose shells do not exist yet.
 Recorded so the boundary stays visible.
 
 Evidence: `docs/verification/native-sdk.md`
+
+### iOS campus map opens on the room, its floor and its candidates (`IOS-CAMPUS-MAP-OPEN`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A build of this commit on a real iPhone with the Science account
+connected and a timetable whose rooms include a coded room (W9-202), an
+ambiguous spelling the export lists for several rooms, and a building
+without floor plans. Wi-Fi off, cellular on, for the first launch.
+
+**Steps**
+
+1. Launch, wait about a minute on 今日, then open a course whose room
+   is W9-202.
+   - *Why:* The map file comes from Isct-Data in the background, on cellular
+     too; no map chip here means the key was held back or never stored.
+2. Tap the room chip under the course title, then the map button on
+   今日's next-class card.
+   - *Why:* Both open the same full-screen page; a pushed page instead would let
+     the edge swipe fight panning.
+3. Look at the floor shown, the highlighted room and the card.
+   - *Why:* On entry Core picks the highlighted room's floor; another floor
+     means the level rule or the read models disagree with the drawing.
+4. Open a course with the ambiguous spelling and pick each candidate.
+   - *Why:* Every room the spelling names must be offered; one silently chosen
+     would send the student to the wrong building.
+5. Close the page with the button at the top left; then Settings →
+   reset school caches and look at the course again.
+   - *Why:* Clearing caches drops the stored file, so the chip must disappear
+     until the next download, never open an empty map.
+
+**Where to look**
+
+The course page's chips, 今日's card, the map page's floor, highlight,
+level picker, card and candidate chips.
+
+**Expected**
+
+Chips appear only once the file is stored; the page covers the screen
+with a close button, opens on the room's floor with the room
+highlighted and framed above the card, lists every candidate of an
+ambiguous spelling, and says only the building is shown for a room off
+the plans.
+
+**Why this is manual**
+
+Needs the native shell on a phone, a real Isct-Data download and a
+person to see the map. Matching, entry level and the stored file are
+covered by Core's campus_map and reference_refresh suites.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Map/**`
+- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+- `apps/ios/IsctCompanion/Features/Today/TodayScreen.swift`
+
+**Last recorded** never run
+
+### iOS campus map follows the camera, taps rooms and hands entrances to Maps (`IOS-CAMPUS-MAP-MOVE`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+IOS-CAMPUS-MAP-OPEN passes; the map page is open on W9-202, on campus or
+anywhere with location allowed when asked.
+
+**Steps**
+
+1. Allow location while in use when asked.
+   - *Why:* Only MapKit's blue dot uses it; a background prompt or a route
+     drawn would mean the location scope grew.
+2. Pinch out until the whole campus shows, then pan onto a neighbouring
+   building with floor plans and zoom in on it.
+   - *Why:* Below zoom 17 no floor is drawn; over another building its floors
+     replace the old ones, on the same floor number where it has one.
+3. Pan slowly off the building's edge into an open space while it is
+   still on screen.
+   - *Why:* The building in focus stays while its footprint is in view; a floor
+     vanishing at the edge means the keep rule broke.
+4. Pick another floor in the level picker, then tap a classroom on it.
+   - *Why:* The tap is Core's hit test on the floor shown; the card naming
+     another room means the point or the level was wrong.
+5. Tap an entrance icon, then its Open in Maps button.
+   - *Why:* Core builds the link from the entrance's coordinates; Apple Maps
+     showing another place means latitude and longitude were swapped.
+6. Switch the phone to dark mode, then turn on VoiceOver and swipe
+   through the level picker, an amenity icon and the card.
+   - *Why:* Overlays and icons are drawn in theme colours; floors, icons and
+     buttons must be read out by name.
+
+**Where to look**
+
+The map page: building and floor shown, the level picker, the card,
+Apple Maps after the link, and VoiceOver's speech.
+
+**Expected**
+
+No floor when zoomed out; the building under the centre takes focus on
+the expected floor; the focused building stays while in view; taps and
+entrances fill the card; Maps opens at the entrance; dark mode and
+VoiceOver read correctly; no route line anywhere.
+
+**Why this is manual**
+
+Gestures on MKMapView, the location prompt, Apple Maps and VoiceOver
+need a real phone and a person looking. The focus, level and tap rules
+themselves are covered by Core's campus_map suite.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Map/**`
+- `apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/**`
+
+**Last recorded** never run
 
 ### Signed and notarized macOS installers (`RELEASE-SIGNING`)
 

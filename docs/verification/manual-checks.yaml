@@ -3281,6 +3281,121 @@ checks:
       notes: Recorded so the boundary stays visible.
       evidence: docs/verification/native-sdk.md
 
+  - id: IOS-CAMPUS-MAP-OPEN
+    area: native
+    title: iOS campus map opens on the room, its floor and its candidates
+    persona: undergraduate-first-term
+    preconditions: |
+      A build of this commit on a real iPhone with the Science account
+      connected and a timetable whose rooms include a coded room (W9-202), an
+      ambiguous spelling the export lists for several rooms, and a building
+      without floor plans. Wi-Fi off, cellular on, for the first launch.
+    steps:
+      - action: |
+          Launch, wait about a minute on 今日, then open a course whose room
+          is W9-202.
+        reason: |
+          The map file comes from Isct-Data in the background, on cellular
+          too; no map chip here means the key was held back or never stored.
+      - action: |
+          Tap the room chip under the course title, then the map button on
+          今日's next-class card.
+        reason: |
+          Both open the same full-screen page; a pushed page instead would let
+          the edge swipe fight panning.
+      - action: |
+          Look at the floor shown, the highlighted room and the card.
+        reason: |
+          On entry Core picks the highlighted room's floor; another floor
+          means the level rule or the read models disagree with the drawing.
+      - action: |
+          Open a course with the ambiguous spelling and pick each candidate.
+        reason: |
+          Every room the spelling names must be offered; one silently chosen
+          would send the student to the wrong building.
+      - action: |
+          Close the page with the button at the top left; then Settings →
+          reset school caches and look at the course again.
+        reason: |
+          Clearing caches drops the stored file, so the chip must disappear
+          until the next download, never open an empty map.
+    observe: |
+      The course page's chips, 今日's card, the map page's floor, highlight,
+      level picker, card and candidate chips.
+    expected: |
+      Chips appear only once the file is stored; the page covers the screen
+      with a close button, opens on the room's floor with the room
+      highlighted and framed above the card, lists every candidate of an
+      ambiguous spelling, and says only the building is shown for a room off
+      the plans.
+    why_manual: |
+      Needs the native shell on a phone, a real Isct-Data download and a
+      person to see the map. Matching, entry level and the stored file are
+      covered by Core's campus_map and reference_refresh suites.
+    covers:
+      - apps/ios/IsctCompanion/Features/Map/**
+      - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
+      - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
+    verified: null
+
+  - id: IOS-CAMPUS-MAP-MOVE
+    area: native
+    title: iOS campus map follows the camera, taps rooms and hands entrances to Maps
+    persona: undergraduate-first-term
+    preconditions: |
+      IOS-CAMPUS-MAP-OPEN passes; the map page is open on W9-202, on campus or
+      anywhere with location allowed when asked.
+    steps:
+      - action: |
+          Allow location while in use when asked.
+        reason: |
+          Only MapKit's blue dot uses it; a background prompt or a route
+          drawn would mean the location scope grew.
+      - action: |
+          Pinch out until the whole campus shows, then pan onto a neighbouring
+          building with floor plans and zoom in on it.
+        reason: |
+          Below zoom 17 no floor is drawn; over another building its floors
+          replace the old ones, on the same floor number where it has one.
+      - action: |
+          Pan slowly off the building's edge into an open space while it is
+          still on screen.
+        reason: |
+          The building in focus stays while its footprint is in view; a floor
+          vanishing at the edge means the keep rule broke.
+      - action: |
+          Pick another floor in the level picker, then tap a classroom on it.
+        reason: |
+          The tap is Core's hit test on the floor shown; the card naming
+          another room means the point or the level was wrong.
+      - action: |
+          Tap an entrance icon, then its Open in Maps button.
+        reason: |
+          Core builds the link from the entrance's coordinates; Apple Maps
+          showing another place means latitude and longitude were swapped.
+      - action: |
+          Switch the phone to dark mode, then turn on VoiceOver and swipe
+          through the level picker, an amenity icon and the card.
+        reason: |
+          Overlays and icons are drawn in theme colours; floors, icons and
+          buttons must be read out by name.
+    observe: |
+      The map page: building and floor shown, the level picker, the card,
+      Apple Maps after the link, and VoiceOver's speech.
+    expected: |
+      No floor when zoomed out; the building under the centre takes focus on
+      the expected floor; the focused building stays while in view; taps and
+      entrances fill the card; Maps opens at the entrance; dark mode and
+      VoiceOver read correctly; no route line anywhere.
+    why_manual: |
+      Gestures on MKMapView, the location prompt, Apple Maps and VoiceOver
+      need a real phone and a person looking. The focus, level and tap rules
+      themselves are covered by Core's campus_map suite.
+    covers:
+      - apps/ios/IsctCompanion/Features/Map/**
+      - apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/**
+    verified: null
+
   - id: RELEASE-SIGNING
     area: release
     title: Signed and notarized macOS installers

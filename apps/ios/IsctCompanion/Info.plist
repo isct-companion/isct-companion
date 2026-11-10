@@ -63,6 +63,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>認証アプリの QR コードやマトリクス表を読み取るためにカメラを使います。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>キャンパスマップに現在地を表示するために使います。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>QR コードやマトリクス表の写真を読み込むために使います。</string>
 	<key>UIApplicationSceneManifest</key>

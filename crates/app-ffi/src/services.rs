@@ -493,3 +493,56 @@ impl Session {
         })
     }
 }
+
+/// The campus map's reads over the file Core downloaded. Each runs off the
+/// caller's thread like every other read: the first one unpacks the file.
+/// Until the file is stored they answer nothing, so shells show no map.
+#[cfg(feature = "campus-map")]
+#[uniffi::export]
+impl Session {
+    /// Every building, with its footprint, floors and entrances.
+    pub fn campus_map_overview(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::CampusMapOverview {
+                overview: project(i.core.campus_map.overview()?)?,
+            })
+        })
+    }
+    /// What a room string points at; empty means no map button.
+    pub fn campus_map_locate(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::CampusMapTargets {
+                targets: project(i.core.campus_map.locate(&room)?)?,
+            })
+        })
+    }
+    pub fn campus_map_floor(&self, level_id: String) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::CampusMapFloor {
+                floor: project(i.core.campus_map.floor(&level_id)?)?,
+            })
+        })
+    }
+    /// Which building and floor the map shows after a camera move.
+    pub fn campus_map_focus(&self, camera: CampusMapCamera) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let camera: app_core::campus_map::CampusMapCamera = project_input(camera)?;
+            Ok(OperationResult::CampusMapFocus {
+                focus: project(i.core.campus_map.focus(&camera)?)?,
+            })
+        })
+    }
+    /// The named unit under a tap on a floor, if any.
+    pub fn campus_map_unit_at(
+        &self,
+        level_id: String,
+        point: CampusMapPoint,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let point: app_core::campus_map::CampusMapPoint = project_input(point)?;
+            Ok(OperationResult::CampusMapUnit {
+                unit: project(i.core.campus_map.unit_at(&level_id, point)?)?,
+            })
+        })
+    }
+}

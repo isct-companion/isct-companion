@@ -1,4 +1,6 @@
 mod backup_store;
+#[cfg(feature = "campus-map")]
+mod campus_map_store;
 mod catalog_store;
 mod changes;
 mod connection;
@@ -16,6 +18,8 @@ pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
 pub(crate) use records::{lms_course_code, offering_course_id, resolve_course_id};
+#[cfg(feature = "campus-map")]
+pub(crate) use campus_map_store::{campus_map_units, put_campus_map};
 use settings::*;
 
 pub mod cloud_merge;

@@ -138,6 +138,9 @@ from_coded!(
     app_core::reset::ResetError,
 );
 
+#[cfg(feature = "campus-map")]
+from_coded!(app_core::campus_map::CampusMapError);
+
 impl From<uniffi::UnexpectedUniFFICallbackError> for SdkError {
     fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
         Self::Callback {

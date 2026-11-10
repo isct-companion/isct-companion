@@ -633,6 +633,48 @@ final class AppModel {
         return detail
     }
 
+    // MARK: Campus map
+
+    /// What Core makes of a room string; empty (also before Core has the
+    /// map's file) means no map button.
+    func campusMapTargets(_ room: String) async -> [CampusMapTarget] {
+        guard !room.isEmpty, let session,
+            case let .campusMapTargets(targets)? = try? await session.campusMapLocate(room: room).value()
+        else { return [] }
+        return targets
+    }
+
+    /// Every building, its floors and entrances.
+    func campusMapOverview() async -> CampusMapOverview? {
+        guard let session,
+            case let .campusMapOverview(overview)? = try? await session.campusMapOverview().value()
+        else { return nil }
+        return overview
+    }
+
+    func campusMapFloor(_ levelId: String) async -> CampusMapFloor? {
+        guard let session,
+            case let .campusMapFloor(floor)? = try? await session.campusMapFloor(levelId: levelId).value()
+        else { return nil }
+        return floor
+    }
+
+    /// Core's focus rule: which building and floor follow a camera move.
+    func campusMapFocus(_ camera: CampusMapCamera) async -> CampusMapFocus? {
+        guard let session,
+            case let .campusMapFocus(focus)? = try? await session.campusMapFocus(camera: camera).value()
+        else { return nil }
+        return focus
+    }
+
+    /// The named room or unit under a tap on a floor.
+    func campusMapUnit(at point: CampusMapPoint, levelId: String) async -> CampusMapUnit? {
+        guard let session,
+            case let .campusMapUnit(unit)? = try? await session.campusMapUnitAt(levelId: levelId, point: point).value()
+        else { return nil }
+        return unit
+    }
+
     // MARK: Intents
 
     func setHidden(_ item: DeadlineItem, _ hidden: Bool) async {

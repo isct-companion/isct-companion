@@ -15,6 +15,9 @@ agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
 # The campus printer; desktop only, the phones never print to it.
 campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "tokio/net"]
+# The campus map: its Isct-Data file, room matching and floor read models;
+# only the iOS bindings switch it on for now.
+campus-map = ["dep:flate2"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
@@ -54,6 +57,8 @@ base64 = "0.23"
 cookie_store = { version = "0.22", default-features = false, features = ["serde_json"] }
 prost = "0.14"
 data-encoding = "2"
+# The campus map file is gzip (`campus_map::export`).
+flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
 futures-util = "0.3"
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 schemars = { version = "1.2", optional = true, features = ["chrono04"] }

@@ -76,11 +76,12 @@ impl ReferenceTransport for FakeTransport {
         &'a self,
         kind: &'a str,
         _index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         _expected_index_hash: &'a str,
         known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
+            let year = scope.year().unwrap_or(0);
             self.calls.lock().unwrap().push(FetchCall {
                 kind: kind.into(),
                 year,
@@ -123,7 +124,8 @@ async fn read(
     kind: &str,
     year: i32,
 ) -> KeyEnd {
-    let lease = Lease::detached(store, reference_key(kind, year)).with_locator(INDEX);
+    let lease =
+        Lease::detached(store, reference_key(kind, year_scope(kind, year))).with_locator(INDEX);
     let end = reader.read(&lease, probes).await;
     lease.ending(&end).write();
     end
@@ -135,9 +137,9 @@ fn due(store: &DataStore, kind: &str, year: i32) -> Due {
         .write(None, |transaction| {
             reference_due(
                 transaction,
-                &reference_key(kind, year),
+                &reference_key(kind, year_scope(kind, year)),
                 kind,
-                year,
+                year_scope(kind, year),
                 INDEX,
                 "2026-10-13T03:20:00Z".parse().unwrap(),
             )
@@ -233,14 +235,16 @@ fn seed(store: &DataStore, fetch: TransportFetch) {
 fn state(store: &DataStore, kind: &str, year: i32) -> Option<KeyState> {
     store
         .write(None, |transaction| {
-            sync_state::get(transaction, &reference_key(kind, year))
+            sync_state::get(transaction, &reference_key(kind, year_scope(kind, year)))
         })
         .unwrap()
 }
 
 fn rows(store: &DataStore, kind: &str, year: i32) -> usize {
     store
-        .write(None, |transaction| stored_rows(transaction, kind, year))
+        .write(None, |transaction| {
+            stored_rows(transaction, kind, year_scope(kind, year))
+        })
         .unwrap()
 }
 
@@ -285,7 +289,12 @@ async fn followed_files_share_one_index_probe_and_skip_disabled_kinds() {
     put_subscription(&store, "important-dates", false, json!({}));
     put_subscription(&store, "exams", true, json!({}));
     put_subscription(&store, "class-schedules", true, json!({}));
-    let followed = followed(&store.load_workspace().unwrap());
+    // The years' files; the campus map is followed apart from any
+    // subscription (`campus_map_is_followed_without_a_subscription_or_year`).
+    let followed: Vec<(String, i32, String)> = followed(&store.load_workspace().unwrap())
+        .into_iter()
+        .filter_map(|(kind, scope, url)| Some((kind, scope.year()?, url)))
+        .collect();
     assert_eq!(
         followed
             .iter()
@@ -333,7 +342,10 @@ async fn references_follow_the_selected_term_year() {
         .unwrap()
         .starts_with("2026"));
     let followed = followed(&workspace);
-    assert!(followed.iter().all(|(_, year, _)| *year == 2031));
+    assert!(followed
+        .iter()
+        .filter_map(|(_, scope, _)| scope.year())
+        .all(|year| year == 2031));
     let transport = Arc::new(FakeTransport::default());
     read(
         &store,
@@ -412,7 +424,7 @@ async fn validator_without_stored_rows_reads_the_file_in_full() {
             .write(None, |transaction| {
                 sync_state::commit(
                     transaction,
-                    &reference_key("calendar", stored_year),
+                    &reference_key("calendar", FileScope::AcademicYear(stored_year)),
                     Commit {
                         validator: Some(&format!("index-v1:remote-v1:8@{INDEX}")),
                         outcome: Outcome::Complete,
@@ -493,7 +505,7 @@ async fn suspicious_shrink_is_held_once_and_published_when_the_same_version_retu
     assert!(store
         .write(None, |transaction| sync_state::cursor(
             transaction,
-            &reference_key("calendar", 2026)
+            &reference_key("calendar", FileScope::AcademicYear(2026))
         ))
         .unwrap()
         .is_none());
@@ -565,11 +577,12 @@ impl ReferenceTransport for EditingTransport {
         &'a self,
         _kind: &'a str,
         _index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         _expected_index_hash: &'a str,
         _known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
+            let year = scope.year().unwrap_or(0);
             let mut row = self.store.user_rows("subscriptions")?.remove(0);
             let revision = row["rev"].as_u64().unwrap();
             row["url"] = json!("https://user.example/new-index.json");
@@ -619,13 +632,13 @@ impl ReferenceTransport for CancellingTransport {
         &'a self,
         _kind: &'a str,
         _index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         _expected_index_hash: &'a str,
         _known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
             self.cancel.cancel();
-            Ok(calendar_fetch(year))
+            Ok(calendar_fetch(scope.year().unwrap_or(0)))
         })
     }
 }
@@ -633,7 +646,8 @@ impl ReferenceTransport for CancellingTransport {
 #[tokio::test]
 async fn cancellation_before_applying_writes_no_data_or_metadata() {
     let store = store("cancel");
-    let lease = Lease::detached(&store, reference_key("calendar", 2026)).with_locator(INDEX);
+    let lease = Lease::detached(&store, reference_key("calendar", FileScope::AcademicYear(2026)))
+        .with_locator(INDEX);
     let reader = reader(Arc::new(CancellingTransport {
         cancel: lease.cancel.clone(),
     }));
@@ -658,7 +672,7 @@ async fn the_study_guide_follows_the_admission_year_and_stays_fresh_for_a_year()
     let followed_kinds = |store: &DataStore| {
         followed(&store.load_workspace().unwrap())
             .into_iter()
-            .map(|(kind, year, _)| (kind, year))
+            .filter_map(|(kind, scope, _)| Some((kind, scope.year()?)))
             .collect::<Vec<_>>()
     };
     assert!(!followed_kinds(&store)
@@ -707,9 +721,9 @@ async fn the_study_guide_follows_the_admission_year_and_stays_fresh_for_a_year()
             .write(None, |transaction| {
                 reference_due(
                     transaction,
-                    &reference_key("departments", 2025),
+                    &reference_key("departments", FileScope::AdmissionYear(2025)),
                     "departments",
-                    2025,
+                    FileScope::AdmissionYear(2025),
                     INDEX,
                     now.parse().unwrap(),
                 )
@@ -765,4 +779,136 @@ fn data_errors_keep_their_reference_category() {
         ReferenceError::from(DataError::Storage("disk".into())),
         ReferenceError::Storage(message) if message == "disk"
     ));
+}
+
+/// The campus map: one public file, no subscription row, its units the rows.
+#[cfg(feature = "campus-map")]
+mod map_file {
+    use super::*;
+    use crate::campus_map::{
+        tests::{gzip, sample},
+        CampusMapFile,
+    };
+
+    fn map_key() -> Key {
+        reference_key(CAMPUS_MAP_KIND, FileScope::Campus)
+    }
+
+    fn map_fetch(file: &Value, hash: &str) -> TransportFetch {
+        TransportFetch {
+            value: Some(ReferencePayload::CampusMap(
+                CampusMapFile::read(gzip(file), hash.into()).unwrap(),
+            )),
+            remote_hash: hash.into(),
+            ..not_modified_fetch()
+        }
+    }
+
+    async fn read_map(store: &DataStore, reader: &ReferenceReader) -> KeyEnd {
+        let lease = Lease::detached(store, map_key()).with_locator(INDEX);
+        let end = reader.read(&lease, &IndexProbes::default()).await;
+        lease.ending(&end).write();
+        end
+    }
+
+    #[test]
+    fn campus_map_is_followed_without_a_subscription_or_year() {
+        let followed = followed(&json!({}));
+        let map = followed
+            .iter()
+            .find(|(kind, _, _)| kind == CAMPUS_MAP_KIND)
+            .unwrap();
+        assert_eq!((map.1, map.2.as_str()), (FileScope::Campus, PUBLIC_INDEX));
+        assert_eq!(map_key().key, "campus-map/v1");
+        assert_eq!(
+            parse_key("campus-map/v1"),
+            Some((CAMPUS_MAP_KIND.to_string(), FileScope::Campus))
+        );
+        assert_eq!(parse_key("campus-map/v2"), None);
+        assert_eq!(parse_key("campus-map/2026"), None);
+        assert!(raised(&map_key()));
+        assert!(!raised(&reference_key(
+            "calendar",
+            FileScope::AcademicYear(2026)
+        )));
+    }
+
+    #[tokio::test]
+    async fn campus_map_read_stores_the_file_with_its_freshness_and_keeps_it_when_refused() {
+        let store = store("campus-map");
+        let transport = Arc::new(FakeTransport::default());
+        let reader = reader(transport.clone());
+        transport.respond(
+            CAMPUS_MAP_KIND,
+            [FakeResponse::Ok(map_fetch(&sample(), "remote-v1"))],
+        );
+        assert!(matches!(
+            read_map(&store, &reader).await,
+            KeyEnd::Done { changed: 1 }
+        ));
+        assert_eq!(store.campus_map_hash().unwrap().as_deref(), Some("remote-v1"));
+        let rows = |store: &DataStore| {
+            store
+                .write(None, |transaction| {
+                    stored_rows(transaction, CAMPUS_MAP_KIND, FileScope::Campus)
+                })
+                .unwrap()
+        };
+        assert_eq!(rows(&store), 10);
+        let fresh = store
+            .write(None, |transaction| sync_state::get(transaction, &map_key()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            fresh.validator.as_deref(),
+            Some("index-v1:remote-v1:10@https://example.test/index.json")
+        );
+        // The map is no subscription the Settings view lists.
+        assert!(subscription_row(&store.load_workspace().unwrap(), CAMPUS_MAP_KIND).is_none());
+
+        // A new index whose file this app cannot read (another format, a bad
+        // hash): the read fails and the stored copy stays.
+        transport.publish_index("index-v2");
+        transport.respond(
+            CAMPUS_MAP_KIND,
+            [FakeResponse::Err(SubscriptionError::Validation(
+                "The campus map file has format 2".into(),
+            ))],
+        );
+        assert!(matches!(
+            read_map(&store, &reader).await,
+            KeyEnd::Failed { kind, .. } if kind == "parse"
+        ));
+        assert_eq!(store.campus_map_hash().unwrap().as_deref(), Some("remote-v1"));
+
+        // A version that loses most of its units is held until it returns.
+        let mut shrunk = sample();
+        shrunk["units"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|unit| unit["id"] == "u-202" || unit["id"] == "u-corridor");
+        for room in shrunk["rooms"].as_array_mut().unwrap() {
+            if room["id"] != "r-202" {
+                room["unitIds"] = json!([]);
+            }
+        }
+        transport.respond(
+            CAMPUS_MAP_KIND,
+            [
+                FakeResponse::Ok(map_fetch(&shrunk, "remote-v2")),
+                FakeResponse::Ok(map_fetch(&shrunk, "remote-v2")),
+            ],
+        );
+        assert!(matches!(
+            read_map(&store, &reader).await,
+            KeyEnd::Refused { kind } if kind == SUSPICIOUS_SHRINK
+        ));
+        assert_eq!(store.campus_map_hash().unwrap().as_deref(), Some("remote-v1"));
+        assert!(matches!(
+            read_map(&store, &reader).await,
+            KeyEnd::Done { .. }
+        ));
+        assert_eq!(store.campus_map_hash().unwrap().as_deref(), Some("remote-v2"));
+        assert_eq!(rows(&store), 2);
+    }
 }
