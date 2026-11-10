@@ -20,16 +20,25 @@ final class Localizer: @unchecked Sendable {
 
     /// `en`, `ja` or `zh`.
     private(set) var language = "en"
-    @ObservationIgnored private var catalog: [String: String] = [:]
-    @ObservationIgnored private var english: [String: String] = [:]
-    @ObservationIgnored private var loaded: String?
+    @ObservationIgnored private var catalog: [String: String]
+    @ObservationIgnored private let english: [String: String]
+    @ObservationIgnored private var loaded: String
+
+    /// `settings.locale` lives in the session, and a session that fails to
+    /// open never delivers it: the system's language speaks until then, as on
+    /// Android, so the failure screen is never left without a catalog.
+    private init() {
+        english = Self.load("en")
+        catalog = english
+        loaded = "en"
+        use(Locale.preferredLanguages.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier })
+    }
 
     /// Switches to a stored `settings.locale`; anything unknown reads English.
     func use(_ stored: String?) {
         let next = stored.flatMap { ["ja", "zh"].contains($0) ? $0 : nil } ?? "en"
         guard next != loaded else { return }
         catalog = Self.load(next)
-        if english.isEmpty { english = Self.load("en") }
         loaded = next
         if next != language { language = next }
     }
