@@ -216,7 +216,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
-| `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
+| `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/pages/about/IconToy.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
@@ -2389,8 +2389,8 @@ The rail, the About page and the browser it opens.
 
 **Expected**
 
-About shows the version, updates and welcome tips, and the four links,
-license and sponsor last. Settings no longer lists About.
+About shows the version, updates and welcome tips, and the four link
+chips, license and sponsor last. Settings no longer lists About.
 
 **Why this is manual**
 
@@ -2403,7 +2403,7 @@ A layout and four links a person confirms at a glance in the real app.
 
 **Last recorded** never run
 
-### About has its own open composition in the app's colours, and it fits the window (`DESKTOP-ABOUT-DESIGN`)
+### About follows the website's first screen, with the icon as a toy, and fits the window (`DESKTOP-ABOUT-DESIGN`)
 
 **Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -2415,18 +2415,25 @@ A desktop build from this source.
 
 **Steps**
 
-1. Open About in light appearance, then dark, and rest the pointer on
-   each of the four link tiles.
-   - *Why:* The colours come from the app's tokens, so a wrong one shows only on a
-     rendered page. A tile that does not lift, or shows no action word, has
-     lost its hover state.
-2. Shrink the window to its smallest size, then switch to Japanese and
+1. Open About in light appearance, then dark. Rest the pointer on the
+   icon and move it side to side, tap two empty cells on one side, drag
+   the board and let go, then tap a lit cell again.
+   - *Why:* The icon keeps its own colours and the page uses the app's tokens, so
+     a wrong one shows only on a rendered page. The board must tip toward
+     the pointer, lean toward the heavier side and swing back after a drag;
+     a stuck or jittering board means the spring lost its frame loop.
+2. Leave About for another page and come back, then quit and reopen the
+   app.
+   - *Why:* The lit cells are remembered on this device; the page is kept alive,
+     so the swing must restart without the board freezing mid-tilt.
+3. Shrink the window to its smallest size, then switch to Japanese and
    large text.
-   - *Why:* The layout is fixed to the pane. Long labels are where a tile would
-     overlap its neighbour or the page would start to scroll.
-3. Turn on Reduce Motion in the system settings and reopen About.
-   - *Why:* The shape drifts without end, which must stop; a leftover animation
-     would run at the fast duration and flicker.
+   - *Why:* The layout is fixed to the pane. The name, the update line and the
+     link chips are where text would overlap the icon or the page would
+     start to scroll.
+4. Turn on Reduce Motion in the system settings and reopen About.
+   - *Why:* The board must stop swinging and the hint cell stop pulsing; tapping
+     a cell still tips the board, but straight to its rest angle.
 
 **Where to look**
 
@@ -2434,20 +2441,23 @@ The About page at each window size and appearance.
 
 **Expected**
 
-Large IsctCompanion name, one soft shape and a tilted icon, with the panel
-and four equal link tiles level, in the same colours as other pages. Nothing
-overlaps or scrolls at any size. With Reduce Motion the shape is still and
-the pieces only fade.
+Name with a yellow marker under "Companion", tagline, update button and
+status, the automatic-update switch and the welcome-tips button, version
+line, and four link chips on the left; the icon on the right rocks, leans
+and remembers its lit cells. Nothing overlaps or scrolls at any size. With
+Reduce Motion nothing swings and the pieces only fade.
 
 **Why this is manual**
 
-A look a person confirms at a glance in the real app; the system's Reduce
-Motion setting and the native window's sizes are not reachable headlessly.
+A look and a feel a person confirms at a glance in the real app; the
+system's Reduce Motion setting, pointer physics and the native window's
+sizes are not reachable headlessly.
 
 **Covers**
 
 - `apps/desktop/src/pages/about/about.css`
 - `apps/desktop/src/pages/about/AboutPage.tsx`
+- `apps/desktop/src/pages/about/IconToy.tsx`
 
 **Last recorded** never run
 
