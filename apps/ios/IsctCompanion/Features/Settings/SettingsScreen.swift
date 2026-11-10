@@ -95,6 +95,7 @@ struct SettingsScreen: View {
                     } label: {
                         Label { Text("IsctCompanion") } icon: { SettingsIcon(symbol: "info", tint: Theme.muted) }
                     }
+                    updateRows
                     Button {
                         Guide.showAgain()
                     } label: {
@@ -155,6 +156,37 @@ struct SettingsScreen: View {
         ) { _ in logFile = nil }
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK", role: .cancel) {}
+        }
+    }
+
+    /// The update check: what it found (opening the App Store), or a check
+    /// now, and whether this device checks on its own (Core reads
+    /// `appUpdateChecks`; absent is on).
+    @ViewBuilder private var updateRows: some View {
+        Button {
+            if let release = model.availableUpdate, let url = URL(string: release.url) {
+                UIApplication.shared.open(url)
+            } else {
+                Task { await model.checkForUpdate(manual: true) }
+            }
+        } label: {
+            Label {
+                Text(
+                    model.availableUpdate.map { t("appUpdate.prompt.available", ["version": $0.version]) }
+                        ?? (model.upToDate ? t("appUpdate.upToDate") : t("settings.about.checkForUpdates"))
+                ).foregroundStyle(Theme.ink)
+            } icon: {
+                SettingsIcon(symbol: "arrow.down.app", tint: Theme.muted)
+            }
+        }
+        .disabled(model.checkingUpdate)
+        Toggle(isOn: Binding(
+            get: { model.records.settings["appUpdateChecks"] as? Bool ?? true },
+            set: { on in Task { await model.updateSettings { $0["appUpdateChecks"] = on } } }
+        )) {
+            Label { Text(t("appUpdate.checkAutomatically")) } icon: {
+                SettingsIcon(symbol: "arrow.triangle.2.circlepath", tint: Theme.muted)
+            }
         }
     }
 

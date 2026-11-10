@@ -493,6 +493,11 @@ contract!(Settings {
     #[cfg_attr(feature = "ts", ts(type = "\"comfortable\" | \"compact\""))] pub density: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"small\" | \"medium\" | \"large\""))] pub text_size: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub automatic_app_updates: Option<bool>,
+    /// Whether this device looks for a newer version on its own and offers
+    /// it; absent reads as on (`app_updates::update_checks`).
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub app_update_checks: Option<bool>,
+    /// The release the person chose to skip: not offered again, a newer one is.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub skipped_app_version: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub restore_school_page: Option<bool>,
     /// What closing the desktop window does; absent reads as `ask`.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"ask\" | \"quit\" | \"background\""))] pub close_window: Option<String>,

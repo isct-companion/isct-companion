@@ -26,6 +26,9 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "density": settings.get("density"),
         "textSize": settings.get("textSize"),
         "automaticAppUpdates": settings.get("automaticAppUpdates"),
+        // Which builds each device runs differs, so what it offers does too.
+        "appUpdateChecks": settings.get("appUpdateChecks"),
+        "skippedAppVersion": settings.get("skippedAppVersion"),
         "restoreSchoolPage": settings.get("restoreSchoolPage"),
         "closeWindow": settings.get("closeWindow"),
         "activeSchoolSite": settings.get("activeSchoolSite"),

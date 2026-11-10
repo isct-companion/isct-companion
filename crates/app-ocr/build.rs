@@ -44,13 +44,18 @@ fn main() {
 /// this profile so `cargo run`, tests and examples load it the way the
 /// installed app does. Dependents read its path from `DEP_LITERT_DLL`; the
 /// desktop build bundles it next to the executable.
+/// A digest in lowercase hex, as `LITERT_WINDOWS_SHA256` is written.
+fn hex(digest: &[u8]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn windows_runtime(output: &Path) {
     use sha2::{Digest, Sha256};
     println!("cargo::rerun-if-env-changed=ISCT_LITERT_DLL");
     let dll = output.join("libLiteRt.dll");
     let verified = |path: &Path| {
         std::fs::read(path)
-            .is_ok_and(|bytes| format!("{:x}", Sha256::digest(&bytes)) == LITERT_WINDOWS_SHA256)
+            .is_ok_and(|bytes| hex(&Sha256::digest(&bytes)) == LITERT_WINDOWS_SHA256)
     };
     if !verified(&dll) {
         let bytes = match std::env::var_os("ISCT_LITERT_DLL") {
@@ -71,7 +76,7 @@ fn windows_runtime(output: &Path) {
                     .unwrap_or_else(|e| panic!("Downloading {url} failed: {e}"))
             }
         };
-        let digest = format!("{:x}", Sha256::digest(&bytes));
+        let digest = hex(&Sha256::digest(&bytes));
         assert_eq!(digest, LITERT_WINDOWS_SHA256, "Unexpected LiteRT DLL");
         std::fs::write(&dll, bytes).expect("Writing the LiteRT DLL failed");
     }
