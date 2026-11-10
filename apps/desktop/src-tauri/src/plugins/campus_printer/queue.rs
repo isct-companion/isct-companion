@@ -793,16 +793,23 @@ pub(super) async fn install(
             server.revert(&app, previous).await;
             CampusPrinterSetup::Cancelled
         }
-        Err(error) => {
-            log::warn!("[campus-printer] the system printer was not added: {error}");
-            // Decide by what Windows has now, not by the step that failed: a
-            // queue carrying the new marker uses the new address, anything
-            // else still uses the old one.
-            let moved =
-                tauri::async_runtime::spawn_blocking(move || probe_queue(Some(&installed_marker)))
-                    .await
-                    .map(|state| matches!(state, Ok(QueueState::Ready)))
-                    .unwrap_or(false);
+        Err(failure) => {
+            log::warn!(
+                "[campus-printer] the system printer was not added: {}",
+                failure.message
+            );
+            // The queue uses the new address once the installer has added
+            // it, which is before it carries the new marker: a failure in a
+            // later step leaves it there unmarked. Otherwise decide by what
+            // Windows has now: a queue carrying the new marker uses the new
+            // address, anything else still uses the old one.
+            let moved = failure.repointed
+                || tauri::async_runtime::spawn_blocking(move || {
+                    probe_queue(Some(&installed_marker))
+                })
+                .await
+                .map(|state| matches!(state, Ok(QueueState::Ready)))
+                .unwrap_or(false);
             if !moved {
                 server.revert(&app, previous).await;
             }
@@ -848,7 +855,46 @@ fn identity() -> Result<(PathBuf, String, String), String> {
     Ok((shell, sid.to_string(), name))
 }
 
-fn install_queue(uri: &str, marker: &str) -> Result<bool, String> {
+/// Why the installer did not finish.
+struct InstallFailure {
+    message: String,
+    /// The installer had already added the queue on the new address when it
+    /// failed, so the receiver must stay there.
+    repointed: bool,
+}
+
+impl InstallFailure {
+    /// A failure in `stage` of the installer's script. The stages after
+    /// `add-ipp-queue` run with the queue on the new address: just added,
+    /// or already there under the same marker.
+    fn at(stage: &str, message: String) -> Self {
+        Self {
+            message,
+            repointed: matches!(
+                stage,
+                "configure-queue-access" | "configure-print-defaults" | "verify-queue"
+            ),
+        }
+    }
+}
+
+/// A failure that left Windows' queue as it was.
+impl From<String> for InstallFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            repointed: false,
+        }
+    }
+}
+
+impl From<&str> for InstallFailure {
+    fn from(message: &str) -> Self {
+        message.to_string().into()
+    }
+}
+
+fn install_queue(uri: &str, marker: &str) -> Result<bool, InstallFailure> {
     let (shell, sid, name) = identity()?;
     let quote = |s: &str| format!("'{}'", s.replace('\'', "''"));
     let diagnostic =
@@ -934,7 +980,7 @@ try {{
         if error.code() == ERROR_CANCELLED.to_hresult() {
             return Ok(false);
         }
-        return Err(error.to_string());
+        return Err(error.to_string().into());
     }
     let handle = info.hProcess;
     if handle.is_invalid() {
@@ -956,7 +1002,10 @@ try {{
             .as_deref()
             .and_then(|value| value.trim_start_matches('\u{feff}').split_once('|'))
         {
-            return Err(format!("Printer installation failed at {stage}: {message}"));
+            return Err(InstallFailure::at(
+                stage,
+                format!("Printer installation failed at {stage}: {message}"),
+            ));
         }
         let stage = match code {
             41 => Some("inspect-queue"),
@@ -971,8 +1020,11 @@ try {{
             _ => None,
         };
         if let Some(stage) = stage {
-            return Err(format!(
-                "Printer installation failed at {stage}; Windows supplied no diagnostic (exit code {code})"
+            return Err(InstallFailure::at(
+                stage,
+                format!(
+                    "Printer installation failed at {stage}; Windows supplied no diagnostic (exit code {code})"
+                ),
             ));
         }
         return Err("Windows did not confirm printer installation".into());
