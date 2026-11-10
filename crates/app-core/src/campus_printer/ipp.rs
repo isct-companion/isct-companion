@@ -38,12 +38,52 @@ pub enum PrintQueueError {
     #[error("The print queue is unavailable.")]
     Unavailable,
 }
+/// A job's IPP `job-state` (RFC 8011 §5.3.7), limited to the states this
+/// queue uses: a job waits for its document, is claimed for delivery, then
+/// ends handed over, refused or cancelled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JobState {
+    /// Created; waiting for its document.
+    Pending,
+    /// The document was claimed for delivery; a duplicate send is refused.
+    Processing,
+    Canceled,
+    Aborted,
+    /// Handed to Core's ordered delivery. The campus printer holds jobs until
+    /// release and never reports back, so this is the end as far as IPP goes.
+    Completed,
+}
+
+impl JobState {
+    fn code(self) -> i32 {
+        match self {
+            Self::Pending => 3,
+            Self::Processing => 5,
+            Self::Canceled => 7,
+            Self::Aborted => 8,
+            Self::Completed => 9,
+        }
+    }
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Pending => "job-incoming",
+            Self::Processing => "job-printing",
+            Self::Canceled => "job-canceled-by-user",
+            Self::Aborted => "aborted-by-system",
+            Self::Completed => "job-completed-successfully",
+        }
+    }
+    fn is_terminal(self) -> bool {
+        matches!(self, Self::Canceled | Self::Aborted | Self::Completed)
+    }
+}
+
 #[derive(Clone)]
 struct Job {
     id: i32,
     title: String,
     options: PrintOptions,
-    state: i32,
+    state: JobState,
     message: String,
     created: Instant,
 }
@@ -98,7 +138,7 @@ impl CampusPrintQueue {
             delivery_reporter,
         })
     }
-    fn update(&self, id: i32, state: i32, message: String) {
+    fn update(&self, id: i32, state: JobState, message: String) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(job) = jobs.entries.get_mut(&id) {
                 job.state = state;
@@ -121,13 +161,14 @@ impl CampusPrintQueue {
         options: PrintOptions,
     ) -> Result<Option<Job>, PrintQueueError> {
         let mut jobs = self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)?;
-        jobs.entries
-            .retain(|_, job| job.state == 5 || job.created.elapsed() < Duration::from_secs(600));
+        jobs.entries.retain(|_, job| {
+            job.state == JobState::Processing || job.created.elapsed() < Duration::from_secs(600)
+        });
         if jobs.entries.len() >= 128 {
             let terminal = jobs
                 .entries
                 .iter()
-                .find(|(_, job)| job.state >= 7)
+                .find(|(_, job)| job.state.is_terminal())
                 .map(|(id, _)| *id);
             if let Some(id) = terminal {
                 jobs.entries.remove(&id);
@@ -146,7 +187,7 @@ impl CampusPrintQueue {
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "Campus print".into()),
             options,
-            state: 3,
+            state: JobState::Pending,
             message: "Waiting for document".into(),
             created: Instant::now(),
         };
@@ -211,15 +252,15 @@ impl CampusPrintQueue {
                 match id.map(|id| self.lookup(id)).transpose()?.flatten() {
                     None => status(&mut response, StatusCode::ClientErrorNotFound),
                     Some(job) if operation == 9 => self.job_response(&mut response, &job)?,
-                    Some(job) if job.state != 3 => {
+                    Some(job) if job.state != JobState::Pending => {
                         status(&mut response, StatusCode::ClientErrorNotPossible)
                     }
                     Some(job) if operation == 8 => {
                         let mut jobs =
                             self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)?;
                         if let Some(current) = jobs.entries.get_mut(&job.id) {
-                            if current.state == 3 {
-                                current.state = 7;
+                            if current.state == JobState::Pending {
+                                current.state = JobState::Canceled;
                                 current.message = "Canceled before submission".into();
                             } else {
                                 status(&mut response, StatusCode::ClientErrorNotPossible);
@@ -249,8 +290,8 @@ impl CampusPrintQueue {
                     .collect();
                 for job in jobs {
                     if which == "all"
-                        || (which == "completed" && job.state >= 7)
-                        || (which == "not-completed" && job.state < 7)
+                        || (which == "completed" && job.state.is_terminal())
+                        || (which == "not-completed" && !job.state.is_terminal())
                     {
                         self.job_response(&mut response, &job)?;
                     }
@@ -289,7 +330,7 @@ impl CampusPrintQueue {
             .read_to_end(&mut pdf)?;
         if pdf.len() > MAX_DOCUMENT_BYTES || Language::detect(&pdf) != Some(Language::Pdf) {
             status(response, StatusCode::ClientErrorDocumentFormatError);
-            self.update(id, 8, "Invalid PDF document".into());
+            self.update(id, JobState::Aborted, "Invalid PDF document".into());
             return Ok(());
         }
         // Only a full backlog refuses; otherwise the document waits its turn
@@ -308,12 +349,12 @@ impl CampusPrintQueue {
                 status(response, StatusCode::ClientErrorNotFound);
                 return Ok(());
             };
-            if job.state != 3 {
+            if job.state != JobState::Pending {
                 status(response, StatusCode::ClientErrorNotPossible);
                 return Ok(());
             }
             // Claim before any await: a duplicate Send-Document never resends.
-            job.state = 5;
+            job.state = JobState::Processing;
             job.message = "Sending to campus printer".into();
             job.clone()
         };
@@ -338,14 +379,14 @@ impl CampusPrintQueue {
             }
         });
         if !accepted {
-            self.update(id, 8, "Application is stopping".into());
+            self.update(id, JobState::Aborted, "Application is stopping".into());
             status(response, StatusCode::ServerErrorNotAcceptingJobs);
         } else {
             // Windows can finish its spool job after Core accepts the handoff;
             // LPD delivery continues in the tracked background task.
             self.update(
                 id,
-                9,
+                JobState::Completed,
                 "Accepted by IsctCompanion; campus delivery continues in background".into(),
             );
             if let Some(job) = self.lookup(id)? {
@@ -367,20 +408,14 @@ impl CampusPrintQueue {
                 IppValue::new_uri(format!("{}/jobs/{}", self.uri, job.id))?,
             ),
             ("job-printer-uri", IppValue::new_uri(self.uri.clone())?),
-            ("job-state", IppValue::Enum(job.state)),
+            ("job-state", IppValue::Enum(job.state.code())),
             (
                 "job-state-message",
                 IppValue::new_text_without_language(job.message.clone())?,
             ),
             (
                 "job-state-reasons",
-                IppValue::new_keyword(match job.state {
-                    9 => "job-completed-successfully",
-                    8 => "aborted-by-system",
-                    7 => "job-canceled-by-user",
-                    5 => "job-printing",
-                    _ => "job-incoming",
-                })?,
+                IppValue::new_keyword(job.state.reason())?,
             ),
             (
                 "job-printer-up-time",

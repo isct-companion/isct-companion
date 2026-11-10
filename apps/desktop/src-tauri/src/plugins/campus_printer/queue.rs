@@ -227,6 +227,28 @@ fn endpoint_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("campus-printer-endpoint.json"))
 }
 
+/// Replaces the saved endpoint, or removes it for `None`. Written to a
+/// temporary file and renamed, so a failed write never leaves half a file.
+fn write_endpoint(app: &tauri::AppHandle, endpoint: Option<&Endpoint>) -> Result<(), String> {
+    let config = endpoint_file(app)?;
+    let Some(endpoint) = endpoint else {
+        return match std::fs::remove_file(&config) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        };
+    };
+    if let Some(parent) = config.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let pending = config.with_extension("json.pending");
+    std::fs::write(
+        &pending,
+        serde_json::to_vec(endpoint).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::rename(&pending, &config).map_err(|e| e.to_string())
+}
+
 /// The endpoint the Windows queue was last installed with, if any.
 fn saved_endpoint(app: &tauri::AppHandle) -> Result<Option<Endpoint>, String> {
     match std::fs::read(endpoint_file(app)?) {
@@ -366,22 +388,25 @@ impl PrintServer {
             log::warn!("[campus-printer] could not return to the installed receiver: {error}");
         }
     }
+    /// Saves the running endpoint as the one the Windows queue uses.
     async fn persist_endpoint(&self, app: &tauri::AppHandle) -> Result<(), String> {
-        let running = self.0.lock().await;
-        let endpoint = running
+        let endpoint = self
+            .0
+            .lock()
+            .await
             .as_ref()
             .filter(|r| !r.task.is_finished())
-            .map(|r| &r.endpoint)
+            .map(|r| r.endpoint.clone())
             .ok_or("Printer receiver did not start")?;
-        let config = endpoint_file(app)?;
-        if let Some(parent) = config.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        write_endpoint(app, Some(&endpoint))
+    }
+    /// After a repair that left the Windows queue on its old URL: put the
+    /// saved endpoint back as it was and serve it again.
+    async fn revert(&self, app: &tauri::AppHandle, previous: Option<Endpoint>) {
+        if let Err(error) = write_endpoint(app, previous.as_ref()) {
+            log::warn!("[campus-printer] could not restore the saved receiver address: {error}");
         }
-        std::fs::write(
-            config,
-            serde_json::to_vec(endpoint).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())
+        self.restore(app).await;
     }
     pub(crate) async fn shutdown(&self) {
         if let Some(running) = self.0.lock().await.take() {
@@ -738,6 +763,9 @@ pub(super) async fn install(
         return Ok(CampusPrinterSetup::Account { account });
     }
     let server = app.state::<PrintServer>();
+    // What the Windows queue points at now, to go back to if this repair
+    // does not reach it.
+    let previous = saved_endpoint(&app).ok().flatten();
     server.start(&app, Start::Repair).await?;
     let (uri, marker) = {
         let running = server.0.lock().await;
@@ -747,44 +775,42 @@ pub(super) async fn install(
             .endpoint;
         (endpoint.http_uri(), endpoint.marker())
     };
+    // Save the new address before Windows can be pointed at it: a queue on a
+    // URL the app would not serve after a restart is what this order rules
+    // out. If saving fails, Windows is not touched.
+    if let Err(error) = server.persist_endpoint(&app).await {
+        log::warn!("[campus-printer] the receiver address was not saved: {error}");
+        server.revert(&app, previous).await;
+        return Ok(CampusPrinterSetup::Failed);
+    }
+    let installed_marker = marker.clone();
     let result = tauri::async_runtime::spawn_blocking(move || install_queue(&uri, &marker))
         .await
         .map_err(|e| e.to_string())?;
     let outcome = match result {
-        Ok(true) => match server.persist_endpoint(&app).await {
-            Ok(()) => CampusPrinterSetup::Added,
-            Err(error) => {
-                log::warn!("[campus-printer] the system printer's address was not saved: {error}");
-                CampusPrinterSetup::Failed
-            }
-        },
+        Ok(true) => CampusPrinterSetup::Added,
         Ok(false) => {
-            server.restore(&app).await;
+            server.revert(&app, previous).await;
             CampusPrinterSetup::Cancelled
         }
         Err(error) => {
             log::warn!("[campus-printer] the system printer was not added: {error}");
-            if queue_update_may_have_completed(&error) {
-                // Windows may already point the queue at the new endpoint.
-                let _ = server.persist_endpoint(&app).await;
-            } else {
-                // Nothing in Windows changed: keep serving the URL it has.
-                server.restore(&app).await;
+            // Decide by what Windows has now, not by the step that failed: a
+            // queue carrying the new marker uses the new address, anything
+            // else still uses the old one.
+            let moved =
+                tauri::async_runtime::spawn_blocking(move || probe_queue(Some(&installed_marker)))
+                    .await
+                    .map(|state| matches!(state, Ok(QueueState::Ready)))
+                    .unwrap_or(false);
+            if !moved {
+                server.revert(&app, previous).await;
             }
             CampusPrinterSetup::Failed
         }
     };
     log::info!("[campus-printer] system printer {outcome:?}");
     Ok(outcome)
-}
-
-fn queue_update_may_have_completed(error: &str) -> bool {
-    error.contains("at remove-previous-queue")
-        || error.contains("at add-ipp-queue")
-        || error.contains("at configure-queue-access")
-        || error.contains("at configure-print-defaults")
-        || error.contains("at verify-queue")
-        || error.contains("Windows did not confirm printer installation")
 }
 
 fn powershell() -> Result<PathBuf, String> {
