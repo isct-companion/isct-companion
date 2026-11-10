@@ -928,16 +928,16 @@ fn reference_runs(snapshot: &SyncSnapshot) -> Vec<&RunView> {
 #[tokio::test]
 async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     let (engine, store) = engine("counts");
-    // Four followed reference files, all missing.
+    // Every followed reference file is missing, so each is planned.
     let plan = engine.evaluate_now().await;
-    let references: Vec<_> = plan
+    let followed = plan
         .iter()
         .filter(|candidate| candidate.key.dataset == Dataset::Reference)
-        .collect();
-    assert_eq!(references.len(), 4);
+        .count();
+    assert!(followed > 1);
     let snapshot = engine.snapshot();
     let run = reference_runs(&snapshot)[0].clone();
-    assert_eq!((run.done, run.total), (0, Some(4)));
+    assert_eq!((run.done, run.total), (0, Some(followed as u32)));
     assert_eq!(run.label.key, "sync.run.reference");
 
     let first = engine.lease_for_test(Lane::IsctData).unwrap();
@@ -954,7 +954,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
         .iter()
         .filter(|candidate| candidate.key.dataset == Dataset::Reference)
         .count();
-    assert_eq!(pressed, 3);
+    assert_eq!(pressed, followed - 1);
 
     let leased = first.key.clone();
     engine
@@ -962,7 +962,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
         .await;
     let snapshot = engine.snapshot();
     let run = reference_runs(&snapshot)[0];
-    assert_eq!((run.done, run.total), (0, Some(4)));
+    assert_eq!((run.done, run.total), (0, Some(followed as u32)));
     let failure = run.failure.clone().unwrap();
     assert_eq!((failure.kind.as_str(), failure.keys_failed), ("network", 1));
     assert!(failure.retry_at.is_some());

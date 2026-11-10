@@ -23,8 +23,17 @@ export const iosDeploymentTarget = "17.0";
 // Lower it only after the complete AAR, JNA and OCR runtime pass on that API level.
 export const androidMinSdk = 34;
 export const androidCompileSdk = 34;
-export function sdkFeatureArgs({ bindgen = false, ocr = false } = {}) {
-  const features = [bindgen && "bindgen", ocr && "ocr"].filter(Boolean);
+// `campusMap`: the campus map's reads, built into the iOS SDK only for now.
+export function sdkFeatureArgs({
+  bindgen = false,
+  ocr = false,
+  campusMap = false,
+} = {}) {
+  const features = [
+    bindgen && "bindgen",
+    ocr && "ocr",
+    campusMap && "campus-map",
+  ].filter(Boolean);
   return features.length > 0 ? ["--features", features.join(",")] : [];
 }
 export function run(cmd, args, options = {}) {
