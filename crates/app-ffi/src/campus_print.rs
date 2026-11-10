@@ -7,6 +7,18 @@
 use crate::{Operation, SdkError, Session};
 use std::sync::Arc;
 
+/// The largest document the print service may hand over, the size the
+/// Windows queue takes too. The document is held in memory until its last
+/// copy is sent, and the shell stops reading at this size.
+const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
+
+/// How many bytes `Session::campus_print` takes: the shell reads the
+/// system's document only up to this, so a larger one is never loaded.
+#[uniffi::export]
+pub fn campus_print_document_limit() -> u64 {
+    MAX_DOCUMENT_BYTES as u64
+}
+
 /// Which sides the print dialog asked for.
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum CampusPrintSides {
@@ -41,9 +53,10 @@ pub enum CampusPrintResult {
     NeedsAttention,
     /// The account could not be verified now: nothing was sent.
     Unverified,
-    /// Not a PDF, more copies than one print sends, or larger than Core
-    /// takes: nothing was sent.
+    /// Not a PDF, or more copies than one print sends: nothing was sent.
     NotPrintable,
+    /// Larger than `campus_print_document_limit`: nothing was sent.
+    TooLarge,
     /// No connection for the next copy; `printed` were accepted before it.
     Unreachable { printed: u32 },
     /// The printer did not take the next copy; `printed` were accepted.
@@ -81,10 +94,10 @@ impl Session {
 
 #[cfg(target_os = "android")]
 mod android {
-    use super::{CampusPrintJob, CampusPrintResult, CampusPrintSides};
+    use super::{CampusPrintJob, CampusPrintResult, CampusPrintSides, MAX_DOCUMENT_BYTES};
     use app_core::campus_printer::{
         pjl::{ColorMode, Duplex, Settings},
-        CampusPrintOutcome, PrintOptions, PrinterAccount, MAX_DOCUMENT_BYTES,
+        CampusPrintOutcome, PrintOptions, PrinterAccount,
     };
 
     pub(super) async fn print(
@@ -93,7 +106,7 @@ mod android {
         job: CampusPrintJob,
     ) -> CampusPrintResult {
         if document.len() > MAX_DOCUMENT_BYTES {
-            return CampusPrintResult::NotPrintable;
+            return CampusPrintResult::TooLarge;
         }
         let options = PrintOptions {
             copies: job.copies,

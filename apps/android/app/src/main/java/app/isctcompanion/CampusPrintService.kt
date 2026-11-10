@@ -13,6 +13,7 @@ import android.util.Log
 import app.isctcompanion.core.CampusPrintJob
 import app.isctcompanion.core.CampusPrintResult
 import app.isctcompanion.core.CampusPrintSides
+import app.isctcompanion.core.campusPrintDocumentLimit
 import app.isctcompanion.design.t
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -70,9 +71,10 @@ class CampusPrintService : PrintService() {
         )
         reading[id] = scope.launch {
             val result = try {
-                val document = withContext(Dispatchers.IO) { read(data) }
+                val document = withContext(Dispatchers.IO) { read(data, LIMIT) }
                 reading.remove(id)
-                (application as IsctApplication).model.campusPrint(document, job)
+                if (document == null) CampusPrintResult.TooLarge
+                else (application as IsctApplication).model.campusPrint(document, job)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -102,9 +104,13 @@ class CampusPrintService : PrintService() {
         super.onDestroy()
     }
 
-    /** The whole PDF; the system's pipe is closed whatever happens. */
-    private fun read(data: ParcelFileDescriptor): ByteArray =
-        ParcelFileDescriptor.AutoCloseInputStream(data).use { it.readBytes() }
+    /** The PDF, or `null` when it is larger than [limit] bytes: reading
+     * stops one byte past the limit, so a document Core would refuse is
+     * never held in memory. The system's pipe is closed whatever happens. */
+    private fun read(data: ParcelFileDescriptor, limit: Int): ByteArray? =
+        ParcelFileDescriptor.AutoCloseInputStream(data).use { input ->
+            input.readNBytes(limit + 1).takeIf { it.size <= limit }
+        }
 
     /** Why a job did not print, in the words the desktop's print window
      * uses; `null` is a job that never reached Core. */
@@ -115,6 +121,7 @@ class CampusPrintService : PrintService() {
         is CampusPrintResult.NeedsAttention -> t("tools.campusPrinter.accountNeedsAttention")
         is CampusPrintResult.Unverified -> t("tools.campusPrinter.accountNotVerified")
         is CampusPrintResult.NotPrintable -> t("campusPrint.window.notAPdf")
+        is CampusPrintResult.TooLarge -> t("campusPrint.notice.tooLarge", "megabytes" to LIMIT / (1024 * 1024))
         is CampusPrintResult.Unreachable ->
             if (result.printed == 0u) t("tools.campusPrinter.cannotReachThePrinter")
             else t("campusPrint.window.unreachableAfter", "printed" to result.printed)
@@ -167,6 +174,8 @@ class CampusPrintService : PrintService() {
     private companion object {
         /** The printer's local id; the system remembers the last printer by it. */
         const val PRINTER = "kyocera"
+        /** The most bytes Core takes for one document (64 MiB, an `Int`). */
+        val LIMIT = campusPrintDocumentLimit().toInt()
         /** 1/6 inch in thousandths of an inch, the margin the Windows
          * system printer reports (4.23 mm). */
         const val MARGIN = 167

@@ -884,6 +884,7 @@
   "campusPrint.window.uncertain": "ファイルは送信されましたがプリンタから応答がなく、印刷された可能性があります。もう一度送る前にプリンタを確認してください。",
   "campusPrint.notice.queueFailed": "印刷ジョブが IsctCompanion に届きませんでした。もう一度印刷してください。",
   "campusPrint.notice.receiverFailed": "システムプリンタが動作していません。学内プリンタで修復してください。",
+  "campusPrint.notice.tooLarge": "文書が {{megabytes}} MB を超えているため送信されませんでした。ページ数を減らして印刷してください。",
   "campusPrint.window.uncertainAfter": "プリンタは {{printed}} 部を受け付けました。次の 1 部は送信しましたが応答がなく、印刷された可能性があります。もう一度送る前にプリンタを確認してください。",
   "settings.courseStorage.changingItOnlyAffectsNew": "変更は新しいダウンロードにのみ反映されます。",
   "settings.courseStorage.chooseFolder": "フォルダーを選択…",

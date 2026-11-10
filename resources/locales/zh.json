@@ -884,6 +884,7 @@
   "campusPrint.window.uncertain": "文件已发送，但打印机没有应答，可能已经打印。再次发送前请先查看打印机。",
   "campusPrint.notice.queueFailed": "打印作业未送达 IsctCompanion，请重新打印。",
   "campusPrint.notice.receiverFailed": "系统打印机已停止工作，请在「校内打印机」中修复。",
+  "campusPrint.notice.tooLarge": "文档超过 {{megabytes}} MB，没有发送。请减少每次打印的页数。",
   "campusPrint.window.uncertainAfter": "打印机接收了 {{printed}} 份。下一份已发送但没有应答，可能已经打印。再次发送前请先查看打印机。",
   "settings.courseStorage.changingItOnlyAffectsNew": "更改仅影响新下载的文件。",
   "settings.courseStorage.chooseFolder": "选择文件夹…",

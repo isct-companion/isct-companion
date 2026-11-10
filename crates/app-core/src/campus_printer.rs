@@ -27,12 +27,6 @@ use std::time::Duration;
 #[cfg(windows)]
 pub mod ipp;
 
-/// The largest document Core takes from Android's print service, the size
-/// the Windows queue takes too (`ipp::MAX_DOCUMENT_BYTES`). It is held in
-/// memory until its last copy is sent.
-#[cfg(target_os = "android")]
-pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
-
 #[cfg(any(windows, target_os = "android"))]
 enum PrintDocument {
     #[cfg(windows)]

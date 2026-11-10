@@ -884,6 +884,7 @@
   "campusPrint.window.uncertain": "The file was sent but the printer did not answer, so it may have printed. Check the printer before sending it again.",
   "campusPrint.notice.queueFailed": "A print job didn't reach IsctCompanion. Print it again.",
   "campusPrint.notice.receiverFailed": "The system printer stopped working. Repair it in Campus printer.",
+  "campusPrint.notice.tooLarge": "The document is larger than {{megabytes}} MB, so it was not sent. Print fewer pages at a time.",
   "campusPrint.window.uncertainAfter": "The printer accepted {{printed}} copies. The next one was sent but got no answer, so it may have printed. Check the printer before sending again.",
   "settings.courseStorage.changingItOnlyAffectsNew": "Changing it only affects new downloads.",
   "settings.courseStorage.chooseFolder": "Choose folder…",
