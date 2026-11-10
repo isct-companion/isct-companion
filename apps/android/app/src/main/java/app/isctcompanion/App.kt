@@ -97,6 +97,7 @@ import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.lectures.LecturesScreen
 import app.isctcompanion.features.settings.SettingsScreen
+import app.isctcompanion.features.settings.UpdatePrompt
 import app.isctcompanion.features.settings.WelcomeSheet
 import app.isctcompanion.features.timetable.TimetableScreen
 import app.isctcompanion.features.today.TodayScreen
@@ -411,6 +412,7 @@ private fun Tabs() {
             }
         }
         WelcomeSheet { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
+        UpdatePrompt()
     }
 }
 

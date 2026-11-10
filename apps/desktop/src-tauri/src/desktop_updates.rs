@@ -1,5 +1,6 @@
 //! Native updater port. Tauri verifies signatures and installs native bundles;
-//! Core decides version ordering, check cadence and the automatic preference.
+//! Core decides version ordering, check cadence, the automatic preference and
+//! which version the update prompt offers.
 use crate::core_ports;
 use app_core::app_updates::{InstallPhase, InstallRecord, LastInstall};
 use serde::Serialize;
@@ -108,6 +109,9 @@ pub struct UpdateStatus {
     signed_updates: bool,
     progress: Option<DownloadProgress>,
     last_install: Option<LastInstall>,
+    /// Whether Core offers this version in the update prompt
+    /// (`app_updates::prompts`); kept while it downloads and waits to install.
+    prompt: bool,
 }
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,6 +129,7 @@ impl Default for UpdateStatus {
             signed_updates: false,
             progress: None,
             last_install: None,
+            prompt: false,
         }
     }
 }
@@ -174,6 +179,9 @@ fn phase(
     state.status.version = version;
     state.status.message = message;
     state.status.progress = None;
+    if !matches!(phase, "available" | "downloading" | "ready") {
+        state.status.prompt = false;
+    }
     Ok(state.status.clone())
 }
 
@@ -238,10 +246,12 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         .clone();
     let waiting_download = snapshot(&app)?.phase == "available"
         && app_core::app_updates::automatic_updates(&workspace);
-    if !app_core::app_updates::check_due(
+    let asked = manual || download;
+    if !app_core::app_updates::check_now(
+        &workspace,
         checked.as_deref(),
         chrono::Utc::now(),
-        manual || download || waiting_download,
+        asked || waiting_download,
     ) {
         return snapshot(&app);
     }
@@ -283,6 +293,12 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             return phase(&app, "current", Some(version), None);
         }
         phase(&app, "available", Some(version.clone()), None)?;
+        updates
+            .state
+            .lock()
+            .map_err(|_| "Update state is unavailable.")?
+            .status
+            .prompt = app_core::app_updates::prompts(&workspace, &version, asked);
         let Some(public_key) = public_key(&app) else {
             return snapshot(&app);
         };

@@ -180,9 +180,17 @@ export type SchoolConnectOutcome =
   | { kind: "connected" }
   /** The school refused the ID or password, the one-time password or the
    * Matrix (`reason`). */
-  | { kind: "refused"; reason: SchoolSignInProblemKind; refusalUnsaved: boolean }
+  | {
+      kind: "refused";
+      reason: SchoolSignInProblemKind;
+      refusalUnsaved: boolean;
+    }
   /** The school wants the person on its own page (`reason`). */
-  | { kind: "needs-web"; reason: SchoolSignInProblemKind; refusalUnsaved: boolean }
+  | {
+      kind: "needs-web";
+      reason: SchoolSignInProblemKind;
+      refusalUnsaved: boolean;
+    }
   /** No verdict: offline, the network, out of time. */
   | { kind: "unreachable" }
   /** The school accepted the credentials and the system vault did not save
@@ -514,6 +522,8 @@ export interface AppUpdateStatus {
   progress?: { downloaded: number; total?: number | null } | null;
   /** How the install attempted before this launch turned out; Core judges it. */
   lastInstall?: AppLastInstall | null;
+  /** Whether Core offers this version in the update prompt. */
+  prompt?: boolean;
 }
 export type AppLastInstall =
   | { outcome: "installed"; version: string }

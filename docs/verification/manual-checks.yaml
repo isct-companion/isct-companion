@@ -5302,39 +5302,101 @@ checks:
 
   - id: ANDROID-APP-UPDATE
     area: native
-    title: Android offers a newer GitHub release and installs it through the system installer
+    title: Android prompts for a newer GitHub release, installs it through the system installer, and honours skip and turn-off
     persona: undergraduate-senior
     preconditions: |
       An Android build older than the latest published GitHub release, whose
-      APK is attached to that release, signed with the release key.
+      APK is attached to that release, signed with the release key; automatic
+      update checks on in 設定 › 情報 (the default).
     steps:
-      - action: Open the app (or bring it to the front) and read 今日.
+      - action: Open the app (or bring it to the front).
         reason: |
-          Core finds the newer release with its APK and 今日 shows
-          「バージョン x.y.z が利用できます」 with 「アップデート」. No banner while
-          the release still lacks its APK means Core waits for it, as it should.
+          Core finds the newer release with its APK and offers it: a dialog
+          「アップデートがあります」 with 「アップデート」「このバージョンをスキップ」
+          「自動で確認しない」. No dialog while the release still lacks its APK
+          means Core waits for it, as it should.
       - action: |
           Tap 「アップデート」; allow installing from this app if the system asks,
-          then tap it again.
+          then tap 設定 › 情報's update row.
         reason: |
           The APK downloads with the system's download manager (its
           notification shows), and the system installer opens on it; the
           person confirms there. An installer error about a conflicting
           package means the release APK was signed with another key.
-      - action: Install, reopen the app and read 今日.
+      - action: |
+          On a second older install, answer the dialog with
+          「このバージョンをスキップ」, clear the app from recents and open it
+          again after 12 hours (or change the device clock).
         reason: |
-          The banner is gone, since the running version is the offered one.
-    observe: 今日, the download notification and the system installer.
+          A skipped version is a device setting Core reads: the dialog must not
+          come back for it, while 設定 › 情報 still names the version.
+      - action: |
+          Turn 「アップデートを自動で確認」 off in 設定 › 情報, then tap the update
+          row.
+        reason: |
+          Off stops the checks of the app's own; a check the person starts
+          still runs and shows its result in the row, never as a dialog.
+    observe: The dialog, 設定 › 情報's update rows, the download notification and the system installer.
     expected: |
       A newer release is offered once its APK is attached, downloads, and
-      installs through the system installer after the person confirms.
+      installs through the system installer after the person confirms; a
+      skipped version and turned-off checks stop the dialog, and Settings turns
+      the checks on again.
     why_manual: |
       Needs a published GitHub release, a release-signed APK and the system
-      installer on a device.
+      installer on a device. Which version is offered is Core's, covered by
+      its app_updates suite.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
-      - crates/app-core/src/app_updates.rs
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+    verified: null
+
+  - id: APP-UPDATE-PROMPT
+    area: native
+    title: The desktop and iOS/iPadOS prompt for a newer version, with update, skip and turn-off
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build and an iPhone or iPad build older than the latest
+      release (on iOS, the version the App Store lists in Japan); automatic
+      update checks on (the default) and automatic updates off on the desktop.
+    steps:
+      - action: Open the desktop app.
+        reason: |
+          The dialog 「アップデートがあります」 names the version with three
+          buttons; 「アップデート」 downloads the signed update and installs and
+          quits. A dialog after a check started from About means the prompt is
+          shown for checks the person asked for, which it must not be.
+      - action: |
+          On iOS, bring the app to the front and tap 「アップデート」.
+        reason: |
+          The App Store page of the app opens; nothing installs inside the app
+          (Apple's rule, approach/mobile-updates-and-sideload).
+      - action: |
+          On each, answer a later launch with 「このバージョンをスキップ」, then
+          on another with 「自動で確認しない」, and look at About (desktop) or
+          設定 › 情報 (iOS).
+        reason: |
+          Skipping and turning off are this device's settings: the dialog does
+          not return, the switch 「アップデートを自動で確認」 shows off and turns
+          the checks on again, and another device keeps its own choice.
+    observe: The dialog, About on the desktop, 設定 › 情報 on iOS and the App Store page.
+    expected: |
+      One dialog per launch for a version Core offers; update installs on the
+      desktop and opens the App Store on iOS; skip and turn-off last on this
+      device only and Settings undoes them.
+    why_manual: |
+      Needs an older signed build, a published release and the App Store
+      listing; a person sees the dialog and where its buttons lead at a
+      glance. Which version is offered is Core's, covered by its app_updates
+      suite.
+    covers:
+      - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/components/confirm.tsx
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+      - apps/ios/IsctCompanion/Core/AppModel.swift
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
     verified: null
 
   - id: IOS-SETTINGS-PAGES

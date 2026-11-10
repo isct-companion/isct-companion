@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 160 checks must be re-run before the next release.**
+**5 of 161 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**155 checks have never been run or could not be run:**
+**156 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -112,6 +112,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-SHARE-HAND-IN` — never verified
 - `ANDROID-SHARE-HAND-IN` — never verified
 - `ANDROID-APP-UPDATE` — never verified
+- `APP-UPDATE-PROMPT` — never verified
 - `IOS-SETTINGS-PAGES` — never verified
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
@@ -276,7 +277,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
-| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>crates/app-core/src/app_updates.rs |
+| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -6063,7 +6065,7 @@ draft area need a device or emulator with a school account.
 
 **Last recorded** never run
 
-### Android offers a newer GitHub release and installs it through the system installer (`ANDROID-APP-UPDATE`)
+### Android prompts for a newer GitHub release, installs it through the system installer, and honours skip and turn-off (`ANDROID-APP-UPDATE`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6072,42 +6074,111 @@ draft area need a device or emulator with a school account.
 **Preconditions**
 
 An Android build older than the latest published GitHub release, whose
-APK is attached to that release, signed with the release key.
+APK is attached to that release, signed with the release key; automatic
+update checks on in 設定 › 情報 (the default).
 
 **Steps**
 
-1. Open the app (or bring it to the front) and read 今日.
-   - *Why:* Core finds the newer release with its APK and 今日 shows
-     「バージョン x.y.z が利用できます」 with 「アップデート」. No banner while
-     the release still lacks its APK means Core waits for it, as it should.
+1. Open the app (or bring it to the front).
+   - *Why:* Core finds the newer release with its APK and offers it: a dialog
+     「アップデートがあります」 with 「アップデート」「このバージョンをスキップ」
+     「自動で確認しない」. No dialog while the release still lacks its APK
+     means Core waits for it, as it should.
 2. Tap 「アップデート」; allow installing from this app if the system asks,
-   then tap it again.
+   then tap 設定 › 情報's update row.
    - *Why:* The APK downloads with the system's download manager (its
      notification shows), and the system installer opens on it; the
      person confirms there. An installer error about a conflicting
      package means the release APK was signed with another key.
-3. Install, reopen the app and read 今日.
-   - *Why:* The banner is gone, since the running version is the offered one.
+3. On a second older install, answer the dialog with
+   「このバージョンをスキップ」, clear the app from recents and open it
+   again after 12 hours (or change the device clock).
+   - *Why:* A skipped version is a device setting Core reads: the dialog must not
+     come back for it, while 設定 › 情報 still names the version.
+4. Turn 「アップデートを自動で確認」 off in 設定 › 情報, then tap the update
+   row.
+   - *Why:* Off stops the checks of the app's own; a check the person starts
+     still runs and shows its result in the row, never as a dialog.
 
 **Where to look**
 
-今日, the download notification and the system installer.
+The dialog, 設定 › 情報's update rows, the download notification and the system installer.
 
 **Expected**
 
 A newer release is offered once its APK is attached, downloads, and
-installs through the system installer after the person confirms.
+installs through the system installer after the person confirms; a
+skipped version and turned-off checks stop the dialog, and Settings turns
+the checks on again.
 
 **Why this is manual**
 
 Needs a published GitHub release, a release-signed APK and the system
-installer on a device.
+installer on a device. Which version is offered is Core's, covered by
+its app_updates suite.
 
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
-- `crates/app-core/src/app_updates.rs`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### The desktop and iOS/iPadOS prompt for a newer version, with update, skip and turn-off (`APP-UPDATE-PROMPT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build and an iPhone or iPad build older than the latest
+release (on iOS, the version the App Store lists in Japan); automatic
+update checks on (the default) and automatic updates off on the desktop.
+
+**Steps**
+
+1. Open the desktop app.
+   - *Why:* The dialog 「アップデートがあります」 names the version with three
+     buttons; 「アップデート」 downloads the signed update and installs and
+     quits. A dialog after a check started from About means the prompt is
+     shown for checks the person asked for, which it must not be.
+2. On iOS, bring the app to the front and tap 「アップデート」.
+   - *Why:* The App Store page of the app opens; nothing installs inside the app
+     (Apple's rule, approach/mobile-updates-and-sideload).
+3. On each, answer a later launch with 「このバージョンをスキップ」, then
+   on another with 「自動で確認しない」, and look at About (desktop) or
+   設定 › 情報 (iOS).
+   - *Why:* Skipping and turning off are this device's settings: the dialog does
+     not return, the switch 「アップデートを自動で確認」 shows off and turns
+     the checks on again, and another device keeps its own choice.
+
+**Where to look**
+
+The dialog, About on the desktop, 設定 › 情報 on iOS and the App Store page.
+
+**Expected**
+
+One dialog per launch for a version Core offers; update installs on the
+desktop and opens the App Store on iOS; skip and turn-off last on this
+device only and Settings undoes them.
+
+**Why this is manual**
+
+Needs an older signed build, a published release and the App Store
+listing; a person sees the dialog and where its buttons lead at a
+glance. Which version is offered is Core's, covered by its app_updates
+suite.
+
+**Covers**
+
+- `apps/desktop/src/app/useDesktopUpdates.ts`
+- `apps/desktop/src/components/confirm.tsx`
+- `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 
 **Last recorded** never run
 

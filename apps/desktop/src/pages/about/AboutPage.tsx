@@ -151,6 +151,21 @@ export function About({
             )}
             <div className="aboutPrefs">
               {desktopBridge?.checkAppUpdate && (
+                <span data-setting="update-checks">
+                  <Switch
+                    className="settingSwitch"
+                    label={t("appUpdate.checkAutomatically")}
+                    checked={data.settings.appUpdateChecks ?? true}
+                    onCheckedChange={(value) =>
+                      update((draft) => {
+                        draft.settings.appUpdateChecks = value;
+                        return draft;
+                      })
+                    }
+                  />
+                </span>
+              )}
+              {desktopBridge?.checkAppUpdate && (
                 <span
                   data-setting="automatic-updates"
                   title={t("settings.about.downloadInTheBackgroundAnd")}
