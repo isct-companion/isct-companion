@@ -17,6 +17,14 @@ use std::path::Path;
 
 pub(super) const STORE_FILE: &str = "store.db";
 pub const USER_SCHEMA_VERSION: i64 = 3;
+/// user.db with `course_identity_map`, before `course_keys` (up to 1.2.2).
+const USER_IDENTITY_MAP_VERSION: i64 = 1;
+/// user.db with personal plans, before personal events became weekly only.
+const USER_WITH_PLANS_VERSION: i64 = 2;
+/// The user formats a user.db is copied from: older ones are upgraded in the
+/// new generation, never in their own file.
+pub(super) const READABLE_USER_VERSIONS: std::ops::RangeInclusive<i64> =
+    USER_IDENTITY_MAP_VERSION..=USER_SCHEMA_VERSION;
 pub const SCHOOL_SCHEMA_VERSION: i64 = 1;
 pub(super) const STORE_VERSION: i64 = store_version(USER_SCHEMA_VERSION, SCHOOL_SCHEMA_VERSION);
 
@@ -315,8 +323,9 @@ CREATE INDEX sync_runs_by_key ON sync_runs(dataset, key, finished_at);
 "#;
 
 /// Creates a store at the current schema, in a new generation's directory, with
-/// the user tables of `user_from`, a user.db of the current user format, if
-/// given. It is checked before the index can name it.
+/// the user tables of `user_from`, a user.db of a `READABLE_USER_VERSIONS`
+/// format, if given; the copy is upgraded here and the source is only read.
+/// It is checked before the index can name it.
 pub(super) fn create(path: &Path, user_from: Option<&Path>) -> Result<(), DataError> {
     let mut connection = Connection::open(path)?;
     let transaction = connection.transaction()?;
@@ -330,11 +339,7 @@ pub(super) fn create(path: &Path, user_from: Option<&Path>) -> Result<(), DataEr
             .ok_or_else(|| DataError::storage("The data folder path is not valid UTF-8"))?;
         connection.execute("ATTACH DATABASE ?1 AS source", [source])?;
         let transaction = connection.transaction()?;
-        for table in USER_TABLES {
-            transaction.execute_batch(&format!(
-                "INSERT INTO main.{table} SELECT * FROM source.{table};"
-            ))?;
-        }
+        copy_user_tables(&transaction)?;
         transaction.commit()?;
         connection.execute_batch("DETACH DATABASE source;")?;
     }
@@ -345,6 +350,59 @@ pub(super) fn create(path: &Path, user_from: Option<&Path>) -> Result<(), DataEr
         )));
     }
     Ok(())
+}
+
+/// Copies the user tables of the attached `source` into the new store and
+/// brings them to the current user format. Format 1 had the identity map in
+/// place of `course_keys`; formats 1 and 2 had a `plans` table, which the
+/// weekly personal events replaced and which is not carried over.
+fn copy_user_tables(transaction: &Transaction<'_>) -> Result<(), DataError> {
+    let version: i64 = transaction.query_row("PRAGMA source.user_version", [], |row| row.get(0))?;
+    if !READABLE_USER_VERSIONS.contains(&version) {
+        return Err(DataError::compatibility(format!(
+            "user.db has format {version}, which this version cannot read. It was left as it was."
+        )));
+    }
+    for table in USER_TABLES {
+        if version == USER_IDENTITY_MAP_VERSION && *table == "course_keys" {
+            continue;
+        }
+        let columns = shared_columns(transaction, table)?;
+        transaction.execute_batch(&format!(
+            "INSERT INTO main.{table} ({columns}) SELECT {columns} FROM source.{table};"
+        ))?;
+    }
+    if version == USER_IDENTITY_MAP_VERSION {
+        super::course_keys::migrate_identity_map(transaction, "source.course_identity_map")?;
+        super::course_keys::key_manual_courses(transaction)?;
+    }
+    if version <= USER_WITH_PLANS_VERSION {
+        log::info!(target: "app_core::data", "Upgraded the user tables from format {version}");
+    }
+    Ok(())
+}
+
+fn columns(connection: &Connection, schema: &str, table: &str) -> Result<Vec<String>, DataError> {
+    let mut statement = connection.prepare(&format!("PRAGMA {schema}.table_info({table})"))?;
+    let names = statement
+        .query_map([], |row| row.get(1))?
+        .collect::<Result<_, _>>()?;
+    Ok(names)
+}
+
+/// The columns of a user table that both the new store and `source` have,
+/// quoted for SQL: a copy by name, not by position.
+fn shared_columns(connection: &Connection, table: &str) -> Result<String, DataError> {
+    let source = columns(connection, "source", table)?;
+    if source.is_empty() {
+        return Err(DataError::storage(format!("user.db has no {table} table")));
+    }
+    Ok(columns(connection, "main", table)?
+        .into_iter()
+        .filter(|column| source.contains(column))
+        .map(|column| format!("\"{column}\""))
+        .collect::<Vec<_>>()
+        .join(","))
 }
 
 fn create_school(connection: &Connection) -> Result<(), DataError> {

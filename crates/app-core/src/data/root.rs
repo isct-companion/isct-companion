@@ -581,10 +581,11 @@ pub(crate) fn file_version(path: &Path) -> Result<i64, rusqlite::Error> {
     connection.query_row("PRAGMA user_version", [], |row| row.get(0))
 }
 
-/// A user.db this version copies: of the current user format.
+/// A user.db this version copies: of the current user format, or of an older
+/// one the copy upgrades (1.2.2 wrote format 1, 1.2.3 format 2).
 fn check_user(path: &Path) -> Result<(), StoreOpenError> {
     let found = file_version(path)?;
-    if found != migrations::USER_SCHEMA_VERSION {
+    if !migrations::READABLE_USER_VERSIONS.contains(&found) {
         return Err(StoreOpenError::UnsupportedFormat {
             store: StoreKind::Store,
             found,

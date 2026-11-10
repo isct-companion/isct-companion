@@ -171,13 +171,120 @@ fn generations_of_the_build_before_become_one_store() {
     fs::remove_dir_all(source).unwrap();
 }
 
-/// A user.db of a schema this version does not read (none, an older one,
-/// a newer one) is refused with its data intact, and the index names no
-/// generation, so the next start refuses again rather than opening an
-/// empty store.
+/// A flat user.db as 1.2.2 (format 1: the identity map, no course keys, the
+/// `plans` table) or 1.2.3 (format 2: course keys, still `plans`) wrote it.
+/// The new store gets every user row, course keys that give each course the
+/// id the map gave it, and no `plans`; the old file is only read.
+#[test]
+fn a_user_db_of_an_older_user_format_is_upgraded_in_the_new_store() {
+    let plan = json!({"id":"plan","kind":"plan-item","courseId":"2026-202602440",
+        "termId":"2026-3Q","state":"planned","rev":3,
+        "updatedAt":"2026-10-01T00:00:00Z","updatedBy":"device-a"});
+    let manual = json!({"id":"manual-1","title":"Reading group","termId":"2026-3Q",
+        "offeringId":"202602431","rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"device-a"});
+    for version in [1, 2] {
+        let directory = scratch("user-upgrade");
+        let user = directory.join(LEGACY_USER_FILE);
+        let identity = if version == 1 {
+            "DROP TABLE course_keys;
+             CREATE TABLE course_identity_map (
+               provider TEXT NOT NULL, external_id TEXT NOT NULL, academic_year INTEGER NOT NULL,
+               course_id TEXT NOT NULL, offering_id TEXT, updated_at TEXT NOT NULL,
+               PRIMARY KEY (provider, external_id, academic_year));
+             INSERT INTO course_identity_map
+               VALUES('lms','42',2026,'2026-202602440','202602440','2026-10-01T00:00:00Z');"
+        } else {
+            "INSERT INTO course_keys VALUES
+               ('lms:42','2026-202602440','2026-10-01T00:00:00Z'),
+               ('offering:2026:202602440','2026-202602440','2026-10-01T00:00:00Z'),
+               ('manual:manual-1','manual-1','2026-10-01T00:00:00Z'),
+               ('offering:2026:202602431','manual-1','2026-10-01T00:00:00Z');"
+        };
+        let connection = rusqlite::Connection::open(&user).unwrap();
+        connection.execute_batch(migrations::USER_SCHEMA).unwrap();
+        connection
+            .execute_batch(&format!(
+                "{identity}
+                 CREATE TABLE plans (
+                   id TEXT PRIMARY KEY, title TEXT, course_id TEXT, room TEXT, start TEXT,
+                   duration INTEGER, rrule TEXT, exdates TEXT, reminder TEXT,
+                   value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
+                   updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT);
+                 INSERT INTO plans(id,value,hash,updated_at,updated_by,rev)
+                   VALUES('old-plan','{{}}','hash','2026-10-01T00:00:00Z','device-a',1);
+                 INSERT INTO plan_items(id,course_id,value,hash,updated_at,updated_by,rev,source)
+                   VALUES('plan','2026-202602440','{plan}','hash','2026-10-01T00:00:00Z','device-a',3,'manual');
+                 INSERT INTO manual_courses(id,value,hash,updated_at,updated_by,rev,source)
+                   VALUES('manual-1','{manual}','hash','2026-10-01T00:00:00Z','device-a',1,'manual');
+                 INSERT INTO personal_events(id,value,hash,updated_at,updated_by,rev)
+                   VALUES('event','{event}','hash','2026-10-01T00:00:00Z','device-a',1);
+                 PRAGMA user_version={version};",
+                event = event(),
+            ))
+            .unwrap();
+        drop(connection);
+
+        let (store, created) = DataStore::initialize_dir(directory.clone()).unwrap();
+        assert!(created, "format {version}");
+        assert_eq!(store.user_rows("personal_events").unwrap().len(), 1);
+        assert_eq!(store.user_rows("manual_courses").unwrap().len(), 1);
+        let connection = store.test_connection();
+        let plan_course: String = connection
+            .query_row(
+                "SELECT course_id FROM plan_items WHERE id='plan'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(plan_course, "2026-202602440");
+        let keys: Vec<(String, String)> = connection
+            .prepare("SELECT key, course_id FROM course_keys ORDER BY key")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let expected = [
+            ("lms:42", "2026-202602440"),
+            ("manual:manual-1", "manual-1"),
+            ("offering:2026:202602431", "manual-1"),
+            ("offering:2026:202602440", "2026-202602440"),
+        ];
+        assert_eq!(
+            keys,
+            expected.map(|(key, id)| (key.to_owned(), id.to_owned())),
+            "format {version}"
+        );
+        let leftovers: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE name IN ('plans','course_identity_map')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftovers, 0);
+        drop(connection);
+        drop(store);
+        let source_version: i64 = rusqlite::Connection::open(&user)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(source_version, version, "the old file is only read");
+        let (store, created) = DataStore::initialize_dir(directory.clone()).unwrap();
+        assert!(!created);
+        assert_eq!(store.user_rows("personal_events").unwrap().len(), 1);
+        drop(store);
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+/// A user.db of a schema this version does not read (none, a newer one) is
+/// refused with its data intact, and the index names no generation, so the
+/// next start refuses again rather than opening an empty store.
 #[test]
 fn an_unreadable_user_db_is_refused_and_left_intact() {
-    for version in [0, 1, 2, 4, 99] {
+    for version in [0, 4, 99] {
         let directory = scratch("user-refused");
         let user = directory.join(LEGACY_USER_FILE);
         rusqlite::Connection::open(&user)
