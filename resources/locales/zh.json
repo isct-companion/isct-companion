@@ -1208,6 +1208,7 @@
   "syncStatus.failure.retriesAt": "{{time}} 重试",
   "syncStatus.failure.serverFailed": "学校服务器出错（{{status}}）",
   "syncStatus.failure.serverRefused": "学校服务器拒绝了请求（{{status}}）",
+  "syncStatus.failure.serverRedirected": "学校服务器意外重定向（{{status}}）",
   "syncStatus.failure.signInRequired": "需要登录",
   "syncStatus.failure.siteChanged": "学校页面已变更",
   "syncStatus.failure.notSaved": "没能保存到本机",

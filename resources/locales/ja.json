@@ -1208,6 +1208,7 @@
   "syncStatus.failure.retriesAt": "{{time}}に再試行",
   "syncStatus.failure.serverFailed": "学校のサーバーでエラー（{{status}}）",
   "syncStatus.failure.serverRefused": "学校のサーバーが拒否（{{status}}）",
+  "syncStatus.failure.serverRedirected": "学校のサーバーが予期しないリダイレクト（{{status}}）",
   "syncStatus.failure.signInRequired": "ログインが必要",
   "syncStatus.failure.siteChanged": "学校のページが変わりました",
   "syncStatus.failure.notSaved": "この端末に保存できませんでした",

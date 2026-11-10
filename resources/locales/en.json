@@ -1208,6 +1208,7 @@
   "syncStatus.failure.retriesAt": "retries at {{time}}",
   "syncStatus.failure.serverFailed": "the school server failed ({{status}})",
   "syncStatus.failure.serverRefused": "the school server refused ({{status}})",
+  "syncStatus.failure.serverRedirected": "the school server redirected unexpectedly ({{status}})",
   "syncStatus.failure.signInRequired": "sign-in required",
   "syncStatus.failure.siteChanged": "the school page changed",
   "syncStatus.failure.notSaved": "couldn't save on this device",

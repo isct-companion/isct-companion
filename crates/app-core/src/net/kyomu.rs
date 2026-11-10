@@ -66,19 +66,46 @@ pub(crate) enum Reply {
 pub(crate) fn classify(status: u16, location: Option<&str>) -> Reply {
     match status {
         200 => Reply::Page,
-        300..=399 if location.is_some_and(is_sign_in_redirect) => Reply::SessionExpired,
+        300..=399
+            if location
+                .and_then(target)
+                .is_some_and(|url| session_gone(&url)) =>
+        {
+            Reply::SessionExpired
+        }
         status => Reply::Unexpected(status),
     }
 }
 
-/// An expired session answers with a redirect to GetAccess
-/// (`/GetAccess/ResourceList`, observed live). A relative redirect stays on
-/// 教務Web and is not a sign-in signal.
-fn is_sign_in_redirect(location: &str) -> bool {
-    Url::parse(location.trim()).is_ok_and(|url| {
-        url.host_str() == Some(GETACCESS_HOST)
-            && url.path().to_ascii_lowercase().starts_with("/getaccess/")
-    })
+/// Where a redirect points, resolved against 教務Web (a relative `Location`
+/// stays on it).
+fn target(location: &str) -> Option<Url> {
+    Url::parse(MENU).ok()?.join(location.trim()).ok()
+}
+
+/// A session is gone when 教務Web sends the page to GetAccess
+/// (`/GetAccess/ResourceList`, observed live: the SSO session expired) or
+/// back to its own entry, `Default.aspx` (its own site session expired while
+/// GetAccess's lives on). Either way the site's SSO, which enters through
+/// `Default.aspx`, builds a new one; a run recovers once, so a page that
+/// keeps answering this way still ends the call. Other redirects, GetAccess's
+/// menu included, are not a session signal.
+fn session_gone(url: &Url) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    match url.host_str() {
+        Some(GETACCESS_HOST) => path.starts_with("/getaccess/"),
+        Some(kyomu::HOST) => path == "/titech/default.aspx",
+        _ => false,
+    }
+}
+
+/// A redirect's target without its query, for the log: enough to tell
+/// where 教務Web sent a page, never a token it carried.
+fn redirect_target(location: Option<&str>) -> String {
+    location.and_then(target).map_or_else(
+        || "nowhere".into(),
+        |url| format!("{}{}", url.host_str().unwrap_or_default(), url.path()),
+    )
 }
 
 enum Fetched {
@@ -295,6 +322,12 @@ async fn send(
         Reply::Page => Ok(Fetched::Html(response.text()?)),
         Reply::SessionExpired => Ok(Fetched::SignedOut),
         Reply::Unexpected(status) if (300..400).contains(&status) => {
+            log::warn!(
+                target: "app_core::kyomu",
+                "教務Web answered {status} to {} with a redirect to {}",
+                url.path(),
+                redirect_target(response.location().as_deref())
+            );
             Ok(Fetched::Redirected(status))
         }
         // A maintenance page may come with an error status: it is the page,
