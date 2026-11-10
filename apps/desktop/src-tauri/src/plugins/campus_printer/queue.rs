@@ -850,9 +850,12 @@ try {{
  $stage='add-ipp-queue'
  if (-not $existing -or $replace) {{ Add-Printer -Name $name -IppURL $uri -ErrorAction Stop }}
  $stage='configure-queue-access'
- # Packaged print clients such as Photos need use/read access to enumerate this queue.
- # 0x00020008 is PRINTER_READ (READ_CONTROL plus PRINTER_ACCESS_USE); it grants no management rights.
- Set-Printer -Name $name -Location $owner -Comment $marker -Shared $false -KeepPrintedJobs $false -PermissionSDDL 'D:(A;;GA;;;SY)(A;OIIO;GA;;;SY)(A;;GA;;;BA)(A;OIIO;GA;;;BA)(A;;GA;;;{sid})(A;OIIO;GA;;;{sid})(A;OIIO;GA;;;CO)(A;;0x00020008;;;AC)' -ErrorAction Stop
+ # Windows' default permissions for a local printer. The component that hands
+ # IPP jobs to the receiver opens the queue under its own identity: a list
+ # narrowed to this user, SYSTEM and administrators refused it (access denied)
+ # and every job failed before reaching the receiver. Repair resets older
+ # queues installed with that list.
+ Set-Printer -Name $name -Location $owner -Comment $marker -Shared $false -KeepPrintedJobs $false -PermissionSDDL 'G:SYD:(A;OIIO;GA;;;CO)(A;OIIO;GA;;;AC)(A;;SWRC;;;WD)(A;CIIO;GX;;;WD)(A;;SWRC;;;AC)(A;CIIO;GX;;;AC)(A;;LCSWDTSDRCWDWO;;;BA)(A;OICIIO;GA;;;BA)' -ErrorAction Stop
  $stage='configure-print-defaults'
  Set-PrintConfiguration -PrinterName $name -Color $false -DuplexingMode TwoSidedLongEdge -ErrorAction Stop
  $stage='verify-queue'
