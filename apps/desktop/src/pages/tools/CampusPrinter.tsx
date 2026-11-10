@@ -21,10 +21,14 @@ type Result =
   | { kind: "account"; account: PrinterAccount }
   | { kind: "error"; text: string };
 
-const ADDED_TEXT: Record<Target, MessageKey> = {
-  menu: "tools.campusPrinter.menuAdded",
-  printer: "tools.campusPrinter.printerAdded",
-};
+/** What an Add says: Windows names which of its two was added; macOS keeps
+ * its own wording. */
+const addedText = (target: Target, windows: boolean): MessageKey =>
+  !windows
+    ? "tools.campusPrinter.added"
+    : target === "menu"
+      ? "tools.campusPrinter.menuAdded"
+      : "tools.campusPrinter.printerAdded";
 
 /** Windows: the system printer's line on the card. */
 const QUEUE_TEXT: Record<CampusPrinterQueue, MessageKey> = {
@@ -116,7 +120,7 @@ export function CampusPrinter({
           kind: "key",
           key:
             outcome.kind === "added"
-              ? ADDED_TEXT[target]
+              ? addedText(target, windows)
               : outcome.kind === "cancelled"
                 ? "tools.campusPrinter.cancelled"
                 : "tools.campusPrinter.couldNotAdd",
