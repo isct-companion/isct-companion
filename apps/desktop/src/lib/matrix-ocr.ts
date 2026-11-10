@@ -28,7 +28,15 @@ export function parseMatrixText(text: string): string[] {
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 async function base64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await blob.arrayBuffer();
+  } catch {
+    // Whichever step reads the bytes first, an unreadable file gets the same
+    // words, never the browser's own detail.
+    throw new Error(t("matrixScan.cannotReadThisImageChoose"));
+  }
+  const bytes = new Uint8Array(buffer);
   const chunks: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     chunks.push(
