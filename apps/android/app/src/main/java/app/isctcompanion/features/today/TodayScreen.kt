@@ -154,7 +154,6 @@ fun TodayScreen() {
                     } else if (problem != null) {
                         SyncProblemBanner(problem)
                     }
-                    model.updater.available?.let { UpdateBanner(it.version) }
                     if (model.needsAccount) ConnectCard { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
                     model.syncSnapshot?.let { snapshot ->
                         if ((snapshot.activeRuns.isNotEmpty() || snapshot.resetting) &&
@@ -683,27 +682,3 @@ private fun ConnectCard(onConnect: () -> Unit) {
     }
 }
 
-/** A newer release from GitHub: one line and the way to install it. */
-@Composable
-private fun UpdateBanner(version: String) {
-    val updater = LocalModel.current.updater
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Theme.radiusSurface))
-            .background(Theme.colors.accentSoft)
-            .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-    ) {
-        Text(
-            t("today.versionIsAvailable", "version" to version),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Theme.colors.ink,
-            modifier = Modifier.weight(1f).padding(vertical = 10.dp),
-        )
-        TextButton(onClick = { updater.install() }, enabled = !updater.downloading) {
-            Text(if (updater.downloading) t("common.downloading") else t("today.update"), fontWeight = FontWeight.SemiBold)
-        }
-    }
-}

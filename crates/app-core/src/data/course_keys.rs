@@ -235,6 +235,94 @@ fn absorb(transaction: &Transaction<'_>, from: &str, into: &str) -> Result<(), D
     Ok(())
 }
 
+/// Fills `course_keys` from `identity_map`, the identity map of user.db
+/// format 1: the course id each source and offering resolved to. An id stays
+/// the course's id; when the old map gave one offering two ids (it rewrote
+/// ids, so it rarely does), the canonical `{year}-{offering}` one keeps the
+/// key and the other is absorbed into it.
+pub(super) fn migrate_identity_map(
+    transaction: &Transaction<'_>,
+    identity_map: &str,
+) -> Result<(), DataError> {
+    let mut rows: Vec<(String, String, i32, String, Option<String>)> = {
+        let mut statement = transaction.prepare(&format!(
+            "SELECT provider, external_id, academic_year, course_id, offering_id
+             FROM {identity_map}"
+        ))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    // Canonical ids first, so an offering key goes to `{year}-{offering}`.
+    rows.sort_by_key(|(_, _, year, course_id, offering)| {
+        let canonical = offering
+            .as_deref()
+            .is_some_and(|offering| *course_id == format!("{year}-{offering}"));
+        (!canonical, course_id.clone())
+    });
+    for (provider, external, year, course_id, offering) in rows {
+        let source = match provider.as_str() {
+            "lms" => Some(lms_key(&external)),
+            "kyomu" => Some(kyomu_key(year, &external)),
+            _ => None,
+        };
+        let offering = offering.and_then(|offering| offering_key(year, &offering));
+        for key in offering.iter().chain(&source) {
+            match lookup(transaction, key)? {
+                None => insert(transaction, key, &course_id)?,
+                Some(known) if known != course_id => absorb(transaction, &course_id, &known)?,
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every course made on this device is known by its own id, and by its
+/// offering when no other course holds that key (user.db format 1 kept no
+/// keys for them).
+pub(super) fn key_manual_courses(transaction: &Transaction<'_>) -> Result<(), DataError> {
+    transaction
+        .execute(
+            "INSERT OR IGNORE INTO course_keys(key, course_id, updated_at)
+             SELECT 'manual:' || id, id, ?1 FROM manual_courses",
+            [now()],
+        )
+        .map_err(DataError::from)?;
+    for row in read_rows(transaction, "manual_courses")? {
+        let Some(id) = row.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let year = row
+            .get("termId")
+            .and_then(Value::as_str)
+            .and_then(|term| term.get(..4))
+            .and_then(|year| year.parse().ok());
+        let key = year
+            .zip(row.get("offeringId").and_then(Value::as_str))
+            .and_then(|(year, offering)| offering_key(year, offering));
+        if let Some(key) = key {
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO course_keys(key, course_id, updated_at)
+                     VALUES (?1, ?2, ?3)",
+                    params![key, id, now()],
+                )
+                .map_err(DataError::from)?;
+        }
+    }
+    Ok(())
+}
+
 /// The fields of a synced user record that name a course.
 fn course_fields(table: &str) -> &'static [&'static str] {
     match table {

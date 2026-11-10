@@ -295,7 +295,33 @@ pub enum SchoolFile {
     External { url: String },
 }
 
-/// A newer release for this device: its version and the package to install.
+/// Where this platform's releases come from, fixed at build time.
+#[cfg(target_os = "android")]
+async fn fetch_release(
+    running: &str,
+) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
+    app_core::app_updates::fetch_android(running).await
+}
+
+#[cfg(target_os = "ios")]
+async fn fetch_release(
+    running: &str,
+) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
+    app_core::app_updates::fetch_app_store(running).await
+}
+
+/// Host builds (tests, binding generation) have no store to read.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+async fn fetch_release(
+    _running: &str,
+) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
+    Err(app_core::app_updates::AppUpdateError::Network(
+        "This build has no update source.".into(),
+    ))
+}
+
+/// A newer release for this device: its version and where it comes from (the
+/// APK on Android, the App Store page on iOS and iPadOS).
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct AppRelease {
     pub version: String,
@@ -351,30 +377,46 @@ fn assignment_detail(
 /// LMS draft area from it. Core never submits; the person saves the page.
 #[uniffi::export]
 impl Session {
-    /// Android's update check: a newer published release with its APK, when a
-    /// check is due after `last_checked` (or `manual`). The shell downloads
-    /// the APK and hands it to the system installer, where the person confirms.
-    pub fn check_android_update(
+    /// The update check of a phone or tablet: a newer release, when a check
+    /// is due after `last_checked` and this device's settings let it run, or
+    /// now (`manual`). Core decides whether the release is offered in the
+    /// prompt (`prompt`), skipping the version the person skipped. Android
+    /// reads GitHub's release with its APK, which the shell hands to the
+    /// system installer; iOS and iPadOS read the App Store listing, which the
+    /// shell opens.
+    pub fn check_app_update(
         &self,
         running: String,
         last_checked: Option<String>,
         manual: bool,
     ) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |_, _| async move {
-            let found = app_core::app_updates::check_android(
-                &running,
+        self.start(false, move |inner, _| async move {
+            let workspace = inner.core.store.load_fields(&[])?;
+            if !app_core::app_updates::check_now(
+                &workspace,
                 last_checked.as_deref(),
                 chrono::Utc::now(),
                 manual,
-            )
-            .await
-            .map_err(|error| crate::error::coded(&error))?;
+            ) {
+                return Ok(OperationResult::AppUpdate {
+                    checked: false,
+                    release: None,
+                    prompt: false,
+                });
+            }
+            let found = fetch_release(&running)
+                .await
+                .map_err(|error| crate::error::coded(&error))?;
+            let prompt = found.as_ref().is_some_and(|release| {
+                app_core::app_updates::prompts(&workspace, &release.version, manual)
+            });
             Ok(OperationResult::AppUpdate {
-                checked: found.is_some(),
-                release: found.flatten().map(|release| AppRelease {
+                checked: true,
+                release: found.map(|release| AppRelease {
                     version: release.version,
-                    url: release.apk_url,
+                    url: release.url,
                 }),
+                prompt,
             })
         })
     }

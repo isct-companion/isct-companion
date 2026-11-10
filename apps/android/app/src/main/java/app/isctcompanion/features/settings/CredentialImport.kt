@@ -21,6 +21,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -108,10 +111,19 @@ import kotlinx.coroutines.withContext
 @Composable
 private fun SourceChip(label: String, icon: ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
     AssistChip(
-        onClick = onClick, enabled = enabled, label = { Text(label) },
+        onClick = onClick, enabled = enabled,
+        // One line: a chip that does not fit moves to the next row of
+        // `ChipRow` instead of breaking its label into a column.
+        label = { Text(label, maxLines = 1, softWrap = false) },
         leadingIcon = { Icon(icon, null, modifier = Modifier.size(18.dp)) },
     )
 }
+
+/** Source chips, wrapping onto another row when the width runs out. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChipRow(content: @Composable FlowRowScope.() -> Unit) =
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
 
 /** An image on the clipboard (a screenshot shared to it), as a content URI. */
 private fun clipboardImage(context: Context): Uri? {
@@ -204,7 +216,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         }
         // A QR on this screen cannot be scanned by this phone, so the
         // `otpauth://` link goes straight to the installed authenticator.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChipRow {
             SourceChip(t("settings.credentialImport.addToAuthenticator"), Icons.Rounded.Key) {
                 scope.launch {
                     error = null
@@ -239,7 +251,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     }
     Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
     if (path == "export") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChipRow {
             SourceChip(t("settings.credentialImport.scanQR"), Icons.Rounded.QrCodeScanner) {
                 scope.launch {
                     when (val result = scanQr(context)) {
@@ -415,7 +427,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     if (!editing) {
         Text(if (saved) t("settings.credentialImport.saved") else t("settings.studyProfile.notSet"), color = if (saved) Theme.colors.ok else Theme.colors.muted)
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ChipRow {
         if (canScan) {
             if (hasCamera) {
                 SourceChip(t("settings.credentialImport.autoScan"), Icons.Rounded.DocumentScanner, enabled = !reading) {

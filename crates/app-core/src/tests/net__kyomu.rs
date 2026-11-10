@@ -1,7 +1,10 @@
 use super::*;
 
+/// GetAccess's sign-in and 教務Web's own entry both mean the session is
+/// gone, so the run rebuilds it through the SSO instead of failing as a
+/// refusal (1.3.1 reported `Default.aspx` as "refused (302)").
 #[test]
-fn only_a_redirect_to_getaccess_means_the_session_expired() {
+fn a_redirect_to_getaccess_or_the_kyomu_entry_means_the_session_expired() {
     assert_eq!(classify(200, None), Reply::Page);
     for (status, location) in [
         (
@@ -16,6 +19,12 @@ fn only_a_redirect_to_getaccess_means_the_session_expired() {
             301,
             " https://PORTAL.nap.gsic.titech.ac.jp/getaccess/Login ",
         ),
+        (302, "/Titech/Default.aspx"),
+        (302, "/titech/default.aspx?ReturnUrl=%2fTitech%2fStudent%2f"),
+        (
+            302,
+            "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
+        ),
     ] {
         assert_eq!(
             classify(status, Some(location)),
@@ -23,15 +32,12 @@ fn only_a_redirect_to_getaccess_means_the_session_expired() {
             "{location}"
         );
     }
-    // A redirect that stays on 教務Web (Default.aspx must never be followed),
-    // the GetAccess menu, another host, a missing target or a server error is
-    // not a sign-in signal: retrying the SSO would not change it.
+    // Another page of 教務Web, the GetAccess menu, another host (with the
+    // entry's path too), a missing target or a server error is not a session
+    // signal: rebuilding the session would not change it.
     for (status, location) in [
-        (302, Some("/Titech/Default.aspx")),
-        (
-            302,
-            Some("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"),
-        ),
+        (302, Some("/Titech/Student/")),
+        (302, Some("https://other.example/Titech/Default.aspx")),
         (302, Some("https://portal.nap.gsic.titech.ac.jp/portal.pl")),
         (302, Some("https://other.example/GetAccess/ResourceList")),
         (302, None),

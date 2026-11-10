@@ -47,6 +47,13 @@ final class AppModel {
     private(set) var contentRevision = ""
     /// Core's cloud journal: providers, unfinished tasks, versions, recovery files.
     private(set) var cloud: SyncState?
+    /// A newer release on the App Store, shown in Settings.
+    private(set) var availableUpdate: AppRelease?
+    /// The release Core offers in the update prompt, until it is answered.
+    var updateOffer: AppRelease?
+    /// A check the person started found nothing newer.
+    private(set) var upToDate = false
+    private(set) var checkingUpdate = false
 
     let browser = SchoolBrowserHost()
     let web: WebRouter
@@ -166,6 +173,7 @@ final class AppModel {
             syncHint(.foreground)
             armDeadline()
             Task { await refresh() }
+            Task { await checkForUpdate() }
         case .background:
             deadlineTask?.cancel()
             deadlineTask = nil
@@ -750,6 +758,40 @@ final class AppModel {
         }
         return value
     }
+
+    /// Asks Core for a newer App Store release when a check is due (the
+    /// device's `appUpdateChecks`), or now (`manual`). Core decides whether
+    /// it is offered in the update prompt, skipping the skipped version; when
+    /// the last check ran is this device's wake bookkeeping, as on the desktop.
+    func checkForUpdate(manual: Bool = false) async {
+        guard let session, !checkingUpdate else { return }
+        checkingUpdate = true
+        defer { checkingUpdate = false }
+        let defaults = UserDefaults.standard
+        let running = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        guard
+            case let .appUpdate(checked, release, prompt) = try? await session.checkAppUpdate(
+                running: running, lastChecked: defaults.string(forKey: Self.lastUpdateCheck), manual: manual
+            ).value(),
+            checked
+        else { return }
+        defaults.set(Date().formatted(.iso8601), forKey: Self.lastUpdateCheck)
+        availableUpdate = release
+        upToDate = manual && release == nil
+        if prompt { updateOffer = release }
+    }
+
+    /// Skipping the version or turning the checks off: this device's settings.
+    func answerUpdate(skip version: String? = nil, turnOff: Bool = false) async {
+        updateOffer = nil
+        guard version != nil || turnOff else { return }
+        await updateSettings { settings in
+            if let version { settings["skippedAppVersion"] = version }
+            if turnOff { settings["appUpdateChecks"] = false }
+        }
+    }
+
+    private static let lastUpdateCheck = "lastAppUpdateCheck"
 
     /// Edits `settings.notifications` and replaces the settings object.
     func setNotifications(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {

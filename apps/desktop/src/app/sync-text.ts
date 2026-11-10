@@ -123,10 +123,14 @@ const FAILURE_KINDS: Record<string, MessageKey> = {
 function failureReason(kind: string) {
   if (FAILURE_KINDS[kind]) return t(FAILURE_KINDS[kind]);
   const status = /^http-(\d{3})$/.exec(kind)?.[1];
-  if (status)
-    return status.startsWith("5")
-      ? t("syncStatus.failure.serverFailed", { status })
-      : t("syncStatus.failure.serverRefused", { status });
+  if (status) {
+    if (status.startsWith("5"))
+      return t("syncStatus.failure.serverFailed", { status });
+    // A redirect is not a refusal: the school sent the page elsewhere.
+    if (status.startsWith("3"))
+      return t("syncStatus.failure.serverRedirected", { status });
+    return t("syncStatus.failure.serverRefused", { status });
+  }
   return kind;
 }
 

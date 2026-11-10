@@ -49,31 +49,33 @@ export function installWindowGlobals(window: Window & typeof globalThis): void {
     window.HTMLElement.prototype.setPointerCapture ??= () => {};
     window.HTMLElement.prototype.releasePointerCapture ??= () => {};
     // jsdom has no layout engine. Supply viewport/row geometry while running
-    // the real virtualizer; neither search results nor range selection are mocked.
-    Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get() {
-        return this.classList.contains("finderResults")
-          ? 600
-          : this.classList.contains("finderRow")
-            ? 96
-            : this.classList.contains("diagnosticLogs")
-              ? 420
-              : this.classList.contains("diagnosticLogRow")
-                ? 48
-                : 0;
-      },
-    });
-    Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", {
-      configurable: true,
-      get() {
-        return this.classList.contains("finderResults")
-          ? 400
-          : this.classList.contains("diagnosticLogs")
-            ? 800
-            : 0;
-      },
-    });
+    // the real virtualizer; neither search results nor range selection are
+    // mocked. The virtualizer reads its viewport's client box (and once read
+    // its offset box), so both report the same size, as they do without
+    // borders.
+    const geometry: Record<string, { width: number; height: number }> = {
+      finderResults: { width: 400, height: 600 },
+      finderRow: { width: 0, height: 96 },
+      diagnosticLogs: { width: 800, height: 420 },
+      diagnosticLogRow: { width: 0, height: 48 },
+    };
+    const size = (element: HTMLElement, axis: "width" | "height") => {
+      for (const [name, box] of Object.entries(geometry))
+        if (element.classList.contains(name)) return box[axis];
+      return 0;
+    };
+    for (const [property, axis] of [
+      ["offsetHeight", "height"],
+      ["clientHeight", "height"],
+      ["offsetWidth", "width"],
+      ["clientWidth", "width"],
+    ] as const)
+      Object.defineProperty(window.HTMLElement.prototype, property, {
+        configurable: true,
+        get(this: HTMLElement) {
+          return size(this, axis);
+        },
+      });
     window.HTMLElement.prototype.scrollTo ??= function scrollTo(
       options?: ScrollToOptions | number,
       y?: number,

@@ -17,16 +17,26 @@ import java.io.File
 import java.time.Instant
 
 /**
- * Android's update from GitHub Releases (iOS updates through TestFlight and
- * the App Store). Core decides whether a check is due and whether a newer
- * release with its APK exists (`checkAndroidUpdate`); this keeps what it
- * found, downloads the APK with the system's download manager and hands it to
- * the system installer, where the person confirms. Android itself refuses an
- * APK signed by another key.
+ * Android's update from GitHub Releases. Core decides whether a check is due
+ * (the device's `appUpdateChecks`), whether a newer release with its APK
+ * exists and whether it is offered in the update prompt, skipping the
+ * version the person skipped (`checkAppUpdate`). This keeps what it found,
+ * downloads the APK with the system's download manager and hands it to the
+ * system installer, where the person confirms. Android itself refuses an APK
+ * signed by another key. When the last check ran is this device's wake
+ * bookkeeping, as on the desktop.
  */
 class AppUpdater(private val context: Context) {
-    /** A newer release to offer on 今日, kept until it is installed. */
+    /** A newer release, shown in Settings until it is installed. */
     var available: AppRelease? by mutableStateOf(null)
+        private set
+    /** The release Core offers in the update prompt, until it is answered. */
+    var offer: AppRelease? by mutableStateOf(null)
+        private set
+    /** A check the person started found nothing newer. */
+    var upToDate: Boolean by mutableStateOf(false)
+        private set
+    var checking: Boolean by mutableStateOf(false)
         private set
     var downloading: Boolean by mutableStateOf(false)
         private set
@@ -44,16 +54,25 @@ class AppUpdater(private val context: Context) {
 
     /** Asks Core when a check is due; `manual` checks now. */
     suspend fun check(session: Session, manual: Boolean = false) {
+        checking = true
         val result = runCatching {
-            session.checkAndroidUpdate(running, prefs.getString("lastChecked", null), manual).value()
-        }.getOrNull() as? OperationResult.AppUpdate ?: return
-        if (!result.checked) return
+            session.checkAppUpdate(running, prefs.getString("lastChecked", null), manual).value()
+        }.getOrNull() as? OperationResult.AppUpdate
+        checking = false
+        if (result == null || !result.checked) return
         available = result.release
+        upToDate = manual && result.release == null
+        if (result.prompt) offer = result.release
         prefs.edit()
             .putString("lastChecked", Instant.now().toString())
             .putString("version", result.release?.version)
             .putString("url", result.release?.url)
             .apply()
+    }
+
+    /** The prompt was answered (or closed): it is not shown again this time. */
+    fun answered() {
+        offer = null
     }
 
     /** Downloads the APK, then opens the system installer on it. */
