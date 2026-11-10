@@ -55,18 +55,17 @@ subject is not enough. Show the user the notes before committing.
 
 ## 4. Pass the release gate
 
-The same commands as the "Verify release source" job, unfiltered. This is the
-one place where the full suites are run, not targeted tests:
+The JS half of the "Verify release source" job, unfiltered. This is the one
+place where the full JS suites are run, not targeted tests:
 
 ```bash
 node scripts/desktop/desktop-release.mjs validate
 yarn test
 yarn test:types
-cargo test -p app-core --locked
 ```
 
-From a worktree, point `CARGO_TARGET_DIR` at the main checkout's `target/` so
-dependencies are not rebuilt.
+`cargo test -p app-core` is not run here: every commit on `main` already passed
+it in Platform checks, and the verify job runs it again before any build.
 
 If `docs/verification/manual-checks.yaml` changed since the last tag, run
 `node scripts/checks/manual-acceptance.mjs render` first and include the
