@@ -96,6 +96,7 @@ the changes it made, the next `revision` (user writes) and the commit `seq`;
 | Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud` |
 | Lifecycle             | `suspend`, `resume`, `wakeDirective`, `deadlineReached`, `beginBackgroundOpportunity`, `endBackgroundOpportunity`, `shutdown`, `checkAndroidUpdate` |
 | Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                   |
+| Campus printer        | `campusPrint` (Android's print service; unavailable on iOS)                                                      |
 
 Core decides due work and when it is next due. The shell supplies
 network/foreground/browser facts and keeps one timer from Core's

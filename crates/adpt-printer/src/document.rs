@@ -72,7 +72,7 @@ pub fn print(
 }
 
 /// Sends `copies` uploads of a document already in memory, such as the PDF
-/// Windows rendered for the system print queue. Same contract as [`print`].
+/// the system rendered for its print queue or print service. Same contract as [`print`].
 pub fn print_bytes(
     server: SocketAddr,
     student: &StudentId,
@@ -104,6 +104,7 @@ pub fn print_bytes(
     Ok(options.copies)
 }
 
-#[cfg(test)]
+// The tests bind the reserved ports the Windows client sends from.
+#[cfg(all(test, windows))]
 #[path = "tests/document.rs"]
 mod tests;

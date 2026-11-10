@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 161 checks must be re-run before the next release.**
+**5 of 162 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**156 checks have never been run or could not be run:**
+**157 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -113,6 +113,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-SHARE-HAND-IN` — never verified
 - `ANDROID-SHARE-HAND-IN` — never verified
 - `ANDROID-APP-UPDATE` — never verified
+- `ANDROID-CAMPUS-PRINT` — never verified
 - `IOS-SETTINGS-PAGES` — never verified
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
@@ -279,6 +280,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>crates/app-core/src/app_updates.rs |
+| `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>apps/android/app/src/main/res/xml/campus_print_service.xml<br>crates/app-ffi/src/campus_print.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -6174,6 +6176,74 @@ installer on a device.
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
 - `crates/app-core/src/app_updates.rs`
+
+**Last recorded** never run
+
+### Android's print dialog sends any app's print to the campus printer (`ANDROID-CAMPUS-PRINT`)
+
+**Area** native · **Persona** 修士課程 1年・前期課程 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An arm64 Android phone with a build of this commit, freshly installed
+and never opened; the Tokyo Tech Portal account of a master's student;
+ScienceTokyo Wi-Fi; a multi-page PDF and a photo; and access to the
+print release or billing page.
+
+**Steps**
+
+1. Before opening the app, open the PDF in Files or Drive, choose
+   Print and open the printer list.
+   - *Why:* Android enables an installed print service by itself, so 学内プリンタ
+     must be listed with no setup; a missing printer means the service's
+     manifest entry is wrong. Selecting it must offer A4 and Letter,
+     black and white or colour, and one- or two-sided.
+2. Print it, then read the system's print notification.
+   - *Why:* No Tokyo Tech account is saved, so Core must send nothing and the
+     job must fail with the text that asks to save the account first.
+3. Save the Tokyo Tech Portal account in the app, leave the app, and
+   print pages 2-3 of the PDF: two copies, two-sided, black and white.
+   Then print the photo from Photos in colour, and check the billing
+   page and the sheets.
+   - *Why:* The system renders each app's output to PDF with the page range
+     applied, and the service starts the session with no activity in
+     front. Only the real printer shows that an upload from a source
+     port above 1023 (an app cannot bind a lower one) is accepted, that
+     each job is billed to the student's ID and waits for release, that
+     one upload per copy gives exactly two copies, and that the PJL
+     duplex and colour settings are honoured.
+4. Switch to mobile data (or ScienceTokyoX), print once more, read the
+   notification, rejoin ScienceTokyo Wi-Fi and tap its retry.
+   - *Why:* Off the printer's network the job must fail within seconds naming
+     ScienceTokyo Wi-Fi, and the system's own retry must send it once
+     the network is back.
+
+**Where to look**
+
+The system print dialog and its printer list, the print notifications,
+the printer's release panel and the billing page.
+
+**Expected**
+
+学内プリンタ is in every app's print dialog without setup; with a saved
+account, prints from a document app and from Photos are billed to the
+student and print with the chosen copies, sides and colour; without an
+account or off the campus Wi-Fi the job fails with the reason and can
+be retried.
+
+**Why this is manual**
+
+Needs the system print spooler and real apps' print dialogs on a
+device, the campus network and the printer's billing. The LPD and PJL
+bytes are tested in crates/adpt-printer/src/tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt`
+- `apps/android/app/src/main/res/xml/campus_print_service.xml`
+- `crates/app-ffi/src/campus_print.rs`
 
 **Last recorded** never run
 

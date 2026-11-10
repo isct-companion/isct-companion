@@ -3,13 +3,16 @@ name = "adpt-printer"
 version = "1.0.0-rc.1"
 edition = "2021"
 rust-version = "1.90"
-description = "The campus Kyocera printer for IsctCompanion Core: student IDs, and LPD and PJL for Windows"
+description = "The campus Kyocera printer for IsctCompanion Core: student IDs, and LPD and PJL for Windows and Android"
 publish = false
 
-# The LPD client, PJL header and document upload are Windows only.
-[target.'cfg(windows)'.dependencies]
+# The LPD client, PJL header and document upload: Windows and Android.
+[target.'cfg(any(windows, target_os = "android"))'.dependencies]
 serde = { version = "1", features = ["derive"] }
-# RFC 1179 clients send from a port below 1024; std cannot bind before connecting.
+
+# RFC 1179 clients send from a port below 1024; std cannot bind before
+# connecting. Android gives an app no such port, so only Windows binds one.
+[target.'cfg(windows)'.dependencies]
 socket2 = "0.6"
 
 [target.'cfg(windows)'.dev-dependencies]

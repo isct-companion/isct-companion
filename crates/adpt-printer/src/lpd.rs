@@ -4,15 +4,21 @@
 //! student ID the printer bills.
 
 use crate::StudentId;
+#[cfg(windows)]
 use socket2::{Domain, Protocol, Socket, Type};
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+#[cfg(windows)]
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{SocketAddr, TcpStream};
+#[cfg(windows)]
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The source ports RFC 1179 section 3.1 reserves for clients.
+#[cfg(windows)]
 const RESERVED_TOP: u16 = 1023;
+#[cfg(windows)]
 const RESERVED_BOTTOM: u16 = 512;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(60);
@@ -169,6 +175,7 @@ fn command(
 /// Each connection starts one port below the last one used: the previous
 /// upload's port is still in TIME_WAIT for that printer, and reusing it does
 /// not always fail at once, so a second copy must never try it first.
+#[cfg(windows)]
 fn connect(server: SocketAddr) -> io::Result<TcpStream> {
     static NEXT: AtomicU16 = AtomicU16::new(RESERVED_TOP);
     let start = NEXT.load(Ordering::Relaxed);
@@ -208,6 +215,15 @@ fn connect(server: SocketAddr) -> io::Result<TcpStream> {
     ))
 }
 
+/// Android reserves the ports below 1024 for root, so an app cannot send
+/// from one as RFC 1179 asks; the system picks the source port, as it does
+/// for the macOS queue's lpd backend when that runs without one reserved.
+#[cfg(target_os = "android")]
+fn connect(server: SocketAddr) -> io::Result<TcpStream> {
+    with_timeouts(TcpStream::connect_timeout(&server, CONNECT_TIMEOUT)?)
+}
+
+#[cfg(windows)]
 fn new_socket(server: SocketAddr) -> io::Result<Socket> {
     Socket::new(
         Domain::for_address(server),
@@ -216,6 +232,7 @@ fn new_socket(server: SocketAddr) -> io::Result<Socket> {
     )
 }
 
+#[cfg(windows)]
 fn local_address(server: SocketAddr, port: u16) -> SocketAddr {
     match server {
         SocketAddr::V4(_) => (Ipv4Addr::UNSPECIFIED, port).into(),
@@ -223,8 +240,12 @@ fn local_address(server: SocketAddr, port: u16) -> SocketAddr {
     }
 }
 
+#[cfg(windows)]
 fn into_stream(socket: Socket) -> io::Result<TcpStream> {
-    let stream = TcpStream::from(socket);
+    with_timeouts(TcpStream::from(socket))
+}
+
+fn with_timeouts(stream: TcpStream) -> io::Result<TcpStream> {
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     Ok(stream)
@@ -248,6 +269,7 @@ fn truncate(text: &str, max_chars: usize) -> String {
 }
 
 /// This machine's name for the control file's `H` line, never empty.
+#[cfg(windows)]
 pub fn local_hostname() -> String {
     let name: String = std::env::var("COMPUTERNAME")
         .unwrap_or_default()
@@ -261,6 +283,13 @@ pub fn local_hostname() -> String {
     }
 }
 
+/// The control file's `H` line. An app cannot read the phone's name, and
+/// the printer bills by the `P` line alone, so every phone sends this one.
+#[cfg(target_os = "android")]
+pub fn local_hostname() -> String {
+    "android".to_string()
+}
+
 /// LPD job numbers have three digits. Start somewhere unlikely to repeat a
 /// recent run and count up from there for each upload.
 pub fn first_job_number() -> u16 {
@@ -271,6 +300,7 @@ pub fn first_job_number() -> u16 {
     (micros.wrapping_add(std::process::id()) % 1000) as u16
 }
 
-#[cfg(test)]
+// The tests bind the reserved ports the Windows client sends from.
+#[cfg(all(test, windows))]
 #[path = "tests/lpd.rs"]
 pub(crate) mod tests;

@@ -69,6 +69,9 @@ pub enum OperationResult {
     Recognitions {
         cells: Vec<crate::MatrixCell>,
     },
+    CampusPrint {
+        result: crate::CampusPrintResult,
+    },
     Document {
         value: JsonValue,
     },

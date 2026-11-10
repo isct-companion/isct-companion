@@ -5395,6 +5395,67 @@ checks:
       - crates/app-core/src/app_updates.rs
     verified: null
 
+  - id: ANDROID-CAMPUS-PRINT
+    area: native
+    title: Android's print dialog sends any app's print to the campus printer
+    persona: masters-student
+    preconditions: |
+      An arm64 Android phone with a build of this commit, freshly installed
+      and never opened; the Tokyo Tech Portal account of a master's student;
+      ScienceTokyo Wi-Fi; a multi-page PDF and a photo; and access to the
+      print release or billing page.
+    steps:
+      - action: |
+          Before opening the app, open the PDF in Files or Drive, choose
+          Print and open the printer list.
+        reason: |
+          Android enables an installed print service by itself, so 学内プリンタ
+          must be listed with no setup; a missing printer means the service's
+          manifest entry is wrong. Selecting it must offer A4 and Letter,
+          black and white or colour, and one- or two-sided.
+      - action: Print it, then read the system's print notification.
+        reason: |
+          No Tokyo Tech account is saved, so Core must send nothing and the
+          job must fail with the text that asks to save the account first.
+      - action: |
+          Save the Tokyo Tech Portal account in the app, leave the app, and
+          print pages 2-3 of the PDF: two copies, two-sided, black and white.
+          Then print the photo from Photos in colour, and check the billing
+          page and the sheets.
+        reason: |
+          The system renders each app's output to PDF with the page range
+          applied, and the service starts the session with no activity in
+          front. Only the real printer shows that an upload from a source
+          port above 1023 (an app cannot bind a lower one) is accepted, that
+          each job is billed to the student's ID and waits for release, that
+          one upload per copy gives exactly two copies, and that the PJL
+          duplex and colour settings are honoured.
+      - action: |
+          Switch to mobile data (or ScienceTokyoX), print once more, read the
+          notification, rejoin ScienceTokyo Wi-Fi and tap its retry.
+        reason: |
+          Off the printer's network the job must fail within seconds naming
+          ScienceTokyo Wi-Fi, and the system's own retry must send it once
+          the network is back.
+    observe: |
+      The system print dialog and its printer list, the print notifications,
+      the printer's release panel and the billing page.
+    expected: |
+      学内プリンタ is in every app's print dialog without setup; with a saved
+      account, prints from a document app and from Photos are billed to the
+      student and print with the chosen copies, sides and colour; without an
+      account or off the campus Wi-Fi the job fails with the reason and can
+      be retried.
+    why_manual: |
+      Needs the system print spooler and real apps' print dialogs on a
+      device, the campus network and the printer's billing. The LPD and PJL
+      bytes are tested in crates/adpt-printer/src/tests.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
+      - apps/android/app/src/main/res/xml/campus_print_service.xml
+      - crates/app-ffi/src/campus_print.rs
+    verified: null
+
   - id: IOS-SETTINGS-PAGES
     area: native
     title: iPhone settings pages keep their values and share the desktop's keys

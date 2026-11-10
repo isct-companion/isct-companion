@@ -188,6 +188,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     }
 
+    /** One job from the system's print dialog (`CampusPrintService`): Core
+     * verifies the student ID it is billed to and sends the PDF. The print
+     * service can start the process with no activity, so the session opens
+     * here if it has not. `null` when there is no session to print with. */
+    suspend fun campusPrint(document: ByteArray, job: CampusPrintJob): CampusPrintResult? {
+        start()
+        val session = session ?: return null
+        return (session.campusPrint(document, job).value() as? OperationResult.CampusPrint)?.result
+    }
+
     /** One WorkManager opportunity out of front: Core reads what is due when
      * [network] allows (LMS deadlines and assignment states over the token,
      * reference files) and runs its local work, within [budgetSeconds], then
