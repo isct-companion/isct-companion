@@ -63,18 +63,19 @@ export const Button = Object.assign(
         type={type}
         disabled={disabled || loading}
         aria-busy={loading || undefined}
+        data-loading={loading || undefined}
         className={cx("uiButton", className)}
         data-size={size}
         data-variant={variant}
         data-color={color}
         style={{ paddingInline: px, ...style }}
       >
-        {loading ? (
-          <i className="schoolStatusSpinner" aria-hidden />
-        ) : (
-          leftSection
-        )}
+        {leftSection}
         {children}
+        {/* Drawn over the hidden label, so a pending button keeps its box. */}
+        {loading && (
+          <i className="schoolStatusSpinner uiButtonSpinner" aria-hidden />
+        )}
       </button>
     );
   }),
