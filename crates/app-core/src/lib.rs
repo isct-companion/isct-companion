@@ -1,0 +1,68 @@
+//! Shared domain rules and state, independent of UI and platform frameworks.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::unreachable
+    )
+)]
+
+#[cfg(feature = "agent")]
+pub mod agent;
+pub mod app_updates;
+pub mod backup;
+#[cfg(feature = "campus-printer")]
+pub mod campus_printer;
+pub mod catalog;
+pub mod cloud_credentials;
+pub mod facade;
+pub use facade::Core;
+pub mod cloud_sync;
+pub mod contracts;
+pub mod course_materials;
+pub mod course_query;
+pub mod data;
+pub mod deadlines;
+pub mod diagnostics;
+pub mod downloads;
+pub mod error_code;
+pub mod events;
+pub mod html_text;
+pub mod kyomu_guide;
+pub mod kyomu_ingest;
+pub mod lifecycle;
+pub mod lms_ingest;
+pub mod matrix_scan;
+pub mod net;
+pub mod notes;
+pub mod notification;
+pub mod plan;
+pub mod ports;
+pub mod reference_refresh;
+pub mod reset;
+pub mod runtime;
+pub mod runtime_tasks;
+pub mod schedule;
+pub mod scheduler;
+pub mod school_auth;
+pub mod school_browser;
+pub mod school_files;
+pub mod school_service;
+pub mod school_session;
+mod secret_parts;
+pub mod storage;
+pub mod study_profile;
+#[cfg(feature = "agent")]
+pub mod submissions;
+pub mod subscriptions;
+pub mod sync_gc;
+pub mod sync_state;
+pub mod workspace;
+pub mod workspace_changes;
+
+pub mod vpn;
+pub mod workspaces;

@@ -1,0 +1,115 @@
+[package]
+name = "isct-companion"
+version = "1.3.2"
+description = "IsctCompanion desktop shell"
+authors = ["IsctCompanion contributors"]
+edition = "2021"
+rust-version = "1.90"
+default-run = "isct-companion"
+
+[lib]
+name = "isct_companion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+log = "0.4"
+app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives", "agent", "campus-printer"] }
+app-ocr = { path = "../../../crates/app-ocr" }
+tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
+tauri-plugin-opener = "2.5"
+# Native file dialogs (native_dialog.rs); the same rfd and backends
+# tauri-plugin-dialog used, without that plugin's init script in the school
+# webviews.
+rfd = { version = "0.17", default-features = false, features = ["common-controls-v6"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+uuid = { version = "1", features = ["v4", "v7"] }
+base64 = "0.23"
+keyring = "4.2"
+# TLS comes from Core: build clients with `app_core::net::client_builder()`.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
+url = "2.5"
+scraper = "0.29"
+tauri-plugin-secure-storage = "1.5.0"
+tauri-plugin-clipboard-manager = "2"
+# The campus VPN helper's wire format (`src/vpn.rs`).
+vpn-protocol = { path = "../../../crates/vpn-protocol" }
+
+# The embedded MCP HTTP transport.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+rmcp = { version = "3.8", default-features = false, features = ["server", "transport-streamable-http-server"] }
+subtle = "2"
+tokio-util = { version = "0.7", features = ["rt"] }
+# Native v2 EXE and macOS tar.gz updates; legacy v1 ZIP installers are unused.
+tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The login name the campus printer queue is restricted to (campus_printer_cups.rs).
+libc = "0.2"
+security-framework = { version = "3.7", features = ["OSX_10_15"] }
+block2 = "0.6"
+objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
+# Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface, its address, and DNS bound to it.
+objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["std", "CWWiFiClient", "CWInterface"] }
+if-addrs = "0.15"
+ipnet = "2"
+hickory-resolver = { version = "0.26", default-features = false, features = ["tokio"] }
+# NSPasteboard and NSSharingService: copy and share a course file (file_share_macos.rs).
+# NSAlert sheets, the print panel and the file picker: school pages'
+# confirm/alert/prompt, window.print() and <input type=file> (school_webkit.rs),
+# and the close prompt (window_close_macos.rs).
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSCell", "NSControl", "NSDragging", "NSEvent", "NSGraphics", "NSMenu", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSavePanel", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
+# Native notifications (notifications_macos.rs).
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+# School view WebKit hooks (school_webkit.rs) and the identity cookies Core
+# writes into the school store (school_cookies.rs). Same versions wry uses.
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSHTTPCookie", "NSSet", "NSString", "NSUUID", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Native Windows toast delivery returns the WinRT result synchronously so test
+# notifications and reminder claims reflect the native result.
+tauri-winrt-notification = "0.8.1"
+# Mica needs Windows 11; the build number decides whether the window gets it.
+windows-version = "0.1"
+# CF_HDROP and the share UI for a course file (file_share_windows.rs), and
+# the campus VPN service check and UAC install (vpn_windows.rs); the version
+# tauri and wry already use.
+windows = { version = "0.62", features = [
+    "ApplicationModel_DataTransfer",
+    "Foundation_Collections",
+    "Storage",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-collections = "0.3"
+# The PDF right-click entry for the campus printer (campus_printer_windows.rs),
+# under HKCU; the version the windows crate above pairs with.
+windows-registry = "0.6"
+# WebView2's cookie manager: the identity cookies Core writes into the school
+# store (school_cookies.rs). The version wry already uses.
+webview2-com = "0.39"
+# The tray icon that keeps a closed window's app running (window_close_windows.rs).
+tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
+# A second launch shows the running app's hidden window instead of starting
+# another copy against the same data. It injects no script into webviews.
+tauri-plugin-single-instance = "2"
+
+[dev-dependencies]
+adpt-isct = { path = "../../../crates/adpt-isct" }

@@ -1,0 +1,320 @@
+/* The About page, on purpose not like the rest of the app (slotledger
+   approach/desktop-about-page-design): the first screen of isctcomp.app
+   brought home. The name and what you act on sit left, in one column; the
+   icon on the right is a toy you can tip, rock and fill. Colours are the app's
+   own tokens, except the icon and its yellow, which keep the icon's colours
+   like an app icon does. It fits the pane and nothing scrolls. */
+
+.workspaceMain.aboutMain {
+  height: 100dvh;
+  overflow: hidden;
+  padding: 0 0 52px;
+  padding-inline-start: var(--rail);
+}
+
+.aboutCanvas {
+  /* The icon's own yellow, under the name as on the website; dimmed in dark
+     so light text stays readable on it. */
+  --about-butter: #fbd571;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  /* clip, not hidden: the toy swings past its box and focus must not scroll it. */
+  overflow: clip;
+  container-type: size;
+}
+:root[data-appearance="dark"] .aboutCanvas {
+  --about-butter: rgb(184 154 82 / 0.55);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) .aboutCanvas {
+    --about-butter: rgb(184 154 82 / 0.55);
+  }
+}
+
+/* ---------- composition ---------- */
+.aboutLayout {
+  height: 100%;
+  box-sizing: border-box;
+  padding: clamp(16px, 5cqh, 48px) clamp(24px, 6cqw, 88px);
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
+  column-gap: clamp(24px, 5cqw, 72px);
+}
+
+/* ---------- the name and what you act on ---------- */
+.aboutIntro {
+  min-width: 0;
+  max-width: 560px;
+  animation: aboutSettle 480ms var(--motion-easing-emphasized) both;
+}
+.aboutEyebrow {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 600;
+}
+.aboutName {
+  margin: clamp(6px, 1.6cqh, 14px) 0 0;
+  color: var(--ink);
+  /* "IsctCompanion" is about 6.6em wide: fit it to the column. */
+  font-size: clamp(34px, min(6.4cqw, 10cqh), 76px);
+  font-weight: 750;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+}
+/* One yellow highlight, drawn like a marker under the word. */
+.aboutMark {
+  padding-inline: 0.04em;
+  background: linear-gradient(
+      transparent 60%,
+      var(--about-butter) 60%,
+      var(--about-butter) 92%,
+      transparent 92%
+    )
+    no-repeat;
+  animation: aboutDraw 700ms 250ms var(--motion-easing-emphasized) both;
+}
+.aboutTagline {
+  margin: clamp(8px, 2cqh, 16px) 0 0;
+  color: var(--muted);
+  font-size: calc(16px * var(--text));
+  line-height: 1.5;
+}
+
+/* ---------- updates ---------- */
+.aboutUpdate {
+  margin-top: clamp(16px, 4.5cqh, 36px);
+}
+.aboutUpdateLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+/* A native error can be long; it stays readable here and the page stays put. */
+.aboutStatus {
+  min-width: 0;
+  max-height: 4.2em;
+  overflow-y: auto;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  line-height: 1.4;
+}
+.aboutStatus[data-phase="available"],
+.aboutStatus[data-phase="ready"] {
+  color: var(--accent);
+}
+.aboutStatus[data-phase="error"] {
+  color: var(--danger);
+}
+.aboutStatus small {
+  display: block;
+  font-size: inherit;
+}
+.aboutPrefs {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.aboutPrefs .uiCheckField {
+  align-items: center;
+}
+.aboutPrefs .textButton {
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.aboutNote {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  line-height: 1.4;
+}
+
+/* ---------- version, then the ways out ---------- */
+.aboutMeta {
+  margin: clamp(14px, 3.5cqh, 28px) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.aboutMeta b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.aboutMeta small {
+  margin-inline-start: 2px;
+  font-size: inherit;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+.aboutLinks {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aboutLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--workspace-control-height);
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 500;
+  transition:
+    translate var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.aboutLink svg {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+.aboutLink[data-setting="sponsor"] svg {
+  color: var(--danger);
+}
+.aboutLink:hover {
+  translate: 0 -1px;
+  border-color: var(--line-strong);
+}
+.aboutLink:active {
+  translate: 0;
+}
+.aboutLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- the icon as a toy ---------- */
+.aboutToy {
+  justify-self: center;
+  width: min(100%, 520px, 70cqh);
+  animation: aboutSettle 480ms 90ms var(--motion-easing-emphasized) both;
+}
+.iconToy {
+  --toy-panel: #fcfbf8;
+  --toy-ink: #2d3038;
+  --toy-stand: #2d3038;
+  --toy-cell: #e3e2de;
+  --toy-cell-hover: #d3d2cd;
+  --toy-on: #7496c3;
+  --toy-top: #fbd571;
+  --toy-hint: #b9cbe2;
+  margin: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* The icon keeps its own colours; the panel and the yellow are dimmed, and the
+   stand and line, drawn straight on the dark page, turn grey. */
+:root[data-appearance="dark"] .iconToy {
+  --toy-panel: #ebe9e3;
+  --toy-cell: #d8d6d0;
+  --toy-cell-hover: #c9c7c0;
+  --toy-top: #b89a52;
+  --toy-stand: #7d8088;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) .iconToy {
+    --toy-panel: #ebe9e3;
+    --toy-cell: #d8d6d0;
+    --toy-cell-hover: #c9c7c0;
+    --toy-top: #b89a52;
+    --toy-stand: #7d8088;
+  }
+}
+.iconToy svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  cursor: grab;
+}
+.iconToy.dragging svg {
+  cursor: grabbing;
+}
+.iconToyStand {
+  stroke: var(--toy-stand);
+}
+.iconToyInk {
+  stroke: var(--toy-ink);
+}
+.iconToyOutline {
+  fill: var(--toy-ink);
+}
+.iconToyPanel {
+  fill: var(--toy-panel);
+}
+.iconToyTop {
+  fill: var(--toy-top);
+}
+.iconToyCell {
+  fill: var(--toy-cell);
+  cursor: pointer;
+  transition: fill var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.iconToyCell:hover {
+  fill: var(--toy-cell-hover);
+}
+.iconToyCell.on {
+  fill: var(--toy-on);
+}
+/* Until the first touch, one empty cell glows to invite a tap. */
+.iconToy.idle .iconToyCell.hint:not(.on) {
+  animation: aboutGlow 1.8s var(--motion-easing-standard) infinite alternate;
+}
+
+/* ---------- motion ---------- */
+@keyframes aboutSettle {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+@keyframes aboutDraw {
+  from {
+    background-size: 0% 100%;
+  }
+}
+@keyframes aboutGlow {
+  to {
+    fill: var(--toy-hint);
+  }
+}
+/* The app's rule (styles.css) keeps animations at the fast duration and turns
+   movement into fades: here the pieces fade, the marker is simply there, and
+   the hint cell holds its glow instead of pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .aboutIntro,
+  .aboutToy {
+    animation-name: aboutFade;
+  }
+  .aboutMark {
+    animation: none;
+  }
+  .iconToy.idle .iconToyCell.hint:not(.on) {
+    animation: none;
+    fill: var(--toy-hint);
+  }
+  .aboutLink:hover {
+    translate: none;
+  }
+}
+@keyframes aboutFade {
+  from {
+    opacity: 0;
+  }
+}

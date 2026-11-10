@@ -1,0 +1,497 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+#[cfg(feature = "ts")]
+use ts_rs::TS;
+
+use chrono::{Datelike, Duration, NaiveDate};
+
+use super::{add_days, array, parse_civil_date, text, visible, ScheduleError, Term};
+
+const QUARTERS: [&str; 4] = ["1Q", "2Q", "3Q", "4Q"];
+const DAY_TYPES: [&str; 4] = ["holiday", "no-class", "replacement", "break"];
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TeachingRange {
+    pub start: String,
+    pub end: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct QuarterRange {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teaching_ranges: Option<Vec<TeachingRange>>,
+    /// The official final-exam and make-up period inside the quarter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub exam_ranges: Option<Vec<TeachingRange>>,
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarDayView {
+    pub date: String,
+    #[serde(rename = "type")]
+    pub day_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement_day: Option<u8>,
+    pub label: String,
+    pub origin: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown | null"))]
+    pub official: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown | null"))]
+    pub exception: Option<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct QuarterView {
+    pub quarter: String,
+    pub from: String,
+    pub to: String,
+    pub origin: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AcademicYearCalendar {
+    pub year: i32,
+    pub quarters: Vec<QuarterView>,
+    pub days: Vec<CalendarDayView>,
+    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
+    pub important_dates: Vec<Value>,
+    pub published: bool,
+}
+
+/// One week of an academic year as the timetable's time picker lists it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableWeek {
+    /// The Monday that names the week.
+    pub monday: String,
+    /// The quarter this week belongs to (`2026-3Q`); absent between quarters.
+    pub term: Option<String>,
+    /// The quarter's calendar week, counted as Today counts it.
+    pub week: Option<u32>,
+    /// A weekday of this week falls in the quarter's exam period.
+    pub exams: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableQuarter {
+    pub term: String,
+    /// The Monday of the first teaching week: where jumping to the quarter
+    /// lands, to show someone that quarter's courses.
+    pub first_week: String,
+}
+
+/// The weeks of one academic year (April to March) with their quarters, for
+/// a dated timetable that still says which quarter it is showing.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableYear {
+    pub year: i32,
+    /// Quarters whose dates are known, in order.
+    pub quarters: Vec<TimetableQuarter>,
+    pub weeks: Vec<TimetableWeek>,
+}
+
+fn monday_of(date: NaiveDate) -> NaiveDate {
+    date - Duration::days(i64::from(date.weekday().num_days_from_monday()))
+}
+
+/// Calendar weeks of a quarter: the week holding its first day is week 1.
+pub(crate) fn teaching_week(range: &QuarterRange, date: NaiveDate) -> Option<u32> {
+    let from = parse_civil_date(&range.from).ok()?;
+    let to = parse_civil_date(&range.to).ok()?;
+    (from..=to)
+        .contains(&date)
+        .then(|| ((date - monday_of(from)).num_days() / 7 + 1) as u32)
+}
+
+pub fn timetable_year(workspace: &Value, year: i32) -> Result<TimetableYear, ScheduleError> {
+    if !(1900..=9998).contains(&year) {
+        return Err(ScheduleError::InvalidInput("Invalid academic year.".into()));
+    }
+    let mut quarters = Vec::new();
+    let mut ranges = Vec::new();
+    for quarter in 1..=4 {
+        let term = format!("{year}-{quarter}Q");
+        let Some(range) = quarter_range(workspace, &term)? else {
+            continue;
+        };
+        let first = range
+            .teaching_ranges
+            .as_ref()
+            .and_then(|rows| rows.first())
+            .map_or(range.from.as_str(), |row| row.start.as_str());
+        quarters.push(TimetableQuarter {
+            term: term.clone(),
+            first_week: monday_of(parse_civil_date(first)?).to_string(),
+        });
+        ranges.push((term, range));
+    }
+    let invalid = || ScheduleError::InvalidInput("Invalid academic year.".into());
+    let first = NaiveDate::from_ymd_opt(year, 4, 1).ok_or_else(invalid)?;
+    let last = NaiveDate::from_ymd_opt(year + 1, 3, 31).ok_or_else(invalid)?;
+    let mut weeks = Vec::new();
+    let mut monday = monday_of(first);
+    while monday <= last {
+        let weekdays: Vec<_> = (0..5)
+            .map(|offset| monday + Duration::days(offset))
+            .collect();
+        let found = ranges.iter().find_map(|(term, range)| {
+            weekdays
+                .iter()
+                .find_map(|day| teaching_week(range, *day))
+                .map(|week| (term, range, week))
+        });
+        let exams = found.is_some_and(|(_, range, _)| {
+            range.exam_ranges.iter().flatten().any(|exam| {
+                let (Ok(start), Ok(end)) =
+                    (parse_civil_date(&exam.start), parse_civil_date(&exam.end))
+                else {
+                    return false;
+                };
+                weekdays.iter().any(|day| (start..=end).contains(day))
+            })
+        });
+        weeks.push(TimetableWeek {
+            monday: monday.to_string(),
+            term: found.map(|(term, _, _)| term.clone()),
+            week: found.map(|(_, _, week)| week),
+            exams,
+        });
+        monday += Duration::days(7);
+    }
+    Ok(TimetableYear {
+        year,
+        quarters,
+        weeks,
+    })
+}
+
+pub fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
+    array(workspace, "exceptions")
+        .iter()
+        .find(|row| visible(row) && text(row, "date") == Some(date))
+        .or_else(|| {
+            array(workspace, "academicCalendar").iter().find(|row| {
+                visible(row)
+                    && text(row, "date") == Some(date)
+                    && text(row, "type").is_some_and(|kind| DAY_TYPES.contains(&kind))
+            })
+        })
+        .cloned()
+}
+
+pub(crate) fn quarter_range(
+    workspace: &Value,
+    term: &str,
+) -> Result<Option<QuarterRange>, ScheduleError> {
+    let term = Term::parse(term)?;
+    let quarter = format!("{}Q", term.quarter);
+    let next = if term.quarter == 4 {
+        Term {
+            year: term.year + 1,
+            quarter: 1,
+        }
+    } else {
+        Term {
+            year: term.year,
+            quarter: term.quarter + 1,
+        }
+    };
+    let configured_year = profile_year(workspace, term.year);
+    let next_profile = profile_year(workspace, next.year);
+    let configured_start = configured_year
+        .and_then(|row| row.get("quarterStarts"))
+        .and_then(|starts| text(starts, &quarter))
+        .filter(|raw| parse_civil_date(raw).is_ok());
+    let next_quarter = format!("{}Q", next.quarter);
+    let configured_next = next_profile
+        .and_then(|row| row.get("quarterStarts"))
+        .and_then(|starts| text(starts, &next_quarter))
+        .filter(|raw| parse_civil_date(raw).is_ok());
+    let start = boundary(workspace, term.year, &quarter, "quarter-start");
+    let end = boundary(workspace, term.year, &quarter, "quarter-end");
+    let next_start = boundary(workspace, next.year, &next_quarter, "quarter-start");
+    let from = configured_start.or(start);
+    let to = if let Some(value) = configured_next {
+        Some(add_days(value, -1)?)
+    } else if let Some(value) = end {
+        Some(value.into())
+    } else if let Some(value) = next_start {
+        Some(add_days(value, -1)?)
+    } else {
+        None
+    };
+    let (Some(from), Some(to)) = (from, to) else {
+        return Ok(None);
+    };
+    let canonical_id = format!("calendar:{}:quarter-start:{quarter}", term.year);
+    let quarter_start = array(workspace, "academicCalendar")
+        .iter()
+        .find(|row| visible(row) && text(row, "id") == Some(canonical_id.as_str()));
+    let ranges = |field: &str| {
+        quarter_start
+            .and_then(|row| row.get(field))
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        Some(TeachingRange {
+                            start: text(row, "start")?.into(),
+                            end: text(row, "end")?.into(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+    };
+    Ok(Some(QuarterRange {
+        teaching_ranges: ranges("teachingRanges"),
+        exam_ranges: ranges("examRanges"),
+        from: from.into(),
+        to,
+    }))
+}
+
+fn profile_year(workspace: &Value, year: i32) -> Option<&Value> {
+    workspace
+        .pointer("/academicProfile/years")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|row| row.get("academicYear").and_then(Value::as_i64) == Some(i64::from(year)))
+}
+
+fn boundary<'a>(workspace: &'a Value, year: i32, quarter: &str, kind: &str) -> Option<&'a str> {
+    let exact = format!("calendar:{year}:{kind}:{quarter}");
+    let prefix = format!("calendar:{year}:");
+    array(workspace, "academicCalendar")
+        .iter()
+        .find(|row| {
+            visible(row)
+                && text(row, "type") == Some(kind)
+                && (row.get("academicYear").and_then(Value::as_i64) == Some(i64::from(year))
+                    || text(row, "id").is_some_and(|id| id.starts_with(&prefix)))
+                && (text(row, "quarter") == Some(quarter)
+                    || text(row, "id") == Some(exact.as_str()))
+        })
+        .and_then(|row| text(row, "date"))
+        .filter(|date| parse_civil_date(date).is_ok())
+}
+
+pub fn academic_year_of(date: &str) -> Result<i32, ScheduleError> {
+    let date = parse_civil_date(date)?;
+    Ok(if date.month() >= 4 {
+        date.year()
+    } else {
+        date.year() - 1
+    })
+}
+
+pub fn academic_year_calendar(
+    workspace: &Value,
+    year: i32,
+) -> Result<AcademicYearCalendar, ScheduleError> {
+    if !(1900..=9999).contains(&year) {
+        return Err(ScheduleError::InvalidInput("Invalid academic year.".into()));
+    }
+    let locale = content_language(workspace);
+    let official_rows: Vec<_> = array(workspace, "academicCalendar")
+        .iter()
+        .filter(|row| {
+            visible(row)
+                && row
+                    .get("academicYear")
+                    .and_then(Value::as_i64)
+                    .map(|value| value as i32)
+                    .or_else(|| text(row, "date").and_then(|date| academic_year_of(date).ok()))
+                    == Some(year)
+        })
+        .collect();
+    let official: BTreeMap<_, _> = official_rows
+        .iter()
+        .filter(|row| text(row, "type").is_some_and(|kind| DAY_TYPES.contains(&kind)))
+        .filter_map(|row| {
+            let date = text(row, "date")?;
+            Some((
+                date.to_owned(),
+                json!({
+                    "type": text(row, "type")?,
+                    "replacementDay": row.get("replacementDay").cloned().unwrap_or(Value::Null),
+                    "label": localized(row.get("label"), locale, date),
+                }),
+            ))
+        })
+        .collect();
+    let mut days = Vec::new();
+    let mut changed = HashSet::new();
+    for exception in array(workspace, "exceptions")
+        .iter()
+        .filter(|row| visible(row) && text(row, "date").is_some_and(|date| in_year(date, year)))
+    {
+        let date = text(exception, "date").unwrap_or_default().to_owned();
+        let published = official.get(&date).cloned();
+        changed.insert(date.clone());
+        days.push(CalendarDayView {
+            date,
+            day_type: text(exception, "type").unwrap_or_default().into(),
+            replacement_day: exception
+                .get("replacementDay")
+                .and_then(Value::as_u64)
+                .map(|v| v as u8),
+            label: text(exception, "label").unwrap_or_default().into(),
+            origin: if published.is_some() {
+                "changed"
+            } else {
+                "own"
+            }
+            .into(),
+            official: published,
+            exception: Some(exception.clone()),
+        });
+    }
+    for (date, row) in official {
+        if changed.contains(&date) {
+            continue;
+        }
+        days.push(CalendarDayView {
+            date,
+            day_type: text(&row, "type").unwrap_or_default().into(),
+            replacement_day: row
+                .get("replacementDay")
+                .and_then(Value::as_u64)
+                .map(|v| v as u8),
+            label: text(&row, "label").unwrap_or_default().into(),
+            origin: "official".into(),
+            official: None,
+            exception: None,
+        });
+    }
+    days.sort_by(|left, right| left.date.cmp(&right.date));
+    let configured: HashMap<_, _> = profile_year(workspace, year)
+        .and_then(|row| row.get("quarterStarts"))
+        .and_then(Value::as_object)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|(k, v)| Some((k.as_str(), v.as_str()?)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut quarters = Vec::new();
+    for quarter in QUARTERS {
+        if let Some(range) = quarter_range(workspace, &format!("{year}-{quarter}"))? {
+            quarters.push(QuarterView {
+                quarter: quarter.into(),
+                origin: if configured.get(quarter).copied() == Some(range.from.as_str()) {
+                    "own"
+                } else {
+                    "official"
+                }
+                .into(),
+                from: range.from,
+                to: range.to,
+            });
+        }
+    }
+    let mut important_dates: Vec<_> = array(workspace, "importantDates")
+        .iter()
+        .filter(|row| {
+            visible(row) && row.get("academicYear").and_then(Value::as_i64) == Some(i64::from(year))
+        })
+        .cloned()
+        .collect();
+    important_dates.sort_by(|a, b| text(a, "startDate").cmp(&text(b, "startDate")));
+    Ok(AcademicYearCalendar {
+        year,
+        quarters,
+        days,
+        important_dates,
+        published: !official_rows.is_empty(),
+    })
+}
+
+pub fn academic_term_for_date(
+    date: &str,
+    profile: &Value,
+) -> Result<Option<String>, ScheduleError> {
+    parse_civil_date(date)?;
+    let mut starts = profile
+        .get("years")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|year| {
+            let academic_year = year.get("academicYear").and_then(Value::as_i64);
+            QUARTERS.into_iter().filter_map(move |quarter| {
+                let start = year
+                    .get("quarterStarts")
+                    .and_then(|value| text(value, quarter))?;
+                Some((start.to_owned(), format!("{}-{quarter}", academic_year?)))
+            })
+        })
+        .filter(|(start, _)| start.as_str() <= date)
+        .collect::<Vec<_>>();
+    starts.sort_by(|left, right| right.0.cmp(&left.0));
+    Ok(starts.first().map(|(_, term)| term.clone()))
+}
+
+fn in_year(date: &str, year: i32) -> bool {
+    date >= format!("{year}-04-01").as_str() && date <= format!("{}-03-31", year + 1).as_str()
+}
+
+pub(crate) fn content_language(workspace: &Value) -> &str {
+    match workspace
+        .pointer("/settings/contentLanguage")
+        .and_then(Value::as_str)
+    {
+        Some("ja") => "ja",
+        Some("en") => "en",
+        _ if workspace
+            .pointer("/settings/locale")
+            .and_then(Value::as_str)
+            .is_some_and(|locale| matches!(locale, "ja" | "zh")) =>
+        {
+            "ja"
+        }
+        _ => "en",
+    }
+}
+
+pub(crate) fn localized(value: Option<&Value>, locale: &str, fallback: &str) -> String {
+    let Some(value) = value else {
+        return fallback.into();
+    };
+    if let Some(text) = value.as_str() {
+        return text.into();
+    }
+    let language = if locale == "ja" { "ja" } else { "en" };
+    value
+        .get(language)
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get(if language == "ja" { "en" } else { "ja" })
+                .and_then(Value::as_str)
+        })
+        .unwrap_or(fallback)
+        .into()
+}

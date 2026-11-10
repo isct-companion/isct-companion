@@ -1,0 +1,179 @@
+/* One visual foundation for embedded web pages and course readers. */
+.workspacePane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  container-type: inline-size;
+  container-name: workspace;
+}
+.workspaceToolPanel {
+  display: flex;
+  align-items: flex-start;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--workspace-bar-height);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-3);
+}
+/* Reader header: title on the left, the document's tools on one row to the
+   right, close last. Tools wrap below the title only in a narrow pane. */
+.lmsReaderTools {
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 4px;
+}
+.lmsReaderTitle {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 600;
+}
+.lmsReaderToolSlot {
+  display: flex;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.lmsReaderToolSlot:empty {
+  display: none;
+}
+.lmsReaderToolSlot .lmsPdfHeader,
+.lmsReaderToolSlot .lmsSourceBar {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.lmsReaderToolSlot .lmsPdfHeader,
+.lmsReaderToolSlot .lmsFileToolbar {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+/* The panel already names the document; icons carry the actions. */
+.lmsReaderToolSlot .lmsFileAddress,
+.lmsReaderToolSlot .lmsToolLabel {
+  display: none;
+}
+.lmsReaderTools .lmsReaderToolSlot .lmsFileToolbar {
+  flex: 0 0 auto;
+}
+.lmsReaderToolSlot .lmsFileActions button,
+.lmsReaderToolSlot .lmsFileActions a {
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted) !important;
+}
+.lmsReaderToolSlot .lmsFileActions button:hover,
+.lmsReaderToolSlot .lmsFileActions a:hover {
+  color: var(--accent) !important;
+}
+/* Back or Forward that Core says would do nothing. */
+.lmsReaderToolSlot .lmsFileActions button:disabled {
+  background: none;
+  color: var(--muted) !important;
+  opacity: 0.4;
+  cursor: default;
+}
+/* A web page keeps its address in view, as a browser's address bar. */
+.lmsReaderToolSlot .lmsWebToolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.lmsReaderToolSlot:has(.lmsWebToolbar) {
+  flex: 2 1 240px;
+}
+.lmsWebAddress {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.lmsWebAddress > span {
+  flex: 0 0 auto;
+  color: var(--ink);
+}
+.lmsWebAddress > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.lmsWebForward svg {
+  transform: scaleX(-1);
+}
+.lmsReaderToolSlot .lmsPdfControls + .lmsFileToolbar {
+  margin-inline-start: 4px;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--line);
+}
+.lmsFileActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.lmsMarkdownTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+}
+.lmsMarkdownTools button {
+  min-width: 30px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+}
+.lmsMarkdownTools button:hover {
+  background: var(--accent-soft);
+}
+.webWorkspace .webToolbar {
+  flex: 0 0 auto;
+  min-height: var(--workspace-bar-height);
+  padding: 4px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+.webWorkspace .webAddress {
+  min-height: var(--workspace-control-height);
+  padding-left: 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.servicesBody .webWorkspace .webHost {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+}
+@container workspace (max-width: 520px) {
+  .webToolbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .lmsFileToolbar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}

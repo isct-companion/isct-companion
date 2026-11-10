@@ -1,0 +1,68 @@
+/* Lecture Desk: this quarter's lectures beside the open lecture's workspace. */
+.workspaceMain.lecturesMain { height: 100dvh; overflow: hidden; }
+.page.lectureDesk { position: relative; flex-direction: row; gap: 20px; width: 100%; height: 100%; }
+.lectureList { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; padding-right: 16px; border-right: 1px solid var(--line); }
+.lectureList > header { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 4px 0 12px; }
+.lectureListTitle { display: flex; align-items: center; gap: 8px; }
+.lectureList > header h1 { margin: 0; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.lectureTerm { flex: 0 0 auto; min-width: 0; width: 100%; }
+.lectureTerm .uiInput {
+  height: 30px; min-height: 30px; padding-left: 10px; border-color: transparent;
+  font-size: calc(var(--type-note-size) * var(--text)); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.dueScope.lectureMode { display: flex; align-self: stretch; width: 100%; margin: 0 0 8px; }
+.lectureMode > button { flex: 1 1 auto; min-width: 0; padding-inline: 4px; white-space: nowrap; border: 0; background: none; cursor: default; }
+.lectureMode > button:not(:disabled, [aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]):hover { color: var(--ink); }
+.lectureFilter { margin: 0 0 8px; }
+.lectureFilter input, input.lectureFilter { height: 32px; min-height: 32px; font-size: calc(var(--type-row-size) * var(--text)); }
+.lectureRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center;
+  width: 100%; padding: 8px 10px 8px 12px; border: 0; border-radius: 9px; background: none;
+  color: var(--ink); text-align: left; cursor: default; position: relative;
+}
+.lectureRow::before { content: ""; position: absolute; left: 3px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--course, var(--line-strong)); opacity: .55; }
+.lectureRow:hover { background: var(--surface-2); }
+.lectureRow.selected { background: var(--accent-soft); }
+.lectureRow.selected::before, .lectureRow.now::before { opacity: 1; }
+.lectureRow b { grid-column: 1; overflow: hidden; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.lectureRow small { grid-column: 1; overflow: hidden; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.lectureRow.now small { color: var(--accent); font-weight: 500; }
+.lectureRow .dueChip { grid-column: 2; grid-row: 1 / span 2; }
+.lectureRow.hidden { cursor: default; }
+.lectureRow.done { background: color-mix(in srgb, var(--ok-soft) 70%, transparent); }
+.lectureRow.missed { background: color-mix(in srgb, var(--danger-soft) 70%, transparent); }
+.lectureRow.closed b { color: var(--muted); }
+.lectureRow.closed::before { opacity: .25; }
+.lectureRow.hidden:hover { background: none; }
+.lectureRow.hidden b { color: var(--muted); }
+.lectureRow.hidden .textButton { grid-column: 2; grid-row: 1 / span 2; }
+.lectureContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; }
+.lectureSlot { height: 100%; }
+/* A course or exam chosen here: only its pane enters (lms.css lmsPaneEnter,
+   a plain fade under Reduce Motion); the list and the page stay still. */
+.lectureSlot.entering, .lectureExamDetails.entering { animation: lmsPaneEnter var(--motion-duration-slow) var(--motion-easing-emphasized); }
+.lectureSlot[hidden] { display: none; }
+
+.lectureSidebarToggle {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 28px; height: 28px; padding: 0; border: 0;
+  border-radius: var(--radius-control); background: none;
+  color: var(--muted); cursor: default;
+}
+.lectureSidebarToggle:hover { color: var(--ink); background: var(--surface-3); }
+.lectureEmptyHeader { display: flex; padding: 4px; }
+.lectureDesk[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
+  width: 0; visibility: hidden;
+}
+/* Keep the same list mounted while the panel takes zero layout space. It
+   floats over the page's own left edge, so it moves with the page's entrance
+   instead of against the window; no panel between is positioned, so their
+   overflow does not clip it. */
+.lectureDesk[data-sidebar-collapsed="true"] .lectureList {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 7;
+  width: min(280px, 100%); padding: 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-panel);
+  background: var(--surface-2); box-shadow: 0 12px 40px #0003;
+  visibility: hidden; pointer-events: none;
+}
+.lectureDesk[data-sidebar-floating="true"] .lectureList { visibility: visible; pointer-events: auto; }

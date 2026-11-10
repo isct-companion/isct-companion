@@ -1,0 +1,85 @@
+.otpSetupField {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.otpSetupRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.otpSetupRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.otpSetupRow > :last-child {
+  flex-shrink: 0;
+}
+.otpSaved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+.otpSaved > svg {
+  flex: none;
+  color: var(--ok);
+}
+.otpSaved > p {
+  flex: 1;
+  min-width: 0;
+}
+.otpPaths {
+  display: grid;
+  gap: 6px;
+}
+.otpPath {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.otpPath[data-selected] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
+}
+.otpPathHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(var(--type-row-size) * var(--text, 1));
+  text-align: left;
+  cursor: default;
+}
+.otpPathHead > i {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+}
+.otpPath[data-selected] .otpPathHead > i {
+  border: 4px solid var(--accent);
+}
+.otpPathBody {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 0 10px 10px 32px;
+}
+.otpPathBody .otpSetupRow {
+  width: 100%;
+}
+.otpKeep {
+  justify-self: start;
+}
+/* QR codes scan best dark on light, so it keeps its white quiet zone in dark mode too. */
+.otpQr {
+  width: 240px;
+  height: 240px;
+  background: #fff;
+}

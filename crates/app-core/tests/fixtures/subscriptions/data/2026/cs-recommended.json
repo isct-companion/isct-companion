@@ -1,0 +1,1028 @@
+{
+ "_comment": "Transcribed by hand from 学修案内 2026, 情報工学系 付表 pp.170-171 (screenshot shared by the user). Earlier 付表 pages (100-level) were not in the screenshot; check pdf/27-13.pdf.",
+ "departmentId": "cs",
+ "admissionYear": 2026,
+ "source": [
+  {
+   "title": "学修案内 2026 情報工学系学修課程 付表",
+   "url": "https://www.titech.ac.jp/guide/guide_2026/gakubu1/pdf/27-13.pdf"
+  }
+ ],
+ "recommended": [
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T241",
+   "group": "A",
+   "title": {
+    "ja": "計算基礎論"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T242",
+   "group": "A",
+   "title": {
+    "ja": "確率論・統計学"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T243",
+   "group": "C",
+   "title": {
+    "ja": "手続き型プログラミング基礎"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T244",
+   "group": "C",
+   "title": {
+    "ja": "プログラミング創造演習"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 6.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T251",
+   "group": "A",
+   "title": {
+    "ja": "オートマトンと形式言語"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T252",
+   "group": "A",
+   "title": {
+    "ja": "論理回路理論"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T253",
+   "group": "C",
+   "title": {
+    "ja": "手続き型プログラミング発展"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T254",
+   "group": "A",
+   "title": {
+    "ja": "機械学習"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T255",
+   "group": "B",
+   "title": {
+    "ja": "組み合わせゲーム理論入門"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T261",
+   "group": "A",
+   "title": {
+    "ja": "情報論理"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    4,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T262",
+   "group": "A",
+   "title": {
+    "ja": "アセンブリ言語"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T263",
+   "group": "C",
+   "title": {
+    "ja": "関数型プログラミング基礎"
+   },
+   "credits": {
+    "lecture": 1.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T271",
+   "group": "A",
+   "title": {
+    "ja": "データ構造とアルゴリズム"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T272",
+   "group": "B",
+   "title": {
+    "ja": "人工知能"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 200,
+   "code": "CSC.T273",
+   "group": "C",
+   "title": {
+    "ja": "オブジェクト指向プログラミング"
+   },
+   "credits": {
+    "lecture": 1.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T341",
+   "group": "A",
+   "title": {
+    "ja": "コンピュータ論理設計"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T342",
+   "group": "B",
+   "title": {
+    "ja": "最適化基礎"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T343",
+   "group": "B",
+   "title": {
+    "ja": "データベース"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T344",
+   "group": "B",
+   "title": {
+    "ja": "システムプログラミング"
+   },
+   "credits": {
+    "lecture": 1.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T345",
+   "group": "B",
+   "title": {
+    "ja": "コンピュータネットワーク"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T351",
+   "group": "B",
+   "title": {
+    "ja": "システム解析"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T352",
+   "group": "B",
+   "title": {
+    "ja": "パターン認識"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T353",
+   "group": "B",
+   "title": {
+    "ja": "生命情報解析"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    4
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T354",
+   "group": "B",
+   "title": {
+    "ja": "並列プログラミング"
+   },
+   "credits": {
+    "lecture": 1.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T361",
+   "group": "B",
+   "title": {
+    "ja": "ソフトウェア設計と品質"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T362",
+   "group": "B",
+   "title": {
+    "ja": "数値計算法"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T363",
+   "group": "B",
+   "title": {
+    "ja": "コンピュータアーキテクチャ"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T364",
+   "group": "C",
+   "title": {
+    "ja": "システム設計演習"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 2.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    4,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T365",
+   "group": "B",
+   "title": {
+    "ja": "時系列モデリング"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T371",
+   "group": "A",
+   "title": {
+    "ja": "システムソフトウェア"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "A群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T372",
+   "group": "B",
+   "title": {
+    "ja": "コンパイラ構成"
+   },
+   "credits": {
+    "lecture": 1.0,
+    "exercise": 1.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T373",
+   "group": "B",
+   "title": {
+    "ja": "動的システム"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T374",
+   "group": "B",
+   "title": {
+    "ja": "システム制御"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1
+   ],
+   "content": [
+    "a"
+   ],
+   "mark": "recommended",
+   "note": "B群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T375",
+   "group": "C",
+   "title": {
+    "ja": "システム構築演習"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 2.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    1,
+    5
+   ],
+   "content": [
+    "a",
+    "b"
+   ],
+   "mark": "recommended",
+   "note": "C群"
+  },
+  {
+   "category": {
+    "ja": "専門科目",
+    "en": "Major courses"
+   },
+   "level": 300,
+   "code": "CSC.T377",
+   "group": "L",
+   "title": {
+    "ja": "情報工学英語プレゼンテーション"
+   },
+   "credits": {
+    "lecture": 2.0,
+    "exercise": 0.0,
+    "lab": 0.0
+   },
+   "competencies": [
+    2,
+    3
+   ],
+   "content": [
+    "e"
+   ],
+   "note": "アントレ対応科目"
+  },
+  {
+   "category": {
+    "ja": "研究関連科目",
+    "en": "Research-related courses"
+   },
+   "level": 300,
+   "code": "CSC.Z381",
+   "group": "R",
+   "title": {
+    "ja": "研究プロジェクト（情報工学系）"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 0.0,
+    "lab": 2.0
+   },
+   "competencies": [
+    1,
+    4,
+    5
+   ],
+   "content": [
+    "c"
+   ],
+   "mark": "required"
+  },
+  {
+   "category": {
+    "ja": "研究関連科目",
+    "en": "Research-related courses"
+   },
+   "level": 300,
+   "code": "CSC.Z388",
+   "group": "R",
+   "title": {
+    "ja": "学士特定課題研究（情報工学系）"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 0.0,
+    "lab": 4.0
+   },
+   "competencies": [
+    1,
+    4,
+    5
+   ],
+   "content": [
+    "c",
+    "e"
+   ],
+   "mark": "required"
+  },
+  {
+   "category": {
+    "ja": "研究関連科目",
+    "en": "Research-related courses"
+   },
+   "level": 300,
+   "code": "CSC.Z380",
+   "group": "R",
+   "title": {
+    "ja": "学士特定課題研究 S（情報工学系）"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 0.0,
+    "lab": 8.0
+   },
+   "competencies": [
+    1,
+    4,
+    5
+   ],
+   "content": [
+    "c",
+    "e"
+   ],
+   "mark": "required",
+   "note": "早期卒業適格者認定を受けた者限定科目"
+  },
+  {
+   "category": {
+    "ja": "研究関連科目",
+    "en": "Research-related courses"
+   },
+   "level": 300,
+   "code": "CSC.Z399",
+   "group": "R",
+   "title": {
+    "ja": "学士特定課題プロジェクト（情報工学系）"
+   },
+   "credits": {
+    "lecture": 0.0,
+    "exercise": 0.0,
+    "lab": 6.0
+   },
+   "competencies": [
+    1,
+    4,
+    5
+   ],
+   "content": [
+    "c",
+    "e"
+   ],
+   "mark": "required"
+  }
+ ]
+}

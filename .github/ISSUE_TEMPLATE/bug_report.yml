@@ -1,0 +1,70 @@
+name: Bug report / 不具合の報告
+description: Something in the app does not work as expected. / アプリが期待どおりに動かない。
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues may be written in Japanese, English or Chinese. / 日本語・英語・中国語のどれで書いてもかまいません。
+
+        Wrong or missing calendar, exam or department data goes to [Isct-Data issues](https://github.com/isct-companion/Isct-Data/issues). / 校暦・試験・学系などのデータの誤りは [Isct-Data の issue](https://github.com/isct-companion/Isct-Data/issues) へ。
+
+        AI assistance is not forbidden, but read what it wrote before submitting. See [CONTRIBUTING.md](https://github.com/isct-companion/isct-companion/blob/main/CONTRIBUTING.md#before-you-contribute). / AI の利用は禁止していませんが、送信前に内容を必ず読んでください。
+  - type: input
+    id: version
+    attributes:
+      label: App version / アプリのバージョン
+      description: The release you installed, for example from GitHub Releases or the App Store. / インストールしたリリースのバージョン（GitHub Releases、App Store など）。
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform / プラットフォーム
+      multiple: true
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows
+        - iPhone
+        - iPad
+        - Android
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 再現手順
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: Expected and actual behaviour / 期待した動作と実際の動作
+      value: |
+        Expected / 期待した動作:
+
+        Actual / 実際の動作:
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or logs / スクリーンショット・ログ
+      description: Hide your student ID, name, account details and credentials first. / 学籍番号・氏名・アカウント情報・パスワードは隠してから添付してください。
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks / 確認
+      options:
+        - label: I searched the existing issues and this is not a duplicate. / 既存の issue を検索し、重複していないことを確認しました。
+          required: true
+        - label: If AI helped write this, I read it and it matches what happened. / AI に手伝ってもらった場合、内容を読み、実際に起きたことと一致していることを確認しました。
+          required: true

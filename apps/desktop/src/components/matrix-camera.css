@@ -1,0 +1,14 @@
+.matrixCameraPreview canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.matrixCameraProcessing {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+.matrixTools:has(.matrixCameraProcessing) {
+  flex-wrap: wrap;
+}

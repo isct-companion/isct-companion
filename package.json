@@ -1,0 +1,48 @@
+{
+  "name": "isct-companion",
+  "private": true,
+  "version": "1.3.2",
+  "type": "module",
+  "scripts": {
+    "dev": "yarn workspace @isct/desktop dev",
+    "build": "yarn workspace @isct/desktop build",
+    "preview": "yarn workspace @isct/desktop preview",
+    "tauri": "node scripts/desktop/tauri.mjs",
+    "desktop:dev": "node scripts/desktop/tauri.mjs dev",
+    "desktop:build": "node scripts/desktop/tauri.mjs build",
+    "desktop:vpn": "node scripts/desktop/bundle-vpn.mjs",
+    "test": "vitest run --config apps/desktop/tests/vitest.config.ts",
+    "test:watch": "vitest --config apps/desktop/tests/vitest.config.ts",
+    "test:live": "ISCT_LIVE_SCHOOL_TESTS=1 vitest run --config apps/desktop/tests/vitest.config.ts tests/live",
+    "test:types": "./node_modules/.bin/tsc -p apps/desktop/tests/tsconfig.json",
+    "verify:manual": "node scripts/checks/manual-acceptance.mjs",
+    "release:bump": "node scripts/release/bump.mjs",
+    "format": "yarn workspace @isct/desktop format",
+    "design:tokens": "node design/build.mjs",
+    "icons:desktop": "node scripts/desktop/generate-desktop-icons.mjs",
+    "core:types": "cargo run -p app-core --features ts --example export-types && prettier --write apps/desktop/src/generated/persistence.ts",
+    "backend:test": "cargo test --workspace --locked",
+    "backend:check": "cargo check --workspace --locked",
+    "sdk:generate": "node scripts/bindings/generate.mjs",
+    "sdk:test": "node scripts/bindings/host-smoke.mjs",
+    "sdk:ios": "node scripts/bindings/build-ios.mjs",
+    "sdk:android": "node scripts/bindings/build-android.mjs",
+    "android:debug": "node scripts/bindings/build-android.mjs --assemble-debug"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
+    "jsdom": "31.0.0",
+    "prettier": "3.9.10",
+    "style-dictionary": "5.8.0",
+    "vite": "8.3.6",
+    "vitest": "5.1.0",
+    "yaml": "^2"
+  },
+  "resolutions": {
+    "katex": "^0.19.1"
+  },
+  "packageManager": "yarn@4.18.1",
+  "workspaces": [
+    "apps/desktop"
+  ]
+}

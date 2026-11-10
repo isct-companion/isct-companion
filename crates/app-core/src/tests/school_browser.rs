@@ -1,0 +1,1506 @@
+use super::*;
+use crate::{
+    data::DataStore,
+    events::CoreEvent,
+    lifecycle::SchoolSite,
+    net::BoxFuture,
+    ports::{EventError, EventSink, SecretError, SecretVault},
+    school_auth::SchoolAuthProfile,
+    school_auth::SchoolAuthService,
+    school_session::{SchoolSessions, WebCookie, WebCookieSeed},
+};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex, Weak,
+    },
+};
+use url::Url;
+use uuid::Uuid;
+
+#[derive(Default)]
+struct EmptyVault;
+
+impl SecretVault for EmptyVault {
+    fn store(&self, _account: &str, _secret: &str) -> Result<(), SecretError> {
+        Ok(())
+    }
+    fn load(&self, _account: &str) -> Result<Option<String>, SecretError> {
+        Ok(None)
+    }
+    fn delete(&self, _account: &str) -> Result<(), SecretError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct Events(Mutex<Vec<CoreEvent>>);
+
+impl EventSink for Events {
+    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
+        self.0.lock().unwrap().push(event);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct FakeBrowser {
+    listener: Mutex<Option<Weak<dyn SchoolBrowserListener>>>,
+    commands: Mutex<Vec<BrowserCommand>>,
+    current: Mutex<HashMap<BrowserId, Url>>,
+    /// Report the next dispatch as sent to a view that no longer exists.
+    unavailable: AtomicBool,
+    disposed: Mutex<Vec<BrowserId>>,
+    /// Every `cover` Core sent.
+    covers: Mutex<Vec<(BrowserId, bool)>>,
+    /// A host like the Windows interim: popups as separate windows.
+    plain_host: AtomicBool,
+}
+
+impl FakeBrowser {
+    fn listener(&self) -> Arc<dyn SchoolBrowserListener> {
+        self.listener
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .unwrap()
+    }
+
+    async fn navigation(&self, index: usize) -> BrowserCommand {
+        for attempt in 0..6_000 {
+            let commands: Vec<_> = self
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+                .cloned()
+                .collect();
+            if let Some(command) = commands.get(index) {
+                return command.clone();
+            }
+            settle(attempt).await;
+        }
+        panic!("navigation {index} was not dispatched");
+    }
+
+}
+
+/// Yields first, then sleeps briefly so blocking work (vault reads, SQLite
+/// commits) can finish on a loaded machine.
+async fn settle(attempt: usize) {
+    if attempt < 1_000 {
+        tokio::task::yield_now().await;
+    } else {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+}
+
+impl SchoolBrowser for FakeBrowser {
+    fn capabilities(&self) -> HostCapabilities {
+        HostCapabilities {
+            inline_popups: !self.plain_host.load(Ordering::Acquire),
+        }
+    }
+
+    fn attach(&self, listener: Weak<dyn SchoolBrowserListener>) -> Result<(), BrowserError> {
+        self.listener.lock().unwrap().replace(listener);
+        Ok(())
+    }
+
+    fn ensure(&self, browser: BrowserId, initial: Url) -> Result<(), BrowserError> {
+        self.current.lock().unwrap().insert(browser, initial);
+        Ok(())
+    }
+
+    fn dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError> {
+        if self.unavailable.swap(false, Ordering::AcqRel) {
+            return Err(BrowserError::Unavailable(
+                "School view is unavailable.".into(),
+            ));
+        }
+        if let BrowserAction::Navigate(url) = &command.command {
+            self.current
+                .lock()
+                .unwrap()
+                .insert(command.browser, url.clone());
+        }
+        self.commands.lock().unwrap().push(command);
+        Ok(())
+    }
+
+    fn dispose(&self, browser: BrowserId) -> Result<(), BrowserError> {
+        self.current.lock().unwrap().remove(&browser);
+        self.disposed.lock().unwrap().push(browser);
+        Ok(())
+    }
+
+    fn cover(&self, browser: BrowserId, covered: bool) -> Result<(), BrowserError> {
+        self.covers.lock().unwrap().push((browser, covered));
+        Ok(())
+    }
+
+    fn shutdown(&self) -> BrowserFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn engine() -> (
+    Arc<SchoolBrowserEngine>,
+    Arc<FakeBrowser>,
+    Arc<Events>,
+    DataStore,
+) {
+    engine_with_auth(Arc::new(SchoolAuthService::new(EmptyVault)))
+}
+
+// Native WebViews have no headless mode; drive their real Core coordinator
+// through page callbacks.
+#[tokio::test]
+async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {
+    use crate::school_browser::SubmissionFile;
+    let (engine, browser, _, _) = engine();
+    // Shells hand over bytes; Core encodes them as the page's uploader takes them.
+    let files = || {
+        vec![SubmissionFile::from_bytes(
+            "report.txt".into(),
+            b"my report",
+        )]
+    };
+    assert_eq!(files()[0].data, "bXkgcmVwb3J0");
+    let messages = || SubmissionMessages {
+        waiting: "waiting".into(),
+        queued: "queued".into(),
+        failed: "failed".into(),
+    };
+    for invalid in [
+        "https://example.com/mod/assign/view.php?id=100",
+        "http://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+        "https://lms.s.isct.ac.jp/2025/course/view.php?id=100",
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&id=200",
+    ] {
+        assert!(engine
+            .prepare_submission(invalid, files(), messages())
+            .is_err());
+    }
+    let target = engine
+        .prepare_submission(
+            "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+            files(),
+            messages(),
+        )
+        .unwrap();
+    assert_eq!(
+        target,
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission"
+    );
+    engine
+        .open(
+            SchoolSite::ScienceLms,
+            "web",
+            SchoolWebEntry::Go {
+                url: target.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    // Follow the URL actually sent to the native browser, not a synthetic target.
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    engine.navigate(SchoolSite::ScienceLms, &target).unwrap();
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    let count_uploads = || {
+        browser.commands.lock().unwrap().iter().filter(|command| matches!(&command.command, BrowserAction::Eval(script) if script.contains("__isctAssignmentUpload"))).count()
+    };
+    let listener = browser.listener();
+    for (sequence, url) in [
+        (
+            1,
+            "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200&action=editsubmission",
+        ),
+        (2, target.as_str()),
+        (3, target.as_str()),
+    ] {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Url::parse(url).unwrap(),
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(count_uploads(), if sequence == 1 { 0 } else { 1 });
+    }
+    engine.shutdown().await;
+}
+
+fn engine_with_auth(
+    auth: Arc<SchoolAuthService>,
+) -> (
+    Arc<SchoolBrowserEngine>,
+    Arc<FakeBrowser>,
+    Arc<Events>,
+    DataStore,
+) {
+    engine_on(auth, FakeBrowser::default())
+}
+
+fn engine_on(
+    auth: Arc<SchoolAuthService>,
+    browser: FakeBrowser,
+) -> (
+    Arc<SchoolBrowserEngine>,
+    Arc<FakeBrowser>,
+    Arc<Events>,
+    DataStore,
+) {
+    let path = std::env::temp_dir().join(format!("isct-browser-{}", Uuid::new_v4()));
+    let store = DataStore::initialize_dir(path).unwrap().0;
+    let browser = Arc::new(browser);
+    let events = Arc::new(Events::default());
+    // No web cookie port: these protocol cases never seed an identity.
+    let sessions = SchoolSessions::new(None, auth);
+    let engine = SchoolBrowserEngine::new(sessions, events.clone(), browser.clone()).unwrap();
+    (engine, browser, events, store)
+}
+
+fn request(
+    page: PageId,
+    raw: &str,
+    main_frame: bool,
+    kind: NavigationKind,
+    user_gesture: bool,
+) -> NavigationRequest {
+    NavigationRequest {
+        page,
+        url: Url::parse(raw).unwrap(),
+        main_frame,
+        kind,
+        user_gesture,
+    }
+}
+
+fn window(opener: PageId, raw: &str) -> NewWindowRequest {
+    NewWindowRequest {
+        opener,
+        url: Url::parse(raw).unwrap(),
+        kind: NavigationKind::Other,
+        user_gesture: true,
+        name: Some("picker".into()),
+        features: WindowFeatures::default(),
+    }
+}
+
+fn notices(events: &Events) -> Vec<SchoolWebNotice> {
+    events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::SchoolWebNotice { notice, .. } => Some(notice.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every `school-web-page` the app was told, in order.
+fn pages(events: &Events) -> Vec<SchoolWebPage> {
+    events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::SchoolWebPage(page) => Some(page.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+async fn url_shown(events: &Events, expected: &str) {
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if pages(events)
+                .iter()
+                .any(|page| page.url.as_deref() == Some(expected))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{expected} was not shown"));
+}
+
+fn evals(browser: &FakeBrowser) -> usize {
+    browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
+        .count()
+}
+
+// Native WebViews have no headless mode; drive their real Core coordinator
+// through page callbacks. The rule table is keyed by who the view serves:
+// the person browses anything over HTTPS (rich editors need inherited-origin
+// frames), plain HTTP they follow goes to the system browser, and a hidden
+
+#[tokio::test]
+async fn the_rule_table_lets_the_person_browse_and_sends_cleartext_to_the_system_browser() {
+    let (engine, browser, events, _) = engine();
+    let site = SchoolSite::ScienceLms;
+    let official =
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission#editor";
+    engine
+        .open(
+            site,
+            "web",
+            SchoolWebEntry::Go {
+                url: official.into(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let page = PageId {
+        browser: id,
+        sequence: 1,
+    };
+    listener.page_loaded(PageLoaded {
+        page,
+        cause: None,
+        url: Url::parse(official).unwrap(),
+    });
+    url_shown(&events, official).await;
+    engine
+        .set_customization(
+            site,
+            SchoolPageCustomization {
+                css: "body{color:red}".into(),
+                javascript: "schoolCustomization()".into(),
+            },
+        )
+        .unwrap();
+    let decide = |raw: &str, main_frame: bool, kind: NavigationKind, gesture: bool| {
+        listener.decide_navigation(request(page, raw, main_frame, kind, gesture))
+    };
+    for main_frame in [false, true] {
+        for raw in [
+            "about:blank",
+            "about:srcdoc",
+            "https://docs.google.com/forms/d/test/viewform?entry.1=a%20b#section",
+        ] {
+            assert_eq!(
+                decide(raw, main_frame, NavigationKind::Other, false),
+                NavigationDecision::Allow,
+                "{raw}"
+            );
+        }
+    }
+    assert_eq!(
+        decide("data:text/html,frame", false, NavigationKind::Other, false),
+        NavigationDecision::Allow
+    );
+    for (raw, reason) in [
+        ("data:text/html,test", DenyReason::Scheme),
+        ("javascript:alert(1)", DenyReason::Scheme),
+        ("file:///tmp/private", DenyReason::Scheme),
+        ("https://user:secret@example.com/", DenyReason::Credentials),
+    ] {
+        assert_eq!(
+            decide(raw, true, NavigationKind::Link, true),
+            NavigationDecision::Deny(reason),
+            "{raw}"
+        );
+    }
+    // 「緊急時避難場所」: a cleartext PDF link opens in the system browser;
+    // nothing relaxes ATS for it.
+    let cleartext = "http://www2.gakumu.titech.ac.jp/hinan.pdf";
+    assert_eq!(
+        decide(cleartext, true, NavigationKind::Link, false),
+        NavigationDecision::External(Url::parse(cleartext).unwrap())
+    );
+    assert_eq!(
+        decide(cleartext, false, NavigationKind::Link, true),
+        NavigationDecision::Deny(DenyReason::Cleartext)
+    );
+    assert_eq!(
+        listener.new_window(window(page, cleartext)),
+        NewWindowDecision::External(Url::parse(cleartext).unwrap())
+    );
+    // A script redirect nobody asked for is refused and shown on the page
+    // with the address, for Open in browser.
+    assert_eq!(
+        decide(cleartext, true, NavigationKind::Other, false),
+        NavigationDecision::Deny(DenyReason::Cleartext)
+    );
+    let refused = Some(SchoolWebFailure {
+        url: Some(cleartext.into()),
+        reason: LoadFailure::Cleartext,
+    });
+    assert_eq!(engine.page(site).notice, refused);
+
+    let external = "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
+    let resolved = browsing_target(external, site).unwrap();
+    assert_eq!(resolved.site, site);
+    assert_eq!(resolved.url, external);
+    assert!(automation_target(external).is_none());
+    let scripts_before = evals(&browser);
+    engine.navigate(site, external).unwrap();
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(external).unwrap(),
+    });
+    url_shown(&events, external).await;
+    assert_eq!(
+        evals(&browser),
+        scripts_before,
+        "external page received a school script"
+    );
+    assert_eq!(
+        engine.page(site).notice,
+        None,
+        "Core's navigation clears it"
+    );
+    // Back and Forward are the engine's own history. This host never says
+    // where it can go, so the app asks the engine anyway.
+    let shown = engine.page(site);
+    assert_eq!(
+        (shown.back, shown.forward),
+        (SchoolWebStep::Unknown, SchoolWebStep::Unknown)
+    );
+    assert!(engine.back(site).unwrap());
+    assert!(engine.forward(site).unwrap());
+    let steps: Vec<_> = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| {
+            command.browser == id
+                && matches!(
+                    command.command,
+                    BrowserAction::GoBack | BrowserAction::GoForward
+                )
+        })
+        .map(|command| command.command.clone())
+        .collect();
+    assert_eq!(steps, [BrowserAction::GoBack, BrowserAction::GoForward]);
+    assert_eq!(
+        engine
+            .open(site, "web", SchoolWebEntry::Resume)
+            .await
+            .unwrap()
+            .url,
+        external
+    );
+
+    engine.shutdown().await;
+}
+
+async fn kyomu_open() -> (
+    Arc<SchoolBrowserEngine>,
+    Arc<FakeBrowser>,
+    Arc<Events>,
+    BrowserId,
+) {
+    let (engine, browser, events, _) = engine();
+    engine
+        .open(
+            SchoolSite::Kyomu,
+            "web",
+            SchoolWebEntry::Go {
+                url: KYOMU_HOME.into(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(KYOMU_HOME).unwrap(),
+    });
+    url_shown(&events, KYOMU_HOME).await;
+    (engine, browser, events, id)
+}
+
+/// A web cookie store that takes everything: these cases are about when Core
+/// recovers a page, and no password exists to send.
+struct AnyWebStore;
+
+impl WebCookieSeed for AnyWebStore {
+    fn write(&self, _cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// A web cookie store whose calls wait at a gate: open by default, closed
+/// for a platform that is slow or never answers.
+struct GatedWebStore {
+    gate: tokio::sync::watch::Sender<bool>,
+    writes: AtomicU64,
+}
+
+impl GatedWebStore {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            gate: tokio::sync::watch::channel(true).0,
+            writes: AtomicU64::new(0),
+        })
+    }
+
+    /// Waits until the platform has been handed `count` writes.
+    async fn handed(&self, count: u64) {
+        for attempt in 0..6_000 {
+            if self.writes.load(Ordering::SeqCst) >= count {
+                return;
+            }
+            settle(attempt).await;
+        }
+        panic!("write {count} did not reach the platform");
+    }
+}
+
+impl WebCookieSeed for GatedWebStore {
+    fn write(&self, _cookies: Vec<WebCookie>) -> BoxFuture<'_, Result<(), String>> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        let mut gate = self.gate.subscribe();
+        Box::pin(async move {
+            let _ = gate.wait_for(|open| *open).await;
+            Ok(())
+        })
+    }
+    fn clear(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn verified_sessions(store: Arc<GatedWebStore>) -> SchoolSessions {
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(EmptyVault)));
+    assert!(sessions.attach_web(store));
+    sessions.assume_verified(
+        SchoolAuthProfile::Science,
+        crate::school_session::Snapshot {
+            cookies: vec![WebCookie {
+                url: "https://isct.ex-tic.com/auth/session".into(),
+                set_cookie: "_idp=a; Path=/; Secure".into(),
+            }],
+        },
+    );
+    sessions
+}
+
+fn navigations(browser: &FakeBrowser) -> Vec<Url> {
+    browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|command| match &command.command {
+            BrowserAction::Navigate(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+// The platform never answers the App link's cookie write. Nothing opens over
+// it, the App link's page stays in view until the write is overdue, and then
+// the view is covered and says the store has not finished, for as long as it
+// takes. Core's exit is the exception: it has a bound, in the facade's order
+// (the browser engine, then the sessions that own the queue).
+#[tokio::test(start_paused = true)]
+async fn core_exit_does_not_wait_for_a_native_write_that_never_answers() {
+    use crate::school_session::{SEED_WAIT, WEB_STORE_LIMIT};
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    let store = GatedWebStore::new();
+    store.gate.send_replace(false);
+    let sessions = verified_sessions(store.clone());
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+
+    engine
+        .open(
+            SITE,
+            "web",
+            SchoolWebEntry::Go {
+                url: "https://lms.s.isct.ac.jp/2025/my/".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store.handed(1).await;
+    assert!(browser.covers.lock().unwrap().is_empty());
+
+    tokio::time::sleep(SEED_WAIT + WEB_STORE_LIMIT + std::time::Duration::from_secs(1)).await;
+    assert!(navigations(&browser).is_empty(), "nothing opens over a write");
+    assert_eq!(
+        engine.page(SITE).access,
+        Some(SchoolWebAccess::Problem {
+            problem: SchoolWebProblem::Storage
+        })
+    );
+    assert_eq!(browser.covers.lock().unwrap().last().map(|c| c.1), Some(true));
+
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        engine.shutdown().await;
+        sessions.shutdown().await;
+    })
+    .await
+    .expect("shutdown must not wait for the platform's answer");
+    assert!(navigations(&browser).is_empty());
+    assert_eq!(browser.covers.lock().unwrap().last().map(|c| c.1), Some(true));
+}
+
+// A write handed to the platform is the view's, not its operation's: a Go
+// that supersedes the recovery that began it cannot uncover the view or open
+// its page until the write ended, and a plain navigation sent meanwhile is
+// held and then sent.
+#[tokio::test(start_paused = true)]
+async fn a_view_stays_covered_over_a_write_that_outlives_its_operation() {
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    const HOME: &str = "https://lms.s.isct.ac.jp/2025/my/";
+    const COURSE: &str = "https://lms.s.isct.ac.jp/2025/course/view.php?id=1";
+    const SIGN_IN: &str = "https://isct.ex-tic.com/auth/session";
+    let store = GatedWebStore::new();
+    let sessions = verified_sessions(store.clone());
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+    let go = |url: &str| SchoolWebEntry::Go { url: url.into() };
+
+    engine.open(SITE, "web", go(HOME)).await.unwrap();
+    browser.navigation(0).await;
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let sequence = AtomicU64::new(1);
+    let land = |raw: &str| {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+            },
+            cause: None,
+            url: Url::parse(raw).unwrap(),
+        });
+    };
+    land(HOME);
+    drain().await;
+    let last_cover = || browser.covers.lock().unwrap().last().map(|cover| cover.1);
+
+    // The page lands on the sign-in page: a recovery, whose write is held.
+    store.gate.send_replace(false);
+    land(SIGN_IN);
+    store.handed(2).await;
+    assert_eq!(last_cover(), Some(true));
+    let before = navigations(&browser).len();
+
+    // The person's App link supersedes it, and shows nothing yet.
+    engine.open(SITE, "web", go(COURSE)).await.unwrap();
+    drain().await;
+    assert_eq!(last_cover(), Some(true));
+    assert_eq!(engine.page(SITE).access, Some(SchoolWebAccess::SigningIn));
+    assert_eq!(navigations(&browser).len(), before);
+
+    store.gate.send_replace(true);
+    let opened = browser.navigation(before).await;
+    assert_eq!(
+        opened.command,
+        BrowserAction::Navigate(Url::parse(COURSE).unwrap())
+    );
+    land(COURSE);
+    drain().await;
+    assert_eq!(last_cover(), Some(false));
+
+    // An unsigned entry (no operation of its own) during another such write.
+    store.gate.send_replace(false);
+    let handed = store.writes.load(Ordering::SeqCst);
+    land(SIGN_IN);
+    store.handed(handed + 1).await;
+    let before = navigations(&browser).len();
+    engine.open(SITE, "web", SchoolWebEntry::Unsigned).await.unwrap();
+    drain().await;
+    assert_eq!(navigations(&browser).len(), before);
+    assert_eq!(last_cover(), Some(true));
+
+    store.gate.send_replace(true);
+    browser.navigation(before).await;
+    drain().await;
+    assert_eq!(last_cover(), Some(false));
+    engine.shutdown().await;
+}
+
+/// Lets the engine's own tasks run as far as they can.
+async fn drain() {
+    for _ in 0..2_000 {
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Waits for the view to have been covered `times` times and given back.
+async fn recovered(browser: &FakeBrowser, times: usize) {
+    for attempt in 0..6_000 {
+        let covers = browser.covers.lock().unwrap().clone();
+        let count = |wanted: bool| covers.iter().filter(|(_, c)| *c == wanted).count();
+        if count(true) == times && count(false) == times {
+            return;
+        }
+        settle(attempt).await;
+    }
+    panic!(
+        "expected {times} recoveries, got {:?}",
+        browser.covers.lock().unwrap()
+    );
+}
+
+// A browser opens a page and deals with a sign-in only when the page asks for
+// one. An App link shows its page uncovered. A page landing on the sign-in
+// page recovers by itself once; a page that keeps coming back cannot keep
+// sending the password, and only the person's own action allows another. The
+// person's own sign-out, Back and unsigned entry stay on the page, with the
+// manual button still there.
+#[tokio::test]
+async fn a_sign_in_page_recovers_once_until_the_person_acts_and_never_after_they_left() {
+    const SITE: SchoolSite = SchoolSite::ScienceLms;
+    const HOME: &str = "https://lms.s.isct.ac.jp/2025/my/";
+    const COURSE: &str = "https://lms.s.isct.ac.jp/2025/course/view.php?id=1";
+    const SIGN_IN: &str = "https://isct.ex-tic.com/auth/session";
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(EmptyVault)));
+    assert!(sessions.attach_web(Arc::new(AnyWebStore)));
+    let configured = || sessions.assume_configured(SchoolAuthProfile::Science);
+    configured();
+    let browser = Arc::new(FakeBrowser::default());
+    let engine = SchoolBrowserEngine::new(
+        sessions.clone(),
+        Arc::new(Events::default()),
+        browser.clone(),
+    )
+    .unwrap();
+    let open = |url: &str| SchoolWebEntry::Go { url: url.into() };
+
+    engine.open(SITE, "web", open(HOME)).await.unwrap();
+    browser.navigation(0).await;
+    assert!(browser.covers.lock().unwrap().is_empty());
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let sequence = AtomicU64::new(1);
+    let page = || PageId {
+        browser: id,
+        sequence: sequence.load(Ordering::Relaxed),
+    };
+    // Page reports reach Core in order but not at once: a case drains before
+    // it asks for a navigation that comes after one.
+    let land = |raw: &str| {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+            },
+            cause: None,
+            url: Url::parse(raw).unwrap(),
+        });
+    };
+    let ask = |raw: &str, kind: NavigationKind, gesture: bool| {
+        assert_eq!(
+            listener.decide_navigation(request(page(), raw, true, kind, gesture)),
+            NavigationDecision::Allow
+        );
+    };
+    land(HOME);
+    drain().await;
+
+    land(SIGN_IN);
+    recovered(&browser, 1).await;
+    configured();
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 1).await;
+    assert!(engine.page(SITE).sign_in, "the manual way out stays");
+
+    ask(COURSE, NavigationKind::Link, true);
+    land(SIGN_IN);
+    recovered(&browser, 2).await;
+    configured();
+
+    ask(
+        "https://lms.s.isct.ac.jp/2025/login/logout.php",
+        NavigationKind::FormSubmit,
+        true,
+    );
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 2).await;
+    assert!(engine.page(SITE).sign_in);
+    assert!(engine.reload(SITE).unwrap());
+    recovered(&browser, 3).await;
+    configured();
+
+    land(HOME);
+    drain().await;
+    ask(COURSE, NavigationKind::Link, true);
+    ask(HOME, NavigationKind::BackForward, false);
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 3).await;
+
+    // Reload opens where the person's link was going, and what they asked
+    // for wins over the last page when that link never arrived.
+    land(HOME);
+    drain().await;
+    ask(COURSE, NavigationKind::Link, true);
+    assert!(engine.reload(SITE).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(COURSE).unwrap())
+    );
+
+    engine
+        .open(SITE, "web", SchoolWebEntry::Unsigned)
+        .await
+        .unwrap();
+    land(SIGN_IN);
+    drain().await;
+    recovered(&browser, 3).await;
+
+    // An App link recovers only once its page asked: it stays uncovered until
+    // then, and an earlier hold does not outlast the link.
+    engine.open(SITE, "web", open(COURSE)).await.unwrap();
+    drain().await;
+    recovered(&browser, 3).await;
+    land(SIGN_IN);
+    recovered(&browser, 4).await;
+}
+
+const KYOMU_HOME: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+
+/// How many popups the page on screen had, each time that changed.
+fn popups_open(events: &Events) -> Vec<usize> {
+    let mut open: Vec<usize> = Vec::new();
+    for page in pages(events) {
+        if open.last() != Some(&page.popups) {
+            open.push(page.popups);
+        }
+    }
+    open
+}
+
+fn urls(events: &Events) -> Vec<String> {
+    pages(events)
+        .into_iter()
+        .filter_map(|page| page.url)
+        .collect()
+}
+
+// 教務Web's showDialog opens a named window whose page posts back through
+// `opener` and closes itself: the popup must be a real child of its opener,
+// front of the toolbar while open, and gone with everything it opened.
+#[tokio::test]
+async fn a_popup_is_a_child_of_its_opener_and_closes_with_what_it_opened() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let site = SchoolSite::Kyomu;
+    let listener = browser.listener();
+    let opener = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let picker = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/picker.aspx";
+    let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, picker)) else {
+        panic!("the picker did not get a window");
+    };
+    assert_eq!(popup.site, site);
+    assert_ne!(popup, id);
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: popup,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse(picker).unwrap(),
+    });
+    url_shown(&events, picker).await;
+    // A late report of an older page, and the opener's own postback behind
+    // the popup, leave the address on the popup.
+    for (sequence, path) in [(1, "stale.aspx"), (3, "postback.aspx")] {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Url::parse(&format!(
+                "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/{path}"
+            ))
+            .unwrap(),
+        });
+    }
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(urls(&events).last().map(String::as_str), Some(picker));
+    // A popup opened from the popup nests under it; the toolbar acts on it.
+    let page = PageId {
+        browser: popup,
+        sequence: 1,
+    };
+    let NewWindowDecision::Popup(nested) = listener.new_window(window(page, "about:blank")) else {
+        panic!("window.open('') did not get a window");
+    };
+    assert_eq!(popups_open(&events), [0, 1, 2]);
+    assert!(engine.reload(site).unwrap());
+    assert!(browser.commands.lock().unwrap().iter().any(|command| {
+        command.browser == nested && matches!(command.command, BrowserAction::Navigate(_))
+    }));
+    // window.close() in the picker closes it and the window it opened.
+    listener.closed(popup);
+    assert_eq!(*browser.disposed.lock().unwrap(), [nested]);
+    assert_eq!(popups_open(&events), [0, 1, 2, 0]);
+    assert!(urls(&events).last().unwrap().ends_with("postback.aspx"));
+    assert_eq!(
+        listener.decide_navigation(request(page, picker, true, NavigationKind::Link, true)),
+        NavigationDecision::Deny(DenyReason::Closed)
+    );
+    // A page cannot open windows without bound; the app's close button
+    // closes the frontmost.
+    let mut opened = Vec::new();
+    while let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, picker)) {
+        opened.push(popup);
+    }
+    assert_eq!(opened.len(), 8);
+    assert_eq!(
+        listener.new_window(window(opener, picker)),
+        NewWindowDecision::Deny(DenyReason::TooManyPopups)
+    );
+    assert!(engine.close_popup(site).unwrap());
+    assert_eq!(browser.disposed.lock().unwrap().last(), opened.last());
+    // Closing the view takes its popups with it.
+    listener.closed(id);
+    assert!(!engine.close_popup(site).unwrap());
+    assert_eq!(
+        listener.new_window(window(opener, picker)),
+        NewWindowDecision::Deny(DenyReason::Closed)
+    );
+    engine.shutdown().await;
+}
+
+// An LMS file link opens a popup whose only load becomes a download. A file
+// that is saved leaves the popup empty forever, so Core closes it; a file
+// shown in place, or a popup that already showed a page, stays.
+#[tokio::test]
+async fn a_popup_left_empty_by_a_saved_download_closes() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let listener = browser.listener();
+    let opener = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let file = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/file.aspx";
+    let popup = || match listener.new_window(window(opener, file)) {
+        NewWindowDecision::Popup(popup) => popup,
+        other => panic!("no popup: {other:?}"),
+    };
+    let became = |popup: BrowserId, had_page: bool, disposition: DownloadDisposition| {
+        listener.became_download(BecameDownload {
+            page: PageId {
+                browser: popup,
+                sequence: u64::from(had_page),
+            },
+            had_page,
+            disposition,
+        })
+    };
+    let empty_saved = popup();
+    became(empty_saved, false, DownloadDisposition::Saved);
+    assert_eq!(*browser.disposed.lock().unwrap(), [empty_saved]);
+    assert_eq!(popups_open(&events), [0, 1, 0]);
+    assert_eq!(
+        listener.decide_navigation(request(
+            PageId {
+                browser: empty_saved,
+                sequence: 0,
+            },
+            file,
+            true,
+            NavigationKind::Other,
+            false,
+        )),
+        NavigationDecision::Deny(DenyReason::Closed)
+    );
+
+    let empty_shown = popup();
+    became(empty_shown, false, DownloadDisposition::Shown);
+    let with_page = popup();
+    became(with_page, true, DownloadDisposition::Saved);
+    // The opener's own downloads never close it.
+    became(id, false, DownloadDisposition::Saved);
+    assert_eq!(*browser.disposed.lock().unwrap(), [empty_saved]);
+    assert_eq!(popups_open(&events), [0, 1, 0, 1, 2]);
+    assert!(engine.close_popup(SchoolSite::Kyomu).unwrap());
+    assert!(engine.close_popup(SchoolSite::Kyomu).unwrap());
+    engine.shutdown().await;
+}
+
+// Moodle opens a submitted file in a new window (`target=_blank`), and the
+// file is shown there with no history behind it. The window covers the LMS
+// view on every surface that shows it, so Back has to close it and an app
+// link has to land in the view itself. A surface coming back finds the view
+// as it left it, window included, unless another surface showed it meanwhile.
+#[tokio::test]
+async fn a_file_window_gives_way_to_back_and_to_app_links() {
+    let (engine, browser, events, _) = engine();
+    let site = SchoolSite::ScienceLms;
+    let reader = "reader-1";
+    let activity = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=131802";
+    engine
+        .open(
+            site,
+            reader,
+            SchoolWebEntry::Go {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let opener = PageId {
+        browser: id,
+        sequence: 1,
+    };
+    listener.page_loaded(PageLoaded {
+        page: opener,
+        cause: None,
+        url: Url::parse(activity).unwrap(),
+    });
+    url_shown(&events, activity).await;
+    let steps = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| {
+                matches!(
+                    command.command,
+                    BrowserAction::GoBack | BrowserAction::GoForward
+                )
+            })
+            .count()
+    };
+    let navigations = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count()
+    };
+    // A host that reports history: the view's first page has nowhere to go,
+    // and the app sends nothing.
+    listener.history_changed(id, History::default());
+    let page = engine.page(site);
+    assert_eq!(
+        (page.back, page.forward),
+        (SchoolWebStep::No, SchoolWebStep::No)
+    );
+    assert!(!engine.back(site).unwrap());
+    assert!(!engine.forward(site).unwrap());
+    assert_eq!(steps(), 0);
+
+    let file = "https://lms.s.isct.ac.jp/2025/pluginfile.php/9/assignsubmission_file/submission_files/4/report.pdf?forcedownload=1";
+    let open_file = || {
+        let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, file)) else {
+            panic!("the file link did not get a window");
+        };
+        listener.history_changed(popup, History::default());
+        listener.became_download(BecameDownload {
+            page: PageId {
+                browser: popup,
+                sequence: 0,
+            },
+            had_page: false,
+            disposition: DownloadDisposition::Shown,
+        });
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: popup,
+                sequence: 1,
+            },
+            cause: None,
+            url: Url::parse(file).unwrap(),
+        });
+        popup
+    };
+    let popup = open_file();
+    url_shown(&events, file).await;
+    let page = engine.page(site);
+    assert_eq!(
+        (page.popups, page.back, page.forward),
+        (1, SchoolWebStep::Yes, SchoolWebStep::No),
+        "Back closes the file window"
+    );
+    assert!(engine.back(site).unwrap());
+    assert_eq!(steps(), 0);
+    assert_eq!(*browser.disposed.lock().unwrap(), [popup]);
+    let page = pages(&events).pop().unwrap();
+    assert_eq!(
+        (page.url.as_deref(), page.popups),
+        (Some(activity), 0),
+        "the activity is in front again"
+    );
+
+    // Back on a popup with history steps through it instead.
+    let popup = open_file();
+    listener.history_changed(
+        popup,
+        History {
+            back: true,
+            forward: false,
+        },
+    );
+    assert!(engine.back(site).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().browser,
+        popup
+    );
+    assert_eq!(browser.disposed.lock().unwrap().len(), 1);
+
+    // The reader coming back keeps the window, even though the view under
+    // it has moved on (a confirmation covered the reader, or the person
+    // looked at Today).
+    let elsewhere = "https://lms.s.isct.ac.jp/2025/my/";
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(elsewhere).unwrap(),
+    });
+    engine.user_browsing(None).unwrap();
+    let before = navigations();
+    engine
+        .open(
+            site,
+            reader,
+            SchoolWebEntry::Return {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 1);
+    assert_eq!(navigations(), before);
+
+    // Web showed the view in between, as it was; the reader then goes back
+    // to its own activity.
+    engine.user_browsing(None).unwrap();
+    engine
+        .open(site, "web", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 1);
+    engine.user_browsing(None).unwrap();
+    engine
+        .open(
+            site,
+            reader,
+            SchoolWebEntry::Return {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 0);
+    assert_eq!(browser.disposed.lock().unwrap().last(), Some(&popup));
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(activity).unwrap())
+    );
+
+    // An app link, even to the page already under the window, closes it
+    // and opens its page again: the entry decides, never the address the
+    // view shows (approach/school-web-front-page).
+    let popup = open_file();
+    let before = navigations();
+    engine
+        .open(
+            site,
+            "web",
+            SchoolWebEntry::Go {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 0);
+    assert_eq!(browser.disposed.lock().unwrap().last(), Some(&popup));
+    assert_eq!(navigations(), before + 1);
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(activity).unwrap())
+    );
+    engine.shutdown().await;
+}
+
+// R2: a person's new POST always goes through; only the engine sending an
+// old form again is stopped. 教務Web pages, paging included, are postbacks.
+#[tokio::test]
+async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let listener = browser.listener();
+    let page = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let result = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/result.aspx";
+    let post = |kind: NavigationKind, main_frame: bool| {
+        listener.decide_navigation(request(
+            page,
+            &format!("{result}#top"),
+            main_frame,
+            kind,
+            false,
+        ))
+    };
+    assert_eq!(
+        post(NavigationKind::FormSubmit, true),
+        NavigationDecision::Allow
+    );
+    // A page's own reload of the postback result (the picker's
+    // `opener.location.reload()`) opens the page again with GET. The App's
+    // Reload never gets here: it always opens the last page with a GET.
+    assert_eq!(
+        post(
+            NavigationKind::FormResubmit {
+                from_history: false
+            },
+            true
+        ),
+        NavigationDecision::Deny(DenyReason::Resubmission)
+    );
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(result).unwrap())
+    );
+    assert_eq!(
+        notices(&events),
+        [SchoolWebNotice::Reopened { url: result.into() }]
+    );
+    // Back or Forward onto it steps past the entry instead.
+    assert_eq!(
+        post(NavigationKind::FormResubmit { from_history: true }, true),
+        NavigationDecision::SkipEntry
+    );
+    assert_eq!(
+        post(NavigationKind::FormResubmit { from_history: true }, false),
+        NavigationDecision::Deny(DenyReason::Resubmission)
+    );
+    engine.shutdown().await;
+
+    // On a host whose popups are separate windows the toolbar stays on the
+    // view.
+    let plain = FakeBrowser::default();
+    plain.plain_host.store(true, Ordering::Release);
+    let (engine, browser, _, _) = engine_on(Arc::new(SchoolAuthService::new(EmptyVault)), plain);
+    engine
+        .open(
+            SchoolSite::Kyomu,
+            "web",
+            SchoolWebEntry::Go {
+                url: KYOMU_HOME.into(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let opener = PageId {
+        browser: id,
+        sequence: 0,
+    };
+    let NewWindowDecision::Popup(_) = browser.listener().new_window(window(opener, result)) else {
+        panic!("no window");
+    };
+    assert!(engine.back(SchoolSite::Kyomu).unwrap());
+    assert_eq!(browser.commands.lock().unwrap().last().unwrap().browser, id);
+    engine.shutdown().await;
+}
+
+// 「教育計算機システム」 off VPN: WebKit stays on the old page and says
+// nothing, so the failure has to reach the app as a fact it can show.
+#[tokio::test]
+async fn a_failed_load_the_person_sees_becomes_a_notice() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let site = SchoolSite::Kyomu;
+    let listener = browser.listener();
+    let campus = "https://vlmgr-42.edu2024.gsic.titech.ac.jp/idm/upc/";
+    let failed = |browser: BrowserId, sequence: u64, reason: LoadFailure| {
+        listener.load_failed(LoadFailed {
+            page: PageId { browser, sequence },
+            cause: None,
+            url: Some(Url::parse(campus).unwrap()),
+            reason,
+            message: "The request timed out.".into(),
+        })
+    };
+    let notice = || engine.page(site).notice;
+    let shown = |reason: LoadFailure| {
+        Some(SchoolWebFailure {
+            url: Some(campus.into()),
+            reason,
+        })
+    };
+    failed(id, 3, LoadFailure::Cancelled);
+    assert_eq!(notice(), None);
+    failed(id, 4, LoadFailure::Unreachable);
+    assert_eq!(notice(), shown(LoadFailure::Unreachable));
+    assert_eq!(
+        pages(&events).last().unwrap().notice,
+        shown(LoadFailure::Unreachable),
+        "the surface on screen is told"
+    );
+    // Failing again replaces it; a late report of an older failure does not.
+    failed(id, 5, LoadFailure::HostNotFound);
+    failed(id, 4, LoadFailure::Offline);
+    assert_eq!(notice(), shown(LoadFailure::HostNotFound));
+
+    // It belongs to the page that failed: a popup over the view shows its
+    // own, and the view's is in front again once the popup closes.
+    let opener = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, campus)) else {
+        panic!("no popup");
+    };
+    assert_eq!(notice(), None);
+    failed(popup, 1, LoadFailure::Offline);
+    assert_eq!(notice(), shown(LoadFailure::Offline));
+    listener.closed(popup);
+    assert_eq!(notice(), shown(LoadFailure::HostNotFound));
+
+    // Another surface showing the view finds it too.
+    engine.user_browsing(None).unwrap();
+    engine
+        .open(site, "reader-1", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    assert_eq!(notice(), shown(LoadFailure::HostNotFound));
+
+    // A later page of the view clears it.
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 6,
+        },
+        cause: None,
+        url: Url::parse(KYOMU_HOME).unwrap(),
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while notice().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the later page did not clear the failure");
+    // So does Core sending the view somewhere (Retry), and the view closing.
+    failed(id, 7, LoadFailure::Unreachable);
+    assert!(engine.navigate(site, campus).unwrap());
+    assert_eq!(notice(), None);
+    failed(id, 8, LoadFailure::Offline);
+    assert_eq!(notice(), shown(LoadFailure::Offline));
+    listener.closed(id);
+    assert_eq!(notice(), None);
+
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_closed_view_is_recreated_as_a_new_generation_next_time() {
+    let (engine, browser, _, _) = engine();
+    let target = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
+    let first = browser.navigation(0).await;
+    browser.listener().closed(first.browser);
+    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
+    let second = browser.navigation(1).await;
+    assert_eq!(second.browser.site, first.browser.site);
+    assert!(second.browser.generation > first.browser.generation);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_view_reported_unavailable_is_replaced_instead_of_kept_as_a_zombie() {
+    let (engine, browser, _, _) = engine();
+    let target = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+    browser.unavailable.store(true, Ordering::Release);
+    assert!(engine.navigate(SchoolSite::Kyomu, target).is_err());
+    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
+    let commands = browser.commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    let ensured: Vec<_> = browser.current.lock().unwrap().keys().copied().collect();
+    assert_eq!(
+        ensured.len(),
+        2,
+        "the second navigation must create a new view"
+    );
+    assert!(ensured.contains(&commands[0].browser));
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
+    let (engine, browser, _, _) = engine();
+    let listener = browser.listener();
+    // Poison the engine state from a panicking native callback thread.
+    let poisoned = std::thread::spawn({
+        let engine = engine.clone();
+        move || engine.poison_state_for_test()
+    })
+    .join();
+    assert!(poisoned.is_err());
+    assert_eq!(engine.page(SchoolSite::Kyomu).url, None);
+    assert!(engine
+        .navigate(
+            SchoolSite::Kyomu,
+            "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"
+        )
+        .unwrap());
+    let navigation = browser.navigation(0).await;
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx").unwrap(),
+    });
+    engine.shutdown().await;
+}

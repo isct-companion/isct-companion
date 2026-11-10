@@ -1,0 +1,39 @@
+[package]
+name = "vpn-helper"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "isct-vpn-helper"
+path = "src/main.rs"
+
+[dependencies]
+vpn-protocol = { path = "../vpn-protocol" }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# The service manager side of the Windows helper (`src/windows.rs`).
+windows-service = "0.8"
+# The resolver rule under the DNS client's NRPT key (`src/windows_net.rs`).
+windows-registry = "0.6"
+# The pipe, console, job object and IP Helper calls; the version the desktop
+# shell already uses.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }

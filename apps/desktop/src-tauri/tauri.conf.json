@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "IsctCompanion",
+  "version": "1.3.2",
+  "identifier": "app.isctcompanion",
+  "build": {
+    "beforeBuildCommand": "yarn workspace @isct/desktop build",
+    "beforeDevCommand": "yarn workspace @isct/desktop dev",
+    "devUrl": "http://localhost:4173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
+      "capabilities": ["main", "campus-print"]
+    },
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": "all",
+    "macOS": {
+      "minimumSystemVersion": "15.0",
+      "entitlements": "Entitlements.plist",
+      "bundleVersion": "1.3.2"
+    },
+    "resources": [
+      "../../../crates/app-ocr/models/alphabet/README.md",
+      "../../../crates/app-ocr/models/alphabet/MIT-LICENSE",
+      "../../../LICENSE",
+      "../../../docs/legal/NOTICE.md",
+      "../../../docs/legal/NOTICE.ja.md"
+    ],
+    "licenseFile": "../../../LICENSE",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBFRDJDQjIwM0I5NzdFQzgKUldUSWZwYzdJTXZTRHFzN2lVeDNEdWcvM2VVcUR0cUJrL1pDL2hJNmo2ODRzc0ltRWplbGdCclcK",
+      "requireSignedVersion": true
+    }
+  }
+}

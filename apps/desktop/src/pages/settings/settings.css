@@ -1,0 +1,462 @@
+/* ---------- settings: navigation and search ---------- */
+.settingsNav {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+.settingsSearch {
+  margin-bottom: 6px;
+}
+.settingsNavList,
+.settingsResults {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  overflow: auto;
+}
+.settingsResults button {
+  display: grid;
+  gap: 1px;
+}
+.settingsResults button b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.settingsResults button small {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: calc(var(--type-block-size) * var(--text));
+}
+.settingsNoResults {
+  padding: 8px 11px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+
+/* ---------- settings: page structure ---------- */
+.settingsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.settingsHeader h2 {
+  margin: 0 0 4px;
+}
+.settingsHeader p {
+  margin: 0;
+  max-width: 560px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  line-height: 1.5;
+}
+.settingsHeader > .actions {
+  flex: 0 0 auto;
+}
+.settingsGroup {
+  margin-bottom: 18px;
+}
+.settingsGroup > h3 {
+  margin: 0 0 2px;
+}
+.settingsGroup > .actions {
+  padding-top: 10px;
+}
+.groupFooter,
+.settingsNote {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  line-height: 1.5;
+  /* Errors here can carry URLs or ids with no break opportunity. */
+  overflow-wrap: anywhere;
+}
+.groupFooter a {
+  color: inherit;
+}
+.settingsGroup.danger > h3 {
+  color: var(--danger);
+}
+.settingChoice {
+  justify-self: end;
+}
+.row > .settingChoice {
+  max-width: 100%;
+}
+.moreOptions {
+  margin: 4px 0 18px;
+}
+.moreOptions > summary {
+  cursor: default;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 600;
+  list-style: none;
+}
+.moreOptions > summary::-webkit-details-marker {
+  display: none;
+}
+.moreOptions > summary::before {
+  content: "›";
+  display: inline-block;
+  width: 14px;
+  transition: transform var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.moreOptions[open] > summary::before {
+  transform: rotate(90deg);
+}
+.settingFlash {
+  animation: settingFlash 1.6s ease-out;
+  border-radius: 8px;
+}
+@keyframes settingFlash {
+  0%,
+  35% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Controls take only the room they need; text fields and selects scale
+   with the pane so labels keep their width on iPad. */
+.settingsPane .row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.settingsPane .row > :is(.uiInputWrapper, .uiSelect) {
+  width: clamp(180px, 40cqi, 280px);
+}
+.studyProfileActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+}
+.studyProfileError {
+  color: var(--danger);
+}
+
+/* ---------- settings: status line ---------- */
+.settingsStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.settingsStatus > i {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.settingsStatus.ok > i {
+  background: var(--ok);
+}
+.settingsStatus.warn {
+  background: var(--warn-soft);
+}
+.settingsStatus.warn > i {
+  background: var(--warn);
+}
+.settingsStatus.error {
+  background: var(--danger-soft);
+}
+.settingsStatus.error > i {
+  background: var(--danger);
+}
+.settingsStatus > span {
+  flex: 1;
+  min-width: 0;
+}
+.settingsStatus small {
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  overflow-wrap: anywhere;
+}
+.settingsGroup > .settingsStatus {
+  margin: 8px 0 4px;
+}
+
+/* ---------- settings: academic calendar ---------- */
+.quarterGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 6px;
+}
+.quarterGrid > div {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.quarterGrid b {
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.quarterGrid span {
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.quarterGrid small {
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+}
+.calendarDays {
+  display: grid;
+}
+.calendarDay {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+button.calendarDay {
+  cursor: default;
+}
+button.calendarDay:hover,
+button.calendarDay.open {
+  background: var(--surface-2);
+}
+.calendarPast {
+  justify-self: start;
+  margin: 2px 0 4px;
+}
+.calendarAdd {
+  margin-bottom: 4px;
+}
+.calendarDay time {
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.calendarDay > span:not(.actions) {
+  display: grid;
+  min-width: 0;
+}
+.calendarDay b {
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendarDay small {
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+}
+.calendarEditor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 6px 0 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.calendarEditor label {
+  display: grid;
+  gap: 4px;
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 600;
+}
+.calendarEditor .wide {
+  grid-column: 1 / -1;
+}
+
+/* iPad portrait and narrow desktop windows: adapt to the pane, not the screen. */
+.settingsPane {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  .quarterGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .calendarDay {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+  .calendarDay > .actions {
+    grid-column: 2 / -1;
+    margin-top: -4px;
+  }
+  .settingsHeader {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+/* Size to the pane: narrow phones must not inherit the matrix's desktop minimums. */
+.settingsPane,
+.schoolAccounts,
+.schoolAccount,
+.credentialFields > *,
+.matrixEditor,
+.matrixGrid,
+.matrixRow > *,
+.settingsPane .row > * {
+  min-width: 0;
+}
+@container (max-width: 420px) {
+  .settingsPane .matrixGrid {
+    width: 100%;
+    grid-template-columns: 14px repeat(10, minmax(0, 1fr));
+    gap: 2px;
+    overflow: visible;
+  }
+  .matrixGrid .uiInputWrapper {
+    min-width: 0;
+  }
+  .matrixGrid input {
+    padding: 0;
+    font-size: calc(var(--type-note-size) * var(--text));
+  }
+  .credentialFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .schoolAccount > header,
+  .matrixTools,
+  .schoolAccountActions {
+    flex-wrap: wrap;
+  }
+  .settingsPane .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settingsPane .row > :is(.uiInputWrapper, .uiSelect) {
+    width: 100%;
+    max-width: 100%;
+  }
+  .settingsPane .actions {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+}
+
+/* Subordinate reminder controls keep their own accessible label and grouping. */
+.settingsSuboptions { margin: 0 0 12px 8px; padding-inline-start: 20px; border-inline-start: 1px solid var(--line); }
+.settingsSuboptions .row { border-bottom: 0; padding-block: 8px; }
+.settingsSuboptions .row b { color: var(--muted); font-weight: 400; }
+.settingsPane .row > .assignmentTimes { width: clamp(180px, 40cqi, 280px); }
+.settings .settingsPane {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 35%, transparent) transparent;
+  scrollbar-gutter: stable;
+  padding-inline-end: 12px;
+}
+.settingsPane::-webkit-scrollbar { width: 5px; height: 5px; }
+.settingsPane::-webkit-scrollbar-track { background: transparent; }
+.settingsPane::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.settingsPane::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+@container (max-width: 420px) {
+  .settingsPane .row > .assignmentTimes { width: 100%; }
+}
+
+.diagnosticToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.diagnosticActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.diagnosticLogs {
+  height: min(60vh, 620px);
+  min-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.diagnosticLogRow {
+  padding: 7px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--line);
+  user-select: text;
+}
+.diagnosticLogMeta { display: block; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
+.diagnosticLogRow[data-level="ERROR"] > :last-child { color: var(--danger); }
+.agentSetup {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.agentSetup > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.agentSnippet {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+.agentSnippet pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  font-size: calc(var(--type-note-size) * var(--text));
+  line-height: 1.5;
+}
+
+/* Background theme swatches: each its own light background with a surface
+   dot; the chosen one ringed in the accent. */
+.themeSwatches {
+  display: flex;
+  gap: 10px;
+}
+.themeSwatch {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--swatch-bg);
+}
+.themeSwatch::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--swatch-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-strong) 60%, transparent);
+}
+.themeSwatch[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--accent);
+}

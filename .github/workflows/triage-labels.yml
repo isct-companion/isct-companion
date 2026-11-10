@@ -1,0 +1,36 @@
+name: Triage labels
+
+on:
+  # pull_request_target gives a fork's pull request a token that can write
+  # labels, so this workflow and its rules always come from main. Nothing here
+  # may check out or run the pull request's code.
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  pull-request:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+
+  issue:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: github/issue-labeler@ccca1e16fcb66762200e616fc29b57b940c1cb67 # v3.5
+        with:
+          configuration-path: .github/issue-labeler.yml
+          enable-versioned-regex: 0

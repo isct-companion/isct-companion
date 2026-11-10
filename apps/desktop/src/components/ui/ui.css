@@ -1,0 +1,822 @@
+/* Primitives supply behaviour; the existing shell tokens supply appearance. */
+button,
+input,
+textarea {
+  font: inherit;
+}
+/* Desktop controls keep the arrow; the hand is for links. */
+button {
+  cursor: default;
+}
+button:disabled {
+  cursor: default;
+}
+/* Interaction states. A control's own hover rule sets its colour; pressing
+   adds one ink layer over whatever it shows (darker in light, lighter in
+   dark), drawn as an inset shadow so it never replaces a background. Text
+   controls fade instead, since a layer would box their text. */
+:root {
+  --state-hover: color-mix(in srgb, var(--ink) 5%, transparent);
+  --state-press: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+:where(
+  button:not(:disabled, .textButton:not(.uiButton), .examCourseLink),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="option"]:not([data-disabled]),
+  [role="menuitem"]:not([data-disabled]),
+  summary,
+  label.button
+):active {
+  box-shadow: inset 0 0 0 100vmax var(--state-press);
+}
+:where(.textButton:not(.uiButton), .examCourseLink):not(:disabled):hover {
+  opacity: 0.75;
+}
+:where(.textButton:not(.uiButton), .examCourseLink):not(:disabled):active {
+  opacity: 0.55;
+}
+.uiUnstyledButton {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+.uiButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+}
+/* Three kinds (slotledger approach/button-hierarchy): primary is the accent
+   fill, at most one per page or dialog (variant "filled"); secondary is the
+   accent tint ("default", "light"); text is accent text only ("subtle").
+   A destructive button swaps danger in for the accent. */
+.uiButton:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+.uiButton:is([data-variant="default"], [data-variant="light"]) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.uiButton:is(
+    [data-variant="default"],
+    [data-variant="light"]
+  ):not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--accent-soft));
+}
+.uiButton[data-variant="subtle"] {
+  background: transparent;
+  color: var(--accent);
+}
+.uiButton[data-variant="subtle"]:not(:disabled):hover {
+  background: var(--accent-soft);
+}
+.uiButton[data-color="red"] {
+  --accent: var(--danger);
+  --accent-soft: var(--danger-soft);
+}
+.uiButton[data-color="orange"] {
+  --accent: var(--warn);
+  --accent-soft: var(--warn-soft);
+}
+/* A quiet way out ("Later", an icon): muted text, no tint. */
+.uiButton[data-color="gray"] {
+  --accent: var(--muted);
+  --accent-soft: var(--surface-3);
+}
+.uiButton[data-size^="compact"] {
+  min-height: 22px;
+  padding: 0 7px;
+}
+.uiButton[data-size="compact-xs"] {
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.uiButton:disabled {
+  opacity: 0.55;
+}
+.uiButton[aria-busy="true"] {
+  cursor: wait;
+}
+.uiButtonGroup {
+  display: inline-flex;
+}
+.uiButtonGroup > :not(:first-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -1px;
+}
+.uiButtonGroup > :not(:last-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.uiClose {
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  font-size: 22px;
+  color: var(--muted);
+}
+.uiGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.uiGroup[data-grow] > * {
+  flex: 1;
+}
+.uiStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.uiPaper {
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: var(--radius-surface);
+}
+.uiText {
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.uiText[data-size="xs"] {
+  font-size: 0.75rem;
+}
+.uiText[data-size="sm"] {
+  font-size: 0.875rem;
+}
+[data-color="dimmed"] {
+  color: var(--muted);
+}
+.uiText[data-color="red"] {
+  color: var(--danger);
+}
+.uiText[data-color="green"] {
+  color: var(--ok);
+}
+.uiText:is([data-color="yellow"], [data-color="orange"]) {
+  color: var(--warn);
+}
+/* The one tag (slotledger approach/chip-variants): a soft role tint by
+   default, an outline, or solid (an exam, in its course colour). No
+   uppercase, and never a bare count. */
+.uiTag {
+  --tag: var(--muted);
+  --tag-soft: var(--surface-3);
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.6em;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: var(--tag-soft);
+  color: var(--tag);
+  font: inherit;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.uiTag[data-role="accent"] {
+  --tag: var(--accent);
+  --tag-soft: var(--accent-soft);
+}
+.uiTag[data-role="ok"] {
+  --tag: var(--ok);
+  --tag-soft: var(--ok-soft);
+}
+.uiTag[data-role="warn"] {
+  --tag: var(--warn);
+  --tag-soft: var(--warn-soft);
+}
+.uiTag[data-role="danger"] {
+  --tag: var(--danger);
+  --tag-soft: var(--danger-soft);
+}
+.uiTag[data-role="course"] {
+  --tag: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
+  --tag-soft: color-mix(
+    in srgb,
+    var(--course) var(--course-tint-fill),
+    var(--surface)
+  );
+}
+.uiTag[data-variant="outline"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tag);
+}
+.uiTag[data-variant="solid"] {
+  background: var(--course, var(--tag));
+  color: var(--course-on-solid);
+}
+button.uiTag:not(:disabled):hover {
+  filter: brightness(0.97);
+}
+.uiAlert[data-color="red"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.uiAlert {
+  padding: 16px;
+  border-radius: var(--radius-surface);
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.uiField,
+.uiInputWrapper {
+  min-width: 0;
+}
+.uiFieldLabel {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+.uiFieldDescription,
+.uiFieldError {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+.uiFieldError {
+  margin-top: 4px;
+  color: var(--danger);
+}
+.uiInputWrapper {
+  position: relative;
+}
+.uiInput {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.875rem;
+  line-height: normal;
+}
+.uiInput[data-size="xs"] {
+  height: 30px;
+  font-size: 0.75rem;
+}
+.uiInput:focus {
+  border-color: var(--accent);
+}
+.uiInput:disabled {
+  background: var(--surface-3);
+  opacity: 0.65;
+  cursor: default;
+}
+/* WebKit lays a date field's value at the top of a fixed-height box. */
+.uiInput:is([type="date"], [type="time"], [type="datetime-local"], [type="month"]) {
+  display: flex;
+  align-items: center;
+}
+.uiInput::-webkit-date-and-time-value {
+  text-align: start;
+}
+.uiInput::-webkit-datetime-edit,
+.uiInput::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+textarea.uiInput {
+  height: auto;
+  padding: 8px 12px;
+}
+.uiInputWrapper:has(.uiInputSection) > .uiInput {
+  padding-right: 34px;
+}
+.uiInputSection {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+}
+.uiCheckField {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.uiCheckField > label {
+  font-size: calc(var(--type-row-size) * var(--text));
+  line-height: 1.4;
+  cursor: default;
+}
+.uiCheckField small {
+  display: block;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  margin-top: 4px;
+}
+.uiCheckbox,
+.uiRadio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--accent-ink);
+}
+.uiCheckbox[data-state="checked"],
+.uiRadio[data-state="checked"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.uiCheckbox:disabled,
+.uiRadio:disabled {
+  opacity: 0.5;
+}
+.uiRadio {
+  border-radius: 50%;
+}
+.uiRadioIndicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: white;
+}
+.uiSwitch {
+  display: inline-flex;
+  align-items: center;
+  width: 38px;
+  height: 20px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface-3);
+  flex-shrink: 0;
+}
+.uiSwitch:not(:disabled):hover {
+  border-color: var(--line-strong);
+}
+.uiSwitch[data-state="checked"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.uiSwitch:disabled {
+  opacity: 0.5;
+}
+.uiSwitchThumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px #0003;
+}
+.uiSwitchThumb[data-state="checked"] {
+  transform: translateX(18px);
+}
+.uiSegments {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border-radius: var(--radius-control);
+  background: var(--surface-3);
+}
+.uiSegment {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: calc(var(--type-row-size) * var(--text));
+  white-space: nowrap;
+}
+.uiSegment[data-state="on"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px #0002;
+}
+.uiSegment:not([data-state="on"], :disabled):hover {
+  background: var(--state-hover);
+  color: var(--ink);
+}
+.uiSegment:disabled {
+  opacity: 0.5;
+}
+.uiSegments[data-size="xs"] .uiSegment {
+  font-size: calc(var(--type-note-size) * var(--text));
+  padding: 3px 7px;
+}
+/* A filter chip is a control, but sized and lettered as a tag. */
+.uiChip {
+  min-height: 1.6em;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
+  line-height: 1.5;
+}
+.uiChip:not(:disabled):hover {
+  border-color: var(--line-strong);
+}
+.uiChip[data-state="on"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.uiSelectTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.uiSelectTrigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uiSelectDropdown,
+.uiMenu,
+.uiPopover {
+  z-index: 410;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  max-width: calc(100vw - 24px);
+}
+.uiSelectDropdown {
+  min-width: var(
+    --radix-select-trigger-width,
+    var(--radix-popover-trigger-width, 180px)
+  );
+  max-height: min(320px, var(--radix-select-content-available-height, 60vh));
+  overflow-y: auto;
+}
+.uiSelectOption,
+.uiMenuItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 28px 7px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font-size: calc(var(--type-row-size) * var(--text));
+  line-height: 1.4;
+  outline: none;
+  cursor: default;
+  text-align: left;
+}
+.uiSelectOption:is(
+  [data-highlighted],
+  [data-state="checked"],
+  [data-selected="true"],
+  [data-state="on"]
+),
+.uiMenuItem[data-highlighted] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.uiSelectOption[data-disabled]:not([data-disabled="false"]),
+.uiSelectOption[aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.uiSelectIndicator {
+  position: absolute;
+  right: 8px;
+}
+.uiSelectGroupLabel {
+  padding: 6px 10px 3px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.uiSelectScroll {
+  text-align: center;
+}
+.uiSearchSelect [cmdk-list] {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.uiMultiSelect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  height: auto;
+  min-height: 36px;
+  padding: 4px 8px;
+}
+.uiMultiOptions {
+  display: flex;
+  flex-direction: column;
+}
+.uiPopover {
+  padding: 12px;
+  border-radius: var(--radius-panel);
+}
+.uiPopoverArrow {
+  fill: var(--surface);
+}
+.uiProgress {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 100px;
+  background: var(--surface-3);
+}
+.uiProgressIndicator {
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transition: transform var(--motion-duration-base) var(--motion-easing-standard);
+}
+.uiProgress[data-color="red"] .uiProgressIndicator {
+  background: var(--danger);
+}
+.uiProgress[data-color="green"] .uiProgressIndicator {
+  background: var(--ok);
+}
+.uiProgressIndicator[data-animated] {
+  background-image: linear-gradient(
+    45deg,
+    #fff2 25%,
+    transparent 25%,
+    transparent 50%,
+    #fff2 50%,
+    #fff2 75%,
+    transparent 75%
+  );
+  background-size: 24px 24px;
+  animation: uiProgressStripes 1s linear infinite;
+}
+@keyframes uiProgressStripes {
+  to {
+    background-position: 24px 0;
+  }
+}
+.uiPagination {
+  gap: 6px;
+}
+.uiPageGap {
+  padding: 0 7px;
+}
+.uiDialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+}
+.uiDialogContent {
+  position: fixed;
+  top: 5vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 301;
+  max-width: calc(100vw - 32px);
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.uiDialogCentered {
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.uiDialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: inherit;
+}
+.uiDialogTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.uiDialogBody {
+  padding: 0 16px 16px;
+}
+.uiDrawerContent {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  max-width: 100vw;
+  max-height: 100dvh;
+  height: 100dvh;
+  transform: none;
+  border-radius: 0;
+}
+.uiVisuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* Transient results and undo: one line and one action at the bottom of the
+   window, gone after 4 s (app/notify.ts). */
+.appNotifications {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  z-index: 500;
+  margin: 0;
+  padding: 0;
+  width: max-content;
+  max-width: min(440px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  list-style: none;
+  outline: none;
+}
+.uiToast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.uiToastAction {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+.uiToastClose {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 20px;
+}
+.uiToast[data-color="red"] {
+  border-color: var(--danger);
+}
+.uiToast[data-swipe="move"] {
+  transform: translateX(var(--radix-toast-swipe-move-x));
+}
+.uiToast[data-swipe="end"] {
+  transform: translateX(var(--radix-toast-swipe-end-x));
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .uiProgressIndicator {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* The one empty state (EmptyState): a muted icon, one line, at most one
+   action, centred. Compact sits inside a list or a narrow pane. */
+.uiEmpty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+.uiEmpty > p {
+  margin: 0;
+  max-width: 36ch;
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.uiEmpty[data-compact] {
+  flex: none;
+  gap: 6px;
+  padding: 16px 8px;
+}
+.uiEmpty[data-compact] > p {
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+
+/* An error that makes a page or panel unusable (ErrorBanner): danger-soft,
+   one line, one Retry, at the top of what it blocks. */
+.uiBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-surface);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.uiBanner > svg {
+  flex: none;
+}
+.uiBanner > p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.uiBannerAction {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--danger) 12%, var(--danger-soft));
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Glyphs come from lucide (approach/icons-per-platform); inline ones sit on
+   the text's baseline and never shrink. */
+button svg.lucide,
+.uiSelectIndicator svg,
+.uiSelectScroll svg {
+  flex: none;
+  vertical-align: -2px;
+}
+/* Keeps unchecked menu items aligned with a checked one's mark. */
+.uiMenuGap {
+  display: inline-block;
+  width: 14px;
+}
+
+/* Skeleton: placeholders in --surface-2, shaped like the rows or blocks to
+   come; the content that replaces them fades in (useReveal). */
+.skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0;
+}
+.skeleton[data-shape="row"] > i {
+  display: block;
+  height: 44px;
+  border-radius: var(--radius-surface);
+  background: var(--surface-2);
+}
+.skeleton[data-shape="row"] > i:nth-child(even) {
+  width: 82%;
+}
+.skeleton[data-shape="week"] {
+  flex: 1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 240px;
+}
+.skeletonColumn {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.skeletonColumn > i {
+  display: block;
+  height: calc(56px + var(--block, 0) * 22px);
+  border-radius: var(--radius-block);
+  background: var(--surface-2);
+}
+.uiReveal {
+  animation: uiReveal var(--motion-duration-base) var(--motion-easing-standard);
+}
+@keyframes uiReveal {
+  from {
+    opacity: 0;
+  }
+}

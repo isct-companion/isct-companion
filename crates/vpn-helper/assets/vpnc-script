@@ -1,0 +1,87 @@
+#!/bin/sh
+# openconnect route/DNS hook for the campus VPN (macOS).
+#
+# Only the campus networks go through the tunnel: 131.112.0.0/16 routes and
+# scoped DNS for isct.ac.jp / titech.ac.jp. The default route is never touched,
+# so Clash, Tailscale and other local VPNs keep their paths. Logs go to the
+# unified log, never to a file that could hold session data.
+set -u
+DNS_KEY="State:/Network/Service/isct-campus-vpn/DNS"
+TAG=isct-campus-vpn
+APM=131.112.12.180
+log() { logger -t "$TAG" -- "$*"; }
+# The physical network's gateway: an address, not a tunnel a default route
+# may point at (a Tailscale exit node, Clash) or the Internet Sharing bridge.
+physical_gw() {
+  netstat -rn -f inet |
+    awk '$1=="default" && $2 ~ /^[0-9]/ && $NF !~ /^(utun|ppp|ipsec|bridge)/ {print $2; exit}'
+}
+# Keeps the tunnel's own traffic off the tunnel, through this network's
+# gateway. A pin left from another network cuts the APM off, so this runs
+# again on every reconnect attempt.
+pin_apm() {
+  GW=$(physical_gw)
+  route delete -host "$APM" 2>/dev/null || true
+  if [ -n "${VPNGATEWAY:-}" ] && [ "$VPNGATEWAY" != "$APM" ]; then
+    route delete -host "$VPNGATEWAY" 2>/dev/null || true
+  fi
+  [ -n "${GW:-}" ] || return 0
+  route add -host "$APM" "$GW" 2>/dev/null || true
+  if [ -n "${VPNGATEWAY:-}" ] && [ "$VPNGATEWAY" != "$APM" ]; then
+    route add -host "$VPNGATEWAY" "$GW" 2>/dev/null || true
+  fi
+}
+set_dns() {
+  scutil <<SCUTIL
+d.init
+d.add ServerAddresses * 131.112.125.58 131.112.181.2
+d.add SupplementalMatchDomains * isct.ac.jp titech.ac.jp
+set $DNS_KEY
+SCUTIL
+}
+clear_dns() {
+  scutil <<SCUTIL
+remove $DNS_KEY
+SCUTIL
+}
+
+case "${reason:-}" in
+connect)
+  log "connect tun=${TUNDEV:-?} address=${INTERNAL_IP4_ADDRESS:-?}"
+  if [ -n "${TUNDEV:-}" ] && [ -n "${INTERNAL_IP4_ADDRESS:-}" ]; then
+    ifconfig "$TUNDEV" inet "$INTERNAL_IP4_ADDRESS" "$INTERNAL_IP4_ADDRESS" netmask 255.255.255.255 up || true
+    ifconfig "$TUNDEV" mtu "${INTERNAL_IP4_MTU:-1356}" || true
+  fi
+  pin_apm
+  if [ -n "${TUNDEV:-}" ]; then
+    route delete -net 131.112.0.0/16 2>/dev/null || true
+    route add -net 131.112.0.0/16 -interface "$TUNDEV" 2>/dev/null || true
+  fi
+  set_dns
+  log "connected"
+  ;;
+attempt-reconnect)
+  # The network changed or the link dropped. The campus resolvers are behind
+  # the tunnel, so until it is back they only make campus names time out, the
+  # APM's included, which a new sign-in needs.
+  pin_apm
+  clear_dns
+  log "reconnecting"
+  ;;
+reconnect)
+  set_dns
+  log "reconnected"
+  ;;
+disconnect)
+  route delete -net 131.112.0.0/16 2>/dev/null || true
+  # A host route left behind points at this network's gateway; on the next
+  # network it would cut the APM off before any tunnel can start.
+  route delete -host "$APM" 2>/dev/null || true
+  if [ -n "${VPNGATEWAY:-}" ] && [ "$VPNGATEWAY" != "$APM" ]; then
+    route delete -host "$VPNGATEWAY" 2>/dev/null || true
+  fi
+  clear_dns
+  log "disconnected"
+  ;;
+esac
+exit 0

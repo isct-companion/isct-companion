@@ -1,0 +1,159 @@
+name: Native Core SDK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - apps/android/**
+      - apps/ios/**
+      - crates/**
+      - bindings/**
+      - scripts/bindings/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/native-sdk.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ISCT_SDK_PROFILE: dev
+
+jobs:
+  ios:
+    name: Swift SDK and iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: native-sdk-ios
+          # Platform checks' caches from main nearly fill the repository's 10 GB.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install host Kotlin compiler
+        run: |
+          if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
+      - name: Rust contracts and lint
+        run: |
+          cargo test -p app-core -p app-ffi --locked -j 2
+          cargo test -p app-ffi --features ocr --locked -j 2
+          cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
+      - name: Swift 6 and Kotlin host clients with OCR
+        run: node scripts/bindings/host-smoke.mjs --ocr
+      - name: Build device and simulator XCFramework
+        run: node scripts/bindings/build-ios.mjs
+      - name: Run real SDK and OCR on iOS Simulator
+        run: node scripts/bindings/ios-smoke.mjs
+      # The same check as iOS release, which otherwise first compiles the app
+      # on a version tag. Last, as the smoke run uses the runner's default Xcode.
+      - name: Compile the app against this SDK
+        working-directory: apps/ios
+        run: |
+          # The app adopts iOS 26 APIs behind availability checks, so it needs
+          # the iOS 26 SDK.
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          xcodegen generate
+          xcodebuild -project IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Debug \
+            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-core-swift-sdk-dev-ci
+          path: bindings/swift/
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Android AAR and emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      NDK_VERSION: 28.2.13676358
+      ANDROID_BUILD_TOOLS: 36.0.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Install build SDKs and host Kotlin compiler
+        run: |
+          # Google's mirror sometimes serves a truncated NDK archive ("Error on
+          # ZipFile unknown archive"); retry instead of failing the job.
+          for attempt in 1 2 3; do
+            # 34 is what the emulator runs; the app compiles against 37.
+            sdkmanager "platforms;android-34" "platforms;android-37.0" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
+              test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" && break
+            test "$attempt" = 3 && exit 1
+            echo "SDK install failed (attempt $attempt); retrying"
+            sleep $((attempt * 15))
+          done
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          if ! command -v kotlinc >/dev/null; then
+            curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
+            unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
+            echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+          fi
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: native-sdk-android
+          # Platform checks' caches from main nearly fill the repository's 10 GB.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build AAR and both native ABIs
+        # x86_64 only so the SDK can load on the runner's emulator; the app
+        # packages arm64 alone.
+        run: node scripts/bindings/build-android.mjs --with-emulator
+      # Android release otherwise first compiles the app on a version tag, which
+      # is where the Kotlin errors of 1.1.9 and 1.3.0 surfaced.
+      - name: Compile the app against this AAR
+        working-directory: apps/android
+        run: ./gradlew :app:compileDebugKotlin --no-daemon
+      - name: Enable Android emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Load AAR on Android ART
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 12
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          emulator-boot-timeout: 300
+          emulator-options: -no-window -gpu software -no-snapshot -noaudio -no-boot-anim
+          script: node scripts/bindings/android-smoke.mjs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-core-android-sdk-dev-ci
+          path: bindings/kotlin/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,13 @@
+# Local OCR data and training environment (scripts/ocr). CUDA wheels:
+#   python -m venv .cache/venv
+#   .cache/venv/Scripts/python -m pip install -r scripts/ocr/requirements.txt \
+#     --extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.5.1
+torchvision==0.20.1
+onnx==1.23.2
+onnxruntime==1.31.0
+numpy==2.5.2
+scipy==1.18.1
+matplotlib==3.11.2
+pillow==12.3.0
+opencv-python==5.0.0.93

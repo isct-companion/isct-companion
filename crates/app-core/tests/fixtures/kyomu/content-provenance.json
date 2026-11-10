@@ -1,0 +1,12 @@
+{
+  "observedDate": "2026-10-16",
+  "scope": "Authenticated catalogue result grid only, with 14 publicly described CSC.T courses. Extracted grid outerHTML; no account header, profile, tokens, hidden form state, or enrolled-course choices. Re-capture through the official search UI; do not edit captured HTML.",
+  "fixtures": [
+    {
+      "file": "course-search.html",
+      "url": "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx?back=0&ZengakuSenmonAll=True&Quarters=3%2C4%2C8&ShinkokuNoS=CSC.T&TermUnit=20262&_search=True",
+      "bytes": 34403,
+      "sha256": "996e46d00e9b515a53c6fcefe6caa3859817505cee940d04becd5774278c84d9"
+    }
+  ]
+}

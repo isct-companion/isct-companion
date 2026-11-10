@@ -1,0 +1,150 @@
+name: Android release
+
+# Builds the Android APK for a version tag and attaches it to the GitHub
+# release the Desktop release workflow opens as a draft for the same tag. Signing
+# secrets are optional: without them the APK is debug-signed (installable,
+# but each CI run signs with a different key, so it cannot update an earlier
+# install). See docs/mobile-release.md for the secrets.
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Attach the APK to this version's draft or published release (e.g. v1.1.9); blank builds only
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NDK_VERSION: 28.2.13676358
+      ANDROID_BUILD_TOOLS: 36.0.0
+      SIGNED: ${{ secrets.ANDROID_KEYSTORE != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Install build SDKs and host Kotlin compiler
+        run: |
+          # Google's mirror sometimes serves a truncated NDK archive; retry.
+          for attempt in 1 2 3; do
+            sdkmanager "platforms;android-37.0" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
+              test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" && break
+            test "$attempt" = 3 && exit 1
+            echo "SDK install failed (attempt $attempt); retrying"
+            sleep $((attempt * 15))
+          done
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          # Always the pinned compiler, so the Core AAR's class metadata does
+          # not follow whatever kotlinc the runner image ships.
+          curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
+          unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
+          echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: android-release
+      - name: Build the Core AAR (release profile)
+        run: node scripts/bindings/build-android.mjs
+      - name: Read the version
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="${RELEASE_TAG_INPUT:-${GITHUB_REF#refs/tags/}}"
+          if [[ "$GITHUB_REF" == refs/tags/* || -n "$RELEASE_TAG_INPUT" ]]; then
+            test "$tag" = "v$version" || { echo 'Tag must match package.json version'; exit 1; }
+            echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          fi
+          # versionCode must grow with every release: 1.1.8 → 10108.
+          IFS=. read -r major minor patch <<< "${version%%-*}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((major * 10000 + minor * 100 + patch))" >> "$GITHUB_ENV"
+      - name: Decode the release keystore
+        if: env.SIGNED == 'true'
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo "$ANDROID_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - name: Build the APK
+        working-directory: apps/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          task=assembleDebug
+          if [[ "$SIGNED" == true ]]; then task=assembleRelease; fi
+          ./gradlew ":app:$task" --no-daemon -PappVersionName="$VERSION" -PappVersionCode="$VERSION_CODE"
+          mkdir -p "$RUNNER_TEMP/apk"
+          if [[ "$SIGNED" == true ]]; then
+            cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/IsctCompanion_${VERSION}_android.apk"
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk/IsctCompanion_${VERSION}_android-debug.apk"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: ${{ runner.temp }}/apk/
+          if-no-files-found: error
+          retention-days: 14
+      # R8's mapping for this signed build, to deobfuscate its crash stacks
+      # (`retrace mapping.txt stack.txt`). Run artifacts expire and are pruned,
+      # so a tagged build also attaches it to its GitHub release below.
+      - uses: actions/upload-artifact@v7
+        if: env.SIGNED == 'true'
+        with:
+          name: android-r8-mapping-${{ env.VERSION }}
+          path: apps/android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach to the GitHub release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Desktop release opens the version's draft as soon as the tag is
+          # pushed and alone creates it, writes its notes and publishes it.
+          # Uploading into the draft (or the published release) keeps this
+          # workflow independent of the desktop builds.
+          tag="$RELEASE_TAG"
+          assets=("$RUNNER_TEMP"/apk/*.apk)
+          if [[ "$SIGNED" == true ]]; then
+            mapping="$RUNNER_TEMP/IsctCompanion_${VERSION}_android-r8-mapping.txt"
+            cp apps/android/app/build/outputs/mapping/release/mapping.txt "$mapping"
+            assets+=("$mapping")
+          fi
+          for _ in $(seq 1 60); do
+            if gh release view "$tag" > /dev/null 2>&1; then
+              gh release upload "$tag" "${assets[@]}" --clobber
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Desktop release opened no release for $tag within 20 minutes; rerun its draft job, then this job. The APK is in this run's artifacts."
+          exit 1

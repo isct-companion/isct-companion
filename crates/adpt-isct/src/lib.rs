@@ -1,0 +1,49 @@
+//! What is particular to Institute of Science Tokyo: parsers for its LMS and
+//! 教務Web pages and its two sign-in providers, the scripts its school pages
+//! run, and its URLs.
+//!
+//! This crate holds no state. It must not open network connections, touch a
+//! platform, or write to SQLite; acquisition, session recovery, downloads and
+//! persistence stay in Core, which depends on this crate directly.
+
+pub mod kyomu;
+pub mod lms;
+pub mod login;
+pub mod scripts;
+pub mod urls;
+
+/// The school's notice when `html`, the page `url` answered with, says that
+/// 教務Web or the LMS is under maintenance now; `None` for any other page.
+/// The one maintenance check of sign-in, verification and reads alike.
+pub fn maintenance_notice(url: &url::Url, html: &str) -> Option<String> {
+    if url.scheme() != "https" {
+        return None;
+    }
+    match url.host_str()? {
+        kyomu::HOST => kyomu::maintenance_notice(html),
+        _ if lms::is_lms_origin(url) => lms::maintenance_notice(html),
+        _ => None,
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct SchoolParseError(String);
+
+impl From<String> for SchoolParseError {
+    fn from(message: String) -> Self {
+        Self(message)
+    }
+}
+
+impl From<&str> for SchoolParseError {
+    fn from(message: &str) -> Self {
+        Self(message.to_string())
+    }
+}
+
+impl From<serde_json::Error> for SchoolParseError {
+    fn from(error: serde_json::Error) -> Self {
+        Self(error.to_string())
+    }
+}

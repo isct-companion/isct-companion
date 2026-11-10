@@ -1,0 +1,167 @@
+{
+  "radius": {
+    "$type": "dimension",
+    "$description": "Corner radius by role. Platforms override the values (platforms/mobile.json), never the names.",
+    "chip": {
+      "$value": "6px",
+      "$description": "Chips and tags"
+    },
+    "block": {
+      "$value": "6px",
+      "$description": "Timetable block"
+    },
+    "column": {
+      "$value": "10px",
+      "$description": "Timetable day column"
+    },
+    "control": {
+      "$value": "10px",
+      "$description": "Buttons, inputs, segmented controls"
+    },
+    "surface": {
+      "$value": "12px",
+      "$description": "Rows, cards, emphasised rows"
+    },
+    "panel": {
+      "$value": "20px",
+      "$description": "Reading pane, sheets"
+    }
+  },
+  "font": {
+    "$type": "fontFamily",
+    "family": {
+      "sans": {
+        "$value": [
+          "Inter",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Hiragino Sans",
+          "Yu Gothic UI",
+          "system-ui",
+          "sans-serif"
+        ],
+        "$description": "Desktop only; phones use the system font for native Japanese rendering and dynamic sizes"
+      }
+    }
+  },
+  "workspace": {
+    "$type": "dimension",
+    "$description": "Desktop workspace chrome: stable headers, inset controls and comfortable split targets.",
+    "bar-height": {
+      "$value": "42px"
+    },
+    "control-height": {
+      "$value": "30px"
+    },
+    "gutter": {
+      "$value": "12px"
+    },
+    "splitter-width": {
+      "$value": "20px"
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "$description": "Spacing by role. Phones override the values (platforms/mobile.json).",
+    "gutter": {
+      "$value": "20px",
+      "$description": "Page side margin"
+    },
+    "row-x": {
+      "$value": "16px",
+      "$description": "List row, horizontal padding"
+    },
+    "row-y": {
+      "$value": "10px",
+      "$description": "List row, vertical padding"
+    },
+    "row-gap": {
+      "$value": "12px",
+      "$description": "Between rows and between a row's leading mark and its text"
+    },
+    "card": {
+      "$value": "18px",
+      "$description": "Card padding"
+    }
+  },
+  "type": {
+    "$description": "Desktop type scale by role; phones map the same roles to system text styles (Theme.swift, Theme.kt) so Dynamic Type and font scale apply.",
+    "display": {
+      "size": {
+        "$type": "dimension",
+        "$value": "40px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 700
+      },
+      "$description": "Hero figures"
+    },
+    "title": {
+      "size": {
+        "$type": "dimension",
+        "$value": "19px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 700
+      },
+      "$description": "Page title"
+    },
+    "section": {
+      "size": {
+        "$type": "dimension",
+        "$value": "12px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 600
+      },
+      "$description": "Section header, muted"
+    },
+    "row": {
+      "size": {
+        "$type": "dimension",
+        "$value": "14px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500
+      },
+      "$description": "Row title"
+    },
+    "note": {
+      "size": {
+        "$type": "dimension",
+        "$value": "12px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400
+      },
+      "$description": "Secondary text, captions"
+    },
+    "block": {
+      "size": {
+        "$type": "dimension",
+        "$value": "11px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 600
+      },
+      "$description": "Timetable block text and tags"
+    },
+    "tick": {
+      "size": {
+        "$type": "dimension",
+        "$value": "10px"
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400
+      },
+      "$description": "Time ticks beside the grid"
+    }
+  }
+}

@@ -1,0 +1,85 @@
+use crate::events::CoreEvent;
+use thiserror::Error;
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum EventError {
+    #[error("{0}")]
+    Delivery(String),
+}
+
+pub trait EventSink: Send + Sync {
+    fn emit(&self, event: CoreEvent) -> Result<(), EventError>;
+}
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum SecretError {
+    #[error("Native vault callback failed: {0}")]
+    Callback(String),
+    #[error("Secret account is not allowed.")]
+    InvalidAccount,
+    #[error("Secret payload is invalid.")]
+    InvalidPayload,
+    #[error("{0}")]
+    Access(String),
+}
+
+pub trait SecretVault: Send + Sync {
+    fn store(&self, account: &str, secret: &str) -> Result<(), SecretError>;
+    fn load(&self, account: &str) -> Result<Option<String>, SecretError>;
+    fn delete(&self, account: &str) -> Result<(), SecretError>;
+    /// The longest secret one item holds, in UTF-16 code units; `None` on a
+    /// platform without such a limit. Core spreads a long saved session over
+    /// several items only under a limit (`secret_parts`).
+    fn item_limit(&self) -> Option<usize> {
+        None
+    }
+}
+
+/// Keychain service every shell stores its secrets under.
+pub const VAULT_SERVICE: &str = "app.isctcompanion";
+
+/// Where a vault account lives in the platform keychain. Shells use the same
+/// identity, so a school login synchronized through iCloud Keychain on one
+/// Apple device signs in on the others.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultItem {
+    pub service: &'static str,
+    pub key: String,
+    /// School logins follow the person across devices; OAuth tokens, the
+    /// credential-sync password and Core's school sessions stay on the device.
+    pub synchronized: bool,
+}
+
+/// The keychain key of `account` under an application identifier. Desktop also
+/// reads the identifiers of earlier releases through this.
+pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
+    let suffix = match account {
+        "school-accounts" => "passwords.school-accounts",
+        "school-sign-out-science"
+        | "school-sign-out-tokyo-tech"
+        | "school-accepted-science"
+        | "school-accepted-tokyo-tech" => return Ok(format!("{app_id}.passwords.{account}")),
+        "school-refusals" => "passwords.school-refusals",
+        // An earlier release's device item; Core only deletes it.
+        "school-candidates" => "passwords.school-candidates",
+        "google-drive" => "passwords.google-drive",
+        "icloud" => "passwords.icloud",
+        "cloud-credential-sync" => "passwords.cloud-credential-sync",
+        "lms-token-science" => "passwords.lms-token-science",
+        "school-session-science" => "passwords.school-session-science",
+        "school-session-tokyo-tech" => "passwords.school-session-tokyo-tech",
+        part if crate::secret_parts::is_part(part) => {
+            return Ok(format!("{app_id}.passwords.{part}"))
+        }
+        _ => return Err(SecretError::InvalidAccount),
+    };
+    Ok(format!("{app_id}.{suffix}"))
+}
+
+pub fn vault_item(account: &str) -> Result<VaultItem, SecretError> {
+    Ok(VaultItem {
+        service: VAULT_SERVICE,
+        key: vault_key(VAULT_SERVICE, account)?,
+        synchronized: account == "school-accounts",
+    })
+}

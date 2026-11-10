@@ -1,0 +1,148 @@
+//! Credential commands keep potentially interactive OS vault calls off the UI thread.
+use crate::require_local_main;
+use crate::{coded, CommandError};
+use app_core::school_auth::{
+    SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus,
+    SchoolCredentials,
+};
+use std::sync::Arc;
+use tauri_plugin_clipboard_manager::ClipboardExt;
+
+// Do not share the database command gate: a Keychain prompt must never block
+// workspace loading. SchoolAuthService already serializes credential changes.
+async fn with_credentials<T: Send + 'static>(
+    service: Arc<SchoolAuthService>,
+    operation: impl FnOnce(&SchoolAuthService) -> Result<T, SchoolAuthError> + Send + 'static,
+) -> Result<T, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || operation(&service))
+        .await
+        .map_err(|_| "The credential operation stopped unexpectedly.".to_string())?
+        .map_err(coded)
+}
+
+#[tauri::command]
+pub(crate) async fn school_credential_status(
+    webview: tauri::Webview,
+    service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
+) -> Result<SchoolCredentialStatus, CommandError> {
+    require_local_main(&webview)?;
+    with_credentials(service.inner().clone(), |service| service.status()).await
+}
+
+/// Settings' "Save and connect": Core signs in with the entered credentials,
+/// saves them once the school accepts them, and says how it ended.
+#[tauri::command]
+pub(crate) async fn connect_school(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    profile: SchoolAuthProfile,
+    credentials: SchoolCredentials,
+) -> Result<app_core::school_session::SchoolConnectOutcome, CommandError> {
+    require_local_main(&webview)?;
+    let core = crate::core_ports::core(&app);
+    crate::core_ports::runtime(&app)
+        .run(async move { core.connect_school(profile, credentials).await })
+        .await
+        .map_err(coded)?
+        .map_err(coded)
+}
+
+#[tauri::command]
+pub(crate) async fn delete_school_credentials(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    profile: SchoolAuthProfile,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    let core = crate::core_ports::core(&app);
+    crate::core_ports::runtime(&app)
+        .run(async move { core.delete_credentials(profile).await })
+        .await
+        .map_err(coded)?
+        .map_err(coded)
+}
+
+/// The account's Retry: Core reads the saved credentials again and signs in
+/// once with them, through a refusal on record.
+#[tauri::command]
+pub(crate) async fn retry_school(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    profile: SchoolAuthProfile,
+) -> Result<app_core::school_session::SchoolSessionSnapshot, CommandError> {
+    require_local_main(&webview)?;
+    let core = crate::core_ports::core(&app);
+    crate::core_ports::runtime(&app)
+        .run(async move { core.retry_school(profile).await })
+        .await
+        .map_err(coded)
+}
+
+/// Export the current draft or saved OTP setup directly to the OS clipboard.
+#[tauri::command]
+pub(crate) async fn copy_school_otp(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    auth: tauri::State<'_, Arc<SchoolAuthService>>,
+    setup: Option<String>,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    let text = with_credentials(auth.inner().clone(), move |auth| {
+        auth.otp_setup_text(setup.as_deref())
+    })
+    .await?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "settings.otp.clipboardFailed".to_string())?;
+    Ok(true)
+}
+
+/// The same export as a QR code. The WebView receives only the SVG, and
+/// only while the user has the QR dialog open.
+#[tauri::command]
+pub(crate) async fn school_otp_qr(
+    webview: tauri::Webview,
+    auth: tauri::State<'_, Arc<SchoolAuthService>>,
+    setup: Option<String>,
+) -> Result<String, CommandError> {
+    require_local_main(&webview)?;
+    with_credentials(auth.inner().clone(), move |auth| {
+        auth.otp_setup_qr(setup.as_deref())
+    })
+    .await
+}
+
+/// Copies the saved Matrix directly from the vault to the system clipboard,
+/// so the plaintext never passes through the WebView.
+#[tauri::command]
+pub(crate) async fn copy_school_matrix(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    let text = with_credentials(auth.inner().clone(), |auth| auth.matrix_text()).await?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "Matrix could not be copied to the clipboard.".to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub(crate) fn school_session_snapshot(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<app_core::school_session::SchoolSessionSnapshot, CommandError> {
+    require_local_main(&webview)?;
+    Ok(crate::core_ports::core(&app).school_session())
+}
+
+/// Import is local parsing only; saving still requires the credential intent.
+#[tauri::command]
+pub(crate) fn import_school_otp(
+    webview: tauri::Webview,
+    payload: String,
+) -> Result<Vec<app_core::school_auth::OtpImportAccount>, CommandError> {
+    require_local_main(&webview).map_err(|_| app_core::school_auth::OtpImportError::Invalid)?;
+    Ok(app_core::school_auth::import_otp(&payload)?)
+}

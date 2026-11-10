@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = ["apps/desktop/src-tauri", "crates/adpt-cups", "crates/adpt-isct", "crates/adpt-printer", "crates/app-core", "crates/app-ocr", "crates/app-ffi", "crates/vpn-helper", "crates/vpn-protocol"]
+default-members = ["apps/desktop/src-tauri"]
+
+[profile.release]
+panic = "unwind"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# Keep local rebuilds compact; the desktop bundle still retains line tables.
+[profile.dev]
+debug = 1
+incremental = false
+
+# Camera feedback must remain interactive in development too. Keep the shell
+# debuggable while optimizing the pixel loops and JPEG decoder used by OCR.
+[profile.dev.package.app-ocr]
+opt-level = 3
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.imageproc]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.test]
+debug = 1
+incremental = false

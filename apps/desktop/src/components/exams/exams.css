@@ -1,0 +1,153 @@
+.examCards {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+/* The course is the small square every list uses, at the card's corner. */
+.examCard {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 12px 12px 12px 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
+  min-width: 0;
+}
+.examCard::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  left: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--course);
+}
+/* A class session from the exam timetable, not an exam. */
+.examCard.examWeekClass {
+  border-style: dashed;
+}
+.lectureRow.examWeekClass b {
+  font-weight: 500;
+}
+.examConflictTag,
+.lectureRow .examConflictTag {
+  color: var(--warn);
+  font-weight: 700;
+}
+/* The published exam moved after the user's edit: both values and the two
+   ways out. */
+.examConflict {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  border-radius: 10px;
+  background: var(--warn-soft);
+}
+.examConflict b {
+  color: var(--warn);
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.examEditor .examConflict p {
+  color: var(--ink);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.examConflict .examEditorActions {
+  justify-content: flex-start;
+}
+.examCardHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+}
+.examCard b,
+.examCourseLink {
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.examCard small {
+  font-size: calc(var(--type-block-size) * var(--text));
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.examCard time {
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.examCourseLink {
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.examCourseLink:hover {
+  color: var(--accent);
+}
+.examEditor,
+.examEditor form {
+  display: grid;
+  gap: 14px;
+}
+.examEditor .examEditorNote {
+  margin-top: -8px;
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.examEditor p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.examEditorTimes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.examEditorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.lectureExamScope {
+  margin-bottom: 12px;
+}
+.lectureExamScope p {
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.lectureCourseContent {
+  height: 100%;
+}
+.lectureExamDetails {
+  height: 100%;
+  overflow: auto;
+  padding: 18px 24px;
+}
+.lectureExamDetails > header {
+  margin: 20px 0 24px;
+}
+.lectureExamDetails h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.lectureExamDetails > header p {
+  color: var(--muted);
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.lectureExamDetails .examEditor {
+  max-width: 560px;
+}
+.lectureRow.exam {
+  grid-template-columns: minmax(0, 1fr);
+}
+.lectureExamScope > small {
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+}

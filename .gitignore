@@ -1,0 +1,74 @@
+# Dependencies and build output
+node_modules/
+.yarn/
+dist/
+target/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+# The LiteRT DLL app-ocr fetches for Windows bundles (crates/app-ocr/build.rs).
+apps/desktop/src-tauri/vendor/
+*.tsbuildinfo
+coverage/
+
+# Local tool and assistant state
+.cache/
+.claude/*
+!.claude/skills/
+.codex/
+.agents/
+*.ses
+:memory:.ses
+
+# Local previews, QA output, and temporary files
+artifacts/
+tmp/
+work/
+ref-demo/
+reference-demo/
+
+# Secrets and machine-local configuration
+.signing/
+.apple_key/
+.env
+.env.*
+!.env.example
+*.pem
+# Public CA certificates Core vendors for TLS (net/tls.rs), not secrets.
+!crates/app-core/src/net/certs/*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+GoogleService-Info.plist
+google-services.json
+credentials.json
+secrets.json
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.swp
+__pycache__/
+
+# Future native-shell build outputs
+apps/ios/build/
+apps/android/.gradle/
+apps/android/**/build/
+apps/android/.kotlin/
+apps/android/local.properties
+bindings/**/build/
+
+# Generated native bindings and binary SDK packages
+bindings/swift/artifacts/
+bindings/swift/.build/
+bindings/swift/Sources/IsctCore/Generated.swift
+bindings/kotlin/src/main/kotlin/app/isctcompanion/core/app_ffi.kt
+bindings/kotlin/artifacts/
+
+# Local encrypted updater signing key and public companion file
+.update/
+.project/run/
+# Built by scripts/desktop/bundle-vpn.mjs
+apps/desktop/src-tauri/resources/vpn/

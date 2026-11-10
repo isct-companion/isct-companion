@@ -1,0 +1,213 @@
+import IsctCore
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// バックアップ: the desktop's Backup settings on the phone. iCloud carries the
+/// same record the Mac app writes and Google Drive the one every platform
+/// writes, so any device sharing a provider loads the others' data; a backup
+/// file moves data between any two devices. Core owns every rule
+/// (what uploads, how copies merge, what a restore keeps); this renders its
+/// journal and forwards the person's choices.
+struct BackupScreen: View {
+    @Environment(AppModel.self) private var model
+    @State private var busy = false
+    @State private var confirm: Confirmation?
+    @State private var exporting: ExportFile?
+    @State private var importing = false
+    @State private var notice: String?
+
+    private var state: SyncState? { model.cloud }
+    private var providers: [ProviderState] { state?.providers ?? [] }
+    private var locked: Bool { busy || state?.syncing == true }
+
+    var body: some View {
+        Form {
+            Group {
+                syncSection
+                if let versions = state?.versions, !versions.isEmpty {
+                    Section {
+                        ForEach(versions.sorted { $0.savedAt > $1.savedAt }, id: \.id) { version in
+                            restoreRow(Format.due(version.savedAt), detail: version.device, id: version.id, savedAt: version.savedAt)
+                        }
+                    } header: {
+                        Text(t("settings.backup.earlierVersions"))
+                    } footer: {
+                        Text(t("settings.backup.historyKeepsHourlyThenDaily"))
+                    }
+                }
+                Section {
+                    Button(t("settings.backup.export")) { Task { await export() } }
+                    Button(t("settings.backup.import")) { importing = true }
+                } header: {
+                    Text(t("settings.backup.backupFile"))
+                } footer: {
+                    Text(t("settings.backup.schoolLoginsSyncWithICloud"))
+                }
+            }
+            .themedRows()
+        }
+        .themedList()
+        .navigationTitle(t("settings.main.backup"))
+        .navigationBarTitleDisplayMode(.inline)
+        .disabled(busy)
+        .task { await model.refreshCloud() }
+        .confirmationDialog(
+            confirm?.message ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
+            titleVisibility: .visible, presenting: confirm
+        ) { confirmation in
+            Button(t("common.restore"), role: .destructive) { Task { await confirmation.action() } }
+        }
+        .fileExporter(
+            isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
+            document: exporting, contentType: .json, defaultFilename: "IsctCompanion.json"
+        ) { _ in exporting = nil }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+            guard case let .success(url) = result else { return }
+            confirm = Confirmation(
+                message: t("settings.backup.restoreThisFileOnAll")
+            ) { await importFile(url) }
+        }
+        .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder private var syncSection: some View {
+        Section {
+            ForEach(providers, id: \.provider) { provider in
+                Toggle(isOn: Binding(
+                    get: { provider.enabled },
+                    set: { on in run { await model.setCloudEnabled(provider.provider, on) } })
+                ) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Self.name(provider.provider))
+                        if let detail = detail(provider) {
+                            Text(detail).font(.subheadline)
+                                .foregroundStyle(provider.error == nil ? Theme.muted : Theme.danger)
+                        }
+                    }
+                }
+                .disabled(locked)
+            }
+            if providers.contains(where: \.enabled) {
+                Toggle(isOn: Binding(
+                    get: { state?.automatic ?? false },
+                    set: { on in run { await model.setCloudAutomatic(on) } })
+                ) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t("settings.backup.syncAutomatically"))
+                        Text(state?.automatic == true
+                            ? t("settings.backup.pullsOtherDevicesChangesWhen")
+                            : t("settings.backup.uploadAndPullByHand"))
+                            .font(.subheadline).foregroundStyle(Theme.muted)
+                    }
+                }
+                .disabled(locked)
+                HStack {
+                    Button(t("settings.backup.upload")) { run { await model.syncCloud(.upload) } }
+                        .buttonStyle(.borderless)
+                    Spacer()
+                    if state?.syncing == true {
+                        ProgressView()
+                        Text(t("settings.backup.syncing")).foregroundStyle(Theme.muted)
+                        Spacer()
+                    }
+                    Button(t("settings.backup.pull")) { run { await model.syncCloud(.pull) } }
+                        .buttonStyle(.borderless)
+                }
+                .disabled(locked)
+            }
+        } header: {
+            Text(t("settings.backup.sync"))
+        }
+    }
+
+    private static func name(_ provider: CloudProvider) -> String {
+        switch provider {
+        case .icloud: "iCloud"
+        case .googleDrive: "Google Drive"
+        }
+    }
+
+    private func detail(_ provider: ProviderState) -> String? {
+        // The provider's own reason (signed out, declined sign-in, offline):
+        // without it every failure looks the same. A declined sign-in leaves
+        // the switch off with its reason.
+        if let error = provider.error {
+            return t("settings.backup.couldNotUpdateThisCloud") + "\n" + error
+        }
+        guard provider.enabled else { return nil }
+        return provider.lastSyncedAt.map { t("settings.backup.syncedDate", ["date": Format.due($0)]) }
+            ?? t("settings.backup.waitingForTheFirstSync")
+    }
+
+    private func restoreRow(_ title: String, detail: String?, id: String, savedAt: String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
+            }
+            Spacer()
+            Button(t("common.restore")) {
+                confirm = Confirmation(message: t(
+                    "settings.backup.restoreTheVersionFromDate",
+                    ["date": Format.due(savedAt)])
+                ) {
+                    await model.restoreCloud(id)
+                    notice = t("settings.backup.restoredTheEarlierVersion")
+                }
+            }
+            .buttonStyle(.borderless)
+            // Core refuses a restore while a transfer is unfinished.
+            .disabled(locked)
+        }
+    }
+
+    private func run(_ work: @escaping () async -> Void) {
+        Task {
+            busy = true
+            await work()
+            busy = false
+        }
+    }
+
+    private func export() async {
+        guard let text = await model.exportBackup() else { return }
+        exporting = ExportFile(data: Data(text.utf8))
+    }
+
+    private func importFile(_ url: URL) async {
+        busy = true
+        defer { busy = false }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try await model.importBackup(try Data(contentsOf: url))
+            notice = t("settings.backup.backupRestored")
+        } catch {
+            notice = t("settings.backup.importFailedReason", ["reason": AppModel.describe(error)])
+        }
+    }
+}
+
+private struct Confirmation {
+    let message: String
+    let action: () async -> Void
+}
+
+/// An exported file (workspace backup, application logs), handed to the
+/// system's save sheet.
+struct ExportFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.json, .plainText]
+    let data: Data
+
+    init(data: Data) { self.data = data }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}

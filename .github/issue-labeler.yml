@@ -1,0 +1,12 @@
+# Issue labels, read by .github/workflows/triage-labels.yml. Each regex reads
+# the answer under the bug report's Platform heading, not the rest of the body.
+# Keep the names in step with .github/ISSUE_TEMPLATE/bug_report.yml.
+
+area:desktop:
+  - '#{2,3} Platform[^\n]*\s+[^\n]*(macOS|Windows)'
+
+area:ios:
+  - '#{2,3} Platform[^\n]*\s+[^\n]*(iPhone|iPad)'
+
+area:android:
+  - '#{2,3} Platform[^\n]*\s+[^\n]*Android'

@@ -1,0 +1,78 @@
+.page.tools {
+  overflow: auto;
+  padding: 4px 4px 24px 0;
+}
+.page.tools > h2 {
+  margin: 0 0 16px;
+}
+.toolCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  max-width: 960px;
+}
+.toolCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.toolCard > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.toolCard > header > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.toolCard h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 600;
+}
+.toolCardStatus {
+  display: grid;
+  gap: 2px;
+  font-size: calc(var(--type-row-size) * var(--text));
+  overflow-wrap: anywhere;
+}
+.toolCardNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* Actions sit on one line across the row of cards, however long the text is. */
+.toolCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* Signed in or connected: the button stays green. */
+.button.toolConnected,
+.button.toolConnected:disabled {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+  opacity: 1;
+}
+.button.toolConnected:disabled {
+  cursor: default;
+}
+.toolProgress {
+  margin-top: 6px;
+}
