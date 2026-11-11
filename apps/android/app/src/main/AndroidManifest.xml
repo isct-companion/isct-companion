@@ -12,6 +12,10 @@
     <!-- Live Matrix card scanning; optional so camera-less devices can install. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- The campus map's blue dot, asked for when the map first opens; only
+         while the app is in use, never in the background. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <application
         android:name=".IsctApplication"
@@ -26,6 +30,11 @@
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="barcode" />
+        <!-- The campus map's base map (Maps SDK for Android); the key comes
+             from the build (app/build.gradle.kts `mapsApiKey`). -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${mapsApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

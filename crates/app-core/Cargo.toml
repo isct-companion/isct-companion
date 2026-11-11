@@ -16,7 +16,7 @@ ts = ["dep:ts-rs", "adpt-isct/ts"]
 # The campus printer; desktop only, the phones never print to it.
 campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "tokio/net"]
 # The campus map: its Isct-Data file, room matching and floor read models;
-# only the iOS bindings switch it on for now.
+# the iOS and Android bindings switch it on, desktop does not.
 campus-map = ["dep:flate2"]
 
 [dependencies]

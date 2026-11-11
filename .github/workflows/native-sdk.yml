@@ -52,7 +52,7 @@ jobs:
         run: |
           cargo test -p app-core -p app-ffi --locked -j 2
           cargo test -p app-ffi --features ocr --locked -j 2
-          # The campus map is compiled into the iOS SDK only; its lint runs
+          # The campus map is compiled into the phone SDKs only; its lint runs
           # with the feature. Its data is checked in the map's own repository.
           cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
           cargo clippy -p app-core -p app-ffi --features campus-map --all-targets --locked -j 2 -- -D warnings

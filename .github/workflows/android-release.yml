@@ -97,6 +97,9 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # The campus map's base map; without the secret the APK still
+          # builds and the map draws the campus over an empty base map.
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: |
           task=assembleDebug
           if [[ "$SIGNED" == true ]]; then task=assembleRelease; fi

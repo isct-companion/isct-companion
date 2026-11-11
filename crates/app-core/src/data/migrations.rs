@@ -25,7 +25,7 @@ const USER_WITH_PLANS_VERSION: i64 = 2;
 /// new generation, never in their own file.
 pub(super) const READABLE_USER_VERSIONS: std::ops::RangeInclusive<i64> =
     USER_IDENTITY_MAP_VERSION..=USER_SCHEMA_VERSION;
-/// The school tables' format. A build with the campus map (iOS) has one
+/// The school tables' format. A build with the campus map (iOS, Android) has one
 /// table more, `campus_map`, so its format is one more; every other build
 /// never creates that table. A store belongs to one build, and a store of
 /// another format has its cache rebuilt like any format change. A change to

@@ -4,6 +4,7 @@ import app.isctcompanion.design.SkeletonRows
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -83,6 +85,7 @@ import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
+import app.isctcompanion.features.map.RoomMapButton
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -136,6 +139,7 @@ fun CourseDetailScreen(courseId: String) {
                     exam.conflict?.let { ExamConflictLabel(it) }
                 }
                 Links(detail, title)
+                RoomLinks(course)
             }
             val lessons = content?.lessons.orEmpty()
             if (lessons.isNotEmpty()) {
@@ -376,18 +380,37 @@ private fun Links(detail: CourseDetail?, title: String) {
     }
 }
 
+/** The way to the campus map, one chip per distinct room string in meeting
+ * order; a chip shows only once Core can place its string. */
 @Composable
-private fun LinkChip(title: String, icon: ImageVector, onClick: () -> Unit) {
+private fun RoomLinks(course: JSONObject) {
+    val meetings = course.optJSONArray("meetings")
+    val rooms = (0 until (meetings?.length() ?: 0))
+        .mapNotNull { meetings?.optJSONObject(it)?.text("room")?.takeIf { room -> room.isNotEmpty() } }
+        .distinct()
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (room in rooms) {
+            RoomMapButton(room, Modifier.clip(CircleShape)) { LinkChip(room, Icons.Rounded.Map) }
+        }
+    }
+}
+
+/** A capsule link; without [onClick] it is the label of a button around it. */
+@Composable
+private fun LinkChip(title: String, icon: ImageVector, onClick: (() -> Unit)? = null) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
             .clip(CircleShape)
             .background(Theme.colors.accentSoft)
-            .clickable(onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
         Icon(icon, null, tint = Theme.colors.accent, modifier = Modifier.size(14.dp))
-        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.accent)
+        Text(
+            title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+            color = Theme.colors.accent, maxLines = 1,
+        )
     }
 }

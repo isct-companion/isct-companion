@@ -1,0 +1,13 @@
+<!-- Converted from apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/rest-room.imageset/rest-room.svg; tinted where drawn. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2.500 5a1.200 1.200 0 0 1 2.400 0v8.500H11V9.200A1.200 1.200 0 0 1 12.200 8H18a3.500 3.500 0 0 1 3.500 3.500v8a1.200 1.200 0 0 1-2.400 0V18H4.900v1.500a1.200 1.200 0 0 1-2.400 0Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5,10.3a2.3,2.3 0 1,0 4.6,0a2.3,2.3 0 1,0 -4.6,0Z" />
+</vector>

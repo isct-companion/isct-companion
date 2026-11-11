@@ -184,7 +184,8 @@ pub struct CampusMapLink {
     pub entrance: bool,
     /// The entrance's name, when the export names it.
     pub name: Option<String>,
-    /// `https://maps.apple.com/?ll=…&q=…`.
+    /// `https://maps.apple.com/?ll=…&q=…`; on Android `geo:0,0?q=…`, which
+    /// the person's maps app opens.
     pub url: String,
 }
 

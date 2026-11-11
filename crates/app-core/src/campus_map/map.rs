@@ -102,6 +102,7 @@ pub(super) fn rect_bounds(rect: geometry::Rect) -> CampusMapBounds {
 }
 
 /// A pin in Apple Maps at `position`, titled `label`.
+#[cfg(not(target_os = "android"))]
 pub(super) fn maps_url(position: Position, label: &str) -> String {
     url::Url::parse_with_params(
         "https://maps.apple.com/",
@@ -112,6 +113,16 @@ pub(super) fn maps_url(position: Position, label: &str) -> String {
     )
     .map(|url| url.to_string())
     .unwrap_or_default()
+}
+
+/// A pin at `position`, titled `label`, as Android's `geo:` link: the maps
+/// app the person uses opens it. The label is percent-encoded, spaces too.
+#[cfg(target_os = "android")]
+pub(super) fn maps_url(position: Position, label: &str) -> String {
+    let label = url::form_urlencoded::byte_serialize(label.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20");
+    format!("geo:0,0?q={:.7},{:.7}({label})", position[1], position[0])
 }
 
 /// The zoom level a camera shows: 256-point tiles across `width_points`.

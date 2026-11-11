@@ -1,0 +1,11 @@
+<!-- Converted from apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/aed.imageset/aed.svg; tinted where drawn. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12 21.500S2.500 15.800 2.500 8.800A5 5 0 0 1 12 6.400a5 5 0 0 1 9.500 2.400c0 7-9.500 12.700-9.500 12.700Zm1.200-14.300-4.400 6.500h2.800l-.8 4.100 4.400-6.500h-2.800Z" />
+</vector>

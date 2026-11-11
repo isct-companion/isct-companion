@@ -1,0 +1,34 @@
+<!-- Converted from apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/restroom.imageset/restroom.svg; tinted where drawn. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <group
+        android:translateX="-3.9"
+        android:translateY="2.2"
+        android:scaleX="0.82"
+        android:scaleY="0.82">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M9.4,4.4a2.6,2.6 0 1,0 5.2,0a2.6,2.6 0 1,0 -5.2,0Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M9.6 8h4.8A2.6 2.6 0 0 1 17 10.6V15.4h-2V22h-2.2v-6.4h-1.6V22H9v-6.6H7v-4.8A2.6 2.6 0 0 1 9.6 8Z" />
+    </group>
+    <group
+        android:translateX="8"
+        android:translateY="2.2"
+        android:scaleX="0.82"
+        android:scaleY="0.82">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M9.4,4.4a2.6,2.6 0 1,0 5.2,0a2.6,2.6 0 1,0 -5.2,0Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M10.5 8h3a2 2 0 0 1 1.9 1.4L18 17h-3v5h-2.2v-5h-1.6v5H9v-5H6l2.6-7.6A2 2 0 0 1 10.5 8Z" />
+    </group>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,3h0a0.55,0.55 0 0,1 0.55,0.55v16.9a0.55,0.55 0 0,1 -0.55,0.55h0a0.55,0.55 0 0,1 -0.55,-0.55v-16.9a0.55,0.55 0 0,1 0.55,-0.55Z" />
+</vector>

@@ -524,6 +524,37 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun assignmentDetail(id: String): AssignmentDetail? =
         (query(WorkspaceQuery.AssignmentDetail(id)) as? WorkspaceQueryResult.AssignmentDetail)?.v1
 
+    // Campus map
+
+    /** Whether Core's map knows a room string; false (also before Core has
+     * the map's file) means no map button. */
+    suspend fun campusMapHas(room: String): Boolean {
+        val session = session ?: return false
+        if (room.isEmpty()) return false
+        val result = runCatching { session.campusMapHas(room).value() }.getOrNull()
+        return (result as? OperationResult.Flag)?.value == true
+    }
+
+    /** Opens Core's map page on a room string; null when Core has no map
+     * file (the page then says the map is unavailable). */
+    suspend fun campusMapOpen(room: String): CampusMapScene? {
+        val session = session ?: return null
+        val result = runCatching { session.campusMapOpen(room).value() }.getOrNull()
+        return (result as? OperationResult.CampusMapScene)?.scene
+    }
+
+    /** One intent on an open map page; null when nothing drawn changed. */
+    suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
+        val session = session ?: return null
+        val result = runCatching { session.campusMapSend(page, intent).value() }.getOrNull()
+        return (result as? OperationResult.CampusMapScene)?.scene
+    }
+
+    /** Drops Core's map page, and its open if it is still loading. */
+    fun campusMapClose() {
+        session?.campusMapClose()
+    }
+
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
         (query(WorkspaceQuery.WorkspaceOverview(term)) as? WorkspaceQueryResult.WorkspaceOverview)?.v1
