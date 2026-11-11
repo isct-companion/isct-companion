@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -51,7 +53,7 @@ configurations.configureEach {
 // Core's campus over an empty base map.
 val mapsApiKey = providers.environmentVariable("MAPS_API_KEY").orNull
     ?: rootDir.resolve("local.properties").takeIf { it.exists() }?.let { file ->
-        java.util.Properties().apply { file.inputStream().use(::load) }.getProperty("MAPS_API_KEY")
+        Properties().apply { file.inputStream().use { load(it) } }.getProperty("MAPS_API_KEY")
     }
     ?: ""
 
