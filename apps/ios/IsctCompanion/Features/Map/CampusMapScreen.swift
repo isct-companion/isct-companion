@@ -65,8 +65,8 @@ struct CampusMapScreen: View {
     @State private var cardExpansion: CGFloat = 1
     @State private var cardDragStart: CGFloat?
     @GestureState private var draggingCard = false
-    /// The collapsed panel fits the panel header, including at larger text sizes.
-    @State private var headerHeight: CGFloat = 64
+    @State private var cardHeaderHeight: CGFloat = 64
+    @State private var searchHeaderHeight: CGFloat = 64
     @ScaledMetric(relativeTo: .subheadline) private var cardDetailsHeight: CGFloat = 96
     @ScaledMetric(relativeTo: .body) private var minimumResultHeight: CGFloat = 64
     @State private var firstResultHeight: CGFloat = 0
@@ -94,6 +94,7 @@ struct CampusMapScreen: View {
 
     private var searching: Bool { searchFocused || !query.isEmpty }
     private var showsCard: Bool { scene?.card != nil && !searching }
+    private var headerHeight: CGFloat { showsCard ? cardHeaderHeight : searchHeaderHeight }
 
     private var height: CampusMapPanelHeight {
         if searching { return .search }
@@ -140,13 +141,13 @@ struct CampusMapScreen: View {
                 .ignoresSafeArea()
             GeometryReader { proxy in
                 ZStack(alignment: .top) {
-                    mapControls(in: proxy)
                     if !wide {
                         bottomPanel(available: proxy.size.height)
                             .padding(.horizontal, CampusMapChrome.pageInset)
                             .padding(.bottom, CampusMapChrome.controlGap)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     }
+                    mapControls(in: proxy)
                 }
             }
         }
@@ -205,7 +206,13 @@ struct CampusMapScreen: View {
             guard scene?.page == page else { return }
             let next = await model.campusMapSend(page, intent)
             guard let current = scene, current.page == page else { return }
-            if let next, next.revision > current.revision { scene = next }
+            if let next, next.revision > current.revision {
+                if case .clear = intent, current.card != nil, next.card == nil {
+                    withAnimation(cardSpring) { scene = next }
+                } else {
+                    scene = next
+                }
+            }
             completion?(next)
         }
     }
@@ -325,7 +332,7 @@ struct CampusMapScreen: View {
             .frame(height: panelHeight, alignment: .top)
             .clipShape(shape)
             .floatingGlass(in: shape)
-            .contentShape(shape)
+            .contentShape(.interaction, shape)
             .animation(cardSpring, value: searching)
             .transaction { if reduceMotion { $0.animation = nil } }
             .background {
@@ -342,22 +349,23 @@ struct CampusMapScreen: View {
     /// Core's card takes the search results' place.
     private func panel(detailHeight: CGFloat?) -> some View {
         VStack(spacing: 0) {
-            Group {
-                if let card = scene?.card, !searching {
+            ZStack(alignment: .top) {
+                // Keep the search header measured for the transition from a place.
+                searchHeader
+                    .modifier(CampusMapPanelHeader(height: $searchHeaderHeight))
+                    .opacity(showsCard ? 0 : 1)
+                    .allowsHitTesting(!showsCard)
+                    .accessibilityHidden(showsCard)
+                if let card = scene?.card, showsCard {
                     VStack(spacing: 0) {
                         if let detailHeight { cardGrabber(travel: detailHeight) }
                         cardHeader(card)
                     }
-                } else {
-                    searchHeader
+                    .modifier(CampusMapPanelHeader(height: $cardHeaderHeight))
+                    .transition(.opacity)
                 }
             }
-            .padding(.horizontal, Theme.cardPadding)
-            .padding(.vertical, 10)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
-                if measured > 0, abs(measured - headerHeight) > 0.5 { headerHeight = measured }
-            }
+            .frame(height: headerHeight, alignment: .top)
 
             panelBody(detailHeight: detailHeight)
         }
@@ -453,7 +461,9 @@ struct CampusMapScreen: View {
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            Button(action: closeCard) {
+            Button {
+                send(.clear)
+            } label: {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.hierarchical)
                     .font(.title2)
@@ -489,13 +499,16 @@ struct CampusMapScreen: View {
                     results
                 } else if let card = scene?.card {
                     if let detailHeight {
-                        // The outer panel clips this fixed viewport as it moves.
+                        let interactive = cardExpanded && !draggingCard && detailHeight > 0
+                        // The overlay keeps its scroll size while the visible area shrinks.
                         Color.clear.overlay(alignment: .top) {
                             cardDetails(card)
                                 .frame(height: detailHeight)
-                                .allowsHitTesting(cardExpanded && !draggingCard)
-                                .accessibilityHidden(!cardExpanded || draggingCard)
                         }
+                        .clipped()
+                        .contentShape(.interaction, Rectangle())
+                        .allowsHitTesting(interactive)
+                        .accessibilityHidden(!interactive)
                     } else {
                         cardDetails(card)
                     }
@@ -630,20 +643,19 @@ struct CampusMapScreen: View {
         default: t("campusMap.ookayama")
         }
     }
+}
 
-    private func closeCard() {
-        guard let card = scene?.card else { return }
-        guard cardExpanded, !wide, !reduceMotion else {
-            send(.clear)
-            return
-        }
-        cardDragStart = nil
-        withAnimation(cardSpring) {
-            cardExpanded = false
-            cardExpansion = 0
-        } completion: {
-            if !cardExpanded, cardDragStart == nil, scene?.card == card { send(.clear) }
-        }
+private struct CampusMapPanelHeader: ViewModifier {
+    @Binding var height: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, Theme.cardPadding)
+            .padding(.vertical, 10)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                if measured > 0, abs(measured - height) > 0.5 { height = measured }
+            }
     }
 }
 
