@@ -192,14 +192,20 @@ struct RootView: View {
     @State private var sitePress = SitePickerPress()
     @State private var exportPress = TabItemPress<CalendarExportPick>()
     @State private var calendarFile: QuarterCalendarFile?
+    @State private var campusMapRequest: CampusMapRequest?
     @State private var exportError: String?
     @Environment(\.openURL) private var openURL
     @Namespace private var zoom
 
     var body: some View {
-        // System controls (date pickers, number formats) follow the app's
-        // language rather than the phone's.
-        content.environment(\.locale, Localizer.shared.locale)
+        content
+            .environment(\.openCampusMap) { campusMapRequest = CampusMapRequest(room: $0) }
+            // Keep the cover independent of list rows and the current window layout.
+            .fullScreenCover(item: $campusMapRequest, onDismiss: model.campusMapClose) { request in
+                CampusMapScreen(request: request)
+            }
+            // System controls follow the app's language.
+            .environment(\.locale, Localizer.shared.locale)
             .environment(\.isctTheme, model.records.settings.text("theme") ?? "warm")
             .quickLookPreview(Binding(get: { web.downloads.first }, set: { value in
                 if value == nil { web.dismissDownload() }

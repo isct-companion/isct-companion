@@ -3,7 +3,7 @@ import MapKit
 import SwiftUI
 
 /// Where the page's own controls sit, in window coordinates: the close
-/// button's bottom edge (above the sheet), the sheet's top edge, the leading
+/// button's bottom edge, the bottom panel's top edge, the leading
 /// panel's trailing edge and the control rail's leading edge. The rail stays
 /// reserved when a floor picker is not shown.
 struct CampusMapChrome: Equatable {
@@ -20,23 +20,25 @@ struct CampusMapChrome: Equatable {
     var layout: CampusMapLayoutRequest?
 }
 
-/// The panel's heights: the sheet's detents, or the leading panel's.
+/// The panel's resting heights.
 enum CampusMapPanelHeight: Hashable {
-    case small, medium, large
+    case small, search, medium, large
 }
 
 /// What the map waits on before an explicit framing: the framing itself and
 /// the panel state it is shown beside.
 struct CampusMapLayoutRequest: Equatable {
     let framing: UInt64
-    let searching: Bool
+    let keyboardVisible: Bool
     let height: CampusMapPanelHeight
-    /// The leading panel rather than the sheet.
+    let headerHeight: CGFloat
+    let dragging: Bool
+    /// The panel sits along the leading edge.
     let wide: Bool
 
-    /// A large sheet covers the map.
+    /// A large bottom panel covers the map.
     var hidesControls: Bool { !wide && height == .large }
-    var canFrame: Bool { !searching && !hidesControls }
+    var canFrame: Bool { !keyboardVisible && !dragging && !hidesControls }
 }
 
 /// UIKit is asked to lay out after every request update, even at an equal
@@ -62,7 +64,6 @@ struct CampusMapPanelLayoutProbe: UIViewRepresentable {
             guard let request, window != nil else { return }
             // Publish after the containing SwiftUI layout has finished, not
             // while it is updating its native views or measuring the panel.
-            // A detent change lays out at its target frame.
             DispatchQueue.main.async { [weak self] in
                 guard let self, window != nil, self.request == request else { return }
                 onLayout?(request, convert(bounds, to: nil))
@@ -95,6 +96,8 @@ struct FloorMapView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MeasuredMapView {
         let map = MeasuredMapView()
+        // MapKit's default camera would show before Core and the panel are ready.
+        map.alpha = 0
         let coordinator = context.coordinator
         let configuration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
         configuration.pointOfInterestFilter = .excludingAll
@@ -213,7 +216,6 @@ struct FloorMapView: UIViewRepresentable {
         weak var tracking: MKUserTrackingButton?
         weak var compass: MKCompassButton?
         weak var contact: MapContactRecognizer?
-        private var framed = false
         /// Serialize native animations; a newer Core command replaces the
         /// pending command while the current move settles. Reports keep the
         /// applied key, so Core rejects a superseded landing.
@@ -239,9 +241,9 @@ struct FloorMapView: UIViewRepresentable {
                 width: max(right - leading, 1), height: max(bottom - top, 1))
         }
 
-        /// Native controls occupy the trailing rail: standing on the sheet's
+        /// Native controls occupy the trailing rail: standing on the bottom panel's
         /// top edge, or at the top beside the leading panel, and hidden with
-        /// the rail while the sheet covers the map. Layout alone never
+        /// the rail while the panel covers the map. Layout alone never
         /// changes the camera.
         func layOut(_ map: MKMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
@@ -273,12 +275,14 @@ struct FloorMapView: UIViewRepresentable {
             guard let layoutRequest, layoutRequest.canFrame, chrome.layout == layoutRequest,
                 let framing = pendingFraming, framing.key == layoutRequest.framing,
                 activeFraming == nil, contact?.fingersDown != true, chrome.trailing != nil,
-                map.bounds.width > 0, map.bounds.height > 0
+                map.window != nil
             else { return }
+            let viewport = visible(in: map)
+            let minSide = 2 * FloorMapView.framingMargin
+            guard viewport.width > minSide, viewport.height > minSide else { return }
+            let animated = appliedFraming != 0 && animatesCamera
             pendingFraming = nil
-            appliedFraming = framing.key
-            frame(framing, in: visible(in: map), on: map, animated: framed && animatesCamera)
-            framed = true
+            frame(framing, in: viewport, on: map, animated: animated)
         }
 
         private func frame(_ framing: CampusMapFraming, in visible: CGRect, on map: MKMapView, animated: Bool) {
@@ -294,6 +298,7 @@ struct FloorMapView: UIViewRepresentable {
                 bottom: map.bounds.maxY - visible.maxY + margin,
                 right: map.bounds.maxX - visible.maxX + margin)
             if map.userTrackingMode != .none { map.setUserTrackingMode(.none, animated: false) }
+            appliedFraming = framing.key
             activeFraming = framing.key
             announced = false
             map.setVisibleMapRect(rect, edgePadding: padding, animated: animated)
@@ -333,6 +338,7 @@ struct FloorMapView: UIViewRepresentable {
         }
 
         private func finishFraming(on map: MKMapView, byUser: Bool = false) {
+            if activeFraming != nil, map.alpha == 0 { map.alpha = 1 }
             activeFraming = nil
             report(map, byUser: byUser)
             // Avoid starting another native move from inside its delegate.
@@ -343,6 +349,7 @@ struct FloorMapView: UIViewRepresentable {
         }
 
         private func report(_ map: MKMapView, byUser: Bool) {
+            guard appliedFraming != 0, map.window != nil else { return }
             let visible = visible(in: map)
             let at = { (x: CGFloat, y: CGFloat) -> CampusMapPoint in
                 let coordinate = map.convert(CGPoint(x: x, y: y), toCoordinateFrom: map)
