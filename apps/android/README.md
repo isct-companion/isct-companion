@@ -39,13 +39,6 @@ packages arm64 only (`abiFilters`); run it on a phone or an arm64 emulator
 image. Rebuild the AAR whenever Core changes:
 UniFFI checks signatures when the library loads.
 
-The campus map's base map is Google's (Maps SDK for Android, in Google Play
-services). Its API key is read at build time from `MAPS_API_KEY`, in the
-environment (the `MAPS_API_KEY` repository secret in CI) or in
-`apps/android/local.properties`; restrict the key in Google Cloud to the
-package `app.isctcompanion` and the signing certificates' SHA-1. Without a key
-the app builds and the map draws the campus over an empty base map.
-
 ## Layout
 
 | Path | Content |
@@ -59,7 +52,7 @@ the app builds and the map draws the campus over an empty base map.
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |
 | `BackgroundWake.kt` | The WorkManager wake that runs Core's `backgroundWake` out of front |
 | `features/*` | 今日 (class stack, exams and the quarter's assignments) · 時間割 (week picker, session marks, quarter .ics) · 授業 (wide windows) · ウェブ · 設定 (school accounts with the OTP authenticator setup, notifications, study profile, data updates, backup, ウェブ, reset), course and assignment pages |
-| `features/map` | The campus map: a Maps SDK for Android `MapView` drawing Core's map page. Core owns the page (`campusMapOpen`, `campusMapSend`, `campusMapClose`), as on iOS; `FloorMapView.kt` paints each scene by role in theme colours (a polygon or polyline per shape, a marker per mark) and `CampusMapScreen.kt` holds the card, the level picker and the blue-dot permission. Opened full screen from a course's rooms and 今日's next class. `yarn sdk:android` builds the SDK with the `campus-map` feature; the base map needs `MAPS_API_KEY` (below) |
+| `features/map` | The campus map: a MapLibre `MapView` over OpenFreeMap's base map (OpenStreetMap data; no key, no Google Play services) drawing Core's map page. Core owns the page (`campusMapOpen`, `campusMapSend`, `campusMapClose`), as on iOS; `FloorMapView.kt` paints each scene by role in theme colours (one GeoJSON source and style layer per role, line widths in metres, MapLibre's own symbol collision) and `CampusMapScreen.kt` holds the card, the level picker and the blue-dot permission. Opened full screen from a course's rooms and 今日's next class. `yarn sdk:android` builds the SDK with the `campus-map` feature |
 | `res/drawable/campus_map_*.xml` | The map's 14 amenity and entrance icons, converted from the iOS SVGs and tinted where drawn; `amenityDrawable` names each by Core's amenity key |
 | `design/LmsContent.kt` | LMS text (`fromHtml`) and the material opener: Core downloads, a viewer app shows it through the `FileProvider` |
 | `design/SyncStatus.kt` | Core's sync snapshot in words: the title-bar indicator, the connection sheet, the 今日 banner |
@@ -70,13 +63,11 @@ the app builds and the map draws the campus over an empty base map.
 - 今日's 課題 renders the quarter's one Core task timeline (`AssignmentBoard.today`),
   the same groups desktop shows; すべて opens the full record
   (`AssignmentBoard.record`) with submitted work and hidden rows to restore.
-- The campus map draws over Google's base map, where every overlay sits above
-  the base map's labels (MapKit puts footprints under them). Polylines are
-  measured in pixels, so line widths follow the zoom when the camera settles;
-  markers have no collision rule without a cloud map id, so the shell hides
-  overlapping marks by the priorities MapKit is given on iOS. An entrance
-  opens through a `geo:` link (Core builds it for Android) in the person's
-  maps app.
+- The campus map draws with MapLibre over OpenFreeMap's base map rather than
+  MapKit over Apple's; footprints sit under the base map's labels and the
+  floor above them, as on iOS. Its marks are drawn by the map itself, so a
+  screen reader does not read them. An entrance opens through a `geo:` link
+  (Core builds it for Android) in the person's maps app.
 - Logins stay on the device (Keystore); there is no iCloud Keychain to share
   them with the desktop app.
 - The quarter export is a share button in the 時間割 header rather than a long

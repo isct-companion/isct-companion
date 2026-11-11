@@ -76,7 +76,7 @@ import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
 import kotlinx.coroutines.channels.Channel
 
-/** The campus map over Google's base map, full screen with a close button.
+/** The campus map over OpenFreeMap's base map, full screen with a close button.
  * The page is Core's: this screen draws Core's scene, forwards what the
  * person does and adds what the platform has, the blue dot. There is no
  * route: an entrance opens in the person's maps app. */
@@ -329,7 +329,7 @@ private fun LevelPicker(
 
 /** Whether the map may show the blue dot. The permission is asked for when
  * the map first opens, and only while Android has no answer yet (after a
- * refusal the system settings lead on, as on iOS); the Maps SDK draws the
+ * refusal the system settings lead on, as on iOS); MapLibre draws the
  * dot itself, and there is no background location. */
 @Composable
 private fun positionAllowed(): Boolean {

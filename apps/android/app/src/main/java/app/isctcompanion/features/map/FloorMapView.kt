@@ -4,8 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.Typeface
+import android.graphics.RectF
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,31 +26,28 @@ import app.isctcompanion.core.CampusMapLayerRole
 import app.isctcompanion.core.CampusMapMark
 import app.isctcompanion.core.CampusMapMarkKind
 import app.isctcompanion.core.CampusMapPoint
-import app.isctcompanion.core.CampusMapPolygon
 import app.isctcompanion.core.CampusMapScene
 import app.isctcompanion.design.LocalReducedMotion
 import app.isctcompanion.design.Palette
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.t
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.GoogleMapOptions
-import com.google.android.gms.maps.MapView
-import com.google.android.gms.maps.model.BitmapDescriptor
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.JointType
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.LatLngBounds
-import com.google.android.gms.maps.model.MapColorScheme
-import com.google.android.gms.maps.model.MapStyleOptions
-import com.google.android.gms.maps.model.Marker
-import com.google.android.gms.maps.model.MarkerOptions
-import com.google.android.gms.maps.model.Polygon
-import com.google.android.gms.maps.model.PolygonOptions
-import com.google.android.gms.maps.model.Polyline
-import com.google.android.gms.maps.model.PolylineOptions
-import com.google.android.gms.maps.model.RoundCap
-import kotlin.math.ceil
+import org.json.JSONObject
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.modes.CameraMode
+import org.maplibre.android.location.modes.RenderMode
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.Layer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -59,9 +55,10 @@ import kotlin.math.roundToInt
 /** What the card and the level picker cover, in pixels, kept clear when framing. */
 data class MapInsets(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
-/** Google's base map with Core's scene drawn over it by role. Core decides
- * every layer and mark; this view only paints them with the Maps SDK:
- * polygons and polylines per layer, markers per mark. */
+/** OpenFreeMap's base map (OpenStreetMap data, no key) with Core's scene
+ * drawn over it by role. Core decides every layer and mark; this view only
+ * paints them with MapLibre: one GeoJSON source and style layer per role,
+ * line widths in metres, and MapLibre's own symbol collision. */
 @Composable
 fun FloorMapView(
     scene: CampusMapScene?,
@@ -79,12 +76,9 @@ fun FloorMapView(
     val dark = isSystemInDarkTheme()
     val animates = !LocalReducedMotion.current
     val view = remember {
-        MapView(
-            context,
-            // No tilt, as on iOS; the toolbar would offer a route, which the
-            // card's links already do.
-            GoogleMapOptions().compassEnabled(true).tiltGesturesEnabled(false).mapToolbarEnabled(false),
-        )
+        // MapLibre is initialised once before its first view.
+        MapLibre.getInstance(context)
+        MapView(context)
     }
     val painter = remember { FloorPainter(view) }
     SideEffect {
@@ -95,7 +89,7 @@ fun FloorMapView(
     }
     MapLifecycle(view)
     DisposableEffect(view) {
-        view.getMapAsync(painter::attach)
+        view.getMapAsync { painter.attach(it) }
         onDispose { painter.detach() }
     }
     AndroidView(
@@ -147,34 +141,10 @@ private fun MapLifecycle(view: MapView) {
     }
 }
 
-/** One layer as the Maps SDK holds it: a shape per polygon or line. */
-private class DrawnLayer(
-    val role: CampusMapLayerRole,
-    val widthM: Double,
-    val polygons: List<Polygon>,
-    val lines: List<Polyline>,
-    var z: Float,
-) {
-    fun remove() {
-        polygons.forEach { it.remove() }
-        lines.forEach { it.remove() }
-    }
-
-    fun raise(to: Float) {
-        if (z == to) return
-        z = to
-        polygons.forEach { it.zIndex = to }
-        lines.forEach { it.zIndex = to }
-    }
-}
-
-private class MarkIcon(val descriptor: BitmapDescriptor, val width: Int, val height: Int)
-
-private class DrawnMark(val record: CampusMapMark, val marker: Marker, val icon: MarkIcon, val priority: Int)
-
-/** Draws scenes on one `GoogleMap` and reports what the person does on it.
- * It keeps only what was drawn, keyed by Core's ids, so unchanged geometry
- * stays in the map when another part of the scene changes. */
+/** Draws scenes on one MapLibre map and reports what the person does on it.
+ * Every role has one source in the style; a source is rewritten only when
+ * the ids of Core's layers in it change, so unchanged geometry stays as it
+ * is when another part of the scene changes. */
 private class FloorPainter(private val view: MapView) {
     var insets: () -> MapInsets = { MapInsets(0, 0, 0, 0) }
     var onCamera: (CampusMapCamera, ULong) -> Unit = { _, _ -> }
@@ -183,7 +153,7 @@ private class FloorPainter(private val view: MapView) {
 
     private val context = view.context
     private val density = context.resources.displayMetrics.density
-    private var map: GoogleMap? = null
+    private var map: MapLibreMap? = null
     private var scene: CampusMapScene? = null
     private var palette: Palette? = null
     private var dark = false
@@ -194,67 +164,55 @@ private class FloorPainter(private val view: MapView) {
     private var pendingFraming: CampusMapFraming? = null
     private var framed = false
     private var userMoving = false
+    /** The theme the style was asked for, and the style once it is loaded
+     * and holds this painter's sources and layers. */
     private var appearance: Pair<Palette, Boolean>? = null
-    private val overlays = HashMap<String, DrawnLayer>()
-    private val marks = HashMap<String, DrawnMark>()
-    private val icons = HashMap<String, MarkIcon>()
-    /** The zoom the line widths were last set for. */
-    private var lineZoom = Float.NaN
-    /** The zoom and bearing the marks were last laid out for. */
-    private var layoutZoom = Float.NaN
-    private var layoutBearing = Float.NaN
+    private var style: Style? = null
+    /** The style the blue dot was last attached to. */
+    private var positionStyle: Style? = null
+    /** Per role, the ids of Core's layers its source holds now. */
+    private val drawn = HashMap<CampusMapLayerRole, List<String>>()
+    private var drawnMarks: List<CampusMapMark>? = null
 
     init {
         // A framing needs a real size, which a new map does not have yet.
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyFraming() }
     }
 
-    fun attach(map: GoogleMap) {
+    fun attach(map: MapLibreMap) {
         this.map = map
-        // Google's own indoor plans and 3D buildings would sit under ours.
-        map.setIndoorEnabled(false)
-        map.isBuildingsEnabled = false
-        map.uiSettings.isMyLocationButtonEnabled = false
-        map.uiSettings.isIndoorLevelPickerEnabled = false
-        map.setOnCameraMoveStartedListener { reason ->
-            if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) userMoving = true
+        // No tilt, as on iOS. The attribution button stays: it credits
+        // OpenFreeMap, OpenMapTiles and OpenStreetMap.
+        map.uiSettings.isTiltGesturesEnabled = false
+        map.uiSettings.isLogoEnabled = false
+        map.addOnCameraMoveStartedListener { reason ->
+            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) userMoving = true
         }
-        map.setOnCameraMoveListener {
-            // Panning moves every mark alike; zooming and turning do not.
-            val position = map.cameraPosition
-            if (position.zoom != layoutZoom || position.bearing != layoutBearing) layoutMarks()
-        }
-        map.setOnCameraIdleListener {
-            resizeLines()
-            layoutMarks()
-            report()
-        }
+        map.addOnCameraIdleListener { report() }
         // A double tap zooms and never arrives here; it selects nothing.
-        map.setOnMapClickListener { at -> onTap(CampusMapPoint(latitude = at.latitude, longitude = at.longitude), levelId) }
-        map.setOnMarkerClickListener { marker ->
-            val record = (marker.tag as? String)?.let { marks[it] }?.record
-            if (record != null) {
-                when (val kind = record.kind) {
-                    is CampusMapMarkKind.Entrance -> onEntrance(kind.entranceId)
-                    // A label or an amenity is not a target of its own: the
-                    // tap goes to the floor under it.
-                    else -> onTap(record.point, levelId)
+        map.addOnMapClickListener { at ->
+            val live = this.map
+            if (live != null) {
+                val point = live.projection.toScreenLocation(at)
+                val reach = TOUCH_DP * density
+                val touched = RectF(point.x - reach, point.y - reach, point.x + reach, point.y + reach)
+                val entrance = live.queryRenderedFeatures(touched, ENTRANCES).firstOrNull()?.getStringProperty("entrance")
+                // Anything but an entrance is a tap on the floor under it.
+                if (entrance != null) {
+                    onEntrance(entrance)
+                } else {
+                    onTap(CampusMapPoint(latitude = at.latitude, longitude = at.longitude), levelId)
                 }
             }
-            // Consumed: no info window, and the camera stays.
             true
         }
         render()
     }
 
+    /** The view is destroyed with the page; nothing drawn outlives it. */
     fun detach() {
-        val map = map ?: return
-        map.setOnCameraMoveStartedListener(null)
-        map.setOnCameraMoveListener(null)
-        map.setOnCameraIdleListener(null)
-        map.setOnMapClickListener(null)
-        map.setOnMarkerClickListener(null)
-        this.map = null
+        map = null
+        style = null
     }
 
     fun show(scene: CampusMapScene?, palette: Palette, dark: Boolean, showsPosition: Boolean, animatesCamera: Boolean) {
@@ -266,15 +224,9 @@ private class FloorPainter(private val view: MapView) {
         render()
     }
 
-    @SuppressLint("MissingPermission")
     private fun render() {
         val map = map ?: return
         val palette = palette ?: return
-        // `showsPosition` is true only once the permission is granted.
-        if (map.isMyLocationEnabled != showsPosition) runCatching { map.isMyLocationEnabled = showsPosition }
-        prepareAppearance(map, palette)
-        drawLayers(map, scene?.layers.orEmpty(), palette)
-        drawMarks(map, scene?.marks.orEmpty(), palette)
         levelId = scene?.levelId
         val framing = scene?.framing
         if (framing != null && framing.key > appliedFraming && framing.key != pendingFraming?.key) {
@@ -283,6 +235,27 @@ private class FloorPainter(private val view: MapView) {
             // this scene brought.
             view.post { applyFraming() }
         }
+        val next = palette to dark
+        if (next != appearance) {
+            // Theme colours are layer content too; a rare theme change loads
+            // the matching base map and draws everything again.
+            appearance = next
+            style = null
+            drawn.clear()
+            drawnMarks = null
+            map.setStyle(Style.Builder().fromUri(if (dark) DARK_STYLE else LIGHT_STYLE)) { loaded ->
+                if (appearance == next && this.map != null) {
+                    prepare(loaded, palette)
+                    style = loaded
+                    render()
+                }
+            }
+            return
+        }
+        val style = style ?: return
+        showPosition(map, style)
+        drawLayers(style, scene?.layers.orEmpty())
+        drawMarks(style, scene?.marks.orEmpty())
     }
 
     // Camera
@@ -291,225 +264,269 @@ private class FloorPainter(private val view: MapView) {
         val map = map ?: return
         val framing = pendingFraming ?: return
         if (view.width == 0 || view.height == 0) return
-        val inset = insets()
-        // The padding keeps the framed box clear of the card and the level
-        // picker, and moves Google's logo and compass clear of them too.
-        map.setPadding(inset.left, inset.top, inset.right, inset.bottom)
-        val bounds = framing.bounds
-        val update = CameraUpdateFactory.newLatLngBounds(
-            LatLngBounds(LatLng(bounds.south, bounds.west), LatLng(bounds.north, bounds.east)), 0,
-        )
-        try {
-            if (framed && animatesCamera) map.animateCamera(update) else map.moveCamera(update)
-        } catch (_: IllegalStateException) {
-            // The map itself is not laid out yet; the next layout tries again.
-            return
-        }
         pendingFraming = null
         appliedFraming = framing.key
+        val inset = insets()
+        // The compass and the attribution button keep clear of the close
+        // button and the card too.
+        map.uiSettings.setCompassMargins(0, inset.top, (8 * density).roundToInt(), 0)
+        map.uiSettings.setAttributionMargins((8 * density).roundToInt(), 0, 0, inset.bottom)
+        val bounds = framing.bounds
+        val update = CameraUpdateFactory.newLatLngBounds(
+            LatLngBounds.from(bounds.north, bounds.east, bounds.south, bounds.west),
+            inset.left, inset.top, inset.right, inset.bottom,
+        )
+        if (framed && animatesCamera) map.animateCamera(update, FRAMING_MS) else map.moveCamera(update)
         framed = true
     }
 
     private fun report() {
         val map = map ?: return
         val position = map.cameraPosition
-        val box = map.projection.visibleRegion.latLngBounds
-        val west = box.southwest.longitude
-        val east = box.northeast.longitude
-        val span = if (east >= west) east - west else east - west + 360.0
+        val target = position.target ?: return
+        val region = map.projection.visibleRegion
+        val corners = listOfNotNull(region.farLeft, region.farRight, region.nearLeft, region.nearRight)
+        if (corners.isEmpty()) return
+        val south = corners.minOf { it.latitude }
+        val north = corners.maxOf { it.latitude }
+        val west = corners.minOf { it.longitude }
+        val east = corners.maxOf { it.longitude }
         val camera = CampusMapCamera(
-            center = CampusMapPoint(latitude = position.target.latitude, longitude = position.target.longitude),
-            bounds = CampusMapBounds(south = box.southwest.latitude, west = west, north = box.northeast.latitude, east = east),
+            center = CampusMapPoint(latitude = target.latitude, longitude = target.longitude),
+            bounds = CampusMapBounds(south = south, west = west, north = north, east = east),
             // The width the box spans at this zoom, in the 256-point tiles
-            // Core's zoom counts in: a turned map's box is wider than the
-            // screen, and Core still reads the true zoom from it.
-            widthPoints = span / 360.0 * 256.0 * 2.0.pow(position.zoom.toDouble()),
+            // Core's zoom counts in (MapLibre's tiles are 512, one zoom
+            // level less): a turned map's box is wider than the screen, and
+            // Core still reads the true zoom from it.
+            widthPoints = (east - west) / 360.0 * 256.0 * 2.0.pow(position.zoom + 1.0),
             byUser = userMoving,
         )
         userMoving = false
         onCamera(camera, appliedFraming)
     }
 
-    // Layers
-
-    private fun drawLayers(map: GoogleMap, layers: List<CampusMapLayer>, palette: Palette) {
-        val wanted = layers.mapTo(HashSet()) { it.id }
-        val gone = overlays.keys.filter { it !in wanted }
-        for (id in gone) overlays.remove(id)?.remove()
-        val lineWidth = map.cameraPosition.let { position -> { meters: Double -> linePixels(meters, position.zoom, position.target.latitude) } }
-        layers.forEachIndexed { index, layer ->
-            // Bottom to top, as Core lists them.
-            val z = index.toFloat()
-            val drawn = overlays[layer.id]
-            if (drawn != null) {
-                drawn.raise(z)
-                return@forEachIndexed
-            }
-            overlays[layer.id] = when (layer.role) {
-                CampusMapLayerRole.DETAIL_LINE, CampusMapLayerRole.WALL_LINE -> {
-                    val color = (if (layer.role == CampusMapLayerRole.WALL_LINE) palette.ink else palette.muted).toArgb()
-                    val width = lineWidth(layer.widthM)
-                    val lines = layer.lines.filter { it.size > 1 }.map { line ->
-                        map.addPolyline(
-                            PolylineOptions().addAll(line.map { it.latLng }).color(color).width(width).zIndex(z)
-                                .startCap(RoundCap()).endCap(RoundCap()).jointType(JointType.ROUND),
-                        )
-                    }
-                    DrawnLayer(layer.role, layer.widthM, emptyList(), lines, z)
+    /** MapLibre draws the blue dot itself, from Android's own location
+     * service. `showsPosition` is true only once the permission is granted. */
+    @SuppressLint("MissingPermission")
+    private fun showPosition(map: MapLibreMap, style: Style) {
+        val component = map.locationComponent
+        runCatching {
+            if (showsPosition) {
+                if (positionStyle !== style) {
+                    component.activateLocationComponent(LocationComponentActivationOptions.builder(context, style).build())
+                    positionStyle = style
+                    component.cameraMode = CameraMode.NONE
+                    component.renderMode = RenderMode.NORMAL
                 }
-                else -> {
-                    val style = polygonStyle(layer.role, palette)
-                    val polygons = layer.polygons.mapNotNull { polygon -> polygon.options(style, z)?.let(map::addPolygon) }
-                    DrawnLayer(layer.role, layer.widthM, polygons, emptyList(), z)
-                }
+                if (!component.isLocationComponentEnabled) component.isLocationComponentEnabled = true
+            } else if (positionStyle === style && component.isLocationComponentEnabled) {
+                component.isLocationComponentEnabled = false
             }
         }
-        lineZoom = map.cameraPosition.zoom
     }
 
-    private class PolygonStyle(val fill: Int, val stroke: Int, val strokeWidth: Float)
+    // Style
 
-    private fun polygonStyle(role: CampusMapLayerRole, palette: Palette): PolygonStyle {
-        val clear = android.graphics.Color.TRANSPARENT
-        return when (role) {
-            CampusMapLayerRole.FOOTPRINT ->
-                PolygonStyle(palette.surface2.copy(alpha = 0.8f).toArgb(), palette.line.toArgb(), density)
-            CampusMapLayerRole.FOCUSED_FOOTPRINT ->
-                PolygonStyle(palette.surface.toArgb(), palette.accent.toArgb(), 1.5f * density)
-            CampusMapLayerRole.LEVEL_OUTLINE ->
-                PolygonStyle(palette.surface.toArgb(), palette.line.toArgb(), density)
-            CampusMapLayerRole.CLASSROOM -> PolygonStyle(palette.surface2.toArgb(), clear, 0f)
-            CampusMapLayerRole.HIGHLIGHT ->
-                PolygonStyle(palette.accent.copy(alpha = 0.35f).toArgb(), palette.accent.toArgb(), 2f * density)
-            CampusMapLayerRole.DETAIL_LINE, CampusMapLayerRole.WALL_LINE -> PolygonStyle(clear, clear, 0f)
+    /** Adds this painter's images, sources and layers to a loaded base map.
+     * Footprints go under the base map's labels, the floor above them, as
+     * on iOS; the marks are last, and of them the ones MapLibre must keep. */
+    private fun prepare(style: Style, palette: Palette) {
+        for ((key, drawable) in amenityDrawables) {
+            style.addImage(amenityImage(key), round(drawable, palette.ink.toArgb(), palette.surface.toArgb(), palette))
         }
+        style.addImage(
+            ENTRANCE_IMAGE, round(R.drawable.campus_map_entrance, palette.accent.toArgb(), palette.surface.toArgb(), palette),
+        )
+        style.addImage(
+            ENTRANCE_SELECTED_IMAGE,
+            round(R.drawable.campus_map_entrance, palette.accentInk.toArgb(), palette.accent.toArgb(), palette),
+        )
+        for (role in CampusMapLayerRole.entries) style.addSource(GeoJsonSource(source(role)))
+        style.addSource(GeoJsonSource(MARKS))
+
+        val labels = style.layers.firstOrNull { it is SymbolLayer }?.id
+        fun under(layer: Layer) {
+            if (labels != null) style.addLayerBelow(layer, labels) else style.addLayer(layer)
+        }
+        under(fill(CampusMapLayerRole.FOOTPRINT, palette.surface2.copy(alpha = 0.8f).toArgb()))
+        under(stroke(CampusMapLayerRole.FOOTPRINT, palette.line.toArgb(), 1f))
+        under(fill(CampusMapLayerRole.FOCUSED_FOOTPRINT, palette.surface.toArgb()))
+        under(stroke(CampusMapLayerRole.FOCUSED_FOOTPRINT, palette.accent.toArgb(), 1.5f))
+        style.addLayer(fill(CampusMapLayerRole.LEVEL_OUTLINE, palette.surface.toArgb()))
+        style.addLayer(stroke(CampusMapLayerRole.LEVEL_OUTLINE, palette.line.toArgb(), 1f))
+        style.addLayer(fill(CampusMapLayerRole.CLASSROOM, palette.surface2.toArgb()))
+        style.addLayer(metricLine(CampusMapLayerRole.DETAIL_LINE, palette.muted.toArgb()))
+        style.addLayer(metricLine(CampusMapLayerRole.WALL_LINE, palette.ink.toArgb()))
+        style.addLayer(fill(CampusMapLayerRole.HIGHLIGHT, palette.accent.copy(alpha = 0.35f).toArgb()))
+        style.addLayer(stroke(CampusMapLayerRole.HIGHLIGHT, palette.accent.toArgb(), 2f))
+
+        // MapLibre places the symbols of upper layers first, so the order
+        // is the priority: room labels give way to amenities, and entrances
+        // and the selected room always show.
+        val kind = Expression.get("kind")
+        val lit = Expression.get("lit")
+        style.addLayer(
+            SymbolLayer("campus-labels", MARKS)
+                .withFilter(Expression.all(Expression.eq(kind, Expression.literal("room")), Expression.eq(lit, Expression.literal(false))))
+                .withProperties(
+                    PropertyFactory.textField(Expression.get("label")),
+                    PropertyFactory.textFont(arrayOf(FONT_REGULAR)),
+                    PropertyFactory.textSize(10f),
+                    PropertyFactory.textColor(palette.muted.toArgb()),
+                ),
+        )
+        style.addLayer(
+            SymbolLayer("campus-amenities", MARKS)
+                .withFilter(Expression.eq(kind, Expression.literal("amenity")))
+                .withProperties(PropertyFactory.iconImage(Expression.get("icon"))),
+        )
+        style.addLayer(
+            SymbolLayer(ENTRANCES, MARKS)
+                .withFilter(Expression.eq(kind, Expression.literal("entrance")))
+                .withProperties(
+                    PropertyFactory.iconImage(Expression.get("icon")),
+                    PropertyFactory.iconAllowOverlap(true),
+                ),
+        )
+        style.addLayer(
+            SymbolLayer("campus-labels-lit", MARKS)
+                .withFilter(Expression.all(Expression.eq(kind, Expression.literal("room")), Expression.eq(lit, Expression.literal(true))))
+                .withProperties(
+                    PropertyFactory.textField(Expression.get("label")),
+                    PropertyFactory.textFont(arrayOf(FONT_BOLD)),
+                    PropertyFactory.textSize(13f),
+                    PropertyFactory.textColor(palette.accent.toArgb()),
+                    PropertyFactory.textAllowOverlap(true),
+                ),
+        )
+    }
+
+    private fun source(role: CampusMapLayerRole) = "campus-${role.name.lowercase()}"
+
+    private fun fill(role: CampusMapLayerRole, color: Int): Layer =
+        FillLayer("${source(role)}-fill", source(role)).withProperties(
+            PropertyFactory.fillColor(color),
+            // The rim is the stroke layer's; a fill's own edge is a pixel.
+            PropertyFactory.fillAntialias(true),
+        )
+
+    private fun stroke(role: CampusMapLayerRole, color: Int, width: Float): Layer =
+        LineLayer("${source(role)}-stroke", source(role)).withProperties(
+            PropertyFactory.lineColor(color),
+            PropertyFactory.lineWidth(width),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        )
+
+    /** Lines keep their physical width as the map zooms: each feature
+     * carries its width at two zoom levels (`lineFeature`), and a width
+     * doubles with every level between them. */
+    private fun metricLine(role: CampusMapLayerRole, color: Int): Layer =
+        LineLayer("${source(role)}-line", source(role)).withProperties(
+            PropertyFactory.lineColor(color),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            PropertyFactory.lineWidth(
+                Expression.interpolate(
+                    Expression.exponential(2f), Expression.zoom(),
+                    Expression.stop(LOW_ZOOM, Expression.get("low")),
+                    Expression.stop(HIGH_ZOOM, Expression.get("high")),
+                ),
+            ),
+        )
+
+    // Layers
+
+    private fun drawLayers(style: Style, layers: List<CampusMapLayer>) {
+        for (role in CampusMapLayerRole.entries) {
+            val mine = layers.filter { it.role == role }
+            val ids = mine.map { it.id }
+            if (drawn[role] == ids) continue
+            val features = when (role) {
+                CampusMapLayerRole.DETAIL_LINE, CampusMapLayerRole.WALL_LINE -> mine.mapNotNull(::lineFeature)
+                else -> mine.flatMap { layer -> layer.polygons.mapNotNull { polygonFeature(it.rings) } }
+            }
+            style.getSourceAs<GeoJsonSource>(source(role))?.setGeoJson(collection(features))
+            drawn[role] = ids
+        }
+    }
+
+    private fun collection(features: List<String>) =
+        features.joinToString(",", prefix = """{"type":"FeatureCollection","features":[""", postfix = "]}")
+
+    private fun StringBuilder.path(points: List<CampusMapPoint>) {
+        append('[')
+        points.forEachIndexed { index, point ->
+            if (index > 0) append(',')
+            append('[').append(point.longitude).append(',').append(point.latitude).append(']')
+        }
+        append(']')
     }
 
     /** One outer ring, then its holes. */
-    private fun CampusMapPolygon.options(style: PolygonStyle, z: Float): PolygonOptions? {
-        val outer = rings.firstOrNull()?.takeIf { it.size > 2 } ?: return null
-        val options = PolygonOptions().addAll(outer.map { it.latLng })
-            .fillColor(style.fill).strokeColor(style.stroke).strokeWidth(style.strokeWidth)
-            .strokeJointType(JointType.ROUND).zIndex(z)
-        for (hole in rings.drop(1)) if (hole.size > 2) options.addHole(hole.map { it.latLng })
-        return options
+    private fun polygonFeature(rings: List<List<CampusMapPoint>>): String? {
+        if ((rings.firstOrNull()?.size ?: 0) < 3) return null
+        return buildString {
+            append("""{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[""")
+            rings.forEachIndexed { index, ring ->
+                if (index > 0) append(',')
+                path(ring)
+            }
+            append("]}}")
+        }
     }
 
-    /** A line's width on screen: its physical width at this zoom, with a
-     * hairline floor. The Maps SDK measures polylines in pixels, so the
-     * widths follow the zoom each time the camera settles. */
-    private fun linePixels(meters: Double, zoom: Float, latitude: Double): Float {
-        val pixelsPerMeter = 256.0 * density * 2.0.pow(zoom.toDouble()) /
-            (EQUATOR_M * cos(Math.toRadians(latitude)).coerceAtLeast(0.01))
-        return (meters * pixelsPerMeter).toFloat().coerceAtLeast((0.5f * density).coerceAtLeast(1f))
-    }
-
-    private fun resizeLines() {
-        val map = map ?: return
-        val position = map.cameraPosition
-        if (position.zoom == lineZoom) return
-        lineZoom = position.zoom
-        for (layer in overlays.values) {
-            if (layer.lines.isEmpty()) continue
-            val width = linePixels(layer.widthM, position.zoom, position.target.latitude)
-            layer.lines.forEach { it.width = width }
+    /** One of Core's line layers, which has one physical width: its lines,
+     * and that width in screen units at the two zoom levels `metricLine`
+     * reads, never under a hairline. */
+    private fun lineFeature(layer: CampusMapLayer): String? {
+        val lines = layer.lines.filter { it.size > 1 }
+        val latitude = lines.firstOrNull()?.first()?.latitude ?: return null
+        fun width(zoom: Float): Double {
+            val perMeter = 512.0 * 2.0.pow(zoom.toDouble()) / (EQUATOR_M * cos(Math.toRadians(latitude)).coerceAtLeast(0.01))
+            return (layer.widthM * perMeter).coerceAtLeast(HAIRLINE)
+        }
+        return buildString {
+            append("""{"type":"Feature","properties":{"low":""").append(width(LOW_ZOOM))
+            append(""","high":""").append(width(HIGH_ZOOM))
+            append("""},"geometry":{"type":"MultiLineString","coordinates":[""")
+            lines.forEachIndexed { index, line ->
+                if (index > 0) append(',')
+                path(line)
+            }
+            append("]}}")
         }
     }
 
     // Marks
 
-    private fun drawMarks(map: GoogleMap, records: List<CampusMapMark>, palette: Palette) {
-        val wanted = records.mapTo(HashSet()) { it.id }
-        val gone = marks.keys.filter { it !in wanted }
-        for (id in gone) marks.remove(id)?.marker?.remove()
-        var changed = gone.isNotEmpty()
-        for (record in records) {
-            val old = marks[record.id]
-            if (old?.record == record) continue
-            old?.marker?.remove()
-            marks.remove(record.id)
-            val icon = icon(record.kind, palette) ?: continue
-            val priority = priority(record.kind)
-            val marker = map.addMarker(
-                MarkerOptions().position(record.point.latLng).icon(icon.descriptor).anchor(0.5f, 0.5f)
-                    .zIndex(priority.toFloat()).title(spoken(record.kind)),
-            ) ?: continue
-            marker.tag = record.id
-            marks[record.id] = DrawnMark(record, marker, icon, priority)
-            changed = true
-        }
-        if (changed) layoutMarks()
-    }
-
-    /** Which marks the screen has room for. MapKit drops colliding
-     * annotations itself; the Maps SDK's markers have no such rule without a
-     * cloud map id, so this does the same by priority: highlighted rooms and
-     * entrances always show, then amenities, then room labels. */
-    private fun layoutMarks() {
-        val map = map ?: return
-        val position = map.cameraPosition
-        layoutZoom = position.zoom
-        layoutBearing = position.bearing
-        val projection = map.projection
-        val kept = ArrayList<Rect>()
-        // By id within a priority, so the same marks win at every zoom.
-        for (mark in marks.values.sortedWith(compareByDescending<DrawnMark> { it.priority }.thenBy { it.record.id })) {
-            val at = projection.toScreenLocation(mark.marker.position)
-            val box = Rect(
-                at.x - mark.icon.width / 2, at.y - mark.icon.height / 2,
-                at.x + (mark.icon.width + 1) / 2, at.y + (mark.icon.height + 1) / 2,
-            )
-            val shows = mark.priority >= REQUIRED || kept.none { Rect.intersects(it, box) }
-            if (shows) kept.add(box)
-            if (mark.marker.isVisible != shows) mark.marker.isVisible = shows
-        }
-    }
-
-    private fun priority(kind: CampusMapMarkKind): Int = when (kind) {
-        is CampusMapMarkKind.Room -> if (kind.highlighted) 3 else 0
-        is CampusMapMarkKind.Amenity -> 1
-        is CampusMapMarkKind.Entrance -> if (kind.selected) 4 else REQUIRED
-    }
-
-    /** What a screen reader says for a mark. */
-    private fun spoken(kind: CampusMapMarkKind): String = when (kind) {
-        is CampusMapMarkKind.Room -> kind.label
-        is CampusMapMarkKind.Amenity -> t("campusMap.amenity.${kind.key}")
-        is CampusMapMarkKind.Entrance -> kind.name ?: t("campusMap.entrance")
-    }
-
-    private fun icon(kind: CampusMapMarkKind, palette: Palette): MarkIcon? = when (kind) {
-        // Each label is its own picture; the round icons repeat.
-        is CampusMapMarkKind.Room -> label(kind.label, kind.highlighted, palette)
-        is CampusMapMarkKind.Amenity -> amenityDrawable(kind.key)?.let { drawable ->
-            icons.getOrPut("amenity/${kind.key}") { round(drawable, palette.ink.toArgb(), palette.surface.toArgb(), palette) }
-        }
-        is CampusMapMarkKind.Entrance -> icons.getOrPut("entrance/${kind.selected}") {
-            if (kind.selected) {
-                round(R.drawable.campus_map_entrance, palette.accentInk.toArgb(), palette.accent.toArgb(), palette)
-            } else {
-                round(R.drawable.campus_map_entrance, palette.accent.toArgb(), palette.surface.toArgb(), palette)
+    private fun drawMarks(style: Style, records: List<CampusMapMark>) {
+        if (drawnMarks == records) return
+        drawnMarks = records
+        val features = records.map { record ->
+            val properties = JSONObject()
+            when (val kind = record.kind) {
+                is CampusMapMarkKind.Room -> {
+                    properties.put("kind", "room")
+                    properties.put("label", kind.label)
+                    properties.put("lit", kind.highlighted)
+                }
+                is CampusMapMarkKind.Amenity -> {
+                    properties.put("kind", "amenity")
+                    properties.put("icon", amenityImage(kind.key))
+                }
+                is CampusMapMarkKind.Entrance -> {
+                    properties.put("kind", "entrance")
+                    properties.put("entrance", kind.entranceId)
+                    properties.put("icon", if (kind.selected) ENTRANCE_SELECTED_IMAGE else ENTRANCE_IMAGE)
+                }
             }
+            """{"type":"Feature","properties":$properties,"geometry":{"type":"Point","coordinates":[${record.point.longitude},${record.point.latitude}]}}"""
         }
-    }
-
-    /** A room's code or name; the selected room's is larger and in the accent. */
-    private fun label(text: String, highlighted: Boolean, palette: Palette): MarkIcon {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = (if (highlighted) 13f else 10f) * density
-            typeface = Typeface.create(Typeface.DEFAULT, if (highlighted) 700 else 500, false)
-            color = (if (highlighted) palette.accent else palette.muted).toArgb()
-        }
-        val metrics = paint.fontMetrics
-        val width = ceil(paint.measureText(text)).toInt().coerceAtLeast(1)
-        val height = ceil(metrics.descent - metrics.ascent).toInt().coerceAtLeast(1)
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).drawText(text, 0f, -metrics.ascent, paint)
-        return MarkIcon(BitmapDescriptorFactory.fromBitmap(bitmap), width, height)
+        style.getSourceAs<GeoJsonSource>(MARKS)?.setGeoJson(collection(features))
     }
 
     /** An icon on a 28 dp disc with a hairline rim, as iOS draws them. */
-    private fun round(drawable: Int, tint: Int, fill: Int, palette: Palette): MarkIcon {
+    private fun round(drawable: Int, tint: Int, fill: Int, palette: Palette): Bitmap {
         val side = (ICON_DP * density).roundToInt()
         val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -527,55 +544,47 @@ private class FloorPainter(private val view: MapView) {
             setBounds(inset, inset, side - inset, side - inset)
             draw(canvas)
         }
-        return MarkIcon(BitmapDescriptorFactory.fromBitmap(bitmap), side, side)
+        return bitmap
     }
 
-    // Appearance
-
-    /** Theme colours are layer content too; a rare theme change redraws
-     * everything rather than restyling each shape. */
-    private fun prepareAppearance(map: GoogleMap, palette: Palette) {
-        val next = palette to dark
-        if (next == appearance) return
-        appearance = next
-        overlays.values.forEach { it.remove() }
-        overlays.clear()
-        marks.values.forEach { it.marker.remove() }
-        marks.clear()
-        icons.clear()
-        map.setMapColorScheme(if (dark) MapColorScheme.DARK else MapColorScheme.LIGHT)
-        // The campus is the subject: no shops and sights around it.
-        map.setMapStyle(MapStyleOptions(BASE_STYLE))
-    }
-
-    private val CampusMapPoint.latLng: LatLng
-        get() = LatLng(latitude, longitude)
+    private fun amenityImage(key: String) = "campus-amenity-$key"
 
     private companion object {
         const val ICON_DP = 28
-        /** From this priority up a mark shows whatever it overlaps. */
-        const val REQUIRED = 2
-        /** The equator's length, which a zoom-0 tile spans. */
+        /** How far from an entrance's centre a tap still opens it. */
+        const val TOUCH_DP = 18
+        const val FRAMING_MS = 400
+        /** The equator's length, which MapLibre's zoom-0 tile of 512 spans. */
         const val EQUATOR_M = 40_075_016.686
-        const val BASE_STYLE = """[{"featureType":"poi","stylers":[{"visibility":"off"}]}]"""
+        const val HAIRLINE = 0.5
+        const val LOW_ZOOM = 10f
+        const val HIGH_ZOOM = 24f
+        const val MARKS = "campus-marks"
+        const val ENTRANCES = "campus-entrances"
+        const val ENTRANCE_IMAGE = "campus-entrance"
+        const val ENTRANCE_SELECTED_IMAGE = "campus-entrance-selected"
+        /** OpenFreeMap's quiet styles, and two fonts its glyph server has. */
+        const val LIGHT_STYLE = "https://tiles.openfreemap.org/styles/positron"
+        const val DARK_STYLE = "https://tiles.openfreemap.org/styles/dark"
+        const val FONT_REGULAR = "Noto Sans Regular"
+        const val FONT_BOLD = "Noto Sans Bold"
     }
 }
 
-/** The drawable of an amenity, by Core's amenity key; the same 14 pictures
+/** The drawable of each amenity, by Core's amenity key; the same pictures
  * iOS holds as `CampusMap/<key>`. */
-private fun amenityDrawable(key: String): Int? = when (key) {
-    "aed" -> R.drawable.campus_map_aed
-    "calm-down" -> R.drawable.campus_map_calm_down
-    "elevator" -> R.drawable.campus_map_elevator
-    "lounge" -> R.drawable.campus_map_lounge
-    "lounge-international" -> R.drawable.campus_map_lounge_international
-    "lounge-women" -> R.drawable.campus_map_lounge_women
-    "rest-room" -> R.drawable.campus_map_rest_room
-    "restroom" -> R.drawable.campus_map_restroom
-    "restroom-accessible" -> R.drawable.campus_map_restroom_accessible
-    "restroom-female" -> R.drawable.campus_map_restroom_female
-    "restroom-male" -> R.drawable.campus_map_restroom_male
-    "stairs" -> R.drawable.campus_map_stairs
-    "study-room" -> R.drawable.campus_map_study_room
-    else -> null
-}
+private val amenityDrawables = mapOf(
+    "aed" to R.drawable.campus_map_aed,
+    "calm-down" to R.drawable.campus_map_calm_down,
+    "elevator" to R.drawable.campus_map_elevator,
+    "lounge" to R.drawable.campus_map_lounge,
+    "lounge-international" to R.drawable.campus_map_lounge_international,
+    "lounge-women" to R.drawable.campus_map_lounge_women,
+    "rest-room" to R.drawable.campus_map_rest_room,
+    "restroom" to R.drawable.campus_map_restroom,
+    "restroom-accessible" to R.drawable.campus_map_restroom_accessible,
+    "restroom-female" to R.drawable.campus_map_restroom_female,
+    "restroom-male" to R.drawable.campus_map_restroom_male,
+    "stairs" to R.drawable.campus_map_stairs,
+    "study-room" to R.drawable.campus_map_study_room,
+)

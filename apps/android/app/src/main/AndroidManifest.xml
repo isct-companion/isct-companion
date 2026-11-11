@@ -30,11 +30,6 @@
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="barcode" />
-        <!-- The campus map's base map (Maps SDK for Android); the key comes
-             from the build (app/build.gradle.kts `mapsApiKey`). -->
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="${mapsApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

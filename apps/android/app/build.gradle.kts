@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -46,17 +44,6 @@ configurations.configureEach {
     }
 }
 
-// The Maps SDK for Android key behind the campus map's base map. Google
-// restricts it to this package and the signing certificate, and it stays out
-// of the repository: `MAPS_API_KEY` in the environment (CI) or in
-// `local.properties`. Without one the app still builds; the map then draws
-// Core's campus over an empty base map.
-val mapsApiKey = providers.environmentVariable("MAPS_API_KEY").orNull
-    ?: rootDir.resolve("local.properties").takeIf { it.exists() }?.let { file ->
-        Properties().apply { file.inputStream().use { load(it) } }.getProperty("MAPS_API_KEY")
-    }
-    ?: ""
-
 android {
     namespace = "app.isctcompanion"
     compileSdk = 37
@@ -75,7 +62,6 @@ android {
         // dependency's other ABIs (x86, armeabi-v7a, mips) are packaged too,
         // although the Core library exists for none of them.
         ndk { abiFilters += "arm64-v8a" }
-        manifestPlaceholders["mapsApiKey"] = mapsApiKey
     }
 
     // The release key lives only in CI secrets; without it, release builds
@@ -157,9 +143,10 @@ dependencies {
     implementation("com.google.ai.edge.litert:litert:2.3.2") {
         exclude(group = "com.google.ai.edge.litert", module = "litert-api")
     }
-    // The campus map's base map and drawing surface (features/map); it runs
-    // in Google Play services.
-    implementation("com.google.android.gms:play-services-maps:19.2.0")
+    // The campus map's drawing surface (features/map): MapLibre over
+    // OpenFreeMap's tiles, which need no key and no Google Play services.
+    // 11.x is the API the map view is written against.
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
     // Google Drive: the authorization API hands Core drive.appdata tokens.
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
