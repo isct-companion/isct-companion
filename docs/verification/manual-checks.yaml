@@ -1913,23 +1913,30 @@ checks:
           list and check the billing page.
         reason: |
           Windows renders each app's output to PDF only through its own class
-          driver. The jobs must leave the Windows list within seconds (the
-          printer gives no feedback, so the queue never waits for it), the
-          uncollated request must still print, and both must be billed to
-          the student and wait for release.
+          driver. The uncollated request must still print, and both must be
+          billed to the student and wait for release.
       - action: |
-          Quit IsctCompanion from the tray, print the photo again, then start
-          the app.
+          Quit IsctCompanion, print a document, and restart the app. Inspect
+          the Windows queue and recover the job through Windows if necessary.
+          Separately, force quit during an in-progress delivery, restart, and
+          compare the queue and billing page before taking any further action.
         reason: |
-          With no receiver Windows marks the job failed. Once the app runs,
-          the job must be sent again rather than dropped; only a job that
-          still fails after that becomes a system notification.
+          The native spooler must retain offline jobs, and an interruption
+          during delivery must not be reported as success or automatically
+          result in duplicate billing.
       - action: |
-          Leave ScienceTokyo Wi-Fi, print once more, and read the
-          notification.
+          Sign into a different non-administrator Windows account and try to
+          print to the queue. Then return to the installing account and print.
         reason: |
-          Delivery fails after Windows has finished the job, so the only
-          report is the app's own notification, in the UI language.
+          The queue must reject another user's job while allowing the owning
+          user and Windows' IPP components to submit a real document.
+      - action: |
+          Leave ScienceTokyo Wi-Fi, print once more, and inspect the Windows
+          queue and the app's notification. Do not manually retry a job whose
+          delivery outcome is uncertain until checking the billing page.
+        reason: |
+          A failed or ambiguous submission must be visible without silently
+          resending a document that may already have reached the printer.
       - action: |
           Reboot the machine with WSL or Docker, start the app, and print.
         reason: |
@@ -1939,17 +1946,15 @@ checks:
       The 学内プリンタ page, Printers & scanners and its print list, the
       excluded port ranges, the system notifications, and the billing page.
     expected: |
-      The queue installs on both Windows versions on a port outside the
-      dynamic range; prints from Word and Photos are billed to the student
-      and leave the Windows list at once; a job printed while the app was
-      closed is sent when it starts; an off-campus delivery failure is a
-      notification; printing works after a reboot with WSL or Docker.
+      The owner can print and the other account cannot. Real IPP jobs are
+      billed to the owner's student account and await release. Failures and
+      uncertain outcomes are visible; offline jobs remain recoverable and an
+      interrupted delivery is not reported as successful or billed twice.
+      Printing works after a reboot with WSL or Docker.
     why_manual: |
-      Needs administrator approval, the Windows spooler and IPP class
-      driver, real apps' print dialogs, the campus network and the
-      printer's billing. Option parsing and the queue cleanup rules are in
-      crates/app-core/src/tests/campus_printer_ipp.rs and
-      apps/desktop/src-tauri/src/tests/campus_printer_queue.rs.
+      Needs administrator approval, separate Windows accounts, the native
+      spooler and IPP class driver, real print dialogs, the campus network,
+      and the printer's billing page.
     covers:
       - apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs
       - crates/app-core/src/campus_printer/ipp.rs

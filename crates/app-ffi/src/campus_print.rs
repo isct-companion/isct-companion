@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
 //! Android's print service hands Core the PDF the system rendered; Core
 //! verifies whose student ID is billed and sends it to the campus printer.
 //! The binding is one surface for both phones (it is generated from the
@@ -32,6 +36,7 @@ pub enum CampusPrintSides {
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CampusPrintJob {
     /// The job's name at the printer.
+    pub id: String,
     pub title: String,
     pub copies: u32,
     pub sides: Option<CampusPrintSides>,
@@ -66,27 +71,105 @@ pub enum CampusPrintResult {
     Uncertain { printed: u32 },
 }
 
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum CampusPrintAdmission {
+    Ready { lease: u64 },
+    Busy,
+    Unknown { printed: u32 },
+}
+
 #[uniffi::export]
 impl Session {
-    /// Sends `document`, the PDF the system rendered, to the campus
-    /// printer, billed to the verified Tokyo Tech student ID. Core owns the
-    /// send past this operation's waiters.
+    pub fn campus_print_reserve(
+        &self,
+        job: CampusPrintJob,
+    ) -> Result<CampusPrintAdmission, SdkError> {
+        #[cfg(target_os = "android")]
+        {
+            return self
+                .inner
+                .campus_print
+                .reserve(&android::job(&job))
+                .map(android::admission)
+                .map_err(android::error);
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = job;
+            Err(crate::session::unavailable("Campus printer"))
+        }
+    }
+    pub fn campus_print_wait_available(&self) -> Result<Arc<Operation>, SdkError> {
+        #[cfg(target_os = "android")]
+        {
+            self.start(true, |inner, cancel| async move {
+                tokio::select! {
+                    result = inner.campus_print.wait_available() => { result.map_err(android::error)?; Ok(crate::OperationResult::Done) }
+                    _ = cancel.cancelled() => Err(SdkError::Cancelled),
+                }
+            })
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            self.blocking(|_| Err(crate::session::unavailable("Campus printer")))
+        }
+    }
+    pub fn campus_print_cancel(&self, id: String) -> Result<bool, SdkError> {
+        #[cfg(target_os = "android")]
+        {
+            return self.inner.campus_print.cancel(&id).map_err(android::error);
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = id;
+            Err(crate::session::unavailable("Campus printer"))
+        }
+    }
+    pub fn campus_print_forget_completed(&self, id: String) -> Result<(), SdkError> {
+        #[cfg(target_os = "android")]
+        {
+            return self
+                .inner
+                .campus_print
+                .forget_completed(&id)
+                .map_err(android::error);
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = id;
+            Err(crate::session::unavailable("Campus printer"))
+        }
+    }
+    pub fn campus_print_release(&self, id: String, lease: u64) {
+        #[cfg(target_os = "android")]
+        self.inner.campus_print.release(&id, lease);
+        #[cfg(not(target_os = "android"))]
+        let _ = (id, lease);
+    }
     pub fn campus_print(
         &self,
         document: Vec<u8>,
         job: CampusPrintJob,
+        lease: u64,
     ) -> Result<Arc<Operation>, SdkError> {
         #[cfg(target_os = "android")]
         {
             self.start(false, move |inner, _| async move {
                 Ok(crate::OperationResult::CampusPrint {
-                    result: android::print(&inner.core, document, job).await,
+                    result: android::print(
+                        &inner.core,
+                        inner.campus_print.clone(),
+                        document,
+                        job,
+                        lease,
+                    )
+                    .await?,
                 })
             })
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = (document, job);
+            let _ = (document, job, lease);
             self.blocking(|_| Err(crate::session::unavailable("Campus printer")))
         }
     }
@@ -94,52 +177,64 @@ impl Session {
 
 #[cfg(target_os = "android")]
 mod android {
-    use super::{CampusPrintJob, CampusPrintResult, CampusPrintSides, MAX_DOCUMENT_BYTES};
+    use super::{CampusPrintAdmission, CampusPrintJob, CampusPrintResult, CampusPrintSides};
+    use crate::SdkError;
     use app_core::campus_printer::{
-        pjl::{ColorMode, Duplex, Settings},
-        CampusPrintOutcome, PrintOptions, PrinterAccount,
+        android::{Admission, Error, Job, Service},
+        CampusPrintOutcome, PrinterAccount,
     };
+    use std::sync::Arc;
 
-    pub(super) async fn print(
-        core: &app_core::Core,
-        document: Vec<u8>,
-        job: CampusPrintJob,
-    ) -> CampusPrintResult {
-        if document.len() > MAX_DOCUMENT_BYTES {
-            return CampusPrintResult::TooLarge;
-        }
-        let options = PrintOptions {
+    pub(super) fn job(job: &CampusPrintJob) -> Job {
+        Job {
+            id: job.id.clone(),
+            title: job.title.clone(),
             copies: job.copies,
-            settings: Settings {
-                duplex: job.sides.map(|sides| match sides {
-                    CampusPrintSides::OneSided => Duplex::Off,
-                    CampusPrintSides::LongEdge => Duplex::LongEdge,
-                    CampusPrintSides::ShortEdge => Duplex::ShortEdge,
-                }),
-                color: job.color.map(|color| {
-                    if color {
-                        ColorMode::Color
-                    } else {
-                        ColorMode::Mono
-                    }
-                }),
-            },
-        };
-        match core
-            .campus_print_rendered(document, job.title, options)
+            sides: job.sides.map(|side| match side {
+                CampusPrintSides::OneSided => 0,
+                CampusPrintSides::LongEdge => 1,
+                CampusPrintSides::ShortEdge => 2,
+            }),
+            color: job.color,
+        }
+    }
+    pub(super) fn admission(value: Admission) -> CampusPrintAdmission {
+        match value {
+            Admission::Ready { lease } => CampusPrintAdmission::Ready { lease },
+            Admission::Busy => CampusPrintAdmission::Busy,
+            Admission::Unknown { printed } => CampusPrintAdmission::Unknown { printed },
+        }
+    }
+    pub(super) fn error(error: Error) -> SdkError {
+        let detail = "campus-print".to_string();
+        match error {
+            Error::Storage => SdkError::Storage { detail },
+            Error::Conflict => SdkError::Conflict { detail },
+            Error::Invalid | Error::TooLarge => SdkError::InvalidInput { detail },
+            Error::Cancelled => SdkError::Cancelled,
+        }
+    }
+    pub(super) async fn print(
+        core: &Arc<app_core::Core>,
+        service: Arc<Service>,
+        document: Vec<u8>,
+        input: CampusPrintJob,
+        lease: u64,
+    ) -> Result<CampusPrintResult, SdkError> {
+        let outcome = service
+            .submit(core.clone(), job(&input), document, lease)
             .await
-        {
+            .map_err(error)?;
+        Ok(match outcome {
             CampusPrintOutcome::Printed { copies } => CampusPrintResult::Printed { copies },
             CampusPrintOutcome::Account { account } => match account {
                 PrinterAccount::NotConnected => CampusPrintResult::NotConnected,
                 PrinterAccount::NotStudentId => CampusPrintResult::NotStudentId,
                 PrinterAccount::NeedsAttention => CampusPrintResult::NeedsAttention,
-                // `Ready` never comes back as a refusal.
                 PrinterAccount::Unverified | PrinterAccount::Ready { .. } => {
                     CampusPrintResult::Unverified
                 }
             },
-            // `Unreadable` is a file's failure; a rendered document has none.
             CampusPrintOutcome::NotPrintable
             | CampusPrintOutcome::InvalidCopies
             | CampusPrintOutcome::Unreadable => CampusPrintResult::NotPrintable,
@@ -148,6 +243,6 @@ mod android {
             }
             CampusPrintOutcome::NotPrinted { printed } => CampusPrintResult::NotPrinted { printed },
             CampusPrintOutcome::Uncertain { printed } => CampusPrintResult::Uncertain { printed },
-        }
+        })
     }
 }

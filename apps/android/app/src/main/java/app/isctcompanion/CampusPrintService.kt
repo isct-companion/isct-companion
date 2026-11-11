@@ -10,6 +10,7 @@ import android.printservice.PrintJob
 import android.printservice.PrintService
 import android.printservice.PrinterDiscoverySession
 import android.util.Log
+import app.isctcompanion.core.CampusPrintAdmission
 import app.isctcompanion.core.CampusPrintJob
 import app.isctcompanion.core.CampusPrintResult
 import app.isctcompanion.core.CampusPrintSides
@@ -19,43 +20,34 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The campus printer in the system's print dialog. Android enables an
- * installed app's print service by itself, so there is nothing to add or
- * switch on: every app's 印刷 lists the printer. The system renders the
- * document to a PDF with the dialog's paper size, page range and
- * orientation applied; this service hands that PDF and the dialog's
- * copies, sides and color to Core, which verifies the student ID the job
- * is billed to and sends it (`Session.campusPrint`). Nothing is decided
- * here and no document is kept.
- *
- * The printer holds every job until the student releases it at the device
- * and never reports back, so a job is complete once the printer accepted
- * its last copy. One that did not get there fails with Core's reason, which
- * the system shows in its print notification with its own retry. */
+/** Android's system print service delegates task ownership and retry decisions to Core. */
 class CampusPrintService : PrintService() {
     private val scope = MainScope()
-    /** Jobs whose document is still being read, by the coroutine reading
-     * it. Once Core has the document the send is Core's and runs to its
-     * end, so only these can still be cancelled. */
-    private val reading = mutableMapOf<PrintJobId, Job>()
+    private val jobs = mutableMapOf<PrintJobId, Job>()
+    private val readers = mutableMapOf<PrintJobId, ParcelFileDescriptor>()
+    private val cancelled = mutableSetOf<PrintJobId>()
+    private val model get() = (application as IsctApplication).model
 
     override fun onCreatePrinterDiscoverySession(): PrinterDiscoverySession = Discovery()
 
+    override fun onConnected() {
+        super.onConnected()
+        activePrintJobs.forEach(::onPrintJobQueued)
+    }
+
     override fun onPrintJobQueued(printJob: PrintJob) {
         val id = printJob.id ?: return
+        if (jobs.containsKey(id)) return
         val info = printJob.info
-        val data = printJob.document.data
-        if (data == null || !printJob.start()) {
-            data?.close()
-            printJob.fail(t("campusPrint.notice.queueFailed"))
-            return
-        }
         val job = CampusPrintJob(
-            title = info.label,
+            id = id.toString(), title = info.label,
             copies = info.copies.coerceAtLeast(1).toUInt(),
             sides = when (info.attributes.duplexMode) {
                 PrintAttributes.DUPLEX_MODE_NONE -> CampusPrintSides.ONE_SIDED
@@ -69,44 +61,78 @@ class CampusPrintService : PrintService() {
                 else -> null
             },
         )
-        reading[id] = scope.launch {
-            val result = try {
+        jobs[id] = scope.launch {
+            var lease: ULong? = null
+            try {
+                while (true) {
+                    val admission = withContext(NonCancellable) {
+                        model.campusPrintReserve(job).also { if (it is CampusPrintAdmission.Ready) lease = it.lease }
+                    }
+                    currentCoroutineContext().ensureActive()
+                    when (admission) {
+                        is CampusPrintAdmission.Busy -> {
+                            if (printJob.isQueued && !printJob.start()) return@launch
+                            printJob.block(t("campusPrint.notice.queueFailed"))
+                            model.campusPrintWaitAvailable()
+                        }
+                        is CampusPrintAdmission.Unknown -> {
+                            if (printJob.isQueued && !printJob.start()) return@launch
+                            printJob.fail(reason(CampusPrintResult.Uncertain(admission.printed)))
+                            return@launch
+                        }
+                        is CampusPrintAdmission.Ready -> break
+                    }
+                }
+                if (!printJob.isStarted && !printJob.start()) return@launch
+                val data = printJob.document.data ?: throw IllegalStateException("Print document unavailable")
+                readers[id] = data
                 val document = withContext(Dispatchers.IO) { read(data, LIMIT) }
-                reading.remove(id)
-                if (document == null) CampusPrintResult.TooLarge
-                else (application as IsctApplication).model.campusPrint(document, job)
+                readers.remove(id)
+                val result = if (document == null) CampusPrintResult.TooLarge else model.campusPrint(document, job, checkNotNull(lease))
+                if (result is CampusPrintResult.Printed) {
+                    if (printJob.complete()) model.campusPrintForget(job.id)
+                } else {
+                    printJob.fail(reason(result))
+                }
             } catch (error: CancellationException) {
-                throw error
+                if (id in cancelled) printJob.cancel()
+                else throw error
             } catch (error: Exception) {
                 Log.w("isct", "campus print", error)
-                null
+                if (id in cancelled) printJob.cancel()
+                else printJob.fail(t("campusPrint.notice.queueFailed"))
             } finally {
-                reading.remove(id)
-            }
-            when (result) {
-                is CampusPrintResult.Printed -> printJob.complete()
-                else -> printJob.fail(reason(result))
+                runCatching { readers.remove(id)?.close() }
+                try {
+                    lease?.let { held -> withContext(NonCancellable) { runCatching { model.campusPrintRelease(job.id, held) } } }
+                } finally {
+                    jobs.remove(id)
+                    cancelled.remove(id)
+                }
             }
         }
     }
 
-    /** The system's cancel. A document Core already has is being sent or
-     * is at the printer, where only the student can drop it; that job ends
-     * by itself within the send's timeouts. */
     override fun onRequestCancelPrintJob(printJob: PrintJob) {
-        val read = reading.remove(printJob.id) ?: return
-        read.cancel()
-        printJob.cancel()
+        val id = printJob.id ?: return
+        scope.launch {
+            val beforeSend = runCatching { model.campusPrintCancel(id.toString()) }.getOrDefault(false)
+            if (beforeSend) {
+                if (jobs.containsKey(id)) cancelled.add(id)
+                runCatching { readers.remove(id)?.close() }
+                jobs[id]?.cancel()
+                printJob.cancel()
+            }
+        }
     }
 
     override fun onDestroy() {
+        readers.values.forEach { runCatching { it.close() } }
+        readers.clear()
         scope.cancel()
         super.onDestroy()
     }
 
-    /** The PDF, or `null` when it is larger than [limit] bytes: reading
-     * stops one byte past the limit, so a document Core would refuse is
-     * never held in memory. The system's pipe is closed whatever happens. */
     private fun read(data: ParcelFileDescriptor, limit: Int): ByteArray? =
         ParcelFileDescriptor.AutoCloseInputStream(data).use { input ->
             input.readNBytes(limit + 1).takeIf { it.size <= limit }

@@ -143,3 +143,42 @@ fn a_refused_copy_reports_the_copies_already_accepted() {
         "{result:?}"
     );
 }
+
+// A durable progress owner can stop after an acknowledged copy without
+// uploading the remaining copies; otherwise a retry may duplicate them.
+#[test]
+fn progress_callbacks_stop_before_the_next_upload() {
+    use std::cell::RefCell;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || serve_one_job(&listener));
+    let events = RefCell::new(Vec::new());
+    let result = print_bytes_progress(
+        server,
+        &student(),
+        b"%PDF-1.7 body",
+        "report",
+        &PrintOptions {
+            copies: 3,
+            settings: pjl::Settings::default(),
+        },
+        |accepted| {
+            events.borrow_mut().push(("before", accepted));
+            if accepted == 1 {
+                Err(PrintError::Interrupted)
+            } else {
+                Ok(())
+            }
+        },
+        |accepted| {
+            events.borrow_mut().push(("after", accepted));
+            Ok(())
+        },
+    );
+    handle.join().unwrap();
+    assert!(matches!(result, Err(PrintError::Interrupted)));
+    assert_eq!(
+        *events.borrow(),
+        [("before", 0), ("after", 1), ("before", 1)]
+    );
+}

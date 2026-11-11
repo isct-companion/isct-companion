@@ -21,7 +21,8 @@ pub mod types {
     include!(concat!(env!("OUT_DIR"), "/contracts.rs"));
 }
 pub use campus_print::{
-    campus_print_document_limit, CampusPrintJob, CampusPrintResult, CampusPrintSides,
+    campus_print_document_limit, CampusPrintAdmission, CampusPrintJob, CampusPrintResult,
+    CampusPrintSides,
 };
 pub use diagnostics::export_application_logs;
 pub use error::SdkError;

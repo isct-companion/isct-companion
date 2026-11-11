@@ -29,6 +29,8 @@ pub enum PrintError {
     NotPrintable,
     /// `copies` is outside 1..=`MAX_COPIES`.
     Copies,
+    /// The owner stopped delivery before the next copy or could not persist progress.
+    Interrupted,
     /// The next copy did not reach the printer; the `accepted` copies
     /// before it did.
     Lpd { accepted: u32, error: lpd::LpdError },
@@ -40,6 +42,7 @@ impl fmt::Display for PrintError {
             Self::File(error) => write!(f, "cannot read the file: {error}"),
             Self::NotPrintable => f.write_str("not a PDF or PostScript file"),
             Self::Copies => write!(f, "copies must be between 1 and {MAX_COPIES}"),
+            Self::Interrupted => f.write_str("delivery stopped before the next copy"),
             Self::Lpd { accepted, error } => {
                 write!(f, "after {accepted} accepted copies: {error}")
             }
@@ -80,6 +83,29 @@ pub fn print_bytes(
     title: &str,
     options: &PrintOptions,
 ) -> Result<u32, PrintError> {
+    print_bytes_progress(
+        server,
+        student,
+        document,
+        title,
+        options,
+        |_| Ok(()),
+        |_| Ok(()),
+    )
+}
+
+/// Calls the owner before each copy and after its LPD acknowledgement. The
+/// owner can persist its in-flight marker and acknowledged count at these
+/// boundaries; failing either callback stops subsequent uploads.
+pub fn print_bytes_progress(
+    server: SocketAddr,
+    student: &StudentId,
+    document: &[u8],
+    title: &str,
+    options: &PrintOptions,
+    mut before_copy: impl FnMut(u32) -> Result<(), PrintError>,
+    mut after_copy: impl FnMut(u32) -> Result<(), PrintError>,
+) -> Result<u32, PrintError> {
     if !(1..=MAX_COPIES).contains(&options.copies) {
         return Err(PrintError::Copies);
     }
@@ -90,6 +116,7 @@ pub fn print_bytes(
     let data_len = (header.len() + document.len() + pjl::JOB_END.len()) as u64;
     let mut number = lpd::first_job_number();
     for accepted in 0..options.copies {
+        before_copy(accepted)?;
         let job = lpd::Job {
             number,
             host: &host,
@@ -100,6 +127,7 @@ pub fn print_bytes(
         let mut data = header.as_slice().chain(document).chain(pjl::JOB_END);
         lpd::send(server, QUEUE, &job, &mut data, data_len)
             .map_err(|error| PrintError::Lpd { accepted, error })?;
+        after_copy(accepted + 1)?;
     }
     Ok(options.copies)
 }

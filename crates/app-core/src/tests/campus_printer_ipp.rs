@@ -121,3 +121,36 @@ fn only_uncompressed_pdf_documents_are_accepted() {
         Err(StatusCode::ClientErrorCompressionNotSupported)
     ));
 }
+
+// A restart must retain the system's job ID and never turn an interrupted
+// delivery into a safe-to-resend pending job.
+#[test]
+fn journal_recovers_pending_and_in_flight_jobs_without_reusing_ids() {
+    let path = std::env::temp_dir().join(format!("campus-ipp-{}.sqlite", uuid::Uuid::new_v4()));
+    {
+        let db = open_journal(path.clone()).unwrap();
+        db.execute("INSERT INTO jobs(id,title,student,state) VALUES (1,'pending','','pending'),(2,'sending','00B12345','processing'),(3,'done','00B12345','completed')", []).unwrap();
+    }
+    let db = open_journal(path.clone()).unwrap();
+    for id in 4..=140 {
+        db.execute(
+            "INSERT INTO jobs(id,title,student,state) VALUES (?1,'done','','completed')",
+            [id],
+        )
+        .unwrap();
+    }
+    let (cache, next) = recover_jobs(&db).unwrap();
+    assert_eq!(next, 141);
+    assert_eq!(cache.len(), 128);
+    assert!(!cache.contains_key(&1));
+    let jobs: BTreeMap<_, _> = (1..=3)
+        .map(|id| (id, recover_job(&db, id).unwrap().unwrap()))
+        .collect();
+    assert_eq!(jobs[&1].state, JobState::Aborted);
+    assert!(jobs[&1].message.contains("not submitted"));
+    assert_eq!(jobs[&2].state, JobState::Aborted);
+    assert!(jobs[&2].message.contains("unknown"));
+    assert_eq!(jobs[&3].state, JobState::Completed);
+    drop(db);
+    std::fs::remove_file(path).unwrap();
+}

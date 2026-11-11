@@ -25,6 +25,8 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -192,10 +194,40 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * verifies the student ID it is billed to and sends the PDF. The print
      * service can start the process with no activity, so the session opens
      * here if it has not. `null` when there is no session to print with. */
-    suspend fun campusPrint(document: ByteArray, job: CampusPrintJob): CampusPrintResult? {
+    suspend fun campusPrint(document: ByteArray, job: CampusPrintJob, lease: ULong): CampusPrintResult? {
         start()
         val session = session ?: return null
-        return (session.campusPrint(document, job).value() as? OperationResult.CampusPrint)?.result
+        return (withContext(Dispatchers.IO) { session.campusPrint(document, job, lease) }.value() as? OperationResult.CampusPrint)?.result
+    }
+
+    suspend fun campusPrintReserve(job: CampusPrintJob): CampusPrintAdmission {
+        start()
+        val current = session ?: throw IllegalStateException("Session unavailable")
+        return withContext(Dispatchers.IO) { current.campusPrintReserve(job) }
+    }
+
+    suspend fun campusPrintWaitAvailable() {
+        val current = session ?: throw IllegalStateException("Session unavailable")
+        val operation = current.campusPrintWaitAvailable()
+        try { operation.value() } catch (error: CancellationException) {
+            runCatching { operation.cancel() }
+            throw error
+        }
+    }
+
+    suspend fun campusPrintCancel(id: String): Boolean {
+        val current = session ?: return true
+        return withContext(Dispatchers.IO) { current.campusPrintCancel(id) }
+    }
+
+    suspend fun campusPrintRelease(id: String, lease: ULong) {
+        val current = session ?: return
+        withContext(Dispatchers.IO) { current.campusPrintRelease(id, lease) }
+    }
+
+    suspend fun campusPrintForget(id: String) {
+        val current = session ?: return
+        withContext(Dispatchers.IO) { current.campusPrintForgetCompleted(id) }
     }
 
     /** One WorkManager opportunity out of front: Core reads what is due when

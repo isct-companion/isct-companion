@@ -3,28 +3,14 @@
 //! PDF and posts it over IPP to a receiver on 127.0.0.1 that this plugin
 //! runs while the app does; Core (`app_core::campus_printer::ipp`) answers
 //! IPP, bills and delivers. This module installs the queue behind UAC, keeps
-//! the receiver on the URL the queue stores, and keeps the Windows print list
-//! clear: the campus printer holds jobs until release and never reports
-//! back, so a received job is finished as far as Windows is concerned, and
-//! failures reach the person as notifications.
+//! the receiver on the URL the queue stores. Windows retains spool jobs and
+//! Core reports delivery failures to the person as notifications.
 use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, CommandError};
 use ::windows::{
     core::{w, HSTRING, PCWSTR},
     Win32::{
-        Foundation::{CloseHandle, GetLastError, ERROR_CANCELLED},
-        Graphics::{
-            Gdi::DEVMODEW,
-            Printing::{
-                ClosePrinter, EnumJobsW, OpenPrinterW, SetJobW, JOB_CONTROL_DELETE,
-                JOB_CONTROL_RESTART, JOB_INFO_2W, JOB_STATUS_BLOCKED_DEVQ, JOB_STATUS_COMPLETE,
-                JOB_STATUS_DELETED, JOB_STATUS_DELETING, JOB_STATUS_ERROR, JOB_STATUS_OFFLINE,
-                JOB_STATUS_PAPEROUT, JOB_STATUS_PAUSED, JOB_STATUS_PRINTED, JOB_STATUS_PRINTING,
-                JOB_STATUS_RENDERING_LOCALLY, JOB_STATUS_RESTART, JOB_STATUS_RETAINED,
-                JOB_STATUS_SPOOLING, JOB_STATUS_USER_INTERVENTION, PRINTER_ACCESS_ADMINISTER,
-                PRINTER_DEFAULTSW, PRINTER_HANDLE,
-            },
-        },
+        Foundation::{CloseHandle, ERROR_CANCELLED},
         System::Threading::{GetExitCodeProcess, WaitForSingleObject},
         UI::{
             Shell::{
@@ -50,12 +36,14 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
     os::windows::process::CommandExt,
     path::PathBuf,
     process::Command,
-    sync::Arc,
-    time::{Duration, Instant},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -65,8 +53,6 @@ use tokio_util::sync::CancellationToken;
 struct Endpoint {
     port: u16,
     token: uuid::Uuid,
-    #[serde(default)]
-    private_token: bool,
 }
 impl Endpoint {
     fn path(&self) -> String {
@@ -85,13 +71,12 @@ impl Endpoint {
     /// reserves for Hyper-V, WSL and Docker at boot. Anything else is
     /// replaced by the next repair.
     fn stable(&self) -> bool {
-        self.private_token && STABLE_PORTS.contains(&self.port)
+        STABLE_PORTS.contains(&self.port)
     }
     fn new_private() -> Self {
         Endpoint {
             port: 0,
             token: uuid::Uuid::new_v4(),
-            private_token: true,
         }
     }
     fn marker(&self) -> String {
@@ -106,7 +91,7 @@ struct Running {
     endpoint: Endpoint,
     stop: CancellationToken,
     task: tokio::task::JoinHandle<()>,
-    cleanup_task: tokio::task::JoinHandle<()>,
+    enabled: Arc<AtomicBool>,
 }
 #[derive(Default)]
 pub(crate) struct PrintServer(Mutex<Option<Running>>);
@@ -137,6 +122,8 @@ enum Start {
 struct HttpState {
     queue: Arc<CampusPrintQueue>,
     requests: Arc<tokio::sync::Semaphore>,
+    small_requests: Arc<tokio::sync::Semaphore>,
+    enabled: Arc<AtomicBool>,
 }
 
 async fn receive(State(state): State<HttpState>, request: Request) -> Response {
@@ -150,17 +137,28 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
         log::warn!("[campus-printer] refused a request that is not IPP");
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
-    // No CORS and an unguessable per-user route; the Windows queue is also ACLed.
-    // Requests wait for a slot instead of failing: a refused status poll
-    // makes Windows show the queue as offline.
-    let Ok(_permit) = state.requests.acquire().await else {
+    // Small, explicitly sized IPP polls must not wait behind a document upload.
+    // A missing or larger length is treated as a document and serialized.
+    let small = request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length <= 65_536);
+    let slots = if small {
+        &state.small_requests
+    } else {
+        &state.requests
+    };
+    let Ok(_permit) = slots.acquire().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let body = match tokio::time::timeout(
-        BODY_TIMEOUT,
-        to_bytes(request.into_body(), MAX_DOCUMENT_BYTES + 65536),
-    )
-    .await
+    let limit = if small {
+        65_536
+    } else {
+        MAX_DOCUMENT_BYTES + 65_536
+    };
+    let body = match tokio::time::timeout(BODY_TIMEOUT, to_bytes(request.into_body(), limit)).await
     {
         Ok(Ok(body)) => body,
         Ok(Err(error)) => {
@@ -172,6 +170,14 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
             return StatusCode::REQUEST_TIMEOUT.into_response();
         }
     };
+    // Discovery must remain available while Windows installs the queue.
+    // Never accept a document until its access control has been installed.
+    if body.len() >= 4
+        && matches!(u16::from_be_bytes([body[2], body[3]]), 0x0002 | 0x0006)
+        && !state.enabled.load(Ordering::Acquire)
+    {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     match state.queue.handle(body).await {
         Ok(bytes) => ([(header::CONTENT_TYPE, "application/ipp")], bytes).into_response(),
         Err(error) => {
@@ -280,11 +286,10 @@ impl PrintServer {
             return Ok(());
         }
         // A stopped listener, or one a repair replaces: stop it and its
-        // queue cleanup before anything new starts, so only one loop runs.
+        // listener before anything new starts.
         if let Some(old) = running.take() {
             old.stop.cancel();
             let _ = old.task.await;
-            let _ = old.cleanup_task.await;
         }
         let saved = match (mode, saved_endpoint(app)) {
             (_, Ok(saved)) => saved,
@@ -313,7 +318,7 @@ impl PrintServer {
                     (bind_new(&endpoint).await?, endpoint)
                 }
             },
-            // No endpoint yet, a legacy public token or an ephemeral port.
+            // No usable endpoint yet.
             (Start::Repair, _) => {
                 let endpoint = Endpoint::new_private();
                 (bind_new(&endpoint).await?, endpoint)
@@ -321,6 +326,9 @@ impl PrintServer {
         };
         endpoint.port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let app_for_report = app.clone();
+        let enabled = Arc::new(AtomicBool::new(
+            !endpoint_file(app)?.with_extension("installing").exists(),
+        ));
         let state = HttpState {
             queue: CampusPrintQueue::new_with_delivery_reporter(
                 core_ports::core(app),
@@ -335,7 +343,9 @@ impl PrintServer {
                     });
                 }),
             ),
-            requests: Arc::new(tokio::sync::Semaphore::new(4)),
+            requests: Arc::new(tokio::sync::Semaphore::new(1)),
+            small_requests: Arc::new(tokio::sync::Semaphore::new(8)),
+            enabled: enabled.clone(),
         };
         let router = Router::new()
             .route("/", get(receiver_ready))
@@ -356,16 +366,11 @@ impl PrintServer {
                 log::error!("[campus-printer] IPP listener stopped: {error}");
             }
         });
-        let cleanup_stop = stop.clone();
-        let app = app.clone();
-        let cleanup_task = tokio::spawn(async move {
-            cleanup_queue(app, cleanup_stop).await;
-        });
         *running = Some(Running {
             endpoint,
             stop,
             task,
-            cleanup_task,
+            enabled,
         });
         Ok(())
     }
@@ -412,171 +417,6 @@ impl PrintServer {
         if let Some(running) = self.0.lock().await.take() {
             running.stop.cancel();
             let _ = running.task.await;
-            let _ = running.cleanup_task.await;
-        }
-    }
-}
-
-const QUEUE_POLL_INTERVAL: Duration = Duration::from_secs(2);
-/// How long a job restarted after an error gets to reach the receiver.
-const RETRY_GRACE: Duration = Duration::from_secs(30);
-/// How long a job may sit in a state none of the rules name.
-const UNKNOWN_JOB_GRACE: Duration = Duration::from_secs(60);
-
-#[derive(Clone)]
-struct SpoolJob {
-    id: u32,
-    status: u32,
-    /// What Windows says about the job (its status text, data type, driver
-    /// and size), for the log when it fails.
-    detail: String,
-}
-
-/// What the cleanup loop does with one Windows job. The receiver answers
-/// every document as completed at once (Core delivers it and reports
-/// failures itself), so the Windows list only ever holds jobs on their way
-/// to the receiver, finished ones, or ones Windows could not hand over.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SpoolAction {
-    Keep,
-    /// Finished: drop it from the list, nothing to tell.
-    Remove,
-    /// Windows could not reach the receiver, usually because the app was
-    /// closed when the job was printed. The receiver is up now: send again.
-    Restart,
-    /// Still failing after a restart, or stuck: tell the person, then drop it.
-    Fail(u32),
-}
-
-fn spool_job_action(status: u32, waited: Duration, restarted: bool) -> SpoolAction {
-    if status & JOB_STATUS_DELETING != 0 {
-        return SpoolAction::Keep;
-    }
-    if status & (JOB_STATUS_PRINTED | JOB_STATUS_COMPLETE | JOB_STATUS_DELETED) != 0 {
-        return SpoolAction::Remove;
-    }
-    let failed = status
-        & (JOB_STATUS_ERROR
-            | JOB_STATUS_OFFLINE
-            | JOB_STATUS_PAPEROUT
-            | JOB_STATUS_BLOCKED_DEVQ
-            | JOB_STATUS_USER_INTERVENTION);
-    if failed != 0 {
-        return if !restarted {
-            SpoolAction::Restart
-        } else if waited >= RETRY_GRACE {
-            SpoolAction::Fail(failed)
-        } else {
-            SpoolAction::Keep
-        };
-    }
-    // Paused by the person: theirs to resume or delete.
-    if status & JOB_STATUS_PAUSED != 0 {
-        return SpoolAction::Keep;
-    }
-    let active = status
-        & (JOB_STATUS_SPOOLING
-            | JOB_STATUS_PRINTING
-            | JOB_STATUS_RESTART
-            | JOB_STATUS_RENDERING_LOCALLY)
-        != 0;
-    // Zero means normally queued; retained alone does not mean delivery finished.
-    if active || status == 0 || status == JOB_STATUS_RETAINED || waited < UNKNOWN_JOB_GRACE {
-        SpoolAction::Keep
-    } else {
-        SpoolAction::Fail(status)
-    }
-}
-
-struct Tracked {
-    since: Instant,
-    restarted: bool,
-}
-
-/// Runs while the receiver runs: keeps the Windows list empty of finished
-/// jobs and turns jobs Windows could not deliver into notifications.
-async fn cleanup_queue(app: tauri::AppHandle, stop: CancellationToken) {
-    let mut printer_name = None::<String>;
-    let mut tracked = HashMap::<u32, Tracked>::new();
-    let mut reported = HashSet::<u32>::new();
-    let mut interval = tokio::time::interval(QUEUE_POLL_INTERVAL);
-    // The same failure every two seconds (the queue not installed yet) is
-    // logged once, until it changes.
-    let mut last_warning = None::<String>;
-    let mut warn_once = move |message: String| {
-        if last_warning.as_ref() != Some(&message) {
-            log::warn!("[campus-printer] {message}");
-            last_warning = Some(message);
-        }
-    };
-    loop {
-        tokio::select! {
-            _ = stop.cancelled() => break,
-            _ = interval.tick() => {
-                if printer_name.is_none() {
-                    match tauri::async_runtime::spawn_blocking(identity).await {
-                        Ok(Ok((_, _, name))) => printer_name = Some(name),
-                        Ok(Err(error)) => {
-                            warn_once(format!("could not identify the Windows queue for cleanup: {error}"));
-                            continue;
-                        }
-                        Err(error) => {
-                            log::warn!("[campus-printer] queue identification task failed: {error}");
-                            continue;
-                        }
-                    }
-                }
-                let Some(name) = printer_name.clone() else { continue; };
-                let jobs = match tauri::async_runtime::spawn_blocking(move || enum_spool_jobs(&name)).await {
-                    Ok(Ok(jobs)) => jobs,
-                    Ok(Err(error)) => {
-                        warn_once(format!("could not inspect print queue: {error}"));
-                        continue;
-                    }
-                    Err(error) => {
-                        log::warn!("[campus-printer] print queue inspection task failed: {error}");
-                        continue;
-                    }
-                };
-                let present: HashSet<u32> = jobs.iter().map(|job| job.id).collect();
-                tracked.retain(|id, _| present.contains(id));
-                reported.retain(|id| present.contains(id));
-                for job in jobs {
-                    let entry = tracked.entry(job.id).or_insert_with(|| Tracked {
-                        since: Instant::now(),
-                        restarted: false,
-                    });
-                    let action = spool_job_action(job.status, entry.since.elapsed(), entry.restarted);
-                    let command = match action {
-                        SpoolAction::Keep => continue,
-                        SpoolAction::Restart => {
-                            log::info!("[campus-printer] Windows job {} failed (0x{:08X}): {}", job.id, job.status, job.detail);
-                            entry.restarted = true;
-                            entry.since = Instant::now();
-                            JOB_CONTROL_RESTART
-                        }
-                        SpoolAction::Remove => JOB_CONTROL_DELETE,
-                        SpoolAction::Fail(code) => {
-                            if reported.insert(job.id) {
-                                let message = crate::window_close::text(&app, "campusPrint.notice.queueFailed")
-                                    .replace("{{code}}", &format!("0x{code:08X}"));
-                                log::warn!("[campus-printer] Windows job {} failed with status 0x{code:08X}: {}", job.id, job.detail);
-                                notify(&app, message).await;
-                            }
-                            JOB_CONTROL_DELETE
-                        }
-                    };
-                    let Some(name) = printer_name.clone() else { continue; };
-                    let id = job.id;
-                    match tauri::async_runtime::spawn_blocking(move || control_spool_job(&name, id, command)).await {
-                        Ok(Ok(())) => log::info!("[campus-printer] {action:?} Windows print job {id}"),
-                        // A finished job often leaves the list on its own between
-                        // the poll and this call; the next poll tries again.
-                        Ok(Err(error)) => log::warn!("[campus-printer] could not {action:?} Windows job {id}: {error}"),
-                        Err(error) => log::warn!("[campus-printer] print job control task failed: {error}"),
-                    }
-                }
-            }
         }
     }
 }
@@ -625,105 +465,6 @@ fn delivery_failure_text(
     Some(format!("{title}: {detail}"))
 }
 
-fn enum_spool_jobs(printer_name: &str) -> Result<Vec<SpoolJob>, String> {
-    let name = HSTRING::from(printer_name);
-    let defaults = PRINTER_DEFAULTSW {
-        pDatatype: ::windows::core::PWSTR::null(),
-        pDevMode: std::ptr::null_mut::<DEVMODEW>(),
-        DesiredAccess: PRINTER_ACCESS_ADMINISTER,
-    };
-    let mut printer = PRINTER_HANDLE::default();
-    unsafe { OpenPrinterW(&name, &mut printer, Some(&defaults)) }
-        .map_err(|error| format!("OpenPrinterW: {error}"))?;
-    let result = (|| {
-        let mut needed = 0u32;
-        let mut returned = 0u32;
-        let _ = unsafe { EnumJobsW(printer, 0, u32::MAX, 2, None, &mut needed, &mut returned) };
-        if needed == 0 {
-            return Ok(Vec::new());
-        }
-        if needed > 16 * 1024 * 1024 {
-            return Err(format!(
-                "print queue response is too large ({needed} bytes)"
-            ));
-        }
-        let word_count = (needed as usize).div_ceil(std::mem::size_of::<u64>());
-        let mut buffer = vec![0u64; word_count];
-        let byte_len = buffer.len() * std::mem::size_of::<u64>();
-        let bytes =
-            unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr().cast::<u8>(), byte_len) };
-        unsafe {
-            EnumJobsW(
-                printer,
-                0,
-                u32::MAX,
-                2,
-                Some(bytes),
-                &mut needed,
-                &mut returned,
-            )
-        }
-        .map_err(|error| format!("EnumJobsW: {error}"))?;
-        if returned as usize > byte_len / std::mem::size_of::<JOB_INFO_2W>() {
-            return Err("Windows returned an invalid print-job count".into());
-        }
-        let infos = unsafe {
-            std::slice::from_raw_parts(buffer.as_ptr().cast::<JOB_INFO_2W>(), returned as usize)
-        };
-        Ok(infos
-            .iter()
-            .map(|job| SpoolJob {
-                id: job.JobId,
-                status: job.Status,
-                detail: format!(
-                    "status text {:?}, data type {:?}, processor {:?}, driver {:?}, {} bytes, {} pages",
-                    text(job.pStatus),
-                    text(job.pDatatype),
-                    text(job.pPrintProcessor),
-                    text(job.pDriverName),
-                    job.Size,
-                    job.TotalPages,
-                ),
-            })
-            .collect())
-    })();
-    let _ = unsafe { ClosePrinter(printer) };
-    result
-}
-
-/// A string the spooler returned inside the job buffer, or empty.
-fn text(value: ::windows::core::PWSTR) -> String {
-    if value.is_null() {
-        return String::new();
-    }
-    // SAFETY: EnumJobsW points these into the buffer it filled, which
-    // outlives this call, and each is NUL-terminated.
-    unsafe { value.to_string() }.unwrap_or_default()
-}
-
-fn control_spool_job(printer_name: &str, job_id: u32, command: u32) -> Result<(), String> {
-    let name = HSTRING::from(printer_name);
-    let defaults = PRINTER_DEFAULTSW {
-        pDatatype: ::windows::core::PWSTR::null(),
-        pDevMode: std::ptr::null_mut::<DEVMODEW>(),
-        DesiredAccess: PRINTER_ACCESS_ADMINISTER,
-    };
-    let mut printer = PRINTER_HANDLE::default();
-    unsafe { OpenPrinterW(&name, &mut printer, Some(&defaults)) }
-        .map_err(|error| format!("OpenPrinterW: {error}"))?;
-    let done = unsafe { SetJobW(printer, job_id, 0, None, command) }.as_bool();
-    let control_error = if done {
-        None
-    } else {
-        Some(unsafe { GetLastError() }.0)
-    };
-    let close_result = unsafe { ClosePrinter(printer) };
-    if let Some(error) = control_error {
-        return Err(format!("SetJobW failed with Windows error {error}"));
-    }
-    close_result.map_err(|error| format!("ClosePrinter: {error}"))
-}
-
 /// The plugin's state; the receiver starts once Core runs (`resume`).
 pub(super) fn setup(app: &tauri::AppHandle) {
     app.manage(PrintServer::default());
@@ -767,29 +508,39 @@ pub(super) async fn install(
     // does not reach it.
     let previous = saved_endpoint(&app).ok().flatten();
     server.start(&app, Start::Repair).await?;
-    let (uri, marker) = {
+    let (uri, marker, enabled, was_enabled) = {
         let running = server.0.lock().await;
-        let endpoint = &running
-            .as_ref()
-            .ok_or("Printer receiver did not start")?
-            .endpoint;
-        (endpoint.http_uri(), endpoint.marker())
+        let current = running.as_ref().ok_or("Printer receiver did not start")?;
+        let was_enabled = current.enabled.swap(false, Ordering::AcqRel);
+        (
+            current.endpoint.http_uri(),
+            current.endpoint.marker(),
+            current.enabled.clone(),
+            was_enabled,
+        )
     };
     // Save the new address before Windows can be pointed at it: a queue on a
     // URL the app would not serve after a restart is what this order rules
     // out. If saving fails, Windows is not touched.
     if let Err(error) = server.persist_endpoint(&app).await {
         log::warn!("[campus-printer] the receiver address was not saved: {error}");
+        enabled.store(was_enabled, Ordering::Release);
         server.revert(&app, previous).await;
         return Ok(CampusPrinterSetup::Failed);
     }
     let installed_marker = marker.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || install_queue(&uri, &marker))
-        .await
-        .map_err(|e| e.to_string())?;
+    let journal = endpoint_file(&app)?.with_extension("installing");
+    let result =
+        tauri::async_runtime::spawn_blocking(move || install_queue(&uri, &marker, &journal))
+            .await
+            .map_err(|e| e.to_string())?;
     let outcome = match result {
-        Ok(true) => CampusPrinterSetup::Added,
+        Ok(true) => {
+            enabled.store(true, Ordering::Release);
+            CampusPrinterSetup::Added
+        }
         Ok(false) => {
+            enabled.store(was_enabled, Ordering::Release);
             server.revert(&app, previous).await;
             CampusPrinterSetup::Cancelled
         }
@@ -811,6 +562,7 @@ pub(super) async fn install(
                 .map(|state| matches!(state, Ok(QueueState::Ready)))
                 .unwrap_or(false);
             if !moved {
+                enabled.store(was_enabled, Ordering::Release);
                 server.revert(&app, previous).await;
             }
             CampusPrinterSetup::Failed
@@ -872,7 +624,11 @@ impl InstallFailure {
             message,
             repointed: matches!(
                 stage,
-                "configure-queue-access" | "configure-print-defaults" | "verify-queue"
+                "remove-previous-queue"
+                    | "add-ipp-queue"
+                    | "configure-queue-access"
+                    | "configure-print-defaults"
+                    | "verify-queue"
             ),
         }
     }
@@ -894,7 +650,11 @@ impl From<&str> for InstallFailure {
     }
 }
 
-fn install_queue(uri: &str, marker: &str) -> Result<bool, InstallFailure> {
+fn install_queue(
+    uri: &str,
+    marker: &str,
+    journal: &std::path::Path,
+) -> Result<bool, InstallFailure> {
     let (shell, sid, name) = identity()?;
     let quote = |s: &str| format!("'{}'", s.replace('\'', "''"));
     let diagnostic =
@@ -905,12 +665,10 @@ $stage='inspect-queue'
 try {{
  $name={name}; $uri={uri}; $marker={marker}; $owner='IsctCompanion:{sid}'
  $existing=Get-Printer -Name $name -Full -ErrorAction SilentlyContinue
- if ($existing -and ($existing.DriverName -ne 'Microsoft IPP Class Driver' -or $existing.Location -ne $owner)) {{ throw 'Printer name belongs to another queue' }}
- # Only migrate this user's old app queues, never arbitrary printers or jobs.
- $stage='inspect-legacy-queues'
- $legacy=@(Get-Printer -Name 'IsctCompanion Campus Printer - *' -Full -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -match '^IsctCompanion Campus Printer - [0-9a-f]{{32}}$' -and $_.DriverName -eq 'Microsoft IPP Class Driver' -and $_.PermissionSDDL -and $_.PermissionSDDL.Contains(';;;{sid})') }})
- $replace=$existing -and $existing.Comment -ne $marker
- $remove=@($legacy)
+ $pending=Test-Path -LiteralPath {journal}
+ if ($existing -and ($existing.DriverName -ne 'Microsoft IPP Class Driver' -or ($existing.Location -ne $owner -and -not ($pending -and -not $existing.Location)))) {{ throw 'Printer name belongs to another queue' }}
+ $replace=$existing -and ($existing.Comment -ne $marker -or $existing.Location -ne $owner)
+ $remove=@()
  if ($replace) {{ $remove+= $existing }}
  # Before anything is removed: a receiver that does not answer leaves the old queue in place.
  $stage='check-receiver'
@@ -918,21 +676,23 @@ try {{
  $stage='check-pending-jobs'
  foreach ($printer in $remove) {{ if (@(Get-PrintJob -PrinterName $printer.Name -ErrorAction Stop).Count -gt 0) {{ exit 2 }} }}
  $stage='remove-previous-queue'
+ [System.IO.File]::WriteAllText({journal}, $marker)
  foreach ($printer in $remove) {{ Remove-Printer -Name $printer.Name -ErrorAction Stop }}
  $stage='add-ipp-queue'
- if (-not $existing -or $replace) {{ Add-Printer -Name $name -IppURL $uri -ErrorAction Stop }}
+ # AppContainers need both the user and package access checks to pass.
+ # Keep their package ACE, but grant ordinary Print only to this user.
+ $permissions='G:SYD:(A;OIIO;GA;;;CO)(A;OIIO;GA;;;AC)(A;;SWRC;;;{sid})(A;;SWRC;;;AC)(A;CIIO;GX;;;AC)(A;;LCSWDTSDRCWDWO;;;BA)(A;OICIIO;GA;;;BA)(A;;LCSWDTSDRCWDWO;;;SY)(A;OICIIO;GA;;;SY)'
+ if (-not $existing -or $replace) {{
+  Add-Printer -Name $name -IppURL $uri -PermissionSDDL $permissions -Location $owner -Comment $marker -ErrorAction Stop
+ }}
  $stage='configure-queue-access'
- # Windows' default permissions for a local printer. The component that hands
- # IPP jobs to the receiver opens the queue under its own identity: a list
- # narrowed to this user, SYSTEM and administrators refused it (access denied)
- # and every job failed before reaching the receiver. Repair resets older
- # queues installed with that list.
- Set-Printer -Name $name -Location $owner -Comment $marker -Shared $false -KeepPrintedJobs $false -PermissionSDDL 'G:SYD:(A;OIIO;GA;;;CO)(A;OIIO;GA;;;AC)(A;;SWRC;;;WD)(A;CIIO;GX;;;WD)(A;;SWRC;;;AC)(A;CIIO;GX;;;AC)(A;;LCSWDTSDRCWDWO;;;BA)(A;OICIIO;GA;;;BA)' -ErrorAction Stop
+ Set-Printer -Name $name -Location $owner -Comment $marker -Shared $false -KeepPrintedJobs $false -PermissionSDDL $permissions -ErrorAction Stop
  $stage='configure-print-defaults'
  Set-PrintConfiguration -PrinterName $name -Color $false -DuplexingMode TwoSidedLongEdge -ErrorAction Stop
  $stage='verify-queue'
  $printer=Get-Printer -Name $name -Full -ErrorAction Stop
  if ($printer.DriverName -ne 'Microsoft IPP Class Driver' -or $printer.Comment -ne $marker) {{ throw 'Printer installation could not be verified' }}
+ Remove-Item -LiteralPath {journal} -Force -ErrorAction Stop
  exit 0
 }} catch {{
  $details=$_.Exception.Message
@@ -941,7 +701,6 @@ try {{
  $failureCode=49
  switch ($stage) {{
   'inspect-queue' {{ $failureCode=41 }}
-  'inspect-legacy-queues' {{ $failureCode=42 }}
   'check-pending-jobs' {{ $failureCode=43 }}
   'remove-previous-queue' {{ $failureCode=44 }}
   'check-receiver' {{ $failureCode=45 }}
@@ -955,7 +714,8 @@ try {{
         name = quote(&name),
         uri = quote(uri),
         marker = quote(marker),
-        diagnostic = quote(&diagnostic.to_string_lossy())
+        diagnostic = quote(&diagnostic.to_string_lossy()),
+        journal = quote(&journal.to_string_lossy())
     );
     let encoded = base64::engine::general_purpose::STANDARD.encode(
         script
@@ -986,9 +746,8 @@ try {{
     if handle.is_invalid() {
         return Err("The printer installer did not start".into());
     }
-    // The installer performs only idempotent queue configuration. A late finish
-    // after timeout is harmless; no document is passed to the elevated process.
-    let wait = unsafe { WaitForSingleObject(handle, 120_000) };
+    // Keep ownership until the elevated process has reached a terminal state.
+    let wait = unsafe { WaitForSingleObject(handle, u32::MAX) };
     let mut code = 1;
     let result = unsafe { GetExitCodeProcess(handle, &mut code) };
     let _ = unsafe { CloseHandle(handle) };
@@ -1009,7 +768,6 @@ try {{
         }
         let stage = match code {
             41 => Some("inspect-queue"),
-            42 => Some("inspect-legacy-queues"),
             43 => Some("check-pending-jobs"),
             44 => Some("remove-previous-queue"),
             45 => Some("check-receiver"),
@@ -1027,7 +785,10 @@ try {{
                 ),
             ));
         }
-        return Err("Windows did not confirm printer installation".into());
+        return Err(InstallFailure {
+            message: "Windows did not confirm printer installation".into(),
+            repointed: true,
+        });
     }
     Ok(true)
 }
@@ -1065,6 +826,7 @@ pub(super) async fn queue_status(
         .as_ref()
         .filter(|r| !r.task.is_finished())
         .map(|r| r.endpoint.marker());
+    let pending = endpoint_file(&app)?.with_extension("installing").exists();
     let state = tauri::async_runtime::spawn_blocking(move || probe_queue(marker.as_deref()))
         .await
         .map_err(|e| e.to_string())?
@@ -1072,6 +834,11 @@ pub(super) async fn queue_status(
             log::warn!("[campus-printer] could not read the system printer: {error}");
             QueueState::Unavailable
         });
+    let state = if pending {
+        QueueState::RepairRequired
+    } else {
+        state
+    };
     log::info!("[campus-printer] system printer state {state:?}");
     Ok(state)
 }
@@ -1081,11 +848,7 @@ fn probe_queue(marker: Option<&str>) -> Result<QueueState, String> {
     let script = format!(
         r#"$ErrorActionPreference='Stop'
 $p=Get-Printer -Name '{name}' -Full -ErrorAction SilentlyContinue
-if ($p) {{ $p | Select-Object DriverName,Location,Comment | ConvertTo-Json -Compress }}
-else {{
- $old=@(Get-Printer -Name 'IsctCompanion Campus Printer - *' -Full -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -match '^IsctCompanion Campus Printer - [0-9a-f]{{32}}$' -and $_.DriverName -eq 'Microsoft IPP Class Driver' -and $_.PermissionSDDL -and $_.PermissionSDDL.Contains(';;;{sid})') }})
- if ($old.Count -gt 0) {{ '{{}}' }}
-}}"#
+if ($p) {{ $p | Select-Object DriverName,Location,Comment | ConvertTo-Json -Compress }}"#
     );
     let output = Command::new(shell)
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])

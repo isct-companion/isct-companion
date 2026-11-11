@@ -1,16 +1,13 @@
 //! Windows renders PDF; Core verifies billing and owns delivery. No document
 //! files are retained. IPP usernames never select the billed student account.
 //!
-//! The campus printer holds every job until the student releases it at the
-//! device and never reports back, so there is nothing for the Windows queue
-//! to track: a received document is answered as completed at once, Windows
-//! drops it from its list, and delivery continues here in order. A delivery
-//! that fails is reported to the shell, which shows a system notification.
+//! A job stays processing until LPD acknowledges every copy. The campus
+//! printer does not report physical release or paper output.
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
-use super::{CampusPrintOutcome, PrintDocument, PrintOptions};
+use super::{CampusPrintOutcome, PrintOptions};
 use crate::Core;
 use ::ipp::{parser::IppParser, prelude::*};
 use adpt_printer::{
@@ -27,7 +24,7 @@ mod attributes;
 pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
 /// Documents received and waiting for the printer. Each holds its PDF in
 /// memory, so the bound is also the memory bound.
-const MAX_QUEUED: usize = 8;
+const MAX_QUEUED: usize = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrintQueueError {
@@ -102,9 +99,8 @@ pub struct CampusPrintQueue {
     jobs: Mutex<Jobs>,
     /// Slots for received documents not yet delivered.
     queued: Arc<tokio::sync::Semaphore>,
-    /// One delivery at a time, in the order the documents arrived.
-    delivery: Arc<tokio::sync::Semaphore>,
     delivery_reporter: Option<DeliveryReporter>,
+    journal: Mutex<Option<rusqlite::Connection>>,
 }
 impl CampusPrintQueue {
     pub fn new(core: Arc<Core>, uri: String, printer_uuid: String) -> Arc<Self> {
@@ -124,18 +120,29 @@ impl CampusPrintQueue {
         printer_uuid: String,
         delivery_reporter: Option<DeliveryReporter>,
     ) -> Arc<Self> {
+        let journal = open_journal(core.store.paths().local("campus-print-ipp.sqlite"));
+        let (entries, next) = match journal.as_ref() {
+            Ok(journal) => recover_jobs(journal).unwrap_or_else(|error| {
+                log::error!("[campus-printer] could not recover IPP jobs: {error}");
+                (BTreeMap::new(), 0)
+            }),
+            Err(error) => {
+                log::error!("[campus-printer] could not open IPP journal: {error}");
+                (BTreeMap::new(), 1)
+            }
+        };
+        // Refuse new delivery when recovery was not possible: forgetting an
+        // in-flight job can cause the system queue to repeat it.
+        let journal = journal.ok().filter(|_| next != 0);
         Arc::new(Self {
             core,
             uri,
             printer_uuid,
             started: Instant::now(),
-            jobs: Mutex::new(Jobs {
-                next: (uuid::Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1,
-                entries: BTreeMap::new(),
-            }),
+            jobs: Mutex::new(Jobs { next, entries }),
             queued: Arc::new(tokio::sync::Semaphore::new(MAX_QUEUED)),
-            delivery: Arc::new(tokio::sync::Semaphore::new(1)),
             delivery_reporter,
+            journal: Mutex::new(journal),
         })
     }
     fn update(&self, id: i32, state: JobState, message: String) {
@@ -146,14 +153,49 @@ impl CampusPrintQueue {
             }
         }
     }
+    fn record(&self, job: &Job, student: &str, state: &str) -> Result<(), PrintQueueError> {
+        let journal = self
+            .journal
+            .lock()
+            .map_err(|_| PrintQueueError::Unavailable)?;
+        let journal = journal.as_ref().ok_or(PrintQueueError::Unavailable)?;
+        journal.execute(
+            "INSERT INTO jobs(id,title,student,state) VALUES (?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET student=excluded.student,state=excluded.state",
+            rusqlite::params![job.id, job.title, student, state],
+        ).map_err(|_| PrintQueueError::Unavailable)?;
+        Ok(())
+    }
+    fn record_progress(&self, id: i32, accepted: u32) -> Result<(), PrintQueueError> {
+        let journal = self
+            .journal
+            .lock()
+            .map_err(|_| PrintQueueError::Unavailable)?;
+        let journal = journal.as_ref().ok_or(PrintQueueError::Unavailable)?;
+        journal
+            .execute(
+                "UPDATE jobs SET accepted=?2 WHERE id=?1",
+                rusqlite::params![id, accepted],
+            )
+            .map_err(|_| PrintQueueError::Unavailable)?;
+        Ok(())
+    }
     fn lookup(&self, id: i32) -> Result<Option<Job>, PrintQueueError> {
-        Ok(self
+        let job = self
             .jobs
             .lock()
             .map_err(|_| PrintQueueError::Unavailable)?
             .entries
             .get(&id)
-            .cloned())
+            .cloned();
+        if job.is_some() {
+            return Ok(job);
+        }
+        let journal = self
+            .journal
+            .lock()
+            .map_err(|_| PrintQueueError::Unavailable)?;
+        let journal = journal.as_ref().ok_or(PrintQueueError::Unavailable)?;
+        recover_job(journal, id).map_err(|_| PrintQueueError::Unavailable)
     }
     fn create(
         &self,
@@ -191,6 +233,9 @@ impl CampusPrintQueue {
             message: "Waiting for document".into(),
             created: Instant::now(),
         };
+        // Persist allocation before exposing the ID, including Create-Job
+        // requests which have not supplied a document yet.
+        self.record(&job, "", "pending")?;
         jobs.entries.insert(id, job.clone());
         Ok(Some(job))
     }
@@ -226,7 +271,7 @@ impl CampusPrintQueue {
                         status(&mut response, StatusCode::ServerErrorNotAcceptingJobs);
                     } else if let Some(job) = self.create(&request, options)? {
                         if operation == 2 {
-                            self.submit(&mut request, &mut response, job.id)?;
+                            self.submit(&mut request, &mut response, job.id).await?;
                         } else {
                             self.job_response(&mut response, &job)?;
                         }
@@ -271,7 +316,7 @@ impl CampusPrintQueue {
                         if value(&request, "last-document") != Some(&IppValue::Boolean(true)) {
                             status(&mut response, StatusCode::ClientErrorNotPossible);
                         } else {
-                            self.submit(&mut request, &mut response, job.id)?;
+                            self.submit(&mut request, &mut response, job.id).await?;
                         }
                     }
                 }
@@ -313,7 +358,7 @@ impl CampusPrintQueue {
         }
         Ok(response.to_bytes().to_vec())
     }
-    fn submit(
+    async fn submit(
         self: &Arc<Self>,
         request: &mut IppRequestResponse,
         response: &mut IppRequestResponse,
@@ -323,6 +368,15 @@ impl CampusPrintQueue {
             status(response, code);
             return Ok(());
         }
+        // Reserve before copying the payload, so concurrent requests cannot
+        // accumulate document buffers in the delivery queue.
+        let slot = match self.queued.clone().try_acquire_owned() {
+            Ok(slot) => slot,
+            Err(_) => {
+                status(response, StatusCode::ServerErrorBusy);
+                return Ok(());
+            }
+        };
         let mut pdf = Vec::new();
         request
             .payload_mut()
@@ -333,16 +387,21 @@ impl CampusPrintQueue {
             self.update(id, JobState::Aborted, "Invalid PDF document".into());
             return Ok(());
         }
-        // Only a full backlog refuses; otherwise the document waits its turn
-        // here rather than failing in the Windows queue.
-        let slot = match self.queued.clone().try_acquire_owned() {
-            Ok(slot) => slot,
-            Err(_) => {
-                status(response, StatusCode::ServerErrorBusy);
-                return Ok(());
+        let account = self.core.campus_printer_account().await;
+        let Some(student) = account.student() else {
+            self.update(
+                id,
+                JobState::Aborted,
+                format!("Student account unavailable: {account:?}"),
+            );
+            if let Some(job) = self.lookup(id)? {
+                if let Some(report) = &self.delivery_reporter {
+                    report(job.title.clone(), CampusPrintOutcome::Account { account });
+                }
+                self.job_response(response, &job)?;
             }
+            return Ok(());
         };
-        let delivery = self.delivery.clone();
         let job = {
             let mut jobs = self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)?;
             let Some(job) = jobs.entries.get_mut(&id) else {
@@ -358,20 +417,75 @@ impl CampusPrintQueue {
             job.message = "Sending to campus printer".into();
             job.clone()
         };
-        let core = self.core.clone();
+        if self.record(&job, student.as_str(), "processing").is_err() {
+            self.update(
+                id,
+                JobState::Aborted,
+                "Could not save delivery state".into(),
+            );
+            status(response, StatusCode::ServerErrorNotAcceptingJobs);
+            return Ok(());
+        }
+        let queue = self.clone();
         let title = job.title.clone();
         let reported_title = job.title.clone();
         let delivery_reporter = self.delivery_reporter.clone();
+        let student_for_record = student.clone();
+        let refused_student = student.clone();
+        let refused_job = job.clone();
         let accepted = self.core.runtime.tasks().spawn(async move {
             let _slot = slot;
-            // The semaphore is never closed; holding the result holds the turn.
-            let _turn = delivery.acquire_owned().await;
-            let outcome = core
-                .print_document(PrintDocument::Rendered { bytes: pdf, title }, job.options)
-                .await;
+            let progress_queue = queue.clone();
+            let options = job.options;
+            let sent = tokio::task::spawn_blocking(move || {
+                adpt_printer::document::print_bytes_progress(
+                    adpt_printer::ADDRESS,
+                    &student,
+                    &pdf,
+                    &title,
+                    &options,
+                    |_| Ok(()),
+                    |accepted| {
+                        progress_queue
+                            .record_progress(id, accepted)
+                            .map_err(|_| adpt_printer::document::PrintError::Interrupted)
+                    },
+                )
+            })
+            .await;
+            let outcome = super::map_send_result(sent);
+            let state = if matches!(outcome, CampusPrintOutcome::Printed { .. }) {
+                "completed"
+            } else {
+                "aborted"
+            };
+            // On a failed commit the processing record remains, so recovery
+            // conservatively reports an unknown outcome rather than retrying.
+            if let Err(error) = queue.record(&job, student_for_record.as_str(), state) {
+                log::error!("[campus-printer] failed to save IPP outcome: {error}");
+                queue.update(
+                    id,
+                    JobState::Aborted,
+                    "Delivery outcome could not be saved; check the printer before retrying".into(),
+                );
+                if let Some(report) = delivery_reporter {
+                    report(reported_title, CampusPrintOutcome::Uncertain { printed: 0 });
+                }
+                return;
+            }
             if matches!(outcome, CampusPrintOutcome::Printed { .. }) {
+                queue.update(
+                    id,
+                    JobState::Completed,
+                    "Accepted by the campus printer; release it at the device".into(),
+                );
                 log::info!("[campus-printer] IPP job {id}: {outcome:?}");
             } else {
+                queue.update(
+                    id,
+                    JobState::Aborted,
+                    format!("Campus delivery did not complete: {outcome:?}"),
+                );
                 log::warn!("[campus-printer] IPP job {id}: {outcome:?}");
                 if let Some(report) = delivery_reporter {
                     report(reported_title, outcome);
@@ -379,19 +493,11 @@ impl CampusPrintQueue {
             }
         });
         if !accepted {
+            let _ = self.record(&refused_job, refused_student.as_str(), "aborted");
             self.update(id, JobState::Aborted, "Application is stopping".into());
             status(response, StatusCode::ServerErrorNotAcceptingJobs);
-        } else {
-            // Windows can finish its spool job after Core accepts the handoff;
-            // LPD delivery continues in the tracked background task.
-            self.update(
-                id,
-                JobState::Completed,
-                "Accepted by IsctCompanion; campus delivery continues in background".into(),
-            );
-            if let Some(job) = self.lookup(id)? {
-                self.job_response(response, &job)?;
-            }
+        } else if let Some(job) = self.lookup(id)? {
+            self.job_response(response, &job)?;
         }
         Ok(())
     }
@@ -423,7 +529,11 @@ impl CampusPrintQueue {
             ),
             (
                 "time-at-creation",
-                IppValue::Integer(job.created.duration_since(self.started).as_secs() as i32),
+                IppValue::Integer(
+                    job.created
+                        .saturating_duration_since(self.started)
+                        .as_secs() as i32,
+                ),
             ),
         ] {
             group
@@ -434,6 +544,72 @@ impl CampusPrintQueue {
         Ok(())
     }
 }
+fn open_journal(path: std::path::PathBuf) -> rusqlite::Result<rusqlite::Connection> {
+    let connection = rusqlite::Connection::open(path)?;
+    connection.execute_batch("PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, title TEXT NOT NULL, student TEXT NOT NULL, state TEXT NOT NULL, accepted INTEGER NOT NULL DEFAULT 0)")?;
+    Ok(connection)
+}
+
+fn decode_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<Job> {
+    let id = row.get(0)?;
+    let state: String = row.get(2)?;
+    let accepted: u32 = row.get(3)?;
+    let (state, message) = match state.as_str() {
+        "completed" => (
+            JobState::Completed,
+            "Accepted by the campus printer; release it at the device",
+        ),
+        "pending" => (
+            JobState::Aborted,
+            "Document was not submitted before restart",
+        ),
+        "aborted" => (
+            JobState::Aborted,
+            "Campus delivery did not complete; check before retrying",
+        ),
+        _ => (
+            JobState::Aborted,
+            "Delivery outcome unknown after restart; check the printer before retrying",
+        ),
+    };
+    Ok(Job {
+        id,
+        title: row.get(1)?,
+        options: PrintOptions {
+            copies: 1,
+            settings: Settings::default(),
+        },
+        state,
+        message: format!("{message} ({accepted} copies confirmed by LPD)"),
+        created: Instant::now(),
+    })
+}
+
+fn recover_job(connection: &rusqlite::Connection, id: i32) -> rusqlite::Result<Option<Job>> {
+    use rusqlite::OptionalExtension;
+    connection
+        .query_row(
+            "SELECT id,title,state,accepted FROM jobs WHERE id=?1",
+            [id],
+            decode_job,
+        )
+        .optional()
+}
+
+fn recover_jobs(connection: &rusqlite::Connection) -> rusqlite::Result<(BTreeMap<i32, Job>, i32)> {
+    let max: i32 =
+        connection.query_row("SELECT COALESCE(MAX(id),0) FROM jobs", [], |row| row.get(0))?;
+    let next = max.checked_add(1).ok_or(rusqlite::Error::InvalidQuery)?;
+    let mut statement = connection
+        .prepare("SELECT id,title,state,accepted FROM jobs ORDER BY id DESC LIMIT 128")?;
+    let mut entries = BTreeMap::new();
+    for job in statement.query_map([], decode_job)? {
+        let job = job?;
+        entries.insert(job.id, job);
+    }
+    Ok((entries, next))
+}
+
 fn value<'a>(request: &'a IppRequestResponse, name: &str) -> Option<&'a IppValue> {
     request
         .attributes()

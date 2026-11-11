@@ -13,8 +13,11 @@
 //! installer Core hands them (`CupsInstall`) behind the system's admin prompt; on
 //! Windows Core sends the file itself (`Core::campus_print`), or the PDF
 //! Windows rendered for the system queue (`ipp`); on Android Core sends the
-//! PDF the system rendered for the app's print service
-//! (`Core::campus_print_rendered`).
+//! PDF the system rendered for the app's print service via its Android service.
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
 
 use crate::school_auth::SchoolAuthProfile;
 use crate::school_session::WebStop;
@@ -24,18 +27,10 @@ use serde::Serialize;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+#[cfg(target_os = "android")]
+pub mod android;
 #[cfg(windows)]
 pub mod ipp;
-
-#[cfg(any(windows, target_os = "android"))]
-enum PrintDocument {
-    #[cfg(windows)]
-    File(std::path::PathBuf),
-    Rendered {
-        bytes: Vec<u8>,
-        title: String,
-    },
-}
 
 /// The account whose name is the student ID.
 const STUDENT_ACCOUNT: SchoolAuthProfile = SchoolAuthProfile::TokyoTech;
@@ -126,7 +121,7 @@ pub struct CupsInstall {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum CampusPrintOutcome {
-    /// Every copy reached the printer.
+    /// LPD acknowledged every copy; physical printing is not reported.
     Printed { copies: u32 },
     /// No verified student ID: nothing was sent.
     Account { account: PrinterAccount },
@@ -194,86 +189,72 @@ impl Core {
         path: std::path::PathBuf,
         options: PrintOptions,
     ) -> CampusPrintOutcome {
-        self.print_document(PrintDocument::File(path), options)
-            .await
+        self.print_document(path, options).await
     }
 
-    /// Sends a PDF the system rendered for the app's print service, billed
-    /// to the verified student ID, one upload per copy. `title` is the
-    /// job's name at the printer.
-    #[cfg(target_os = "android")]
-    pub async fn campus_print_rendered(
-        &self,
-        bytes: Vec<u8>,
-        title: String,
-        options: PrintOptions,
-    ) -> CampusPrintOutcome {
-        self.print_document(PrintDocument::Rendered { bytes, title }, options)
-            .await
-    }
-
-    #[cfg(any(windows, target_os = "android"))]
+    #[cfg(windows)]
     async fn print_document(
         &self,
-        input: PrintDocument,
+        path: std::path::PathBuf,
         options: PrintOptions,
     ) -> CampusPrintOutcome {
         use crate::runtime_tasks::RuntimeTaskError;
-        use adpt_printer::{document, lpd};
         let account = self.campus_printer_account().await;
         let Some(student) = account.student() else {
             return CampusPrintOutcome::Account { account };
         };
-        // Core owns the send: it runs to its end when the window closes
-        // first (bounded by the LPD client's timeouts), and Core's shutdown,
-        // which the app's exit waits for, waits for it too. It logs its own
-        // result, which no window may be left to show.
-        let sent = self
+        match self
             .runtime
             .tasks()
-            .run(async move {
-                tokio::task::spawn_blocking(move || {
-                    let sent = match input {
-                        #[cfg(windows)]
-                        PrintDocument::File(path) => {
-                            document::print(adpt_printer::ADDRESS, &student, &path, &options)
-                        }
-                        PrintDocument::Rendered { bytes, title } => document::print_bytes(
-                            adpt_printer::ADDRESS,
-                            &student,
-                            &bytes,
-                            &title,
-                            &options,
-                        ),
-                    };
-                    log::info!("[campus-printer] print {sent:?}");
-                    sent
-                })
-                .await
-            })
-            .await;
-        match sent {
-            Ok(Ok(Ok(copies))) => CampusPrintOutcome::Printed { copies },
-            Ok(Ok(Err(document::PrintError::NotPrintable))) => CampusPrintOutcome::NotPrintable,
-            Ok(Ok(Err(document::PrintError::Copies))) => CampusPrintOutcome::InvalidCopies,
-            Ok(Ok(Err(document::PrintError::File(_)))) => CampusPrintOutcome::Unreadable,
-            Ok(Ok(Err(document::PrintError::Lpd {
-                accepted: printed,
-                error,
-            }))) => match error {
-                lpd::LpdError::Connect(_) => CampusPrintOutcome::Unreachable { printed },
-                error if error.may_have_printed() => CampusPrintOutcome::Uncertain { printed },
-                _ => CampusPrintOutcome::NotPrinted { printed },
-            },
-            // Core is shutting down: the send never started.
+            .run(send_document(path, options, student))
+            .await
+        {
+            Ok(outcome) => outcome,
             Err(RuntimeTaskError::Stopped | RuntimeTaskError::Unavailable) => {
                 CampusPrintOutcome::NotPrinted { printed: 0 }
             }
-            // The send died midway; how far it got is unknown.
-            Ok(Err(_)) | Err(RuntimeTaskError::Panicked | RuntimeTaskError::Interrupted) => {
+            Err(RuntimeTaskError::Panicked | RuntimeTaskError::Interrupted) => {
                 CampusPrintOutcome::Uncertain { printed: 0 }
             }
         }
+    }
+}
+
+/// Runs inside an already admitted task. Callers must admit before invoking it.
+#[cfg(windows)]
+async fn send_document(
+    path: std::path::PathBuf,
+    options: PrintOptions,
+    student: StudentId,
+) -> CampusPrintOutcome {
+    let sent = tokio::task::spawn_blocking(move || {
+        adpt_printer::document::print(adpt_printer::ADDRESS, &student, &path, &options)
+    })
+    .await;
+    map_send_result(sent)
+}
+
+#[cfg(windows)]
+fn map_send_result(
+    sent: Result<Result<u32, adpt_printer::document::PrintError>, tokio::task::JoinError>,
+) -> CampusPrintOutcome {
+    use adpt_printer::{document, lpd};
+    match sent {
+        Ok(Ok(copies)) => CampusPrintOutcome::Printed { copies },
+        Ok(Err(document::PrintError::NotPrintable)) => CampusPrintOutcome::NotPrintable,
+        Ok(Err(document::PrintError::Copies)) => CampusPrintOutcome::InvalidCopies,
+        Ok(Err(document::PrintError::File(_))) => CampusPrintOutcome::Unreadable,
+        Ok(Err(document::PrintError::Interrupted)) | Err(_) => {
+            CampusPrintOutcome::Uncertain { printed: 0 }
+        }
+        Ok(Err(document::PrintError::Lpd {
+            accepted: printed,
+            error,
+        })) => match error {
+            lpd::LpdError::Connect(_) => CampusPrintOutcome::Unreachable { printed },
+            error if error.may_have_printed() => CampusPrintOutcome::Uncertain { printed },
+            _ => CampusPrintOutcome::NotPrinted { printed },
+        },
     }
 }
 
