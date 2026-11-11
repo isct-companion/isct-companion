@@ -273,8 +273,8 @@ private class FloorPainter(private val view: MapView) {
         // `showsPosition` is true only once the permission is granted.
         if (map.isMyLocationEnabled != showsPosition) runCatching { map.isMyLocationEnabled = showsPosition }
         prepareAppearance(map, palette)
-        draw(map, scene?.layers.orEmpty(), palette)
-        draw(map, scene?.marks.orEmpty(), palette)
+        drawLayers(map, scene?.layers.orEmpty(), palette)
+        drawMarks(map, scene?.marks.orEmpty(), palette)
         levelId = scene?.levelId
         val framing = scene?.framing
         if (framing != null && framing.key > appliedFraming && framing.key != pendingFraming?.key) {
@@ -332,7 +332,7 @@ private class FloorPainter(private val view: MapView) {
 
     // Layers
 
-    private fun draw(map: GoogleMap, layers: List<CampusMapLayer>, palette: Palette) {
+    private fun drawLayers(map: GoogleMap, layers: List<CampusMapLayer>, palette: Palette) {
         val wanted = layers.mapTo(HashSet()) { it.id }
         val gone = overlays.keys.filter { it !in wanted }
         for (id in gone) overlays.remove(id)?.remove()
@@ -418,7 +418,7 @@ private class FloorPainter(private val view: MapView) {
 
     // Marks
 
-    private fun draw(map: GoogleMap, records: List<CampusMapMark>, palette: Palette) {
+    private fun drawMarks(map: GoogleMap, records: List<CampusMapMark>, palette: Palette) {
         val wanted = records.mapTo(HashSet()) { it.id }
         val gone = marks.keys.filter { it !in wanted }
         for (id in gone) marks.remove(id)?.marker?.remove()
