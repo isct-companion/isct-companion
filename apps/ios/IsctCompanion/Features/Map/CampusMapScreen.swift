@@ -66,6 +66,7 @@ struct CampusMapScreen: View {
     private var panelDrag: CGFloat = 0
     /// The collapsed panel fits the panel header, including at larger text sizes.
     @State private var headerHeight: CGFloat = 64
+    @ScaledMetric(relativeTo: .subheadline) private var cardDetailsHeight: CGFloat = 96
     @State private var closeBottom: CGFloat = 0
     @State private var railLeading: CGFloat?
     /// The panel's frame in window coordinates, with the request the layout
@@ -298,7 +299,8 @@ struct CampusMapScreen: View {
         let resting: CGFloat = switch height {
         case .small: headerHeight
         case .search: max(headerHeight, min(headerHeight + 156, available * 0.6))
-        case .medium: available * 0.5
+        case .medium:
+            scene?.card == nil ? available * 0.5 : min(available * 0.5, headerHeight + cardDetailsHeight)
         case .large: maximum
         }
         return framedPanel(height: min(maximum, max(headerHeight, resting - panelDrag)))
