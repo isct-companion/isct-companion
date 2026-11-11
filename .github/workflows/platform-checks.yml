@@ -69,6 +69,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The same lint as the Mac job: each OS compiles code the other never sees.
       - name: Desktop lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -104,6 +105,7 @@ jobs:
         with:
           workspaces: . -> target
           key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check desktop shell or portable Core
         shell: bash
         run: |
@@ -146,6 +148,7 @@ jobs:
         with:
           workspaces: . -> target
           key: aarch64-linux-android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Configure Android toolchain
         run: |
           toolchain="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64"

@@ -2,6 +2,9 @@ name: Native Core SDK
 
 on:
   workflow_dispatch:
+  # Warm the SDK-specific caches on main after the desktop platform run.
+  schedule:
+    - cron: '0 19 * * 0' # Monday 04:00 in Japan
   push:
     branches: [main]
     paths:
@@ -54,6 +57,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-ios
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install host Kotlin compiler
         run: |
           if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
@@ -134,6 +138,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build AAR and both native ABIs
         # x86_64 only so the SDK can load on the runner's emulator; the app
         # packages arm64 alone.
