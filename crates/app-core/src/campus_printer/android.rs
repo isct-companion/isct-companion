@@ -91,8 +91,10 @@ impl Service {
         })
     }
     fn path(&self, id: &str) -> PathBuf {
-        self.directory
-            .join(format!("{:x}.json", Sha256::digest(id.as_bytes())))
+        self.directory.join(format!(
+            "{}.json",
+            data_encoding::HEXLOWER.encode(&Sha256::digest(id.as_bytes()))
+        ))
     }
     fn load(&self, id: &str) -> Result<Option<Record>, Error> {
         match std::fs::read(self.path(id)) {
@@ -284,7 +286,7 @@ impl Service {
         if active.cancelled {
             return Err(Error::Cancelled);
         }
-        let digest = format!("{:x}", Sha256::digest(&bytes));
+        let digest = data_encoding::HEXLOWER.encode(&Sha256::digest(&bytes));
         let mut record = match self.load(&job.id)? {
             Some(record) => {
                 if record.job != job
