@@ -14,6 +14,7 @@ import app.isctcompanion.core.CampusPrintAdmission
 import app.isctcompanion.core.CampusPrintJob
 import app.isctcompanion.core.CampusPrintResult
 import app.isctcompanion.core.CampusPrintSides
+import app.isctcompanion.core.SdkException
 import app.isctcompanion.core.campusPrintDocumentLimit
 import app.isctcompanion.design.t
 import kotlinx.coroutines.CancellationException
@@ -97,10 +98,11 @@ class CampusPrintService : PrintService() {
             } catch (error: CancellationException) {
                 if (id in cancelled) printJob.cancel()
                 else throw error
+            } catch (error: SdkException.Cancelled) {
+                printJob.cancel()
             } catch (error: Exception) {
                 Log.w("isct", "campus print", error)
-                if (id in cancelled) printJob.cancel()
-                else printJob.fail(t("campusPrint.notice.queueFailed"))
+                printJob.fail(t("campusPrint.notice.queueFailed"))
             } finally {
                 runCatching { readers.remove(id)?.close() }
                 try {

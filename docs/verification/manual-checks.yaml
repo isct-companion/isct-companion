@@ -5405,20 +5405,12 @@ checks:
     title: Android's print dialog sends any app's print to the campus printer
     persona: masters-student
     preconditions: |
-      An arm64 Android phone with a build of this commit, freshly installed
-      and never opened; the Tokyo Tech Portal account of a master's student;
+      An arm64 Android phone with a build of this commit; two Tokyo Tech Portal
+      student accounts, initially with no account saved in the app;
       ScienceTokyo Wi-Fi; a multi-page PDF and a photo; and access to the
       print release or billing page.
     steps:
-      - action: |
-          Before opening the app, open the PDF in Files or Drive, choose
-          Print and open the printer list.
-        reason: |
-          Android enables an installed print service by itself, so 学内プリンタ
-          must be listed with no setup; a missing printer means the service's
-          manifest entry is wrong. Selecting it must offer A4 and Letter,
-          black and white or colour, and one- or two-sided.
-      - action: Print it, then read the system's print notification.
+      - action: Print the PDF from Files or Drive, then read the system's print notification.
         reason: |
           No Tokyo Tech account is saved, so Core must send nothing and the
           job must fail with the text that asks to save the account first.
@@ -5439,26 +5431,44 @@ checks:
           Switch to mobile data (or ScienceTokyoX), print once more, read the
           notification, rejoin ScienceTokyo Wi-Fi and tap its retry.
         reason: |
-          Off the printer's network the job must fail within seconds naming
+          Off the printer's network the job must fail naming
           ScienceTokyo Wi-Fi, and the system's own retry must send it once
           the network is back.
+      - action: |
+          Submit a multi-copy job, interrupt the network after some copies have
+          been acknowledged, and separately repeat while the print service
+          process is reclaimed. Restore the network and use the system retry;
+          compare the release queue and billing page with the copies sent.
+        reason: |
+          The system may redeliver a job after interruption. A retry must send
+          only copies known not to have been sent; an uncertain in-flight copy
+          must not cause an automatic resend of the whole job or double billing.
+      - action: |
+          Cancel a multi-copy job while it is sending; then retry an interrupted
+          job after switching to the other student account, and inspect both
+          accounts' billing and release queues.
+        reason: |
+          Cancellation must prevent the next copy from being sent. A saved job
+          bound to one student must not be sent under a different student ID.
     observe: |
       The system print dialog and its printer list, the print notifications,
       the printer's release panel and the billing page.
     expected: |
-      学内プリンタ is in every app's print dialog without setup; with a saved
-      account, prints from a document app and from Photos are billed to the
+      With a saved account, prints from a document app and from Photos are billed to the
       student and print with the chosen copies, sides and colour; without an
       account or off the campus Wi-Fi the job fails with the reason and can
-      be retried.
+      be retried. Interrupted jobs never automatically resend uncertain copies,
+      cancellation stops later copies, and another account cannot resume a job.
     why_manual: |
       Needs the system print spooler and real apps' print dialogs on a
       device, the campus network and the printer's billing. The LPD and PJL
       bytes are tested in crates/adpt-printer/src/tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
-      - apps/android/app/src/main/res/xml/campus_print_service.xml
       - crates/app-ffi/src/campus_print.rs
+      - crates/app-core/src/campus_printer/android.rs
+      - crates/adpt-printer/src/document.rs
+      - crates/adpt-printer/src/lpd.rs
     verified: null
 
   - id: IOS-SETTINGS-PAGES
