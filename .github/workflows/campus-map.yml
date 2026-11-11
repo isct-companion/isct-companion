@@ -1,0 +1,54 @@
+name: Campus map rules
+
+# The map page's rules (focus, taps, search, selection) checked against the
+# published export, by fixed real places. They need the file, which this
+# repository does not hold, so they run only when the map's code changes,
+# against one pinned export (slotledger `approach/campus-map-tests`).
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths:
+      - crates/app-core/src/campus_map/**
+      - crates/app-core/src/tests/campus_map__*.rs
+      - .github/workflows/campus-map.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - crates/app-core/src/campus_map/**
+      - crates/app-core/src/tests/campus_map__*.rs
+      - .github/workflows/campus-map.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: campus-map-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The host the app downloads the map from, at one commit: the bytes never
+  # change, and the hash proves it. Move both together, on purpose.
+  EXPORT_URL: https://raw.githubusercontent.com/isct-companion/Isct-Data/df975ec4afe0ec7d6d8be31eeb4789e3a9299147/campus-map/v1/campus-map.json.gz
+  EXPORT_SHA256: 9038d66e40768525e5299f5fbf2a034a866d493997d69b312ffa0c961cf60455
+
+jobs:
+  rules:
+    name: Map rules over the pinned export
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: campus-map
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Download the pinned export
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors "$EXPORT_URL" -o "$RUNNER_TEMP/campus-map.json.gz"
+          echo "$EXPORT_SHA256  $RUNNER_TEMP/campus-map.json.gz" | sha256sum -c -
+      - name: Run the rules
+        env:
+          ISCT_CAMPUS_MAP_EXPORT: ${{ runner.temp }}/campus-map.json.gz
+        run: cargo test -p app-core --features campus-map --locked campus_map -- --ignored

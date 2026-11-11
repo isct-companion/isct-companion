@@ -107,6 +107,14 @@ struct TodayScreen: View {
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
+            // The whole campus, to look a building or room up.
+            RoomMapButton(room: nil) {
+                Image(systemName: "map")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
             // The workstation's status bar carries the ring.
             if !navigator.workbench { SyncRingButton() }
         }

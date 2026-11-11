@@ -52,6 +52,9 @@ jobs:
         run: |
           cargo test -p app-core -p app-ffi --locked -j 2
           cargo test -p app-ffi --features ocr --locked -j 2
+          # The map's geometry tests; its rules over the published export run
+          # in campus-map.yml.
+          cargo test -p app-core --features campus-map --locked -j 2 campus_map
           # The campus map is compiled into the iOS SDK only; its lint runs
           # with the feature. Its data is checked in the map's own repository.
           cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings

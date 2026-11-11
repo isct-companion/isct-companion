@@ -41,7 +41,24 @@ pub(super) struct Patterns {
 }
 
 impl Patterns {
-    pub(super) fn new() -> Result<Self, regex::Error> {
+    /// `codes` are every building code the export lists: a bare code is
+    /// found by the data's own codes, never by a family of spellings.
+    pub(super) fn new<'a>(codes: impl IntoIterator<Item = &'a str>) -> Result<Self, regex::Error> {
+        let mut codes: Vec<String> = codes
+            .into_iter()
+            .map(alias_key)
+            .filter(|code| !code.is_empty())
+            .collect();
+        // The longest first, so `MI1` is not read as `M`.
+        codes.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        codes.dedup();
+        let building = if codes.is_empty() {
+            // No building has a code: nothing can match.
+            r"(\b\B)".to_owned()
+        } else {
+            let names: Vec<String> = codes.iter().map(|code| regex::escape(code)).collect();
+            format!(r"(?:^|[^A-Z0-9])({})(?:$|[^A-Z0-9])", names.join("|"))
+        };
         Ok(Self {
             // A room id running straight into the next building's code. The
             // leading hyphen keeps `W8E-101` whole: its digit starts no room.
@@ -51,9 +68,7 @@ impl Patterns {
                 r"(?:大岡山)?(西|南|北|石川台|石)\s*(\d+)\s*(?:号館)?(?:\(([EW])\))?",
             )?,
             code: Regex::new(r"(?:^|[^A-Z0-9])([A-Z]{1,3}\d{0,2}[EW]?)\s*-\s*([A-Z]?\d+[A-Z]?)")?,
-            building: Regex::new(
-                r"(?:^|[^A-Z0-9])(WL\d|SL|W\d{1,2}[EW]?|S\d{1,2}|I\d{1,2}|N\d{1,2}|[GBJ]\d|M)(?:$|[^A-Z0-9])",
-            )?,
+            building: Regex::new(&building)?,
             bare_room: Regex::new(r"^([A-Z]?\d+[A-Z]?)\s*(?:号室|演習室|室)?\s*(?:他|等)?$")?,
             only_level: Regex::new(r"^(地下|B)?(\d+)\s*(?:階|F)$")?,
             level: Regex::new(r"(地下|B)?(\d+)\s*(?:階|F)")?,
