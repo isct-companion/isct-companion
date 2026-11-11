@@ -10,7 +10,7 @@ struct CampusMapChrome: Equatable {
     static let controlSide: CGFloat = 44
     static let controlGap: CGFloat = 8
     static let pageInset: CGFloat = 12
-    static let railHeaderHeight = 2 * (controlSide + controlGap)
+    static let railHeaderHeight = 2 * controlSide + 3 * controlGap
 
     var top: CGFloat = 0
     var bottom: CGFloat = .greatestFiniteMagnitude
@@ -239,25 +239,14 @@ struct FloorMapView: UIViewRepresentable {
                 width: max(right - leading, 1), height: max(bottom - top, 1))
         }
 
-        /// Native controls sit above the bottom panel or beside the leading
-        /// panel. Layout alone never changes the camera.
+        /// The native controls sit at the top of the same rail as the floor picker.
         func layOut(_ map: MKMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
-            let visible = visible(in: map)
             let side = CampusMapChrome.controlSide
             let gap = CampusMapChrome.controlGap
-            let x = chrome.trailing == nil
-                ? map.bounds.maxX - map.safeAreaInsets.right - side - CampusMapChrome.pageInset
-                : visible.maxX
-            let compassY: CGFloat
-            let trackingY: CGFloat
-            if layoutRequest?.wide == true {
-                compassY = visible.minY + gap
-                trackingY = compassY + side + gap
-            } else {
-                trackingY = visible.maxY - gap - side
-                compassY = trackingY - gap - side
-            }
+            let x = map.bounds.maxX - map.safeAreaInsets.right - side - CampusMapChrome.pageInset
+            let compassY = map.bounds.minY + map.safeAreaInsets.top + gap
+            let trackingY = compassY + side + gap
             compass?.frame = CGRect(x: x, y: compassY, width: side, height: side)
             trackingHost?.frame = CGRect(x: x, y: trackingY, width: side, height: side)
         }

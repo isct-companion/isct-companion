@@ -140,15 +140,18 @@ struct CampusMapScreen: View {
                 onLocate: { location.requestPermission() })
                 .ignoresSafeArea()
             GeometryReader { proxy in
-                ZStack(alignment: .top) {
+                VStack(spacing: CampusMapChrome.controlGap) {
+                    GeometryReader { controls in
+                        mapControls(available: controls.size)
+                    }
                     if !wide {
                         bottomPanel(available: proxy.size.height)
                             .padding(.horizontal, CampusMapChrome.pageInset)
                             .padding(.bottom, CampusMapChrome.controlGap)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .layoutPriority(1)
                     }
-                    mapControls(in: proxy)
                 }
+                .animation(cardSpring, value: searching)
             }
         }
         .background(Theme.bg)
@@ -225,18 +228,14 @@ struct CampusMapScreen: View {
 
     // MARK: Map controls
 
-    /// The close button, the floor picker and MapKit's buttons over the map.
-    /// The trailing rail stands above the bottom panel or beside the leading panel.
-    private func mapControls(in proxy: GeometryProxy) -> some View {
-        let frame = proxy.frame(in: .global)
-        let panelTop = wide ? frame.maxY : min(frame.maxY, panelFrame?.minY ?? frame.maxY)
-        let railHeight = max(panelTop - frame.minY - CampusMapChrome.controlGap, 0)
-        return ZStack(alignment: .topLeading) {
+    /// In a narrow window this region gets the space left by the bottom panel.
+    private func mapControls(available: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
             if wide {
                 VStack(alignment: .leading, spacing: CampusMapChrome.controlGap) {
                     closeButton
-                    floatingPanel(height: frame.height - CampusMapChrome.controlSide - 2 * CampusMapChrome.controlGap)
-                        .frame(width: min(360, frame.width * 0.45))
+                    floatingPanel(height: available.height - CampusMapChrome.controlSide - 2 * CampusMapChrome.controlGap)
+                        .frame(width: min(360, available.width * 0.45))
                     Spacer(minLength: 0)
                 }
                 .padding(.bottom, CampusMapChrome.controlGap)
@@ -244,8 +243,7 @@ struct CampusMapScreen: View {
                 closeButton
                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { closeBottom = $0 }
             }
-            rail
-                .frame(height: railHeight, alignment: wide ? .top : .bottom)
+            rail(available: available.height)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             if let attribution = scene?.attribution, !attribution.isEmpty {
                 Text(attribution.joined(separator: " · "))
@@ -254,8 +252,9 @@ struct CampusMapScreen: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .floatingGlass(in: Capsule())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: wide ? .bottomTrailing : .bottomLeading)
-                    .frame(height: railHeight)
+                    .frame(maxWidth: .infinity, alignment: wide ? .trailing : .leading)
+                    .frame(height: max(0, available.height - (wide ? CampusMapChrome.controlGap : 0)), alignment: .bottom)
+                    .clipped()
                     .allowsHitTesting(false)
             }
         }
@@ -277,15 +276,16 @@ struct CampusMapScreen: View {
 
     /// MapKit's compass and position button are drawn by the map itself in
     /// the space this column keeps for them.
-    private var rail: some View {
-        VStack(spacing: 0) {
-            if !wide { levels }
-            Color.clear
-                .frame(height: CampusMapChrome.railHeaderHeight)
-                .allowsHitTesting(false)
-            if wide { levels }
+    private func rail(available: CGFloat) -> some View {
+        let pickerHeight = available - CampusMapChrome.railHeaderHeight
+        return Group {
+            if pickerHeight >= CampusMapChrome.controlSide {
+                levels
+                    .frame(height: pickerHeight, alignment: .top)
+                    .padding(.top, CampusMapChrome.railHeaderHeight)
+            }
         }
-        .frame(width: CampusMapChrome.controlSide)
+        .frame(width: CampusMapChrome.controlSide, height: available, alignment: .top)
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { railLeading = $0 }
     }
 
@@ -303,7 +303,7 @@ struct CampusMapScreen: View {
     // UISheetPresentationController blocks touches outside the sheet while
     // the keyboard is up, even at an undimmed detent. Keep the panel in the map.
     private func bottomPanel(available: CGFloat) -> some View {
-        let maximum = max(0, available - CampusMapChrome.controlGap)
+        let maximum = max(0, available - 2 * CampusMapChrome.controlGap)
         let detailHeight = max(0, min(cardDetailsHeight, maximum * 0.5 - headerHeight))
         let panelHeight: CGFloat
         if showsCard {
@@ -333,7 +333,6 @@ struct CampusMapScreen: View {
             .clipShape(shape)
             .floatingGlass(in: shape)
             .contentShape(.interaction, shape)
-            .animation(cardSpring, value: searching)
             .transaction { if reduceMotion { $0.animation = nil } }
             .background {
                 CampusMapPanelLayoutProbe(request: layoutRequest) { request, frame in
@@ -767,6 +766,7 @@ private struct LevelPicker: View {
     let pick: (String) -> Void
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous)
         ViewThatFits(in: .vertical) {
             column
             ScrollViewReader { proxy in
@@ -778,8 +778,9 @@ private struct LevelPicker: View {
             }
         }
         .frame(width: CampusMapChrome.controlSide)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous))
-        .floatingGlass(in: RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous))
+        .clipShape(shape)
+        .floatingGlass(in: shape)
+        .contentShape(.interaction, shape)
         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
         // Wider type would push the map's visible part to nothing.
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
