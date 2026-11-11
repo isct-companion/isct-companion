@@ -52,7 +52,7 @@ struct CampusMapScreen: View {
     @State private var follows = 0
     @State private var chrome = CampusMapChrome()
     @State private var expanded = true
-    @State private var cardToggles = 0
+    @State private var chromeEdits = 0
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     @State private var results: [CampusMapSearchResult] = []
@@ -67,7 +67,7 @@ struct CampusMapScreen: View {
             FloorMapView(
                 scene: scene,
                 chrome: chrome,
-                cardToggles: cardToggles,
+                chromeEdits: chromeEdits,
                 showsPosition: location.allowed,
                 follows: follows,
                 onCamera: { send(.camera(camera: $0, framing: $1)) },
@@ -110,6 +110,7 @@ struct CampusMapScreen: View {
         .onChange(of: searchShown) { _, shown in
             // The card is gone while searching: the map's visible part ends
             // at the screen's bottom.
+            chromeEdits += 1
             if shown { chrome.bottom = .greatestFiniteMagnitude }
         }
         .onChange(of: location.allowed) { _, allowed in
@@ -311,7 +312,10 @@ struct CampusMapScreen: View {
                         card: card,
                         expanded: expanded,
                         toggle: toggleCard,
-                        close: { send(.clear) },
+                        close: {
+                            chromeEdits += 1
+                            send(.clear)
+                        },
                         choose: { send(.choose(index: UInt32($0))) },
                         open: { if let url = URL(string: $0) { openURL(url) } })
                 }
@@ -329,7 +333,7 @@ struct CampusMapScreen: View {
 
     private func toggleCard(_ open: Bool) {
         guard open != expanded else { return }
-        cardToggles += 1
+        chromeEdits += 1
         withAnimation(.smooth(duration: Theme.motionSlow)) { expanded = open }
     }
 }

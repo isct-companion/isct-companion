@@ -12,12 +12,6 @@ on:
       - crates/app-core/src/campus_map/**
       - crates/app-core/src/tests/campus_map__*.rs
       - .github/workflows/campus-map.yml
-  pull_request:
-    branches: [main]
-    paths:
-      - crates/app-core/src/campus_map/**
-      - crates/app-core/src/tests/campus_map__*.rs
-      - .github/workflows/campus-map.yml
 
 permissions:
   contents: read
@@ -40,10 +34,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
+      # It never runs on main, so its branch saves the cache it reads.
       - uses: Swatinem/rust-cache@v2
         with:
           key: campus-map
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download the pinned export
         run: |
           curl -fsSL --retry 3 --retry-all-errors "$EXPORT_URL" -o "$RUNNER_TEMP/campus-map.json.gz"

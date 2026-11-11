@@ -17,9 +17,10 @@ struct CampusMapChrome: Equatable {
 struct FloorMapView: UIViewRepresentable {
     let scene: CampusMapScene?
     let chrome: CampusMapChrome
-    /// Rises each time the person folds or unfolds the card: a height change
-    /// that comes from it never re-frames.
-    let cardToggles: Int
+    /// Rises each time the person changes the page's controls (folds the
+    /// card, opens or leaves the search, closes the card): a change of the
+    /// visible part that comes from them never re-frames.
+    let chromeEdits: Int
     let showsPosition: Bool
     /// Rises when the person asked for their position and may now see it.
     let follows: Int
@@ -82,7 +83,7 @@ struct FloorMapView: UIViewRepresentable {
         coordinator.onLocate = onLocate
         coordinator.animatesCamera = !context.environment.accessibilityReduceMotion
         coordinator.chrome = chrome
-        coordinator.cardToggles = cardToggles
+        coordinator.chromeEdits = chromeEdits
         coordinator.layOut(map)
         if map.showsUserLocation != showsPosition { map.showsUserLocation = showsPosition }
         if follows != coordinator.follows {
@@ -94,7 +95,7 @@ struct FloorMapView: UIViewRepresentable {
         coordinator.draw(scene?.layers ?? [], on: map)
         coordinator.draw(scene?.marks ?? [], on: map)
         coordinator.levelId = scene?.levelId
-        coordinator.revision = scene?.revision ?? 0
+        coordinator.sceneFraming = scene?.framing?.key ?? 0
         if let framing = scene?.framing,
             framing.key > coordinator.appliedFraming,
             framing.key != coordinator.pendingFraming?.key
@@ -113,23 +114,28 @@ struct FloorMapView: UIViewRepresentable {
         var onLocate: () -> Void = {}
         var animatesCamera = true
         var chrome = CampusMapChrome()
-        var cardToggles = 0
+        var chromeEdits = 0
         var follows = 0
         var levelId: String?
-        var revision: UInt64 = 0
+        /// The framing key of the scene drawn.
+        var sceneFraming: UInt64 = 0
         var appliedFraming: UInt64 = 0
         var pendingFraming: CampusMapFraming?
         weak var tracking: MKUserTrackingButton?
         private var framed = false
-        /// The app's own camera move under way: until its region settles,
-        /// every region change is the app's, not the person's.
-        private var moving = false
-        private var moveStarted = false
-        /// The last framing, until the person moves the map: if the layout
-        /// it was framed in settles to another visible part while the same
-        /// scene shows (the card measured after the framing), it is framed
-        /// once more. A fold or unfold of the card never re-frames.
-        private var correction: (framing: CampusMapFraming, revision: UInt64, toggles: Int, visible: CGRect)?
+        /// Region changes the app started and MapKit has not finished: each
+        /// `setVisibleMapRect` that announces a move adds one, each settled
+        /// region takes one. While any is left a change is the app's; one
+        /// interrupted by the next framing still settles as the app's.
+        private var appMoves = 0
+        private var insideCall = false
+        private var announced = false
+        /// The last framing, until the person moves or taps the map: if the
+        /// layout it was framed in settles to another visible part (the card
+        /// measured after the framing, the level picker shown on landing) it
+        /// is framed once more. Changes the person makes to the page's
+        /// controls never re-frame.
+        private var correction: (framing: CampusMapFraming, edits: Int, visible: CGRect)?
         private var appearance: String?
         private var overlays: [String: MKOverlay] = [:]
         private var marks: [String: FloorMark] = [:]
@@ -174,16 +180,17 @@ struct FloorMapView: UIViewRepresentable {
             appliedFraming = framing.key
             let visible = visible(in: map)
             frame(framing, in: visible, on: map, animated: framed && animatesCamera)
-            correction = (framing, revision, cardToggles, visible)
+            correction = (framing, chromeEdits, visible)
             framed = true
         }
 
         /// Once, when the layout a framing was made in has settled to another
-        /// visible part without the person moving the map or folding the
-        /// card in between.
+        /// visible part without the person moving or tapping the map or
+        /// changing the page's controls in between, and no newer framing.
         func correctFraming(on map: MKMapView) {
-            guard let pending = correction, pending.revision == revision, pending.toggles == cardToggles else {
-                if correction?.toggles != cardToggles { correction = nil }
+            guard let pending = correction, pending.framing.key == sceneFraming, pending.edits == chromeEdits
+            else {
+                correction = nil
                 return
             }
             let visible = visible(in: map)
@@ -204,28 +211,33 @@ struct FloorMapView: UIViewRepresentable {
                 top: visible.minY + margin, left: visible.minX + margin,
                 bottom: map.bounds.maxY - visible.maxY + margin,
                 right: map.bounds.maxX - visible.maxX + margin)
-            moving = true
-            moveStarted = false
+            insideCall = true
+            announced = false
             map.setVisibleMapRect(rect, edgePadding: padding, animated: animated)
+            insideCall = false
             // MapKit announces a move from inside the call; none means the
             // camera is already there, and the framing has landed.
-            if !moveStarted {
-                moving = false
-                report(map, byUser: false)
-            }
+            if !announced && appMoves == 0 { report(map, byUser: false) }
         }
 
         // MARK: Camera and taps
 
         func mapView(_ map: MKMapView, regionWillChangeAnimated animated: Bool) {
-            if moving { moveStarted = true }
+            if insideCall {
+                announced = true
+                appMoves += 1
+            }
         }
 
         func mapView(_ map: MKMapView, regionDidChangeAnimated animated: Bool) {
-            let byUser = !moving
-            moving = false
-            if byUser { correction = nil }
-            report(map, byUser: byUser)
+            if appMoves > 0 {
+                appMoves -= 1
+                // A move interrupted by a newer one: the newer one reports.
+                if appMoves == 0 { report(map, byUser: false) }
+                return
+            }
+            correction = nil
+            report(map, byUser: true)
         }
 
         private func report(_ map: MKMapView, byUser: Bool) {
@@ -268,6 +280,7 @@ struct FloorMapView: UIViewRepresentable {
                 if view is MKAnnotationView || view is MKUserTrackingButton { return }
                 hit = view.superview
             }
+            correction = nil
             let coordinate = map.convert(location, toCoordinateFrom: map)
             onTap(
                 CampusMapPoint(latitude: coordinate.latitude, longitude: coordinate.longitude),
@@ -276,6 +289,7 @@ struct FloorMapView: UIViewRepresentable {
 
         /// A tap on a mark, or VoiceOver activating one.
         func mapView(_ map: MKMapView, didSelect view: MKAnnotationView) {
+            correction = nil
             if let mark = view.annotation as? FloorMark {
                 switch mark.record.kind {
                 case let .entrance(id, _, _): onSelect(.entrance(id: id))

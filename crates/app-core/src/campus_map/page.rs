@@ -251,13 +251,17 @@ impl Page {
     }
 
     /// A floor of the building shown; a stale pick of another building's
-    /// floor changes nothing.
+    /// floor changes nothing. A floor picked while a framing to the same
+    /// building is under way wins over the floor it would land on.
     fn pick_level(&mut self, id: &str) {
         let Some((building, level)) = self.map.levels.get(id).copied() else {
             return;
         };
         if self.floor.is_some_and(|(shown, _)| shown == building) {
             self.floor = Some((building, level));
+            if matches!(self.arrival, Some(Some((landing, _))) if landing == building) {
+                self.arrival = None;
+            }
         }
     }
 
