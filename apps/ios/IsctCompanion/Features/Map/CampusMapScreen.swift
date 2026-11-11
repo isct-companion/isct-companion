@@ -16,6 +16,10 @@ enum CampusMapLoad {
     case missing
     case failed(String)
     case ready
+
+    var isReady: Bool {
+        if case .ready = self { true } else { false }
+    }
 }
 
 /// What opening Core's page answered.
@@ -36,36 +40,65 @@ struct CampusMapFailure: Error {
 /// the platform has, the blue dot. There is no route: an entrance opens in
 /// the maps app the settings name.
 ///
-/// The card is part of this page, not a sheet: a sheet's heights apply only
-/// at compact width (an iPad shows a centred form sheet, a landscape iPhone
-/// a full-height one), and the map must know what the card covers.
+/// As in Apple Maps, search, its results and the place card share one panel.
+/// At compact width it is a system sheet over the map whose detents are the
+/// card's folding; at regular width, and in a compact-height window (where a
+/// system sheet would take the full height), the same content sits in a
+/// leading floating panel. The map's visible part comes from the panel's
+/// measured frame.
 struct CampusMapScreen: View {
     let request: CampusMapRequest
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var load = CampusMapLoad.loading
     @State private var scene: CampusMapScene?
     /// Intents reach Core one after another, in the order sent.
     @State private var sending: Task<Void, Never>?
     @State private var location = CampusMapLocation()
     @State private var follows = 0
-    @State private var chrome = CampusMapChrome()
-    @State private var expanded = true
+    @State private var height: CampusMapPanelHeight
+    /// The panel's navigation bar and search field, the small detent. The
+    /// first guess errs tall: the measurement then shrinks it.
+    @State private var headerHeight: CGFloat = 120
+    @State private var closeBottom: CGFloat = 0
+    @State private var railLeading: CGFloat?
+    /// The panel's frame in window coordinates, with the request the layout
+    /// that measured it answered.
+    @State private var panelFrame: CGRect?
+    @State private var panelLayout: CampusMapLayoutRequest?
     @State private var query = ""
-    @State private var searchShown = false
-    @State private var keyboardVisible = false
-    @FocusState private var searchFocused: Bool
+    @State private var searching = false
     @State private var searchAnswer: CampusMapSearch?
     @State private var searchFailure: String?
+    /// The card a closing card page keeps showing while it pops.
+    @State private var shownCard: CampusMapCard?
 
-    private var results: [CampusMapSearchResult] {
-        searchAnswer?.query == query ? (searchAnswer?.results ?? []) : []
+    init(request: CampusMapRequest) {
+        self.request = request
+        _height = State(initialValue: request.room == nil ? .small : .medium)
+    }
+
+    /// The leading panel, by window size: the system sheet is used only
+    /// where it keeps its partial heights.
+    private var wide: Bool {
+        horizontalSizeClass == .regular || verticalSizeClass == .compact
     }
 
     private var layoutRequest: CampusMapLayoutRequest {
         CampusMapLayoutRequest(
-            framing: scene?.framing?.key ?? 0, searchShown: searchShown, keyboardVisible: keyboardVisible)
+            framing: scene?.framing?.key ?? 0, searching: searching, height: height, wide: wide)
+    }
+
+    private var chrome: CampusMapChrome {
+        CampusMapChrome(
+            top: wide ? 0 : closeBottom,
+            bottom: wide ? .greatestFiniteMagnitude : panelFrame?.minY ?? .greatestFiniteMagnitude,
+            leading: wide ? panelFrame?.maxX ?? 0 : 0,
+            trailing: railLeading,
+            layout: panelLayout)
     }
 
     var body: some View {
@@ -83,33 +116,34 @@ struct CampusMapScreen: View {
                 onSelect: { send(.select(place: $0)) },
                 onLocate: { location.requestPermission() })
                 .ignoresSafeArea()
-            VStack(spacing: 8) {
-                topBar
-                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { chrome.top = $0 }
-                ZStack {
-                    mapControls
-                        .opacity(searchShown ? 0 : 1)
-                        .allowsHitTesting(!searchShown)
-                        .accessibilityHidden(searchShown)
-                    searchList
-                        .opacity(searchShown ? 1 : 0)
-                        .allowsHitTesting(searchShown)
-                        .accessibilityHidden(!searchShown)
-                }
-            }
-            .padding(.horizontal, CampusMapChrome.pageInset)
-            .padding(.bottom, 8)
+            GeometryReader { mapControls(in: $0) }
+                .ignoresSafeArea(.keyboard, edges: wide ? [] : .bottom)
         }
         .background(Theme.bg)
         .sensoryFeedback(.selection, trigger: scene?.levelId)
-        .onChange(of: searchFocused) { _, focused in
-            if focused { searchShown = true }
+        .sheet(isPresented: .constant(!wide)) {
+            panel
+                .presentationDetents(detents, selection: detentSelection)
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                .interactiveDismissDisabled()
+                .environment(model)
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardVisible = true
+        .onChange(of: searching) { _, active in
+            if active {
+                height = .large
+            } else if height == .large, scene?.card == nil {
+                height = .small
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
-            keyboardVisible = false
+        .onChange(of: scene?.revision) {
+            if let card = scene?.card { shownCard = card }
+        }
+        .onChange(of: scene?.card != nil) { _, selected in
+            if !selected {
+                height = .small
+            } else if height == .small {
+                height = .medium
+            }
         }
         .onChange(of: location.allowed) { _, allowed in
             if allowed && location.asked { follows += 1 }
@@ -128,42 +162,6 @@ struct CampusMapScreen: View {
         .onDisappear { model.campusMapClose() }
     }
 
-    /// Keep both content containers mounted: showing search never replaces
-    /// the field or changes its structural identity as the keyboard lays out.
-    private var mapControls: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .top) {
-                Spacer(minLength: 0)
-                VStack(spacing: 0) {
-                    Color.clear
-                        .frame(height: CampusMapChrome.railHeaderHeight)
-                        .allowsHitTesting(false)
-                    if let scene, !scene.levels.isEmpty {
-                        LevelPicker(levels: scene.levels, selected: scene.levelId, marked: scene.markedLevelId) {
-                            send(.level(id: $0))
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .frame(width: CampusMapChrome.controlSide)
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: {
-                    chrome.trailing = $0
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-            bottomPanel
-                .background {
-                    CampusMapPanelLayoutProbe(request: layoutRequest) { request, top in
-                        guard request == layoutRequest else { return }
-                        let bottom = request.searchShown ? CGFloat.greatestFiniteMagnitude : top
-                        if chrome.bottom != bottom { chrome.bottom = bottom }
-                        if chrome.layout != request { chrome.layout = request }
-                    }
-                    .allowsHitTesting(false)
-                }
-        }
-    }
-
     private func open() async {
         load = .loading
         switch await model.campusMapOpen(request.room) {
@@ -175,6 +173,7 @@ struct CampusMapScreen: View {
         case let .failed(message):
             load = .failed(message)
         }
+        if !load.isReady, height == .small { height = .medium }
     }
 
     /// Sends an intent after the ones before it and draws the answer unless
@@ -191,45 +190,202 @@ struct CampusMapScreen: View {
         }
     }
 
-    // MARK: Search
+    // MARK: Map controls
 
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Theme.ink)
-                    .frame(width: 44, height: 44)
-                    .floatingGlass(in: Circle())
-            }
-            .accessibilityLabel(t("common.close"))
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Theme.muted)
-                    .accessibilityHidden(true)
-                TextField(t("campusMap.search"), text: $query)
-                    .focused($searchFocused)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .onSubmit { searchFocused = false }
-                if searchShown {
-                    Button {
-                        cancelSearch()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.muted)
-                    }
-                    .accessibilityLabel(t("common.cancel"))
+    /// The close button, the floor picker and MapKit's buttons over the map.
+    /// The trailing rail stands on the sheet's top edge, or at the top beside
+    /// the leading panel; it is hidden while the sheet covers the map.
+    private func mapControls(in proxy: GeometryProxy) -> some View {
+        let frame = proxy.frame(in: .global)
+        let panelTop = wide ? frame.maxY : min(frame.maxY, panelFrame?.minY ?? frame.maxY)
+        let railHeight = max(panelTop - frame.minY - CampusMapChrome.controlGap, 0)
+        let hidden = layoutRequest.hidesControls
+        return ZStack(alignment: .topLeading) {
+            if wide {
+                VStack(alignment: .leading, spacing: CampusMapChrome.controlGap) {
+                    closeButton
+                    floatingPanel(height: frame.height - CampusMapChrome.controlSide - 2 * CampusMapChrome.controlGap)
+                        .frame(width: min(360, frame.width * 0.45))
+                    Spacer(minLength: 0)
                 }
+                .padding(.bottom, CampusMapChrome.controlGap)
+            } else {
+                closeButton
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { closeBottom = $0 }
             }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 44)
-            // Keep the editable subtree on one material implementation.
-            .background(.regularMaterial, in: Capsule())
+            rail
+                .frame(height: railHeight, alignment: wide ? .top : .bottom)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .opacity(hidden ? 0 : 1)
+                .allowsHitTesting(!hidden)
+                .accessibilityHidden(hidden)
+            if let attribution = scene?.attribution, !attribution.isEmpty {
+                Text(attribution.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .floatingGlass(in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: wide ? .bottomTrailing : .bottomLeading)
+                    .frame(height: railHeight)
+                    .opacity(hidden ? 0 : 1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .padding(.horizontal, CampusMapChrome.pageInset)
+    }
+
+    private var closeButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+                .frame(width: CampusMapChrome.controlSide, height: CampusMapChrome.controlSide)
+                .floatingGlass(in: Circle())
+        }
+        .accessibilityLabel(t("common.close"))
+    }
+
+    /// MapKit's compass and position button are drawn by the map itself in
+    /// the space this column keeps for them.
+    private var rail: some View {
+        VStack(spacing: 0) {
+            if !wide { levels }
+            Color.clear
+                .frame(height: CampusMapChrome.railHeaderHeight)
+                .allowsHitTesting(false)
+            if wide { levels }
+        }
+        .frame(width: CampusMapChrome.controlSide)
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { railLeading = $0 }
+    }
+
+    @ViewBuilder
+    private var levels: some View {
+        if let scene, !scene.levels.isEmpty {
+            LevelPicker(levels: scene.levels, selected: scene.levelId, marked: scene.markedLevelId) {
+                send(.level(id: $0))
+            }
         }
     }
+
+    // MARK: Panel
+
+    private var detents: Set<PresentationDetent> {
+        var heights: Set<CampusMapPanelHeight> = [height]
+        if searching {
+            heights.insert(.large)
+        } else if scene?.card != nil {
+            heights.formUnion([.small, .medium, .large])
+        } else if load.isReady {
+            heights.insert(.small)
+        } else {
+            heights.formUnion([.small, .medium])
+        }
+        return Set(heights.map(detent))
+    }
+
+    private func detent(_ height: CampusMapPanelHeight) -> PresentationDetent {
+        switch height {
+        case .small: .height(headerHeight)
+        case .medium: .medium
+        case .large: .large
+        }
+    }
+
+    private var detentSelection: Binding<PresentationDetent> {
+        Binding {
+            detent(height)
+        } set: { detent in
+            height = detent == .large ? .large : detent == .medium ? .medium : .small
+        }
+    }
+
+    /// The leading panel's heights: the search field alone, or the column.
+    private func floatingPanel(height column: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)
+        return panel
+            // The panel is a phone-width column, laid out as one.
+            .environment(\.horizontalSizeClass, .compact)
+            .frame(height: height == .small ? min(headerHeight, column) : max(column, headerHeight))
+            .clipShape(shape)
+            .floatingGlass(in: shape)
+            .animation(.smooth(duration: Theme.motionSlow), value: height)
+    }
+
+    /// One content tree for both containers: search at the root, Core's card
+    /// pushed over it while something is selected.
+    private var panel: some View {
+        NavigationStack {
+            root
+                .navigationTitle(t("campusMap.browse"))
+                .navigationBarTitleDisplayMode(.inline)
+                .searchable(
+                    text: $query, isPresented: $searching,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: t("campusMap.search"))
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .navigationDestination(isPresented: cardShown) { cardPage }
+        }
+        .background {
+            CampusMapPanelLayoutProbe(request: layoutRequest) { request, frame in
+                guard request == layoutRequest else { return }
+                if panelFrame != frame { panelFrame = frame }
+                if panelLayout != request { panelLayout = request }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var cardShown: Binding<Bool> {
+        Binding {
+            scene?.card != nil
+        } set: { shown in
+            if !shown, scene?.card != nil { closeCard() }
+        }
+    }
+
+    private var root: some View {
+        Group {
+            switch load {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, Theme.cardPadding)
+            case .missing:
+                ContentUnavailableView(
+                    t("campusMap.unavailable"), systemImage: "map",
+                    description: Text(t("campusMap.notDownloaded")))
+            case let .failed(message):
+                ContentUnavailableView {
+                    Label(t("campusMap.failed"), systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button(t("common.retry")) { Task { await open() } }
+                        .buttonStyle(CapsuleButtonStyle(level: .secondary))
+                }
+            case .ready:
+                if searching { results } else { Color.clear }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            // Content starts below the bar and the field: that is the small
+            // detent. The bar hides while search is active.
+            Color.clear
+                .ignoresSafeArea(.container, edges: .top)
+                .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { top in
+                    if !searching, top > 0, abs(top - headerHeight) > 0.5 { headerHeight = top }
+                }
+        }
+        .containerBackground(.clear, for: .navigation)
+    }
+
+    // MARK: Search
 
     /// Asks Core for the text's places; an answer to text the person has
     /// since changed is dropped (Core echoes the text it answered). The map
@@ -240,7 +396,7 @@ struct CampusMapScreen: View {
         searchFailure = nil
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let answer = await model.campusMapSearch(text)
-        guard !Task.isCancelled, searchShown, text == query else { return }
+        guard !Task.isCancelled, searching, text == query else { return }
         switch answer {
         case let .success(found) where found.query == query:
             searchAnswer = found
@@ -251,61 +407,55 @@ struct CampusMapScreen: View {
         }
     }
 
-    private func cancelSearch() {
-        searchFocused = false
-        searchShown = false
-        query = ""
-        searchAnswer = nil
-        searchFailure = nil
-    }
-
     private func pick(_ result: CampusMapSearchResult) {
-        cancelSearch()
-        expanded = true
+        height = .medium
+        searching = false
+        query = ""
         send(.select(place: result.place))
     }
 
-    private var searchList: some View {
-        List {
-            if let searchFailure {
-                Text(searchFailure).foregroundStyle(Theme.danger)
-            } else if results.isEmpty, !query.isEmpty {
-                Text(t("campusMap.noResults")).foregroundStyle(Theme.muted)
+    /// Nothing for an empty query or before Core answers the text shown.
+    @ViewBuilder
+    private var results: some View {
+        if let searchFailure {
+            ContentUnavailableView {
+                Label(t("campusMap.failed"), systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(searchFailure)
             }
-            ForEach(Array(results.enumerated()), id: \.offset) { _, result in
-                Button {
-                    pick(result)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(result.title)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Theme.ink)
-                        Text(Self.details(result))
-                            .font(.footnote)
-                            .foregroundStyle(Theme.muted)
-                        if result.noFloorPlan {
-                            Text(t("campusMap.notOnFloorPlans"))
+        } else if let answer = searchAnswer, answer.query == query {
+            if answer.results.isEmpty {
+                ContentUnavailableView.search(text: query)
+            } else {
+                List(Array(answer.results.enumerated()), id: \.offset) { _, result in
+                    Button {
+                        pick(result)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.title)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(Theme.ink)
+                            Text(Self.details(result))
                                 .font(.footnote)
-                                .foregroundStyle(Theme.warn)
+                                .foregroundStyle(Theme.muted)
+                            if result.noFloorPlan {
+                                Text(t("campusMap.notOnFloorPlans"))
+                                    .font(.footnote)
+                                    .foregroundStyle(Theme.warn)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
                 }
-                .buttonStyle(.plain)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
+        } else {
+            Color.clear
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        // Offset changes during keyboard layout must not resign the field.
-        .scrollDismissesKeyboard(.never)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 10).onChanged { _ in
-                if searchFocused { searchFocused = false }
-            })
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-        .frame(maxHeight: .infinity)
     }
 
     /// `大岡山西9号館 · 2F · 大岡山`: the building unless it is the title, the
@@ -327,173 +477,73 @@ struct CampusMapScreen: View {
 
     // MARK: Card
 
-    private var bottomPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let attribution = scene?.attribution, !attribution.isEmpty {
-                Text(attribution.joined(separator: " · "))
-                    .font(.caption2)
-                    .foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .floatingGlass(in: Capsule())
-            }
-            switch load {
-            case .loading:
-                panel { ProgressView().frame(maxWidth: .infinity) }
-            case .missing:
-                panel {
-                    Text(t("campusMap.unavailable")).font(.headline).foregroundStyle(Theme.ink)
-                    Text(t("campusMap.notDownloaded")).font(.subheadline).foregroundStyle(Theme.muted)
-                }
-            case let .failed(message):
-                panel {
-                    Text(t("campusMap.failed")).font(.headline).foregroundStyle(Theme.ink)
-                    Text(message).font(.subheadline).foregroundStyle(Theme.muted)
-                    Button(t("common.retry")) { Task { await open() } }
-                        .buttonStyle(CapsuleButtonStyle(level: .secondary))
-                }
-            case .ready:
-                if let card = scene?.card {
-                    CampusMapCardView(
-                        card: card,
-                        expanded: $expanded,
-                        close: { send(.clear) },
-                        choose: { send(.choose(index: UInt32($0))) },
-                        open: { if let url = URL(string: $0) { openURL(url) } })
-                }
-            }
+    @ViewBuilder
+    private var cardPage: some View {
+        if let card = scene?.card ?? shownCard {
+            CampusMapCardView(
+                card: card,
+                close: closeCard,
+                choose: { send(.choose(index: UInt32($0))) },
+                open: { if let url = URL(string: $0) { openURL(url) } })
         }
     }
 
-    private func panel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8, content: content)
-            .padding(Theme.cardPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    private func closeCard() {
+        send(.clear)
+        height = .small
     }
 }
 
-/// Two heights, clipped from one content tree. Only the grabber
-/// and title initiate a drag; details and the close button keep their own touches.
+/// Core's card as a page of the panel: its folding is the panel's height.
 private struct CampusMapCardView: View {
     let card: CampusMapCard
-    @Binding var expanded: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var detailsHeight: CGFloat = 0
-    @GestureState(resetTransaction: Transaction(animation: .smooth(duration: Theme.motionSlow)))
-    private var dragTranslation: CGFloat? = nil
     let close: () -> Void
     let choose: (Int) -> Void
     let open: (String) -> Void
 
-    private func expansion(at translation: CGFloat) -> CGFloat {
-        let start: CGFloat = expanded ? 1 : 0
-        guard detailsHeight > 0 else { return start }
-        return min(1, max(0, start - translation / detailsHeight))
-    }
-
     var body: some View {
-        CampusMapCardLayout(expansion: expansion(at: dragTranslation ?? 0)) {
-            header
-            details
-                .padding(.horizontal, Theme.cardPadding)
-                .padding(.top, 2)
-                .padding(.bottom, Theme.cardPadding)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailsHeight = $0 }
-                .allowsHitTesting(expanded && dragTranslation == nil)
-                .accessibilityHidden(!expanded)
-        }
-        .clipped()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-        .accessibilityElement(children: .contain)
-        .transaction { transaction in
-            if reduceMotion { transaction.animation = nil }
-        }
-    }
-
-    private var header: some View {
-        VStack(spacing: 0) {
-            Capsule()
-                .fill(Theme.line)
-                .frame(width: 36, height: 5)
-                .frame(maxWidth: .infinity)
-                .frame(height: 24)
-                .contentShape(Rectangle())
-                .onTapGesture { setExpanded(!expanded) }
-                .gesture(resizeGesture)
-                .accessibilityHidden(true)
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title ?? t("campusMap.entrance"))
-                        .font(.headline)
-                        .foregroundStyle(Theme.ink)
-                        .lineLimit(2)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.muted)
-                        .lineLimit(1)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.muted)
+                if card.buildingOnly {
+                    note(t("campusMap.buildingOnly"))
+                } else if card.noFloorPlans {
+                    note(t("campusMap.noFloorPlans"))
                 }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { setExpanded(!expanded) }
-                .gesture(resizeGesture)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityValue(t(expanded ? "campusMap.cardExpanded" : "campusMap.cardCollapsed"))
-                .accessibilityAction { setExpanded(!expanded) }
-                .accessibilityAction(named: t(expanded ? "campusMap.foldCard" : "campusMap.unfoldCard")) {
-                    setExpanded(!expanded)
+                links(card.links)
+                if !card.candidates.isEmpty {
+                    candidates(card.candidates)
                 }
-                Button(action: close) {
-                    Image(systemName: "xmark")
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(Theme.muted)
-                        .frame(width: 30, height: 30)
-                        .background(Theme.surface2, in: Circle())
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(t("campusMap.closeCard"))
             }
             .padding(.horizontal, Theme.cardPadding)
+            .padding(.bottom, Theme.cardPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.bottom, 8)
-    }
-
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if card.buildingOnly {
-                note(t("campusMap.buildingOnly"))
-            } else if card.noFloorPlans {
-                note(t("campusMap.noFloorPlans"))
-            }
-            links(card.links)
-            if !card.candidates.isEmpty {
-                candidates(card.candidates)
-            }
+        .navigationTitle(card.title ?? t("campusMap.entrance"))
+        .navigationBarTitleDisplayMode(.large)
+        // Only the close button leaves the card: it also clears Core's selection.
+        .navigationBarBackButtonHidden()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { closeButton }
         }
+        .containerBackground(.clear, for: .navigation)
     }
 
-    private var resizeGesture: some Gesture {
-        DragGesture(minimumDistance: 10, coordinateSpace: .global)
-            .updating($dragTranslation) { drag, translation, transaction in
-                guard abs(drag.translation.height) > abs(drag.translation.width) else { return }
-                transaction.animation = nil
-                translation = drag.translation.height
+    @ViewBuilder
+    private var closeButton: some View {
+        if #available(iOS 26.0, *) {
+            Button(role: .close, action: close)
+                .accessibilityLabel(t("campusMap.closeCard"))
+        } else {
+            Button(action: close) {
+                Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.title2)
+                    .foregroundStyle(Theme.muted)
             }
-            .onEnded { drag in
-                guard abs(drag.translation.height) > abs(drag.translation.width) else { return }
-                setExpanded(expansion(at: drag.translation.height) >= 0.5)
-            }
-    }
-
-    private func setExpanded(_ open: Bool) {
-        withAnimation(reduceMotion ? nil : .smooth(duration: Theme.motionSlow)) {
-            expanded = open
+            .accessibilityLabel(t("campusMap.closeCard"))
         }
     }
 
@@ -564,39 +614,6 @@ private struct CampusMapCardView: View {
                 }
             }
         }
-    }
-}
-
-/// SwiftUI has no in-page two-height card layout. Measure both children in
-/// this pass so new content never uses the previous selection's endpoint size.
-private struct CampusMapCardLayout: SwiftUI.Layout {
-    var expansion: CGFloat
-
-    var animatableData: CGFloat {
-        get { expansion }
-        set { expansion = newValue }
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = measure(width: proposal.width, subviews: subviews)
-        return CGSize(
-            width: proposal.width ?? max(sizes.header.width, sizes.details.width),
-            height: sizes.header.height + sizes.details.height * expansion)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = measure(width: bounds.width, subviews: subviews)
-        subviews[0].place(
-            at: bounds.origin, anchor: .topLeading,
-            proposal: ProposedViewSize(width: bounds.width, height: sizes.header.height))
-        subviews[1].place(
-            at: CGPoint(x: bounds.minX, y: bounds.minY + sizes.header.height), anchor: .topLeading,
-            proposal: ProposedViewSize(width: bounds.width, height: sizes.details.height))
-    }
-
-    private func measure(width: CGFloat?, subviews: Subviews) -> (header: CGSize, details: CGSize) {
-        let proposal = ProposedViewSize(width: width, height: nil)
-        return (subviews[0].sizeThatFits(proposal), subviews[1].sizeThatFits(proposal))
     }
 }
 

@@ -2,9 +2,10 @@ import IsctCore
 import MapKit
 import SwiftUI
 
-/// Where the page's own controls sit, in window coordinates: the search
-/// bar's bottom edge, the bottom panel's top edge and the control rail's
-/// leading edge. The rail stays reserved when a floor picker is not shown.
+/// Where the page's own controls sit, in window coordinates: the close
+/// button's bottom edge (above the sheet), the sheet's top edge, the leading
+/// panel's trailing edge and the control rail's leading edge. The rail stays
+/// reserved when a floor picker is not shown.
 struct CampusMapChrome: Equatable {
     static let controlSide: CGFloat = 44
     static let controlGap: CGFloat = 8
@@ -13,24 +14,36 @@ struct CampusMapChrome: Equatable {
 
     var top: CGFloat = 0
     var bottom: CGFloat = .greatestFiniteMagnitude
+    var leading: CGFloat = 0
     var trailing: CGFloat?
-    /// The explicit request acknowledged by a completed panel layout pass.
+    /// The request a completed panel layout pass measured these edges for.
     var layout: CampusMapLayoutRequest?
 }
 
+/// The panel's heights: the sheet's detents, or the leading panel's.
+enum CampusMapPanelHeight: Hashable {
+    case small, medium, large
+}
+
+/// What the map waits on before an explicit framing: the framing itself and
+/// the panel state it is shown beside.
 struct CampusMapLayoutRequest: Equatable {
     let framing: UInt64
-    let searchShown: Bool
-    let keyboardVisible: Bool
+    let searching: Bool
+    let height: CampusMapPanelHeight
+    /// The leading panel rather than the sheet.
+    let wide: Bool
 
-    var canFrame: Bool { !searchShown && !keyboardVisible }
+    /// A large sheet covers the map.
+    var hidesControls: Bool { !wide && height == .large }
+    var canFrame: Bool { !searching && !hidesControls }
 }
 
 /// UIKit is asked to lay out after every request update, even at an equal
 /// size. Geometry-change callbacks cannot acknowledge an unchanged frame.
 struct CampusMapPanelLayoutProbe: UIViewRepresentable {
     let request: CampusMapLayoutRequest
-    let onLayout: (CampusMapLayoutRequest, CGFloat) -> Void
+    let onLayout: (CampusMapLayoutRequest, CGRect) -> Void
 
     func makeUIView(context: Context) -> PanelLayoutView { PanelLayoutView() }
 
@@ -42,16 +55,17 @@ struct CampusMapPanelLayoutProbe: UIViewRepresentable {
 
     final class PanelLayoutView: UIView {
         var request: CampusMapLayoutRequest?
-        var onLayout: ((CampusMapLayoutRequest, CGFloat) -> Void)?
+        var onLayout: ((CampusMapLayoutRequest, CGRect) -> Void)?
 
         override func layoutSubviews() {
             super.layoutSubviews()
             guard let request, window != nil else { return }
             // Publish after the containing SwiftUI layout has finished, not
             // while it is updating its native views or measuring the panel.
+            // A detent change lays out at its target frame.
             DispatchQueue.main.async { [weak self] in
                 guard let self, window != nil, self.request == request else { return }
-                onLayout?(request, convert(bounds, to: nil).minY)
+                onLayout?(request, convert(bounds, to: nil))
             }
         }
     }
@@ -218,15 +232,17 @@ struct FloorMapView: UIViewRepresentable {
             let top = max(inMap(CGPoint(x: 0, y: chrome.top)).y, bounds.minY + map.safeAreaInsets.top)
             let bottom = min(inMap(CGPoint(x: 0, y: min(chrome.bottom, 1e6))).y, bounds.maxY - map.safeAreaInsets.bottom)
             let trailing = chrome.trailing.map { min(inMap(CGPoint(x: $0, y: 0)).x, bounds.maxX) } ?? bounds.maxX
-            let leading = bounds.minX + map.safeAreaInsets.left
+            let leading = max(inMap(CGPoint(x: chrome.leading, y: 0)).x, bounds.minX + map.safeAreaInsets.left)
             let right = min(trailing, bounds.maxX - map.safeAreaInsets.right)
             return CGRect(
                 x: leading, y: top,
                 width: max(right - leading, 1), height: max(bottom - top, 1))
         }
 
-        /// Native controls occupy the top trailing rail, below search and
-        /// above the level picker. Layout alone never changes the camera.
+        /// Native controls occupy the trailing rail: standing on the sheet's
+        /// top edge, or at the top beside the leading panel, and hidden with
+        /// the rail while the sheet covers the map. Layout alone never
+        /// changes the camera.
         func layOut(_ map: MKMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             let visible = visible(in: map)
@@ -235,8 +251,20 @@ struct FloorMapView: UIViewRepresentable {
             let x = chrome.trailing == nil
                 ? map.bounds.maxX - map.safeAreaInsets.right - side - CampusMapChrome.pageInset
                 : visible.maxX
-            compass?.frame = CGRect(x: x, y: visible.minY + gap, width: side, height: side)
-            trackingHost?.frame = CGRect(x: x, y: visible.minY + side + 2 * gap, width: side, height: side)
+            let compassY: CGFloat
+            let trackingY: CGFloat
+            if layoutRequest?.wide == true {
+                compassY = visible.minY + gap
+                trackingY = compassY + side + gap
+            } else {
+                trackingY = visible.maxY - gap - side
+                compassY = trackingY - gap - side
+            }
+            compass?.frame = CGRect(x: x, y: compassY, width: side, height: side)
+            trackingHost?.frame = CGRect(x: x, y: trackingY, width: side, height: side)
+            let hidden = layoutRequest?.hidesControls ?? false
+            compass?.isHidden = hidden
+            trackingHost?.isHidden = hidden
         }
 
         // MARK: Framing
