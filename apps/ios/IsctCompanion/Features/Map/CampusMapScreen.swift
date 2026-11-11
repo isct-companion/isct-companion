@@ -218,7 +218,6 @@ struct CampusMapScreen: View {
         let frame = proxy.frame(in: .global)
         let panelTop = wide ? frame.maxY : min(frame.maxY, panelFrame?.minY ?? frame.maxY)
         let railHeight = max(panelTop - frame.minY - CampusMapChrome.controlGap, 0)
-        let hidden = layoutRequest.hidesControls
         return ZStack(alignment: .topLeading) {
             if wide {
                 VStack(alignment: .leading, spacing: CampusMapChrome.controlGap) {
@@ -235,9 +234,6 @@ struct CampusMapScreen: View {
             rail
                 .frame(height: railHeight, alignment: wide ? .top : .bottom)
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .opacity(hidden ? 0 : 1)
-                .allowsHitTesting(!hidden)
-                .accessibilityHidden(hidden)
             if let attribution = scene?.attribution, !attribution.isEmpty {
                 Text(attribution.joined(separator: " · "))
                     .font(.caption2)
@@ -247,7 +243,6 @@ struct CampusMapScreen: View {
                     .floatingGlass(in: Capsule())
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: wide ? .bottomTrailing : .bottomLeading)
                     .frame(height: railHeight)
-                    .opacity(hidden ? 0 : 1)
                     .allowsHitTesting(false)
             }
         }
@@ -295,13 +290,13 @@ struct CampusMapScreen: View {
     // UISheetPresentationController blocks touches outside the sheet while
     // the keyboard is up, even at an undimmed detent. Keep the panel in the map.
     private func bottomPanel(available: CGFloat) -> some View {
-        let maximum = max(headerHeight, available - CampusMapChrome.controlGap)
+        let cardVisible = scene?.card != nil && !searching
+        let expandedCardHeight = min(available * 0.5, headerHeight + cardDetailsHeight)
+        let maximum = max(headerHeight, cardVisible ? expandedCardHeight : available - CampusMapChrome.controlGap)
         let resting: CGFloat = switch height {
         case .small: headerHeight
         case .search: max(headerHeight, min(headerHeight + 156, available * 0.6))
-        case .medium:
-            scene?.card == nil ? available * 0.5 : min(available * 0.5, headerHeight + cardDetailsHeight)
-        case .large: maximum
+        case .medium: cardVisible ? expandedCardHeight : available * 0.5
         }
         return framedPanel(height: min(maximum, max(headerHeight, resting - panelDrag)))
     }
@@ -388,11 +383,7 @@ struct CampusMapScreen: View {
     }
 
     private func resizeCard(up: Bool) {
-        if up {
-            height = height == .small ? .medium : .large
-        } else {
-            height = height == .large ? .medium : .small
-        }
+        height = up ? .medium : .small
     }
 
     private var searchHeader: some View {

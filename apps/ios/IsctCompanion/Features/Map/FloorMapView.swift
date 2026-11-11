@@ -22,7 +22,7 @@ struct CampusMapChrome: Equatable {
 
 /// The panel's resting heights.
 enum CampusMapPanelHeight: Hashable {
-    case small, search, medium, large
+    case small, search, medium
 }
 
 /// What the map waits on before an explicit framing: the framing itself and
@@ -36,9 +36,7 @@ struct CampusMapLayoutRequest: Equatable {
     /// The panel sits along the leading edge.
     let wide: Bool
 
-    /// A large bottom panel covers the map.
-    var hidesControls: Bool { !wide && height == .large }
-    var canFrame: Bool { !keyboardVisible && !dragging && !hidesControls }
+    var canFrame: Bool { !keyboardVisible && !dragging }
 }
 
 /// UIKit is asked to lay out after every request update, even at an equal
@@ -241,10 +239,8 @@ struct FloorMapView: UIViewRepresentable {
                 width: max(right - leading, 1), height: max(bottom - top, 1))
         }
 
-        /// Native controls occupy the trailing rail: standing on the bottom panel's
-        /// top edge, or at the top beside the leading panel, and hidden with
-        /// the rail while the panel covers the map. Layout alone never
-        /// changes the camera.
+        /// Native controls sit above the bottom panel or beside the leading
+        /// panel. Layout alone never changes the camera.
         func layOut(_ map: MKMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             let visible = visible(in: map)
@@ -264,9 +260,6 @@ struct FloorMapView: UIViewRepresentable {
             }
             compass?.frame = CGRect(x: x, y: compassY, width: side, height: side)
             trackingHost?.frame = CGRect(x: x, y: trackingY, width: side, height: side)
-            let hidden = layoutRequest?.hidesControls ?? false
-            compass?.isHidden = hidden
-            trackingHost?.isHidden = hidden
         }
 
         // MARK: Framing
