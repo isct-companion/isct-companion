@@ -1,8 +1,11 @@
 use super::*;
-use crate::lpd::tests::{refusing, serve_one_job, student};
+#[cfg(windows)]
+use crate::lpd::tests::refusing;
+use crate::lpd::tests::{serve_one_job, student};
 use std::net::TcpListener;
 use std::thread;
 
+#[cfg(windows)]
 fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("adpt-printer-{}-{name}", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
@@ -12,6 +15,7 @@ fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
 // Each copy is its own upload of the file wrapped in the PJL header, billed
 // to the student, so the printer never interprets a copy count.
 #[test]
+#[cfg(windows)]
 fn print_uploads_each_copy_with_the_pjl_header() {
     let path = temp_file("report.pdf", b"%PDF-1.7 body");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -52,6 +56,7 @@ fn print_uploads_each_copy_with_the_pjl_header() {
 // Nothing is sent for a file the printer cannot render or a copy count
 // outside the window's range.
 #[test]
+#[cfg(windows)]
 fn print_refuses_other_files_and_copy_counts_before_connecting() {
     let (_held, server) = refusing();
     let text = temp_file("notes.txt", b"plain text");
@@ -88,6 +93,7 @@ fn print_refuses_other_files_and_copy_counts_before_connecting() {
 
 // The print window sends camelCase options with kebab-case values.
 #[test]
+#[cfg(windows)]
 fn options_read_from_the_print_window() {
     let options: PrintOptions =
         serde_json::from_str(r#"{"copies":3,"duplex":"short-edge","color":"mono"}"#).unwrap();
@@ -109,6 +115,7 @@ fn options_read_from_the_print_window() {
 // A copy the printer refuses ends the print, and the error counts the
 // copies it had already accepted, so a retry knows what is on paper.
 #[test]
+#[cfg(windows)]
 fn a_refused_copy_reports_the_copies_already_accepted() {
     let path = temp_file("three.pdf", b"%PDF-1.7 body");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

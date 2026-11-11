@@ -300,7 +300,6 @@ pub fn first_job_number() -> u16 {
     (micros.wrapping_add(std::process::id()) % 1000) as u16
 }
 
-// The tests bind the reserved ports the Windows client sends from.
-#[cfg(all(test, windows))]
+#[cfg(test)]
 #[path = "tests/lpd.rs"]
 pub(crate) mod tests;

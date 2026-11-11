@@ -6,6 +6,7 @@ use serde::Deserialize;
 use std::fmt;
 use std::io::{self, Read as _};
 use std::net::SocketAddr;
+#[cfg(windows)]
 use std::path::Path;
 
 /// What the print window offers. Each copy is a separate upload of the
@@ -57,6 +58,7 @@ impl std::error::Error for PrintError {}
 /// read once, before anything is sent, so every copy is the same document
 /// whatever happens to the file meanwhile, and the only failure after the
 /// first upload is the printer's, with the copies it already accepted.
+#[cfg(windows)]
 pub fn print(
     server: SocketAddr,
     student: &StudentId,
@@ -75,7 +77,8 @@ pub fn print(
 }
 
 /// Sends `copies` uploads of a document already in memory, such as the PDF
-/// the system rendered for its print queue or print service. Same contract as [`print`].
+/// the system rendered for its print queue.
+#[cfg(windows)]
 pub fn print_bytes(
     server: SocketAddr,
     student: &StudentId,
@@ -132,7 +135,6 @@ pub fn print_bytes_progress(
     Ok(options.copies)
 }
 
-// The tests bind the reserved ports the Windows client sends from.
-#[cfg(all(test, windows))]
+#[cfg(test)]
 #[path = "tests/document.rs"]
 mod tests;

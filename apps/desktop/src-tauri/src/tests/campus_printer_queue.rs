@@ -8,7 +8,7 @@ fn endpoints_stay_out_of_the_dynamic_port_range() {
     let ports: Vec<u16> = candidate_ports(token).collect();
     assert_eq!(ports.len(), usize::from(PORT_ATTEMPTS));
     assert!(ports.iter().all(|port| STABLE_PORTS.contains(port)));
-    assert!(STABLE_PORTS.end <= 49_152);
+    const { assert!(STABLE_PORTS.end <= 49_152) };
     let stable = Endpoint {
         port: ports[0],
         token,
