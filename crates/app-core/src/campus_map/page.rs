@@ -163,17 +163,15 @@ impl Page {
         self.frame_target(&target);
     }
 
-    /// Selects a building and frames it, unless its floor is already shown;
-    /// on landing its floor shows by the arrival rule.
-    fn pick_building(&mut self, building: usize, frame: bool) {
+    /// Every explicit building pick frames its bounds once, including a tap
+    /// on the building already in focus. Its floor changes only on landing.
+    fn pick_building(&mut self, building: usize) {
         self.selection = Selection::Building(building);
-        if frame || self.floor.is_none_or(|(shown, _)| shown != building) {
-            let arrival = self
-                .map
-                .arrival_level(self.floor, building)
-                .map(|level| (building, level));
-            self.frame(self.map.building_bounds(building), arrival);
-        }
+        let arrival = self
+            .map
+            .arrival_level(self.floor, building)
+            .map(|level| (building, level));
+        self.frame(self.map.building_bounds(building), arrival);
     }
 
     /// One way in for every pick: a search result, a mark, a building.
@@ -182,7 +180,7 @@ impl Page {
         match place {
             CampusMapPlace::Building { id } => {
                 if let Some(building) = map.buildings.get(id).copied() {
-                    self.pick_building(building, true);
+                    self.pick_building(building);
                 }
             }
             CampusMapPlace::Room { id } => {
@@ -277,11 +275,8 @@ impl Page {
         }
         if let Some((building, level)) = self.floor {
             if let Some(unit) = self.map.unit_at(building, level, at) {
-                self.selection = Selection::Unit {
-                    unit,
-                    building,
-                    level,
-                };
+                let id = self.map.export.units[unit].id.clone();
+                self.select(&CampusMapPlace::Unit { id });
                 return;
             }
         }
@@ -290,7 +285,8 @@ impl Page {
             .as_ref()
             .map_or(0.0, |view| TAP_SLOP_POINTS * view.metres_per_point);
         if let Some(building) = self.map.building_tapped([at.longitude, at.latitude], slop) {
-            self.pick_building(building, false);
+            let id = self.map.export.buildings[building].id.clone();
+            self.select(&CampusMapPlace::Building { id });
         }
     }
 

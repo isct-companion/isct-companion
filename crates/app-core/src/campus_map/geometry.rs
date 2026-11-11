@@ -147,6 +147,9 @@ pub(super) struct Viewport {
     /// Metres along the top edge and down the left edge.
     width_m: f64,
     height_m: f64,
+    /// Unit vectors in the tangent plane at the viewport centre.
+    across: (f64, f64),
+    down: (f64, f64),
     /// Metres one screen point spans.
     pub(super) metres_per_point: f64,
 }
@@ -160,8 +163,15 @@ impl Viewport {
         ];
         let [top_left, top_right, _, bottom_left] = corners;
         let length = |(x, y): (f64, f64)| (x * x + y * y).sqrt();
-        let across = metres(top_left, top_right);
-        let down = metres(top_left, bottom_left);
+        // Use one tangent plane for scale and extent. Using a corner's
+        // latitude makes the reported scale depend on the map's rotation.
+        let start = metres(center, top_left);
+        let vector = |to| {
+            let end = metres(center, to);
+            (end.0 - start.0, end.1 - start.1)
+        };
+        let across = vector(top_right);
+        let down = vector(bottom_left);
         let width_m = length(across);
         let height_m = length(down);
         let metres_per_point = width_m / width_points;
@@ -175,6 +185,8 @@ impl Viewport {
             center,
             width_m,
             height_m,
+            across: (across.0 / width_m, across.1 / width_m),
+            down: (down.0 / height_m, down.1 / height_m),
             metres_per_point,
         })
     }
@@ -183,14 +195,7 @@ impl Viewport {
     /// its share of the width and of the height, both measured along the
     /// viewport's own sides.
     pub(super) fn share(&self, polygons: &[Rings]) -> f64 {
-        let origin = self.ring[0];
-        let unit = |to: Position| {
-            let (x, y) = metres(origin, to);
-            let length = (x * x + y * y).sqrt();
-            (x / length, y / length)
-        };
-        let across = unit(self.ring[1]);
-        let down = unit(self.ring[3]);
+        let (across, down) = (self.across, self.down);
         let mut span = [
             f64::INFINITY,
             f64::NEG_INFINITY,
@@ -198,7 +203,7 @@ impl Viewport {
             f64::NEG_INFINITY,
         ];
         for point in polygons.iter().flatten().flatten() {
-            let (x, y) = metres(origin, *point);
+            let (x, y) = metres(self.center, *point);
             let along = x * across.0 + y * across.1;
             let below = x * down.0 + y * down.1;
             span[0] = span[0].min(along);

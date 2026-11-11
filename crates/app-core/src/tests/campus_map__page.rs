@@ -167,6 +167,45 @@ fn old_camera_reports_and_floor_changes_never_replace_the_selection() {
     land(&mut page);
     assert_eq!(page.floor, room_floor);
 
+    // A footprint tap on the already-focused building must frame too.
+    // Find an unlabelled part of the real footprint rather than inventing
+    // a place or accidentally exercising the named-unit selection path.
+    let [west, south, east, north] = map.building_bounds(w9);
+    let (_, level) = room_floor.expect("the room's floor");
+    let at = (1..100)
+        .flat_map(|x| (1..100).map(move |y| (x, y)))
+        .map(|(x, y)| CampusMapPoint {
+            longitude: west + (east - west) * f64::from(x) / 100.0,
+            latitude: south + (north - south) * f64::from(y) / 100.0,
+        })
+        .find(|at| {
+            map.building_containing([at.longitude, at.latitude], false) == Some(w9)
+                && map.unit_at(w9, level, *at).is_none()
+        })
+        .expect("an unlabelled part of W9's footprint");
+    let before = key(&page);
+    page.apply(CampusMapIntent::Tap {
+        point: at,
+        level_id: Some(map.export.buildings[w9].levels[level].id.clone()),
+    });
+    assert_eq!(page.selection, Selection::Building(w9));
+    assert_eq!(key(&page), before + 1);
+    assert_eq!(page.arrival, Some(room_floor));
+    let tapped_framing = page.framing.clone().expect("tap framing");
+    // Search and footprint taps issue the same command for the same place.
+    page.apply(CampusMapIntent::Select {
+        place: CampusMapPlace::Building {
+            id: W9.to_owned(),
+        },
+    });
+    assert_eq!(
+        page.framing.as_ref().expect("search framing").bounds,
+        tapped_framing.bounds
+    );
+    assert_eq!(page.floor, room_floor);
+    land(&mut page);
+    assert_eq!(page.floor, room_floor);
+
     // Tapping the sports center from afar: a report the shell made before
     // it applied that framing does not pull the floor back to W9's.
     let before = key(&page);
