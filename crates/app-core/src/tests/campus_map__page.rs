@@ -3,7 +3,12 @@
 //! downloaded `campus-map.json.gz`, the pinned one the `campus-map` workflow
 //! fetches, so these run only with `--ignored`.
 use super::*;
-use crate::campus_map::{export, geometry::Rect, CampusMapBounds};
+use crate::campus_map::{
+    export,
+    geometry::Rect,
+    map::{FOCUS_ENTER_SHARE, FOCUS_EXIT_SHARE},
+    CampusMapBounds,
+};
 
 /// 大岡山西9号館.
 const W9: &str = "a10026fc-4e59-55a7-9d89-0193f1749620";
@@ -64,7 +69,7 @@ fn rect(bounds: CampusMapBounds) -> Rect {
 
 #[test]
 #[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
-fn a_building_comes_into_focus_at_half_the_view_and_leaves_below_a_third() {
+fn small_zooms_near_the_threshold_never_flicker_the_floor() {
     let map = map();
     let w9 = building(&map, W9);
     let center = map.export.buildings[w9].center;
@@ -82,11 +87,16 @@ fn a_building_comes_into_focus_at_half_the_view_and_leaves_below_a_third() {
     ]);
     assert_eq!(map.focus(&whole, None), None);
 
-    assert_eq!(map.focus(&view_at(&map, w9, center, 0.6), None), ground);
+    // The shares sit around the tuned thresholds, so retuning them keeps
+    // this passing while the gap between entering and leaving stays.
+    let (enter, exit) = (FOCUS_ENTER_SHARE, FOCUS_EXIT_SHARE);
+    let at = |share: f64| view_at(&map, w9, center, share);
+    assert_eq!(map.focus(&at(enter * 1.1), None), ground);
     // Between the two thresholds a small zoom changes nothing either way.
-    assert_eq!(map.focus(&view_at(&map, w9, center, 0.4), None), None);
-    assert_eq!(map.focus(&view_at(&map, w9, center, 0.4), ground), ground);
-    assert_eq!(map.focus(&view_at(&map, w9, center, 0.25), ground), None);
+    let between = (enter + exit) / 2.0;
+    assert_eq!(map.focus(&at(between), None), None);
+    assert_eq!(map.focus(&at(between), ground), ground);
+    assert_eq!(map.focus(&at(exit * 0.9), ground), None);
 }
 
 #[test]
