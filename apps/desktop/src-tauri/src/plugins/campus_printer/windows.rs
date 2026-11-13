@@ -11,7 +11,9 @@
 //! mode blocks third-party ones anyway.
 use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, CommandError};
-use app_core::campus_printer::{CampusPrintOutcome, PrintOptions};
+use app_core::campus_printer::{
+    CampusPrintOutcome, CampusPrintReport, PrintOptions, Settings, CAPABILITIES,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -206,6 +208,10 @@ fn register(label: &str) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 pub struct CampusPrintRequest {
     file_name: String,
+    /// What the printer offers: the copies range and the preselected sides
+    /// and color.
+    max_copies: u32,
+    defaults: Settings,
     /// This device's UI language, appearance and theme, which the main
     /// window otherwise reads from the workspace.
     locale: Option<Value>,
@@ -227,6 +233,8 @@ pub(super) fn print_request(
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        max_copies: CAPABILITIES.max_copies,
+        defaults: CAPABILITIES.defaults,
         locale: preference("/locale"),
         appearance: preference("/appearance"),
         theme: preference("/theme"),
@@ -234,14 +242,40 @@ pub(super) fn print_request(
 }
 
 /// Prints the window's file with `options`, billed to the verified student
-/// ID.
+/// ID. The file is read once, up to one byte past Core's limit, so every
+/// copy is the same document whatever happens to the file meanwhile.
 #[tauri::command]
 pub(super) async fn print(
     webview: tauri::Webview,
     app: AppHandle,
     options: PrintOptions,
-) -> Result<CampusPrintOutcome, CommandError> {
+) -> Result<CampusPrintReport, CommandError> {
+    use std::io::Read as _;
     require_print_window(&webview)?;
     let file = requested_file(&app, webview.label())?;
-    Ok(core_ports::core(&app).campus_print(file, options).await)
+    let title = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let read = tauri::async_runtime::spawn_blocking(move || {
+        let mut document = Vec::new();
+        std::fs::File::open(&file)?
+            .take(CAPABILITIES.max_document_bytes as u64 + 1)
+            .read_to_end(&mut document)
+            .map(|_| document)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let outcome = match read {
+        Ok(document) => {
+            core_ports::core(&app)
+                .campus_print(document.into(), title, options)
+                .await
+        }
+        Err(error) => {
+            log::warn!("[campus-printer] the print window's file could not be read: {error}");
+            CampusPrintOutcome::Unreadable
+        }
+    };
+    Ok(outcome.report())
 }

@@ -876,7 +876,7 @@
   "campusPrint.window.sending": "Sending…",
   "campusPrint.window.sent": "Sent to the printer ({{copies}} copies)",
   "campusPrint.window.notAPdf": "This file is not a PDF or PostScript file.",
-  "campusPrint.window.copiesRange": "Enter 1 to 99 copies.",
+  "campusPrint.window.copiesRange": "Enter 1 to {{max}} copies.",
   "campusPrint.window.couldNotReadTheFile": "Couldn't read the file.",
   "campusPrint.window.unreachableAfter": "The printer accepted {{printed}} copies, then became unreachable; the rest were not sent. Connect to the campus network or the Science Tokyo VPN.",
   "campusPrint.window.notPrinted": "The printer did not accept the job; nothing was printed.",

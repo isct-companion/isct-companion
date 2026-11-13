@@ -10,29 +10,32 @@ import android.printservice.PrintJob
 import android.printservice.PrintService
 import android.printservice.PrinterDiscoverySession
 import android.util.Log
-import app.isctcompanion.core.CampusPrintAdmission
+import app.isctcompanion.core.CampusPrintColor
 import app.isctcompanion.core.CampusPrintJob
-import app.isctcompanion.core.CampusPrintResult
+import app.isctcompanion.core.CampusPrintMedia
+import app.isctcompanion.core.CampusPrintMessage
 import app.isctcompanion.core.CampusPrintSides
-import app.isctcompanion.core.SdkException
-import app.isctcompanion.core.campusPrintDocumentLimit
+import app.isctcompanion.core.campusPrinterCapabilities
 import app.isctcompanion.design.t
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** Android's system print service delegates task ownership and retry decisions to Core. */
+/** The campus printer in the system's print dialogs. Jobs run one after
+ * another: read the PDF the system rendered, hand it to Core, which bills
+ * the verified student ID, sends it and words how it ended. A job cancelled
+ * before its send starts is just cancelled; once sending, it finishes. */
 class CampusPrintService : PrintService() {
     private val scope = MainScope()
+    private val turn = Mutex()
     private val jobs = mutableMapOf<PrintJobId, Job>()
-    private val readers = mutableMapOf<PrintJobId, ParcelFileDescriptor>()
+    private val sending = mutableSetOf<PrintJobId>()
     private val cancelled = mutableSetOf<PrintJobId>()
     private val model get() = (application as IsctApplication).model
 
@@ -46,10 +49,63 @@ class CampusPrintService : PrintService() {
     override fun onPrintJobQueued(printJob: PrintJob) {
         val id = printJob.id ?: return
         if (jobs.containsKey(id)) return
+        jobs[id] = scope.launch {
+            try {
+                turn.withLock {
+                    if (!printJob.isStarted && !printJob.start()) return@withLock
+                    val data = printJob.document.data ?: throw IllegalStateException("Print document unavailable")
+                    val document = withContext(Dispatchers.IO) { read(data) }
+                    sending.add(id)
+                    val report = model.campusPrint(document, job(printJob))
+                    when {
+                        report == null -> printJob.fail(t("campusPrint.notice.queueFailed"))
+                        report.printed -> printJob.complete()
+                        else -> printJob.fail(text(report.message))
+                    }
+                }
+            } catch (error: CancellationException) {
+                if (id in cancelled) printJob.cancel() else throw error
+            } catch (error: Exception) {
+                Log.w("isct", "campus print", error)
+                printJob.fail(t("campusPrint.notice.queueFailed"))
+            } finally {
+                jobs.remove(id)
+                sending.remove(id)
+                cancelled.remove(id)
+            }
+        }
+    }
+
+    override fun onRequestCancelPrintJob(printJob: PrintJob) {
+        val id = printJob.id ?: return
+        if (id in sending) return
+        val job = jobs[id]
+        if (job == null) {
+            printJob.cancel()
+            return
+        }
+        cancelled.add(id)
+        job.cancel()
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    /** The document, up to one byte past Core's limit: Core refuses a
+     * larger one, and the rest is never loaded. */
+    private fun read(data: ParcelFileDescriptor): ByteArray =
+        ParcelFileDescriptor.AutoCloseInputStream(data).use { input ->
+            input.readNBytes(CAPABILITIES.maxDocumentBytes.toInt() + 1)
+        }
+
+    /** What the dialog chose; Core gives a setting it left out the printer's default. */
+    private fun job(printJob: PrintJob): CampusPrintJob {
         val info = printJob.info
-        val job = CampusPrintJob(
-            id = id.toString(), title = info.label,
-            copies = info.copies.coerceAtLeast(1).toUInt(),
+        return CampusPrintJob(
+            title = info.label,
+            copies = info.copies.toUInt(),
             sides = when (info.attributes.duplexMode) {
                 PrintAttributes.DUPLEX_MODE_NONE -> CampusPrintSides.ONE_SIDED
                 PrintAttributes.DUPLEX_MODE_LONG_EDGE -> CampusPrintSides.LONG_EDGE
@@ -57,130 +113,52 @@ class CampusPrintService : PrintService() {
                 else -> null
             },
             color = when (info.attributes.colorMode) {
-                PrintAttributes.COLOR_MODE_COLOR -> true
-                PrintAttributes.COLOR_MODE_MONOCHROME -> false
+                PrintAttributes.COLOR_MODE_COLOR -> CampusPrintColor.COLOR
+                PrintAttributes.COLOR_MODE_MONOCHROME -> CampusPrintColor.MONO
                 else -> null
             },
         )
-        jobs[id] = scope.launch {
-            var lease: ULong? = null
-            try {
-                while (true) {
-                    val admission = withContext(NonCancellable) {
-                        model.campusPrintReserve(job).also { if (it is CampusPrintAdmission.Ready) lease = it.lease }
-                    }
-                    currentCoroutineContext().ensureActive()
-                    when (admission) {
-                        is CampusPrintAdmission.Busy -> {
-                            if (printJob.isQueued && !printJob.start()) return@launch
-                            printJob.block(t("campusPrint.notice.queueFailed"))
-                            model.campusPrintWaitAvailable()
-                        }
-                        is CampusPrintAdmission.Unknown -> {
-                            if (printJob.isQueued && !printJob.start()) return@launch
-                            printJob.fail(reason(CampusPrintResult.Uncertain(admission.printed)))
-                            return@launch
-                        }
-                        is CampusPrintAdmission.Ready -> break
-                    }
-                }
-                if (!printJob.isStarted && !printJob.start()) return@launch
-                val data = printJob.document.data ?: throw IllegalStateException("Print document unavailable")
-                readers[id] = data
-                val document = withContext(Dispatchers.IO) { read(data, LIMIT) }
-                readers.remove(id)
-                val result = if (document == null) CampusPrintResult.TooLarge else model.campusPrint(document, job, checkNotNull(lease))
-                if (result is CampusPrintResult.Printed) {
-                    if (printJob.complete()) model.campusPrintForget(job.id)
-                } else {
-                    printJob.fail(reason(result))
-                }
-            } catch (error: CancellationException) {
-                if (id in cancelled) printJob.cancel()
-                else throw error
-            } catch (error: SdkException.Cancelled) {
-                printJob.cancel()
-            } catch (error: Exception) {
-                Log.w("isct", "campus print", error)
-                printJob.fail(t("campusPrint.notice.queueFailed"))
-            } finally {
-                runCatching { readers.remove(id)?.close() }
-                try {
-                    lease?.let { held -> withContext(NonCancellable) { runCatching { model.campusPrintRelease(job.id, held) } } }
-                } finally {
-                    jobs.remove(id)
-                    cancelled.remove(id)
-                }
-            }
-        }
     }
 
-    override fun onRequestCancelPrintJob(printJob: PrintJob) {
-        val id = printJob.id ?: return
-        scope.launch {
-            val beforeSend = runCatching { model.campusPrintCancel(id.toString()) }.getOrDefault(false)
-            if (beforeSend) {
-                if (jobs.containsKey(id)) cancelled.add(id)
-                runCatching { readers.remove(id)?.close() }
-                jobs[id]?.cancel()
-                printJob.cancel()
-            }
-        }
-    }
+    /** Core's words for how a job ended, in the UI language. */
+    private fun text(message: CampusPrintMessage): String =
+        t(message.key, *message.args.map { (name, value) -> Pair<String, Any>(name, value) }.toTypedArray())
 
-    override fun onDestroy() {
-        readers.values.forEach { runCatching { it.close() } }
-        readers.clear()
-        scope.cancel()
-        super.onDestroy()
-    }
-
-    private fun read(data: ParcelFileDescriptor, limit: Int): ByteArray? =
-        ParcelFileDescriptor.AutoCloseInputStream(data).use { input ->
-            input.readNBytes(limit + 1).takeIf { it.size <= limit }
-        }
-
-    /** Why a job did not print, in the words the desktop's print window
-     * uses; `null` is a job that never reached Core. */
-    private fun reason(result: CampusPrintResult?): String = when (result) {
-        null, is CampusPrintResult.Printed -> t("campusPrint.notice.queueFailed")
-        is CampusPrintResult.NotConnected -> t("tools.campusPrinter.saveTheTokyoTechAccount")
-        is CampusPrintResult.NotStudentId -> t("tools.campusPrinter.accountIsNotAStudentId")
-        is CampusPrintResult.NeedsAttention -> t("tools.campusPrinter.accountNeedsAttention")
-        is CampusPrintResult.Unverified -> t("tools.campusPrinter.accountNotVerified")
-        is CampusPrintResult.NotPrintable -> t("campusPrint.window.notAPdf")
-        is CampusPrintResult.TooLarge -> t("campusPrint.notice.tooLarge", "megabytes" to LIMIT / (1024 * 1024))
-        is CampusPrintResult.Unreachable ->
-            if (result.printed == 0u) t("tools.campusPrinter.cannotReachThePrinter")
-            else t("campusPrint.window.unreachableAfter", "printed" to result.printed)
-        is CampusPrintResult.NotPrinted ->
-            if (result.printed == 0u) t("campusPrint.window.notPrinted")
-            else t("campusPrint.window.notPrintedAfter", "printed" to result.printed)
-        is CampusPrintResult.Uncertain ->
-            if (result.printed == 0u) t("campusPrint.window.uncertain")
-            else t("campusPrint.window.uncertainAfter", "printed" to result.printed)
-    }
-
-    /** The one printer, with what the Windows system printer offers: A4 and
-     * Letter, black and white by default, two-sided on the long edge by
-     * default. It is always listed as idle: whether it can be reached is
-     * known only by sending, and the job's failure says so. */
+    /** The one printer, with what Core says it offers. It is always listed
+     * as idle: whether it can be reached is known only by sending, and the
+     * job's failure says so. */
     private fun printer(): PrinterInfo {
         val id = generatePrinterId(PRINTER)
-        val capabilities = PrinterCapabilitiesInfo.Builder(id)
-            .addMediaSize(PrintAttributes.MediaSize.ISO_A4, true)
-            .addMediaSize(PrintAttributes.MediaSize.NA_LETTER, false)
+        val builder = PrinterCapabilitiesInfo.Builder(id)
+        CAPABILITIES.media.forEachIndexed { index, media ->
+            builder.addMediaSize(
+                when (media) {
+                    CampusPrintMedia.A4 -> PrintAttributes.MediaSize.ISO_A4
+                    CampusPrintMedia.LETTER -> PrintAttributes.MediaSize.NA_LETTER
+                },
+                index == 0,
+            )
+        }
+        val margin = CAPABILITIES.marginMils
+        val capabilities = builder
             .addResolution(PrintAttributes.Resolution("600", "600 dpi", 600, 600), true)
             .setColorModes(
                 PrintAttributes.COLOR_MODE_MONOCHROME or PrintAttributes.COLOR_MODE_COLOR,
-                PrintAttributes.COLOR_MODE_MONOCHROME,
+                when (CAPABILITIES.defaultColor) {
+                    CampusPrintColor.MONO -> PrintAttributes.COLOR_MODE_MONOCHROME
+                    CampusPrintColor.COLOR -> PrintAttributes.COLOR_MODE_COLOR
+                },
             )
             .setDuplexModes(
                 PrintAttributes.DUPLEX_MODE_NONE or PrintAttributes.DUPLEX_MODE_LONG_EDGE or
                     PrintAttributes.DUPLEX_MODE_SHORT_EDGE,
-                PrintAttributes.DUPLEX_MODE_LONG_EDGE,
+                when (CAPABILITIES.defaultSides) {
+                    CampusPrintSides.ONE_SIDED -> PrintAttributes.DUPLEX_MODE_NONE
+                    CampusPrintSides.LONG_EDGE -> PrintAttributes.DUPLEX_MODE_LONG_EDGE
+                    CampusPrintSides.SHORT_EDGE -> PrintAttributes.DUPLEX_MODE_SHORT_EDGE
+                },
             )
-            .setMinMargins(PrintAttributes.Margins(MARGIN, MARGIN, MARGIN, MARGIN))
+            .setMinMargins(PrintAttributes.Margins(margin, margin, margin, margin))
             .build()
         return PrinterInfo.Builder(id, t("tools.campusPrinter.campusPrinter"), PrinterInfo.STATUS_IDLE)
             .setDescription(t("tools.campusPrinter.printsToTheKyoceraPrinter"))
@@ -202,10 +180,6 @@ class CampusPrintService : PrintService() {
     private companion object {
         /** The printer's local id; the system remembers the last printer by it. */
         const val PRINTER = "kyocera"
-        /** The most bytes Core takes for one document (64 MiB, an `Int`). */
-        val LIMIT = campusPrintDocumentLimit().toInt()
-        /** 1/6 inch in thousandths of an inch, the margin the Windows
-         * system printer reports (4.23 mm). */
-        const val MARGIN = 167
+        val CAPABILITIES = campusPrinterCapabilities()
     }
 }

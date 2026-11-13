@@ -1916,14 +1916,20 @@ checks:
           driver. The uncollated request must still print, and both must be
           billed to the student and wait for release.
       - action: |
-          Quit IsctCompanion, print a document, and restart the app. Inspect
-          the Windows queue and recover the job through Windows if necessary.
-          Separately, force quit during an in-progress delivery, restart, and
-          compare the queue and billing page before taking any further action.
+          Print a large document (a 150-page PDF of scans, 30–60 MB) and watch
+          its row in the Windows print list until it leaves; then check the
+          release panel.
         reason: |
-          The native spooler must retain offline jobs, and an interruption
-          during delivery must not be reported as success or automatically
-          result in duplicate billing.
+          The receiver answers Print-Job only once Core's send has ended, so
+          Windows waits for that answer with the job shown as printing. Only
+          Windows' own IPP client shows whether it waits that long: if it
+          gave up, the row would turn to an error and Windows would send the
+          document again, leaving a second held copy at the printer.
+      - action: |
+          Quit IsctCompanion, print a document, and restart the app.
+        reason: |
+          The native spooler keeps a job the receiver could not take and
+          sends it once the app serves the queue again.
       - action: |
           Sign into a different non-administrator Windows account and try to
           print to the queue. Then return to the installing account and print.
@@ -1931,12 +1937,12 @@ checks:
           The queue must reject another user's job while allowing the owning
           user and Windows' IPP components to submit a real document.
       - action: |
-          Leave ScienceTokyo Wi-Fi, print once more, and inspect the Windows
-          queue and the app's notification. Do not manually retry a job whose
-          delivery outcome is uncertain until checking the billing page.
+          Leave ScienceTokyo Wi-Fi, print once more, and read the job's row
+          in the print list and the app's notification.
         reason: |
-          A failed or ambiguous submission must be visible without silently
-          resending a document that may already have reached the printer.
+          A send that fails ends the job as an error in Windows, and the
+          notification names the reason in the app's language; a job shown
+          as printed here would be lost without a word.
       - action: |
           Reboot the machine with WSL or Docker, start the app, and print.
         reason: |
@@ -1947,16 +1953,18 @@ checks:
       excluded port ranges, the system notifications, and the billing page.
     expected: |
       The owner can print and the other account cannot. Real IPP jobs are
-      billed to the owner's student account and await release. Failures and
-      uncertain outcomes are visible; offline jobs remain recoverable and an
-      interrupted delivery is not reported as successful or billed twice.
-      Printing works after a reboot with WSL or Docker.
+      billed to the owner's student account and await release. A large
+      document leaves the print list once, without an error, and is held at
+      the printer once. A job printed while the app was closed is sent when
+      it starts. Failures show as errors with a notification giving the
+      reason. Printing works after a reboot with WSL or Docker.
     why_manual: |
       Needs administrator approval, separate Windows accounts, the native
       spooler and IPP class driver, real print dialogs, the campus network,
       and the printer's billing page.
     covers:
       - apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs
+      - crates/app-core/src/campus_printer.rs
       - crates/app-core/src/campus_printer/ipp.rs
       - crates/app-core/src/campus_printer/ipp/attributes.rs
     verified: null
@@ -5435,21 +5443,14 @@ checks:
           ScienceTokyo Wi-Fi, and the system's own retry must send it once
           the network is back.
       - action: |
-          Submit a multi-copy job, interrupt the network after some copies have
-          been acknowledged, and separately repeat while the print service
-          process is reclaimed. Restore the network and use the system retry;
-          compare the release queue and billing page with the copies sent.
+          Print the PDF with five copies and, at once, the photo; cancel the
+          photo from the print notification while the PDF is still sending.
+          Then print the PDF again and cancel it while it is sending.
         reason: |
-          The system may redeliver a job after interruption. A retry must send
-          only copies known not to have been sent; an uncertain in-flight copy
-          must not cause an automatic resend of the whole job or double billing.
-      - action: |
-          Cancel a multi-copy job while it is sending; then retry an interrupted
-          job after switching to the other student account, and inspect both
-          accounts' billing and release queues.
-        reason: |
-          Cancellation must prevent the next copy from being sent. A saved job
-          bound to one student must not be sent under a different student ID.
+          Jobs run one after another, so the photo waits; cancelled before
+          its send starts, it must end cancelled with nothing at the printer.
+          A job already sending is not stopped part-way: it finishes, and
+          the release panel shows all five copies.
     observe: |
       The system print dialog and its printer list, the print notifications,
       the printer's release panel and the billing page.
@@ -5457,8 +5458,7 @@ checks:
       With a saved account, prints from a document app and from Photos are billed to the
       student and print with the chosen copies, sides and colour; without an
       account or off the campus Wi-Fi the job fails with the reason and can
-      be retried. Interrupted jobs never automatically resend uncertain copies,
-      cancellation stops later copies, and another account cannot resume a job.
+      be retried. A waiting job cancels cleanly; a sending one finishes.
     why_manual: |
       Needs the system print spooler and real apps' print dialogs on a
       device, the campus network and the printer's billing. The LPD and PJL
@@ -5466,7 +5466,7 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
       - crates/app-ffi/src/campus_print.rs
-      - crates/app-core/src/campus_printer/android.rs
+      - crates/app-core/src/campus_printer.rs
       - crates/adpt-printer/src/document.rs
       - crates/adpt-printer/src/lpd.rs
     verified: null

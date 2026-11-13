@@ -1,13 +1,9 @@
+//! The printer's IPP description, built from `CAPABILITIES`.
 use super::*;
+use crate::campus_printer::Media;
 use std::collections::BTreeMap;
 
-/// A4 and Letter, in hundredths of a millimetre, as `media-size` reports them.
-const MEDIA: [(&str, i32, i32); 2] = [
-    ("iso_a4_210x297mm", 21000, 29700),
-    ("na_letter_8.5x11in", 21590, 27940),
-];
-/// The Kyocera's unprintable edge, 4.23 mm on each side.
-const MARGIN: i32 = 423;
+const MARGIN: i32 = CAPABILITIES.margin;
 
 fn collection(members: Vec<(&str, IppValue)>) -> Result<IppValue, PrintQueueError> {
     let mut map = BTreeMap::new();
@@ -17,7 +13,8 @@ fn collection(members: Vec<(&str, IppValue)>) -> Result<IppValue, PrintQueueErro
     Ok(IppValue::Collection(map))
 }
 
-fn media_size(x: i32, y: i32) -> Result<IppValue, PrintQueueError> {
+fn media_size(media: Media) -> Result<IppValue, PrintQueueError> {
+    let (x, y) = media.size();
     collection(vec![
         ("x-dimension", IppValue::Integer(x)),
         ("y-dimension", IppValue::Integer(y)),
@@ -27,9 +24,9 @@ fn media_size(x: i32, y: i32) -> Result<IppValue, PrintQueueError> {
 /// One sheet as Windows' IPP class driver builds its paper list from it:
 /// without `media-col-database` it has no page size to render to, and a job
 /// fails in the spooler with nothing sent.
-fn media_col(x: i32, y: i32) -> Result<IppValue, PrintQueueError> {
+fn media_col(media: Media) -> Result<IppValue, PrintQueueError> {
     collection(vec![
-        ("media-size", media_size(x, y)?),
+        ("media-size", media_size(media)?),
         ("media-top-margin", IppValue::Integer(MARGIN)),
         ("media-bottom-margin", IppValue::Integer(MARGIN)),
         ("media-left-margin", IppValue::Integer(MARGIN)),
@@ -39,6 +36,15 @@ fn media_col(x: i32, y: i32) -> Result<IppValue, PrintQueueError> {
     ])
 }
 
+fn keywords<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<IppValue, PrintQueueError> {
+    Ok(IppValue::Array(
+        names
+            .into_iter()
+            .map(IppValue::new_keyword)
+            .collect::<Result<_, _>>()?,
+    ))
+}
+
 pub(super) fn printer(
     response: &mut IppRequestResponse,
     uri: &str,
@@ -46,6 +52,8 @@ pub(super) fn printer(
     uptime: i32,
 ) -> Result<(), PrintQueueError> {
     let keyword = IppValue::new_keyword;
+    let media = CAPABILITIES.media;
+    let defaults = CAPABILITIES.defaults;
     let mut values = vec![
         ("printer-uri-supported", IppValue::new_uri(uri)?),
         ("uri-authentication-supported", keyword("none")?),
@@ -119,28 +127,24 @@ pub(super) fn printer(
             IppValue::Array(vec![keyword("separate-documents-collated-copies")?]),
         ),
         ("copies-default", IppValue::Integer(1)),
-        ("copies-supported", IppValue::new_range_of_integer(1, 99)),
-        ("media-default", keyword("iso_a4_210x297mm")?),
         (
-            "media-supported",
-            IppValue::Array(vec![
-                keyword("iso_a4_210x297mm")?,
-                keyword("na_letter_8.5x11in")?,
-            ]),
+            "copies-supported",
+            IppValue::new_range_of_integer(1, CAPABILITIES.max_copies as i32),
         ),
-        ("sides-default", keyword("two-sided-long-edge")?),
+        ("media-default", keyword(media[0].keyword())?),
+        ("media-supported", keywords(media.map(Media::keyword))?),
         (
-            "sides-supported",
-            IppValue::Array(vec![
-                keyword("one-sided")?,
-                keyword("two-sided-long-edge")?,
-                keyword("two-sided-short-edge")?,
-            ]),
+            "sides-default",
+            keyword(super::keyword(&SIDES, defaults.sides))?,
         ),
-        ("print-color-mode-default", keyword("monochrome")?),
+        ("sides-supported", keywords(SIDES.map(|(_, name)| name))?),
+        (
+            "print-color-mode-default",
+            keyword(super::keyword(&COLORS, defaults.color))?,
+        ),
         (
             "print-color-mode-supported",
-            IppValue::Array(vec![keyword("monochrome")?, keyword("color")?]),
+            keywords(COLORS.map(|(_, name)| name))?,
         ),
         ("color-supported", IppValue::Boolean(true)),
         (
@@ -170,25 +174,23 @@ pub(super) fn printer(
         ),
         (
             "media-col-database",
-            IppValue::Array(
-                MEDIA
-                    .iter()
-                    .map(|(_, x, y)| media_col(*x, *y))
-                    .collect::<Result<_, _>>()?,
-            ),
+            IppValue::Array(media.into_iter().map(media_col).collect::<Result<_, _>>()?),
         ),
-        ("media-col-default", media_col(MEDIA[0].1, MEDIA[0].2)?),
+        ("media-col-default", media_col(media[0])?),
         (
             "media-col-ready",
-            IppValue::Array(vec![media_col(MEDIA[0].1, MEDIA[0].2)?]),
+            IppValue::Array(vec![media_col(media[0])?]),
         ),
-        ("media-ready", IppValue::Array(vec![keyword(MEDIA[0].0)?])),
+        (
+            "media-ready",
+            IppValue::Array(vec![keyword(media[0].keyword())?]),
+        ),
         (
             "media-size-supported",
             IppValue::Array(
-                MEDIA
-                    .iter()
-                    .map(|(_, x, y)| media_size(*x, *y))
+                media
+                    .into_iter()
+                    .map(media_size)
                     .collect::<Result<_, _>>()?,
             ),
         ),

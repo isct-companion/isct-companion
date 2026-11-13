@@ -11,9 +11,17 @@
 //!
 //! Shells do the platform part: on macOS they run the root
 //! installer Core hands them (`CupsInstall`) behind the system's admin prompt; on
-//! Windows Core sends the file itself (`Core::campus_print`), or the PDF
-//! Windows rendered for the system queue (`ipp`); on Android Core sends the
-//! PDF the system rendered for the app's print service via its Android service.
+//! Windows and Android every document reaches the printer through one call,
+//! `Core::campus_print`: the file the Windows print window read, the
+//! PDF Windows rendered for its system queue (`ipp`), and the PDF Android
+//! rendered for the app's print service. Core also owns what the printer
+//! offers (`CAPABILITIES`) and the words for how a print ended
+//! (`CampusPrintOutcome::message`).
+//!
+//! The printer holds every job until the student releases it at the device,
+//! and bills only then. A job delivered twice is one more held job that
+//! costs nothing unless released, so a failed or uncertain send is simply
+//! reported, and sending again is always the person's choice.
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
@@ -24,11 +32,11 @@ use crate::school_session::WebStop;
 use crate::Core;
 use adpt_printer::StudentId;
 use serde::Serialize;
+#[cfg(any(windows, target_os = "android"))]
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-#[cfg(target_os = "android")]
-pub mod android;
 #[cfg(windows)]
 pub mod ipp;
 
@@ -115,11 +123,10 @@ pub struct CupsInstall {
     pub args: [String; 2],
 }
 
-/// How a print ended: from the Windows print window or system queue, or
+/// How a print ended, from the Windows print window or system queue, or
 /// from Android's print service.
 #[cfg(any(windows, target_os = "android"))]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CampusPrintOutcome {
     /// LPD acknowledged every copy; physical printing is not reported.
     Printed { copies: u32 },
@@ -127,9 +134,11 @@ pub enum CampusPrintOutcome {
     Account { account: PrinterAccount },
     /// Not PDF or PostScript: nothing was sent.
     NotPrintable,
-    /// Copies outside 1..=`adpt_printer::document::MAX_COPIES`.
+    /// Copies outside 1..=`CAPABILITIES.max_copies`: nothing was sent.
     InvalidCopies,
-    /// The file could not be read: nothing was sent.
+    /// Larger than `CAPABILITIES.max_document_bytes`: nothing was sent.
+    TooLarge,
+    /// The shell could not read the file: nothing was sent.
     Unreadable,
     /// No connection for the next copy: it and the later ones were not
     /// sent. `printed` copies before it were accepted.
@@ -139,13 +148,171 @@ pub enum CampusPrintOutcome {
     /// `printed` copies before it were accepted.
     NotPrinted { printed: u32 },
     /// The next copy's data all went out and the printer never answered:
-    /// it may have printed, so the person checks the printer before sending
-    /// it again. `printed` copies before it were accepted.
+    /// it may be held at the printer. `printed` copies before it were
+    /// accepted.
     Uncertain { printed: u32 },
 }
 
+/// Words for the person: a key in the shared catalogs
+/// (`resources/locales`) and the values its `{{name}}` placeholders take.
+/// Every shell shows a print's end through this one mapping.
 #[cfg(any(windows, target_os = "android"))]
-pub use adpt_printer::{document::PrintOptions, pjl};
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CampusPrintMessage {
+    pub key: &'static str,
+    pub args: BTreeMap<&'static str, u32>,
+}
+
+#[cfg(any(windows, target_os = "android"))]
+impl CampusPrintMessage {
+    fn new(key: &'static str) -> Self {
+        Self {
+            key,
+            args: BTreeMap::new(),
+        }
+    }
+    fn with(key: &'static str, name: &'static str, value: u32) -> Self {
+        Self {
+            key,
+            args: BTreeMap::from([(name, value)]),
+        }
+    }
+    /// One key when nothing was accepted, the `after` key naming the
+    /// accepted copies otherwise.
+    fn after(none: &'static str, after: &'static str, printed: u32) -> Self {
+        if printed == 0 {
+            Self::new(none)
+        } else {
+            Self::with(after, "printed", printed)
+        }
+    }
+}
+
+/// How a print ended as the print window shows it.
+#[cfg(any(windows, target_os = "android"))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CampusPrintReport {
+    pub printed: bool,
+    pub message: CampusPrintMessage,
+}
+
+#[cfg(any(windows, target_os = "android"))]
+impl CampusPrintOutcome {
+    pub fn printed(&self) -> bool {
+        matches!(self, Self::Printed { .. })
+    }
+
+    pub fn message(&self) -> CampusPrintMessage {
+        type M = CampusPrintMessage;
+        match self {
+            Self::Printed { copies } => M::with("campusPrint.window.sent", "copies", *copies),
+            Self::Account { account } => M::new(match account {
+                PrinterAccount::NotConnected => "tools.campusPrinter.saveTheTokyoTechAccount",
+                PrinterAccount::NotStudentId => "tools.campusPrinter.accountIsNotAStudentId",
+                PrinterAccount::NeedsAttention => "tools.campusPrinter.accountNeedsAttention",
+                PrinterAccount::Unverified | PrinterAccount::Ready { .. } => {
+                    "tools.campusPrinter.accountNotVerified"
+                }
+            }),
+            Self::NotPrintable => M::new("campusPrint.window.notAPdf"),
+            Self::InvalidCopies => M::with(
+                "campusPrint.window.copiesRange",
+                "max",
+                CAPABILITIES.max_copies,
+            ),
+            Self::TooLarge => M::with(
+                "campusPrint.notice.tooLarge",
+                "megabytes",
+                (CAPABILITIES.max_document_bytes / (1024 * 1024)) as u32,
+            ),
+            Self::Unreadable => M::new("campusPrint.window.couldNotReadTheFile"),
+            Self::Unreachable { printed } => M::after(
+                "tools.campusPrinter.cannotReachThePrinter",
+                "campusPrint.window.unreachableAfter",
+                *printed,
+            ),
+            Self::NotPrinted { printed } => M::after(
+                "campusPrint.window.notPrinted",
+                "campusPrint.window.notPrintedAfter",
+                *printed,
+            ),
+            Self::Uncertain { printed } => M::after(
+                "campusPrint.window.uncertain",
+                "campusPrint.window.uncertainAfter",
+                *printed,
+            ),
+        }
+    }
+
+    pub fn report(&self) -> CampusPrintReport {
+        CampusPrintReport {
+            printed: self.printed(),
+            message: self.message(),
+        }
+    }
+}
+
+#[cfg(any(windows, target_os = "android"))]
+pub use adpt_printer::{
+    document::PrintOptions,
+    pjl::{ColorMode, Settings, Sides},
+};
+
+/// A sheet the printer takes.
+#[cfg(any(windows, target_os = "android"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Media {
+    A4,
+    Letter,
+}
+
+#[cfg(any(windows, target_os = "android"))]
+impl Media {
+    /// Its IPP `media` keyword (PWG 5101.1).
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Self::A4 => "iso_a4_210x297mm",
+            Self::Letter => "na_letter_8.5x11in",
+        }
+    }
+    /// Width and height in hundredths of a millimetre.
+    pub fn size(self) -> (i32, i32) {
+        match self {
+            Self::A4 => (21000, 29700),
+            Self::Letter => (21590, 27940),
+        }
+    }
+}
+
+/// What the campus printer offers, the one set the Windows queue's IPP
+/// attributes, Android's printer capabilities and the Windows print window
+/// are built from.
+#[cfg(any(windows, target_os = "android"))]
+pub struct Capabilities {
+    /// The paper it takes; the first is the default.
+    pub media: [Media; 2],
+    /// What a job gets when the dialog does not say.
+    pub defaults: Settings,
+    pub max_copies: u32,
+    /// The largest document one print takes. It is held in memory until its
+    /// last copy is sent, and shells stop reading at this size.
+    pub max_document_bytes: usize,
+    /// The unprintable edge on every side, in hundredths of a millimetre
+    /// (4.23 mm, 1/6 inch).
+    pub margin: i32,
+}
+
+#[cfg(any(windows, target_os = "android"))]
+pub const CAPABILITIES: Capabilities = Capabilities {
+    media: [Media::A4, Media::Letter],
+    defaults: Settings {
+        sides: Sides::LongEdge,
+        color: ColorMode::Mono,
+    },
+    max_copies: adpt_printer::document::MAX_COPIES,
+    max_document_bytes: 64 * 1024 * 1024,
+    margin: 423,
+};
 
 impl Core {
     /// What the printer setting shows when it opens or the person clicks
@@ -181,34 +348,46 @@ impl Core {
         })
     }
 
-    /// Sends the PDF or PostScript file at `path` to the printer, billed to
-    /// the verified student ID, one upload per copy.
-    #[cfg(windows)]
+    /// Sends `document` to the printer, billed to the verified student ID,
+    /// one upload per copy: the one way a document reaches the printer on
+    /// Windows and Android. Sends run one at a time, in the order they
+    /// arrive, whichever window, queue or service they came from.
+    #[cfg(any(windows, target_os = "android"))]
     pub async fn campus_print(
         &self,
-        path: std::path::PathBuf,
+        document: bytes::Bytes,
+        title: String,
         options: PrintOptions,
     ) -> CampusPrintOutcome {
-        self.print_document(path, options).await
+        let outcome = self.send_campus_print(document, title, options).await;
+        log::info!("[campus-printer] print {outcome:?}");
+        outcome
     }
 
-    #[cfg(windows)]
-    async fn print_document(
+    #[cfg(any(windows, target_os = "android"))]
+    async fn send_campus_print(
         &self,
-        path: std::path::PathBuf,
+        document: bytes::Bytes,
+        title: String,
         options: PrintOptions,
     ) -> CampusPrintOutcome {
         use crate::runtime_tasks::RuntimeTaskError;
+        if document.len() > CAPABILITIES.max_document_bytes {
+            return CampusPrintOutcome::TooLarge;
+        }
         let account = self.campus_printer_account().await;
         let Some(student) = account.student() else {
             return CampusPrintOutcome::Account { account };
         };
-        match self
-            .runtime
-            .tasks()
-            .run(send_document(path, options, student))
-            .await
-        {
+        let send = send_in_turn(
+            self.campus_print_turn.clone(),
+            adpt_printer::ADDRESS,
+            student,
+            document,
+            title,
+            options,
+        );
+        match self.runtime.tasks().run(send).await {
             Ok(outcome) => outcome,
             Err(RuntimeTaskError::Stopped | RuntimeTaskError::Unavailable) => {
                 CampusPrintOutcome::NotPrinted { printed: 0 }
@@ -220,34 +399,34 @@ impl Core {
     }
 }
 
-/// Runs inside an already admitted task. Callers must admit before invoking it.
-#[cfg(windows)]
-async fn send_document(
-    path: std::path::PathBuf,
-    options: PrintOptions,
+/// Sends once every earlier send holding `turn` has ended.
+#[cfg(any(windows, target_os = "android"))]
+async fn send_in_turn(
+    turn: std::sync::Arc<tokio::sync::Mutex<()>>,
+    server: SocketAddr,
     student: StudentId,
+    document: bytes::Bytes,
+    title: String,
+    options: PrintOptions,
 ) -> CampusPrintOutcome {
+    let _turn = turn.lock_owned().await;
     let sent = tokio::task::spawn_blocking(move || {
-        adpt_printer::document::print(adpt_printer::ADDRESS, &student, &path, &options)
+        adpt_printer::document::print_bytes(server, &student, &document, &title, &options)
     })
     .await;
     map_send_result(sent)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "android"))]
 fn map_send_result(
     sent: Result<Result<u32, adpt_printer::document::PrintError>, tokio::task::JoinError>,
 ) -> CampusPrintOutcome {
-    use adpt_printer::{document, lpd};
+    use adpt_printer::{document::PrintError, lpd};
     match sent {
         Ok(Ok(copies)) => CampusPrintOutcome::Printed { copies },
-        Ok(Err(document::PrintError::NotPrintable)) => CampusPrintOutcome::NotPrintable,
-        Ok(Err(document::PrintError::Copies)) => CampusPrintOutcome::InvalidCopies,
-        Ok(Err(document::PrintError::File(_))) => CampusPrintOutcome::Unreadable,
-        Ok(Err(document::PrintError::Interrupted)) | Err(_) => {
-            CampusPrintOutcome::Uncertain { printed: 0 }
-        }
-        Ok(Err(document::PrintError::Lpd {
+        Ok(Err(PrintError::NotPrintable)) => CampusPrintOutcome::NotPrintable,
+        Ok(Err(PrintError::Copies)) => CampusPrintOutcome::InvalidCopies,
+        Ok(Err(PrintError::Lpd {
             accepted: printed,
             error,
         })) => match error {
@@ -255,6 +434,7 @@ fn map_send_result(
             error if error.may_have_printed() => CampusPrintOutcome::Uncertain { printed },
             _ => CampusPrintOutcome::NotPrinted { printed },
         },
+        Err(_) => CampusPrintOutcome::Uncertain { printed: 0 },
     }
 }
 

@@ -2,9 +2,9 @@
 //! app's Print dialog reaches the campus printer. Windows renders the job to
 //! PDF and posts it over IPP to a receiver on 127.0.0.1 that this plugin
 //! runs while the app does; Core (`app_core::campus_printer::ipp`) answers
-//! IPP, bills and delivers. This module installs the queue behind UAC, keeps
-//! the receiver on the URL the queue stores. Windows retains spool jobs and
-//! Core reports delivery failures to the person as notifications.
+//! IPP, bills and sends, and answers each job once its send has ended. This
+//! module installs the queue behind UAC, keeps the receiver on the URL the
+//! queue stores, and tells the person about a job that did not print.
 use super::{CampusPrinterSetup, Setup};
 use crate::{core_ports, CommandError};
 use ::windows::{
@@ -21,8 +21,8 @@ use ::windows::{
     },
 };
 use app_core::campus_printer::{
-    ipp::{CampusPrintQueue, MAX_DOCUMENT_BYTES},
-    CampusPrintOutcome, PrinterAccount,
+    ipp::{CampusPrintQueue, Failure},
+    CampusPrintMessage, PrinterAccount, CAPABILITIES,
 };
 use axum::{
     body::to_bytes,
@@ -120,6 +120,7 @@ enum Start {
 }
 #[derive(Clone)]
 struct HttpState {
+    app: tauri::AppHandle,
     queue: Arc<CampusPrintQueue>,
     requests: Arc<tokio::sync::Semaphore>,
     small_requests: Arc<tokio::sync::Semaphore>,
@@ -137,8 +138,9 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
         log::warn!("[campus-printer] refused a request that is not IPP");
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
-    // Small, explicitly sized IPP polls must not wait behind a document upload.
-    // A missing or larger length is treated as a document and serialized.
+    // Small, explicitly sized IPP polls must not wait behind a document,
+    // which is answered only once it has been sent. A missing or larger
+    // length is treated as a document: one at a time, so one is in memory.
     let small = request
         .headers()
         .get(header::CONTENT_LENGTH)
@@ -150,13 +152,13 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
     } else {
         &state.requests
     };
-    let Ok(_permit) = slots.acquire().await else {
+    let Ok(permit) = slots.clone().acquire_owned().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let limit = if small {
         65_536
     } else {
-        MAX_DOCUMENT_BYTES + 65_536
+        CAPABILITIES.max_document_bytes + 65_536
     };
     let body = match tokio::time::timeout(BODY_TIMEOUT, to_bytes(request.into_body(), limit)).await
     {
@@ -178,11 +180,29 @@ async fn receive(State(state): State<HttpState>, request: Request) -> Response {
     {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    match state.queue.handle(body).await {
-        Ok(bytes) => ([(header::CONTENT_TYPE, "application/ipp")], bytes).into_response(),
-        Err(error) => {
+    // In its own task, holding the permit: a client that hangs up while a
+    // document is sending must not drop the job's end or its notification.
+    let handled = tokio::spawn(async move {
+        let _permit = permit;
+        let reply = state.queue.handle(body).await?;
+        if let Some(Failure { title, text }) = reply.failed {
+            let app = state.app.clone();
+            tauri::async_runtime::spawn(async move {
+                notify(&app, format!("{title}: {text}")).await;
+            });
+        }
+        Ok::<_, app_core::campus_printer::ipp::PrintQueueError>(reply.body)
+    })
+    .await;
+    match handled {
+        Ok(Ok(body)) => ([(header::CONTENT_TYPE, "application/ipp")], body).into_response(),
+        Ok(Err(error)) => {
             log::warn!("[campus-printer] invalid IPP request: {error}");
             StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(error) => {
+            log::error!("[campus-printer] the IPP request task failed: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
 }
@@ -325,24 +345,18 @@ impl PrintServer {
             }
         };
         endpoint.port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let app_for_report = app.clone();
         let enabled = Arc::new(AtomicBool::new(
             !endpoint_file(app)?.with_extension("installing").exists(),
         ));
+        let wording_app = app.clone();
         let state = HttpState {
-            queue: CampusPrintQueue::new_with_delivery_reporter(
+            app: app.clone(),
+            queue: Arc::new(CampusPrintQueue::new(
                 core_ports::core(app),
                 endpoint.ipp_uri(),
                 format!("urn:uuid:{}", endpoint.token),
-                Arc::new(move |title: String, outcome: CampusPrintOutcome| {
-                    let app = app_for_report.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if let Some(body) = delivery_failure_text(&app, &title, &outcome) {
-                            notify(&app, body).await;
-                        }
-                    });
-                }),
-            ),
+                Box::new(move |message| message_text(&wording_app, message)),
+            )),
             requests: Arc::new(tokio::sync::Semaphore::new(1)),
             small_requests: Arc::new(tokio::sync::Semaphore::new(8)),
             enabled: enabled.clone(),
@@ -427,42 +441,12 @@ async fn notify(app: &tauri::AppHandle, body: String) {
     crate::commands::notifications::show_text(app, title, body).await;
 }
 
-/// The notification for a document Core could not deliver; `None` when it
-/// was delivered. Uses the print window's wording for the same outcomes.
-fn delivery_failure_text(
-    app: &tauri::AppHandle,
-    title: &str,
-    outcome: &CampusPrintOutcome,
-) -> Option<String> {
-    let text = |key: &str| crate::window_close::text(app, key);
-    let after = |key: &str, printed: u32| text(key).replace("{{printed}}", &printed.to_string());
-    let detail = match outcome {
-        CampusPrintOutcome::Printed { .. } => return None,
-        CampusPrintOutcome::Account { account } => text(match account {
-            PrinterAccount::NotConnected => "tools.campusPrinter.saveTheTokyoTechAccount",
-            PrinterAccount::NotStudentId => "tools.campusPrinter.accountIsNotAStudentId",
-            PrinterAccount::NeedsAttention => "tools.campusPrinter.accountNeedsAttention",
-            _ => "tools.campusPrinter.accountNotVerified",
-        }),
-        CampusPrintOutcome::NotPrintable => text("campusPrint.window.notAPdf"),
-        CampusPrintOutcome::InvalidCopies => text("campusPrint.window.copiesRange"),
-        CampusPrintOutcome::Unreadable => text("campusPrint.window.couldNotReadTheFile"),
-        CampusPrintOutcome::Unreachable { printed: 0 } => {
-            text("tools.campusPrinter.cannotReachThePrinter")
-        }
-        CampusPrintOutcome::Unreachable { printed } => {
-            after("campusPrint.window.unreachableAfter", *printed)
-        }
-        CampusPrintOutcome::NotPrinted { printed: 0 } => text("campusPrint.window.notPrinted"),
-        CampusPrintOutcome::NotPrinted { printed } => {
-            after("campusPrint.window.notPrintedAfter", *printed)
-        }
-        CampusPrintOutcome::Uncertain { printed: 0 } => text("campusPrint.window.uncertain"),
-        CampusPrintOutcome::Uncertain { printed } => {
-            after("campusPrint.window.uncertainAfter", *printed)
-        }
-    };
-    Some(format!("{title}: {detail}"))
+/// Core's message in the UI language, its placeholders filled.
+fn message_text(app: &tauri::AppHandle, message: &CampusPrintMessage) -> String {
+    let copy = crate::window_close::text(app, message.key);
+    message.args.iter().fold(copy, |copy, (name, value)| {
+        copy.replace(&format!("{{{{{name}}}}}"), &value.to_string())
+    })
 }
 
 /// The plugin's state; the receiver starts once Core runs (`resume`).

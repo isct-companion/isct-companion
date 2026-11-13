@@ -429,27 +429,28 @@ export type CampusPrinterSetup =
   | { kind: "cancelled" }
   | { kind: "account"; account: PrinterAccount }
   | { kind: "failed" };
-export type CampusPrintOptions = {
-  copies: number;
-  duplex: "off" | "long-edge" | "short-edge" | null;
-  color: "color" | "mono" | null;
+/** The one sides and color model (`app_core::campus_printer::Settings`). */
+export type CampusPrintSettings = {
+  sides: "one-sided" | "long-edge" | "short-edge";
+  color: "color" | "mono";
 };
-/** The Windows print window's file and this device's look. */
+export type CampusPrintOptions = CampusPrintSettings & { copies: number };
+/** The Windows print window's file, what the printer offers, and this
+ * device's look. */
 export type CampusPrintRequest = {
   fileName: string;
+  maxCopies: number;
+  defaults: CampusPrintSettings;
   locale: string | null;
   appearance: string | null;
   theme: string | null;
 };
-export type CampusPrintOutcome =
-  | { kind: "printed"; copies: number }
-  | { kind: "account"; account: PrinterAccount }
-  | { kind: "not-printable" }
-  | { kind: "invalid-copies" }
-  | { kind: "unreadable" }
-  | { kind: "unreachable"; printed: number }
-  | { kind: "not-printed"; printed: number }
-  | { kind: "uncertain"; printed: number };
+/** How a print ended, worded by Core: a catalog key Core's tests keep in
+ * every locale, and its placeholder values. */
+export type CampusPrintReport = {
+  printed: boolean;
+  message: { key: MessageKey; args: Record<string, number> };
+};
 /** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {
@@ -676,7 +677,7 @@ export interface DesktopBridge {
   /** Windows print window: its file and this device's look. */
   campusPrintRequest?(): Promise<CampusPrintRequest>;
   /** Windows print window: sends its file to the printer. */
-  campusPrint?(options: CampusPrintOptions): Promise<CampusPrintOutcome>;
+  campusPrint?(options: CampusPrintOptions): Promise<CampusPrintReport>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;

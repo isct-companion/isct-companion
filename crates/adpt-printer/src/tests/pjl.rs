@@ -19,17 +19,12 @@ fn detect_recognizes_pdf_and_postscript() {
     assert_eq!(Language::detect(b""), None);
 }
 
-// Unset settings send nothing, so the printer's defaults apply; set ones
-// use the HP PJL variables, binding only when duplex is on.
+// The HP PJL variables, binding only when duplex is on.
 #[test]
-fn header_sends_only_the_settings_given() {
-    assert_eq!(
-        header(Language::Pdf, &Settings::default()),
-        b"\x1b%-12345X@PJL JOB\n@PJL ENTER LANGUAGE=PDF\n".to_vec()
-    );
+fn header_states_sides_and_color() {
     let settings = Settings {
-        duplex: Some(Duplex::ShortEdge),
-        color: Some(ColorMode::Mono),
+        sides: Sides::ShortEdge,
+        color: ColorMode::Mono,
     };
     assert_eq!(
         String::from_utf8(header(Language::PostScript, &settings)).unwrap(),
@@ -40,18 +35,17 @@ fn header_sends_only_the_settings_given() {
          @PJL ENTER LANGUAGE=POSTSCRIPT\n"
     );
     let settings = Settings {
-        duplex: Some(Duplex::Off),
-        color: Some(ColorMode::Color),
+        sides: Sides::OneSided,
+        color: ColorMode::Color,
     };
     let text = String::from_utf8(header(Language::Pdf, &settings)).unwrap();
     assert!(text.contains("@PJL SET DUPLEX=OFF\n"));
     assert!(!text.contains("BINDING"));
     assert!(text.contains("@PJL SET RENDERMODE=COLOR\n"));
     let long = Settings {
-        duplex: Some(Duplex::LongEdge),
-        color: None,
+        sides: Sides::LongEdge,
+        color: ColorMode::Color,
     };
     let text = String::from_utf8(header(Language::Pdf, &long)).unwrap();
     assert!(text.contains("@PJL SET DUPLEX=ON\n@PJL SET BINDING=LONGEDGE\n"));
-    assert!(!text.contains("RENDERMODE"));
 }

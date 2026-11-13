@@ -216,7 +216,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_wifi.rs |
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
-| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>crates/app-core/src/campus_printer.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
@@ -280,7 +280,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>crates/app-core/src/app_updates.rs |
-| `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/android.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
+| `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -2325,23 +2325,27 @@ page. WSL or Docker installed on one of the two machines.
    - *Why:* Windows renders each app's output to PDF only through its own class
      driver. The uncollated request must still print, and both must be
      billed to the student and wait for release.
-3. Quit IsctCompanion, print a document, and restart the app. Inspect
-   the Windows queue and recover the job through Windows if necessary.
-   Separately, force quit during an in-progress delivery, restart, and
-   compare the queue and billing page before taking any further action.
-   - *Why:* The native spooler must retain offline jobs, and an interruption
-     during delivery must not be reported as success or automatically
-     result in duplicate billing.
-4. Sign into a different non-administrator Windows account and try to
+3. Print a large document (a 150-page PDF of scans, 30–60 MB) and watch
+   its row in the Windows print list until it leaves; then check the
+   release panel.
+   - *Why:* The receiver answers Print-Job only once Core's send has ended, so
+     Windows waits for that answer with the job shown as printing. Only
+     Windows' own IPP client shows whether it waits that long: if it
+     gave up, the row would turn to an error and Windows would send the
+     document again, leaving a second held copy at the printer.
+4. Quit IsctCompanion, print a document, and restart the app.
+   - *Why:* The native spooler keeps a job the receiver could not take and
+     sends it once the app serves the queue again.
+5. Sign into a different non-administrator Windows account and try to
    print to the queue. Then return to the installing account and print.
    - *Why:* The queue must reject another user's job while allowing the owning
      user and Windows' IPP components to submit a real document.
-5. Leave ScienceTokyo Wi-Fi, print once more, and inspect the Windows
-   queue and the app's notification. Do not manually retry a job whose
-   delivery outcome is uncertain until checking the billing page.
-   - *Why:* A failed or ambiguous submission must be visible without silently
-     resending a document that may already have reached the printer.
-6. Reboot the machine with WSL or Docker, start the app, and print.
+6. Leave ScienceTokyo Wi-Fi, print once more, and read the job's row
+   in the print list and the app's notification.
+   - *Why:* A send that fails ends the job as an error in Windows, and the
+     notification names the reason in the app's language; a job shown
+     as printed here would be lost without a word.
+7. Reboot the machine with WSL or Docker, start the app, and print.
    - *Why:* Hyper-V reserves port ranges at boot; the saved port must still
      bind and the queue must print without a repair.
 
@@ -2353,10 +2357,11 @@ excluded port ranges, the system notifications, and the billing page.
 **Expected**
 
 The owner can print and the other account cannot. Real IPP jobs are
-billed to the owner's student account and await release. Failures and
-uncertain outcomes are visible; offline jobs remain recoverable and an
-interrupted delivery is not reported as successful or billed twice.
-Printing works after a reboot with WSL or Docker.
+billed to the owner's student account and await release. A large
+document leaves the print list once, without an error, and is held at
+the printer once. A job printed while the app was closed is sent when
+it starts. Failures show as errors with a notification giving the
+reason. Printing works after a reboot with WSL or Docker.
 
 **Why this is manual**
 
@@ -2367,6 +2372,7 @@ and the printer's billing page.
 **Covers**
 
 - `apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs`
+- `crates/app-core/src/campus_printer.rs`
 - `crates/app-core/src/campus_printer/ipp.rs`
 - `crates/app-core/src/campus_printer/ipp/attributes.rs`
 
@@ -6216,18 +6222,13 @@ print release or billing page.
    - *Why:* Off the printer's network the job must fail naming
      ScienceTokyo Wi-Fi, and the system's own retry must send it once
      the network is back.
-4. Submit a multi-copy job, interrupt the network after some copies have
-   been acknowledged, and separately repeat while the print service
-   process is reclaimed. Restore the network and use the system retry;
-   compare the release queue and billing page with the copies sent.
-   - *Why:* The system may redeliver a job after interruption. A retry must send
-     only copies known not to have been sent; an uncertain in-flight copy
-     must not cause an automatic resend of the whole job or double billing.
-5. Cancel a multi-copy job while it is sending; then retry an interrupted
-   job after switching to the other student account, and inspect both
-   accounts' billing and release queues.
-   - *Why:* Cancellation must prevent the next copy from being sent. A saved job
-     bound to one student must not be sent under a different student ID.
+4. Print the PDF with five copies and, at once, the photo; cancel the
+   photo from the print notification while the PDF is still sending.
+   Then print the PDF again and cancel it while it is sending.
+   - *Why:* Jobs run one after another, so the photo waits; cancelled before
+     its send starts, it must end cancelled with nothing at the printer.
+     A job already sending is not stopped part-way: it finishes, and
+     the release panel shows all five copies.
 
 **Where to look**
 
@@ -6239,8 +6240,7 @@ the printer's release panel and the billing page.
 With a saved account, prints from a document app and from Photos are billed to the
 student and print with the chosen copies, sides and colour; without an
 account or off the campus Wi-Fi the job fails with the reason and can
-be retried. Interrupted jobs never automatically resend uncertain copies,
-cancellation stops later copies, and another account cannot resume a job.
+be retried. A waiting job cancels cleanly; a sending one finishes.
 
 **Why this is manual**
 
@@ -6252,7 +6252,7 @@ bytes are tested in crates/adpt-printer/src/tests.
 
 - `apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt`
 - `crates/app-ffi/src/campus_print.rs`
-- `crates/app-core/src/campus_printer/android.rs`
+- `crates/app-core/src/campus_printer.rs`
 - `crates/adpt-printer/src/document.rs`
 - `crates/adpt-printer/src/lpd.rs`
 

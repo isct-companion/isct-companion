@@ -876,7 +876,7 @@
   "campusPrint.window.sending": "正在发送…",
   "campusPrint.window.sent": "已发送到打印机（{{copies}} 份）",
   "campusPrint.window.notAPdf": "这个文件不是 PDF 或 PostScript。",
-  "campusPrint.window.copiesRange": "请输入 1 到 99 份。",
+  "campusPrint.window.copiesRange": "请输入 1 到 {{max}} 份。",
   "campusPrint.window.couldNotReadTheFile": "无法读取文件。",
   "campusPrint.window.unreachableAfter": "打印机接收了 {{printed}} 份后连不上了，其余的没有发送。请连接校园网或 Science Tokyo 的 VPN。",
   "campusPrint.window.notPrinted": "打印机没有接收这个任务，什么都没有打印。",

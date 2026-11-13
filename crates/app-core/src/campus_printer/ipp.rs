@@ -1,53 +1,50 @@
-//! Windows renders PDF; Core verifies billing and owns delivery. No document
-//! files are retained. IPP usernames never select the billed student account.
+//! The Windows system queue's IPP receiver. Windows renders a job to PDF and
+//! posts it here; Core sends it with `Core::campus_print` and answers
+//! Print-Job or Send-Document once the send has ended: `completed` when the
+//! printer took every copy, `aborted` with Core's words for why otherwise.
+//! IPP usernames never select the billed student account.
 //!
-//! A job stays processing until LPD acknowledges every copy. The campus
-//! printer does not report physical release or paper output.
+//! Jobs live in memory only, bounded, so Windows can poll them during this
+//! run. Nothing is retained or resent: the printer bills at release, so a
+//! job delivered twice costs nothing (`super`).
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
-use super::{CampusPrintOutcome, PrintOptions};
+use super::{CampusPrintMessage, ColorMode, PrintOptions, Settings, Sides, CAPABILITIES};
 use crate::Core;
 use ::ipp::{parser::IppParser, prelude::*};
-use adpt_printer::{
-    document::MAX_COPIES,
-    pjl::{ColorMode, Duplex, Language, Settings},
-};
+use bytes::Bytes;
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
+    io::Cursor,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 mod attributes;
-pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
-/// Documents received and waiting for the printer. Each holds its PDF in
-/// memory, so the bound is also the memory bound.
-const MAX_QUEUED: usize = 1;
+
+/// Jobs kept for Windows' polls; the oldest finished one makes room.
+const MAX_JOBS: usize = 128;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrintQueueError {
     #[error("Invalid IPP message: {0}")]
     Protocol(#[from] ::ipp::parser::IppParseError),
-    #[error("Could not read the print document: {0}")]
-    Document(#[from] std::io::Error),
     #[error("The print queue is unavailable.")]
     Unavailable,
 }
+
 /// A job's IPP `job-state` (RFC 8011 §5.3.7), limited to the states this
-/// queue uses: a job waits for its document, is claimed for delivery, then
-/// ends handed over, refused or cancelled.
+/// queue uses: a Create-Job waits for its document, a document is being
+/// sent, then the job ends sent, failed or cancelled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum JobState {
-    /// Created; waiting for its document.
     Pending,
-    /// The document was claimed for delivery; a duplicate send is refused.
     Processing,
     Canceled,
     Aborted,
-    /// Handed to Core's ordered delivery. The campus printer holds jobs until
-    /// release and never reports back, so this is the end as far as IPP goes.
+    /// Every copy reached the printer, which holds it until release and
+    /// never reports back, so this is the end as far as IPP goes.
     Completed,
 }
 
@@ -84,148 +81,97 @@ struct Job {
     message: String,
     created: Instant,
 }
+
 struct Jobs {
     next: i32,
     entries: BTreeMap<i32, Job>,
 }
-/// Called with the document's title and the outcome when a delivery does
-/// not end `Printed`.
-pub type DeliveryReporter = Arc<dyn Fn(String, CampusPrintOutcome) + Send + Sync>;
+
+/// Words a message in the person's language (the shell owns the catalogs).
+pub type Wording = Box<dyn Fn(&CampusPrintMessage) -> String + Send + Sync>;
+
+/// A job that ended without printing, for the shell to tell the person.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Failure {
+    pub title: String,
+    pub text: String,
+}
+
+pub struct IppReply {
+    pub body: Vec<u8>,
+    pub failed: Option<Failure>,
+}
+
+/// One parsed request; `document` shares the body's buffer.
+struct Request {
+    header: IppHeader,
+    attributes: IppAttributes,
+    document: Bytes,
+}
+
 pub struct CampusPrintQueue {
     core: Arc<Core>,
     uri: String,
     printer_uuid: String,
     started: Instant,
+    wording: Wording,
     jobs: Mutex<Jobs>,
-    /// Slots for received documents not yet delivered.
-    queued: Arc<tokio::sync::Semaphore>,
-    delivery_reporter: Option<DeliveryReporter>,
-    journal: Mutex<Option<rusqlite::Connection>>,
 }
+
 impl CampusPrintQueue {
-    pub fn new(core: Arc<Core>, uri: String, printer_uuid: String) -> Arc<Self> {
-        Self::new_with_reporter(core, uri, printer_uuid, None)
-    }
-    pub fn new_with_delivery_reporter(
-        core: Arc<Core>,
-        uri: String,
-        printer_uuid: String,
-        reporter: DeliveryReporter,
-    ) -> Arc<Self> {
-        Self::new_with_reporter(core, uri, printer_uuid, Some(reporter))
-    }
-    fn new_with_reporter(
-        core: Arc<Core>,
-        uri: String,
-        printer_uuid: String,
-        delivery_reporter: Option<DeliveryReporter>,
-    ) -> Arc<Self> {
-        let journal = open_journal(core.store.paths().local("campus-print-ipp.sqlite"));
-        let (entries, next) = match journal.as_ref() {
-            Ok(journal) => recover_jobs(journal).unwrap_or_else(|error| {
-                log::error!("[campus-printer] could not recover IPP jobs: {error}");
-                (BTreeMap::new(), 0)
-            }),
-            Err(error) => {
-                log::error!("[campus-printer] could not open IPP journal: {error}");
-                (BTreeMap::new(), 1)
-            }
-        };
-        // Refuse new delivery when recovery was not possible: forgetting an
-        // in-flight job can cause the system queue to repeat it.
-        let journal = journal.ok().filter(|_| next != 0);
-        Arc::new(Self {
+    pub fn new(core: Arc<Core>, uri: String, printer_uuid: String, wording: Wording) -> Self {
+        Self {
             core,
             uri,
             printer_uuid,
             started: Instant::now(),
-            jobs: Mutex::new(Jobs { next, entries }),
-            queued: Arc::new(tokio::sync::Semaphore::new(MAX_QUEUED)),
-            delivery_reporter,
-            journal: Mutex::new(journal),
-        })
-    }
-    fn update(&self, id: i32, state: JobState, message: String) {
-        if let Ok(mut jobs) = self.jobs.lock() {
-            if let Some(job) = jobs.entries.get_mut(&id) {
-                job.state = state;
-                job.message = message;
-            }
+            wording,
+            jobs: Mutex::new(Jobs {
+                next: first_job_id(),
+                entries: BTreeMap::new(),
+            }),
         }
     }
-    fn record(&self, job: &Job, student: &str, state: &str) -> Result<(), PrintQueueError> {
-        let journal = self
-            .journal
-            .lock()
-            .map_err(|_| PrintQueueError::Unavailable)?;
-        let journal = journal.as_ref().ok_or(PrintQueueError::Unavailable)?;
-        journal.execute(
-            "INSERT INTO jobs(id,title,student,state) VALUES (?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET student=excluded.student,state=excluded.state",
-            rusqlite::params![job.id, job.title, student, state],
-        ).map_err(|_| PrintQueueError::Unavailable)?;
-        Ok(())
+
+    fn jobs(&self) -> Result<std::sync::MutexGuard<'_, Jobs>, PrintQueueError> {
+        self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)
     }
-    fn record_progress(&self, id: i32, accepted: u32) -> Result<(), PrintQueueError> {
-        let journal = self
-            .journal
-            .lock()
-            .map_err(|_| PrintQueueError::Unavailable)?;
-        let journal = journal.as_ref().ok_or(PrintQueueError::Unavailable)?;
-        journal
-            .execute(
-                "UPDATE jobs SET accepted=?2 WHERE id=?1",
-                rusqlite::params![id, accepted],
-            )
-            .map_err(|_| PrintQueueError::Unavailable)?;
-        Ok(())
-    }
+
     fn lookup(&self, id: i32) -> Result<Option<Job>, PrintQueueError> {
-        let job = self
-            .jobs
-            .lock()
-            .map_err(|_| PrintQueueError::Unavailable)?
-            .entries
-            .get(&id)
-            .cloned();
-        if job.is_some() {
-            return Ok(job);
-        }
-        let journal = self
-            .journal
-            .lock()
-            .map_err(|_| PrintQueueError::Unavailable)?;
-        let journal = journal.as_ref().ok_or(PrintQueueError::Unavailable)?;
-        recover_job(journal, id).map_err(|_| PrintQueueError::Unavailable)
+        Ok(self.jobs()?.entries.get(&id).cloned())
     }
+
+    fn update(&self, id: i32, state: JobState, message: String) -> Result<(), PrintQueueError> {
+        if let Some(job) = self.jobs()?.entries.get_mut(&id) {
+            job.state = state;
+            job.message = message;
+        }
+        Ok(())
+    }
+
+    /// A new pending job, or `None` when the table is full of unfinished ones.
     fn create(
         &self,
-        request: &IppRequestResponse,
+        request: &Request,
         options: PrintOptions,
     ) -> Result<Option<Job>, PrintQueueError> {
-        let mut jobs = self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)?;
-        jobs.entries.retain(|_, job| {
-            job.state == JobState::Processing || job.created.elapsed() < Duration::from_secs(600)
-        });
-        if jobs.entries.len() >= 128 {
-            let terminal = jobs
+        let mut jobs = self.jobs()?;
+        if jobs.entries.len() >= MAX_JOBS {
+            let finished = jobs
                 .entries
                 .iter()
                 .find(|(_, job)| job.state.is_terminal())
                 .map(|(id, _)| *id);
-            if let Some(id) = terminal {
-                jobs.entries.remove(&id);
-            } else {
-                return Ok(None);
-            }
+            match finished {
+                Some(id) => jobs.entries.remove(&id),
+                None => return Ok(None),
+            };
         }
         let id = jobs.next;
-        jobs.next = jobs
-            .next
-            .checked_add(1)
-            .ok_or(PrintQueueError::Unavailable)?;
+        jobs.next = id.checked_add(1).ok_or(PrintQueueError::Unavailable)?;
         let job = Job {
             id,
-            title: value(request, "job-name")
+            title: value(&request.attributes, "job-name")
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "Campus print".into()),
             options,
@@ -233,25 +179,26 @@ impl CampusPrintQueue {
             message: "Waiting for document".into(),
             created: Instant::now(),
         };
-        // Persist allocation before exposing the ID, including Create-Job
-        // requests which have not supplied a document yet.
-        self.record(&job, "", "pending")?;
         jobs.entries.insert(id, job.clone());
         Ok(Some(job))
     }
-    /// The IPP library retains a binary payload reader, avoiding text conversion.
-    pub async fn handle(self: &Arc<Self>, bytes: bytes::Bytes) -> Result<Vec<u8>, PrintQueueError> {
-        let mut request = IppParser::new(Cursor::new(bytes)).parse()?;
+
+    pub async fn handle(&self, body: Bytes) -> Result<IppReply, PrintQueueError> {
+        let request = parse(body)?;
         let mut response = IppRequestResponse::new_response(
-            request.header().version,
+            request.header.version,
             StatusCode::SuccessfulOk,
-            request.header().request_id,
+            request.header.request_id,
         )?;
-        if !matches!(request.header().version.0, 0x0100 | 0x0101 | 0x0200) {
+        let mut failed = None;
+        if !matches!(request.header.version.0, 0x0100 | 0x0101 | 0x0200) {
             status(&mut response, StatusCode::ServerErrorVersionNotSupported);
-            return Ok(response.to_bytes().to_vec());
+            return Ok(IppReply {
+                body: response.to_bytes().to_vec(),
+                failed,
+            });
         }
-        let operation = request.header().operation_or_status;
+        let operation = request.header.operation_or_status;
         match operation {
             11 => attributes::printer(
                 &mut response,
@@ -260,18 +207,18 @@ impl CampusPrintQueue {
                 self.started.elapsed().as_secs() as i32,
             )?,
             4 => {
-                if let Err(error) = options(&request) {
+                if let Err(error) = options(&request.attributes) {
                     status(&mut response, error);
                 }
             }
-            2 | 5 => match options(&request) {
+            2 | 5 => match options(&request.attributes) {
                 Err(error) => status(&mut response, error),
                 Ok(options) => {
                     if self.core.runtime.tasks().is_closed() {
                         status(&mut response, StatusCode::ServerErrorNotAcceptingJobs);
                     } else if let Some(job) = self.create(&request, options)? {
                         if operation == 2 {
-                            self.submit(&mut request, &mut response, job.id).await?;
+                            failed = self.submit(&request, &mut response, job.id).await?;
                         } else {
                             self.job_response(&mut response, &job)?;
                         }
@@ -281,13 +228,13 @@ impl CampusPrintQueue {
                 }
             },
             6 | 8 | 9 => {
-                let id = value(&request, "job-id")
+                let id = value(&request.attributes, "job-id")
                     .and_then(|v| match v {
                         IppValue::Integer(id) => Some(*id),
                         _ => None,
                     })
                     .or_else(|| {
-                        value(&request, "job-uri").and_then(|v| {
+                        value(&request.attributes, "job-uri").and_then(|v| {
                             v.to_string()
                                 .rsplit('/')
                                 .next()
@@ -301,38 +248,31 @@ impl CampusPrintQueue {
                         status(&mut response, StatusCode::ClientErrorNotPossible)
                     }
                     Some(job) if operation == 8 => {
-                        let mut jobs =
-                            self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)?;
-                        if let Some(current) = jobs.entries.get_mut(&job.id) {
-                            if current.state == JobState::Pending {
+                        let mut jobs = self.jobs()?;
+                        match jobs.entries.get_mut(&job.id) {
+                            Some(current) if current.state == JobState::Pending => {
                                 current.state = JobState::Canceled;
                                 current.message = "Canceled before submission".into();
-                            } else {
-                                status(&mut response, StatusCode::ClientErrorNotPossible);
                             }
+                            _ => status(&mut response, StatusCode::ClientErrorNotPossible),
                         }
                     }
                     Some(job) => {
-                        if value(&request, "last-document") != Some(&IppValue::Boolean(true)) {
+                        if value(&request.attributes, "last-document")
+                            != Some(&IppValue::Boolean(true))
+                        {
                             status(&mut response, StatusCode::ClientErrorNotPossible);
                         } else {
-                            self.submit(&mut request, &mut response, job.id).await?;
+                            failed = self.submit(&request, &mut response, job.id).await?;
                         }
                     }
                 }
             }
             10 => {
-                let which = value(&request, "which-jobs")
+                let which = value(&request.attributes, "which-jobs")
                     .map(ToString::to_string)
                     .unwrap_or_else(|| "not-completed".into());
-                let jobs: Vec<_> = self
-                    .jobs
-                    .lock()
-                    .map_err(|_| PrintQueueError::Unavailable)?
-                    .entries
-                    .values()
-                    .cloned()
-                    .collect();
+                let jobs: Vec<_> = self.jobs()?.entries.values().cloned().collect();
                 for job in jobs {
                     if which == "all"
                         || (which == "completed" && job.state.is_terminal())
@@ -348,159 +288,66 @@ impl CampusPrintQueue {
         // the printer and job polls that succeed are not logged.
         let answer = response.header().operation_or_status;
         if answer != StatusCode::SuccessfulOk as i16 || !matches!(operation, 9..=11) {
+            let attribute = |name| value(&request.attributes, name).map(ToString::to_string);
             log::info!(
                 "[campus-printer] IPP operation 0x{operation:04x} answered 0x{answer:04x} (format {:?}, sides {:?}, color {:?}, copies {:?})",
-                value(&request, "document-format").map(ToString::to_string),
-                value(&request, "sides").map(ToString::to_string),
-                value(&request, "print-color-mode").map(ToString::to_string),
-                value(&request, "copies").map(ToString::to_string),
+                attribute("document-format"),
+                attribute("sides"),
+                attribute("print-color-mode"),
+                attribute("copies"),
             );
         }
-        Ok(response.to_bytes().to_vec())
+        Ok(IppReply {
+            body: response.to_bytes().to_vec(),
+            failed,
+        })
     }
+
+    /// Sends the request's document for pending job `id` and answers with
+    /// the job as the send left it. Returns the failure to tell the person.
     async fn submit(
-        self: &Arc<Self>,
-        request: &mut IppRequestResponse,
+        &self,
+        request: &Request,
         response: &mut IppRequestResponse,
         id: i32,
-    ) -> Result<(), PrintQueueError> {
-        if let Err(code) = document_format(request) {
+    ) -> Result<Option<Failure>, PrintQueueError> {
+        if let Err(code) = document_format(&request.attributes) {
             status(response, code);
-            return Ok(());
+            return Ok(None);
         }
-        // Reserve before copying the payload, so concurrent requests cannot
-        // accumulate document buffers in the delivery queue.
-        let slot = match self.queued.clone().try_acquire_owned() {
-            Ok(slot) => slot,
-            Err(_) => {
-                status(response, StatusCode::ServerErrorBusy);
-                return Ok(());
-            }
-        };
-        let mut pdf = Vec::new();
-        request
-            .payload_mut()
-            .take(MAX_DOCUMENT_BYTES as u64 + 1)
-            .read_to_end(&mut pdf)?;
-        if pdf.len() > MAX_DOCUMENT_BYTES || Language::detect(&pdf) != Some(Language::Pdf) {
-            status(response, StatusCode::ClientErrorDocumentFormatError);
-            self.update(id, JobState::Aborted, "Invalid PDF document".into());
-            return Ok(());
-        }
-        let account = self.core.campus_printer_account().await;
-        let Some(student) = account.student() else {
-            self.update(
-                id,
-                JobState::Aborted,
-                format!("Student account unavailable: {account:?}"),
-            );
-            if let Some(job) = self.lookup(id)? {
-                if let Some(report) = &self.delivery_reporter {
-                    report(job.title.clone(), CampusPrintOutcome::Account { account });
-                }
-                self.job_response(response, &job)?;
-            }
-            return Ok(());
-        };
-        let job = {
-            let mut jobs = self.jobs.lock().map_err(|_| PrintQueueError::Unavailable)?;
+        let (title, options) = {
+            let mut jobs = self.jobs()?;
             let Some(job) = jobs.entries.get_mut(&id) else {
                 status(response, StatusCode::ClientErrorNotFound);
-                return Ok(());
+                return Ok(None);
             };
             if job.state != JobState::Pending {
                 status(response, StatusCode::ClientErrorNotPossible);
-                return Ok(());
+                return Ok(None);
             }
-            // Claim before any await: a duplicate Send-Document never resends.
+            // Claimed before the send: a second Send-Document is refused.
             job.state = JobState::Processing;
-            job.message = "Sending to campus printer".into();
-            job.clone()
+            job.message = "Sending to the campus printer".into();
+            (job.title.clone(), job.options)
         };
-        if self.record(&job, student.as_str(), "processing").is_err() {
-            self.update(
-                id,
-                JobState::Aborted,
-                "Could not save delivery state".into(),
-            );
-            status(response, StatusCode::ServerErrorNotAcceptingJobs);
-            return Ok(());
-        }
-        let queue = self.clone();
-        let title = job.title.clone();
-        let reported_title = job.title.clone();
-        let delivery_reporter = self.delivery_reporter.clone();
-        let student_for_record = student.clone();
-        let refused_student = student.clone();
-        let refused_job = job.clone();
-        let accepted = self.core.runtime.tasks().spawn(async move {
-            let _slot = slot;
-            let progress_queue = queue.clone();
-            let options = job.options;
-            let sent = tokio::task::spawn_blocking(move || {
-                adpt_printer::document::print_bytes_progress(
-                    adpt_printer::ADDRESS,
-                    &student,
-                    &pdf,
-                    &title,
-                    &options,
-                    |_| Ok(()),
-                    |accepted| {
-                        progress_queue
-                            .record_progress(id, accepted)
-                            .map_err(|_| adpt_printer::document::PrintError::Interrupted)
-                    },
-                )
-            })
+        let outcome = self
+            .core
+            .campus_print(request.document.clone(), title.clone(), options)
             .await;
-            let outcome = super::map_send_result(sent);
-            let state = if matches!(outcome, CampusPrintOutcome::Printed { .. }) {
-                "completed"
-            } else {
-                "aborted"
-            };
-            // On a failed commit the processing record remains, so recovery
-            // conservatively reports an unknown outcome rather than retrying.
-            if let Err(error) = queue.record(&job, student_for_record.as_str(), state) {
-                log::error!("[campus-printer] failed to save IPP outcome: {error}");
-                queue.update(
-                    id,
-                    JobState::Aborted,
-                    "Delivery outcome could not be saved; check the printer before retrying".into(),
-                );
-                if let Some(report) = delivery_reporter {
-                    report(reported_title, CampusPrintOutcome::Uncertain { printed: 0 });
-                }
-                return;
-            }
-            if matches!(outcome, CampusPrintOutcome::Printed { .. }) {
-                queue.update(
-                    id,
-                    JobState::Completed,
-                    "Accepted by the campus printer; release it at the device".into(),
-                );
-                log::info!("[campus-printer] IPP job {id}: {outcome:?}");
-            } else {
-                queue.update(
-                    id,
-                    JobState::Aborted,
-                    format!("Campus delivery did not complete: {outcome:?}"),
-                );
-                log::warn!("[campus-printer] IPP job {id}: {outcome:?}");
-                if let Some(report) = delivery_reporter {
-                    report(reported_title, outcome);
-                }
-            }
-        });
-        if !accepted {
-            let _ = self.record(&refused_job, refused_student.as_str(), "aborted");
-            self.update(id, JobState::Aborted, "Application is stopping".into());
-            status(response, StatusCode::ServerErrorNotAcceptingJobs);
-        } else if let Some(job) = self.lookup(id)? {
+        let text = (self.wording)(&outcome.message());
+        let printed = outcome.printed();
+        let state = if printed {
+            JobState::Completed
+        } else {
+            JobState::Aborted
+        };
+        self.update(id, state, text.clone())?;
+        if let Some(job) = self.lookup(id)? {
             self.job_response(response, &job)?;
         }
-        Ok(())
+        Ok((!printed).then_some(Failure { title, text }))
     }
+
     fn job_response(
         &self,
         response: &mut IppRequestResponse,
@@ -544,87 +391,69 @@ impl CampusPrintQueue {
         Ok(())
     }
 }
-fn open_journal(path: std::path::PathBuf) -> rusqlite::Result<rusqlite::Connection> {
-    let connection = rusqlite::Connection::open(path)?;
-    connection.execute_batch("PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, title TEXT NOT NULL, student TEXT NOT NULL, state TEXT NOT NULL, accepted INTEGER NOT NULL DEFAULT 0)")?;
-    Ok(connection)
+
+/// Job IDs start from the clock, so a job Windows still lists from an
+/// earlier run never shares an ID with one of this run's.
+fn first_job_id() -> i32 {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    (seconds % 1_000_000_000) as i32 + 1
 }
 
-fn decode_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<Job> {
-    let id = row.get(0)?;
-    let state: String = row.get(2)?;
-    let accepted: u32 = row.get(3)?;
-    let (state, message) = match state.as_str() {
-        "completed" => (
-            JobState::Completed,
-            "Accepted by the campus printer; release it at the device",
-        ),
-        "pending" => (
-            JobState::Aborted,
-            "Document was not submitted before restart",
-        ),
-        "aborted" => (
-            JobState::Aborted,
-            "Campus delivery did not complete; check before retrying",
-        ),
-        _ => (
-            JobState::Aborted,
-            "Delivery outcome unknown after restart; check the printer before retrying",
-        ),
-    };
-    Ok(Job {
-        id,
-        title: row.get(1)?,
-        options: PrintOptions {
-            copies: 1,
-            settings: Settings::default(),
-        },
-        state,
-        message: format!("{message} ({accepted} copies confirmed by LPD)"),
-        created: Instant::now(),
+/// The header and attributes, and the document after them as a view of the
+/// same buffer: the body is never copied.
+fn parse(body: Bytes) -> Result<Request, PrintQueueError> {
+    let (header, attributes, reader) = IppParser::new(Cursor::new(body.clone())).parse_parts()?;
+    let start = reader.into_inner().position() as usize;
+    Ok(Request {
+        header,
+        attributes,
+        document: body.slice(start..),
     })
 }
 
-fn recover_job(connection: &rusqlite::Connection, id: i32) -> rusqlite::Result<Option<Job>> {
-    use rusqlite::OptionalExtension;
-    connection
-        .query_row(
-            "SELECT id,title,state,accepted FROM jobs WHERE id=?1",
-            [id],
-            decode_job,
-        )
-        .optional()
-}
-
-fn recover_jobs(connection: &rusqlite::Connection) -> rusqlite::Result<(BTreeMap<i32, Job>, i32)> {
-    let max: i32 =
-        connection.query_row("SELECT COALESCE(MAX(id),0) FROM jobs", [], |row| row.get(0))?;
-    let next = max.checked_add(1).ok_or(rusqlite::Error::InvalidQuery)?;
-    let mut statement = connection
-        .prepare("SELECT id,title,state,accepted FROM jobs ORDER BY id DESC LIMIT 128")?;
-    let mut entries = BTreeMap::new();
-    for job in statement.query_map([], decode_job)? {
-        let job = job?;
-        entries.insert(job.id, job);
-    }
-    Ok((entries, next))
-}
-
-fn value<'a>(request: &'a IppRequestResponse, name: &str) -> Option<&'a IppValue> {
-    request
-        .attributes()
+fn value<'a>(attributes: &'a IppAttributes, name: &str) -> Option<&'a IppValue> {
+    attributes
         .groups()
         .iter()
         .find_map(|group| group.get(name))
         .map(IppAttribute::value)
 }
+
 fn status(response: &mut IppRequestResponse, code: StatusCode) {
     response.header_mut().operation_or_status = code as i16;
 }
+
+/// Each sides option and its IPP `sides` keyword.
+const SIDES: [(Sides, &str); 3] = [
+    (Sides::OneSided, "one-sided"),
+    (Sides::LongEdge, "two-sided-long-edge"),
+    (Sides::ShortEdge, "two-sided-short-edge"),
+];
+/// Each color option and its IPP `print-color-mode` keyword.
+const COLORS: [(ColorMode, &str); 2] =
+    [(ColorMode::Mono, "monochrome"), (ColorMode::Color, "color")];
+
+fn keyword<T: PartialEq + Copy>(table: &[(T, &'static str)], option: T) -> &'static str {
+    table
+        .iter()
+        .find_map(|(each, keyword)| (*each == option).then_some(*keyword))
+        .unwrap_or_default()
+}
+
+/// The option a request's `name` keyword picks from `table`, if it is one.
+fn chosen<T: Copy>(attributes: &IppAttributes, name: &str, table: &[(T, &str)]) -> Option<T> {
+    let keyword = value(attributes, name)?.to_string();
+    table
+        .iter()
+        .find_map(|(each, name)| (*name == keyword).then_some(*each))
+}
+
 /// Windows names the rendered PDF `application/pdf`; some clients send
-/// `application/octet-stream`. The bytes are checked for a PDF either way.
-fn document_format(request: &IppRequestResponse) -> Result<(), StatusCode> {
-    if value(request, "document-format").is_some_and(|v| {
+/// `application/octet-stream`. Core checks the bytes either way.
+fn document_format(attributes: &IppAttributes) -> Result<(), StatusCode> {
+    if value(attributes, "document-format").is_some_and(|v| {
         !matches!(
             v.to_string().as_str(),
             "application/pdf" | "application/octet-stream"
@@ -632,39 +461,28 @@ fn document_format(request: &IppRequestResponse) -> Result<(), StatusCode> {
     }) {
         return Err(StatusCode::ClientErrorDocumentFormatNotSupported);
     }
-    if value(request, "compression").is_some_and(|v| v.to_string() != "none") {
+    if value(attributes, "compression").is_some_and(|v| v.to_string() != "none") {
         return Err(StatusCode::ClientErrorCompressionNotSupported);
     }
     Ok(())
 }
+
 /// Job settings never fail a job: a value this printer does not offer falls
-/// back to the queue default (long-edge duplex, monochrome), and copies are
-/// clamped to what the LPD transport repeats. The transport always sends
-/// whole documents, so copies are collated whatever
-/// `multiple-document-handling` asks.
-fn options(request: &IppRequestResponse) -> Result<PrintOptions, StatusCode> {
-    document_format(request)?;
-    let copies = match value(request, "copies") {
-        Some(IppValue::Integer(n)) => (*n).clamp(1, MAX_COPIES as i32) as u32,
+/// back to the printer's default, and copies are clamped to what LPD
+/// repeats. The transport always sends whole documents, so copies are
+/// collated whatever `multiple-document-handling` asks.
+fn options(attributes: &IppAttributes) -> Result<PrintOptions, StatusCode> {
+    document_format(attributes)?;
+    let defaults = CAPABILITIES.defaults;
+    let copies = match value(attributes, "copies") {
+        Some(IppValue::Integer(n)) => (*n).clamp(1, CAPABILITIES.max_copies as i32) as u32,
         _ => 1,
-    };
-    let duplex = match value(request, "sides").map(ToString::to_string).as_deref() {
-        Some("one-sided") => Duplex::Off,
-        Some("two-sided-short-edge") => Duplex::ShortEdge,
-        _ => Duplex::LongEdge,
-    };
-    let color = match value(request, "print-color-mode")
-        .map(ToString::to_string)
-        .as_deref()
-    {
-        Some("color") => ColorMode::Color,
-        _ => ColorMode::Mono,
     };
     Ok(PrintOptions {
         copies,
         settings: Settings {
-            duplex: Some(duplex),
-            color: Some(color),
+            sides: chosen(attributes, "sides", &SIDES).unwrap_or(defaults.sides),
+            color: chosen(attributes, "print-color-mode", &COLORS).unwrap_or(defaults.color),
         },
     })
 }

@@ -45,6 +45,10 @@ pub struct Core {
     events: Option<Arc<CoreEvents>>,
     pub(crate) reset_lease: crate::reset::ResetLease,
     finder: crate::course_query::FinderCache,
+    /// Campus print sends wait here for the one before them
+    /// (`Core::campus_print`).
+    #[cfg(all(feature = "campus-printer", any(windows, target_os = "android")))]
+    pub(crate) campus_print_turn: Arc<tokio::sync::Mutex<()>>,
 }
 
 struct CoreEvents {
@@ -341,6 +345,8 @@ impl Core {
             events,
             reset_lease: Default::default(),
             finder: Default::default(),
+            #[cfg(all(feature = "campus-printer", any(windows, target_os = "android")))]
+            campus_print_turn: Default::default(),
         }
     }
 

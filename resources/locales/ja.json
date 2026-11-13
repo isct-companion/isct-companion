@@ -876,7 +876,7 @@
   "campusPrint.window.sending": "送信中…",
   "campusPrint.window.sent": "プリンタに送信しました（{{copies}} 部）",
   "campusPrint.window.notAPdf": "このファイルは PDF でも PostScript でもありません。",
-  "campusPrint.window.copiesRange": "部数は 1〜99 で入力してください。",
+  "campusPrint.window.copiesRange": "部数は 1〜{{max}} で入力してください。",
   "campusPrint.window.couldNotReadTheFile": "ファイルを読み込めませんでした。",
   "campusPrint.window.unreachableAfter": "プリンタは {{printed}} 部を受け付けた後に接続できなくなりました。残りは送信されていません。学内ネットワークか Science Tokyo の VPN に接続してください。",
   "campusPrint.window.notPrinted": "プリンタがジョブを受け付けませんでした。何も印刷されていません。",

@@ -1,13 +1,21 @@
 use super::*;
+use crate::{
+    data::DataStore,
+    ports::{SecretError, SecretVault},
+    school_auth::SchoolAuthService,
+};
 
 const KEYWORD: u8 = 0x44;
 const MIME: u8 = 0x49;
 const INTEGER: u8 = 0x21;
+const NAME: u8 = 0x42;
 
-/// A request as Windows sends it on the wire, parsed by the same parser the
-/// receiver uses, so the tests read attributes exactly as `handle` does.
-fn request(attributes: &[(u8, &str, Vec<u8>)]) -> IppRequestResponse {
-    let mut bytes = vec![0x02, 0x00, 0x00, 0x05, 0, 0, 0, 1, 0x01];
+/// A request as Windows sends it on the wire: `operation`, its attributes,
+/// then the document.
+fn wire(operation: u16, attributes: &[(u8, &str, Vec<u8>)], document: &[u8]) -> Bytes {
+    let mut bytes = vec![0x02, 0x00];
+    bytes.extend_from_slice(&operation.to_be_bytes());
+    bytes.extend_from_slice(&[0, 0, 0, 1, 0x01]);
     let preamble = [
         (0x47, "attributes-charset", b"utf-8".to_vec()),
         (0x48, "attributes-natural-language", b"en".to_vec()),
@@ -20,7 +28,14 @@ fn request(attributes: &[(u8, &str, Vec<u8>)]) -> IppRequestResponse {
         bytes.extend_from_slice(value);
     }
     bytes.push(0x03);
-    IppParser::new(Cursor::new(bytes)).parse().unwrap()
+    bytes.extend_from_slice(document);
+    bytes.into()
+}
+
+/// The job options a Print-Job with `attributes` asks for, read exactly as
+/// `handle` reads them.
+fn options_of(attributes: &[(u8, &str, Vec<u8>)]) -> Result<PrintOptions, StatusCode> {
+    options(&parse(wire(2, attributes, b"")).unwrap().attributes)
 }
 
 fn keyword<'a>(name: &'a str, value: &str) -> (u8, &'a str, Vec<u8>) {
@@ -31,45 +46,36 @@ fn copies(n: i32) -> (u8, &'static str, Vec<u8>) {
     (INTEGER, "copies", n.to_be_bytes().to_vec())
 }
 
-fn settings(duplex: Duplex, color: ColorMode) -> Settings {
-    Settings {
-        duplex: Some(duplex),
-        color: Some(color),
-    }
+fn settings(sides: Sides, color: ColorMode) -> Settings {
+    Settings { sides, color }
 }
 
-// A job with no settings prints like the queue's defaults: one collated
+// A job with no settings prints like the printer's defaults: one collated
 // copy, long-edge duplex, monochrome.
 #[test]
-fn a_job_without_settings_gets_the_queue_defaults() {
-    let options = options(&request(&[])).unwrap();
+fn a_job_without_settings_gets_the_printer_defaults() {
+    let options = options_of(&[]).unwrap();
     assert_eq!(options.copies, 1);
-    assert_eq!(
-        options.settings,
-        settings(Duplex::LongEdge, ColorMode::Mono)
-    );
+    assert_eq!(options.settings, settings(Sides::LongEdge, ColorMode::Mono));
 }
 
-// What the dialog asked for is honoured where the printer offers it.
+// What the dialog asked for is honoured where the printer offers it, in the
+// one sides and color model every platform maps into.
 #[test]
 fn offered_settings_are_honoured() {
-    let options = options(&request(&[
+    let options = options_of(&[
         copies(3),
         keyword("sides", "two-sided-short-edge"),
         keyword("print-color-mode", "color"),
-    ]))
+    ])
     .unwrap();
     assert_eq!(options.copies, 3);
     assert_eq!(
         options.settings,
-        settings(Duplex::ShortEdge, ColorMode::Color)
+        settings(Sides::ShortEdge, ColorMode::Color)
     );
-    let one_sided = options_of(&[keyword("sides", "one-sided")]);
-    assert_eq!(one_sided.settings.duplex, Some(Duplex::Off));
-}
-
-fn options_of(attributes: &[(u8, &str, Vec<u8>)]) -> PrintOptions {
-    options(&request(attributes)).unwrap()
+    let one_sided = options_of(&[keyword("sides", "one-sided")]).unwrap();
+    assert_eq!(one_sided.settings.sides, Sides::OneSided);
 }
 
 // A value the printer does not offer never fails the job (Windows would
@@ -86,18 +92,17 @@ fn unoffered_settings_fall_back_instead_of_failing_the_job() {
             "multiple-document-handling",
             "separate-documents-uncollated-copies",
         ),
-    ]);
-    assert_eq!(options.copies, MAX_COPIES);
-    assert_eq!(
-        options.settings,
-        settings(Duplex::LongEdge, ColorMode::Mono)
-    );
-    assert_eq!(options_of(&[copies(0)]).copies, 1);
+    ])
+    .unwrap();
+    assert_eq!(options.copies, CAPABILITIES.max_copies);
+    assert_eq!(options.settings, settings(Sides::LongEdge, ColorMode::Mono));
+    assert_eq!(options_of(&[copies(0)]).unwrap().copies, 1);
     assert_eq!(
         options_of(&[keyword("print-color-mode", "bi-level")])
+            .unwrap()
             .settings
             .color,
-        Some(ColorMode::Mono)
+        ColorMode::Mono
     );
 }
 
@@ -106,51 +111,110 @@ fn unoffered_settings_fall_back_instead_of_failing_the_job() {
 #[test]
 fn only_uncompressed_pdf_documents_are_accepted() {
     for format in ["application/pdf", "application/octet-stream"] {
-        assert!(options(&request(&[(MIME, "document-format", format.into())])).is_ok());
+        assert!(options_of(&[(MIME, "document-format", format.into())]).is_ok());
     }
     assert!(matches!(
-        options(&request(&[(
-            MIME,
-            "document-format",
-            b"image/pwg-raster".to_vec()
-        )])),
+        options_of(&[(MIME, "document-format", b"image/pwg-raster".to_vec())]),
         Err(StatusCode::ClientErrorDocumentFormatNotSupported)
     ));
     assert!(matches!(
-        options(&request(&[keyword("compression", "gzip")])),
+        options_of(&[keyword("compression", "gzip")]),
         Err(StatusCode::ClientErrorCompressionNotSupported)
     ));
 }
 
-// A restart must retain the system's job ID and never turn an interrupted
-// delivery into a safe-to-resend pending job.
+// The document is exactly the bytes after the attributes; a wrong offset
+// would send a corrupt PDF.
 #[test]
-fn journal_recovers_pending_and_in_flight_jobs_without_reusing_ids() {
-    let path = std::env::temp_dir().join(format!("campus-ipp-{}.sqlite", uuid::Uuid::new_v4()));
-    {
-        let db = open_journal(path.clone()).unwrap();
-        db.execute("INSERT INTO jobs(id,title,student,state) VALUES (1,'pending','','pending'),(2,'sending','00B12345','processing'),(3,'done','00B12345','completed')", []).unwrap();
+fn the_document_starts_after_the_attributes() {
+    let request = parse(wire(2, &[copies(2)], b"%PDF-1.7 body")).unwrap();
+    assert_eq!(&request.document[..], b"%PDF-1.7 body");
+}
+
+struct NoAccounts;
+
+impl SecretVault for NoAccounts {
+    fn store(&self, _: &str, _: &str) -> Result<(), SecretError> {
+        Ok(())
     }
-    let db = open_journal(path.clone()).unwrap();
-    for id in 4..=140 {
-        db.execute(
-            "INSERT INTO jobs(id,title,student,state) VALUES (?1,'done','','completed')",
-            [id],
-        )
+    fn load(&self, _: &str) -> Result<Option<String>, SecretError> {
+        Ok(None)
+    }
+    fn delete(&self, _: &str) -> Result<(), SecretError> {
+        Ok(())
+    }
+}
+
+fn job_attribute<'a>(reply: &'a IppRequestResponse, name: &str) -> Option<&'a IppValue> {
+    reply
+        .attributes()
+        .groups_of(DelimiterTag::JobAttributes)
+        .find_map(|group| group.get(name))
+        .map(IppAttribute::value)
+}
+
+// Print-Job answers once the send has ended: a job that did not print is
+// aborted with Core's words for why, stays so for Windows' polls, and is
+// handed back for the person's notification.
+#[tokio::test]
+async fn a_failed_send_aborts_the_job_with_cores_message() {
+    let path = std::env::temp_dir().join(format!("campus-ipp-{}", uuid::Uuid::new_v4()));
+    let store = DataStore::initialize_dir(path).unwrap().0;
+    let core = Arc::new(Core::new(
+        store,
+        Arc::new(SchoolAuthService::new(NoAccounts)),
+    ));
+    let queue = CampusPrintQueue::new(
+        core,
+        "ipp://127.0.0.1:21000/ipp/test".into(),
+        "urn:uuid:test".into(),
+        Box::new(|message| message.key.to_string()),
+    );
+    let reply = queue
+        .handle(wire(
+            2,
+            &[(NAME, "job-name", b"report".to_vec())],
+            b"%PDF-1.7 body",
+        ))
+        .await
         .unwrap();
-    }
-    let (cache, next) = recover_jobs(&db).unwrap();
-    assert_eq!(next, 141);
-    assert_eq!(cache.len(), 128);
-    assert!(!cache.contains_key(&1));
-    let jobs: BTreeMap<_, _> = (1..=3)
-        .map(|id| (id, recover_job(&db, id).unwrap().unwrap()))
-        .collect();
-    assert_eq!(jobs[&1].state, JobState::Aborted);
-    assert!(jobs[&1].message.contains("not submitted"));
-    assert_eq!(jobs[&2].state, JobState::Aborted);
-    assert!(jobs[&2].message.contains("unknown"));
-    assert_eq!(jobs[&3].state, JobState::Completed);
-    drop(db);
-    std::fs::remove_file(path).unwrap();
+    let saved = "tools.campusPrinter.saveTheTokyoTechAccount";
+    assert_eq!(
+        reply.failed,
+        Some(Failure {
+            title: "report".into(),
+            text: saved.into()
+        })
+    );
+    let answer = IppParser::new(Cursor::new(reply.body)).parse().unwrap();
+    assert_eq!(
+        answer.header().operation_or_status,
+        StatusCode::SuccessfulOk as i16
+    );
+    assert_eq!(
+        job_attribute(&answer, "job-state"),
+        Some(&IppValue::Enum(JobState::Aborted.code()))
+    );
+    let Some(IppValue::Integer(id)) = job_attribute(&answer, "job-id").cloned() else {
+        panic!("no job-id");
+    };
+
+    let poll = queue
+        .handle(wire(
+            9,
+            &[(INTEGER, "job-id", id.to_be_bytes().to_vec())],
+            b"",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(poll.failed, None);
+    let poll = IppParser::new(Cursor::new(poll.body)).parse().unwrap();
+    assert_eq!(
+        job_attribute(&poll, "job-state"),
+        Some(&IppValue::Enum(JobState::Aborted.code()))
+    );
+    assert_eq!(
+        job_attribute(&poll, "job-state-message").map(ToString::to_string),
+        Some(saved.to_string())
+    );
 }

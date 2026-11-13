@@ -73,8 +73,6 @@ pub(crate) struct Inner {
     drive: Option<Arc<DriveAuth>>,
     pub notifications: Option<Arc<dyn NativeNotifications>>,
     pub files: PathBuf,
-    #[cfg(target_os = "android")]
-    pub campus_print: Arc<app_core::campus_printer::android::Service>,
     backup_directory: PathBuf,
     capabilities: Capabilities,
     browser_shutdown_error: Option<Arc<Mutex<Option<SdkError>>>>,
@@ -678,8 +676,6 @@ async fn initialize(
     let data = PathBuf::from(&config.data_directory);
     let files = PathBuf::from(&config.files_directory);
     let backup_directory = data.join("backups");
-    #[cfg(target_os = "android")]
-    let campus_print = app_core::campus_printer::android::Service::new(data.join("campus-print"));
     let drive = DriveAuth::new(vault.clone(), web_authentication, drive_tokens)?.map(Arc::new);
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
@@ -773,8 +769,6 @@ async fn initialize(
         drive,
         notifications,
         files,
-        #[cfg(target_os = "android")]
-        campus_print,
         backup_directory,
         capabilities,
         browser_shutdown_error,
@@ -793,10 +787,7 @@ async fn initialize(
         notifications: inner.notifications.as_ref().map(|sink| {
             Arc::new(Notifications(sink.clone())) as Arc<dyn app_core::schedule::NotificationSink>
         }),
-        cloud: inner
-            .capabilities
-            .cloud
-            .then(|| inner.sync_services.clone()),
+        cloud: inner.capabilities.cloud.then(|| inner.sync_services.clone()),
     });
     inner.core.start(&Handle::current())?;
     Ok(inner)

@@ -70,7 +70,7 @@ pub enum OperationResult {
         cells: Vec<crate::MatrixCell>,
     },
     CampusPrint {
-        result: crate::CampusPrintResult,
+        report: crate::CampusPrintReport,
     },
     Document {
         value: JsonValue,
