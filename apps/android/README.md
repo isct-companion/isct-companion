@@ -50,6 +50,7 @@ UniFFI checks signatures when the library loads.
 | `core/KeystoreVault.kt` | `NativeVault`: secrets sealed with an Android Keystore AES-GCM key, kept on this device |
 | `core/NotificationScheduler.kt` | Schedules Core's `notificationPlan` as alarms (64 pending at most) |
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |
+| `CampusPrintService.kt` | The campus printer as a system print service: every app's print dialog lists it, the system renders the PDF, Core verifies the student ID and sends it over LPD |
 | `BackgroundWake.kt` | The WorkManager wake that runs Core's `backgroundWake` out of front |
 | `features/*` | 今日 (class stack, exams and the quarter's assignments) · 時間割 (week picker, session marks, quarter .ics) · 授業 (wide windows) · ウェブ · 設定 (school accounts with the OTP authenticator setup, notifications, study profile, data updates, backup, ウェブ, reset), course and assignment pages |
 | `design/LmsContent.kt` | LMS text (`fromHtml`) and the material opener: Core downloads, a viewer app shows it through the `FileProvider` |
@@ -61,6 +62,12 @@ UniFFI checks signatures when the library loads.
 - 今日's 課題 renders the quarter's one Core task timeline (`AssignmentBoard.today`),
   the same groups desktop shows; すべて opens the full record
   (`AssignmentBoard.record`) with submitted work and hidden rows to restore.
+- The campus printer is in every app's system print dialog
+  (`CampusPrintService.kt`), with nothing to set up: Android enables the
+  print service on install. A job is billed to the student ID of the saved
+  Tokyo Tech Portal account and needs ScienceTokyo Wi-Fi; a failure is the
+  system's print notification, with its retry. iOS has no print service an
+  app can provide.
 - Logins stay on the device (Keystore); there is no iCloud Keychain to share
   them with the desktop app.
 - The quarter export is a share button in the 時間割 header rather than a long

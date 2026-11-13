@@ -88,6 +88,8 @@ windows = { version = "0.62", features = [
     "Storage",
     "Storage_Streams",
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",
@@ -99,9 +101,6 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-collections = "0.3"
-# The PDF right-click entry for the campus printer (campus_printer_windows.rs),
-# under HKCU; the version the windows crate above pairs with.
-windows-registry = "0.6"
 # WebView2's cookie manager: the identity cookies Core writes into the school
 # store (school_cookies.rs). The version wry already uses.
 webview2-com = "0.39"

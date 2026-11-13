@@ -102,6 +102,19 @@ async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(
     .map_err(|error| format!("notification task failed: {error}"))??)
 }
 
+/// A notification the shell raises itself, for work nobody has a window
+/// open on (the campus printer's background delivery). Failures are logged.
+#[cfg(target_os = "windows")]
+pub(crate) async fn show_text(app: &tauri::AppHandle, title: String, body: String) {
+    let shown = match NotificationContent::new(title, body) {
+        Ok(content) => show(app, &content).await,
+        Err(error) => Err(coded(error)),
+    };
+    if let Err(error) = shown {
+        log::warn!("[notifications] could not show a notification: {error}");
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn notify(
     webview: tauri::Webview,

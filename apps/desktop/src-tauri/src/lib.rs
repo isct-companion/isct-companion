@@ -212,14 +212,8 @@ pub fn run() {
     let _ = app_core::diagnostics::initialize();
     let builder = tauri::Builder::default();
     // Registered first, so a second launch hands over before anything starts.
-    // A running app gets a second launch's arguments here: the PDF
-    // right-click entry's file to print, or nothing, which shows the window.
     #[cfg(target_os = "windows")]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
-        #[cfg(tool = "campus-printer")]
-        if plugins::campus_printer::handles_launch(app, args) {
-            return;
-        }
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         window_close::show_main(app);
     }));
     let builder = builder
@@ -426,6 +420,8 @@ pub fn run() {
                 agent_server::AgentAccess::new(app.handle().clone())
                     .map_err(std::io::Error::other)?,
             );
+            #[cfg(all(windows, tool = "campus-printer"))]
+            plugins::campus_printer::queue::start(app.handle());
             {
                 let main_url = app_url();
                 // File drops belong to WebKit's page/file inputs, including
@@ -476,6 +472,8 @@ pub fn run() {
                 if !runtime.stopped() {
                     api.prevent_exit();
                     if runtime.begin_exit() {
+                        #[cfg(all(windows, tool = "campus-printer"))]
+                        plugins::campus_printer::queue::stop(app);
                         // Draining owned work can take up to EXIT_TIMEOUT. A
                         // window left on screen meanwhile reads as a frozen
                         // app, most visibly after "Install and quit".

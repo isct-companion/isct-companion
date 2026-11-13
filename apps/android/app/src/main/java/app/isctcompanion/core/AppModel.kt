@@ -25,6 +25,8 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -186,6 +188,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             runCatching { session.suspend() }
             scope.launch { BackgroundWake.schedule(context, directive) }
         }
+    }
+
+    /** One job from the system's print dialog (`CampusPrintService`): Core
+     * verifies the student ID it is billed to, sends the PDF and words how
+     * it ended. The print service can start the process with no activity,
+     * so the session opens here if it has not. `null` when there is no
+     * session to print with. */
+    suspend fun campusPrint(document: ByteArray, job: CampusPrintJob): CampusPrintReport? {
+        start()
+        val session = session ?: return null
+        return (withContext(Dispatchers.IO) { session.campusPrint(document, job) }.value() as? OperationResult.CampusPrint)?.report
     }
 
     /** One WorkManager opportunity out of front: Core reads what is due when

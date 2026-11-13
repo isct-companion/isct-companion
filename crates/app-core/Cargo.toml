@@ -13,8 +13,9 @@ workspace-archives = ["dep:zip"]
 # The tools of the local MCP server; only the desktop serves one.
 agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
-# The campus printer; desktop only, the phones never print to it.
-campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "tokio/net"]
+# The campus printer: the desktops, and Android through its print service
+# (app-ffi turns it on for that target only). iOS never prints to it.
+campus-printer = ["dep:adpt-printer", "dep:ipp", "tokio/net"]
 # The campus map: its Isct-Data file, room matching and floor read models;
 # only the iOS bindings switch it on for now.
 campus-map = ["dep:flate2"]
@@ -66,12 +67,11 @@ semver = "1"
 # Settings shows the OTP setup as a QR code for other authenticators.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
-# The campus printer's CUPS queue exists only on macOS.
-[target.'cfg(target_os = "macos")'.dependencies]
-adpt-cups = { path = "../adpt-cups", optional = true }
-
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+
+[target.'cfg(windows)'.dependencies]
+ipp = { version = "8", default-features = false, optional = true }
 
 [[example]]
 name = "export-types"
