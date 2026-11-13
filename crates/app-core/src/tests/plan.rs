@@ -1,7 +1,7 @@
-use super::runner::{ReadRefused, ReadRequest};
 use super::planner::{
     self, Candidate, Credential, Credentials, Depth, Facts, Inputs, Lane, ReferenceWatch, Waited,
 };
+use super::runner::{ReadRefused, ReadRequest};
 use super::*;
 use crate::{
     data::DataStore,
@@ -849,17 +849,30 @@ fn a_function_the_token_cannot_serve_moves_only_its_keys_to_the_cookie() {
         Via::Cookie
     );
     assert_eq!(
-        school::via(&deadlines, Depth::Light, &TokenFact::Absent { launchable: true }),
+        school::via(
+            &deadlines,
+            Depth::Light,
+            &TokenFact::Absent { launchable: true }
+        ),
         Via::Token
     );
     assert_eq!(
-        school::via(&deadlines, Depth::Light, &TokenFact::Absent { launchable: false }),
+        school::via(
+            &deadlines,
+            Depth::Light,
+            &TokenFact::Absent { launchable: false }
+        ),
         Via::Cookie
     );
     // The session gone and unrecoverable: the course waits, the deadlines
     // read over the token.
     let inputs = inputs(vec![
-        stored(Dataset::LmsCourse, "101", Some(now() - Duration::days(2)), None),
+        stored(
+            Dataset::LmsCourse,
+            "101",
+            Some(now() - Duration::days(2)),
+            None,
+        ),
         stored(
             Dataset::LmsDeadlines,
             "all",
@@ -913,6 +926,7 @@ fn tokyo_engine(name: &str) -> (PlanEngine, DataStore, SchoolSessions) {
     engine.attach_school(SchoolReaders {
         sessions: sessions.clone(),
         moodle: Arc::new(MoodleClient::new(auth, sessions.credential_signal())),
+        kyomu_menu: Default::default(),
     });
     (engine, store, sessions)
 }
@@ -1267,7 +1281,12 @@ fn the_next_deadline_includes_keys_that_are_not_due_yet() {
     let deadlines = key(Dataset::LmsDeadlines, "all");
     let enrolment = key(Dataset::LmsEnrolment, "all");
     let inputs = inputs(vec![
-        stored(Dataset::LmsDeadlines, "all", Some(now() - Duration::minutes(10)), None),
+        stored(
+            Dataset::LmsDeadlines,
+            "all",
+            Some(now() - Duration::minutes(10)),
+            None,
+        ),
         stored(
             Dataset::LmsEnrolment,
             "all",
@@ -1321,9 +1340,7 @@ async fn a_one_off_read_is_held_like_a_key_and_joins_its_equal() {
     engine.hint(Hint::Network {
         network: Network::Offline,
     });
-    let held = engine
-        .read(request("a"), |_| Box::pin(async { 1 }))
-        .await;
+    let held = engine.read(request("a"), |_| Box::pin(async { 1 })).await;
     assert_eq!(held, Err(ReadRefused::Held(Held::Offline)));
 
     engine.hint(Hint::Network {
@@ -1371,9 +1388,7 @@ async fn a_read_leased_before_a_write_does_not_commit_after_it() {
     let revision = engine.bump_resource(&before.key);
     assert_eq!(revision, 1);
     assert!(before.writer().enter().is_none());
-    engine
-        .settle_for_test(before, KeyEnd::Stale)
-        .await;
+    engine.settle_for_test(before, KeyEnd::Stale).await;
     engine.evaluate_now().await;
     let after = engine.lease_for_test(Lane::IsctData).unwrap();
     assert!(after.writer().enter().is_some());
@@ -1460,10 +1475,7 @@ async fn a_late_session_event_does_not_take_a_source_back() {
     use crate::school_session::{SchoolSessionSnapshot, SchoolSessionState, SchoolSessions};
     let (engine, _store) = engine("late-session-event");
     let session = |revision: u64, state: SchoolSessionState| {
-        let sessions = SchoolSessions::new(
-            None,
-            Arc::new(SchoolAuthService::new(EmptyVault)),
-        );
+        let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(EmptyVault)));
         let mut snapshot: SchoolSessionSnapshot = sessions.snapshot();
         snapshot.revision = revision;
         snapshot.profiles.science.state = state;

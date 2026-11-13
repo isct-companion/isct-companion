@@ -47,6 +47,8 @@ use url::Url;
 pub(crate) struct SchoolReaders {
     pub(crate) sessions: SchoolSessions,
     pub(crate) moodle: Arc<MoodleClient>,
+    /// The 教務Web session's student menu, read once per site instance.
+    pub(crate) kyomu_menu: kyomu::MenuCache,
 }
 
 /// The credential facts the planner holds keys by, as the school sessions
@@ -173,10 +175,9 @@ impl Operation for LmsKey<'_> {
                     .enrolment(&attempt, via, self.lease.depth == Depth::Full)
                     .await
                     .map(LmsRead::Enrolment),
-                Dataset::LmsDeadlines => open
-                    .deadlines(&attempt, via)
-                    .await
-                    .map(LmsRead::Deadlines),
+                Dataset::LmsDeadlines => {
+                    open.deadlines(&attempt, via).await.map(LmsRead::Deadlines)
+                }
                 Dataset::LmsCourse => {
                     let id = lms_course_key(key).ok_or_else(invalid_key)?;
                     open.course(&attempt, via, id, self.stored)
@@ -271,6 +272,7 @@ async fn lms_stored_modules(
 /// One 教務Web page, as an operation of the 教務Web session.
 struct KyomuPage<'a> {
     kind: &'a str,
+    menu: &'a kyomu::MenuCache,
 }
 
 impl Operation for KyomuPage<'_> {
@@ -278,7 +280,7 @@ impl Operation for KyomuPage<'_> {
     type Error = NetError;
 
     fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<KyomuPayload, NetError>> {
-        Box::pin(async move { kyomu::page(&attempt, self.kind).await })
+        Box::pin(async move { kyomu::page(&attempt, self.menu, self.kind).await })
     }
 }
 
@@ -295,7 +297,7 @@ pub(crate) async fn read_kyomu_page(
         .unwrap_or_default();
     let Some(kind) = adpt_isct::kyomu::PAGES
         .iter()
-        .map(|(_, kind)| *kind)
+        .map(|page| page.kind)
         .find(|kind| *kind == lease.key.key)
     else {
         return KeyEnd::failed("unsupported", source);
@@ -320,7 +322,10 @@ pub(crate) async fn read_kyomu_page(
             Site::Kyomu,
             &permit,
             lease.deadline,
-            &mut KyomuPage { kind },
+            &mut KyomuPage {
+                kind,
+                menu: &readers.kyomu_menu,
+            },
         )
         .await;
     let payload = match read {

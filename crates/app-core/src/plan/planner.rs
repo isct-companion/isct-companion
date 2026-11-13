@@ -399,7 +399,7 @@ struct Watch {
 pub(crate) fn kyomu_keys() -> Vec<Key> {
     adpt_isct::kyomu::PAGES
         .iter()
-        .map(|(_, page)| Key::new(Dataset::KyomuPage, *page))
+        .map(|page| Key::new(Dataset::KyomuPage, page.kind))
         .collect()
 }
 
@@ -930,16 +930,8 @@ pub(crate) fn plan(
             } else {
                 Depth::Light
             };
-            let held = hold(
-                &key,
-                watch.priority,
-                depth,
-                inputs,
-                facts,
-                credentials,
-                now,
-            )
-            .or(backoff);
+            let held =
+                hold(&key, watch.priority, depth, inputs, facts, credentials, now).or(backoff);
             let group = Group {
                 dataset: key.dataset,
                 scope: watch.scope.clone(),

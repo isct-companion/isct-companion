@@ -237,6 +237,7 @@ impl Core {
         sync.attach_school(crate::plan::SchoolReaders {
             sessions: sessions.clone(),
             moodle: moodle.clone(),
+            kyomu_menu: Default::default(),
         });
         let sync = Arc::new(sync);
         let plan_hints = sync.hints();
