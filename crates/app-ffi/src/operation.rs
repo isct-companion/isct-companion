@@ -55,10 +55,12 @@ pub enum OperationResult {
         assignments: Vec<crate::services::WaitingHandIn>,
     },
     /// `checked`: whether a check was due and ran; `release`: a newer build
-    /// for this platform, if it ran and found one.
+    /// for this platform, if it ran and found one; `prompt`: whether Core
+    /// offers it in the update prompt (`app_updates::prompts`).
     AppUpdate {
         checked: bool,
         release: Option<crate::services::AppRelease>,
+        prompt: bool,
     },
     Material {
         material: Material,
@@ -71,6 +73,11 @@ pub enum OperationResult {
     },
     CampusPrint {
         report: crate::CampusPrintReport,
+    },
+    /// A map page's scene; `None` when the intent changed nothing drawn.
+    #[cfg(feature = "campus-map")]
+    CampusMapScene {
+        scene: Option<CampusMapScene>,
     },
     Document {
         value: JsonValue,

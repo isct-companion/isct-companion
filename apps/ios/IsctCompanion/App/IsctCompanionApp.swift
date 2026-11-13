@@ -193,6 +193,7 @@ struct RootView: View {
     @State private var exportPress = TabItemPress<CalendarExportPick>()
     @State private var calendarFile: QuarterCalendarFile?
     @State private var exportError: String?
+    @Environment(\.openURL) private var openURL
     @Namespace private var zoom
 
     var body: some View {
@@ -258,6 +259,23 @@ struct RootView: View {
                 }
                 .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
                     Button("OK", role: .cancel) {}
+                }
+                // The update prompt, as on the desktop and Android: the App
+                // Store installs it; skipping and turning the checks off are
+                // this device's settings, which Settings › About turns back on.
+                .alert(
+                    t("appUpdate.prompt.title"),
+                    isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
+                    presenting: model.updateOffer
+                ) { release in
+                    Button(t("appUpdate.prompt.update")) {
+                        model.updateOffer = nil
+                        if let url = URL(string: release.url) { openURL(url) }
+                    }
+                    Button(t("appUpdate.prompt.skip")) { Task { await model.answerUpdate(skip: release.version) } }
+                    Button(t("appUpdate.prompt.turnOff")) { Task { await model.answerUpdate(turnOff: true) } }
+                } message: { release in
+                    Text(t("appUpdate.prompt.available", ["version": release.version]))
                 }
             }
         }

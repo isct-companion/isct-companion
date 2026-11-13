@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 161 checks must be re-run before the next release.**
+**5 of 162 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**156 checks have never been run or could not be run:**
+**157 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -112,6 +112,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-SHARE-HAND-IN` — never verified
 - `ANDROID-SHARE-HAND-IN` — never verified
 - `ANDROID-APP-UPDATE` — never verified
+- `APP-UPDATE-PROMPT` — never verified
 - `ANDROID-CAMPUS-PRINT` — never verified
 - `IOS-SETTINGS-PAGES` — never verified
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
@@ -217,7 +218,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-printer/src/cups.rs<br>crates/app-core/src/campus_printer.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx<br>crates/app-core/src/campus_printer.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
-| `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
+| `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/pages/about/IconToy.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
@@ -277,7 +278,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
-| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>crates/app-core/src/app_updates.rs |
+| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
@@ -2407,8 +2409,8 @@ The rail, the About page and the browser it opens.
 
 **Expected**
 
-About shows the version, updates and welcome tips, and the four links,
-license and sponsor last. Settings no longer lists About.
+About shows the version, updates and welcome tips, and the four link
+chips, license and sponsor last. Settings no longer lists About.
 
 **Why this is manual**
 
@@ -2421,7 +2423,7 @@ A layout and four links a person confirms at a glance in the real app.
 
 **Last recorded** never run
 
-### About has its own open composition in the app's colours, and it fits the window (`DESKTOP-ABOUT-DESIGN`)
+### About follows the website's first screen, with the icon as a toy, and fits the window (`DESKTOP-ABOUT-DESIGN`)
 
 **Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -2433,18 +2435,25 @@ A desktop build from this source.
 
 **Steps**
 
-1. Open About in light appearance, then dark, and rest the pointer on
-   each of the four link tiles.
-   - *Why:* The colours come from the app's tokens, so a wrong one shows only on a
-     rendered page. A tile that does not lift, or shows no action word, has
-     lost its hover state.
-2. Shrink the window to its smallest size, then switch to Japanese and
+1. Open About in light appearance, then dark. Rest the pointer on the
+   icon and move it side to side, tap two empty cells on one side, drag
+   the board and let go, then tap a lit cell again.
+   - *Why:* The icon keeps its own colours and the page uses the app's tokens, so
+     a wrong one shows only on a rendered page. The board must tip toward
+     the pointer, lean toward the heavier side and swing back after a drag;
+     a stuck or jittering board means the spring lost its frame loop.
+2. Leave About for another page and come back, then quit and reopen the
+   app.
+   - *Why:* The lit cells are remembered on this device; the page is kept alive,
+     so the swing must restart without the board freezing mid-tilt.
+3. Shrink the window to its smallest size, then switch to Japanese and
    large text.
-   - *Why:* The layout is fixed to the pane. Long labels are where a tile would
-     overlap its neighbour or the page would start to scroll.
-3. Turn on Reduce Motion in the system settings and reopen About.
-   - *Why:* The shape drifts without end, which must stop; a leftover animation
-     would run at the fast duration and flicker.
+   - *Why:* The layout is fixed to the pane. The name, the update line and the
+     link chips are where text would overlap the icon or the page would
+     start to scroll.
+4. Turn on Reduce Motion in the system settings and reopen About.
+   - *Why:* The board must stop swinging and the hint cell stop pulsing; tapping
+     a cell still tips the board, but straight to its rest angle.
 
 **Where to look**
 
@@ -2452,20 +2461,23 @@ The About page at each window size and appearance.
 
 **Expected**
 
-Large IsctCompanion name, one soft shape and a tilted icon, with the panel
-and four equal link tiles level, in the same colours as other pages. Nothing
-overlaps or scrolls at any size. With Reduce Motion the shape is still and
-the pieces only fade.
+Name with a yellow marker under "Companion", tagline, update button and
+status, the automatic-update switch and the welcome-tips button, version
+line, and four link chips on the left; the icon on the right rocks, leans
+and remembers its lit cells. Nothing overlaps or scrolls at any size. With
+Reduce Motion nothing swings and the pieces only fade.
 
 **Why this is manual**
 
-A look a person confirms at a glance in the real app; the system's Reduce
-Motion setting and the native window's sizes are not reachable headlessly.
+A look and a feel a person confirms at a glance in the real app; the
+system's Reduce Motion setting, pointer physics and the native window's
+sizes are not reachable headlessly.
 
 **Covers**
 
 - `apps/desktop/src/pages/about/about.css`
 - `apps/desktop/src/pages/about/AboutPage.tsx`
+- `apps/desktop/src/pages/about/IconToy.tsx`
 
 **Last recorded** never run
 
@@ -6071,7 +6083,7 @@ draft area need a device or emulator with a school account.
 
 **Last recorded** never run
 
-### Android offers a newer GitHub release and installs it through the system installer (`ANDROID-APP-UPDATE`)
+### Android prompts for a newer GitHub release, installs it through the system installer, and honours skip and turn-off (`ANDROID-APP-UPDATE`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6080,42 +6092,111 @@ draft area need a device or emulator with a school account.
 **Preconditions**
 
 An Android build older than the latest published GitHub release, whose
-APK is attached to that release, signed with the release key.
+APK is attached to that release, signed with the release key; automatic
+update checks on in 設定 › 情報 (the default).
 
 **Steps**
 
-1. Open the app (or bring it to the front) and read 今日.
-   - *Why:* Core finds the newer release with its APK and 今日 shows
-     「バージョン x.y.z が利用できます」 with 「アップデート」. No banner while
-     the release still lacks its APK means Core waits for it, as it should.
+1. Open the app (or bring it to the front).
+   - *Why:* Core finds the newer release with its APK and offers it: a dialog
+     「アップデートがあります」 with 「アップデート」「このバージョンをスキップ」
+     「自動で確認しない」. No dialog while the release still lacks its APK
+     means Core waits for it, as it should.
 2. Tap 「アップデート」; allow installing from this app if the system asks,
-   then tap it again.
+   then tap 設定 › 情報's update row.
    - *Why:* The APK downloads with the system's download manager (its
      notification shows), and the system installer opens on it; the
      person confirms there. An installer error about a conflicting
      package means the release APK was signed with another key.
-3. Install, reopen the app and read 今日.
-   - *Why:* The banner is gone, since the running version is the offered one.
+3. On a second older install, answer the dialog with
+   「このバージョンをスキップ」, clear the app from recents and open it
+   again after 12 hours (or change the device clock).
+   - *Why:* A skipped version is a device setting Core reads: the dialog must not
+     come back for it, while 設定 › 情報 still names the version.
+4. Turn 「アップデートを自動で確認」 off in 設定 › 情報, then tap the update
+   row.
+   - *Why:* Off stops the checks of the app's own; a check the person starts
+     still runs and shows its result in the row, never as a dialog.
 
 **Where to look**
 
-今日, the download notification and the system installer.
+The dialog, 設定 › 情報's update rows, the download notification and the system installer.
 
 **Expected**
 
 A newer release is offered once its APK is attached, downloads, and
-installs through the system installer after the person confirms.
+installs through the system installer after the person confirms; a
+skipped version and turned-off checks stop the dialog, and Settings turns
+the checks on again.
 
 **Why this is manual**
 
 Needs a published GitHub release, a release-signed APK and the system
-installer on a device.
+installer on a device. Which version is offered is Core's, covered by
+its app_updates suite.
 
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
-- `crates/app-core/src/app_updates.rs`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### The desktop and iOS/iPadOS prompt for a newer version, with update, skip and turn-off (`APP-UPDATE-PROMPT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build and an iPhone or iPad build older than the latest
+release (on iOS, the version the App Store lists in Japan); automatic
+update checks on (the default) and automatic updates off on the desktop.
+
+**Steps**
+
+1. Open the desktop app.
+   - *Why:* The dialog 「アップデートがあります」 names the version with three
+     buttons; 「アップデート」 downloads the signed update and installs and
+     quits. A dialog after a check started from About means the prompt is
+     shown for checks the person asked for, which it must not be.
+2. On iOS, bring the app to the front and tap 「アップデート」.
+   - *Why:* The App Store page of the app opens; nothing installs inside the app
+     (Apple's rule, approach/mobile-updates-and-sideload).
+3. On each, answer a later launch with 「このバージョンをスキップ」, then
+   on another with 「自動で確認しない」, and look at About (desktop) or
+   設定 › 情報 (iOS).
+   - *Why:* Skipping and turning off are this device's settings: the dialog does
+     not return, the switch 「アップデートを自動で確認」 shows off and turns
+     the checks on again, and another device keeps its own choice.
+
+**Where to look**
+
+The dialog, About on the desktop, 設定 › 情報 on iOS and the App Store page.
+
+**Expected**
+
+One dialog per launch for a version Core offers; update installs on the
+desktop and opens the App Store on iOS; skip and turn-off last on this
+device only and Settings undoes them.
+
+**Why this is manual**
+
+Needs an older signed build, a published release and the App Store
+listing; a person sees the dialog and where its buttons lead at a
+glance. Which version is offered is Core's, covered by its app_updates
+suite.
+
+**Covers**
+
+- `apps/desktop/src/app/useDesktopUpdates.ts`
+- `apps/desktop/src/components/confirm.tsx`
+- `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 
 **Last recorded** never run
 

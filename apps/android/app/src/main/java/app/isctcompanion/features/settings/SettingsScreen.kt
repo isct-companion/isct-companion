@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Notifications
 import app.isctcompanion.design.t
@@ -300,6 +301,8 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 Text(version.orEmpty(), color = Theme.colors.muted)
             }
             RowDivider(inset = ICON_ROW_INSET)
+            UpdateRows()
+            RowDivider(inset = ICON_ROW_INSET)
             ActionRow(t("settings.main.showWelcomeAndTipsAgain"), Icons.Rounded.Lightbulb) { Guide.reset() }
             RowDivider(inset = ICON_ROW_INSET)
             LogsRow()
@@ -396,6 +399,28 @@ private fun logText(context: Context): String {
     return exportApplicationLogs(
         "IsctCompanion ${version.orEmpty()} · Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}",
     )
+}
+
+/** The update check: what it found, or a check now, and whether this device
+ * checks on its own (Core reads `appUpdateChecks`; absent is on). */
+@Composable
+private fun UpdateRows() {
+    val model = LocalModel.current
+    val updater = model.updater
+    val scope = rememberCoroutineScope()
+    val release = updater.available
+    val title = when {
+        release != null -> t("appUpdate.prompt.available", "version" to release.version)
+        updater.upToDate -> t("appUpdate.upToDate")
+        else -> t("settings.about.checkForUpdates")
+    }
+    ActionRow(title, Icons.Rounded.SystemUpdate, enabled = !updater.checking && !updater.downloading) {
+        if (release != null) updater.install() else scope.launch { model.checkForUpdate(manual = true) }
+    }
+    RowDivider(inset = ICON_ROW_INSET)
+    SwitchRow(t("appUpdate.checkAutomatically"), model.records.settings.optBoolean("appUpdateChecks", true)) { on ->
+        scope.launch { model.updateSettings { it.put("appUpdateChecks", on) } }
+    }
 }
 
 /** An action row; with an icon it reads as a settings row, as on iOS. */

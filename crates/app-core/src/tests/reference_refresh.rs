@@ -76,11 +76,12 @@ impl ReferenceTransport for FakeTransport {
         &'a self,
         kind: &'a str,
         _index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         _expected_index_hash: &'a str,
         known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
+            let year = scope.year().unwrap_or(0);
             self.calls.lock().unwrap().push(FetchCall {
                 kind: kind.into(),
                 year,
@@ -123,7 +124,8 @@ async fn read(
     kind: &str,
     year: i32,
 ) -> KeyEnd {
-    let lease = Lease::detached(store, reference_key(kind, year)).with_locator(INDEX);
+    let lease =
+        Lease::detached(store, reference_key(kind, year_scope(kind, year))).with_locator(INDEX);
     let end = reader.read(&lease, probes).await;
     lease.ending(&end).write();
     end
@@ -135,9 +137,9 @@ fn due(store: &DataStore, kind: &str, year: i32) -> Due {
         .write(None, |transaction| {
             reference_due(
                 transaction,
-                &reference_key(kind, year),
+                &reference_key(kind, year_scope(kind, year)),
                 kind,
-                year,
+                year_scope(kind, year),
                 INDEX,
                 "2026-10-13T03:20:00Z".parse().unwrap(),
             )
@@ -233,14 +235,16 @@ fn seed(store: &DataStore, fetch: TransportFetch) {
 fn state(store: &DataStore, kind: &str, year: i32) -> Option<KeyState> {
     store
         .write(None, |transaction| {
-            sync_state::get(transaction, &reference_key(kind, year))
+            sync_state::get(transaction, &reference_key(kind, year_scope(kind, year)))
         })
         .unwrap()
 }
 
 fn rows(store: &DataStore, kind: &str, year: i32) -> usize {
     store
-        .write(None, |transaction| stored_rows(transaction, kind, year))
+        .write(None, |transaction| {
+            stored_rows(transaction, kind, year_scope(kind, year))
+        })
         .unwrap()
 }
 
@@ -285,7 +289,11 @@ async fn followed_files_share_one_index_probe_and_skip_disabled_kinds() {
     put_subscription(&store, "important-dates", false, json!({}));
     put_subscription(&store, "exams", true, json!({}));
     put_subscription(&store, "class-schedules", true, json!({}));
-    let followed = followed(&store.load_workspace().unwrap());
+    // Only academic-year files take part in this subscription test.
+    let followed: Vec<(String, i32, String)> = followed(&store.load_workspace().unwrap())
+        .into_iter()
+        .filter_map(|(kind, scope, url)| Some((kind, scope.year()?, url)))
+        .collect();
     assert_eq!(
         followed
             .iter()
@@ -333,7 +341,10 @@ async fn references_follow_the_selected_term_year() {
         .unwrap()
         .starts_with("2026"));
     let followed = followed(&workspace);
-    assert!(followed.iter().all(|(_, year, _)| *year == 2031));
+    assert!(followed
+        .iter()
+        .filter_map(|(_, scope, _)| scope.year())
+        .all(|year| year == 2031));
     let transport = Arc::new(FakeTransport::default());
     read(
         &store,
@@ -412,7 +423,7 @@ async fn validator_without_stored_rows_reads_the_file_in_full() {
             .write(None, |transaction| {
                 sync_state::commit(
                     transaction,
-                    &reference_key("calendar", stored_year),
+                    &reference_key("calendar", FileScope::AcademicYear(stored_year)),
                     Commit {
                         validator: Some(&format!("index-v1:remote-v1:8@{INDEX}")),
                         outcome: Outcome::Complete,
@@ -493,7 +504,7 @@ async fn suspicious_shrink_is_held_once_and_published_when_the_same_version_retu
     assert!(store
         .write(None, |transaction| sync_state::cursor(
             transaction,
-            &reference_key("calendar", 2026)
+            &reference_key("calendar", FileScope::AcademicYear(2026))
         ))
         .unwrap()
         .is_none());
@@ -565,11 +576,12 @@ impl ReferenceTransport for EditingTransport {
         &'a self,
         _kind: &'a str,
         _index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         _expected_index_hash: &'a str,
         _known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
+            let year = scope.year().unwrap_or(0);
             let mut row = self.store.user_rows("subscriptions")?.remove(0);
             let revision = row["rev"].as_u64().unwrap();
             row["url"] = json!("https://user.example/new-index.json");
@@ -619,13 +631,13 @@ impl ReferenceTransport for CancellingTransport {
         &'a self,
         _kind: &'a str,
         _index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         _expected_index_hash: &'a str,
         _known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
             self.cancel.cancel();
-            Ok(calendar_fetch(year))
+            Ok(calendar_fetch(scope.year().unwrap_or(0)))
         })
     }
 }
@@ -633,7 +645,8 @@ impl ReferenceTransport for CancellingTransport {
 #[tokio::test]
 async fn cancellation_before_applying_writes_no_data_or_metadata() {
     let store = store("cancel");
-    let lease = Lease::detached(&store, reference_key("calendar", 2026)).with_locator(INDEX);
+    let lease = Lease::detached(&store, reference_key("calendar", FileScope::AcademicYear(2026)))
+        .with_locator(INDEX);
     let reader = reader(Arc::new(CancellingTransport {
         cancel: lease.cancel.clone(),
     }));
@@ -658,7 +671,7 @@ async fn the_study_guide_follows_the_admission_year_and_stays_fresh_for_a_year()
     let followed_kinds = |store: &DataStore| {
         followed(&store.load_workspace().unwrap())
             .into_iter()
-            .map(|(kind, year, _)| (kind, year))
+            .filter_map(|(kind, scope, _)| Some((kind, scope.year()?)))
             .collect::<Vec<_>>()
     };
     assert!(!followed_kinds(&store)
@@ -707,9 +720,9 @@ async fn the_study_guide_follows_the_admission_year_and_stays_fresh_for_a_year()
             .write(None, |transaction| {
                 reference_due(
                     transaction,
-                    &reference_key("departments", 2025),
+                    &reference_key("departments", FileScope::AdmissionYear(2025)),
                     "departments",
-                    2025,
+                    FileScope::AdmissionYear(2025),
                     INDEX,
                     now.parse().unwrap(),
                 )

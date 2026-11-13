@@ -1,5 +1,6 @@
 //! Reference files: what the person follows, when a file is due, and the
-//! executor that reads one leased `reference/{kind}/{year}` key.
+//! executor that reads one leased reference key: `{kind}/{year}` for a file
+//! chosen by a year, `campus-map/v1` for the campus map.
 
 use crate::{
     data::{DataError, WorkspaceChangeSource},
@@ -10,6 +11,8 @@ use crate::{
     plan::{Gated, KeyEnd, Lease},
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, Term},
 };
+#[cfg(feature = "campus-map")]
+use crate::campus_map::CampusMapFile;
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, Transaction};
 use serde_json::{json, Value};
@@ -38,6 +41,79 @@ pub const REFERENCE_KINDS: [&str; 5] = [
 const DEPARTMENTS_TTL: chrono::Duration = chrono::Duration::days(365);
 /// `error_kind` of a public file held back because it shrank suspiciously.
 pub(crate) const SUSPICIOUS_SHRINK: &str = "suspicious-shrink";
+/// The campus map's kind. It is no subscription: Core always follows it
+/// from the public index, and it is not among [`REFERENCE_KINDS`].
+#[cfg(feature = "campus-map")]
+pub(crate) const CAMPUS_MAP_KIND: &str = "campus-map";
+
+/// What a reference file is chosen by: the second part of its key.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FileScope {
+    /// The academic year of the term being viewed.
+    AcademicYear(i32),
+    /// The person's admission year: the study guide.
+    AdmissionYear(i32),
+    /// The whole campus, one file per format version (`v1`).
+    #[cfg(feature = "campus-map")]
+    Campus,
+}
+
+impl FileScope {
+    /// The key segment: the year, or the format version.
+    fn segment(self) -> String {
+        match self {
+            Self::AcademicYear(year) | Self::AdmissionYear(year) => year.to_string(),
+            #[cfg(feature = "campus-map")]
+            Self::Campus => format!("v{}", crate::campus_map::FORMAT_VERSION),
+        }
+    }
+
+    fn year(self) -> Option<i32> {
+        match self {
+            Self::AcademicYear(year) | Self::AdmissionYear(year) => Some(year),
+            #[cfg(feature = "campus-map")]
+            Self::Campus => None,
+        }
+    }
+}
+
+/// The scope of a kind chosen by a year: the study guide by the admission
+/// year, everything else by the academic year.
+pub(crate) fn year_scope(kind: &str, year: i32) -> FileScope {
+    if kind == "departments" {
+        FileScope::AdmissionYear(year)
+    } else {
+        FileScope::AcademicYear(year)
+    }
+}
+
+/// A reference key's kind and scope; `None` for a key no reader knows.
+fn parse_key(key: &str) -> Option<(String, FileScope)> {
+    let (kind, segment) = key.rsplit_once('/')?;
+    #[cfg(feature = "campus-map")]
+    if kind == CAMPUS_MAP_KIND {
+        return (segment == FileScope::Campus.segment())
+            .then(|| (kind.to_string(), FileScope::Campus));
+    }
+    let year = segment.parse::<i32>().ok()?;
+    REFERENCE_KINDS
+        .contains(&kind)
+        .then(|| (kind.to_string(), year_scope(kind, year)))
+}
+
+/// Reference keys read ahead of other background work and on cellular too:
+/// the campus map, which the map buttons wait for.
+pub(crate) fn raised(key: &Key) -> bool {
+    #[cfg(feature = "campus-map")]
+    {
+        *key == reference_key(CAMPUS_MAP_KIND, FileScope::Campus)
+    }
+    #[cfg(not(feature = "campus-map"))]
+    {
+        let _ = key;
+        false
+    }
+}
 type ReferenceTransportFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, SubscriptionError>> + Send + 'a>>;
 
@@ -91,6 +167,8 @@ enum ReferencePayload {
     ImportantDates(ImportantDates),
     Exams(Vec<PublishedExamFeed>),
     ClassSchedules(ClassSchedules),
+    #[cfg(feature = "campus-map")]
+    CampusMap(CampusMapFile),
 }
 
 #[derive(Clone, Debug)]
@@ -140,6 +218,12 @@ impl From<Vec<PublishedExamFeed>> for ReferencePayload {
         Self::Exams(value)
     }
 }
+#[cfg(feature = "campus-map")]
+impl From<CampusMapFile> for ReferencePayload {
+    fn from(value: CampusMapFile) -> Self {
+        Self::CampusMap(value)
+    }
+}
 
 impl ReferencePayload {
     /// Rows this version publishes.
@@ -154,6 +238,8 @@ impl ReferencePayload {
             Self::ImportantDates(dates) => dates.entries.len(),
             Self::Exams(feeds) => feeds.iter().map(|feed| feed.feed.entries.len()).sum(),
             Self::ClassSchedules(schedules) => schedules.entries.len(),
+            #[cfg(feature = "campus-map")]
+            Self::CampusMap(file) => file.units,
         }
     }
 
@@ -180,6 +266,11 @@ impl ReferencePayload {
                 subscriptions::apply_class_schedules(transaction, value)?,
                 None,
             ),
+            #[cfg(feature = "campus-map")]
+            Self::CampusMap(file) => (
+                crate::data::put_campus_map(transaction, &file.hash, &file.gz, file.units)?,
+                None,
+            ),
             Self::Exams(feeds) => {
                 let mut changed = 0;
                 let mut files = Vec::new();
@@ -203,7 +294,7 @@ trait ReferenceTransport: Send + Sync {
         &'a self,
         kind: &'a str,
         index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         expected_index_hash: &'a str,
         known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch>;
@@ -224,12 +315,22 @@ impl ReferenceTransport for HttpReferenceTransport {
         &'a self,
         kind: &'a str,
         index_url: &'a str,
-        year: i32,
+        scope: FileScope,
         expected_index_hash: &'a str,
         known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
             let client = SubscriptionClient::new()?;
+            #[cfg(feature = "campus-map")]
+            if scope == FileScope::Campus {
+                return Ok(client
+                    .fetch_campus_map(index_url, Some(expected_index_hash), known_hash)
+                    .await?
+                    .into());
+            }
+            let year = scope.year().ok_or_else(|| {
+                SubscriptionError::Validation("this file is not chosen by a year".into())
+            })?;
             match kind {
                 "calendar" => Ok(client
                     .fetch_calendar(index_url, year, Some(expected_index_hash), known_hash)
@@ -292,23 +393,28 @@ impl IndexProbes {
 }
 
 /// The reference files the person follows: every enabled kind for its
-/// year (`subscription_year`), from its subscription's index.
-pub(crate) fn followed(workspace: &Value) -> Vec<(String, i32, String)> {
-    REFERENCE_KINDS
-        .iter()
-        .filter_map(|kind| {
-            let year = subscription_year(workspace, kind)?;
-            let row = subscription_row(workspace, kind);
-            if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
-                return None;
-            }
-            let index_url = row
-                .and_then(|row| row["url"].as_str())
-                .and_then(normalized_index)
-                .unwrap_or_else(|| PUBLIC_INDEX.to_string());
-            Some(((*kind).to_string(), year, index_url))
-        })
-        .collect()
+/// year (`subscription_year`), from its subscription's index; and the campus
+/// map, always, from the public index.
+pub(crate) fn followed(workspace: &Value) -> Vec<(String, FileScope, String)> {
+    let followed = REFERENCE_KINDS.iter().filter_map(|kind| {
+        let year = subscription_year(workspace, kind)?;
+        let row = subscription_row(workspace, kind);
+        if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
+            return None;
+        }
+        let index_url = row
+            .and_then(|row| row["url"].as_str())
+            .and_then(normalized_index)
+            .unwrap_or_else(|| PUBLIC_INDEX.to_string());
+        Some(((*kind).to_string(), year_scope(kind, year), index_url))
+    });
+    #[cfg(feature = "campus-map")]
+    let followed = followed.chain(std::iter::once((
+        CAMPUS_MAP_KIND.to_string(),
+        FileScope::Campus,
+        PUBLIC_INDEX.to_string(),
+    )));
+    followed.collect()
 }
 
 /// An HTTPS index URL without credentials or fragment.
@@ -333,11 +439,11 @@ pub(crate) fn reference_due(
     connection: &Connection,
     key: &Key,
     kind: &str,
-    year: i32,
+    scope: FileScope,
     index_url: &str,
     now: DateTime<Utc>,
 ) -> Result<(Due, Option<DateTime<Utc>>), DataError> {
-    let stored = StoredFile::read(connection, key, kind, year)?;
+    let stored = StoredFile::read(connection, key, kind, scope)?;
     let ttl = if kind == "departments" {
         Some(DEPARTMENTS_TTL)
     } else {
@@ -395,16 +501,18 @@ impl ReferenceReader {
             .locator
             .clone()
             .unwrap_or_else(|| PUBLIC_INDEX.to_string());
-        let Some((kind, year)) = lease
-            .key
-            .key
-            .rsplit_once('/')
-            .and_then(|(kind, year)| Some((kind.to_string(), year.parse::<i32>().ok()?)))
-            .filter(|(kind, _)| REFERENCE_KINDS.contains(&kind.as_str()))
-        else {
+        let Some((kind, scope)) = parse_key(&lease.key.key) else {
             return KeyEnd::failed("unsupported", index_url);
         };
-        match self.read_kind(lease, &kind, year, &index_url, probes).await {
+        let read = match scope {
+            FileScope::AcademicYear(year) | FileScope::AdmissionYear(year) => {
+                self.read_kind(lease, &kind, scope, year, &index_url, probes)
+                    .await
+            }
+            #[cfg(feature = "campus-map")]
+            FileScope::Campus => self.read_public(lease, &kind, scope, &index_url, probes).await,
+        };
+        match read {
             Ok(Read::Current(value)) => KeyEnd::Done {
                 changed: value["changed"]
                     .as_u64()
@@ -426,6 +534,7 @@ impl ReferenceReader {
         &self,
         lease: &Lease,
         kind: &str,
+        scope: FileScope,
         year: i32,
         index_url: &str,
         probes: &IndexProbes,
@@ -435,7 +544,7 @@ impl ReferenceReader {
         let workspace = store.load_fields(&["subscriptions"])?;
         let existing = subscription_row(&workspace, kind);
         let stored = store.write(None, |transaction| {
-            StoredFile::read(transaction, &lease.key, kind, year)
+            StoredFile::read(transaction, &lease.key, kind, scope)
         })?;
         let mut row = existing.cloned().unwrap_or_else(|| {
             json!({
@@ -450,7 +559,7 @@ impl ReferenceReader {
             object.remove("remoteHash");
         }
         let result = self
-            .read_file(lease, kind, year, index_url, probes, &stored)
+            .read_file(lease, kind, scope, index_url, probes, &stored)
             .await;
         if lease.is_cancelled() {
             return Err(ReferenceError::Cancelled);
@@ -499,6 +608,29 @@ impl ReferenceReader {
         result
     }
 
+    /// Reads a file no subscription row describes (the campus map): only
+    /// the file and its freshness.
+    #[cfg(feature = "campus-map")]
+    async fn read_public(
+        &self,
+        lease: &Lease,
+        kind: &str,
+        scope: FileScope,
+        index_url: &str,
+        probes: &IndexProbes,
+    ) -> Result<Read, ReferenceError> {
+        let stored = lease.writer().store().write(None, |transaction| {
+            StoredFile::read(transaction, &lease.key, kind, scope)
+        })?;
+        let result = self
+            .read_file(lease, kind, scope, index_url, probes, &stored)
+            .await;
+        if lease.is_cancelled() {
+            return Err(ReferenceError::Cancelled);
+        }
+        result
+    }
+
     /// Reads one Isct-Data file. A matching validator only renews freshness
     /// when the file's rows are stored; a fetched file replaces its rows and
     /// is marked fresh in one transaction, unless it shrank suspiciously.
@@ -506,7 +638,7 @@ impl ReferenceReader {
         &self,
         lease: &Lease,
         kind: &str,
-        year: i32,
+        scope: FileScope,
         index_url: &str,
         probes: &IndexProbes,
         stored: &StoredFile,
@@ -566,7 +698,7 @@ impl ReferenceReader {
             .map(|validator| validator.file_hash.as_str());
         let fetched = self
             .transport
-            .fetch(kind, index_url, year, &index_hash, known_hash)
+            .fetch(kind, index_url, scope, &index_hash, known_hash)
             .await?;
         if lease.is_cancelled() {
             return Err(ReferenceError::Cancelled);
@@ -589,7 +721,7 @@ impl ReferenceReader {
             let committed = write(
                 None,
                 &mut |transaction: &Transaction<'_>| -> Result<Read, ReferenceError> {
-                    if next.rows > 0 && stored_rows(transaction, kind, year)? == 0 {
+                    if next.rows > 0 && stored_rows(transaction, kind, scope)? == 0 {
                         return Ok(Read::Held);
                     }
                     sync_state::set_cursor(transaction, key, None)?;
@@ -626,7 +758,7 @@ impl ReferenceReader {
             Some(WorkspaceChangeSource::ReferencePull),
             &mut |transaction: &Transaction<'_>| -> Result<Read, ReferenceError> {
                 let pending = sync_state::cursor(transaction, key)?;
-                if suspicious_shrink(stored_rows(transaction, kind, year)?, next.rows)
+                if suspicious_shrink(stored_rows(transaction, kind, scope)?, next.rows)
                     && pending.as_deref() != Some(fetched.remote_hash.as_str())
                 {
                     // Publish only when a later read returns this same version.
@@ -715,11 +847,16 @@ struct StoredFile {
 }
 
 impl StoredFile {
-    fn read(connection: &Connection, key: &Key, kind: &str, year: i32) -> Result<Self, DataError> {
+    fn read(
+        connection: &Connection,
+        key: &Key,
+        kind: &str,
+        scope: FileScope,
+    ) -> Result<Self, DataError> {
         Ok(Self {
             state: sync_state::get(connection, key)?,
             held: sync_state::cursor(connection, key)?,
-            rows: stored_rows(connection, kind, year)?,
+            rows: stored_rows(connection, kind, scope)?,
         })
     }
 
@@ -737,12 +874,20 @@ impl StoredFile {
     }
 }
 
-pub(crate) fn reference_key(kind: &str, year: i32) -> Key {
-    Key::new(Dataset::Reference, format!("{kind}/{year}"))
+pub(crate) fn reference_key(kind: &str, scope: FileScope) -> Key {
+    Key::new(
+        Dataset::Reference,
+        format!("{kind}/{}", scope.segment()),
+    )
 }
 
-/// Live rows one reference file published.
-fn stored_rows(connection: &Connection, kind: &str, year: i32) -> Result<usize, DataError> {
+/// Live rows one reference file published; the campus map counts its units.
+fn stored_rows(connection: &Connection, kind: &str, scope: FileScope) -> Result<usize, DataError> {
+    let year = match scope {
+        FileScope::AcademicYear(year) | FileScope::AdmissionYear(year) => year,
+        #[cfg(feature = "campus-map")]
+        FileScope::Campus => return crate::data::campus_map_units(connection),
+    };
     let sources: &[(&str, &str)] = match kind {
         "calendar" => &[("academic_calendar", "calendar")],
         "departments" => &[("departments", "cohort"), ("recommended_courses", "cohort")],

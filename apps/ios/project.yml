@@ -75,6 +75,8 @@ targets:
         LSSupportsOpeningDocumentsInPlace: false
         NSCameraUsageDescription: 認証アプリの QR コードやマトリクス表を読み取るためにカメラを使います。
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
+        # The campus map's blue dot (CampusMapLocation); never in the background.
+        NSLocationWhenInUseUsageDescription: キャンパスマップに現在地を表示するために使います。
         # Google Drive sign-in (GoogleSignIn.swift): the iOS client registered in
         # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
         # this in step with that file.

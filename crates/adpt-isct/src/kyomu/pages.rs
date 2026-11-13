@@ -681,6 +681,72 @@ fn grades(document: &Html) -> Read {
     Err("The grade page shape is unknown.")
 }
 
+/// A requirement row: its label and its values, one per header after the
+/// corner.
+type RequirementRow = (String, Vec<String>);
+
+/// Headers and rows of one requirement table, in the undergraduate layout's
+/// shape: header `n + 1` names value `n` of every row.
+type RequirementTable = (Vec<String>, Vec<RequirementRow>);
+
+/// How a requirement table is laid out, told by what the table itself shows.
+/// Each layout is read only on its own evidence; a table that shows none is
+/// refused rather than guessed at.
+#[derive(Debug, Eq, PartialEq)]
+enum Layout {
+    /// The undergraduate page: a column per category, a row per measure
+    /// (卒業要件, 修得済単位), named in the first cell.
+    ByMeasure,
+    /// The master's page (修了要件 <コース>): the measures head the columns
+    /// from `split` on, and each row is a category named by the cells before.
+    ByCategory { split: usize },
+    /// The master's page lists the GA earned under its own heading, in a
+    /// headerless table of codes (`GA0M`).
+    EarnedGa,
+    /// Fewer than two columns and not the GA list.
+    NoHeader,
+    /// No row and no header names a measure.
+    Unknown,
+}
+
+fn is_measure(text: &str) -> bool {
+    regex!(r"(?:卒業|修了)要件|修得済単位").is_some_and(|pattern| pattern.is_match(text))
+}
+
+/// The layout of `table`, whose header row is `headers` and whose non-empty
+/// data rows are `rows`. A measure in a row's first cell wins over one in the
+/// headers; no live page has both.
+fn classify(
+    document: &Html,
+    table: ElementRef<'_>,
+    headers: &[String],
+    rows: &[&Vec<String>],
+) -> Layout {
+    if heading_before(document, table) == "修得済GA" {
+        return Layout::EarnedGa;
+    }
+    if headers.len() < 2 {
+        return Layout::NoHeader;
+    }
+    if rows
+        .iter()
+        .any(|row| row.first().is_some_and(|label| is_measure(label)))
+    {
+        return Layout::ByMeasure;
+    }
+    // The leading columns share the corner's header (an empty cell spanning
+    // them on the live page); the measures follow.
+    let corner = &headers[0];
+    match headers.iter().position(|header| header != corner) {
+        Some(split)
+            if !is_measure(corner) && headers[split..].iter().any(|header| is_measure(header)) =>
+        {
+            Layout::ByCategory { split }
+        }
+        _ => Layout::Unknown,
+    }
+}
+
 fn requirements(document: &Html) -> Read {
     let root = first(document.root_element(), "div.tableSet02Tbl")
         .ok_or("The requirement page shape is unknown.")?;
@@ -694,27 +760,20 @@ fn requirements(document: &Html) -> Read {
             rows => rows,
         };
         let page = table_data(table, known);
-        if page.headers.len() < 2 {
-            return Err("A requirement table has no semantic header.");
-        }
-        let rows: Vec<(String, Vec<String>)> = page
+        let data: Vec<&Vec<String>> = page
             .rows
             .iter()
             .filter(|row| {
                 row.iter().any(|cell| !cell.is_empty()) && !explicit_empty(&row.join(" "))
             })
-            .map(|row| {
-                (
-                    row.first().cloned().unwrap_or_default(),
-                    row.iter().skip(1).cloned().collect(),
-                )
-            })
             .collect();
-        if !rows.iter().any(|(label, _)| {
-            regex!(r"(?:卒業|修了)要件|修得済単位").is_some_and(|pattern| pattern.is_match(label))
-        }) {
-            return Err("A requirement table has no recognized rows.");
-        }
+        let (headers, rows) = match classify(document, table, &page.headers, &data) {
+            Layout::ByMeasure => by_measure(&page.headers, &data),
+            Layout::ByCategory { split } => by_category(&page.headers, &data, split),
+            Layout::EarnedGa => earned_ga(table),
+            Layout::NoHeader => return Err("A requirement table has no semantic header."),
+            Layout::Unknown => return Err("A requirement table has no recognized rows."),
+        };
         if rows.iter().any(|(label, _)| label.is_empty()) {
             return Err("A requirement row has no label.");
         }
@@ -722,7 +781,7 @@ fn requirements(document: &Html) -> Read {
             .into_iter()
             .map(|(label, values)| json!({ "label": label, "values": values }))
             .collect();
-        tables.push(json!({ "headers": page.headers, "rows": rows }));
+        tables.push(json!({ "headers": headers, "rows": rows }));
     }
     if !tables.is_empty() {
         return complete("requirements-tables", json!({ "tables": tables }), false);
@@ -731,6 +790,60 @@ fn requirements(document: &Html) -> Read {
         return complete("requirements-tables", json!({ "tables": [] }), true);
     }
     Err("The requirement page shape is unknown.")
+}
+
+/// `Layout::ByMeasure`: the first cell names the row, the rest are its values
+/// under the headers as they are.
+fn by_measure(headers: &[String], rows: &[&Vec<String>]) -> RequirementTable {
+    let rows = rows
+        .iter()
+        .map(|row| {
+            (
+                row.first().cloned().unwrap_or_default(),
+                row.iter().skip(1).cloned().collect(),
+            )
+        })
+        .collect();
+    (headers.to_vec(), rows)
+}
+
+/// `Layout::ByCategory`: a row's label is its cells before `split`, distinct
+/// and joined with " / " (`教養科目群 / 文系教養科目（400番台）`; one cell when
+/// they span across, as `合計<A+B+C>` does), so two rows of one group never
+/// share a label. The headers come back as the corner plus the measures.
+fn by_category(headers: &[String], rows: &[&Vec<String>], split: usize) -> RequirementTable {
+    let rows = rows
+        .iter()
+        .map(|row| {
+            let mut parts: Vec<&str> = Vec::new();
+            for cell in row.iter().take(split) {
+                if !cell.is_empty() && !parts.contains(&cell.as_str()) {
+                    parts.push(cell);
+                }
+            }
+            (parts.join(" / "), row.iter().skip(split).cloned().collect())
+        })
+        .collect();
+    let headers = headers[..1]
+        .iter()
+        .chain(&headers[split..])
+        .cloned()
+        .collect();
+    (headers, rows)
+}
+
+/// `Layout::EarnedGa`: the codes in the table, distinct, as one row.
+fn earned_ga(table: ElementRef<'_>) -> RequirementTable {
+    let mut codes: Vec<String> = Vec::new();
+    for cell in matrix(table).into_iter().flatten() {
+        if !cell.is_empty() && !explicit_empty(&cell) && !codes.contains(&cell) {
+            codes.push(cell);
+        }
+    }
+    (
+        vec![String::new(), "修得済GA".into()],
+        vec![("修得済GA".into(), vec![codes.join(" ")])],
+    )
 }
 
 fn gpa(document: &Html) -> Read {

@@ -179,7 +179,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "../../adpt-isct/src/kyomu/search.rs",
     ];
     let mut output = quote! { use crate::json::JsonValue; use serde::{Serialize, Deserialize}; use std::collections::HashMap; };
-    for name in files {
+    // The map's read models exist only in builds that have the map.
+    let campus_map = env::var_os("CARGO_FEATURE_CAMPUS_MAP").map(|_| "campus_map/mod.rs");
+    for name in files.into_iter().chain(campus_map) {
         let path = core.join(name);
         println!("cargo:rerun-if-changed={}", path.display());
         let file = syn::parse_file(&fs::read_to_string(path)?)?;

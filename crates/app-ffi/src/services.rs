@@ -295,7 +295,33 @@ pub enum SchoolFile {
     External { url: String },
 }
 
-/// A newer release for this device: its version and the package to install.
+/// Where this platform's releases come from, fixed at build time.
+#[cfg(target_os = "android")]
+async fn fetch_release(
+    running: &str,
+) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
+    app_core::app_updates::fetch_android(running).await
+}
+
+#[cfg(target_os = "ios")]
+async fn fetch_release(
+    running: &str,
+) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
+    app_core::app_updates::fetch_app_store(running).await
+}
+
+/// Host builds (tests, binding generation) have no store to read.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+async fn fetch_release(
+    _running: &str,
+) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
+    Err(app_core::app_updates::AppUpdateError::Network(
+        "This build has no update source.".into(),
+    ))
+}
+
+/// A newer release for this device: its version and where it comes from (the
+/// APK on Android, the App Store page on iOS and iPadOS).
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct AppRelease {
     pub version: String,
@@ -351,30 +377,46 @@ fn assignment_detail(
 /// LMS draft area from it. Core never submits; the person saves the page.
 #[uniffi::export]
 impl Session {
-    /// Android's update check: a newer published release with its APK, when a
-    /// check is due after `last_checked` (or `manual`). The shell downloads
-    /// the APK and hands it to the system installer, where the person confirms.
-    pub fn check_android_update(
+    /// The update check of a phone or tablet: a newer release, when a check
+    /// is due after `last_checked` and this device's settings let it run, or
+    /// now (`manual`). Core decides whether the release is offered in the
+    /// prompt (`prompt`), skipping the version the person skipped. Android
+    /// reads GitHub's release with its APK, which the shell hands to the
+    /// system installer; iOS and iPadOS read the App Store listing, which the
+    /// shell opens.
+    pub fn check_app_update(
         &self,
         running: String,
         last_checked: Option<String>,
         manual: bool,
     ) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |_, _| async move {
-            let found = app_core::app_updates::check_android(
-                &running,
+        self.start(false, move |inner, _| async move {
+            let workspace = inner.core.store.load_fields(&[])?;
+            if !app_core::app_updates::check_now(
+                &workspace,
                 last_checked.as_deref(),
                 chrono::Utc::now(),
                 manual,
-            )
-            .await
-            .map_err(|error| crate::error::coded(&error))?;
+            ) {
+                return Ok(OperationResult::AppUpdate {
+                    checked: false,
+                    release: None,
+                    prompt: false,
+                });
+            }
+            let found = fetch_release(&running)
+                .await
+                .map_err(|error| crate::error::coded(&error))?;
+            let prompt = found.as_ref().is_some_and(|release| {
+                app_core::app_updates::prompts(&workspace, &release.version, manual)
+            });
             Ok(OperationResult::AppUpdate {
-                checked: found.is_some(),
-                release: found.flatten().map(|release| AppRelease {
+                checked: true,
+                release: found.map(|release| AppRelease {
                     version: release.version,
-                    url: release.apk_url,
+                    url: release.url,
                 }),
+                prompt,
             })
         })
     }
@@ -491,5 +533,57 @@ impl Session {
                 .map_err(submission_error)?;
             Ok(OperationResult::Text { value: url })
         })
+    }
+}
+
+/// The campus map over the file Core downloaded. Each call runs off the
+/// caller's thread like every other read: the first one unpacks the file.
+/// Until the file is stored `has` answers false, so shells show no map, and
+/// `open` fails as unavailable.
+///
+/// The page is Core's, one per session: the shell opens it (replacing any
+/// other), sends each intent with the page from the scene, draws the scene
+/// with the highest `revision` it has seen, and closes the page when it
+/// leaves the screen. Intents for a replaced page answer `None`.
+#[cfg(feature = "campus-map")]
+#[uniffi::export]
+impl Session {
+    /// Whether the map knows the room string; false means no map button.
+    pub fn campus_map_has(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i.core.campus_map.has(&room)?,
+            })
+        })
+    }
+    /// Opens a map page on a room string, replacing any other; answers its
+    /// first scene. The page's id is taken now, before the file loads, so a
+    /// close or a later open that comes first supersedes this one.
+    pub fn campus_map_open(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+        let page = self.inner.core.campus_map.reserve();
+        self.blocking(move |i| {
+            Ok(OperationResult::CampusMapScene {
+                scene: Some(project(i.core.campus_map.open(page, &room)?)?),
+            })
+        })
+    }
+    /// One intent on an open page; answers the new scene, or `None` when
+    /// nothing drawn changed.
+    pub fn campus_map_send(
+        &self,
+        page: u64,
+        intent: CampusMapIntent,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let intent: app_core::campus_map::CampusMapIntent = project_input(intent)?;
+            Ok(OperationResult::CampusMapScene {
+                scene: project(i.core.campus_map.send(page, intent))?,
+            })
+        })
+    }
+    /// Forgets the page, and any open still loading; their scenes name
+    /// nothing afterwards.
+    pub fn campus_map_close(&self) {
+        self.inner.core.campus_map.close();
     }
 }

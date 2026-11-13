@@ -537,6 +537,15 @@ export type Settings = {
   density: "comfortable" | "compact";
   textSize?: "small" | "medium" | "large";
   automaticAppUpdates?: boolean;
+  /**
+   * Whether this device looks for a newer version on its own and offers
+   * it; absent reads as on (`app_updates::update_checks`).
+   */
+  appUpdateChecks?: boolean;
+  /**
+   * The release the person chose to skip: not offered again, a newer one is.
+   */
+  skippedAppVersion?: string;
   restoreSchoolPage?: boolean;
   /**
    * What closing the desktop window does; absent reads as `ask`.

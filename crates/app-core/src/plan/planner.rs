@@ -735,12 +735,16 @@ fn automatic_keys(inputs: &Inputs, now: DateTime<Utc>) -> Vec<(Key, Priority)> {
             );
         }
     }
-    keys.extend(
-        inputs
-            .references
-            .iter()
-            .map(|watch| (watch.key.clone(), Priority::Background)),
-    );
+    // The campus map is read ahead of the other files: the map buttons
+    // appear only once it is stored.
+    keys.extend(inputs.references.iter().map(|watch| {
+        let priority = if crate::reference_refresh::raised(&watch.key) {
+            Priority::Visible
+        } else {
+            Priority::Background
+        };
+        (watch.key.clone(), priority)
+    }));
     keys
 }
 
@@ -839,7 +843,11 @@ pub(crate) fn hold(
         return Some(Held::Background);
     }
     if priority < Priority::Interactive {
-        if facts.network == Network::Cellular && !inputs.allow_cellular {
+        // The campus map uses cellular too, as its owner asked.
+        if facts.network == Network::Cellular
+            && !inputs.allow_cellular
+            && !crate::reference_refresh::raised(key)
+        {
             return Some(Held::Cellular);
         }
         if facts.power_saver {

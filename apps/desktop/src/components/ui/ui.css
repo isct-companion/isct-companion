@@ -111,6 +111,29 @@ button:disabled {
 .uiButton[aria-busy="true"] {
   cursor: wait;
 }
+/* Pending: the label stays in the layout but turns invisible (opacity keeps
+   it in the accessible name), and the spinner sits over its centre, so the
+   button keeps the size and position it had when it was clicked. */
+:where(.uiButton[data-loading]) {
+  position: relative;
+}
+.uiButton[data-loading] {
+  color: transparent;
+}
+.uiButton[data-loading] > :not(.uiButtonSpinner) {
+  opacity: 0;
+}
+.uiButton > .uiButtonSpinner {
+  --spinner-ink: var(--accent);
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-color: color-mix(in srgb, var(--spinner-ink) 30%, transparent);
+  border-top-color: var(--spinner-ink);
+}
+.uiButton[data-variant="filled"] > .uiButtonSpinner {
+  --spinner-ink: var(--accent-ink);
+}
 .uiButtonGroup {
   display: inline-flex;
 }

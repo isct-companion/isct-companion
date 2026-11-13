@@ -2,20 +2,6 @@ name: Native Core SDK
 
 on:
   workflow_dispatch:
-  # Warm the SDK-specific caches on main after the desktop platform run.
-  schedule:
-    - cron: '0 19 * * 0' # Monday 04:00 in Japan
-  push:
-    branches: [main]
-    paths:
-      - crates/app-core/**
-      - crates/app-ffi/**
-      - crates/app-ocr/**
-      - bindings/**
-      - scripts/bindings/**
-      - Cargo.toml
-      - Cargo.lock
-      - .github/workflows/native-sdk.yml
   pull_request:
     branches: [main]
     paths:
@@ -57,6 +43,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-ios
+          # Platform checks' caches from main nearly fill the repository's 10 GB.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install host Kotlin compiler
         run: |
@@ -65,7 +52,10 @@ jobs:
         run: |
           cargo test -p app-core -p app-ffi --locked -j 2
           cargo test -p app-ffi --features ocr --locked -j 2
+          # The campus map is compiled into the iOS SDK only; its lint runs
+          # with the feature. Its data is checked in the map's own repository.
           cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
+          cargo clippy -p app-core -p app-ffi --features campus-map --all-targets --locked -j 2 -- -D warnings
       - name: Swift 6 and Kotlin host clients with OCR
         run: node scripts/bindings/host-smoke.mjs --ocr
       - name: Build device and simulator XCFramework
@@ -138,6 +128,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-android
+          # Platform checks' caches from main nearly fill the repository's 10 GB.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build AAR and both native ABIs
         # x86_64 only so the SDK can load on the runner's emulator; the app

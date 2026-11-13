@@ -5,6 +5,7 @@ updates:
   # through Cargo.lock), so they move with the Rust side.
   - package-ecosystem: gradle
     directory: /apps/android
+    labels: [dependencies]
     schedule:
       interval: weekly
     ignore:
@@ -25,6 +26,7 @@ updates:
   # lands in one more.
   - package-ecosystem: cargo
     directory: /
+    labels: [dependencies]
     schedule:
       interval: weekly
     ignore:
@@ -67,6 +69,7 @@ updates:
   # The desktop frontend: one Yarn workspace at the root.
   - package-ecosystem: npm
     directory: /
+    labels: [dependencies]
     schedule:
       interval: weekly
     groups:
@@ -98,6 +101,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    labels: [dependencies]
     schedule:
       interval: weekly
     ignore:

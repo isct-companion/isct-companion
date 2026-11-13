@@ -1,8 +1,9 @@
 /* The About page, on purpose not like the rest of the app (slotledger
-   approach/desktop-about-page-design): an open, asymmetric composition carried
-   by the large name, one soft shape and the tilted icon. Everything you act on
-   stays level and in line. Colours stay the app's own tokens, so every theme
-   and appearance carries over. It fits the pane and nothing scrolls. */
+   approach/desktop-about-page-design): the first screen of isctcomp.app
+   brought home. The name and what you act on sit left, in one column; the
+   icon on the right is a toy you can tip, rock and fill. Colours are the app's
+   own tokens, except the icon and its yellow, which keep the icon's colours
+   like an app icon does. It fits the pane and nothing scrolls. */
 
 .workspaceMain.aboutMain {
   height: 100dvh;
@@ -12,226 +13,268 @@
 }
 
 .aboutCanvas {
+  /* The icon's own yellow, under the name as on the website; dimmed in dark
+     so light text stays readable on it. */
+  --about-butter: #fbd571;
   position: relative;
   flex: 1;
   min-height: 0;
-  /* clip, not hidden: the shape runs past the edge and focus must not scroll it. */
+  /* clip, not hidden: the toy swings past its box and focus must not scroll it. */
   overflow: clip;
   container-type: size;
 }
-
-/* ---------- the one shape behind everything ---------- */
-.aboutBlob {
-  position: absolute;
-  width: 70cqw;
-  aspect-ratio: 1;
-  top: -30cqw;
-  right: -18cqw;
-  background: var(--accent-soft);
-  border-radius: 57% 43% 61% 39% / 44% 58% 42% 56%;
-  pointer-events: none;
-  animation: aboutDrift 32s ease-in-out infinite alternate;
+:root[data-appearance="dark"] .aboutCanvas {
+  --about-butter: rgb(184 154 82 / 0.55);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) .aboutCanvas {
+    --about-butter: rgb(184 154 82 / 0.55);
+  }
 }
 
 /* ---------- composition ---------- */
 .aboutLayout {
-  position: relative;
   height: 100%;
   box-sizing: border-box;
-  padding: clamp(16px, 5cqh, 48px) clamp(24px, 5.5cqw, 76px);
+  padding: clamp(16px, 5cqh, 48px) clamp(24px, 6cqw, 88px);
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "mark panel"
-    "links links";
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
   column-gap: clamp(24px, 5cqw, 72px);
-  row-gap: clamp(14px, 3.5cqh, 32px);
 }
 
-/* ---------- the name ---------- */
-.aboutMark {
-  grid-area: mark;
-  align-self: center;
+/* ---------- the name and what you act on ---------- */
+.aboutIntro {
   min-width: 0;
+  max-width: 560px;
   animation: aboutSettle 480ms var(--motion-easing-emphasized) both;
 }
-.aboutMark h1 {
-  margin: 0 0 clamp(4px, 1.2cqh, 12px);
+.aboutEyebrow {
+  margin: 0;
   color: var(--muted);
-  font-size: calc(var(--type-row-size) * var(--text));
-  font-weight: 500;
-}
-.aboutWordmark {
-  /* "Companion" and its indent are about 5.3em: fit the column left over beside
-     the panel, whose narrowest width (280px) is what binds in a small window. */
-  --size: clamp(52px, min(10cqw, calc((84cqw - 280px) / 5.3), 17cqh), 168px);
-  display: block;
-  color: var(--ink);
-  font-size: var(--size);
-  font-weight: 700;
-  line-height: 0.96;
-  letter-spacing: -0.045em;
-}
-.aboutWordmarkFirst {
-  display: flex;
-  align-items: center;
-  gap: 0.2em;
-}
-.aboutWordmarkSecond {
-  display: block;
-  margin-inline-start: 0.42em;
-}
-.aboutIcon {
-  width: 0.86em;
-  height: 0.86em;
-  rotate: -9deg;
-  filter: drop-shadow(0 6px 12px rgb(0 0 0 / 0.16));
-  transition: rotate var(--motion-duration-slow) var(--motion-easing-emphasized);
-}
-.aboutMark:hover .aboutIcon {
-  rotate: 4deg;
-}
-.aboutVersion {
-  margin: clamp(8px, 2cqh, 18px) 0 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--muted);
-  font-size: calc(var(--type-note-size) * var(--text));
-}
-.aboutVersion b {
-  color: var(--ink);
   font-size: calc(var(--type-row-size) * var(--text));
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
+}
+.aboutName {
+  margin: clamp(6px, 1.6cqh, 14px) 0 0;
+  color: var(--ink);
+  /* "IsctCompanion" is about 6.6em wide: fit it to the column. */
+  font-size: clamp(34px, min(6.4cqw, 10cqh), 76px);
+  font-weight: 750;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+}
+/* One yellow highlight, drawn like a marker under the word. */
+.aboutMark {
+  padding-inline: 0.04em;
+  background: linear-gradient(
+      transparent 60%,
+      var(--about-butter) 60%,
+      var(--about-butter) 92%,
+      transparent 92%
+    )
+    no-repeat;
+  animation: aboutDraw 700ms 250ms var(--motion-easing-emphasized) both;
+}
+.aboutTagline {
+  margin: clamp(8px, 2cqh, 16px) 0 0;
+  color: var(--muted);
+  font-size: calc(16px * var(--text));
+  line-height: 1.5;
 }
 
-/* ---------- updates and tips ---------- */
-.aboutPanel {
-  grid-area: panel;
-  align-self: center;
-  min-width: 0;
-  padding: 6px 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: var(--surface);
-  animation: aboutSettle 480ms 70ms var(--motion-easing-emphasized) both;
+/* ---------- updates ---------- */
+.aboutUpdate {
+  margin-top: clamp(16px, 4.5cqh, 36px);
 }
-.aboutPanel .row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.aboutPanel .row:last-child {
-  border-bottom: 0;
-}
-.aboutPanel [data-setting="updates"] {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-}
-.aboutPanel [data-setting="updates"] > .actions {
-  justify-self: start;
+.aboutUpdateLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 /* A native error can be long; it stays readable here and the page stays put. */
-.aboutPanel [role="status"] {
-  display: block;
-  max-height: 5.6em;
+.aboutStatus {
+  min-width: 0;
+  max-height: 4.2em;
   overflow-y: auto;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  line-height: 1.4;
+}
+.aboutStatus[data-phase="available"],
+.aboutStatus[data-phase="ready"] {
+  color: var(--accent);
+}
+.aboutStatus[data-phase="error"] {
+  color: var(--danger);
+}
+.aboutStatus small {
+  display: block;
+  font-size: inherit;
+}
+.aboutPrefs {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.aboutPrefs .uiCheckField {
+  align-items: center;
+}
+.aboutPrefs .textButton {
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .aboutNote {
-  margin: 8px 0;
+  margin: 6px 0 0;
   color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.4;
 }
 
-/* ---------- the way out: four equal pieces in one line ---------- */
-.aboutLinks {
-  grid-area: links;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(8px, 1.2cqw, 16px);
+/* ---------- version, then the ways out ---------- */
+.aboutMeta {
+  margin: clamp(14px, 3.5cqh, 28px) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
 }
-.aboutTile {
-  min-width: 0;
-  min-height: clamp(84px, 15cqh, 132px);
-  padding: 13px 16px;
-  box-sizing: border-box;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 4px 8px;
+.aboutMeta b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.aboutMeta small {
+  margin-inline-start: 2px;
+  font-size: inherit;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+.aboutLinks {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aboutLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--workspace-control-height);
+  padding: 0 11px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+  border-radius: 999px;
   background: var(--surface);
   color: var(--ink);
-  text-align: start;
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 500;
   transition:
-    translate var(--motion-duration-slow) var(--motion-easing-emphasized),
-    border-color var(--motion-duration-fast) var(--motion-easing-standard),
-    box-shadow var(--motion-duration-slow) var(--motion-easing-emphasized);
-  animation: aboutSettle 480ms 120ms var(--motion-easing-emphasized) both;
+    translate var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
-.aboutTile:hover,
-.aboutTile:focus-visible {
-  translate: 0 -3px;
+.aboutLink svg {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+.aboutLink[data-setting="sponsor"] svg {
+  color: var(--danger);
+}
+.aboutLink:hover {
+  translate: 0 -1px;
   border-color: var(--line-strong);
-  box-shadow: var(--shadow);
 }
-.aboutTile:active {
+.aboutLink:active {
   translate: 0;
 }
-.aboutTile:focus-visible {
+.aboutLink:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.aboutTileIcon {
-  width: 20px;
-  height: 20px;
-  color: var(--accent);
+
+/* ---------- the icon as a toy ---------- */
+.aboutToy {
+  justify-self: center;
+  width: min(100%, 520px, 70cqh);
+  animation: aboutSettle 480ms 90ms var(--motion-easing-emphasized) both;
 }
-.aboutTileAction {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-weight: 500;
+.iconToy {
+  --toy-panel: #fcfbf8;
+  --toy-ink: #2d3038;
+  --toy-stand: #2d3038;
+  --toy-cell: #e3e2de;
+  --toy-cell-hover: #d3d2cd;
+  --toy-on: #7496c3;
+  --toy-top: #fbd571;
+  --toy-hint: #b9cbe2;
+  margin: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.aboutTileAction span {
-  opacity: 0;
-  translate: 4px 0;
-  transition:
-    opacity var(--motion-duration-fast) var(--motion-easing-standard),
-    translate var(--motion-duration-fast) var(--motion-easing-standard);
+/* The icon keeps its own colours; the panel and the yellow are dimmed, and the
+   stand and line, drawn straight on the dark page, turn grey. */
+:root[data-appearance="dark"] .iconToy {
+  --toy-panel: #ebe9e3;
+  --toy-cell: #d8d6d0;
+  --toy-cell-hover: #c9c7c0;
+  --toy-top: #b89a52;
+  --toy-stand: #7d8088;
 }
-.aboutTile:hover .aboutTileAction span,
-.aboutTile:focus-visible .aboutTileAction span {
-  opacity: 1;
-  translate: 0;
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) .iconToy {
+    --toy-panel: #ebe9e3;
+    --toy-cell: #d8d6d0;
+    --toy-cell-hover: #c9c7c0;
+    --toy-top: #b89a52;
+    --toy-stand: #7d8088;
+  }
 }
-.aboutTileAction svg {
-  width: 15px;
-  height: 15px;
-}
-.aboutTileText {
-  grid-column: 1 / -1;
-  align-self: end;
-  min-width: 0;
-}
-.aboutTileText b {
+.iconToy svg {
   display: block;
-  font-size: calc(var(--type-row-size) * var(--text));
-  font-weight: 600;
-  line-height: 1.25;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  cursor: grab;
 }
-.aboutTileText small {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-  line-height: 1.3;
-  overflow-wrap: anywhere;
+.iconToy.dragging svg {
+  cursor: grabbing;
+}
+.iconToyStand {
+  stroke: var(--toy-stand);
+}
+.iconToyInk {
+  stroke: var(--toy-ink);
+}
+.iconToyOutline {
+  fill: var(--toy-ink);
+}
+.iconToyPanel {
+  fill: var(--toy-panel);
+}
+.iconToyTop {
+  fill: var(--toy-top);
+}
+.iconToyCell {
+  fill: var(--toy-cell);
+  cursor: pointer;
+  transition: fill var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.iconToyCell:hover {
+  fill: var(--toy-cell-hover);
+}
+.iconToyCell.on {
+  fill: var(--toy-on);
+}
+/* Until the first touch, one empty cell glows to invite a tap. */
+.iconToy.idle .iconToyCell.hint:not(.on) {
+  animation: aboutGlow 1.8s var(--motion-easing-standard) infinite alternate;
 }
 
 /* ---------- motion ---------- */
@@ -241,28 +284,32 @@
     translate: 0 10px;
   }
 }
-@keyframes aboutDrift {
+@keyframes aboutDraw {
   from {
-    transform: translate(0, 0) rotate(0deg);
+    background-size: 0% 100%;
   }
+}
+@keyframes aboutGlow {
   to {
-    transform: translate(-3%, 4%) rotate(14deg);
-    border-radius: 44% 56% 48% 52% / 56% 42% 58% 44%;
+    fill: var(--toy-hint);
   }
 }
 /* The app's rule (styles.css) keeps animations at the fast duration and turns
-   movement into fades, so here the pieces fade and the endless drift stops. */
+   movement into fades: here the pieces fade, the marker is simply there, and
+   the hint cell holds its glow instead of pulsing. */
 @media (prefers-reduced-motion: reduce) {
-  .aboutMark,
-  .aboutPanel,
-  .aboutTile {
+  .aboutIntro,
+  .aboutToy {
     animation-name: aboutFade;
   }
-  .aboutBlob {
+  .aboutMark {
     animation: none;
   }
-  .aboutTile:hover,
-  .aboutTile:focus-visible {
+  .iconToy.idle .iconToyCell.hint:not(.on) {
+    animation: none;
+    fill: var(--toy-hint);
+  }
+  .aboutLink:hover {
     translate: none;
   }
 }

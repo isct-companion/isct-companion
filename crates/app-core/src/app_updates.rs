@@ -15,11 +15,17 @@ pub enum AppUpdateError {
 pub const RELEASE_API: &str =
     "https://api.github.com/repos/isct-companion/isct-companion/releases/latest";
 
-/// The Android build of a newer release: its version and the APK to install.
+/// The App Store's record of this app in the Japanese storefront, where it
+/// is listed (`approach/app-store-github-release`); iPhone and iPad share it.
+pub const APP_STORE_LOOKUP: &str =
+    "https://itunes.apple.com/lookup?bundleId=app.isctcompanion&country=jp";
+
+/// A newer release for a phone or tablet: its version and where it comes
+/// from (the APK on Android, the App Store page on iOS and iPadOS).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AndroidRelease {
+pub struct MobileRelease {
     pub version: String,
-    pub apk_url: String,
+    pub url: String,
 }
 
 /// Reads GitHub's latest-release record for Android: a published release newer
@@ -29,7 +35,7 @@ pub struct AndroidRelease {
 pub fn android_release(
     release: &Value,
     running: &str,
-) -> Result<Option<AndroidRelease>, AppUpdateError> {
+) -> Result<Option<MobileRelease>, AppUpdateError> {
     let Some(version) = release.get("tag_name").and_then(Value::as_str) else {
         return Ok(None);
     };
@@ -54,31 +60,47 @@ pub fn android_release(
         .find(|url| {
             url.starts_with("https://github.com/isct-companion/isct-companion/releases/download/")
         });
-    Ok(apk.map(|url| AndroidRelease {
+    Ok(apk.map(|url| MobileRelease {
         version: version.trim_start_matches('v').to_owned(),
-        apk_url: url.to_owned(),
+        url: url.to_owned(),
     }))
 }
 
-/// Asks GitHub for a newer Android release when a check is due (`check_due`);
-/// `None` for the time when it was not due.
-pub async fn check_android(
+/// The App Store's listing, when it names a version newer than `running`
+/// and links to its page on the App Store. No listing (not yet released in
+/// the storefront) offers nothing. The listing changes only once Apple
+/// releases the version, so nobody is sent to a page still on the old one.
+pub fn app_store_release(
+    lookup: &Value,
     running: &str,
-    last_checked: Option<&str>,
-    now: DateTime<Utc>,
-    manual: bool,
-) -> Result<Option<Option<AndroidRelease>>, AppUpdateError> {
-    if !check_due(last_checked, now, manual) {
+) -> Result<Option<MobileRelease>, AppUpdateError> {
+    let Some(app) = lookup.pointer("/results/0") else {
+        return Ok(None);
+    };
+    let (Some(version), Some(url)) = (
+        app.get("version").and_then(Value::as_str),
+        app.get("trackViewUrl").and_then(Value::as_str),
+    ) else {
+        return Ok(None);
+    };
+    if !url.starts_with("https://apps.apple.com/") || !newer_release(running, version)? {
         return Ok(None);
     }
+    Ok(Some(MobileRelease {
+        version: version.trim_start_matches('v').to_owned(),
+        url: url.to_owned(),
+    }))
+}
+
+async fn read_json(url: &str, accept: &str) -> Result<Value, AppUpdateError> {
     let network = |error: reqwest::Error| AppUpdateError::Network(error.to_string());
-    let release: Value = crate::net::client_builder()
+    crate::net::client_builder()
         .timeout(std::time::Duration::from_secs(20))
         .user_agent(crate::net::USER_AGENT)
         .build()
         .map_err(network)?
-        .get(RELEASE_API)
-        .header("Accept", "application/vnd.github+json")
+        .get(url)
+        .header("Accept", accept)
         .send()
         .await
         .map_err(network)?
@@ -86,8 +108,23 @@ pub async fn check_android(
         .map_err(network)?
         .json()
         .await
-        .map_err(network)?;
-    android_release(&release, running).map(Some)
+        .map_err(network)
+}
+
+/// Asks GitHub for a newer Android release with its APK.
+pub async fn fetch_android(running: &str) -> Result<Option<MobileRelease>, AppUpdateError> {
+    android_release(
+        &read_json(RELEASE_API, "application/vnd.github+json").await?,
+        running,
+    )
+}
+
+/// Asks the App Store for a newer iOS and iPadOS release.
+pub async fn fetch_app_store(running: &str) -> Result<Option<MobileRelease>, AppUpdateError> {
+    app_store_release(
+        &read_json(APP_STORE_LOOKUP, "application/json").await?,
+        running,
+    )
 }
 
 pub fn newer_release(current: &str, available: &str) -> Result<bool, AppUpdateError> {
@@ -100,6 +137,44 @@ pub fn newer_release(current: &str, available: &str) -> Result<bool, AppUpdateEr
         current.pre = semver::Prerelease::new(&base)?;
     }
     Ok(semver::Version::parse(available.trim_start_matches('v'))? > current)
+}
+
+/// Whether this device looks for a newer version on its own; absent reads as
+/// on. Turned off, only a check the person starts runs.
+pub fn update_checks(workspace: &Value) -> bool {
+    workspace
+        .pointer("/settings/appUpdateChecks")
+        .and_then(Value::as_bool)
+        != Some(false)
+}
+
+/// The release the person chose to skip.
+pub fn skipped_version(workspace: &Value) -> Option<&str> {
+    workspace
+        .pointer("/settings/skippedAppVersion")
+        .and_then(Value::as_str)
+        .map(|version| version.trim_start_matches('v'))
+}
+
+/// Whether to ask for the newest release now: the person asked (`manual`),
+/// or checks are on and the last one is `check_due`.
+pub fn check_now(
+    workspace: &Value,
+    last_checked: Option<&str>,
+    now: DateTime<Utc>,
+    manual: bool,
+) -> bool {
+    manual || (update_checks(workspace) && check_due(last_checked, now, false))
+}
+
+/// Whether a newer `version` a check found is offered in the update prompt:
+/// only a check of its own found it, checks are on and the person did not
+/// skip it. What a check the person started finds shows where they started
+/// it, prompt or not.
+pub fn prompts(workspace: &Value, version: &str, manual: bool) -> bool {
+    !manual
+        && update_checks(workspace)
+        && skipped_version(workspace) != Some(version.trim_start_matches('v'))
 }
 
 pub fn automatic_updates(workspace: &Value) -> bool {

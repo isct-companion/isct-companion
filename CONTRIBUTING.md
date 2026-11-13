@@ -56,7 +56,17 @@ Include the app version, operating system, steps and expected behaviour. Use sam
 2. Create a branch from the current `main`, install dependencies with `yarn install --immutable`, and run `yarn desktop:dev`.
 3. Keep domain rules, persistence and mutations in `crates/app-core`; the desktop interface renders Core read models and forwards intents.
 4. Run `yarn test`, `yarn test:types`, `yarn backend:test` and `yarn build` for changes that cross the UI/Core boundary. See the [test guide](apps/desktop/tests/README.md) for narrower checks and existing suites.
-5. Open a pull request explaining the user-visible result and verification. Include screenshots for visible interface changes.
+5. Open a pull request to `main` explaining the user-visible result and verification. Include screenshots for visible interface changes. Its title and description become the commit message.
+6. Fix problems on the same branch until `Platform checks` passes, updating the branch if `main` moved. The pull request is then squashed into one commit on `main`.
+
+Every push to a branch runs `Platform checks`; a merge into `main` does not. `Native Core SDK` runs on pull requests touching Core, the native apps or their SDKs. It does not block the merge, so look at its result first.
+
+For work spread over several branches:
+
+- Unrelated changes get a pull request each.
+- To land several features as one commit, merge their branches into one branch and open a single pull request. That commit can only be reverted as a whole.
+- To try branches together without landing them, merge them into a throwaway `try/*` branch and delete it afterwards.
+- When B builds on A, branch B from A and rebase it onto `main` once A has landed.
 
 All frontend tests live under `apps/desktop/tests/`; extend the existing behaviour suite.
 Native checks requiring real credentials or signed packages belong in [`docs/verification/manual-checks.yaml`](docs/verification/manual-checks.yaml); the [manual verification record](docs/verification/manual-acceptance.md) is rendered from it.

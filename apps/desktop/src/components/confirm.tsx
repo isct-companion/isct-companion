@@ -4,12 +4,17 @@ import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 
+/** One button of a dialog; the last one is the primary action. */
+export type Choice<T extends string> = {
+  id: T;
+  label: string;
+  danger?: boolean;
+};
 type Confirmation = {
   message: string;
-  confirmLabel: string;
   title?: string;
-  danger: boolean;
-  resolve: (confirmed: boolean) => void;
+  choices: Choice<string>[];
+  resolve: (choice: string | null) => void;
 };
 const useConfirmations = create<{ queue: Confirmation[] }>(() => ({
   queue: [],
@@ -21,9 +26,33 @@ export function confirmAction(
   confirmLabel: string,
   { title, danger = true }: { title?: string; danger?: boolean } = {},
 ) {
-  return new Promise<boolean>((resolve) =>
+  return chooseAction(
+    message,
+    [
+      { id: "cancel", label: t("common.cancel") },
+      { id: "confirm", label: confirmLabel, danger },
+    ],
+    { title },
+  ).then((choice) => choice === "confirm");
+}
+/** As `confirmAction`, with buttons of its own: resolves the chosen id, or
+ * null when the dialog is closed without one. */
+export function chooseAction<T extends string>(
+  message: string,
+  choices: Choice<T>[],
+  { title }: { title?: string } = {},
+) {
+  return new Promise<T | null>((resolve) =>
     useConfirmations.setState(({ queue }) => ({
-      queue: [...queue, { message, confirmLabel, title, danger, resolve }],
+      queue: [
+        ...queue,
+        {
+          message,
+          title,
+          choices,
+          resolve: resolve as (choice: string | null) => void,
+        },
+      ],
     })),
   );
 }
@@ -38,21 +67,22 @@ export function ConfirmDialogs() {
     () => () => {
       const queue = useConfirmations.getState().queue;
       useConfirmations.setState({ queue: [] });
-      queue.forEach((item) => item.resolve(false));
+      queue.forEach((item) => item.resolve(null));
     },
     [],
   );
   if (!request) return null;
-  const finish = (confirmed: boolean) => {
+  const finish = (choice: string | null) => {
     useConfirmations.setState(({ queue }) => ({
       queue: queue.filter((item) => item !== request),
     }));
-    request.resolve(confirmed);
+    request.resolve(choice);
   };
+  const last = request.choices.length - 1;
   return (
     <Modal
       opened
-      onClose={() => finish(false)}
+      onClose={() => finish(null)}
       title={request.title}
       withCloseButton={false}
       centered
@@ -60,15 +90,16 @@ export function ConfirmDialogs() {
       <Stack>
         <Text size="sm">{request.message}</Text>
         <Group justify="flex-end">
-          <Button variant="default" onClick={() => finish(false)}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            color={request.danger ? "red" : undefined}
-            onClick={() => finish(true)}
-          >
-            {request.confirmLabel}
-          </Button>
+          {request.choices.map((choice, index) => (
+            <Button
+              key={choice.id}
+              variant={index === last ? undefined : "default"}
+              color={choice.danger ? "red" : undefined}
+              onClick={() => finish(choice.id)}
+            >
+              {choice.label}
+            </Button>
+          ))}
         </Group>
       </Stack>
     </Modal>

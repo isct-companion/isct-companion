@@ -12,6 +12,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 default = []
 bindgen = ["uniffi/cli"]
 ocr = ["dep:app-ocr"]
+# The campus map's reads; only the iOS bindings build it for now.
+campus-map = ["app-core/campus-map"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }

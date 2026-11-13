@@ -135,7 +135,7 @@
 .lmsPreviousNotes { margin: 8px 0 12px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsPreviousNotes summary { padding: 6px 4px; cursor: default; }
 .lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); font-size: calc(var(--type-note-size) * var(--text)); }
-.lmsNoteUndo button { padding: 5px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; }
+.lmsNoteUndo button { flex: 0 0 auto; padding: 5px 9px; white-space: nowrap; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; }
 
 /* ---------- Teacher HTML ---------- */
 .lmsRichContent { font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.7; overflow-wrap: anywhere; }
@@ -244,17 +244,25 @@
 .lmsFileCardText small { display: block; margin-top: 3px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsFileCard > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.6; overflow-wrap: anywhere; }
 .lmsFileCard > p[role=alert] { color: var(--ink); }
-.lmsFileCardActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
-.lmsFileCardActions button, .lmsFileCardActions a {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
-  background: var(--surface); color: var(--ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; text-decoration: none;
+.lmsFileCardActions { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.lmsPrimaryAction { display: contents; }
+.lmsPrimaryAction > button {
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--accent); border-radius: var(--lms-radius-sm);
+  background: var(--accent); color: var(--accent-ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; white-space: nowrap;
   transition: border-color var(--lms-fast), background-color var(--lms-fast);
 }
-.lmsFileCardActions button:hover:not(:disabled), .lmsFileCardActions a:hover { border-color: var(--lms-hover-line); }
-.lmsFileCardActions button:disabled { opacity: .6; cursor: default; }
-.lmsPrimaryAction { display: contents; }
-.lmsPrimaryAction > button { border-color: var(--accent); background: var(--accent); color: var(--accent-ink) !important; }
 .lmsPrimaryAction > button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 88%, black); }
+.lmsPrimaryAction > button:disabled { opacity: .6; cursor: default; }
+/* The other actions are a menu list: one row each, icon then label. Rows
+   never shrink or wrap, so long Japanese or Chinese labels stay on one line
+   and every row has the same height. The list bleeds into the card padding
+   by the rows' own inset, so the icons line up with the card's text. */
+.lmsFileActions[data-layout="menu"] { flex-direction: column; align-items: stretch; gap: 0; margin-inline: -10px; }
+/* .lmsWorkspace button resets the font, so the row size is restated here. */
+.lmsFileActions[data-layout="menu"] > .uiMenuItem { white-space: nowrap; color: var(--ink) !important; font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.4; text-decoration: none; }
+.lmsFileActions[data-layout="menu"] > .uiMenuItem:hover { color: var(--accent) !important; background: var(--accent-soft); }
+.lmsFileActions[data-layout="menu"] .lmsToolLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lmsFileActions[data-layout="menu"] svg { flex: 0 0 auto; }
 .lmsFileToolbar button, .lmsFileToolbar a { gap: 5px; }
 .lmsImageStage.actual { display: block; overflow: auto; }
 .lmsImagePreview { background: white; cursor: zoom-in; }
@@ -477,11 +485,11 @@
 .lmsWorkspaceActions, .lmsWorkspaceSubmit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lmsWorkspaceActions button {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
-  background: var(--surface); color: var(--ink); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; transition: border-color var(--lms-fast);
+  background: var(--surface); color: var(--ink); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; white-space: nowrap; transition: border-color var(--lms-fast);
 }
 .lmsWorkspaceActions button:hover { border-color: var(--lms-hover-line); }
 .lmsSegmented { display: inline-flex; padding: 2px; border-radius: var(--lms-radius-sm); background: var(--surface-3); }
-.lmsSegmented button { padding: 3px 10px; border: 0; border-radius: calc(var(--lms-radius-sm) - 2px); background: none; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; }
+.lmsSegmented button { padding: 3px 10px; white-space: nowrap; border: 0; border-radius: calc(var(--lms-radius-sm) - 2px); background: none; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; }
 .lmsSegmented button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
 .lmsWorkspaceSubmit input { width: 200px; height: 28px; min-height: 28px; font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsWorkspaceError { margin: 6px 0 0; color: var(--danger); font-size: calc(var(--type-note-size) * var(--text)); overflow-wrap: anywhere; }

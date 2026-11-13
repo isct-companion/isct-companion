@@ -19,6 +19,52 @@ fn stable_update_admission_and_wakeups_respect_version_and_cadence() {
     assert!(automatic_updates(
         &serde_json::json!({"settings":{"automaticAppUpdates":true}})
     ));
+
+    // Checks are on until the person turns them off; then only a check they
+    // start runs, and nothing is offered in the prompt.
+    let unset = serde_json::json!({"settings":{}});
+    let off = serde_json::json!({"settings":{"appUpdateChecks":false}});
+    assert!(check_now(&unset, Some("2026-10-16T00:00:00Z"), now, false));
+    assert!(!check_now(&unset, Some("2026-10-16T01:00:00Z"), now, false));
+    assert!(!check_now(&off, None, now, false));
+    assert!(check_now(&off, None, now, true));
+    assert!(prompts(&unset, "1.3.2", false));
+    assert!(!prompts(&off, "1.3.2", false));
+    // A check the person started shows its result where they asked.
+    assert!(!prompts(&unset, "1.3.2", true));
+    // A skipped release is not offered again; the next one is.
+    let skipped = serde_json::json!({"settings":{"skippedAppVersion":"v1.3.2"}});
+    assert!(!prompts(&skipped, "1.3.2", false));
+    assert!(prompts(&skipped, "v1.3.3", false));
+}
+
+#[test]
+fn ios_is_offered_what_the_app_store_lists() {
+    let lookup = |version: &str, url: &str| serde_json::json!({"resultCount":1,"results":[{"version":version,"trackViewUrl":url}]});
+    let page = "https://apps.apple.com/jp/app/isctcompanion/id6740000000?uo=4";
+    let offered = app_store_release(&lookup("1.3.2", page), "1.3.1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        offered,
+        MobileRelease {
+            version: "1.3.2".into(),
+            url: page.into()
+        }
+    );
+    assert_eq!(
+        app_store_release(&lookup("1.3.1", page), "1.3.1").unwrap(),
+        None
+    );
+    // Not listed in the storefront yet, or a link off the App Store.
+    assert_eq!(
+        app_store_release(&serde_json::json!({"resultCount":0,"results":[]}), "1.3.1").unwrap(),
+        None
+    );
+    assert_eq!(
+        app_store_release(&lookup("1.3.2", "https://example.com/app"), "1.3.1").unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -67,7 +113,7 @@ fn android_is_offered_a_newer_release_only_once_its_apk_is_attached() {
         .unwrap();
     assert_eq!(offered.version, "1.2.0");
     assert!(offered
-        .apk_url
+        .url
         .ends_with("/v1.2.0/IsctCompanion_1.2.0_android.apk"));
     // The release is published before the Android build attaches its APK.
     let dmg = serde_json::json!({ "name": "IsctCompanion_1.2.0_aarch64-apple-darwin.dmg", "browser_download_url": "https://github.com/isct-companion/isct-companion/releases/download/v1.2.0/x.dmg" });

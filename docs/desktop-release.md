@@ -13,9 +13,10 @@ and installs dependencies with `yarn install --immutable`.
 The Desktop release workflow runs on version tag pushes and by manual dispatch.
 `yarn release:bump <version>` moves the version in every place the workflow
 validates (`scripts/release/versions.mjs` lists them) and prints the commits since
-the last tag. Add user-facing notes in `docs/releases/<version>.md`, then run what
-the workflow's verify job runs: `node scripts/desktop/desktop-release.mjs validate`,
-`yarn test`, `yarn test:types` and `cargo test -p app-core --locked`. After review,
+the last tag. Add user-facing notes in `docs/releases/<version>.md`, then run the
+JS checks of the workflow's verify job: `node scripts/desktop/desktop-release.mjs validate`,
+`yarn test` and `yarn test:types` (the job also runs `cargo test -p app-core`,
+which `main` already passed in Platform checks). After review,
 commit and push the changes, then push a matching version tag:
 
 ```sh
