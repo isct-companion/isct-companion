@@ -66,24 +66,6 @@ fn print_refuses_other_documents_and_copy_counts_before_connecting() {
     ));
 }
 
-// The print window sends camelCase options with kebab-case values.
-#[test]
-#[cfg(windows)]
-fn options_read_from_the_print_window() {
-    let options: PrintOptions =
-        serde_json::from_str(r#"{"copies":3,"sides":"short-edge","color":"mono"}"#).unwrap();
-    assert_eq!(
-        options,
-        PrintOptions {
-            copies: 3,
-            settings: pjl::Settings {
-                sides: pjl::Sides::ShortEdge,
-                color: pjl::ColorMode::Mono,
-            },
-        }
-    );
-}
-
 // A copy the printer refuses ends the print, and the error counts the
 // copies it had already accepted, so the message says what is queued.
 #[test]

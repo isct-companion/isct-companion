@@ -35,8 +35,6 @@ dependencies = [
 name = "adpt-printer"
 version = "1.0.0-rc.1"
 dependencies = [
- "serde",
- "serde_json",
  "socket2",
 ]
 
@@ -2805,7 +2803,6 @@ dependencies = [
  "security-framework 3.7.0",
  "serde",
  "serde_json",
- "sha2 0.11.1",
  "subtle",
  "tauri",
  "tauri-build",
@@ -2823,7 +2820,6 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-collections",
- "windows-registry",
  "windows-version",
 ]
 

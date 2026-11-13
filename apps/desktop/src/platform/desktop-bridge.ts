@@ -417,40 +417,12 @@ export type CampusPrinterStatus = {
   account: PrinterAccount;
   reach: "reachable" | "unreachable";
 };
-/** Windows: the system printer, as the tool card shows it. */
-export type CampusPrinterQueue =
-  | "not-installed"
-  | "ready"
-  | "repair-required"
-  | "unavailable";
 /** How adding the printer to the system ended. */
 export type CampusPrinterSetup =
   | { kind: "added" }
   | { kind: "cancelled" }
   | { kind: "account"; account: PrinterAccount }
   | { kind: "failed" };
-/** The one sides and color model (`app_core::campus_printer::Settings`). */
-export type CampusPrintSettings = {
-  sides: "one-sided" | "long-edge" | "short-edge";
-  color: "color" | "mono";
-};
-export type CampusPrintOptions = CampusPrintSettings & { copies: number };
-/** The Windows print window's file, what the printer offers, and this
- * device's look. */
-export type CampusPrintRequest = {
-  fileName: string;
-  maxCopies: number;
-  defaults: CampusPrintSettings;
-  locale: string | null;
-  appearance: string | null;
-  theme: string | null;
-};
-/** How a print ended, worded by Core: a catalog key Core's tests keep in
- * every locale, and its placeholder values. */
-export type CampusPrintReport = {
-  printed: boolean;
-  message: { key: MessageKey; args: Record<string, number> };
-};
 /** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {
@@ -667,17 +639,9 @@ export interface DesktopBridge {
   ): Promise<CampusWifiOutcome>;
   /** The verified student ID and whether the printer answers, found once. */
   campusPrinterStatus?(): Promise<CampusPrinterStatus>;
-  /** Adds or repairs the system printer behind the system's administrator
+  /** Adds or replaces the system printer behind the system's administrator
    * prompt, which shows `prompt` on macOS. */
   installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
-  /** Windows: whether the system printer is installed and served. */
-  campusPrinterQueue?(): Promise<CampusPrinterQueue>;
-  /** Windows: adds `label` to File Explorer's PDF right-click menu. */
-  addCampusPrintMenu?(label: string): Promise<CampusPrinterSetup>;
-  /** Windows print window: its file and this device's look. */
-  campusPrintRequest?(): Promise<CampusPrintRequest>;
-  /** Windows print window: sends its file to the printer. */
-  campusPrint?(options: CampusPrintOptions): Promise<CampusPrintReport>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
@@ -912,16 +876,6 @@ export function createTauriDesktopBridge(
     campusPrinterStatus: () => result("plugin:campus-printer|status"),
     installCampusPrinter: (prompt) =>
       result("plugin:campus-printer|install", { prompt }),
-    campusPrinterQueue: async () =>
-      requireString(
-        "plugin:campus-printer|queue_status",
-        await invokeCommand("plugin:campus-printer|queue_status"),
-      ) as CampusPrinterQueue,
-    addCampusPrintMenu: (label) =>
-      result("plugin:campus-printer|add_menu", { label }),
-    campusPrintRequest: () => result("plugin:campus-printer|print_request"),
-    campusPrint: (options) =>
-      result("plugin:campus-printer|print", { options }),
     campusWifiStatus: () => invokeCommand("plugin:campus-wifi|status"),
     vpnStatus: () => invokeCommand("plugin:campus-vpn|status"),
     vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
@@ -1194,9 +1148,6 @@ declare global {
     __ISCT_COMPANION_TOOLS__?: readonly DesktopTool[];
     /** Set by the same bootstrap: the material the native window draws. */
     __ISCT_COMPANION_WINDOW_MATERIAL__?: "mica" | "";
-    /** Set by a window that shows one view instead of the app: the
-     * Windows campus print window. */
-    __ISCT_COMPANION_VIEW__?: "campus-print";
   }
 }
 

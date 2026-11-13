@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 162 checks must be re-run before the next release.**
+**5 of 161 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**157 checks have never been run or could not be run:**
+**156 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -52,7 +52,6 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-CAMPUS-PRINTER-QUEUE` — never verified
 - `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` — never verified
-- `DESKTOP-CAMPUS-PRINTER-WINDOWS` — never verified
 - `DESKTOP-ABOUT-PAGE` — never verified
 - `DESKTOP-ABOUT-DESIGN` — never verified
 - `DESKTOP-TOOLS-PAGE` — never verified
@@ -216,8 +215,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_wifi.rs |
 | `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
-| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>crates/app-core/src/campus_printer.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
-| `DESKTOP-CAMPUS-PRINTER-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/features/campus-print/CampusPrintWindow.tsx<br>apps/desktop/src-tauri/capabilities/campus-print.json |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx<br>crates/app-core/src/campus_printer.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
@@ -2312,13 +2310,11 @@ page. WSL or Docker installed on one of the two machines.
 **Steps**
 
 1. Open ツール → 学内プリンタ, press システムプリンタを追加 and approve
-   the administrator prompt; then run
-   `netsh int ipv4 show excludedportrange protocol=tcp` and compare it
-   with the port in Settings → Printers & scanners → the queue's port.
-   - *Why:* Windows queries the receiver while it installs the IPP class-driver
-     queue, so only a real install shows the attributes are enough. The
-     port must lie in 21000–28999 and outside every excluded range, or
-     a reboot can take it away.
+   the administrator prompt. In Printers & scanners, open
+   IsctCompanion Campus Printer and check its port and defaults.
+   - *Why:* Windows queries the receiver during installation. The queue must
+     point to http://127.0.0.1:24761/ipp/print and default to black and
+     white with long-edge duplex.
 2. Print the Word file (two copies, collate unchecked, two-sided,
    colour) and the photo from Photos, then watch the Windows print
    list and check the billing page.
@@ -2345,14 +2341,25 @@ page. WSL or Docker installed on one of the two machines.
    - *Why:* A send that fails ends the job as an error in Windows, and the
      notification names the reason in the app's language; a job shown
      as printed here would be lost without a word.
-7. Reboot the machine with WSL or Docker, start the app, and print.
-   - *Why:* Hyper-V reserves port ranges at boot; the saved port must still
-     bind and the queue must print without a repair.
+7. Change a queue default in Windows, then press システムプリンタを追加
+   again and approve the administrator prompt. Check the same named
+   queue and its defaults in Printers & scanners.
+   - *Why:* Installation must replace the existing queue and restore the
+     black-and-white and long-edge defaults.
+8. Reboot the machine with WSL or Docker, start the app, and print.
+   - *Why:* Hyper-V reserves port ranges at boot. The fixed port must still
+     bind so the installed queue can print after the reboot.
+9. Quit the app and hold port 24761 open in PowerShell with
+   `$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 24761); $listener.Start()`.
+   Restart the app, try adding the printer, and read the error.
+   Release the port with `$listener.Stop()` and restart the app.
+   - *Why:* A port collision must appear in the startup log and the add
+     command must report port 24761 before asking for elevation.
 
 **Where to look**
 
 The 学内プリンタ page, Printers & scanners and its print list, the
-excluded port ranges, the system notifications, and the billing page.
+application log, the system notifications, and the billing page.
 
 **Expected**
 
@@ -2361,7 +2368,9 @@ billed to the owner's student account and await release. A large
 document leaves the print list once, without an error, and is held at
 the printer once. A job printed while the app was closed is sent when
 it starts. Failures show as errors with a notification giving the
-reason. Printing works after a reboot with WSL or Docker.
+reason. Adding again replaces the queue and restores the defaults.
+Printing works after a reboot with WSL or Docker. An occupied port
+reports the bind error without showing UAC.
 
 **Why this is manual**
 
@@ -2371,82 +2380,12 @@ and the printer's billing page.
 
 **Covers**
 
+- `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs`
+- `apps/desktop/src/pages/tools/CampusPrinter.tsx`
 - `crates/app-core/src/campus_printer.rs`
 - `crates/app-core/src/campus_printer/ipp.rs`
 - `crates/app-core/src/campus_printer/ipp/attributes.rs`
-
-**Last recorded** never run
-
-### Windows PDF right-click entry prints with the chosen options (`DESKTOP-CAMPUS-PRINTER-WINDOWS`)
-
-**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-The Windows build of this commit, the person's Tokyo Tech Portal
-account saved, ScienceTokyo Wi-Fi, a short multi-page PDF, and the print
-billing page.
-
-**Steps**
-
-1. Open a File Explorer window on the PDF's folder, then open 工具 →
-   校内打印机 and press 添加右键菜单.
-   - *Why:* The entry goes under HKCU without an administrator prompt; a UAC
-     prompt here means it was written somewhere it should not be. The
-     card says it was added only after the entry read back as written.
-2. In the Explorer window that was already open, right-click the PDF
-   (on Windows 11 under 显示更多选项): the entry must be there. Then
-   quit the app and choose 用校内打印机打印.
-   - *Why:* The app tells Explorer the associations changed, so a window open
-     before the entry existed offers it without restarting Explorer. A
-     cold start must open the print window for that file, in the UI
-     language, not just the main window, and the window's printing
-     commands must answer under its own permission grant.
-3. Close it, keep the app running, and use the entry again.
-   - *Why:* A running app gets the second launch's arguments from the
-     single-instance plugin; without them only the main window comes
-     forward and the file is lost.
-4. Print 2 copies, long edge, black and white, then once in color
-   one-sided; check the pages and the billing page.
-   - *Why:* Only the real printer shows that the PJL header sets duplex,
-     binding and render mode, that each copy is one job, and that the
-     jobs bill the account's student ID.
-5. Start a 5-copy print and press 关闭 while it is sending, then read
-   the application log and the printed pages.
-   - *Why:* Closing only closes the window. The send runs to its end in the
-     background and logs `[campus-printer] print`. The pages show
-     whether all five arrived; a log line without them means the send
-     was dropped with the window.
-6. Double-click the PDF and open its Open with list.
-   - *Why:* The entry is one extra verb; the default PDF app and Open with
-     must stay as they were.
-
-**Where to look**
-
-The registry under HKCU\Software\Classes\SystemFileAssociations\.pdf\shell,
-the print window, the printed pages and the billing page.
-
-**Expected**
-
-No admin prompt, the window opens both from a cold start and with the
-app running, the options reach the paper, jobs bill the student ID,
-and the default PDF handling is unchanged.
-
-**Why this is manual**
-
-Needs Windows Explorer, the registry, the campus network and the real
-printer; the LPD client, PJL header and copy uploads are tested in
-crates/adpt-printer/src/tests.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs`
-- `apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs`
-- `apps/desktop/src/features/campus-print/CampusPrintWindow.tsx`
-- `apps/desktop/src-tauri/capabilities/campus-print.json`
 
 **Last recorded** never run
 

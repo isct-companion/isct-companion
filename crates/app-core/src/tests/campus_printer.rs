@@ -109,7 +109,6 @@ fn every_outcome_message_has_copy_with_its_placeholders() {
         CampusPrintOutcome::NotPrintable,
         CampusPrintOutcome::InvalidCopies,
         CampusPrintOutcome::TooLarge,
-        CampusPrintOutcome::Unreadable,
     ]);
     for outcome in &outcomes {
         let message = outcome.message();

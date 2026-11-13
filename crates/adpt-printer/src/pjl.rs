@@ -4,8 +4,6 @@
 //! color mode with PostScript code, which PDF direct printing does not run,
 //! so those settings use the standard HP PJL variables instead.
 
-use serde::{Deserialize, Serialize};
-
 const JOB_BEGIN: &[u8] = b"\x1b%-12345X@PJL JOB\n";
 pub const JOB_END: &[u8] = b"\x1b%-12345X@PJL EOJ\n\x1b%-12345X";
 /// How far into a file the `%PDF-` header may start (ISO 32000 readers' limit).
@@ -40,25 +38,22 @@ impl Language {
     }
 }
 
-/// Which sides of the sheet a page goes on: the one sides model the print
-/// window, the Windows queue's IPP `sides` and Android's duplex mode map into.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+/// Which sides of the sheet a page goes on, from Windows IPP or Android duplex settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sides {
     OneSided,
     LongEdge,
     ShortEdge,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorMode {
     Color,
     Mono,
 }
 
 /// Every job states both, so the printer's own panel defaults never decide.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub sides: Sides,
     pub color: ColorMode,

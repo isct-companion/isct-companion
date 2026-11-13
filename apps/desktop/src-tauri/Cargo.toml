@@ -74,8 +74,6 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKOpenPanelParameters", "WKWebViewConfiguration", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# The campus printer's system queue marker (plugins/campus_printer/queue.rs).
-sha2 = "0.11"
 # Native Windows toast delivery returns the WinRT result synchronously so test
 # notifications and reminder claims reflect the native result.
 tauri-winrt-notification = "0.8.1"
@@ -91,7 +89,6 @@ windows = { version = "0.62", features = [
     "Storage_Streams",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
-    "Win32_Graphics_Printing",
     "Win32_Security",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
@@ -104,9 +101,6 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-collections = "0.3"
-# The PDF right-click entry for the campus printer (campus_printer_windows.rs),
-# under HKCU; the version the windows crate above pairs with.
-windows-registry = "0.6"
 # WebView2's cookie manager: the identity cookies Core writes into the school
 # store (school_cookies.rs). The version wry already uses.
 webview2-com = "0.39"

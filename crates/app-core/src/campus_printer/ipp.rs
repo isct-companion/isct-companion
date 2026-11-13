@@ -19,7 +19,7 @@ use std::{
     collections::BTreeMap,
     io::Cursor,
     sync::{Arc, Mutex},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::Instant,
 };
 mod attributes;
 
@@ -392,13 +392,10 @@ impl CampusPrintQueue {
     }
 }
 
-/// Job IDs start from the clock, so a job Windows still lists from an
-/// earlier run never shares an ID with one of this run's.
+/// A random starting point makes it unlikely that a job Windows still
+/// lists after a restart points to a different job in this run.
 fn first_job_id() -> i32 {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs());
-    (seconds % 1_000_000_000) as i32 + 1
+    (uuid::Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1
 }
 
 /// The header and attributes, and the document after them as a view of the

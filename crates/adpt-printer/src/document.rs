@@ -2,18 +2,15 @@
 //! renders it itself, wrapped in the PJL header that sets duplex and color.
 
 use crate::{lpd, pjl, StudentId, QUEUE};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io::Read as _;
 use std::net::SocketAddr;
 
 /// What one print asks for. Each copy is a separate upload of the
 /// document, so the printer never has to interpret a copy count.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrintOptions {
     pub copies: u32,
-    #[serde(flatten)]
     pub settings: pjl::Settings,
 }
 
