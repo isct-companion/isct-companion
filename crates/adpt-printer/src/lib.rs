@@ -4,14 +4,16 @@
 //! keeps it well formed, and that the ID is the person's own is Core's
 //! decision (`app_core::campus_printer`).
 //!
-//! This crate holds no state and decides nothing. Everywhere it holds the
-//! printer's address and the student ID's format; on Windows and Android
-//! also the LPD client and PJL header that print a PDF without a driver.
-//! macOS prints through a CUPS queue instead (`adpt-cups`). Ported from
-//! InstitutePrinter's `cross-platform` branch.
+//! This crate holds the printer's address and the student ID's format.
+//! On macOS it prepares a CUPS queue with `lpadmin` arguments and a PPD.
+//! On Windows and Android it sends documents through LPD with a PJL header.
+//! Ported from InstitutePrinter's `master` (CUPS) and `cross-platform` branches.
 
 mod endpoint;
 mod student_id;
+
+#[cfg(target_os = "macos")]
+pub mod cups;
 
 #[cfg(any(windows, target_os = "android"))]
 pub mod document;

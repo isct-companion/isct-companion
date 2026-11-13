@@ -3,7 +3,7 @@ name = "adpt-printer"
 version = "1.0.0-rc.1"
 edition = "2021"
 rust-version = "1.90"
-description = "The campus Kyocera printer for IsctCompanion Core: student IDs, and LPD and PJL for Windows and Android"
+description = "The campus Kyocera printer for IsctCompanion Core: student IDs, the CUPS queue for macOS, and LPD and PJL for Windows and Android"
 publish = false
 
 # RFC 1179 clients send from a port below 1024; std cannot bind before

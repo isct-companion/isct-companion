@@ -15,7 +15,7 @@ agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
 # The campus printer: the desktops, and Android through its print service
 # (app-ffi turns it on for that target only). iOS never prints to it.
-campus-printer = ["dep:adpt-printer", "dep:adpt-cups", "dep:ipp", "tokio/net"]
+campus-printer = ["dep:adpt-printer", "dep:ipp", "tokio/net"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
@@ -61,10 +61,6 @@ schemars = { version = "1.2", optional = true, features = ["chrono04"] }
 semver = "1"
 # Settings shows the OTP setup as a QR code for other authenticators.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-
-# The campus printer's CUPS queue exists only on macOS.
-[target.'cfg(target_os = "macos")'.dependencies]
-adpt-cups = { path = "../adpt-cups", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

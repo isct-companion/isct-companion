@@ -9,9 +9,9 @@
 //! clicks the setting, never in the background, and never ICMP (often
 //! filtered, privileged on some systems, and blind to whether LPD answers).
 //!
-//! Shells do the platform part: on macOS they run the root
-//! installer Core hands them (`CupsInstall`) behind the system's admin prompt; on
-//! Windows and Android every document reaches the printer through one call,
+//! On macOS the shell writes the PPD and runs the system's `lpadmin`
+//! with the arguments Core supplies, behind the system's admin prompt.
+//! On Windows and Android every document reaches the printer through one call,
 //! `Core::campus_print`: Windows renders to PDF for the system queue
 //! (`ipp`) and Android renders to PDF for its print service. Core owns
 //! what the printer offers (`CAPABILITIES`) and the words for how a print ended
@@ -114,12 +114,23 @@ pub async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
     }
 }
 
-/// The root step that installs the CUPS queue: run `installer`, written to
-/// an executable file, as root with `args`.
+/// The root step that creates or updates the CUPS queue: write `ppd` to
+/// the path given to `Core::campus_printer_install`, then run `lpadmin` as
+/// root with `args`.
 #[cfg(target_os = "macos")]
 pub struct CupsInstall {
-    pub installer: &'static [u8],
-    pub args: [String; 2],
+    pub ppd: Vec<u8>,
+    pub args: Vec<String>,
+}
+
+/// Why there is no `CupsInstall`.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Eq, PartialEq)]
+pub enum CupsRefusal {
+    /// No verified student ID.
+    Account(PrinterAccount),
+    /// The installing login's name is not one CUPS's allow list takes.
+    Login,
 }
 
 /// How a print from the Windows system queue or Android's print service ended.
@@ -326,18 +337,21 @@ impl Core {
     }
 
     /// The queue's root step for the verified student ID, printable only by
-    /// `login` (the system account installing it, which the installer checks),
-    /// or why there is no ID. Installing again updates the same queue.
+    /// `login` (the system account installing it), with its PPD at
+    /// `ppd_path`. Installing again updates the same queue.
     #[cfg(target_os = "macos")]
     pub async fn campus_printer_install(
         &self,
-        login: String,
-    ) -> Result<CupsInstall, PrinterAccount> {
+        login: &str,
+        ppd_path: &str,
+    ) -> Result<CupsInstall, CupsRefusal> {
+        use adpt_printer::cups;
         let account = self.campus_printer_account().await;
-        let student = account.student().ok_or(account)?;
+        let student = account.student().ok_or(CupsRefusal::Account(account))?;
+        let args = cups::lpadmin_args(&student, login, ppd_path).ok_or(CupsRefusal::Login)?;
         Ok(CupsInstall {
-            installer: adpt_cups::INSTALLER,
-            args: [student.to_string(), login],
+            ppd: cups::queue_ppd(),
+            args,
         })
     }
 

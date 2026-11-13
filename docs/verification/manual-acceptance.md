@@ -214,7 +214,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/lectures/lectures.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_wifi.rs |
-| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-cups/src/install.rs<br>crates/adpt-cups/src/backend.rs<br>crates/adpt-cups/build.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
+| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-printer/src/cups.rs<br>crates/app-core/src/campus_printer.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
 | `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx<br>crates/app-core/src/campus_printer.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx |
@@ -2227,39 +2227,34 @@ ScienceTokyo Wi-Fi for the printing steps.
      確認. Neither path reaches it, so the card must say so and name
      ScienceTokyo Wi-Fi; 印刷できます must appear only after that join,
      which no local listener proves.
-2. Read the student ID on the card, then press システムプリンタを追加 and cancel the
-   administrator prompt.
+2. Read the student ID on the card, then press システムプリンタを追加
+   and cancel the administrator prompt.
    - *Why:* The card must show the Tokyo Tech account's own student ID in
      capitals, and the prompt must be the system's, with the app's
-     text. Cancelling must say キャンセルしました and leave no
-     InstitutePrinter queue.
-3. Press it again and authenticate, read the card, then open System
-   Settings → Printers & Scanners.
-   - *Why:* One root step installs the titech-lpd backend and the queue, and the
-     card must say it was added: macOS's CUPS refuses `cupsenable` to root,
-     which used to report a working queue as failed. The
-     queue's device URI must carry the student ID
-     (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
-     `lpstat -l -p InstitutePrinter` must allow only this login and the
-     queue must not be shared.
+     text. Cancelling must say キャンセルしました. If InstitutePrinter
+     already exists, its device URI must stay the same.
+3. Press it again and authenticate, read the card, then run
+   `lpstat -v InstitutePrinter` and `lpstat -l -p InstitutePrinter`
+   in Terminal.
+   - *Why:* One root `lpadmin` step creates the queue, and the card must say it
+     was added: `-E` already enables it, and macOS's CUPS refuses
+     `cupsenable` to root, which would report a working queue as failed.
+     The device URI must be `lpd://24M…@172.20.83.212/kyocera`, since the
+     system lpd backend bills the user it names; the queue must allow
+     only this login and must not be shared.
 4. Print the PDF from Preview to InstitutePrinter,
    two copies, two-sided, black and white, then check the billing page.
-   - *Why:* Only the real printer shows that a non-B student ID is accepted and
-     billed, and that the PPD's duplex and color options reach it
-     through the stock CUPS filters.
-5. From Preview's print dialog, print a one-page PDF to
-   InstitutePrinter with 部数 2, then count the sheets.
-   - *Why:* CUPS's filters already copy a job that reaches the backend on
-     stdin, and the lpd backend then sends it once. Exactly 2 sheets
-     shows the backend leaves the copy count alone; 4 would mean the
-     copies were applied twice, as InstitutePrinter's backend did.
-6. Pause the queue, print once, press 追加 again, resume the queue,
+   - *Why:* Only the real printer shows that the job is billed to the student
+     ID from the device URI (a non-B ID included), not to the login, and
+     that the PPD's duplex and color options reach it through the stock
+     CUPS filters.
+5. Pause the queue, print once, press 追加 again, resume the queue,
    then print from another login on the same computer.
    - *Why:* Installing again updates the same queue in place, so the waiting
      job must survive it and print. CUPS refuses the other login,
      because nobody else may print on this student's bill. A real
      print run is the only place both show.
-7. Remove InstitutePrinter in the system printer settings.
+6. Remove InstitutePrinter in the system printer settings.
    - *Why:* Removal belongs to the system; nothing in the app tracks it.
 
 **Where to look**
@@ -2271,22 +2266,19 @@ device URI, the printed pages, and the billing page.
 
 The page reports the network correctly, the admin prompt cancels
 cleanly, the queue bills the master's student ID, prints two
-two-sided black-and-white copies (a 2-copy one-page job is exactly 2
-sheets), keeps a waiting job through a
+two-sided black-and-white copies, keeps a waiting job through a
 reinstall, refuses the other login, and the system settings remove it.
 
 **Why this is manual**
 
 Needs root, the system's admin prompt, the campus network and the real
 printer's billing; the student-ID, device URI, PPD and probe logic is
-in crates/adpt-cups/src/tests, crates/adpt-printer/src/tests and
-crates/app-core/src/tests.
+in crates/adpt-printer/src/tests and crates/app-core/src/tests.
 
 **Covers**
 
-- `crates/adpt-cups/src/install.rs`
-- `crates/adpt-cups/src/backend.rs`
-- `crates/adpt-cups/build.rs`
+- `crates/adpt-printer/src/cups.rs`
+- `crates/app-core/src/campus_printer.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs`
 - `apps/desktop/src/pages/tools/CampusPrinter.tsx`
