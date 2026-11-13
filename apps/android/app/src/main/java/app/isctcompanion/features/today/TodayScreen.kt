@@ -143,7 +143,15 @@ fun TodayScreen() {
     LaunchedEffect(model.contentRevision, model.today?.date) { exams = model.upcomingExams() }
     TabPage(
         t("common.today"),
-        actions = { SyncRingButton() },
+        actions = {
+            // The whole campus, to look a building or room up.
+            RoomMapButton(null, Modifier.clip(CircleShape)) {
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Map, null, tint = Theme.colors.accent)
+                }
+            }
+            SyncRingButton()
+        },
         onRefresh = { model.refreshFromSchool() },
     ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PointF
 import android.graphics.RectF
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -18,13 +19,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.isctcompanion.R
-import app.isctcompanion.core.CampusMapBounds
 import app.isctcompanion.core.CampusMapCamera
 import app.isctcompanion.core.CampusMapFraming
 import app.isctcompanion.core.CampusMapLayer
 import app.isctcompanion.core.CampusMapLayerRole
 import app.isctcompanion.core.CampusMapMark
 import app.isctcompanion.core.CampusMapMarkKind
+import app.isctcompanion.core.CampusMapPlace
 import app.isctcompanion.core.CampusMapPoint
 import app.isctcompanion.core.CampusMapScene
 import app.isctcompanion.design.LocalReducedMotion
@@ -52,23 +53,34 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-/** What the card and the level picker cover, in pixels, kept clear when framing. */
+/** What the page's own controls cover at each edge of the map, in pixels:
+ * the close button, the control rail, the panel. What is left is the part
+ * of the map the person can see. */
 data class MapInsets(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
 /** OpenFreeMap's base map (OpenStreetMap data, no key) with Core's scene
  * drawn over it by role. Core decides every layer and mark; this view only
- * paints them with MapLibre: one GeoJSON source and style layer per role,
- * line widths in metres, and MapLibre's own symbol collision. */
+ * paints them with MapLibre (one GeoJSON source and style layer per role,
+ * line widths in metres, MapLibre's own symbol collision) and reports the
+ * part of the map the controls leave visible. */
 @Composable
 fun FloorMapView(
     scene: CampusMapScene?,
-    /** Read when a framing is applied, after the card has been measured. */
+    /** The controls as last measured; a change moves the map's own buttons. */
+    chrome: MapInsets,
+    /** The same, read when a framing is applied or the camera reported: by
+     * then the panel a new scene brought has been measured. */
     insets: () -> MapInsets,
+    /** False while the keyboard is up: a framing waits for the panel to
+     * come to rest, since it frames the part the panel leaves visible. */
+    canFrame: Boolean,
     showsPosition: Boolean,
+    /** Rises when the person asked for their position and may now see it. */
+    follows: Int,
     /** Where the camera settled, with the last framing key applied. */
     onCamera: (CampusMapCamera, ULong) -> Unit,
     onTap: (CampusMapPoint, String?) -> Unit,
-    onEntrance: (String) -> Unit,
+    onSelect: (CampusMapPlace) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -85,7 +97,7 @@ fun FloorMapView(
         painter.insets = insets
         painter.onCamera = onCamera
         painter.onTap = onTap
-        painter.onEntrance = onEntrance
+        painter.onSelect = onSelect
     }
     MapLifecycle(view)
     DisposableEffect(view) {
@@ -95,7 +107,7 @@ fun FloorMapView(
     AndroidView(
         factory = { view },
         modifier = modifier,
-        update = { painter.show(scene, palette, dark, showsPosition, animates) },
+        update = { painter.show(scene, palette, dark, chrome, canFrame, showsPosition, follows, animates) },
     )
 }
 
@@ -149,7 +161,7 @@ private class FloorPainter(private val view: MapView) {
     var insets: () -> MapInsets = { MapInsets(0, 0, 0, 0) }
     var onCamera: (CampusMapCamera, ULong) -> Unit = { _, _ -> }
     var onTap: (CampusMapPoint, String?) -> Unit = { _, _ -> }
-    var onEntrance: (String) -> Unit = {}
+    var onSelect: (CampusMapPlace) -> Unit = {}
 
     private val context = view.context
     private val density = context.resources.displayMetrics.density
@@ -157,13 +169,20 @@ private class FloorPainter(private val view: MapView) {
     private var scene: CampusMapScene? = null
     private var palette: Palette? = null
     private var dark = false
+    private var canFrame = true
     private var showsPosition = false
+    private var follows = 0
     private var animatesCamera = true
     private var levelId: String? = null
     private var appliedFraming = 0uL
     private var pendingFraming: CampusMapFraming? = null
-    private var framed = false
-    private var userMoving = false
+    /** A framing this painter started is still moving the camera; a touch
+     * ends it, and the move is the person's from then on. */
+    private var framingActive = false
+    private var cameraMoving = false
+    private var chrome = MapInsets(0, 0, 0, 0)
+    /** The person asked to be followed before the blue dot was ready. */
+    private var followPending = false
     /** The theme the style was asked for, and the style once it is loaded
      * and holds this painter's sources and layers. */
     private var appearance: Pair<Palette, Boolean>? = null
@@ -186,9 +205,19 @@ private class FloorPainter(private val view: MapView) {
         map.uiSettings.isTiltGesturesEnabled = false
         map.uiSettings.isLogoEnabled = false
         map.addOnCameraMoveStartedListener { reason ->
-            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) userMoving = true
+            cameraMoving = true
+            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) framingActive = false
         }
-        map.addOnCameraIdleListener { report() }
+        map.addOnCameraIdleListener {
+            cameraMoving = false
+            // Anything but this painter's own framing is the person's move,
+            // following their position included.
+            val byUser = !framingActive
+            framingActive = false
+            report(byUser)
+            // A framing that waited for this move goes next.
+            view.post { applyFraming() }
+        }
         // A double tap zooms and never arrives here; it selects nothing.
         map.addOnMapClickListener { at ->
             val live = this.map
@@ -196,12 +225,16 @@ private class FloorPainter(private val view: MapView) {
                 val point = live.projection.toScreenLocation(at)
                 val reach = TOUCH_DP * density
                 val touched = RectF(point.x - reach, point.y - reach, point.x + reach, point.y + reach)
-                val entrance = live.queryRenderedFeatures(touched, ENTRANCES).firstOrNull()?.getStringProperty("entrance")
-                // Anything but an entrance is a tap on the floor under it.
-                if (entrance != null) {
-                    onEntrance(entrance)
-                } else {
-                    onTap(CampusMapPoint(latitude = at.latitude, longitude = at.longitude), levelId)
+                // The topmost mark under the finger, as drawn.
+                val mark = live.queryRenderedFeatures(touched, LIT_LABELS, ENTRANCES, AMENITIES, LABELS).firstOrNull()
+                val entrance = mark?.takeIf { it.hasNonNullValueForProperty("entrance") }?.getStringProperty("entrance")
+                val unit = mark?.takeIf { it.hasNonNullValueForProperty("unit") }?.getStringProperty("unit")
+                when {
+                    entrance != null -> onSelect(CampusMapPlace.Entrance(entrance))
+                    unit != null -> onSelect(CampusMapPlace.Unit(unit))
+                    // An amenity is not a place to pick.
+                    mark != null -> Unit
+                    else -> onTap(CampusMapPoint(latitude = at.latitude, longitude = at.longitude), levelId)
                 }
             }
             true
@@ -215,26 +248,51 @@ private class FloorPainter(private val view: MapView) {
         style = null
     }
 
-    fun show(scene: CampusMapScene?, palette: Palette, dark: Boolean, showsPosition: Boolean, animatesCamera: Boolean) {
+    fun show(
+        scene: CampusMapScene?,
+        palette: Palette,
+        dark: Boolean,
+        chrome: MapInsets,
+        canFrame: Boolean,
+        showsPosition: Boolean,
+        follows: Int,
+        animatesCamera: Boolean,
+    ) {
         this.scene = scene
         this.palette = palette
         this.dark = dark
+        this.canFrame = canFrame
         this.showsPosition = showsPosition
         this.animatesCamera = animatesCamera
+        this.chrome = chrome
+        if (follows != this.follows) {
+            this.follows = follows
+            followPending = true
+        }
         render()
+    }
+
+    /** MapLibre's compass and attribution button sit clear of the page's
+     * controls: the compass heads the rail, the button rests on the panel. */
+    private fun layOut(map: MapLibreMap) {
+        val gap = (CONTROL_GAP_DP * density).roundToInt()
+        val inset = (PAGE_INSET_DP * density).roundToInt()
+        map.uiSettings.setCompassMargins(0, chrome.top - (CONTROL_DP * density).roundToInt(), inset, 0)
+        map.uiSettings.setAttributionMargins(inset, 0, 0, chrome.bottom + gap)
     }
 
     private fun render() {
         val map = map ?: return
         val palette = palette ?: return
+        layOut(map)
         levelId = scene?.levelId
         val framing = scene?.framing
         if (framing != null && framing.key > appliedFraming && framing.key != pendingFraming?.key) {
             pendingFraming = framing
-            // After this frame's layout, so the insets include the card
-            // this scene brought.
-            view.post { applyFraming() }
         }
+        // After this frame's layout, so the insets include the panel this
+        // scene brought.
+        view.post { applyFraming() }
         val next = palette to dark
         if (next != appearance) {
             // Theme colours are layer content too; a rare theme change loads
@@ -260,48 +318,65 @@ private class FloorPainter(private val view: MapView) {
 
     // Camera
 
+    /** Moves the camera to Core's latest framing, within the part of the
+     * map the controls leave visible. One move at a time: a newer framing
+     * replaces the one waiting while the current move settles, and reports
+     * carry the applied key, so Core drops a superseded landing. */
     private fun applyFraming() {
         val map = map ?: return
         val framing = pendingFraming ?: return
-        if (view.width == 0 || view.height == 0) return
+        if (!canFrame || framingActive || view.width == 0 || view.height == 0) return
+        val inset = insets()
+        val margin = (FRAMING_MARGIN_DP * density).roundToInt()
+        if (view.width - inset.left - inset.right <= 2 * margin || view.height - inset.top - inset.bottom <= 2 * margin) return
+        val animated = appliedFraming != 0uL && animatesCamera
         pendingFraming = null
         appliedFraming = framing.key
-        val inset = insets()
-        // The compass and the attribution button keep clear of the close
-        // button and the card too.
-        map.uiSettings.setCompassMargins(0, inset.top, (8 * density).roundToInt(), 0)
-        map.uiSettings.setAttributionMargins((8 * density).roundToInt(), 0, 0, inset.bottom)
+        framingActive = true
+        // The camera is Core's now, not the blue dot's.
+        if (positionStyle != null) runCatching { map.locationComponent.cameraMode = CameraMode.NONE }
         val bounds = framing.bounds
         val update = CameraUpdateFactory.newLatLngBounds(
             LatLngBounds.from(bounds.north, bounds.east, bounds.south, bounds.west),
-            inset.left, inset.top, inset.right, inset.bottom,
+            inset.left + margin, inset.top + margin, inset.right + margin, inset.bottom + margin,
         )
-        if (framed && animatesCamera) map.animateCamera(update, FRAMING_MS) else map.moveCamera(update)
-        framed = true
+        if (animated) map.animateCamera(update, FRAMING_MS) else map.moveCamera(update)
+        // A framing of what is already in view moves nothing and so never
+        // comes to rest; once a real move would have started, it is
+        // acknowledged here instead.
+        view.postDelayed({
+            if (framingActive && appliedFraming == framing.key && !cameraMoving) {
+                framingActive = false
+                report(byUser = false)
+                applyFraming()
+            }
+        }, 2L * FRAMING_MS)
     }
 
-    private fun report() {
+    /** The visible part's corners on the ground (a turned map gives a
+     * turned box) and its size in screen points. Nothing is reported before
+     * the first framing: the camera is nowhere Core asked for yet. */
+    private fun report(byUser: Boolean) {
         val map = map ?: return
-        val position = map.cameraPosition
-        val target = position.target ?: return
-        val region = map.projection.visibleRegion
-        val corners = listOfNotNull(region.farLeft, region.farRight, region.nearLeft, region.nearRight)
-        if (corners.isEmpty()) return
-        val south = corners.minOf { it.latitude }
-        val north = corners.maxOf { it.latitude }
-        val west = corners.minOf { it.longitude }
-        val east = corners.maxOf { it.longitude }
+        if (appliedFraming == 0uL || view.width == 0 || view.height == 0) return
+        val inset = insets()
+        val left = inset.left.toFloat()
+        val top = inset.top.toFloat()
+        val right = (view.width - inset.right).toFloat().coerceAtLeast(left + 1)
+        val bottom = (view.height - inset.bottom).toFloat().coerceAtLeast(top + 1)
+        fun at(x: Float, y: Float): CampusMapPoint {
+            val ground = map.projection.fromScreenLocation(PointF(x, y))
+            return CampusMapPoint(latitude = ground.latitude, longitude = ground.longitude)
+        }
         val camera = CampusMapCamera(
-            center = CampusMapPoint(latitude = target.latitude, longitude = target.longitude),
-            bounds = CampusMapBounds(south = south, west = west, north = north, east = east),
-            // The width the box spans at this zoom, in the 256-point tiles
-            // Core's zoom counts in (MapLibre's tiles are 512, one zoom
-            // level less): a turned map's box is wider than the screen, and
-            // Core still reads the true zoom from it.
-            widthPoints = (east - west) / 360.0 * 256.0 * 2.0.pow(position.zoom + 1.0),
-            byUser = userMoving,
+            topLeft = at(left, top),
+            topRight = at(right, top),
+            bottomRight = at(right, bottom),
+            bottomLeft = at(left, bottom),
+            widthPoints = ((right - left) / density).toDouble(),
+            heightPoints = ((bottom - top) / density).toDouble(),
+            byUser = byUser,
         )
-        userMoving = false
         onCamera(camera, appliedFraming)
     }
 
@@ -319,6 +394,13 @@ private class FloorPainter(private val view: MapView) {
                     component.renderMode = RenderMode.NORMAL
                 }
                 if (!component.isLocationComponentEnabled) component.isLocationComponentEnabled = true
+                if (followPending) {
+                    // The person's position stays in the middle until they
+                    // move the map.
+                    followPending = false
+                    framingActive = false
+                    component.cameraMode = CameraMode.TRACKING
+                }
             } else if (positionStyle === style && component.isLocationComponentEnabled) {
                 component.isLocationComponentEnabled = false
             }
@@ -366,7 +448,7 @@ private class FloorPainter(private val view: MapView) {
         val kind = Expression.get("kind")
         val lit = Expression.get("lit")
         style.addLayer(
-            SymbolLayer("campus-labels", MARKS)
+            SymbolLayer(LABELS, MARKS)
                 .withFilter(Expression.all(Expression.eq(kind, Expression.literal("room")), Expression.eq(lit, Expression.literal(false))))
                 .withProperties(
                     PropertyFactory.textField(Expression.get("label")),
@@ -376,7 +458,7 @@ private class FloorPainter(private val view: MapView) {
                 ),
         )
         style.addLayer(
-            SymbolLayer("campus-amenities", MARKS)
+            SymbolLayer(AMENITIES, MARKS)
                 .withFilter(Expression.eq(kind, Expression.literal("amenity")))
                 .withProperties(PropertyFactory.iconImage(Expression.get("icon"))),
         )
@@ -389,7 +471,7 @@ private class FloorPainter(private val view: MapView) {
                 ),
         )
         style.addLayer(
-            SymbolLayer("campus-labels-lit", MARKS)
+            SymbolLayer(LIT_LABELS, MARKS)
                 .withFilter(Expression.all(Expression.eq(kind, Expression.literal("room")), Expression.eq(lit, Expression.literal(true))))
                 .withProperties(
                     PropertyFactory.textField(Expression.get("label")),
@@ -507,6 +589,7 @@ private class FloorPainter(private val view: MapView) {
             when (val kind = record.kind) {
                 is CampusMapMarkKind.Room -> {
                     properties.put("kind", "room")
+                    properties.put("unit", kind.unitId)
                     properties.put("label", kind.label)
                     properties.put("lit", kind.highlighted)
                 }
@@ -551,8 +634,14 @@ private class FloorPainter(private val view: MapView) {
 
     private companion object {
         const val ICON_DP = 28
-        /** How far from an entrance's centre a tap still opens it. */
-        const val TOUCH_DP = 18
+        /** How far from a mark's centre a tap still picks it. */
+        const val TOUCH_DP = 14
+        /** The page's control size, gap and side inset (`CampusMapScreen`). */
+        const val CONTROL_DP = 44
+        const val CONTROL_GAP_DP = 8
+        const val PAGE_INSET_DP = 12
+        /** Room between the visible part's edges and what a framing shows. */
+        const val FRAMING_MARGIN_DP = 16
         const val FRAMING_MS = 400
         /** The equator's length, which MapLibre's zoom-0 tile of 512 spans. */
         const val EQUATOR_M = 40_075_016.686
@@ -560,7 +649,10 @@ private class FloorPainter(private val view: MapView) {
         const val LOW_ZOOM = 10f
         const val HIGH_ZOOM = 24f
         const val MARKS = "campus-marks"
+        const val LABELS = "campus-labels"
+        const val AMENITIES = "campus-amenities"
         const val ENTRANCES = "campus-entrances"
+        const val LIT_LABELS = "campus-labels-lit"
         const val ENTRANCE_IMAGE = "campus-entrance"
         const val ENTRANCE_SELECTED_IMAGE = "campus-entrance-selected"
         /** OpenFreeMap's quiet styles, and two fonts its glyph server has. */

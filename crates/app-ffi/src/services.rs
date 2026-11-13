@@ -539,7 +539,7 @@ impl Session {
 /// The campus map over the file Core downloaded. Each call runs off the
 /// caller's thread like every other read: the first one unpacks the file.
 /// Until the file is stored `has` answers false, so shells show no map, and
-/// `open` fails as unavailable.
+/// `open` and `search` fail as unavailable.
 ///
 /// The page is Core's, one per session: the shell opens it (replacing any
 /// other), sends each intent with the page from the scene, draws the scene
@@ -548,22 +548,33 @@ impl Session {
 #[cfg(feature = "campus-map")]
 #[uniffi::export]
 impl Session {
-    /// Whether the map knows the room string; false means no map button.
-    pub fn campus_map_has(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+    /// Whether the map knows the room string, or with none whether a map is
+    /// stored; false means no map button.
+    pub fn campus_map_has(&self, room: Option<String>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {
-                value: i.core.campus_map.has(&room)?,
+                value: i.core.campus_map.has(room.as_deref())?,
             })
         })
     }
-    /// Opens a map page on a room string, replacing any other; answers its
-    /// first scene. The page's id is taken now, before the file loads, so a
-    /// close or a later open that comes first supersedes this one.
-    pub fn campus_map_open(&self, room: String) -> Result<Arc<Operation>, SdkError> {
+    /// Opens a map page on a room string, or on none to browse, replacing
+    /// any other; answers its first scene. The page's id is taken now,
+    /// before the file loads, so a close or a later open that comes first
+    /// supersedes this one.
+    pub fn campus_map_open(&self, room: Option<String>) -> Result<Arc<Operation>, SdkError> {
         let page = self.inner.core.campus_map.reserve();
         self.blocking(move |i| {
             Ok(OperationResult::CampusMapScene {
-                scene: Some(project(i.core.campus_map.open(page, &room)?)?),
+                scene: Some(project(i.core.campus_map.open(page, room.as_deref())?)?),
+            })
+        })
+    }
+    /// The places a search box's text names; the answer carries the text,
+    /// so a shell drops answers to text since changed.
+    pub fn campus_map_search(&self, query: String) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::CampusMapSearch {
+                search: project(i.core.campus_map.search(&query)?)?,
             })
         })
     }

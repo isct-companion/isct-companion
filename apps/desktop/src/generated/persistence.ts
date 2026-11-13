@@ -557,6 +557,11 @@ export type Settings = {
   siteConsents?: SiteConsents;
   locale: "en" | "ja" | "zh";
   contentLanguage?: "auto" | "ja" | "en";
+  /**
+   * Which maps app the campus map's "Open in Maps" links open in; absent
+   * reads as `apple`. Per device: what is installed differs.
+   */
+  mapsApp?: "apple" | "google";
   notifications: Notifications;
   cloud: CloudSettings;
   subscriptionRefresh: SubscriptionRefreshSettings;

@@ -207,8 +207,8 @@ class Navigator(private val controller: NavHostController) {
 
     fun openRecord() = controller.navigate("record")
 
-    /** Opens the campus map on a room string, full screen. */
-    fun openMap(room: String) = controller.navigate("map?room=${Uri.encode(room)}")
+    /** Opens the campus map full screen, on a room string or on none to browse. */
+    fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
 
     /** The account page 設定 should open on, taken (and cleared) by it. */
     var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
@@ -391,7 +391,7 @@ private fun Tabs() {
                 }
                 destination("record") { RecordScreen() }
                 destination("map?room={room}", listOf(navArgument("room") { type = NavType.StringType; defaultValue = "" })) {
-                    CampusMapScreen(it.arguments?.getString("room").orEmpty())
+                    CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
                 }
                 destination(
                     "page/{site}?target={target}&title={title}",

@@ -526,28 +526,65 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     // Campus map
 
-    /** Whether Core's map knows a room string; false (also before Core has
-     * the map's file) means no map button. */
-    suspend fun campusMapHas(room: String): Boolean {
+    /** Whether Core's map knows a room string, or with null whether a map is
+     * stored at all; false (also before Core has the map's file) means no
+     * map button. A failure also hides the button, but is logged. */
+    suspend fun campusMapHas(room: String?): Boolean {
         val session = session ?: return false
-        if (room.isEmpty()) return false
-        val result = runCatching { session.campusMapHas(room).value() }.getOrNull()
-        return (result as? OperationResult.Flag)?.value == true
+        if (room?.isEmpty() == true) return false
+        return try {
+            (session.campusMapHas(room).value() as? OperationResult.Flag)?.value == true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: SdkException.Unavailable) {
+            false
+        } catch (error: Exception) {
+            Log.w("isct", "campus map has", error)
+            false
+        }
     }
 
-    /** Opens Core's map page on a room string; null when Core has no map
-     * file (the page then says the map is unavailable). */
-    suspend fun campusMapOpen(room: String): CampusMapScene? {
-        val session = session ?: return null
-        val result = runCatching { session.campusMapOpen(room).value() }.getOrNull()
-        return (result as? OperationResult.CampusMapScene)?.scene
+    /** Opens Core's map page on a room string, or on none to browse. */
+    suspend fun campusMapOpen(room: String?): CampusMapOpening {
+        val session = session ?: return CampusMapOpening.Failed(t("error.internal"))
+        return try {
+            val scene = (session.campusMapOpen(room).value() as? OperationResult.CampusMapScene)?.scene
+            if (scene != null) CampusMapOpening.Ready(scene) else CampusMapOpening.Failed(t("error.internal"))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: SdkException.Unavailable) {
+            CampusMapOpening.Missing
+        } catch (error: Exception) {
+            CampusMapOpening.Failed(describe(error))
+        }
     }
 
-    /** One intent on an open map page; null when nothing drawn changed. */
+    /** One intent on an open map page; null when nothing drawn changed or
+     * the page is gone. A failure is logged: the page keeps its last scene. */
     suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
         val session = session ?: return null
-        val result = runCatching { session.campusMapSend(page, intent).value() }.getOrNull()
-        return (result as? OperationResult.CampusMapScene)?.scene
+        return try {
+            (session.campusMapSend(page, intent).value() as? OperationResult.CampusMapScene)?.scene
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("isct", "campus map send", error)
+            null
+        }
+    }
+
+    /** What a map search's text names; Core echoes the text so the page can
+     * drop answers to text since changed. A failure carries the text to show. */
+    suspend fun campusMapSearch(query: String): Result<CampusMapSearch> {
+        val session = session ?: return Result.failure(IllegalStateException(t("error.internal")))
+        return try {
+            val search = (session.campusMapSearch(query).value() as? OperationResult.CampusMapSearch)?.search
+            if (search != null) Result.success(search) else Result.failure(IllegalStateException(t("error.internal")))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(IllegalStateException(describe(error)))
+        }
     }
 
     /** Drops Core's map page, and its open if it is still loading. */
@@ -1094,3 +1131,13 @@ data class UndoAction(val title: String, val assignmentId: String)
 
 /** Weeks read on either side of the one asked for. */
 private const val WEEK_REACH = 4L
+
+/** What opening Core's campus map page answered. */
+sealed interface CampusMapOpening {
+    data class Ready(val scene: CampusMapScene) : CampusMapOpening
+
+    /** No map file is stored yet: it comes with the data updates. */
+    data object Missing : CampusMapOpening
+
+    data class Failed(val message: String) : CampusMapOpening
+}

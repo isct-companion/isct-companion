@@ -4,17 +4,47 @@
 //! a level is the index into its building's `levels`.
 use super::{
     export::{Export, Position, Rings},
-    geometry,
+    geometry::{self, Viewport},
     matching::{alias_key, Mention, Patterns},
-    CampusMapBounds, CampusMapCamera, CampusMapError, CampusMapLevel, CampusMapPoint,
-    CampusMapPolygon,
+    search::{Found, Index},
+    CampusMapBounds, CampusMapError, CampusMapLevel, CampusMapPoint, CampusMapPolygon,
 };
 use std::collections::{HashMap, HashSet};
 
-/// Below this zoom level no building is in focus: the whole campus shows.
-const FOCUS_ZOOM: f64 = 17.0;
-/// The camera centre this close outside a footprint still picks it.
-const FOCUS_MARGIN_M: f64 = 10.0;
+/// A building comes into focus once it spans this share of the viewport
+/// (`Viewport::share`) with the viewport's centre inside its footprint.
+/// Starting points, to be tuned on a device.
+pub(super) const FOCUS_ENTER_SHARE: f64 = 0.5;
+/// The building in focus stays until it spans less than this share or
+/// leaves the viewport: the gap keeps a small zoom from flickering.
+pub(super) const FOCUS_EXIT_SHARE: f64 = 1.0 / 3.0;
+/// A tap this many screen points outside a footprint still picks it, when
+/// no footprint holds the tap.
+pub(super) const TAP_SLOP_POINTS: f64 = 12.0;
+
+/// Which maps app the card's links open in (the `mapsApp` setting).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum MapsApp {
+    Apple,
+    Google,
+}
+
+impl MapsApp {
+    /// What an absent or unknown setting reads as: Apple Maps, and on
+    /// Android, where Apple has no app, Google Maps.
+    #[cfg(not(target_os = "android"))]
+    const DEFAULT: Self = Self::Apple;
+    #[cfg(target_os = "android")]
+    const DEFAULT: Self = Self::Google;
+
+    pub(super) fn from_setting(value: Option<&str>) -> Self {
+        match value {
+            Some("apple") => Self::Apple,
+            Some("google") => Self::Google,
+            _ => Self::DEFAULT,
+        }
+    }
+}
 
 pub(super) struct Map {
     pub(super) export: Export,
@@ -26,9 +56,12 @@ pub(super) struct Map {
     pub(super) units_by_level: HashMap<String, Vec<usize>>,
     pub(super) amenities_by_level: HashMap<String, Vec<usize>>,
     pub(super) linework_by_level: HashMap<String, Vec<usize>>,
-    rooms: HashMap<String, usize>,
+    pub(super) rooms: HashMap<String, usize>,
+    /// Entrance id → (building, entrance).
+    pub(super) entrances: HashMap<String, (usize, usize)>,
     /// Footprint area per building, square metres.
     areas: Vec<f64>,
+    search: Index,
 }
 
 /// How much of a room string the map knows.
@@ -101,39 +134,22 @@ pub(super) fn rect_bounds(rect: geometry::Rect) -> CampusMapBounds {
     }
 }
 
-/// A pin in Apple Maps at `position`, titled `label`.
-#[cfg(not(target_os = "android"))]
-pub(super) fn maps_url(position: Position, label: &str) -> String {
-    url::Url::parse_with_params(
-        "https://maps.apple.com/",
-        [
-            ("ll", format!("{:.7},{:.7}", position[1], position[0])),
-            ("q", label.to_owned()),
-        ],
-    )
-    .map(|url| url.to_string())
-    .unwrap_or_default()
-}
-
-/// A pin at `position`, titled `label`, as Android's `geo:` link: the maps
-/// app the person uses opens it. The label is percent-encoded, spaces too.
-#[cfg(target_os = "android")]
-pub(super) fn maps_url(position: Position, label: &str) -> String {
-    let label = url::form_urlencoded::byte_serialize(label.as_bytes())
-        .collect::<String>()
-        .replace('+', "%20");
-    format!("geo:0,0?q={:.7},{:.7}({label})", position[1], position[0])
-}
-
-/// The zoom level a camera shows: 256-point tiles across `width_points`.
-pub(super) fn zoom(camera: &CampusMapCamera) -> f64 {
-    let span = camera.bounds.east - camera.bounds.west;
-    let ratio = 360.0 * camera.width_points / (span * 256.0);
-    if span > 0.0 && ratio.is_finite() && ratio > 0.0 {
-        ratio.log2()
-    } else {
-        0.0
-    }
+/// A pin at `position` in the chosen maps app: Apple's titled `label`,
+/// Google's by its coordinates (its search link takes no title). Both are
+/// plain https links, which open the app when it is installed.
+pub(super) fn maps_url(app: MapsApp, position: Position, label: &str) -> String {
+    let at = format!("{:.7},{:.7}", position[1], position[0]);
+    let url = match app {
+        MapsApp::Apple => url::Url::parse_with_params(
+            "https://maps.apple.com/",
+            [("ll", at), ("q", label.to_owned())],
+        ),
+        MapsApp::Google => url::Url::parse_with_params(
+            "https://www.google.com/maps/search/",
+            [("api", "1".to_owned()), ("query", at)],
+        ),
+    };
+    url.map(|url| url.to_string()).unwrap_or_default()
 }
 
 impl Map {
@@ -142,23 +158,32 @@ impl Map {
     pub(super) fn new(export: Export) -> Result<Self, CampusMapError> {
         let mut buildings = HashMap::new();
         let mut levels = HashMap::new();
-        let mut entrances = HashSet::new();
+        let mut entrances = HashMap::new();
         for (index, building) in export.buildings.iter().enumerate() {
             if !matches!(building.campus.as_str(), "ookayama" | "suzukakedai") {
-                return Err(invalid(format!("building {} has campus {}", building.id, building.campus)));
+                return Err(invalid(format!(
+                    "building {} has campus {}",
+                    building.id, building.campus
+                )));
             }
             if buildings.insert(building.id.clone(), index).is_some() {
                 return Err(invalid(format!("building {} is listed twice", building.id)));
             }
             for (level_index, level) in building.levels.iter().enumerate() {
-                if levels.insert(level.id.clone(), (index, level_index)).is_some() {
+                if levels
+                    .insert(level.id.clone(), (index, level_index))
+                    .is_some()
+                {
                     return Err(invalid(format!("level {} is listed twice", level.id)));
                 }
             }
         }
-        for building in &export.buildings {
-            for entrance in &building.entrances {
-                if !entrances.insert(entrance.id.as_str()) {
+        for (index, building) in export.buildings.iter().enumerate() {
+            for (number, entrance) in building.entrances.iter().enumerate() {
+                if entrances
+                    .insert(entrance.id.clone(), (index, number))
+                    .is_some()
+                {
                     return Err(invalid(format!("entrance {} is listed twice", entrance.id)));
                 }
                 if entrance
@@ -191,7 +216,10 @@ impl Map {
                     .as_ref()
                     .is_some_and(|room| !rooms.contains_key(room))
             {
-                return Err(invalid(format!("unit {} has a dangling reference", unit.id)));
+                return Err(invalid(format!(
+                    "unit {} has a dangling reference",
+                    unit.id
+                )));
             }
             units_by_level
                 .entry(unit.level_id.clone())
@@ -216,7 +244,10 @@ impl Map {
         let mut linework_by_level: HashMap<String, Vec<usize>> = HashMap::new();
         for (index, lines) in export.linework.iter().enumerate() {
             if !levels.contains_key(&lines.level_id) {
-                return Err(invalid(format!("linework of level {} is invalid", lines.level_id)));
+                return Err(invalid(format!(
+                    "linework of level {} is invalid",
+                    lines.level_id
+                )));
             }
             linework_by_level
                 .entry(lines.level_id.clone())
@@ -233,8 +264,37 @@ impl Map {
             .iter()
             .map(|building| geometry::multipolygon_area(&building.footprint))
             .collect();
+        let mut search = Index::default();
+        for (index, building) in export.buildings.iter().enumerate() {
+            for code in &building.codes {
+                search.add_code(code, Found::Building(index));
+            }
+            search.add_alias(&building.name.ja, Found::Building(index));
+            if let Some(en) = &building.name.en {
+                search.add_alias(en, Found::Building(index));
+            }
+        }
+        for (index, room) in export.rooms.iter().enumerate() {
+            search.add_code(&room.code, Found::Room(index));
+        }
+        for (spelling, targets) in &export.aliases {
+            for room in targets {
+                if let Some(index) = rooms.get(room) {
+                    search.add_alias(spelling, Found::Room(*index));
+                }
+            }
+        }
+        let patterns = Patterns::new(
+            export
+                .buildings
+                .iter()
+                .flat_map(|building| building.codes.iter().map(String::as_str)),
+        )
+        .map_err(invalid)?;
         Ok(Self {
-            patterns: Patterns::new().map_err(invalid)?,
+            patterns,
+            entrances,
+            search,
             export,
             buildings,
             levels,
@@ -291,7 +351,12 @@ impl Map {
 
     /// The smallest unit with a name under `at` on a building's floor: a
     /// room inside a corridor polygon wins over the corridor.
-    pub(super) fn unit_at(&self, building: usize, level: usize, at: CampusMapPoint) -> Option<usize> {
+    pub(super) fn unit_at(
+        &self,
+        building: usize,
+        level: usize,
+        at: CampusMapPoint,
+    ) -> Option<usize> {
         let level_id = &self.export.buildings[building].levels[level].id;
         let at = [at.longitude, at.latitude];
         self.units_by_level
@@ -303,63 +368,89 @@ impl Map {
                 (unit.label.is_some() || unit.room_id.is_some())
                     && geometry::polygon_contains(&unit.polygon, at)
             })
-            .map(|index| (index, geometry::polygon_area(&self.export.units[index].polygon)))
+            .map(|index| {
+                (
+                    index,
+                    geometry::polygon_area(&self.export.units[index].polygon),
+                )
+            })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(index, _)| index)
     }
 
-    /// The building with floor plans whose footprint, grown by
-    /// [`FOCUS_MARGIN_M`], holds `at`; the smallest where several do.
-    fn building_at(&self, at: Position) -> Option<usize> {
+    /// The building whose footprint holds `at`, the smallest where several
+    /// do (one drawn inside another); no margin.
+    pub(super) fn building_containing(&self, at: Position, with_plans: bool) -> Option<usize> {
         self.export
             .buildings
             .iter()
             .enumerate()
-            .filter(|(_, building)| !building.levels.is_empty())
-            .filter(|(_, building)| {
-                geometry::multipolygon_contains(&building.footprint, at)
-                    || geometry::distance_to_edges(&building.footprint, at) <= FOCUS_MARGIN_M
-            })
+            .filter(|(_, building)| !with_plans || !building.levels.is_empty())
+            .filter(|(_, building)| geometry::multipolygon_contains(&building.footprint, at))
             .map(|(index, _)| index)
             .min_by(|a, b| self.areas[*a].total_cmp(&self.areas[*b]))
     }
 
-    /// The focus rule: below zoom 17 nothing; the building under the camera
-    /// centre (smallest first); else the current one while it is still in
-    /// view. A move the app made keeps what is shown. On a building switch
-    /// the floor keeps its ordinal when the new building has it, else the
-    /// ground floor, else the floor nearest the ground. `current` is the
-    /// building and floor shown before the move; so is the answer.
+    /// What a tap on the base map picks: the building holding it, else the
+    /// one whose edge is nearest within `slop_m`.
+    pub(super) fn building_tapped(&self, at: Position, slop_m: f64) -> Option<usize> {
+        self.building_containing(at, false).or_else(|| {
+            self.export
+                .buildings
+                .iter()
+                .enumerate()
+                .map(|(index, building)| {
+                    (index, geometry::distance_to_edges(&building.footprint, at))
+                })
+                .filter(|(_, distance)| *distance <= slop_m)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(index, _)| index)
+        })
+    }
+
+    /// The focus rule, over what the person can see: a building with floor
+    /// plans comes into focus when the viewport's centre is inside its
+    /// footprint and it spans [`FOCUS_ENTER_SHARE`] of the viewport; the one
+    /// in focus stays while it spans [`FOCUS_EXIT_SHARE`] and is in view.
+    /// Nothing else is weighed. On a building switch the floor follows
+    /// [`Map::arrival_level`]. `current` is the building and floor shown
+    /// before the move; so is the answer.
     pub(super) fn focus(
         &self,
-        camera: &CampusMapCamera,
+        view: &Viewport,
         current: Option<(usize, usize)>,
     ) -> Option<(usize, usize)> {
-        let current = current.filter(|(building, level)| {
-            *level < self.export.buildings[*building].levels.len()
+        let current = current
+            .filter(|(building, level)| *level < self.export.buildings[*building].levels.len());
+        let entering = self.building_containing(view.center, true).filter(|index| {
+            view.share(&self.export.buildings[*index].footprint) >= FOCUS_ENTER_SHARE
         });
-        let center = [camera.center.longitude, camera.center.latitude];
-        let view = [
-            camera.bounds.west,
-            camera.bounds.south,
-            camera.bounds.east,
-            camera.bounds.north,
-        ];
-        if !camera.by_user {
-            return current;
+        let staying = current.filter(|(building, _)| {
+            let footprint = &self.export.buildings[*building].footprint;
+            view.share(footprint) >= FOCUS_EXIT_SHARE && view.meets(footprint)
+        });
+        match (entering, staying) {
+            (Some(building), Some(shown)) if building == shown.0 => Some(shown),
+            (Some(building), _) => self
+                .arrival_level(current, building)
+                .map(|level| (building, level)),
+            (None, staying) => staying,
         }
-        if zoom(camera) < FOCUS_ZOOM {
-            return None;
+    }
+
+    /// The floor shown on arriving at `building` from the floor `from`: the
+    /// same floor when it is that building's (a floor change stays), else
+    /// the one with the same ordinal, else the ground floor, else the floor
+    /// nearest the ground. No building remembers a floor of its own.
+    pub(super) fn arrival_level(
+        &self,
+        from: Option<(usize, usize)>,
+        building: usize,
+    ) -> Option<usize> {
+        if let Some((_, level)) = from.filter(|(shown, _)| *shown == building) {
+            return Some(level);
         }
-        let building = self.building_at(center).or_else(|| {
-            current.map(|(building, _)| building).filter(|index| {
-                geometry::multipolygon_meets_rect(&self.export.buildings[*index].footprint, view)
-            })
-        })?;
-        if let Some((shown, level)) = current.filter(|(shown, _)| *shown == building) {
-            return Some((shown, level));
-        }
-        let ordinal = current.map(|(from, level)| self.export.buildings[from].levels[level].ordinal);
+        let ordinal = from.map(|(from, level)| self.export.buildings[from].levels[level].ordinal);
         ordinal
             .and_then(|ordinal| {
                 self.export.buildings[building]
@@ -368,7 +459,55 @@ impl Map {
                     .position(|level| level.ordinal == ordinal)
             })
             .or_else(|| self.ground_level(building))
+    }
+
+    /// The places a search query names, best first.
+    pub(super) fn search(&self, query: &str) -> Vec<Found> {
+        self.search.search(query)
+    }
+
+    /// The floor a room is first drawn on: the lowest with one of its units.
+    pub(super) fn room_level(&self, room: usize) -> Option<(usize, usize)> {
+        let building = self.room_building(room)?;
+        let levels: HashSet<usize> = self.export.rooms[room]
+            .unit_ids
+            .iter()
+            .filter_map(|id| self.units.get(id))
+            .filter_map(|unit| self.levels.get(&self.export.units[*unit].level_id))
+            .map(|(_, level)| *level)
+            .collect();
+        self.level_order(building)
+            .into_iter()
+            .find(|level| levels.contains(level))
             .map(|level| (building, level))
+    }
+
+    /// A room as a target, as if a room string named it alone.
+    pub(super) fn room_target(&self, room: usize, english: bool) -> Option<Target> {
+        self.target(Place::Room { room, level: None }, english)
+    }
+
+    /// A building's footprint box, else its centre.
+    pub(super) fn building_bounds(&self, building: usize) -> geometry::Rect {
+        let record = &self.export.buildings[building];
+        geometry::bounds(record.footprint.iter().flatten()).unwrap_or([
+            record.center[0],
+            record.center[1],
+            record.center[0],
+            record.center[1],
+        ])
+    }
+
+    /// The box around every building of a campus: where a page opened on
+    /// no room string starts.
+    pub(super) fn campus_bounds(&self, campus: &str) -> Option<geometry::Rect> {
+        geometry::bounds(
+            self.export
+                .buildings
+                .iter()
+                .filter(|building| building.campus == campus)
+                .flat_map(|building| building.footprint.iter().flatten()),
+        )
     }
 
     /// The rooms an alias spelling names, in the export's order.
@@ -383,7 +522,7 @@ impl Map {
         (!rooms.is_empty()).then_some(rooms)
     }
 
-    fn room_building(&self, room: usize) -> Option<usize> {
+    pub(super) fn room_building(&self, room: usize) -> Option<usize> {
         self.buildings
             .get(&self.export.rooms[room].building_id)
             .copied()
@@ -437,7 +576,11 @@ impl Map {
     pub(super) fn locate(&self, raw: &str, english: bool) -> Vec<Target> {
         let mut places = Vec::new();
         match self.alias(raw) {
-            Some(rooms) => places.extend(rooms.into_iter().map(|room| Place::Room { room, level: None })),
+            Some(rooms) => places.extend(
+                rooms
+                    .into_iter()
+                    .map(|room| Place::Room { room, level: None }),
+            ),
             None => {
                 for mention in self.patterns.mentions(raw) {
                     self.resolve(&mention, &mut places);
@@ -492,7 +635,11 @@ impl Map {
                 level,
             } => (building, label, Vec::new(), level),
         };
-        let level_of = |unit: usize| self.levels.get(&self.export.units[unit].level_id).map(|(_, level)| *level);
+        let level_of = |unit: usize| {
+            self.levels
+                .get(&self.export.units[unit].level_id)
+                .map(|(_, level)| *level)
+        };
         let hinted = self.named_level(building, hint.as_deref());
         // A floor the string names narrows a room spread over several.
         let on_hint: Vec<usize> = units
@@ -505,7 +652,11 @@ impl Map {
         let level = self
             .level_order(building)
             .into_iter()
-            .find(|level| highlighted.iter().any(|unit| level_of(*unit) == Some(*level)))
+            .find(|level| {
+                highlighted
+                    .iter()
+                    .any(|unit| level_of(*unit) == Some(*level))
+            })
             .or(hinted)
             .or_else(|| self.ground_level(building));
         let shown: Vec<&Rings> = highlighted

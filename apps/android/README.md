@@ -52,7 +52,7 @@ UniFFI checks signatures when the library loads.
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |
 | `BackgroundWake.kt` | The WorkManager wake that runs Core's `backgroundWake` out of front |
 | `features/*` | 今日 (class stack, exams and the quarter's assignments) · 時間割 (week picker, session marks, quarter .ics) · 授業 (wide windows) · ウェブ · 設定 (school accounts with the OTP authenticator setup, notifications, study profile, data updates, backup, ウェブ, reset), course and assignment pages |
-| `features/map` | The campus map: a MapLibre `MapView` over OpenFreeMap's base map (OpenStreetMap data; no key, no Google Play services) drawing Core's map page. Core owns the page (`campusMapOpen`, `campusMapSend`, `campusMapClose`), as on iOS; `FloorMapView.kt` paints each scene by role in theme colours (one GeoJSON source and style layer per role, line widths in metres, MapLibre's own symbol collision) and `CampusMapScreen.kt` holds the card, the level picker and the blue-dot permission. Opened full screen from a course's rooms and 今日's next class. `yarn sdk:android` builds the SDK with the `campus-map` feature |
+| `features/map` | The campus map: a MapLibre `MapView` over OpenFreeMap's base map (OpenStreetMap data; no key, no Google Play services) drawing Core's map page. Core owns the page (`campusMapOpen`, `campusMapSend`, `campusMapSearch`, `campusMapClose`), as on iOS: what is selected (one way in by stable id for taps, marks, search and course rooms), which building and floor the visible part of the map brings into focus, the card and its maps links (the `mapsApp` setting, Google on Android until chosen) and where the camera goes. `FloorMapView.kt` paints each scene by role in theme colours (one GeoJSON source and style layer per role, line widths in metres, MapLibre's own symbol collision), reports the part of the map the controls leave visible and tells its own framings from the person's moves; `CampusMapScreen.kt` holds the one bottom panel that search, its results and the place card share, the level picker and the position button. Opened full screen from a course's rooms, 今日's next class, or 今日's map button to browse; the blue dot is asked for when the person taps the position button. `yarn sdk:android` builds the SDK with the `campus-map` feature |
 | `res/drawable/campus_map_*.xml` | The map's 14 amenity and entrance icons, converted from the iOS SVGs and tinted where drawn; `amenityDrawable` names each by Core's amenity key |
 | `design/LmsContent.kt` | LMS text (`fromHtml`) and the material opener: Core downloads, a viewer app shows it through the `FileProvider` |
 | `design/SyncStatus.kt` | Core's sync snapshot in words: the title-bar indicator, the connection sheet, the 今日 banner |
@@ -66,8 +66,10 @@ UniFFI checks signatures when the library loads.
 - The campus map draws with MapLibre over OpenFreeMap's base map rather than
   MapKit over Apple's; footprints sit under the base map's labels and the
   floor above them, as on iOS. Its marks are drawn by the map itself, so a
-  screen reader does not read them. An entrance opens through a `geo:` link
-  (Core builds it for Android) in the person's maps app.
+  screen reader does not read them. The panel stays at the bottom on every
+  window size (iOS moves it to the leading edge in a wide one) and its card
+  folds in one step rather than following the finger; the position button
+  follows the person until they move the map, with no heading mode.
 - Logins stay on the device (Keystore); there is no iCloud Keychain to share
   them with the desktop app.
 - The quarter export is a share button in the 時間割 header rather than a long

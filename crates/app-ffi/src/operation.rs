@@ -76,6 +76,11 @@ pub enum OperationResult {
     CampusMapScene {
         scene: Option<CampusMapScene>,
     },
+    /// A map search's answers.
+    #[cfg(feature = "campus-map")]
+    CampusMapSearch {
+        search: CampusMapSearch,
+    },
     Document {
         value: JsonValue,
     },

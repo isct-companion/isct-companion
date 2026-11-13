@@ -3,6 +3,7 @@ package app.isctcompanion.features.settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -284,6 +285,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         }
         ThemeCard()
         LanguageCard()
+        MapCard()
         WebCard()
         // As on iOS: About holds the version, the tips and the logs, then the
         // desktop note; the destructive Reset group comes last.
@@ -852,6 +854,24 @@ private fun LanguageCard() {
                 t("settings.main.courseNamesRoomsAndSyllabus"),
                 style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
             )
+        }
+    }
+}
+
+/** Which maps app the campus map's "Open in Maps" links open in. Core builds
+ * the link from this device setting, which on Android reads as Google Maps
+ * until the person chooses. */
+@Composable
+private fun MapCard() {
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    Card(Modifier.padding(top = 16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            IconHeading(t("settings.main.openPlacesIn"), Icons.Rounded.Map, Theme.colors.ok)
+            Choices(
+                listOf("google" to t("settings.main.googleMaps"), "apple" to t("settings.main.appleMaps")),
+                model.records.settings.optString("mapsApp").ifEmpty { "google" },
+            ) { value -> scope.launch { model.updateSettings { it.put("mapsApp", value) } } }
         }
     }
 }

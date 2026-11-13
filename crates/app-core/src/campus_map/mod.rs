@@ -4,7 +4,7 @@
 //! cache table); until it is stored every read here answers nothing, and
 //! shells show no map button.
 //!
-//! The page is Core's: shells open it on a room string, forward what the
+//! The page is Core's: shells open it, on a room string or on none, forward what the
 //! person does as [`CampusMapIntent`]s and draw the [`CampusMapScene`] each
 //! answer carries with their own map API, by role. Which building and floor
 //! show, what is selected, what the card says, which marks are drawn and
@@ -17,6 +17,7 @@ mod geometry;
 mod map;
 mod matching;
 mod page;
+mod search;
 
 use crate::data::{DataError, DataStore};
 use map::Map;
@@ -67,17 +68,48 @@ pub struct CampusMapLevel {
     pub name: String,
 }
 
-/// Where the camera settled after a move.
+/// Where the camera settled after a move: the part of the map the person
+/// can see, the screen less the search bar, the card, the level picker and
+/// the safe area, as its corners on the ground (a rotated map gives a
+/// rotated box).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CampusMapCamera {
-    pub center: CampusMapPoint,
-    pub bounds: CampusMapBounds,
-    /// The map's width in points; with the bounds it gives the zoom level.
+    pub top_left: CampusMapPoint,
+    pub top_right: CampusMapPoint,
+    pub bottom_right: CampusMapPoint,
+    pub bottom_left: CampusMapPoint,
+    /// The visible part's width in screen points.
     pub width_points: f64,
-    /// A gesture moved the camera; a move the app made never re-picks the
+    /// The visible part's height in screen points.
+    pub height_points: f64,
+    /// Not a move the app made: the shell made none (`setVisibleMapRect`)
+    /// that was still under way. A move the app made never re-picks the
     /// building.
     pub by_user: bool,
+}
+
+/// A place the person picked, by its stable id in the export.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum CampusMapPlace {
+    Building {
+        id: String,
+    },
+    Room {
+        id: String,
+    },
+    /// A floor plan's unit, as its room mark names it.
+    Unit {
+        id: String,
+    },
+    Entrance {
+        id: String,
+    },
 }
 
 /// What the person did on the map page.
@@ -93,19 +125,23 @@ pub enum CampusMapIntent {
     /// The camera settled, after a gesture or a framing. `framing` is the
     /// key of the last framing the shell applied: a report from before the
     /// latest framing Core asked for changes nothing.
-    Camera { camera: CampusMapCamera, framing: u64 },
+    Camera {
+        camera: CampusMapCamera,
+        framing: u64,
+    },
     /// Picked a floor in the level picker.
     Level { id: String },
-    /// Tapped the map anywhere but an entrance mark, on the floor drawn
-    /// then (`None` with no floor drawn). A tap on a floor the page no longer
-    /// shows changes nothing.
+    /// Tapped the map anywhere but a mark, on the floor drawn then (`None`
+    /// with no floor drawn): a unit of that floor, else a building. A tap on
+    /// a floor the page no longer shows changes nothing.
     Tap {
         point: CampusMapPoint,
         level_id: Option<String>,
     },
-    /// Tapped an entrance mark, by the entrance's id (unique in the export).
-    /// An entrance the page no longer draws changes nothing.
-    Entrance { id: String },
+    /// Picked a place: a search result, a room or entrance mark.
+    Select { place: CampusMapPlace },
+    /// Closed the card: nothing is selected.
+    Clear,
 }
 
 /// What a layer of the scene is, which decides its colours: shells map each
@@ -153,8 +189,12 @@ pub struct CampusMapLayer {
 )]
 pub enum CampusMapMarkKind {
     /// A room's code or a unit's name; `highlighted` for the selected room,
-    /// drawn larger and in the accent.
-    Room { label: String, highlighted: bool },
+    /// drawn larger and in the accent. Picking it selects `unit_id`.
+    Room {
+        unit_id: String,
+        label: String,
+        highlighted: bool,
+    },
     /// An amenity's icon. `key` is stable lowercase (`restroom-male`):
     /// shells name the icon and the spoken name after it.
     Amenity { key: String },
@@ -184,8 +224,8 @@ pub struct CampusMapLink {
     pub entrance: bool,
     /// The entrance's name, when the export names it.
     pub name: Option<String>,
-    /// `https://maps.apple.com/?ll=…&q=…`; on Android `geo:0,0?q=…`, which
-    /// the person's maps app opens.
+    /// A pin in the maps app the settings name: `https://maps.apple.com/?ll=…&q=…`
+    /// or `https://www.google.com/maps/search/?api=1&query=…`.
     pub url: String,
 }
 
@@ -198,20 +238,24 @@ pub struct CampusMapCandidate {
     pub chosen: bool,
 }
 
-/// The card describes the selection and nothing else, so a camera move
-/// never changes it.
+/// The card describes the selection and nothing else, so a camera move,
+/// a floor picked or a zoom never changes it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CampusMapCard {
-    /// The chosen room, the tapped room or the tapped entrance; `None` for an
-    /// entrance the export does not name.
+    /// The selected room, unit, entrance or building; `None` for an entrance
+    /// the export does not name.
     pub title: Option<String>,
     /// The selection's building, never the camera's.
     pub building_name: String,
+    /// `ookayama` or `suzukakedai`; shells name it.
+    pub campus: String,
     /// The selection's floor, when it has one.
     pub level_name: Option<String>,
     /// The chosen room is not on the floor plans: only its building shows.
     pub building_only: bool,
+    /// The selection's building has no floor plans at all.
+    pub no_floor_plans: bool,
     /// One per entrance of the selection's building, the tapped one first;
     /// the building's centre when it has none. No route is ever drawn.
     pub links: Vec<CampusMapLink>,
@@ -248,11 +292,39 @@ pub struct CampusMapScene {
     /// The floor the selected room is on, while the picker lists its
     /// building.
     pub marked_level_id: Option<String>,
-    /// `None` when the map knows nothing of the room string.
+    /// `None` while nothing is selected: on a page opened on no room
+    /// string, or one the map knows nothing of.
     pub card: Option<CampusMapCard>,
     pub framing: Option<CampusMapFraming>,
     /// The data's credit lines (OpenStreetMap, ODbL), shown on the map.
     pub attribution: Vec<String>,
+}
+
+/// One search answer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CampusMapSearchResult {
+    /// What selecting it sends.
+    pub place: CampusMapPlace,
+    /// The room's code, or the building's name.
+    pub title: String,
+    pub building_name: String,
+    /// `ookayama` or `suzukakedai`.
+    pub campus: String,
+    /// The floor the room is on, when it is on the plans.
+    pub level_name: Option<String>,
+    /// Found, but not on the floor plans: a building without plans, or a
+    /// room with no unit drawn. Selecting it shows the building only.
+    pub no_floor_plan: bool,
+}
+
+/// The answers to one query. `query` is the text asked about, so a shell
+/// drops answers to text the person has since changed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CampusMapSearch {
+    pub query: String,
+    pub results: Vec<CampusMapSearchResult>,
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -358,19 +430,38 @@ impl CampusMapService {
         Ok(Some(map))
     }
 
-    /// Names in English when the content language is English.
-    fn english(&self) -> Result<bool, CampusMapError> {
+    /// Names in English when the content language is English, and the maps
+    /// app the card's links open in.
+    fn preferences(&self) -> Result<page::Preferences, CampusMapError> {
         let workspace = self.store.load_fields(&[])?;
-        Ok(crate::schedule::content_language(&workspace) == "en")
+        Ok(page::Preferences {
+            english: crate::schedule::content_language(&workspace) == "en",
+            maps: map::MapsApp::from_setting(
+                workspace
+                    .pointer("/settings/mapsApp")
+                    .and_then(serde_json::Value::as_str),
+            ),
+        })
     }
 
-    /// Whether the map knows any room or building a course's room string
-    /// names; `false` until a file is stored. Shells show a map button only
-    /// for `true`.
-    pub fn has(&self, room: &str) -> Result<bool, CampusMapError> {
-        Ok(self
-            .map()?
-            .is_some_and(|map| !map.locate(room, false).is_empty()))
+    /// With a room string: whether the map knows any room or building it
+    /// names. Without one: whether a map is stored at all. `false` until a
+    /// file is stored; shells show a map button only for `true`.
+    pub fn has(&self, room: Option<&str>) -> Result<bool, CampusMapError> {
+        Ok(self.map()?.is_some_and(|map| match room {
+            Some(room) => !map.locate(room, false).is_empty(),
+            None => true,
+        }))
+    }
+
+    /// The places a search box's text names, best first.
+    pub fn search(&self, query: &str) -> Result<CampusMapSearch, CampusMapError> {
+        let map = self.map()?.ok_or(CampusMapError::Unavailable)?;
+        let english = self.preferences()?.english;
+        Ok(CampusMapSearch {
+            query: query.to_owned(),
+            results: page::search(&map, english, query),
+        })
     }
 
     /// Takes the id of a new page, dropping the current one. Called when
@@ -383,12 +474,13 @@ impl CampusMapService {
         open.last
     }
 
-    /// Opens the reserved page on a room string: its first target chosen,
-    /// its building and floor shown, the camera framed on it. A page a later
-    /// open or close superseded is answered but never installed.
-    pub fn open(&self, page: u64, room: &str) -> Result<CampusMapScene, CampusMapError> {
+    /// Opens the reserved page on a room string, its first target chosen and
+    /// the camera framed on it; on none, nothing selected and the main
+    /// campus in view. A page a later open or close superseded is answered
+    /// but never installed.
+    pub fn open(&self, page: u64, room: Option<&str>) -> Result<CampusMapScene, CampusMapError> {
         let map = self.map()?.ok_or(CampusMapError::Unavailable)?;
-        let mut opened = Page::open(map, self.english()?, room);
+        let mut opened = Page::open(map, self.preferences()?, room);
         let scene = opened.scene(page).unwrap_or_else(|| opened.render(page));
         let mut open = self.page.lock().unwrap_or_else(PoisonError::into_inner);
         if open.last == page {
