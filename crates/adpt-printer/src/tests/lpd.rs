@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(target_os = "android")]
+use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener;
 use std::thread;
 

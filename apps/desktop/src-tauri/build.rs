@@ -9,30 +9,18 @@ const TOOLS: &[(&str, &[&str])] = &[
     ("campus-printer", &["macos", "windows"]),
 ];
 
-/// A tool plugin's commands on `os`, and which of them its `default`
-/// permission allows: what the plugin grants the main window when it starts.
-/// The Windows print window gets the printer's two printing commands from
-/// the printer plugin instead.
-fn plugin(tool: &str, os: &str) -> tauri_build::InlinedPlugin {
+/// Commands that each tool grants to the main window.
+fn plugin(tool: &str) -> tauri_build::InlinedPlugin {
     use tauri_build::{DefaultPermissionRule, InlinedPlugin};
-    let (commands, main): (&'static [&'static str], &'static [&'static str]) = match (tool, os) {
-        ("campus-printer", "windows") => (
-            &["status", "add_menu", "print_request", "print"],
-            &["allow-status", "allow-add-menu"],
-        ),
-        ("campus-printer", _) => (&["status", "install"], &[]),
-        ("campus-vpn", _) => (&["status", "connect", "disconnect", "keep", "install"], &[]),
-        ("campus-wifi", _) => (&["status", "connect"], &[]),
+    let commands: &[&str] = match tool {
+        "campus-printer" => &["status", "install"],
+        "campus-vpn" => &["status", "connect", "disconnect", "keep", "install"],
+        "campus-wifi" => &["status", "connect"],
         _ => panic!("{tool} has no plugin"),
-    };
-    let default = if main.is_empty() {
-        DefaultPermissionRule::AllowAllCommands
-    } else {
-        DefaultPermissionRule::Allow(main.iter().map(|grant| grant.to_string()).collect())
     };
     InlinedPlugin::new()
         .commands(commands)
-        .default_permission(default)
+        .default_permission(DefaultPermissionRule::AllowAllCommands)
 }
 
 fn main() {
@@ -78,7 +66,7 @@ fn main() {
         }
     }
     let attributes =
-        tauri_build::Attributes::new().plugins(tools.iter().map(|tool| (*tool, plugin(tool, &os))));
+        tauri_build::Attributes::new().plugins(tools.iter().map(|tool| (*tool, plugin(tool))));
     if let Err(error) = tauri_build::try_build(attributes) {
         panic!("{error:#}");
     }
