@@ -1,19 +1,38 @@
 package app.isctcompanion.features.map
 
 import android.annotation.SuppressLint
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.RectF
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -31,9 +50,11 @@ import app.isctcompanion.core.CampusMapScene
 import app.isctcompanion.design.LocalReducedMotion
 import app.isctcompanion.design.Palette
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.t
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.modes.CameraMode
@@ -93,29 +114,86 @@ fun FloorMapView(
         MapView(context)
     }
     val painter = remember { FloorPainter(view) }
+    var placed by remember { mutableStateOf(emptyList<PlacedMark>()) }
     SideEffect {
         painter.insets = insets
         painter.onCamera = onCamera
         painter.onTap = onTap
         painter.onSelect = onSelect
+        painter.onPlaced = { placed = it }
     }
     MapLifecycle(view)
     DisposableEffect(view) {
         view.getMapAsync { painter.attach(it) }
         onDispose { painter.detach() }
     }
-    AndroidView(
-        factory = { view },
-        modifier = modifier,
-        update = { painter.show(scene, palette, dark, chrome, canFrame, showsPosition, follows, animates) },
-    )
+    Box(modifier) {
+        AndroidView(
+            factory = { view },
+            modifier = Modifier.fillMaxSize(),
+            update = { painter.show(scene, palette, dark, chrome, canFrame, showsPosition, follows, animates) },
+        )
+        SpokenMarks(placed, onSelect)
+    }
 }
+
+/** A mark and where it is on screen, in the map's pixels. */
+private data class PlacedMark(val mark: CampusMapMark, val x: Int, val y: Int)
+
+/** The marks for a screen reader. MapLibre paints them into the map's one
+ * surface, which says nothing; these are unpainted, untouchable boxes over
+ * each mark in view that carry its name and, for a room or an entrance, the
+ * same pick a tap makes. A finger still reaches the map through them. */
+@Composable
+private fun SpokenMarks(placed: List<PlacedMark>, onSelect: (CampusMapPlace) -> Unit) {
+    val half = with(LocalDensity.current) { (SPOKEN_DP.dp / 2).roundToPx() }
+    for (item in placed) {
+        key(item.mark.id) {
+            val kind = item.mark.kind
+            val spoken = when (kind) {
+                is CampusMapMarkKind.Room -> kind.label
+                is CampusMapMarkKind.Amenity -> t("campusMap.amenity.${kind.key}")
+                is CampusMapMarkKind.Entrance -> kind.name ?: t("campusMap.entrance")
+            }
+            val place = when (kind) {
+                is CampusMapMarkKind.Room -> CampusMapPlace.Unit(kind.unitId)
+                is CampusMapMarkKind.Entrance -> CampusMapPlace.Entrance(kind.entranceId)
+                is CampusMapMarkKind.Amenity -> null
+            }
+            val chosen = when (kind) {
+                is CampusMapMarkKind.Room -> kind.highlighted
+                is CampusMapMarkKind.Entrance -> kind.selected
+                is CampusMapMarkKind.Amenity -> false
+            }
+            Box(
+                Modifier
+                    .offset { IntOffset(item.x - half, item.y - half) }
+                    .size(SPOKEN_DP.dp)
+                    .semantics {
+                        contentDescription = spoken
+                        if (place != null) {
+                            role = Role.Button
+                            selected = chosen
+                            onClick {
+                                onSelect(place)
+                                true
+                            }
+                        }
+                    },
+            )
+        }
+    }
+}
+
+/** The side of a mark's box for a screen reader, the size of its icon. */
+private const val SPOKEN_DP = 28
 
 /** A `MapView` is told each lifecycle step by its host; this one lives as
  * long as the map page's destination. */
 @Composable
 private fun MapLifecycle(view: MapView) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val context = LocalContext.current.applicationContext
     DisposableEffect(lifecycle, view) {
         var started = false
         var resumed = false
@@ -144,7 +222,22 @@ private fun MapLifecycle(view: MapView) {
             }
         }
         lifecycle.addObserver(observer)
+        // MapLibre asks its host to pass on the system's memory warnings, so
+        // it can drop what it caches. Since Android 14 they arrive as a trim
+        // once the app is in the background.
+        val memory = object : ComponentCallbacks2 {
+            override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun onLowMemory() = view.onLowMemory()
+
+            override fun onTrimMemory(level: Int) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) view.onLowMemory()
+            }
+        }
+        context.registerComponentCallbacks(memory)
         onDispose {
+            context.unregisterComponentCallbacks(memory)
             lifecycle.removeObserver(observer)
             if (resumed) view.onPause()
             if (started) view.onStop()
@@ -162,6 +255,8 @@ private class FloorPainter(private val view: MapView) {
     var onCamera: (CampusMapCamera, ULong) -> Unit = { _, _ -> }
     var onTap: (CampusMapPoint, String?) -> Unit = { _, _ -> }
     var onSelect: (CampusMapPlace) -> Unit = {}
+    /** The marks in the visible part and where they are, for a screen reader. */
+    var onPlaced: (List<PlacedMark>) -> Unit = {}
 
     private val context = view.context
     private val density = context.resources.displayMetrics.density
@@ -215,6 +310,7 @@ private class FloorPainter(private val view: MapView) {
             val byUser = !framingActive
             framingActive = false
             report(byUser)
+            place()
             // A framing that waited for this move goes next.
             view.post { applyFraming() }
         }
@@ -606,6 +702,20 @@ private class FloorPainter(private val view: MapView) {
             """{"type":"Feature","properties":$properties,"geometry":{"type":"Point","coordinates":[${record.point.longitude},${record.point.latitude}]}}"""
         }
         style.getSourceAs<GeoJsonSource>(MARKS)?.setGeoJson(collection(features))
+        place()
+    }
+
+    /** Where each mark is on screen now, for those in the visible part. */
+    private fun place() {
+        val map = map ?: return
+        val inset = insets()
+        val placed = drawnMarks.orEmpty().mapNotNull { mark ->
+            val at = map.projection.toScreenLocation(LatLng(mark.point.latitude, mark.point.longitude))
+            val inside = at.x >= inset.left && at.x <= view.width - inset.right &&
+                at.y >= inset.top && at.y <= view.height - inset.bottom
+            if (inside) PlacedMark(mark, at.x.roundToInt(), at.y.roundToInt()) else null
+        }
+        onPlaced(placed)
     }
 
     /** An icon on a 28 dp disc with a hairline rim, as iOS draws them. */

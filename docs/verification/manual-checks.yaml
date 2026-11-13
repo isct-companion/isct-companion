@@ -1069,6 +1069,56 @@ checks:
         committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
+  - id: ANDROID-CAMPUS-MAP-SYSTEM
+    area: native
+    title: Android campus map against the system's permission, memory and TalkBack
+    persona: undergraduate-first-term
+    preconditions: |
+      A CI-built APK on an arm64 Android phone with the campus map downloaded
+      (今日 shows its map button), location permission not yet answered, and
+      TalkBack available in the system settings.
+    steps:
+      - action: |
+          Open the map from 今日's map button. No permission prompt may show.
+          Tap the position button and refuse; tap it again and refuse again;
+          tap it a third time: the page must offer the system settings instead
+          of asking. Allow location there, return, and tap the button: the
+          blue dot shows and the map follows it until the map is dragged.
+        reason: |
+          Android asks at most twice and then answers a request silently. The
+          page tells that state apart only from the system's own answer, which
+          no headless test produces; a wrong reading leaves a dead button.
+      - action: |
+          With a room selected and its floor shown, send the app to the
+          background, open several heavy apps, and return. Then open the map,
+          leave it with the close button and open it again a few times.
+        reason: |
+          The map view is handed each lifecycle step and the system's memory
+          warnings by this shell. A missed step shows as a black map, a crash
+          on return or memory that grows with every open, only on a device.
+      - action: |
+          Turn TalkBack on and open the map on a course's room. Move through
+          the map: each room label, amenity and entrance in view is read by
+          name, and activating a room or an entrance opens its card. Pan the
+          map and repeat.
+        reason: |
+          The marks are painted into one surface with no accessibility of its
+          own; the spoken boxes are placed from the map's projection when the
+          camera rests. Only TalkBack on a device shows whether they sit on
+          the marks and act.
+    observe: |
+      The map page on the phone, the system's permission prompts and settings
+      page, and what TalkBack reads.
+    expected: |
+      The permission is asked only from the position button and never silently
+      dead-ends; the map survives backgrounding and reopening; TalkBack reads
+      and activates the marks in view.
+    why_manual: |
+      The system's permission prompt and its silent third refusal, memory
+      pressure from other apps and TalkBack exist only on a real device; the
+      page's rules are Core's and are tested there.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/map/**
   - id: OCR-CAMERA-GEOMETRY
     area: ocr
     title: Camera outline follows the card on the frame it was fitted on

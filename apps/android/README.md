@@ -65,8 +65,10 @@ UniFFI checks signatures when the library loads.
   (`AssignmentBoard.record`) with submitted work and hidden rows to restore.
 - The campus map draws with MapLibre over OpenFreeMap's base map rather than
   MapKit over Apple's; footprints sit under the base map's labels and the
-  floor above them, as on iOS. Its marks are drawn by the map itself, so a
-  screen reader does not read them. The panel stays at the bottom on every
+  floor above them, as on iOS. MapLibre paints the marks into its one
+  surface, so `FloorMapView.kt` lays an unpainted box over each mark in view
+  for TalkBack: it reads the mark's name and picks a room or an entrance as
+  a tap does. The panel stays at the bottom on every
   window size (iOS moves it to the leading edge in a wide one) and its card
   folds in one step rather than following the finger; the position button
   follows the person until they move the map, with no heading mode.
