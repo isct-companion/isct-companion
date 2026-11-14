@@ -1143,6 +1143,41 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let snapshot = widgets::project(&data, &school, morning_at).unwrap();
     let same_day = widgets::project(&data, &school, evening_at).unwrap();
     assert_eq!(snapshot.content_hash, same_day.content_hash);
+    let mut outdated = data.clone();
+    let assignments = outdated["assignments"].as_array_mut().unwrap();
+    assignments
+        .iter_mut()
+        .find(|row| row["id"] == "graded")
+        .unwrap()["lmsCourseId"] = json!(8);
+    outdated["lmsCourses"] = json!([{"lmsId":8,"year":2026,"quarters":["1Q"]}]);
+    let at = |time: &str| json!({"fetchedAt":time});
+    outdated["freshness"] = json!({
+        (crate::sync_state::Key::lms_enrolment().to_string()): at("2026-04-13T08:00:00+09:00"),
+        (crate::sync_state::Key::lms_deadlines().to_string()): at("2026-04-13T08:00:00+09:00"),
+        (crate::sync_state::Key::lms_assignments(8).to_string()): at("2026-04-12T20:00:00+09:00"),
+    });
+    let active_snapshot = |data: &Value| {
+        let projected =
+            serde_json::to_value(widgets::project(data, &school, morning_at).unwrap()).unwrap();
+        projected["assignmentEntries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|entry| now(entry["effectiveAt"].as_str().unwrap()) <= morning_at)
+            .unwrap()["content"]["freshness"]["availability"]
+            .clone()
+    };
+    // A fetched but expired course detail only affects work shown by the widget.
+    assert_eq!(active_snapshot(&outdated), "fresh");
+    let open = outdated["assignments"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|row| row["id"] == "tonight")
+        .unwrap();
+    open["lmsCourseId"] = json!(8);
+    assert_eq!(active_snapshot(&outdated), "cached");
     let wire = serde_json::to_value(snapshot).unwrap();
     let entry_at = |kind: &str, at| {
         wire[kind]

@@ -86,10 +86,13 @@ impl Core {
         destination: WidgetDestination,
     ) -> Result<WidgetRoute, ReadModelError> {
         use WidgetDestination::*;
-        let fields = workspace_changes::loaded_fields(widgets::READS.iter().copied());
-        let (workspace, school, _) = self.store.view(&fields).map_err(WorkspaceError::from)?;
+        let view = || {
+            let fields = workspace_changes::loaded_fields(widgets::READS.iter().copied());
+            self.store.view(&fields).map_err(WorkspaceError::from)
+        };
         Ok(match destination {
             Course { key, date } => {
+                let (workspace, school, _) = view()?;
                 let days = schedule::calendar_between(&workspace, &school, &date, &date)?;
                 let item = days
                     .into_iter()
@@ -114,21 +117,12 @@ impl Core {
                 }
             }
             Assignment { id } => {
-                let row = schedule::array(&workspace, "assignments")
-                    .iter()
-                    .find(|row| {
-                        schedule::visible(row)
-                            && schedule::text(row, "id") == Some(&id)
-                            && row.get("hidden").and_then(serde_json::Value::as_bool) != Some(true)
-                    });
+                let (workspace, _, _) = view()?;
+                let row = schedule::visible_by_id(&workspace, "assignments", &id)
+                    .filter(|row| row["hidden"].as_bool() != Some(true));
                 row.map_or(WidgetRoute::UnavailableAssignment, |row| {
                     let course_id = schedule::text(row, "courseId")
-                        .filter(|id| {
-                            schedule::array(&workspace, "courses").iter().any(|course| {
-                                schedule::visible(course)
-                                    && schedule::text(course, "id") == Some(*id)
-                            })
-                        })
+                        .filter(|id| schedule::visible_by_id(&workspace, "courses", id).is_some())
                         .map(str::to_owned);
                     WidgetRoute::Assignment { id, course_id }
                 })
@@ -151,14 +145,23 @@ struct State {
     port: Option<Arc<dyn WidgetPort>>,
     dirty: bool,
     paused: bool,
-    render_boundaries: bool,
     renew: Option<DateTime<Utc>>,
-    next_course: Option<DateTime<Utc>>,
-    next_assignment: Option<DateTime<Utc>>,
-    course_boundaries: Vec<DateTime<Utc>>,
-    assignment_boundaries: Vec<DateTime<Utc>>,
-    reload_courses: bool,
-    reload_assignments: bool,
+    display: Option<Display>,
+    reload: [bool; 2],
+}
+
+#[derive(Default)]
+struct Display {
+    boundaries: [Vec<DateTime<Utc>>; 2],
+    selected_at: DateTime<Utc>,
+}
+
+impl Display {
+    fn pending(&self) -> [Option<DateTime<Utc>>; 2] {
+        self.boundaries
+            .each_ref()
+            .map(|times| times.iter().copied().find(|&time| time > self.selected_at))
+    }
 }
 
 pub(crate) struct Publisher {
@@ -183,22 +186,17 @@ impl Publisher {
     fn attach(&self, port: Arc<dyn WidgetPort>, render_boundaries: bool) {
         let mut state = self.state();
         state.port = Some(port);
-        state.render_boundaries = render_boundaries;
-        if render_boundaries {
-            // Android may have been stopped at the preceding boundary.
-            state.next_course = Some(DateTime::UNIX_EPOCH);
-            state.next_assignment = state.next_course;
-        }
+        state.display = render_boundaries.then(Display::default);
         drop(state);
-        self.changed();
+        self.refresh();
     }
 
     fn refresh(&self) {
         {
             let mut state = self.state();
-            if state.render_boundaries {
-                state.reload_courses = true;
-                state.reload_assignments = true;
+            if state.display.is_some() {
+                // Android may have been stopped at a display boundary.
+                state.reload.fill(true);
             }
         }
         self.changed();
@@ -220,7 +218,7 @@ impl Publisher {
         state.paused = true;
         if let Some(port) = &state.port {
             port.clear()?;
-            if let Err(error) = port.reload(&[WidgetKind::Courses, WidgetKind::Assignments]) {
+            if let Err(error) = port.reload(&WidgetKind::ALL) {
                 crate::diagnostics::report("widgets", &error);
             }
         }
@@ -241,99 +239,86 @@ impl Publisher {
         };
         let generation = engine.generation();
         let now = Utc::now();
-        let (port, rebuild, course_due, assignment_due) = {
+        let (port, rebuild) = {
             let mut state = self.state();
             let Some(port) = state.port.clone().filter(|_| !state.paused) else {
                 return Ok(());
             };
-            let rebuild =
-                std::mem::take(&mut state.dirty) || state.renew.is_some_and(|at| at <= now);
-            let course_due = state.next_course.is_some_and(|at| at <= now);
-            let assignment_due = state.next_assignment.is_some_and(|at| at <= now);
-            // Android advances from the same contract on both changed and
-            // unchanged content. Apple gets all display entries at publish.
-            (port, rebuild, course_due, assignment_due)
+            (
+                port,
+                std::mem::take(&mut state.dirty) || state.renew.is_some_and(|at| at <= now),
+            )
         };
-        if !rebuild {
-            let mut state = self.state();
-            if state.paused || generation != engine.generation() {
-                return Ok(());
-            }
-            state.reload_courses |= course_due;
-            state.reload_assignments |= assignment_due;
-            state.advance_display(now);
-            return state.reload(&*port);
-        }
         let seq = self.store.commit_seq();
-        let started = std::time::Instant::now();
-        let mut snapshot = publication(&self.store, now)?;
-        let elapsed = started.elapsed();
+        let snapshot = if rebuild {
+            let started = std::time::Instant::now();
+            Some((publication(&self.store, now)?, started.elapsed()))
+        } else {
+            None
+        };
 
         let mut state = self.state();
         if state.paused || generation != engine.generation() {
             return Ok(());
         }
-        if state.dirty || seq != self.store.commit_seq() {
-            state.dirty = true;
-            return Ok(());
+        // Replacement and reload use the same lock as clearing.
+        state.advance_display(now);
+        if let Some((mut snapshot, elapsed)) = snapshot {
+            if state.dirty || seq != self.store.commit_seq() {
+                state.dirty = true;
+                return Ok(());
+            }
+            let previous = port.current()?.as_deref().and_then(PublishedHashes::read);
+            let changed = WidgetKind::ALL.map(|kind| {
+                previous
+                    .as_ref()
+                    .is_none_or(|old| old.get(kind) != snapshot.content_hash.get(kind))
+            });
+            if changed.contains(&true) {
+                snapshot.generated_at = Utc::now();
+                let json = serde_json::to_string(&snapshot)?;
+                port.replace(&json)?;
+                let (courses, assignments) = snapshot.metrics();
+                log::info!(target: "app_core::widgets",
+                    "Published {courses} course / {assignments} assignment entries ({} bytes, projection {} ms)",
+                    json.len(), elapsed.as_millis());
+                for (pending, changed) in state.reload.iter_mut().zip(changed) {
+                    *pending |= changed;
+                }
+            }
+            state.renew = Some(snapshot.renew_at());
+            if let Some(display) = &mut state.display {
+                display.boundaries = WidgetKind::ALL.map(|kind| snapshot.display_boundaries(kind));
+            }
         }
-        // Keep comparison, replacement and reload under the same ownership
-        // as clearing. A reset waits here even if it had to stop waiting on
-        // older network commits.
-        let previous = port
-            .current()?
-            .and_then(|raw| serde_json::from_str::<PublishedHashes>(&raw).ok())
-            .filter(|file| file.schema_version == widgets::SCHEMA_VERSION)
-            .map(|file| file.content_hash);
-        let courses_changed = previous
-            .as_ref()
-            .is_none_or(|old| old.courses != snapshot.content_hash.courses);
-        let assignments_changed = previous
-            .as_ref()
-            .is_none_or(|old| old.assignments != snapshot.content_hash.assignments);
-        if courses_changed || assignments_changed {
-            snapshot.generated_at = Utc::now();
-            let json = serde_json::to_string(&snapshot)?;
-            port.replace(&json)?;
-            let (courses, assignments) = snapshot.metrics();
-            log::info!(target: "app_core::widgets",
-                "Published {courses} course / {assignments} assignment entries ({} bytes, projection {} ms)",
-                json.len(), elapsed.as_millis());
-        }
-        state.renew = Some(snapshot.renew_at());
-        if state.render_boundaries {
-            state.course_boundaries = snapshot.display_boundaries(WidgetKind::Courses);
-            state.assignment_boundaries = snapshot.display_boundaries(WidgetKind::Assignments);
-            state.advance_display(now);
-        }
-        state.reload_courses |= courses_changed || course_due;
-        state.reload_assignments |= assignments_changed || assignment_due;
         state.reload(&*port)
     }
 }
 
 impl State {
     fn advance_display(&mut self, now: DateTime<Utc>) {
-        self.next_course = self.course_boundaries.iter().copied().find(|at| *at > now);
-        self.next_assignment = self
-            .assignment_boundaries
-            .iter()
-            .copied()
-            .find(|at| *at > now);
+        if let Some(display) = &mut self.display {
+            if now < display.selected_at {
+                // A clock change can make a consumed boundary upcoming again.
+                self.reload.fill(true);
+            } else {
+                for (pending, time) in self.reload.iter_mut().zip(display.pending()) {
+                    *pending |= time.is_some_and(|at| at <= now);
+                }
+            }
+            display.selected_at = now;
+        }
     }
 
     fn reload(&mut self, port: &dyn WidgetPort) -> Result<(), WidgetError> {
-        let reload: Vec<_> = [
-            (self.reload_courses, WidgetKind::Courses),
-            (self.reload_assignments, WidgetKind::Assignments),
-        ]
-        .into_iter()
-        .filter_map(|(due, kind)| due.then_some(kind))
-        .collect();
-        if !reload.is_empty() {
+        if self.reload.contains(&true) {
+            let reload: Vec<_> = WidgetKind::ALL
+                .into_iter()
+                .zip(self.reload)
+                .filter_map(|(kind, pending)| pending.then_some(kind))
+                .collect();
             port.reload(&reload)?;
-            self.reload_courses = false;
-            self.reload_assignments = false;
+            self.reload.fill(false);
             log::info!(target: "app_core::widgets", "Requested refresh for {reload:?}");
         }
         Ok(())
@@ -345,6 +330,13 @@ impl State {
 struct PublishedHashes {
     schema_version: u32,
     content_hash: WidgetHashes,
+}
+
+impl PublishedHashes {
+    fn read(raw: &str) -> Option<WidgetHashes> {
+        let file: Self = serde_json::from_str(raw).ok()?;
+        (file.schema_version == widgets::SCHEMA_VERSION).then_some(file.content_hash)
+    }
 }
 
 impl Duty for Publisher {
@@ -363,9 +355,10 @@ impl Duty for Publisher {
         if state.dirty {
             return Some(DateTime::UNIX_EPOCH);
         }
-        [state.renew, state.next_course, state.next_assignment]
+        state
+            .renew
             .into_iter()
-            .flatten()
+            .chain(state.display.iter().flat_map(Display::pending).flatten())
             .min()
     }
 
@@ -381,10 +374,13 @@ impl Duty for Publisher {
                 // Another normal lifecycle or workspace event can retry.
                 let mut state = self.state();
                 state.renew = None;
-                state.next_course = None;
-                state.next_assignment = None;
+                state.advance_display(Utc::now());
                 crate::diagnostics::report("widgets", &error);
             }
         })
     }
 }
+
+#[cfg(test)]
+#[path = "tests/widgets.rs"]
+mod tests;

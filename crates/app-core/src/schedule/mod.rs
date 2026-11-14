@@ -943,6 +943,12 @@ pub(crate) fn visible(value: &Value) -> bool {
         && value.get("missingSince").is_none_or(Value::is_null)
 }
 
+pub(crate) fn visible_by_id<'a>(workspace: &'a Value, table: &str, id: &str) -> Option<&'a Value> {
+    array(workspace, table)
+        .iter()
+        .find(|row| visible(row) && text(row, "id") == Some(id))
+}
+
 #[cfg(feature = "ts")]
 pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![

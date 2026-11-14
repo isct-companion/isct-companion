@@ -340,7 +340,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
     // The stored states cover the known rows, so a repeat outline keeps them
     // current; a new assignment has none yet and makes them missing, to be
     // read next. (States read before the row existed would have been lost.)
-    let states = Key::new(Dataset::LmsAssign, "42");
+    let states = Key::lms_assignments(42);
     let fetched = |connection: &Connection| {
         sync_state::get(connection, &states)
             .unwrap()

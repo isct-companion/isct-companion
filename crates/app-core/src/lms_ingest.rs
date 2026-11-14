@@ -213,13 +213,12 @@ fn mark_missing(
 /// Records `key` fresh in the transaction that wrote its rows.
 fn commit_key(
     tx: &Transaction<'_>,
-    dataset: Dataset,
-    key: impl Into<String>,
+    key: Key,
     now: DateTime<Utc>,
 ) -> Result<(), IngestError> {
     sync_state::commit(
         tx,
-        &Key::new(dataset, key),
+        &key,
         Commit {
             validator: None,
             outcome: Outcome::Complete,
@@ -416,7 +415,7 @@ pub fn apply_lms_enrolment(
         [],
         &live,
     )?;
-    commit_key(tx, Dataset::LmsEnrolment, "all", now)?;
+    commit_key(tx, Key::lms_enrolment(), now)?;
     Ok(changed)
 }
 
@@ -544,9 +543,9 @@ pub fn apply_lms_course(
     // A new assignment has no state yet: the course's `lms.assign` key no
     // longer covers it, so it reads as missing and is read next.
     if new_assignment {
-        sync_state::invalidate(tx, &Key::new(Dataset::LmsAssign, course_id.to_string()))?;
+        sync_state::invalidate(tx, &Key::lms_assignments(course_id))?;
     }
-    commit_key(tx, Dataset::LmsCourse, course_id.to_string(), now)?;
+    commit_key(tx, Key::new(Dataset::LmsCourse, course_id.to_string()), now)?;
     Ok(changed)
 }
 
@@ -560,7 +559,7 @@ fn assign_owns(
     if let Some(known) = cache.get(&lms_course) {
         return Ok(*known);
     }
-    let known = sync_state::get(tx, &Key::new(Dataset::LmsAssign, lms_course.to_string()))?
+    let known = sync_state::get(tx, &Key::lms_assignments(lms_course))?
         .is_some_and(|state| state.fetched_at.is_some());
     cache.insert(lms_course, known);
     Ok(known)
@@ -680,9 +679,9 @@ pub fn apply_lms_deadlines(
         changed += usize::from(row.write(tx)?);
     }
     for lms_course in stateless {
-        sync_state::invalidate(tx, &Key::new(Dataset::LmsAssign, lms_course.to_string()))?;
+        sync_state::invalidate(tx, &Key::lms_assignments(lms_course))?;
     }
-    commit_key(tx, Dataset::LmsDeadlines, "all", now)?;
+    commit_key(tx, Key::lms_deadlines(), now)?;
     Ok(changed)
 }
 
@@ -709,7 +708,7 @@ pub fn apply_lms_assign(
         row.accepts_submission = state.accepts_submission;
         changed += usize::from(row.write(tx)?);
     }
-    commit_key(tx, Dataset::LmsAssign, states.course_id.to_string(), now)?;
+    commit_key(tx, Key::lms_assignments(states.course_id), now)?;
     Ok(changed)
 }
 
@@ -747,7 +746,7 @@ pub fn apply_lms_history(
         row.set_due(due);
         changed += usize::from(row.write(tx)?);
     }
-    commit_key(tx, Dataset::LmsHistory, month.month.clone(), now)?;
+    commit_key(tx, Key::new(Dataset::LmsHistory, month.month.clone()), now)?;
     Ok(changed)
 }
 

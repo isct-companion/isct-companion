@@ -6,14 +6,14 @@ use super::{
     calendar::academic_year_of,
     calendar_between, content_language, parse_civil_date, parse_timestamp,
     tasks::assignment_boundaries,
-    teaching_periods, text,
+    teaching_periods,
     today::{at, class_moment, open_assignment_groups, timed_classes, LOOKAHEAD_DAYS},
-    tokyo_date, visible, ScheduleError, SchoolReads, TodayClass, TodayPhase,
+    tokyo_date, ScheduleError, SchoolReads, TodayClass, TodayPhase,
 };
 use crate::{
     lms_ingest::{current_lms_term, lms_course_term, stored_course},
     reference_refresh::{reference_key, FileScope},
-    sync_state::{ttl, Dataset, Key, Term},
+    sync_state::{expires_at, ttl, Key, Term},
     workspace_changes::WorkspaceChange,
 };
 use chrono::{DateTime, Duration, FixedOffset, Utc};
@@ -41,6 +41,10 @@ pub(crate) const READS: &[WorkspaceChange] = &[
 pub enum WidgetKind {
     Courses,
     Assignments,
+}
+
+impl WidgetKind {
+    pub(crate) const ALL: [Self; 2] = [Self::Courses, Self::Assignments];
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -104,9 +108,7 @@ impl Source {
         Self {
             key: name,
             fetched_at,
-            stale_at: fetched_at
-                .zip(ttl(key.dataset, term))
-                .map(|(at, ttl)| at + ttl),
+            stale_at: fetched_at.and_then(|at| expires_at(at, ttl(key.dataset, term))),
         }
     }
 }
@@ -152,23 +154,21 @@ struct CourseRow {
     destination: WidgetDestination,
 }
 
-impl TryFrom<&TodayClass> for CourseRow {
-    type Error = ScheduleError;
-
-    fn try_from(item: &TodayClass) -> Result<Self, Self::Error> {
+impl From<&TodayClass> for CourseRow {
+    fn from(item: &TodayClass) -> Self {
         let block = &item.occurrence;
-        Ok(Self {
+        Self {
             title: block.title.clone(),
             room: block.room.clone(),
             color: block.color.clone(),
-            starts_at: parse_timestamp(&item.starts_at)?.to_utc(),
-            ends_at: parse_timestamp(&item.ends_at)?.to_utc(),
+            starts_at: item.starts_at.to_utc(),
+            ends_at: item.ends_at.to_utc(),
             date: block.date.clone(),
             destination: WidgetDestination::Course {
                 key: block.key.clone(),
                 date: block.date.clone(),
             },
-        })
+        }
     }
 }
 
@@ -237,6 +237,15 @@ pub struct WidgetHashes {
     pub assignments: String,
 }
 
+impl WidgetHashes {
+    pub(crate) fn get(&self, kind: WidgetKind) -> &str {
+        match kind {
+            WidgetKind::Courses => &self.courses,
+            WidgetKind::Assignments => &self.assignments,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetPublication {
@@ -260,21 +269,17 @@ impl WidgetPublication {
     }
 
     pub(crate) fn display_boundaries(&self, kind: WidgetKind) -> Vec<DateTime<Utc>> {
-        let mut boundaries: Vec<_> = match kind {
-            WidgetKind::Courses => self
-                .course_entries
-                .iter()
-                .map(|entry| entry.effective_at)
-                .collect(),
-            WidgetKind::Assignments => self
-                .assignment_entries
-                .iter()
-                .map(|entry| entry.effective_at)
-                .collect(),
+        let mut times: Vec<_> = match kind {
+            WidgetKind::Courses => entry_times(&self.course_entries).collect(),
+            WidgetKind::Assignments => entry_times(&self.assignment_entries).collect(),
         };
-        boundaries.push(self.contract.coverage_end);
-        boundaries
+        times.push(self.contract.coverage_end);
+        times
     }
+}
+
+fn entry_times<T>(entries: &[Entry<T>]) -> impl Iterator<Item = DateTime<Utc>> + '_ {
+    entries.iter().map(|entry| entry.effective_at)
 }
 
 fn hash(
@@ -307,43 +312,29 @@ fn course_content(
     today: &[TodayClass],
     later: &[Vec<TodayClass>],
     sources: &[Source],
-) -> Result<(CourseContent, Option<DateTime<FixedOffset>>), ScheduleError> {
-    let moment = class_moment(time, today, later)?;
+) -> CourseContent {
+    let moment = class_moment(time, today, later);
     let freshness = Freshness::at(sources, time);
     let mut upcoming = moment.upcoming.iter();
     let primary = moment
         .current
         .as_ref()
         .or_else(|| upcoming.next())
-        .map(CourseRow::try_from)
-        .transpose()?;
+        .map(CourseRow::from);
     let destination = match &primary {
         Some(row) => row.destination.clone(),
         None if freshness.coverage_complete => WidgetDestination::Timetable,
         None => WidgetDestination::Sync,
     };
-    Ok((
-        CourseContent {
-            date: tokyo_date(time),
-            phase: moment.phase,
-            freshness,
-            primary,
-            upcoming: upcoming
-                .take(2)
-                .map(CourseRow::try_from)
-                .collect::<Result<_, _>>()?,
-            today: today
-                .iter()
-                .map(CourseRow::try_from)
-                .collect::<Result<_, _>>()?,
-            destination,
-        },
-        moment
-            .next_boundary
-            .as_deref()
-            .map(parse_timestamp)
-            .transpose()?,
-    ))
+    CourseContent {
+        date: tokyo_date(time),
+        phase: moment.phase,
+        freshness,
+        primary,
+        upcoming: upcoming.take(2).map(CourseRow::from).collect(),
+        today: today.iter().map(CourseRow::from).collect(),
+        destination,
+    }
 }
 
 fn assignment_content(
@@ -351,35 +342,27 @@ fn assignment_content(
     time: DateTime<FixedOffset>,
     sources: &[Source],
 ) -> Result<AssignmentContent, ScheduleError> {
-    let groups = open_assignment_groups(workspace, time)?;
-    let rows = [
-        groups.pinned,
-        groups.due_this_week,
-        groups.later,
-        groups.undated,
-        groups.past_recent,
-    ]
-    .into_iter()
-    .flatten()
-    .map(|item| {
-        Ok(AssignmentRow {
-            title: item.title,
-            course_title: item.course_title,
-            color: item.color,
-            due_at: item
-                .due_at
-                .as_deref()
-                .map(parse_timestamp)
-                .transpose()?
-                .map(|at| at.to_utc()),
-            overdue: item.overdue,
-            pinned: item.pinned,
-            destination: WidgetDestination::Assignment {
-                id: item.assignment_id,
-            },
+    let rows = open_assignment_groups(workspace, time)?
+        .into_open()
+        .map(|item| {
+            Ok(AssignmentRow {
+                title: item.title,
+                course_title: item.course_title,
+                color: item.color,
+                due_at: item
+                    .due_at
+                    .as_deref()
+                    .map(parse_timestamp)
+                    .transpose()?
+                    .map(|at| at.to_utc()),
+                overdue: item.overdue,
+                pinned: item.pinned,
+                destination: WidgetDestination::Assignment {
+                    id: item.assignment_id,
+                },
+            })
         })
-    })
-    .collect::<Result<Vec<_>, ScheduleError>>()?;
+        .collect::<Result<Vec<_>, ScheduleError>>()?;
     let freshness = Freshness::at(sources, time);
     let destination =
         rows.first()
@@ -412,13 +395,7 @@ pub(crate) fn project(
         .map(|day| timed_classes(day, &periods))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let enrolment = || {
-        Source::read(
-            workspace,
-            Key::new(Dataset::LmsEnrolment, "all"),
-            Term::Current,
-        )
-    };
+    let enrolment = || Source::read(workspace, Key::lms_enrolment(), Term::Current);
     let mut course_freshness = vec![enrolment()];
     let start_year = academic_year_of(&date)?;
     let end_year = academic_year_of(&tokyo_date(end - Duration::seconds(1)))?;
@@ -433,22 +410,13 @@ pub(crate) fn project(
     }
     let mut assignment_freshness = vec![
         enrolment(),
-        Source::read(
-            workspace,
-            Key::new(Dataset::LmsDeadlines, "all"),
-            Term::Current,
-        ),
+        Source::read(workspace, Key::lms_deadlines(), Term::Current),
     ];
-    let term = super::reminders::reminder_term(workspace);
-    let term_courses: BTreeSet<_> = super::scheduled_courses(workspace, &term)
-        .iter()
-        .filter_map(|row| text(row, "id").map(str::to_owned))
-        .collect();
-    let assignment_keys: BTreeSet<_> = array(workspace, "assignments")
-        .iter()
-        .filter(|row| {
-            visible(row) && text(row, "courseId").is_some_and(|id| term_courses.contains(id))
-        })
+    // With a fixed workspace, an open assignment can change group or age
+    // out after the window starts. Time alone cannot add a new one.
+    let assignment_keys: BTreeSet<_> = open_assignment_groups(workspace, start)?
+        .into_open()
+        .filter_map(|item| super::visible_by_id(workspace, "assignments", &item.assignment_id))
         .filter_map(|row| row["lmsCourseId"].as_u64())
         .collect();
     let current = current_lms_term(start.to_utc());
@@ -460,7 +428,7 @@ pub(crate) fn project(
             // Deadline reads can seed a task before its course detail has been read.
             let source = Source::read(
                 workspace,
-                Key::new(Dataset::LmsAssign, course.id.to_string()),
+                Key::lms_assignments(course.id),
                 lms_course_term(&course, current),
             );
             if source.fetched_at.is_some() {
@@ -469,30 +437,22 @@ pub(crate) fn project(
         }
     }
     let mut course_entries = Vec::new();
-    let mut time = start;
-    while time < end {
-        let day = (time - start).num_days() as usize;
-        let (today, following) = classes[day..]
-            .split_first()
-            .ok_or_else(|| ScheduleError::Compatibility("widget calendar day missing".into()))?;
-        let (content, next) = course_content(
-            time,
-            today,
-            &following[..LOOKAHEAD_DAYS as usize],
-            &course_freshness,
-        )?;
-        entry(&mut course_entries, time, content);
-        let midnight = start + Duration::days(day as i64 + 1);
-        time = source_boundaries(&course_freshness)
-            .chain(next)
-            .chain(
-                today
-                    .iter()
-                    .map(|row| parse_timestamp(&row.starts_at))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )
-            .filter(|at| *at > time)
-            .fold(midnight, DateTime::min);
+    for (day, days) in classes.windows(LOOKAHEAD_DAYS as usize + 1).enumerate() {
+        let (today, following) = (&days[0], &days[1..]);
+        let midnight = start + Duration::days(day as i64);
+        let next_midnight = midnight + Duration::days(1);
+        let times: BTreeSet<_> = std::iter::once(midnight)
+            .chain(source_boundaries(&course_freshness))
+            .chain(today.iter().flat_map(|row| [row.starts_at, row.ends_at]))
+            .filter(|at| midnight <= *at && *at < next_midnight)
+            .collect();
+        for time in times {
+            entry(
+                &mut course_entries,
+                time,
+                course_content(time, today, following, &course_freshness),
+            );
+        }
     }
 
     let assignment_times: BTreeSet<_> = std::iter::once(start)

@@ -52,8 +52,10 @@ pub struct TodayClass {
     pub occurrence: Occurrence,
     /// Teaching periods the class spans, when its times match the period table.
     pub periods: Option<[u8; 2]>,
-    pub starts_at: String,
-    pub ends_at: String,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub starts_at: DateTime<FixedOffset>,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub ends_at: DateTime<FixedOffset>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -177,6 +179,20 @@ pub struct DeadlineGroups {
     pub hidden: Vec<DeadlineItem>,
 }
 
+impl DeadlineGroups {
+    pub(super) fn into_open(self) -> impl Iterator<Item = DeadlineItem> {
+        [
+            self.pinned,
+            self.due_this_week,
+            self.later,
+            self.undated,
+            self.past_recent,
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
 /// The quarter's assignment timeline as rows: `today` is what is left to do,
 /// `record` every assignment whatever its state (`TermTaskView`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -219,8 +235,8 @@ fn class(block: Occurrence, periods: &[TeachingPeriod]) -> Result<TodayClass, Sc
         .map(|row| row.periods[1]);
     Ok(TodayClass {
         periods: first.zip(last).map(|(a, b)| [a, b]),
-        starts_at: starts_at.to_rfc3339(),
-        ends_at: ends_at.to_rfc3339(),
+        starts_at,
+        ends_at,
         occurrence: block,
     })
 }
@@ -237,13 +253,6 @@ pub(crate) fn classes_on(agenda: &[Occurrence]) -> Vec<Occurrence> {
         .collect()
 }
 
-fn course<'a>(workspace: &'a Value, id: Option<&str>) -> Option<&'a Value> {
-    let id = id?;
-    array(workspace, "courses")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(id))
-}
-
 fn deadline_item(
     workspace: &Value,
     row: &Value,
@@ -251,7 +260,7 @@ fn deadline_item(
 ) -> Option<DeadlineItem> {
     let id = text(row, "id")?;
     let course_id = text(row, "courseId");
-    let course = course(workspace, course_id);
+    let course = course_id.and_then(|id| super::visible_by_id(workspace, "courses", id));
     let due = text(row, "dueAt").and_then(|raw| DateTime::parse_from_rfc3339(raw).ok());
     Some(DeadlineItem {
         assignment_id: id.into(),
@@ -274,7 +283,7 @@ fn deadline_item(
 
 fn material_item(workspace: &Value, row: &Value, date: &str) -> Option<MaterialItem> {
     let course_id = text(row, "courseId")?;
-    let course = course(workspace, Some(course_id));
+    let course = super::visible_by_id(workspace, "courses", course_id);
     let updated_at = text(row, "updatedAt");
     Some(MaterialItem {
         material_id: text(row, "id")?.into(),
@@ -319,11 +328,7 @@ fn deadline_groups(
 ) -> DeadlineGroups {
     let rows = |ids: &[String]| -> Vec<DeadlineItem> {
         ids.iter()
-            .filter_map(|id| {
-                array(workspace, "assignments")
-                    .iter()
-                    .find(|row| visible(row) && text(row, "id") == Some(id))
-            })
+            .filter_map(|id| super::visible_by_id(workspace, "assignments", id))
             .filter_map(|row| deadline_item(workspace, row, now))
             .collect()
     };
@@ -343,16 +348,9 @@ fn open_deadlines(
     workspace: &Value,
     now: DateTime<FixedOffset>,
 ) -> Result<Vec<DeadlineItem>, ScheduleError> {
-    let groups = open_assignment_groups(workspace, now)?;
-    let mut rows: Vec<_> = [
-        groups.pinned,
-        groups.due_this_week,
-        groups.later,
-        groups.past_recent,
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let mut rows: Vec<_> = open_assignment_groups(workspace, now)?
+        .into_open()
+        .collect();
     // Dated rows by deadline, undated pinned rows last.
     rows.sort_by(|a, b| {
         a.due_at
@@ -368,7 +366,7 @@ pub(super) struct ClassMoment {
     pub phase: TodayPhase,
     pub current: Option<TodayClass>,
     pub upcoming: Vec<TodayClass>,
-    pub next_boundary: Option<String>,
+    pub next_boundary: Option<DateTime<FixedOffset>>,
 }
 
 pub(super) fn timed_classes(
@@ -385,21 +383,17 @@ pub(super) fn class_moment(
     now: DateTime<FixedOffset>,
     todays: &[TodayClass],
     later: &[Vec<TodayClass>],
-) -> Result<ClassMoment, ScheduleError> {
+) -> ClassMoment {
     let mut current = None;
     let mut upcoming = Vec::new();
     let mut started = false;
     for item in todays.iter().cloned() {
-        let starts = DateTime::parse_from_rfc3339(&item.starts_at)
-            .map_err(|_| ScheduleError::Compatibility("invalid class start".into()))?;
-        let ends = DateTime::parse_from_rfc3339(&item.ends_at)
-            .map_err(|_| ScheduleError::Compatibility("invalid class end".into()))?;
-        if starts <= now {
+        if item.starts_at <= now {
             started = true;
-        }
-        if starts <= now && now < ends && current.is_none() {
-            current = Some(item);
-        } else if starts > now {
+            if now < item.ends_at && current.is_none() {
+                current = Some(item);
+            }
+        } else {
             upcoming.push(item);
         }
     }
@@ -424,17 +418,17 @@ pub(super) fn class_moment(
     upcoming.truncate(UPCOMING_CLASSES);
     let next_boundary = match phase {
         TodayPhase::BeforeClasses | TodayPhase::BetweenClasses => {
-            upcoming.first().map(|item| item.starts_at.clone())
+            upcoming.first().map(|item| item.starts_at)
         }
-        TodayPhase::InClass => current.as_ref().map(|item| item.ends_at.clone()),
+        TodayPhase::InClass => current.as_ref().map(|item| item.ends_at),
         TodayPhase::AfterClasses | TodayPhase::NoClasses => None,
     };
-    Ok(ClassMoment {
+    ClassMoment {
         phase,
         current,
         upcoming,
         next_boundary,
-    })
+    }
 }
 
 pub fn today_view(
@@ -468,8 +462,8 @@ pub fn today_view(
         phase,
         current,
         upcoming,
-        next_boundary,
-    } = class_moment(now, today, later)?;
+        mut next_boundary,
+    } = class_moment(now, today, later);
     let midnight = start_of_next_day(&date)?;
     let open = open_deadlines(workspace, now)?;
     let due_before = |item: &DeadlineItem, limit: DateTime<FixedOffset>| {
@@ -492,7 +486,7 @@ pub fn today_view(
         class_assignments: Vec::new(),
         deadline_hero: None,
         recent: Vec::new(),
-        next_boundary,
+        next_boundary: None,
     };
     match phase {
         TodayPhase::BeforeClasses | TodayPhase::BetweenClasses => {}
@@ -540,11 +534,11 @@ pub fn today_view(
             view.deadline_hero = open
                 .into_iter()
                 .find(|item| !item.overdue && due_before(item, midnight));
-            view.next_boundary = Some(midnight.to_rfc3339());
+            next_boundary = Some(midnight);
         }
         TodayPhase::NoClasses => {
             view.recent = recent(workspace, now, &date);
-            view.next_boundary = Some(midnight.to_rfc3339());
+            next_boundary = Some(midnight);
         }
     }
     // A shown deadline leaves its list once it passes, so it is a boundary
@@ -557,15 +551,11 @@ pub fn today_view(
         .filter_map(|raw| DateTime::parse_from_rfc3339(raw).ok())
         .filter(|due| *due > now)
         .min();
-    if let Some(due) = shown_due {
-        let phase_boundary = view
-            .next_boundary
-            .as_deref()
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok());
-        if phase_boundary.is_none_or(|boundary| due < boundary) {
-            view.next_boundary = Some(due.to_rfc3339());
-        }
-    }
+    view.next_boundary = next_boundary
+        .into_iter()
+        .chain(shown_due)
+        .min()
+        .map(|at| at.to_rfc3339());
     Ok(view)
 }
 
