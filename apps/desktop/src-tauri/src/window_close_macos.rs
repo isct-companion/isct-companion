@@ -1,7 +1,8 @@
 //! macOS half of `window_close`: an NSAlert sheet whose suppression
 //! checkbox is "Remember my choice". A hidden window comes back from the
 //! Dock (`RunEvent::Reopen`).
-use crate::window_close::{answered, CloseAction, Prompt};
+use crate::native_text::WindowText;
+use crate::window_close::{answered, CloseAction};
 use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
@@ -11,7 +12,7 @@ use objc2_app_kit::{
 use objc2_foundation::NSString;
 use tauri::Manager;
 
-pub(crate) fn ask(window: &tauri::Window, prompt: Prompt) {
+pub(crate) fn ask(window: &tauri::Window, prompt: &WindowText) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -28,17 +29,17 @@ pub(crate) fn ask(window: &tauri::Window, prompt: Prompt) {
         return;
     }
     let alert = NSAlert::new(mtm);
-    alert.setMessageText(&NSString::from_str(&prompt.title));
-    alert.setInformativeText(&NSString::from_str(&prompt.message));
-    alert.addButtonWithTitle(&NSString::from_str(&prompt.quit));
-    alert.addButtonWithTitle(&NSString::from_str(&prompt.keep));
+    alert.setMessageText(&NSString::from_str(prompt.title));
+    alert.setInformativeText(&NSString::from_str(prompt.message));
+    alert.addButtonWithTitle(&NSString::from_str(prompt.quit));
+    alert.addButtonWithTitle(&NSString::from_str(prompt.keep));
     // AppKit binds Escape only to a button titled "Cancel" in English.
     alert
-        .addButtonWithTitle(&NSString::from_str(&prompt.cancel))
+        .addButtonWithTitle(&NSString::from_str(prompt.cancel))
         .setKeyEquivalent(&NSString::from_str("\u{1b}"));
     alert.setShowsSuppressionButton(true);
     if let Some(button) = alert.suppressionButton() {
-        button.setTitle(&NSString::from_str(&prompt.remember));
+        button.setTitle(&NSString::from_str(prompt.remember));
     }
     let app = window.app_handle().clone();
     let answering = alert.clone();

@@ -12,6 +12,7 @@ name = "isct_companion_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+serde_json = "1"
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]

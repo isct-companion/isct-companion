@@ -31,6 +31,7 @@ use app_core::lifecycle;
 mod lms_files;
 mod lms_protocol;
 mod native_dialog;
+mod native_text;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
 mod plugins;
