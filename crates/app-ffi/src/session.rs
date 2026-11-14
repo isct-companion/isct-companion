@@ -787,7 +787,10 @@ async fn initialize(
         notifications: inner.notifications.as_ref().map(|sink| {
             Arc::new(Notifications(sink.clone())) as Arc<dyn app_core::schedule::NotificationSink>
         }),
-        cloud: inner.capabilities.cloud.then(|| inner.sync_services.clone()),
+        cloud: inner
+            .capabilities
+            .cloud
+            .then(|| inner.sync_services.clone()),
     });
     inner.core.start(&Handle::current())?;
     Ok(inner)

@@ -491,15 +491,16 @@ struct MatrixImportSection: View {
         }
     }
 
+    /// Core reads letters along rows, or titech-app's export (down columns).
     private func paste(_ text: String) {
-        let letters = text.uppercased().filter { !$0.isWhitespace }
-        guard letters.count == 70, letters.allSatisfy({ $0.isASCII && $0.isLetter }) else {
+        guard let pasted = try? parseMatrixText(text: text) else {
             error = t("settings.credentialImport.pasteExactly70LettersIn")
             return
         }
         error = nil
-        cells = letters.map(String.init)
+        cells = pasted.cells.map(String.init)
         confidence = Array(repeating: nil, count: 70)
+        note = pasted.order == .columns ? t("settings.credentialImport.matrixImportedFromTitechApp") : nil
         editing = true
     }
 }

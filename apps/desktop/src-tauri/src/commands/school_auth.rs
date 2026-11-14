@@ -137,6 +137,17 @@ pub(crate) fn school_session_snapshot(
     Ok(crate::core_ports::core(&app).school_session())
 }
 
+/// Pasted Matrix text as the 70 cells in row order, and whether it was
+/// titech-app's column-order export. Local parsing only.
+#[tauri::command]
+pub(crate) fn parse_school_matrix(
+    webview: tauri::Webview,
+    text: String,
+) -> Result<app_core::school_auth::MatrixPaste, CommandError> {
+    require_local_main(&webview)?;
+    app_core::school_auth::parse_matrix_text(&text).map_err(coded)
+}
+
 /// Import is local parsing only; saving still requires the credential intent.
 #[tauri::command]
 pub(crate) fn import_school_otp(

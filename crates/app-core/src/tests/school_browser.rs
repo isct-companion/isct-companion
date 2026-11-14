@@ -85,7 +85,6 @@ impl FakeBrowser {
         }
         panic!("navigation {index} was not dispatched");
     }
-
 }
 
 /// Yields first, then sleeps briefly so blocking work (vault reads, SQLite
@@ -436,6 +435,29 @@ async fn the_rule_table_lets_the_person_browse_and_sends_cleartext_to_the_system
         listener.new_window(window(page, cleartext)),
         NewWindowDecision::External(Url::parse(cleartext).unwrap())
     );
+    // The portal's Gmail tile and Google's sign-in leave for the system
+    // browser, where the person is signed in to Google; a frame stays.
+    for raw in [
+        "https://mail.google.com/a/m.isct.ac.jp",
+        "https://accounts.google.com/ServiceLogin?continue=https://mail.google.com/mail/",
+    ] {
+        let url = Url::parse(raw).unwrap();
+        assert_eq!(
+            decide(raw, true, NavigationKind::Other, false),
+            NavigationDecision::External(url.clone()),
+            "{raw}"
+        );
+        assert_eq!(
+            listener.new_window(window(page, raw)),
+            NewWindowDecision::External(url),
+            "{raw}"
+        );
+        assert_eq!(
+            decide(raw, false, NavigationKind::Other, false),
+            NavigationDecision::Allow,
+            "{raw}"
+        );
+    }
     // A script redirect nobody asked for is refused and shown on the page
     // with the address, for Open in browser.
     assert_eq!(
@@ -656,14 +678,20 @@ async fn core_exit_does_not_wait_for_a_native_write_that_never_answers() {
     assert!(browser.covers.lock().unwrap().is_empty());
 
     tokio::time::sleep(SEED_WAIT + WEB_STORE_LIMIT + std::time::Duration::from_secs(1)).await;
-    assert!(navigations(&browser).is_empty(), "nothing opens over a write");
+    assert!(
+        navigations(&browser).is_empty(),
+        "nothing opens over a write"
+    );
     assert_eq!(
         engine.page(SITE).access,
         Some(SchoolWebAccess::Problem {
             problem: SchoolWebProblem::Storage
         })
     );
-    assert_eq!(browser.covers.lock().unwrap().last().map(|c| c.1), Some(true));
+    assert_eq!(
+        browser.covers.lock().unwrap().last().map(|c| c.1),
+        Some(true)
+    );
 
     tokio::time::timeout(std::time::Duration::from_secs(60), async {
         engine.shutdown().await;
@@ -672,7 +700,10 @@ async fn core_exit_does_not_wait_for_a_native_write_that_never_answers() {
     .await
     .expect("shutdown must not wait for the platform's answer");
     assert!(navigations(&browser).is_empty());
-    assert_eq!(browser.covers.lock().unwrap().last().map(|c| c.1), Some(true));
+    assert_eq!(
+        browser.covers.lock().unwrap().last().map(|c| c.1),
+        Some(true)
+    );
 }
 
 // A write handed to the platform is the view's, not its operation's: a Go
@@ -745,7 +776,10 @@ async fn a_view_stays_covered_over_a_write_that_outlives_its_operation() {
     land(SIGN_IN);
     store.handed(handed + 1).await;
     let before = navigations(&browser).len();
-    engine.open(SITE, "web", SchoolWebEntry::Unsigned).await.unwrap();
+    engine
+        .open(SITE, "web", SchoolWebEntry::Unsigned)
+        .await
+        .unwrap();
     drain().await;
     assert_eq!(navigations(&browser).len(), before);
     assert_eq!(last_cover(), Some(true));

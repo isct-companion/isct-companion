@@ -348,7 +348,8 @@ pub(super) fn read_fired(path: &Path) -> Result<BTreeMap<String, i64>, ReminderE
 
 fn write_fired(path: &Path, fired: &BTreeMap<String, i64>) -> Result<(), ReminderError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| ReminderError::Storage(error.to_string()))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| ReminderError::Storage(error.to_string()))?;
     }
     let bytes =
         serde_json::to_vec(fired).map_err(|error| ReminderError::Storage(error.to_string()))?;
@@ -391,7 +392,6 @@ fn unclaim_fired(path: &Path, key: &str) -> Result<(), ReminderError> {
     fired.remove(key);
     write_fired(path, &fired)
 }
-
 
 pub(super) fn claim_fired(
     path: &Path,

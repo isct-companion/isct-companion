@@ -705,7 +705,8 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
-    let cloud = CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap();
+    let cloud =
+        CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap();
     core.runtime.attach_cloud(cloud.clone()).unwrap();
     assert_eq!(cloud.next_due(), None, "no ports, nothing due");
     cloud.attach(crate::cloud_sync::CloudServices {

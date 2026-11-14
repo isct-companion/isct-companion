@@ -15,14 +15,22 @@ export function normalizeMatrixText(value: string): string {
     .slice(0, MATRIX_SIZE);
 }
 
-/** Reads a complete Matrix in the editor's visual row order (A1…J1, A2…).
- * Spaces, tabs and line breaks are formatting only; everything else must be a
- * letter so a bad paste is rejected instead of silently shifted or truncated. */
-export function parseMatrixText(text: string): string[] {
-  const compact = text.toUpperCase().replace(/\s/g, "");
-  if (!/^[A-Z]{70}$/.test(compact))
+/** Core reads a complete pasted Matrix into the editor's row order: letters
+ * along rows, or titech-app's export (a JSON array listed down columns,
+ * `fromTitechApp`). A bad paste is rejected instead of silently shifted. */
+export async function parseMatrixText(
+  text: string,
+): Promise<{ cells: string[]; fromTitechApp: boolean }> {
+  let pasted: { cells: string; order: "rows" | "columns" };
+  try {
+    pasted = await invoke("parse_school_matrix", { text });
+  } catch {
     throw new Error(t("settings.credentialImport.pasteExactly70LettersIn"));
-  return [...compact];
+  }
+  return {
+    cells: [...pasted.cells],
+    fromTitechApp: pasted.order === "columns",
+  };
 }
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;

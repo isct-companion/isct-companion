@@ -392,8 +392,8 @@ export type CampusWifiStatus =
 export type VpnNotice =
   | { kind: "ending"; minutes: number }
   | { kind: "ended" }
-  | { kind: "keepEnded" }
-  | { kind: "keepStopped"; code: string };
+  | { kind: "unused" }
+  | { kind: "demandStopped"; code: string };
 /** Campus VPN as the helper reports it; `error` is a code the UI keys on. */
 export type VpnStatus = {
   /** `unavailable`: this build has no VPN payload (Intel Macs). */
@@ -401,8 +401,10 @@ export type VpnStatus = {
   address?: string | null;
   /** When the campus session ends (RFC 3339), for the countdown. */
   expiresAt?: string | null;
-  /** When auto-continue ends and disconnects (RFC 3339), while it is on. */
-  keepUntil?: string | null;
+  /** Whether on-demand connecting is on now. */
+  onDemand?: boolean;
+  /** While on-demand has signed in its hourly most, when it resumes. */
+  demandPausedUntil?: string | null;
   error?: string | null;
   detail?: string | null;
 };
@@ -632,8 +634,8 @@ export interface DesktopBridge {
   /** Signs in to the campus VPN with the saved Tokyo Tech account and connects. */
   vpnConnect?(): Promise<VpnStatus>;
   vpnDisconnect?(): Promise<VpnStatus>;
-  /** Auto-continue for `hours`, which it always needs, or off with `null`. */
-  vpnKeep?(hours: number | null): Promise<VpnStatus>;
+  /** On-demand connecting on or off for now; the page stores the choice. */
+  vpnOnDemand?(enabled: boolean): Promise<VpnStatus>;
   /** The state after each check while a tunnel is up (every minute). */
   onVpnStatus?(callback: (status: VpnStatus) => void): () => void;
   /** The session ends in a few minutes, or ended on its own. */
@@ -891,7 +893,8 @@ export function createTauriDesktopBridge(
     vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
     vpnConnect: () => invokeCommand("plugin:campus-vpn|connect"),
     vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
-    vpnKeep: (hours) => invokeCommand("plugin:campus-vpn|keep", { hours }),
+    vpnOnDemand: (enabled) =>
+      invokeCommand("plugin:campus-vpn|on_demand", { enabled }),
     onVpnStatus: (callback) =>
       subscribe<VpnStatus>(
         "vpn-status",
@@ -903,8 +906,7 @@ export function createTauriDesktopBridge(
         "vpn-notice",
         (payload) =>
           payload?.kind === "ended" ||
-          payload?.kind === "keepEnded" ||
-          (payload?.kind === "keepStopped" &&
+          (payload?.kind === "demandStopped" &&
             typeof payload.code === "string") ||
           (payload?.kind === "ending" && typeof payload.minutes === "number"),
         callback,

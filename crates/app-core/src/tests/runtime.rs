@@ -1,8 +1,9 @@
 use super::*;
+use crate::plan::Duty;
 use crate::{
     data::DataStore,
-    scheduler::{ExportError, ScheduledExporter},
     plan::PlanHints,
+    scheduler::{ExportError, ScheduledExporter},
 };
 use serde_json::{json, Value};
 use std::sync::{
@@ -10,7 +11,6 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::Notify;
-use crate::plan::Duty;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -157,9 +157,12 @@ async fn shutdown_is_final_and_idempotent() {
         runtime.run(async { 42 }).await,
         Err(RuntimeTaskError::Stopped)
     );
-    assert!(matches!(
-        runtime.run_scheduled(&store, "first".into()).await,
-        Err(RuntimeError::NoExporter)
-    ), "shutdown releases the shell's port");
+    assert!(
+        matches!(
+            runtime.run_scheduled(&store, "first".into()).await,
+            Err(RuntimeError::NoExporter)
+        ),
+        "shutdown releases the shell's port"
+    );
     runtime.shutdown().await;
 }

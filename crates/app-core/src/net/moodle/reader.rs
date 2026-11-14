@@ -388,7 +388,10 @@ async fn read_courses(transport: &Transport, attempt: &Attempt) -> Result<Vec<Va
     ))
 }
 
-async fn read_deadlines(transport: &Transport, attempt: &Attempt) -> Result<LmsDeadlines, KeyError> {
+async fn read_deadlines(
+    transport: &Transport,
+    attempt: &Attempt,
+) -> Result<LmsDeadlines, KeyError> {
     let action_events = read_action_events(transport, attempt).await?;
     let function = MoodleFunction::CalendarUpcomingView;
     let view = transport
@@ -476,7 +479,11 @@ async fn read_course(
     }
 }
 
-async fn read_assign(transport: &Transport, attempt: &Attempt, id: u64) -> Result<Vec<Value>, KeyError> {
+async fn read_assign(
+    transport: &Transport,
+    attempt: &Attempt,
+    id: u64,
+) -> Result<Vec<Value>, KeyError> {
     match transport {
         Transport::Token(transport) => rest::read_assign(transport, attempt, id).await,
         Transport::Cookie(transport) => ajax::read_assign(transport, attempt, id).await,

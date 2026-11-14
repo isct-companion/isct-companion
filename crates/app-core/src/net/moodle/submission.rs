@@ -22,6 +22,7 @@ use super::{
 };
 use crate::{
     net::{Body, BoxFuture, Host, Limits, NetError, NetRequest, Response},
+    plan::AccountWait,
     school_auth::SchoolAuthProfile,
     school_session::{Attempt, Blocked, Operation, Permit, RunError, SchoolSessions, Site},
     submissions::{
@@ -29,12 +30,11 @@ use crate::{
         RemoteSubmission, SubmissionRules, SubmissionTransport, TransportError, UploadFile,
         WriteGrant, WritePermit,
     },
-    plan::AccountWait,
 };
-use sha2::{Digest, Sha256};
 use adpt_isct::lms::{id_of, LMS_WWWROOT};
 use reqwest::Method;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 
 /// The closed list of LMS writes, from the write survey (`docs/lms-api`).
@@ -642,7 +642,9 @@ fn submitted_files(status: &Value) -> Option<Vec<(String, u64, String)>> {
 /// A submitted file's download: its size, plus Moodle's answer.
 fn download_limits(bytes: u64) -> Limits {
     Limits {
-        max_bytes: usize::try_from(bytes).unwrap_or(usize::MAX).saturating_add(64 * 1024),
+        max_bytes: usize::try_from(bytes)
+            .unwrap_or(usize::MAX)
+            .saturating_add(64 * 1024),
         deadline: Duration::from_secs(60 + bytes / (128 * 1024)),
     }
 }

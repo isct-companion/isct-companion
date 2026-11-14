@@ -1079,13 +1079,29 @@ describe("Matrix scan and paste", () => {
   );
 
   it(
-    "pastes whitespace-formatted letters into the right grid cells",
+    "pastes a full Matrix from A1 and says when it came from titech-app",
     async () => {
+      // Core owns the reading (crates/app-core school_auth tests); the scripted
+      // host answers with distinct letters, so a grid filled from the focused
+      // cell would show, and names the order the paste was in.
+      const cells = Array.from({ length: 70 }, (_, index) =>
+        String.fromCharCode(65 + (index % 26)),
+      ).join("");
+      const titechApp = JSON.stringify([...cells]);
       const mounted = await mountAccounts({
-        handle: (command) => {
+        capabilities: { matrixOcr: true },
+        handle: (command, args) => {
           if (command === "school_credential_status")
             return { science: notConfigured(), tokyoTech: notConfigured() };
           if (command === "school_session_snapshot") return noSession;
+          if (command === "parse_school_matrix")
+            return {
+              cells,
+              order:
+                (args as { text: string }).text === titechApp
+                  ? "columns"
+                  : "rows",
+            };
           return undefined;
         },
       });
@@ -1095,22 +1111,39 @@ describe("Matrix scan and paste", () => {
         if (all.length !== 70) throw new Error("The Matrix grid is not ready.");
         return all;
       });
+      const paste = async (text: string) => {
+        const event = new Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "clipboardData", {
+          value: { getData: () => text },
+        });
+        // Pasting into a middle cell must not spread the letters from there.
+        await act(async () => inputs[5].dispatchEvent(event));
+      };
 
-      const letters = Array.from({ length: 70 }, (_, index) =>
-        String.fromCharCode(65 + (index % 26)),
+      const rows = "abcdefghij ".repeat(7);
+      await paste(rows);
+      await wait(() =>
+        expect(
+          matrixInputs(card)
+            .map((input) => input.value)
+            .join(""),
+        ).toBe(cells),
       );
-      const text = Array.from({ length: 7 }, (_, row) =>
-        letters.slice(row * 10, row * 10 + 10).join(" "),
-      ).join("\n");
-
-      const paste = new Event("paste", { bubbles: true, cancelable: true });
-      Object.defineProperty(paste, "clipboardData", {
-        value: { getData: () => text },
+      expect(mounted.core.commands("parse_school_matrix")[0]?.args).toEqual({
+        text: rows,
       });
-      // Pasting into a middle cell must not spread the letters from there.
-      await act(async () => inputs[5].dispatchEvent(paste));
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "Matrix pasted. Verify it against your card, then Connect.",
+        ),
+      );
 
-      expect(matrixInputs(card).map((input) => input.value)).toEqual(letters);
+      await paste(titechApp);
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "Matrix imported from titech-app. Verify it against your card, then Connect.",
+        ),
+      );
     },
     TIMEOUT,
   );
@@ -2369,7 +2402,6 @@ describe("Campus VPN", () => {
       const status = {
         address: null,
         expiresAt: null,
-        keepUntil: null,
       };
       const failed = {
         ...status,

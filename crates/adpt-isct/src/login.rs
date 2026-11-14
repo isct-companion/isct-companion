@@ -226,7 +226,10 @@ fn scripted_action(document: &Html, name: Option<&str>) -> Option<String> {
         let text: String = script.text().collect();
         let after = &text[text.find(&needle)? + needle.len()..];
         let value = after.trim_start().strip_prefix('=')?.trim_start();
-        let value = value.strip_prefix("unescape(").unwrap_or(value).trim_start();
+        let value = value
+            .strip_prefix("unescape(")
+            .unwrap_or(value)
+            .trim_start();
         let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'')?;
         let rest = &value[1..];
         let address = &rest[..rest.find(quote)?];

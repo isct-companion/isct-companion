@@ -638,7 +638,10 @@ async fn maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
         "<html><body>Scheduled maintenance of the lab</body></html>",
     );
     let answer = cookie().call(&attempt, ajax, &args).await;
-    assert!(matches!(answer, Err(MoodleError::SignInRequired)), "{answer:?}");
+    assert!(
+        matches!(answer, Err(MoodleError::SignInRequired)),
+        "{answer:?}"
+    );
     assert_eq!(notice(&sessions), None);
 
     let (sessions, attempt, client) = answering(200, "application/json", r#"{"lang":"en"}"#);

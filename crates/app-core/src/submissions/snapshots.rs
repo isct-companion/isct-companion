@@ -73,7 +73,11 @@ impl Snapshots {
     /// Copies the regular files `names` of `submit` into a new staging
     /// folder, hashing the bytes as they are copied, so the digest is that
     /// of what is kept, whatever happens to `submit/` meanwhile. By name.
-    pub(super) fn capture(&self, submit: &Path, names: &[String]) -> Result<Capture, SubmissionError> {
+    pub(super) fn capture(
+        &self,
+        submit: &Path,
+        names: &[String],
+    ) -> Result<Capture, SubmissionError> {
         if names.is_empty() {
             return Err(HandInError::Empty.into());
         }
@@ -107,9 +111,7 @@ impl Snapshots {
             ));
         }
         crate::storage::sync_directory(&capture.folder)?;
-        capture
-            .staged
-            .sort_by(|(a, _), (b, _)| a.name.cmp(&b.name));
+        capture.staged.sort_by(|(a, _), (b, _)| a.name.cmp(&b.name));
         Ok(capture)
     }
 
@@ -121,7 +123,10 @@ impl Snapshots {
         capture: Option<Capture>,
         commit: impl FnOnce() -> Result<T, SubmissionError>,
     ) -> Result<T, SubmissionError> {
-        let _publication = self.publication.lock().unwrap_or_else(PoisonError::into_inner);
+        let _publication = self
+            .publication
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if let Some(capture) = &capture {
             for (file, staged) in &capture.staged {
                 let object = self.objects.join(&file.sha256);
@@ -164,7 +169,10 @@ impl Snapshots {
         &self,
         expire: impl FnOnce() -> Result<BTreeSet<String>, SubmissionError>,
     ) -> Result<usize, SubmissionError> {
-        let _publication = self.publication.lock().unwrap_or_else(PoisonError::into_inner);
+        let _publication = self
+            .publication
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let referenced = expire()?;
         let mut removed = 0;
         for entry in fs::read_dir(&self.objects)?.flatten() {

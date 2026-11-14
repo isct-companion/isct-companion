@@ -82,9 +82,11 @@ import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.MatrixCameraSession
 import app.isctcompanion.core.MatrixConfidence
+import app.isctcompanion.core.MatrixOrder
 import app.isctcompanion.core.OtpImportAccount
 import app.isctcompanion.core.OtpImportException
 import app.isctcompanion.core.importOtp
+import app.isctcompanion.core.parseMatrixText
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -359,6 +361,22 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
 
     fun publish() = onMatrix(cells.joinToString(""))
 
+    // Core reads letters along rows, or titech-app's export (down columns).
+    fun paste(text: String) {
+        runCatching { parseMatrixText(text) }
+            .onSuccess { pasted ->
+                error = null
+                pasted.cells.forEachIndexed { index, c ->
+                    cells[index] = c.toString()
+                    confidence[index] = null
+                }
+                note = if (pasted.order == MatrixOrder.COLUMNS) t("settings.credentialImport.matrixImportedFromTitechApp") else null
+                publish()
+                editing = true
+            }
+            .onFailure { error = t("settings.credentialImport.pasteExactly70LettersIn") }
+    }
+
     fun scan(uri: Uri) {
         scope.launch {
             reading = true
@@ -467,19 +485,10 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 return@SourceChip
             }
             val text = clipboardText(context)
-            val letters = text.orEmpty().uppercase().filterNot { it.isWhitespace() }
             if (text == null) {
                 error = t("settings.credentialImport.theClipboardHasNoImage")
-            } else if (letters.length != 70 || !letters.all { it in 'A'..'Z' }) {
-                error = t("settings.credentialImport.pasteExactly70LettersIn")
             } else {
-                error = null
-                letters.forEachIndexed { index, c ->
-                    cells[index] = c.toString()
-                    confidence[index] = null
-                }
-                publish()
-                editing = true
+                paste(text)
             }
         }
         if (!editing) SourceChip(t("settings.credentialImport.enterManually"), Icons.Rounded.Keyboard) { editing = true }

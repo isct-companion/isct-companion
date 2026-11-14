@@ -376,14 +376,18 @@ async fn a_session_too_long_for_one_vault_item_comes_back_after_a_relaunch() {
     relaunched.0.restore(profile).await;
     let (snapshot, _) = relaunched.0.account(profile).identity.snapshot().unwrap();
     assert_eq!(snapshot.cookies[0].set_cookie, long);
-    assert_eq!(relaunched.fresh(profile), None, "unverified after a relaunch");
+    assert_eq!(
+        relaunched.fresh(profile),
+        None,
+        "unverified after a relaunch"
+    );
 
     assert_eq!(relaunched.sign_out(profile).await, Ok(true));
     assert_eq!(vault.parts(), 0);
     assert_eq!(
         crate::ports::SecretVault::load(&vault, "school-session-science"),
         Ok(None)
-);
+    );
 }
 
 // A revision always carries the view it was numbered with: shells keep the

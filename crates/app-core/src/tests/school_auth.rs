@@ -128,6 +128,59 @@ fn matrix_text_follows_the_editors_visual_row_order() {
     assert!(rows.iter().all(|row| row.len() == 10));
     assert_eq!(rows[0], "ABCDEFGHIJ");
     assert_eq!(rows[6], "IJKLMNOPQR");
+
+    // The copy pastes back as the same cells, lower case and tabs included.
+    let stored = service
+        .load(SchoolAuthProfile::TokyoTech)
+        .unwrap()
+        .unwrap()
+        .matrix;
+    for pasted in [text.clone(), text.to_lowercase().replace('\n', "\t")] {
+        assert_eq!(
+            parse_matrix_text(&pasted).unwrap(),
+            MatrixPaste {
+                cells: stored.clone(),
+                order: MatrixOrder::Rows
+            }
+        );
+    }
+}
+
+#[test]
+fn titech_app_export_pastes_down_columns_and_bad_pastes_are_rejected() {
+    // A titech-app export (random test data): a JSON array listing
+    // A1…A7, then B1…B7, and so on.
+    let export = "LCIVTBAQMCMJXLTIRNPLZIMLFZXHWCACIOGFNNMVOPLUNLIERRTYZUXIZCXCAOSPLMRSVI";
+    let json =
+        serde_json::to_string(&export.chars().map(String::from).collect::<Vec<_>>()).unwrap();
+    let pasted = parse_matrix_text(&format!("{json}\n")).unwrap();
+    assert_eq!(pasted.order, MatrixOrder::Columns);
+    let cells: Vec<char> = pasted.cells.chars().collect();
+    // Column A is the first seven entries; row 1 takes every seventh.
+    assert_eq!(
+        (0..7)
+            .map(|row| cells[row * MATRIX_COLUMNS])
+            .collect::<String>(),
+        "LCIVTBA"
+    );
+    assert_eq!(cells[..10].iter().collect::<String>(), "LQTIWFLRZP");
+    for (cell, &found) in cells.iter().enumerate() {
+        let (row, column) = (cell / MATRIX_COLUMNS, cell % MATRIX_COLUMNS);
+        assert_eq!(found, export.as_bytes()[column * MATRIX_ROWS + row] as char);
+    }
+
+    let entries = |count: usize, entry: &str| serde_json::to_string(&vec![entry; count]).unwrap();
+    for bad in [
+        "A".repeat(69),
+        "A".repeat(71),
+        format!("{}-", "A".repeat(69)),
+        format!("{}É", "A".repeat(69)),
+        entries(69, "A"),
+        entries(70, "AB"),
+        entries(70, "1"),
+    ] {
+        assert!(parse_matrix_text(&bad).is_err(), "{bad:?}");
+    }
 }
 
 #[test]
@@ -437,8 +490,12 @@ fn a_refusal_outlives_an_old_acceptance_marker_it_could_not_remove() {
         otp_secret: String::new(),
         matrix: (0..70u8).map(|i| (b'A' + i % 26) as char).collect(),
     };
-    service.promote(SchoolAuthProfile::Science, &science).unwrap();
-    service.promote(SchoolAuthProfile::TokyoTech, &tokyo).unwrap();
+    service
+        .promote(SchoolAuthProfile::Science, &science)
+        .unwrap();
+    service
+        .promote(SchoolAuthProfile::TokyoTech, &tokyo)
+        .unwrap();
     vault
         .items
         .store(SchoolAuthProfile::Science.acceptance_key(), "1")
@@ -466,12 +523,17 @@ fn a_refusal_outlives_an_old_acceptance_marker_it_could_not_remove() {
         relaunched.refusal(SchoolAuthProfile::Science).is_none()
     );
 
-    relaunched.clear_refusal(SchoolAuthProfile::Science, &science).unwrap();
+    relaunched
+        .clear_refusal(SchoolAuthProfile::Science, &science)
+        .unwrap();
     assert_eq!(relaunched.refusal(SchoolAuthProfile::Science), None);
     let again = SchoolAuthService::new(vault);
     again.load_refusals().unwrap();
     assert_eq!(again.refusal(SchoolAuthProfile::Science), None);
-    assert_eq!(again.refusal(SchoolAuthProfile::TokyoTech), Some(problem("tokyo")));
+    assert_eq!(
+        again.refusal(SchoolAuthProfile::TokyoTech),
+        Some(problem("tokyo"))
+    );
 }
 
 // Keychain is the source of truth: another device replacing the synchronized

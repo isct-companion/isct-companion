@@ -54,8 +54,7 @@ fn windows_runtime(output: &Path) {
     println!("cargo::rerun-if-env-changed=ISCT_LITERT_DLL");
     let dll = output.join("libLiteRt.dll");
     let verified = |path: &Path| {
-        std::fs::read(path)
-            .is_ok_and(|bytes| hex(&Sha256::digest(&bytes)) == LITERT_WINDOWS_SHA256)
+        std::fs::read(path).is_ok_and(|bytes| hex(&Sha256::digest(&bytes)) == LITERT_WINDOWS_SHA256)
     };
     if !verified(&dll) {
         let bytes = match std::env::var_os("ISCT_LITERT_DLL") {

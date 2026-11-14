@@ -61,7 +61,7 @@ import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
-import { vpnNoticeText } from "../pages/tools/CampusVpn";
+import { saveVpnOnDemand, vpnNoticeText } from "../pages/tools/CampusVpn";
 import { About } from "../pages/about/AboutPage";
 import { Tools } from "../pages/tools/ToolsPage";
 import { availableTools } from "../pages/tools/registry";
@@ -303,6 +303,8 @@ export function WorkspaceApp() {
       desktopBridge?.onVpnNotice?.((notice) => {
         const [title, body] = vpnNoticeText(notice);
         void desktopBridge?.notify(title, body).catch(() => undefined);
+        // Retrying cannot fix it; the next launch must not try again.
+        if (notice.kind === "demandStopped") void saveVpnOnDemand(false);
       }),
     [],
   );

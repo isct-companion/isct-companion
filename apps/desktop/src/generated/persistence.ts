@@ -554,6 +554,11 @@ export type Settings = {
   activeSchoolSite?: string;
   schoolWebZoom?: number;
   showGrades?: boolean;
+  /**
+   * Whether this device connects the campus VPN when something uses the
+   * campus network (desktop only); absent reads as off.
+   */
+  campusVpnOnDemand?: boolean;
   siteConsents?: SiteConsents;
   locale: "en" | "ja" | "zh";
   contentLanguage?: "auto" | "ja" | "en";

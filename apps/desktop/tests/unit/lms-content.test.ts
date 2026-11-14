@@ -32,7 +32,6 @@ import {
 import {
   MATRIX_SIZE,
   normalizeMatrixText,
-  parseMatrixText,
   prepareMatrixImage,
   recognizeMatrixImage,
 } from "@app/lib/matrix-ocr";
@@ -561,28 +560,6 @@ describe("matrix text", () => {
     expect(normalizeMatrixText("a, b 0 1 8")).toBe("AB");
     expect(normalizeMatrixText("a".repeat(80))).toHaveLength(MATRIX_SIZE);
     expect(normalizeMatrixText("a".repeat(80))).toBe("A".repeat(MATRIX_SIZE));
-  });
-
-  it("reads whitespace-formatted Matrix text in visual row order", () => {
-    const rowMajor = Array.from({ length: MATRIX_SIZE }, (_, index) =>
-      String.fromCharCode(65 + (index % 26)),
-    );
-    const rows = Array.from({ length: 7 }, (_, row) =>
-      rowMajor.slice(row * 10, row * 10 + 10).join(" "),
-    ).join("\n");
-    expect(parseMatrixText(rows)).toEqual(rowMajor);
-    expect(parseMatrixText(rowMajor.join("").toLowerCase())).toEqual(rowMajor);
-    expect(parseMatrixText(rowMajor.join("\t"))).toEqual(rowMajor);
-  });
-
-  it.each([
-    ["69 letters", Array.from({ length: 69 }, () => "A").join("")],
-    ["71 letters", Array.from({ length: 71 }, () => "A").join("")],
-    ["punctuation", `${Array.from({ length: 69 }, () => "A").join("")}-`],
-  ])("rejects Matrix text with %s", (_name, text) => {
-    expect(() => parseMatrixText(text)).toThrowError(
-      /^Paste exactly 70 letters in row order/,
-    );
   });
 });
 

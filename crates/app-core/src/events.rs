@@ -6,10 +6,10 @@ use crate::{
     cloud_sync::SyncState,
     data::WorkspaceChangeSource,
     lifecycle::SchoolSite,
+    plan::{SyncSnapshot, WakeDirective},
     school_browser::{SchoolWebNotice, SchoolWebPage},
     school_service::IngestOutcome,
     school_session::SchoolSessionSnapshot,
-    plan::{SyncSnapshot, WakeDirective},
     workspace_changes::WorkspaceChange,
 };
 

@@ -891,3 +891,10 @@ pub fn import_otp(payload: String) -> Result<Vec<OtpImportAccount>, OtpImportErr
             E::Unsupported => OtpImportError::Unsupported,
         })
 }
+
+/// Reads pasted Matrix text into the 70 cells in row order: letters along
+/// rows, or titech-app's export (a JSON array down columns).
+#[uniffi::export]
+pub fn parse_matrix_text(text: String) -> Result<crate::types::MatrixPaste, SdkError> {
+    project(app_core::school_auth::parse_matrix_text(&text)?)
+}

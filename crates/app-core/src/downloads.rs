@@ -6,12 +6,14 @@
 
 use crate::{
     net::{BoxFuture, NetError, USER_AGENT},
+    plan::AccountWait,
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
     school_browser::{browsing_url, is_login_url, school_file_url},
     school_files::{self, SchoolFile, SchoolFileRequest},
-    school_session::{Attempt, Blocked, OpError, Operation, Permit, RunError, SchoolSessions, Site},
-    plan::AccountWait,
+    school_session::{
+        Attempt, Blocked, OpError, Operation, Permit, RunError, SchoolSessions, Site,
+    },
 };
 pub use adpt_isct::lms::ResolvedResource;
 use adpt_isct::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page};

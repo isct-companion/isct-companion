@@ -168,8 +168,7 @@ impl SchoolSessions {
 /// Posts a form met on the way and follows where it leads. Its action must
 /// stay on the school's hosts (the walk refuses anything else).
 async fn submit(walk: &Walk<'_>, form: &pages::Form, page: &Page) -> Result<Page, WalkError> {
-    let action =
-        Url::parse(&form.action).map_err(|_| WalkError::Off("a form named no address"))?;
+    let action = Url::parse(&form.action).map_err(|_| WalkError::Off("a form named no address"))?;
     let step = walk.post(&action, form.fields(), &page.url, false).await?;
     walk.follow(step, &action).await
 }

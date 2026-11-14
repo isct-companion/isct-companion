@@ -3,8 +3,8 @@
 //! cookies are cleared through the shell's `NativeWebCookies`.
 use crate::{SdkError, Session};
 use app_core::{
-    reset::ResetDevice,
     plan::{ResetReport, ResetScope},
+    reset::ResetDevice,
 };
 use std::{path::PathBuf, sync::Arc};
 

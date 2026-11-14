@@ -151,7 +151,10 @@ async fn deadline_timer(core: Arc<app_core::Core>, tasks: RuntimeTasks) {
         let now = chrono::Utc::now();
         let wait = match directive.at {
             Some(_) if reported == Some(directive.revision) => WALL_CLOCK_CHECK,
-            Some(at) => (at - now).to_std().unwrap_or_default().min(WALL_CLOCK_CHECK),
+            Some(at) => (at - now)
+                .to_std()
+                .unwrap_or_default()
+                .min(WALL_CLOCK_CHECK),
             None => WALL_CLOCK_CHECK,
         };
         tokio::select! {
