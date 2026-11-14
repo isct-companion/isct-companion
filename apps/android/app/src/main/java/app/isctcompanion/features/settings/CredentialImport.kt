@@ -339,11 +339,17 @@ private fun name(account: OtpImportAccount) =
 /** Google's code scanner: its own camera UI from Play services, no camera
  * permission here. `null` when the person backs out. */
 private suspend fun scanQr(context: Context): Result<String>? = suspendCancellableCoroutine { done ->
-    val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-    val scanner = GmsBarcodeScanning.getClient(context, options)
-    // The scanner module downloads on first use; ask for it up front.
-    ModuleInstall.getClient(context).installModules(ModuleInstallRequest.newBuilder().addApi(scanner).build())
-    scanner.startScan()
+    val scan = try {
+        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+        val scanner = GmsBarcodeScanning.getClient(context, options)
+        // The scanner module downloads on first use; ask for it up front.
+        ModuleInstall.getClient(context).installModules(ModuleInstallRequest.newBuilder().addApi(scanner).build())
+        scanner.startScan()
+    } catch (error: RuntimeException) {
+        done.resume(Result.failure(error))
+        return@suspendCancellableCoroutine
+    }
+    scan
         .addOnSuccessListener { code -> done.resume(code.rawValue?.let { Result.success(it) }) }
         .addOnCanceledListener { done.resume(null) }
         .addOnFailureListener { done.resume(Result.failure(it)) }
