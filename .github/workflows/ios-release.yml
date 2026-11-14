@@ -33,11 +33,12 @@ jobs:
       TEAM_ID: FB7AL944GK
       # Each signed bundle and the App Store profile secret it is signed with:
       # the app, its share extension and its "Open in" action extension. All
-      # three carry the App Group the extensions hand files through.
+      # four carry the App Group the extensions hand files through.
       SIGNED_TARGETS: >-
         IsctCompanion:app.isctcompanion:IOS_MOBILE_PROVISION
         IsctShare:app.isctcompanion.share:IOS_SHARE_MOBILE_PROVISION
         IsctOpen:app.isctcompanion.open:IOS_OPEN_MOBILE_PROVISION
+        IsctWidgetsExtension:app.isctcompanion.widgets:IOS_WIDGETS_MOBILE_PROVISION
       APP_GROUP: group.app.isctcompanion
     steps:
       - uses: actions/checkout@v7
@@ -71,10 +72,11 @@ jobs:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
           IOS_SHARE_MOBILE_PROVISION: ${{ secrets.IOS_SHARE_MOBILE_PROVISION }}
           IOS_OPEN_MOBILE_PROVISION: ${{ secrets.IOS_OPEN_MOBILE_PROVISION }}
+          IOS_WIDGETS_MOBILE_PROVISION: ${{ secrets.IOS_WIDGETS_MOBILE_PROVISION }}
         run: |
           set -euo pipefail
           umask 077
-          for name in APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION; do
+          for name in APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION IOS_WIDGETS_MOBILE_PROVISION; do
             test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
           done
           mkdir -p ~/.appstoreconnect/private_keys
@@ -110,7 +112,7 @@ jobs:
               hashes = {hashlib.sha1(cert).hexdigest().upper() for cert in profile["DeveloperCertificates"]}
               certificates = hashes if certificates is None else certificates & hashes
               lines.append(f"PROFILE_UUID_{target.upper()}={profile['UUID']}")
-          # One certificate signs all three bundles.
+          # One certificate signs all four bundles.
           lines.append("PROFILE_CERTIFICATES=" + " ".join(sorted(certificates or [])))
           with open(os.environ["GITHUB_ENV"], "a") as output:
               print("\n".join(lines), file=output)
@@ -130,7 +132,7 @@ jobs:
           set -euo pipefail
           identity=$(security find-identity -v -p codesigning "$RUNNER_TEMP/signing.keychain-db" | awk '/"Apple Distribution:/ {print $2; exit}')
           test -n "$identity" || { echo 'No valid Apple Distribution identity in IOS_CERTIFICATE'; exit 1; }
-          [[ " $PROFILE_CERTIFICATES " == *" $identity "* ]] || { echo 'IOS_CERTIFICATE does not match all three provisioning profiles'; exit 1; }
+          [[ " $PROFILE_CERTIFICATES " == *" $identity "* ]] || { echo 'IOS_CERTIFICATE does not match all four provisioning profiles'; exit 1; }
           echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
           # Xcode 16+ uses UserData; retain the legacy path for older Xcode tools.
           for entry in $SIGNED_TARGETS; do
@@ -200,6 +202,7 @@ jobs:
               <key>app.isctcompanion</key><string>$PROFILE_UUID_ISCTCOMPANION</string>
               <key>app.isctcompanion.share</key><string>$PROFILE_UUID_ISCTSHARE</string>
               <key>app.isctcompanion.open</key><string>$PROFILE_UUID_ISCTOPEN</string>
+              <key>app.isctcompanion.widgets</key><string>$PROFILE_UUID_ISCTWIDGETSEXTENSION</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>uploadSymbols</key><true/>
@@ -208,11 +211,11 @@ jobs:
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/IsctCompanion.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/ipa"
           mv "$RUNNER_TEMP"/ipa/*.ipa "$RUNNER_TEMP/ipa/IsctCompanion_${VERSION}_${BUILD_NUMBER}.ipa"
-          # Validate the actual exported bundles, including both extensions.
+          # Validate the actual exported bundles, including the embedded extensions.
           python3 - <<'PY'
           import glob, os, plistlib, zipfile
           with zipfile.ZipFile(glob.glob(os.environ['RUNNER_TEMP'] + '/ipa/*.ipa')[0]) as ipa:
-              for bundle in ('', 'PlugIns/IsctShare.appex/', 'PlugIns/IsctOpen.appex/'):
+              for bundle in ('', 'PlugIns/IsctShare.appex/', 'PlugIns/IsctOpen.appex/', 'PlugIns/IsctWidgetsExtension.appex/'):
                   path = 'Payload/IsctCompanion.app/' + bundle + 'PrivacyInfo.xcprivacy'
                   manifest = plistlib.loads(ipa.read(path))
                   if manifest.get('NSPrivacyTracking') is not False:

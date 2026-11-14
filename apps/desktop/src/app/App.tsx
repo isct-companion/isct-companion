@@ -82,6 +82,7 @@ import type {
   SchoolAuthProfile,
   SchoolProfileSession,
 } from "../platform/desktop-bridge";
+import { onWidgetRoute } from "../platform/widget-links";
 import { sessionDetails, sessionText } from "./sync-text";
 
 import { performAction } from "../platform/actions";
@@ -245,6 +246,45 @@ export function WorkspaceApp() {
   const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useAnimatedNavigate();
+  const widgetNavigate = useRef(navigate);
+  useEffect(() => {
+    widgetNavigate.current = navigate;
+  }, [navigate]);
+  useEffect(() => {
+    if (!storeReady) return;
+    return onWidgetRoute((route) => {
+      switch (route.kind) {
+        case "course":
+          void widgetNavigate.current(paths.lectures(route.courseId));
+          break;
+        case "exam":
+          void widgetNavigate.current(paths.exam(route.key, route.term));
+          break;
+        case "assignment":
+          if (route.courseId) {
+            void widgetNavigate.current(
+              paths.lectures(route.courseId, route.id),
+            );
+            break;
+          }
+          setAssignmentsRequest(Date.now());
+          void widgetNavigate.current(paths.lectures());
+          break;
+        case "assignments":
+        case "unavailableAssignment":
+          setAssignmentsRequest(Date.now());
+          void widgetNavigate.current(paths.lectures());
+          break;
+        case "sync":
+          void widgetNavigate.current(paths.settings("accounts"));
+          break;
+        case "unavailableCourse":
+        case "timetable":
+          void widgetNavigate.current(paths.timetable());
+          break;
+      }
+    });
+  }, [storeReady]);
   const location = useLocation();
   const params = useParams();
   const timetableMatch = useMatch(routePatterns.timetable);

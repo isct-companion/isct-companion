@@ -49,6 +49,10 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # Native v2 EXE and macOS tar.gz updates; legacy v1 ZIP installers are unused.
 tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
 
+# A second launch shows the running app's hidden window instead of starting
+# another copy against the same data. It injects no script into webviews.
+tauri-plugin-single-instance = "2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # The login name the campus printer queue is restricted to (campus_printer_cups.rs).
 libc = "0.2"
@@ -106,9 +110,5 @@ windows-collections = "0.3"
 webview2-com = "0.39"
 # The tray icon that keeps a closed window's app running (window_close_windows.rs).
 tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
-# A second launch shows the running app's hidden window instead of starting
-# another copy against the same data. It injects no script into webviews.
-tauri-plugin-single-instance = "2"
-
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }

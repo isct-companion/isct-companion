@@ -46,6 +46,8 @@ mod school_webkit;
 #[cfg(windows)]
 mod school_windows;
 mod secrets;
+#[cfg(target_os = "macos")]
+mod widgets_macos;
 mod window_close;
 #[cfg(target_os = "macos")]
 mod window_close_macos;
@@ -216,6 +218,15 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         window_close::show_main(app);
     }));
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            window_close::show_main(app);
+            for url in args.iter().filter_map(|arg| tauri::Url::parse(arg).ok()) {
+                widgets_macos::opened(app, &url);
+            }
+        }))
+        .manage(widgets_macos::WidgetLinks::default());
     let builder = builder
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
             log::info!(
@@ -270,6 +281,8 @@ pub fn run() {
     });
     builder
         .invoke_handler(tauri::generate_handler![
+            #[cfg(target_os = "macos")]
+            widgets_macos::widget_frontend_ready,
             commands::platform::check_app_update,
             commands::platform::app_update_state,
             commands::platform::install_app_update,
@@ -507,6 +520,12 @@ pub fn run() {
                             app.exit(code);
                         });
                     }
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    widgets_macos::opened(app, url);
                 }
             }
             // The Dock icon brings back a window closed to the background.

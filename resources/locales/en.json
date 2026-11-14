@@ -1415,5 +1415,21 @@
   "tools.campusWifi.vpnKeepOff": "Turn off",
   "tools.campusWifi.vpnReconnecting": "Tunnel ended; reconnecting…",
   "tools.campusWifi.vpnKeepEndedBody": "Auto-continue's time is up, so the VPN was disconnected.",
-  "tools.campusWifi.vpnKeepStoppedTitle": "Campus VPN stopped reconnecting"
+  "tools.campusWifi.vpnKeepStoppedTitle": "Campus VPN stopped reconnecting",
+  "widget.courses": "Classes",
+  "widget.courses.description": "See your next class, its room and today’s schedule.",
+  "widget.assignments": "Assignments",
+  "widget.assignments.description": "See your outstanding assignments and their deadlines.",
+  "widget.openToUpdate": "Open the app to update",
+  "widget.noClasses": "No upcoming classes",
+  "widget.noAssignments": "No outstanding assignments",
+  "widget.updated": "Updated {{time}}",
+  "widget.overdue": "Overdue · {{time}}",
+  "widget.phase.beforeClasses": "Next class",
+  "widget.phase.betweenClasses": "Next class",
+  "widget.phase.inClass": "In class",
+  "widget.phase.afterClasses": "Next class day",
+  "widget.phase.noClasses": "Next class day",
+  "widget.addOnPhone": "On your Home Screen, touch and hold an empty area and add a widget from the IsctCompanion gallery.",
+  "widget.addOnMac": "On your desktop, open Edit Widgets and choose IsctCompanion."
 }

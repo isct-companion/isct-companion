@@ -22,50 +22,59 @@ import java.util.Locale
  * `language` is snapshot state, so a composable that calls [t] recomposes
  * when it changes; nothing else has to pass it down.
  */
-object Localizer {
-    /** `en`, `ja` or `zh`. */
-    var language by mutableStateOf("en")
-        private set
-    private var catalog: Map<String, String> = emptyMap()
-    private var english: Map<String, String> = emptyMap()
-    private var loaded: String? = null
-    private var context: Context? = null
+internal class MessageCatalog(context: Context, stored: String?) {
+    val language = language(stored)
+    private val english = load(context, "en")
+    private val messages = if (language == "en") english else load(context, language)
 
-    /** `settings.locale` lives in the session, and a session that fails to
-     * open never delivers it: the system's language speaks until then, so the
-     * failure screen is never left without a catalog. */
-    fun attach(context: Context) {
-        this.context = context.applicationContext
-        use(context.resources.configuration.locales[0].language)
-    }
-
-    /** Switches to a stored `settings.locale`; anything unknown reads English. */
-    fun use(stored: String?) {
-        val next = stored?.takeIf { it == "ja" || it == "zh" } ?: "en"
-        if (next == loaded) return
-        catalog = load(next)
-        if (english.isEmpty()) english = load("en")
-        loaded = next
-        language = next
-    }
-
-    /** The text for a key, `{{name}}` placeholders filled; null when no
-     * catalog has the key (a key another component owns, such as Core's). */
-    fun lookup(key: String, values: Array<out Pair<String, Any>>): String? {
-        var text = catalog[key] ?: english[key] ?: return null
-        for ((name, value) in values) text = text.replace("{{$name}}", value.toString())
-        return text
-    }
-
-    fun string(key: String, values: Array<out Pair<String, Any>>): String = lookup(key, values) ?: key
-
-    /** The locale dates are written in, as the desktop's `intlLocale`. */
     val locale: Locale
         get() = when (language) {
             "ja" -> Locale.JAPAN
             "zh" -> Locale.SIMPLIFIED_CHINESE
             else -> Locale.UK
         }
+
+    fun lookup(key: String, values: Array<out Pair<String, Any>>): String? {
+        var text = messages[key] ?: english[key] ?: return null
+        for ((name, value) in values) text = text.replace("{{$name}}", value.toString())
+        return text
+    }
+
+    fun string(key: String, vararg values: Pair<String, Any>) = lookup(key, values) ?: key
+
+    companion object {
+        fun language(stored: String?): String = stored?.takeIf { it == "ja" || it == "zh" } ?: "en"
+
+        private fun load(context: Context, language: String): Map<String, String> = runCatching {
+            val text = context.assets.open("$language.json").bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            json.keys().asSequence().associateWith { json.getString(it) }
+        }.getOrDefault(emptyMap())
+    }
+}
+
+object Localizer {
+    var language by mutableStateOf("en")
+        private set
+    private var catalog: MessageCatalog? = null
+    private var context: Context? = null
+
+    fun attach(context: Context) {
+        this.context = context.applicationContext
+        use(context.resources.configuration.locales[0].language)
+    }
+
+    fun use(stored: String?) {
+        val context = context ?: return
+        val next = MessageCatalog.language(stored)
+        if (next == catalog?.language) return
+        catalog = MessageCatalog(context, next)
+        language = next
+    }
+
+    fun lookup(key: String, values: Array<out Pair<String, Any>>): String? = catalog?.lookup(key, values)
+    fun string(key: String, values: Array<out Pair<String, Any>>): String = lookup(key, values) ?: key
+    val locale: Locale get() = catalog?.locale ?: Locale.UK
 
     /** School text in the content language: `settings.contentLanguage`, or on
      * automatic the UI language (`zh` reads Japanese), as the desktop's
@@ -77,11 +86,7 @@ object Localizer {
         return order.firstNotNullOfOrNull { value[it]?.ifEmpty { null } }
     }
 
-    private fun load(language: String): Map<String, String> = runCatching {
-        val text = context?.assets?.open("$language.json")?.bufferedReader()?.use { it.readText() } ?: return emptyMap()
-        val json = JSONObject(text)
-        json.keys().asSequence().associateWith { json.getString(it) }
-    }.getOrDefault(emptyMap())
+
 }
 
 /** The UI string for a catalog key, with `{{name}}` placeholders filled. */

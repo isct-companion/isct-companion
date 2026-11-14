@@ -1,0 +1,6 @@
+<resources>
+    <string name="widget_classes">Classes</string>
+    <string name="widget_classes_description">See your next class, its room and today’s schedule.</string>
+    <string name="widget_assignments">Assignments</string>
+    <string name="widget_assignments_description">See your outstanding assignments and their deadlines.</string>
+</resources>

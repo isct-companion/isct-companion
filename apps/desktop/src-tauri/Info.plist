@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key>
+        <string>app.isctcompanion.widgets</string>
+        <key>CFBundleURLSchemes</key>
+        <array><string>isctcompanion</string></array>
+    </dict></array>
+    <key>IsctWidgetGroup</key>
+    <string>FB7AL944GK.app.isctcompanion.widgets</string>
     <key>NSCameraUsageDescription</key>
     <string>Scan your campus card's Matrix to fill its letters on this device.</string>
     <!-- Class and exam reminders stay on screen until dismissed. macOS uses

@@ -36,6 +36,9 @@ pub struct SessionConfig {
     pub files_directory: String,
     /// Sent to Core's planner as the first `Hint::Network`.
     pub initial_network: SyncNetwork,
+    /// A cold background launch waits for the OS opportunity before Core
+    /// admits work. In particular a local opportunity cannot start reads.
+    pub start_suspended: bool,
     pub cloud_providers: Vec<CloudProvider>,
     pub authorized_cloud_providers: Vec<CloudProvider>,
 }
@@ -59,7 +62,7 @@ pub(crate) struct Inner {
     pub events: Arc<Events>,
     pub tasks: RuntimeTasks,
     pub handle: Handle,
-    gate: Mutex<bool>,
+    pub(crate) gate: Mutex<bool>,
     next_operation: AtomicU64,
     operations: Mutex<HashMap<u64, Weak<Operation>>>,
     shutdown: tokio::sync::Mutex<bool>,
@@ -684,6 +687,7 @@ async fn initialize(
         ocr: ocr_available(),
     };
     let initial_network: app_core::plan::Network = project_input(config.initial_network)?;
+    let start_suspended = config.start_suspended;
     let native_cloud = cloud.clone();
     let store_drive = drive.clone();
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
@@ -726,9 +730,6 @@ async fn initialize(
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
-    core.sync_hint(app_core::plan::Hint::Network {
-        network: initial_network,
-    });
     if let Some(web_cookies) = web_cookies {
         core.attach_web_cookies(Arc::new(crate::ports::WebCookies(web_cookies)));
     }
@@ -789,6 +790,11 @@ async fn initialize(
         }),
         cloud: inner.capabilities.cloud.then(|| inner.sync_services.clone()),
     });
+    // Set all startup facts before entering the runtime's planner driver.
+    if start_suspended {
+        inner.core.prepare_background_start();
+    }
+    inner.core.sync_hint(app_core::plan::Hint::Network { network: initial_network });
     inner.core.start(&Handle::current())?;
     Ok(inner)
 }

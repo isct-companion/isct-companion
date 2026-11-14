@@ -152,6 +152,9 @@ jobs:
           if [[ -n "$CI_GOOGLE_CLIENT_SECRET" ]]; then
             echo "ISCT_GOOGLE_DESKTOP_CLIENT_SECRET=$CI_GOOGLE_CLIENT_SECRET" >> "$GITHUB_ENV"
           fi
+      - name: Install XcodeGen
+        if: runner.os == 'macOS'
+        run: command -v xcodegen >/dev/null || brew install xcodegen
       - name: Install Windows signing tool
         if: runner.os == 'Windows' && env.SIGN_WINDOWS == 'true'
         run: cargo install artifact-signing-cli --version 0.12.0 --locked
@@ -240,6 +243,20 @@ jobs:
               test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
             done
             [[ "$APPLE_SIGNING_IDENTITY" == "Developer ID Application:"* ]] || { echo 'Use a Developer ID Application signing identity.'; exit 1; }
+            # The extension and containing bundle must be signed by the
+            # same identity. Make it available before Tauri bundles the app.
+            umask 077
+            printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/desktop-signing.p12"
+            keychain="$RUNNER_TEMP/desktop-signing.keychain-db"
+            password=$(uuidgen)
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            security import "$RUNNER_TEMP/desktop-signing.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" > /dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            rm "$RUNNER_TEMP/desktop-signing.p12"
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
             key_file="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
             printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_file"
             chmod 600 "$key_file"

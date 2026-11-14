@@ -31,13 +31,16 @@ class BackgroundWake(context: Context, params: WorkerParameters) : CoroutineWork
     override suspend fun doWork(): Result {
         val model = (applicationContext as IsctApplication).model
         val network = inputData.getBoolean(NETWORK, false)
-        withContext(Dispatchers.Main) { model.backgroundWake(network, if (network) 120u else 60u) }
+        withContext(Dispatchers.Main) {
+            model.backgroundWake(network, if (network) 120u else 60u, inputData.getBoolean(SYSTEM_CHANGE, false))
+        }
         return Result.success()
     }
 
     companion object {
         private const val NAME = "core-background"
         private const val NETWORK = "network"
+        private const val SYSTEM_CHANGE = "system-change"
 
         /** One unique request per kind of work in Core's directive, at its
          * earliest time; a later directive replaces it, and a kind it no
@@ -77,7 +80,7 @@ class BackgroundWake(context: Context, params: WorkerParameters) : CoroutineWork
         fun soon(context: Context) {
             val request = OneTimeWorkRequestBuilder<BackgroundWake>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .setInputData(workDataOf(NETWORK to false))
+                .setInputData(workDataOf(NETWORK to false, SYSTEM_CHANGE to true))
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork("$NAME-now", ExistingWorkPolicy.REPLACE, request)
         }
@@ -89,8 +92,9 @@ class BackgroundWake(context: Context, params: WorkerParameters) : CoroutineWork
  * for the app to be opened or the next opportunity. */
 class RescheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            BackgroundWake.soon(context)
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
+            Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED -> BackgroundWake.soon(context)
         }
     }
 }

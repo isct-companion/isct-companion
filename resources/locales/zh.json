@@ -1415,5 +1415,21 @@
   "tools.campusWifi.vpnKeepOff": "关闭",
   "tools.campusWifi.vpnReconnecting": "隧道已断开，正在重新连接…",
   "tools.campusWifi.vpnKeepEndedBody": "自动继续的时长已到，VPN 已断开。",
-  "tools.campusWifi.vpnKeepStoppedTitle": "校园 VPN 已停止自动重连"
+  "tools.campusWifi.vpnKeepStoppedTitle": "校园 VPN 已停止自动重连",
+  "widget.courses": "课程",
+  "widget.courses.description": "查看下一节课、教室和当天课表。",
+  "widget.assignments": "待交作业",
+  "widget.assignments.description": "查看待交作业和截止时间。",
+  "widget.openToUpdate": "打开 App 更新",
+  "widget.noClasses": "近期没有课程",
+  "widget.noAssignments": "没有待交作业",
+  "widget.updated": "上次更新 {{time}}",
+  "widget.overdue": "已逾期 · {{time}}",
+  "widget.phase.beforeClasses": "下一节课",
+  "widget.phase.betweenClasses": "下一节课",
+  "widget.phase.inClass": "上课中",
+  "widget.phase.afterClasses": "下一个上课日",
+  "widget.phase.noClasses": "下一个上课日",
+  "widget.addOnPhone": "长按主屏幕空白处，即可从 IsctCompanion 添加小组件。",
+  "widget.addOnMac": "在桌面打开「编辑小组件」，然后选择 IsctCompanion。"
 }

@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 162 checks must be re-run before the next release.**
+**5 of 165 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,8 +25,11 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**157 checks have never been run or could not be run:**
+**160 checks have never been run or could not be run:**
 
+- `WIDGET-MAC-DISTRIBUTION` — never verified
+- `WIDGET-IOS-LOCKED` — never verified
+- `WIDGET-ANDROID-BACKGROUND` — never verified
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -189,6 +192,9 @@ an unverified area becomes an assumed-good one.
 
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
+| `WIDGET-MAC-DISTRIBUTION` | desktop | International student | —<br>not run | apps/apple-widgets/**<br>apps/desktop/src-tauri/src/widgets_macos.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>bindings/apple-widgets/**<br>scripts/desktop/macos-widgets.mjs<br>scripts/desktop/tauri.mjs<br>.github/workflows/desktop-release.yml |
+| `WIDGET-IOS-LOCKED` | native | Mobile commuter checking class and assignment widgets | —<br>not run | apps/apple-widgets/Extension/**<br>apps/ios/IsctCompanion/Core/WidgetStorage.swift<br>apps/ios/project.yml<br>bindings/apple-widgets/**<br>crates/app-core/src/schedule/widgets.rs |
+| `WIDGET-ANDROID-BACKGROUND` | native | Mobile commuter checking class and assignment widgets | —<br>not run | apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/java/app/isctcompanion/widgets/**<br>crates/app-core/src/widgets.rs |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx |
 | `SCHOOL-SESSION-WINDOWS-VAULT` | school | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/secret_parts.rs<br>crates/app-core/src/school_session/store.rs |
 | `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | crates/app-core/src/downloads.rs |
@@ -456,7 +462,146 @@ browser or course document using Windows Snap.
 Expects the desktop navigation and the open course reader to stay usable
 as the app moves between full-size, half-screen and quarter-screen sizes.
 
+### Mobile commuter checking class and assignment widgets (`mobile-commuter`)
+
+Identity: undergraduate · Language: ja · Device: iOS and Android arm64
+
+Has a real class schedule and LMS cache on an iPhone and an Android
+phone. Checks the next room while walking between classrooms.
+
+Checks the lock screen or Home Screen first. Leaves the app in the
+background and sometimes turns on battery saver.
+
 ## Checks
+
+### Signed Mac widgets survive installation and an in-app update (`WIDGET-MAC-DISTRIBUTION`)
+
+**Area** desktop · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A clean macOS 15 or later user account, an Intel or Apple silicon Mac,
+two successive Developer ID signed and notarized builds reachable
+through the updater, and a real course cache.
+
+**Steps**
+
+1. Install the older DMG, open the app, and add Classes from Edit Widgets.
+   - *Why:* Launch Services must discover the extension and the shared container must open without a data access prompt.
+2. Sync a change to a visible course and look again at the widget.
+   - *Why:* The main app's refresh request must cause WidgetKit to read the newly signed app group's snapshot.
+3. Install the newer version through the in-app updater and reopen Edit Widgets.
+   - *Why:* Replacing the application bundle can break extension discovery or access to the previously created container.
+
+**Where to look**
+
+The macOS widget gallery, desktop widget, system prompts and the app's Diagnostics log.
+
+**Expected**
+
+The extension is available before and after the update, reads the local class cache, and shows the changed course after WidgetKit refreshes.
+
+**Why this is manual**
+
+Requires notarization, Gatekeeper, a fresh macOS user's privacy
+controls, WidgetKit and an actual updater installation.
+
+**Covers**
+
+- `apps/apple-widgets/**`
+- `apps/desktop/src-tauri/src/widgets_macos.rs`
+- `apps/desktop/src-tauri/Entitlements.plist`
+- `bindings/apple-widgets/**`
+- `scripts/desktop/macos-widgets.mjs`
+- `scripts/desktop/tauri.mjs`
+- `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Lock Screen widget follows data protection and the system privacy setting (`WIDGET-IOS-LOCKED`)
+
+**Area** native · **Persona** Mobile commuter checking class and assignment widgets · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A signed iPhone build with the course Lock Screen widget and a real school cache.
+
+**Steps**
+
+1. Lock the device after first unlock and observe the widget around a scheduled class transition.
+   - *Why:* The extension must still be able to read the protected publication during an ordinary lock.
+2. Change the system setting for sensitive Lock Screen content and relock.
+   - *Why:* Class title and room must follow WidgetKit's redaction policy.
+3. Restart the phone and observe the same widget before the first unlock.
+   - *Why:* The operating system must withhold the protected snapshot after reboot.
+4. Unlock, background or force-quit the app, and check again around a later class transition.
+   - *Why:* Entries carried by the system timeline should advance through class changes without the main app running.
+
+**Where to look**
+
+The rectangular Lock Screen widget before unlock, after unlock and during the next class transition.
+
+**Expected**
+
+Sensitive content follows the system preference, initial locked boot shows a placeholder, and the published timeline can advance without the app.
+
+**Why this is manual**
+
+File protection and WidgetKit's real refresh and privacy policies require a signed build on a physical device.
+
+**Covers**
+
+- `apps/apple-widgets/Extension/**`
+- `apps/ios/IsctCompanion/Core/WidgetStorage.swift`
+- `apps/ios/project.yml`
+- `bindings/apple-widgets/**`
+- `crates/app-core/src/schedule/widgets.rs`
+
+**Last recorded** never run
+
+### Glance reads cached data during Android background restrictions (`WIDGET-ANDROID-BACKGROUND`)
+
+**Area** native · **Persona** Mobile commuter checking class and assignment widgets · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An Android 14 or later arm64 phone with Classes and Assignments widgets and a real school cache.
+
+**Steps**
+
+1. Background the app, disconnect the network, and note the course widget before and after a published class boundary.
+   - *Why:* WorkManager must be allowed to request a redraw from local data without an online school read.
+2. Repeat with battery saver and record the delay from the displayed class time to the observed update.
+   - *Why:* The OS can defer background work, so the displayed absolute times must remain useful while the entry is old.
+3. Restart the phone, unlock, and check the launcher without opening the app.
+   - *Why:* After boot, the existing recovery worker must be able to schedule future updates and publish from the cache.
+
+**Where to look**
+
+The launcher widgets, class boundary time, update time and device logs for the local wake.
+
+**Expected**
+
+The launcher can draw existing data independently; local background opportunities advance the widgets even when offline.
+
+**Why this is manual**
+
+Real launcher behaviour, Doze, battery saver and boot delivery depend on the device and its WorkManager scheduler.
+
+**Covers**
+
+- `apps/android/app/src/main/AndroidManifest.xml`
+- `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/widgets/**`
+- `crates/app-core/src/widgets.rs`
+
+**Last recorded** never run
 
 ### Core signs in to Science Tokyo over HTTP and the LMS page opens signed in (`SCHOOL-SIGNIN-SCIENCE`)
 

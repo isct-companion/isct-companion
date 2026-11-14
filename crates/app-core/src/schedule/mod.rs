@@ -19,6 +19,7 @@ mod school;
 mod search;
 mod tasks;
 mod today;
+pub mod widgets;
 
 #[cfg(test)]
 #[path = "../tests/schedule.rs"]

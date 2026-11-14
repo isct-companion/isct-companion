@@ -805,43 +805,45 @@ pub fn stored_courses(connection: &Connection) -> Result<Vec<StoredLmsCourse>, I
     Ok(rows
         .iter()
         .filter_map(|raw| serde_json::from_str::<Value>(raw).ok())
-        .filter_map(|course| {
-            let title = ["ja", "en"]
-                .iter()
-                .find_map(|lang| {
-                    course
-                        .pointer(&format!("/title/{lang}"))
-                        .and_then(Value::as_str)
-                })
-                .or_else(|| course.get("shortname").and_then(Value::as_str))
-                .unwrap_or("")
-                .to_string();
-            Some(StoredLmsCourse {
-                id: id_of(course.get("lmsId"))?,
-                title,
-                year: course
-                    .get("year")
-                    .and_then(Value::as_i64)
-                    .map(|year| year as i32),
-                quarter: course
-                    .pointer("/quarters/0")
-                    .and_then(Value::as_str)
-                    .and_then(|quarter| quarter.strip_suffix('Q'))
-                    .and_then(|quarter| quarter.parse().ok()),
-                shown_in: course
-                    .get("timetables")
-                    .and_then(Value::as_object)
-                    .map(|terms| {
-                        terms
-                            .iter()
-                            .filter(|(_, meetings)| meetings.is_array())
-                            .map(|(term, _)| term.clone())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
-        })
+        .filter_map(|row| stored_course(&row))
         .collect())
+}
+
+pub(crate) fn stored_course(course: &Value) -> Option<StoredLmsCourse> {
+    let title = ["ja", "en"]
+        .iter()
+        .find_map(|lang| {
+            course
+                .pointer(&format!("/title/{lang}"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| course.get("shortname").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_string();
+    Some(StoredLmsCourse {
+        id: id_of(course.get("lmsId"))?,
+        title,
+        year: course
+            .get("year")
+            .and_then(Value::as_i64)
+            .map(|year| year as i32),
+        quarter: course
+            .pointer("/quarters/0")
+            .and_then(Value::as_str)
+            .and_then(|quarter| quarter.strip_suffix('Q'))
+            .and_then(|quarter| quarter.parse().ok()),
+        shown_in: course
+            .get("timetables")
+            .and_then(Value::as_object)
+            .map(|terms| {
+                terms
+                    .iter()
+                    .filter(|(_, meetings)| meetings.is_array())
+                    .map(|(term, _)| term.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
 }
 
 /// The LMS quarter now, as `(academic year, quarter)`, by the month in

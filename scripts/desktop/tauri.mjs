@@ -7,6 +7,7 @@ import {
   macDevelopmentSigningConfig,
   macSigningConfig,
 } from "./macos-signing.mjs";
+import { macWidgets } from "./macos-widgets.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -41,8 +42,12 @@ if (shouldSignLocalMac) {
       : "Debug bundle: ad-hoc signed; no Apple Development profile for this Mac, so iCloud is off.",
   );
 }
-const macConfig = shouldSignMac
-  ? macSigningConfig({ required: true })
+const macSigning = shouldSignMac
+  ? (() => {
+      const signed = macSigningConfig({ required: true });
+      signed.bundle.macOS.signingIdentity = process.env.APPLE_SIGNING_IDENTITY;
+      return signed;
+    })()
   : (macDevelopmentConfig ??
     (shouldSignLocalMac
       ? {
@@ -55,6 +60,13 @@ const macConfig = shouldSignMac
           },
         }
       : undefined));
+const macConfig =
+  process.platform === "darwin" &&
+  command[0] === "build" &&
+  !command.includes("--no-bundle") &&
+  !command.includes("--no-sign")
+    ? macWidgets(root, command, macSigning, packageVersion)
+    : macSigning;
 // Azure Artifact Signing signs the app binary and the NSIS installer on
 // Windows; without a trusted signature Smart App Control blocks the installer
 // and Controlled folder access blocks writes to Documents. Credentials come
@@ -75,10 +87,14 @@ const windowsConfig = windowsSigningEndpoint
   : undefined;
 // The campus VPN payload (`bundle-vpn.mjs`) ships only when it was built:
 // the helper, route hook and openconnect land in resources/vpn.
-const vpnHelper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[process.platform];
+const vpnHelper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[
+  process.platform
+];
 const vpnPayload =
   vpnHelper !== undefined &&
-  existsSync(path.join(root, "apps/desktop/src-tauri/resources/vpn", vpnHelper));
+  existsSync(
+    path.join(root, "apps/desktop/src-tauri/resources/vpn", vpnHelper),
+  );
 // `--config` is merged last and replaces the resource list, so extend the one
 // this platform bundles: tauri.windows.conf.json's map on Windows (it adds
 // LiteRT's DLL beside the executable), tauri.conf.json's list elsewhere.

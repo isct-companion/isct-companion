@@ -59,6 +59,8 @@
 	<false/>
 	<key>IsctGoogleClientID</key>
 	<string>$(ISCT_GOOGLE_IOS_CLIENT_ID)</string>
+	<key>IsctWidgetGroup</key>
+	<string>group.app.isctcompanion</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>

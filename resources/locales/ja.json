@@ -1415,5 +1415,21 @@
   "tools.campusWifi.vpnKeepOff": "オフ",
   "tools.campusWifi.vpnReconnecting": "トンネルが切れました。再接続しています…",
   "tools.campusWifi.vpnKeepEndedBody": "自動継続の時間が終わったため、VPN を切断しました。",
-  "tools.campusWifi.vpnKeepStoppedTitle": "キャンパス VPN の自動再接続を停止しました"
+  "tools.campusWifi.vpnKeepStoppedTitle": "キャンパス VPN の自動再接続を停止しました",
+  "widget.courses": "授業",
+  "widget.courses.description": "次の授業、教室と今日の時間割を確認できます。",
+  "widget.assignments": "未提出の課題",
+  "widget.assignments.description": "未提出の課題と締切を確認できます。",
+  "widget.openToUpdate": "アプリを開いて更新",
+  "widget.noClasses": "予定されている授業はありません",
+  "widget.noAssignments": "未提出の課題はありません",
+  "widget.updated": "最終更新 {{time}}",
+  "widget.overdue": "期限超過 · {{time}}",
+  "widget.phase.beforeClasses": "次の授業",
+  "widget.phase.betweenClasses": "次の授業",
+  "widget.phase.inClass": "授業中",
+  "widget.phase.afterClasses": "次の授業日",
+  "widget.phase.noClasses": "次の授業日",
+  "widget.addOnPhone": "ホーム画面の空いている場所を長押しし、IsctCompanion のウィジェットを追加できます。",
+  "widget.addOnMac": "デスクトップで「ウィジェットを編集」を開き、IsctCompanion を選びます。"
 }

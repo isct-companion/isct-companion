@@ -1,0 +1,29 @@
+name: IsctWidgets
+options:
+  deploymentTarget:
+    macOS: "15.0"
+packages:
+  IsctWidgets:
+    path: ../../bindings/apple-widgets
+targets:
+  IsctWidgetsExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Extension
+      - path: ../../resources/locales
+        buildPhase: resources
+      - path: Privacy/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    dependencies:
+      - package: IsctWidgets
+    settings:
+      base:
+        PRODUCT_NAME: IsctWidgetsExtension
+        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.widgets
+        SWIFT_VERSION: "6.0"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: macOS/Info.plist
+        ISCT_WIDGET_GROUP: FB7AL944GK.app.isctcompanion.widgets
+        CODE_SIGN_ENTITLEMENTS: macOS/Entitlements.plist

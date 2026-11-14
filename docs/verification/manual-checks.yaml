@@ -176,11 +176,100 @@ personas:
     language: zh
     device: windows-x64
 
+  - id: mobile-commuter
+    label: Mobile commuter checking class and assignment widgets
+    identity: undergraduate
+    context: |
+      Has a real class schedule and LMS cache on an iPhone and an Android
+      phone. Checks the next room while walking between classrooms.
+    behaviour: |
+      Checks the lock screen or Home Screen first. Leaves the app in the
+      background and sometimes turns on battery saver.
+    language: ja
+    device: iOS and Android arm64
+
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
 
 checks:
+  - id: WIDGET-MAC-DISTRIBUTION
+    area: desktop
+    title: Signed Mac widgets survive installation and an in-app update
+    persona: international-student
+    preconditions: |
+      A clean macOS 15 or later user account, an Intel or Apple silicon Mac,
+      two successive Developer ID signed and notarized builds reachable
+      through the updater, and a real course cache.
+    steps:
+      - action: Install the older DMG, open the app, and add Classes from Edit Widgets.
+        reason: Launch Services must discover the extension and the shared container must open without a data access prompt.
+      - action: Sync a change to a visible course and look again at the widget.
+        reason: The main app's refresh request must cause WidgetKit to read the newly signed app group's snapshot.
+      - action: Install the newer version through the in-app updater and reopen Edit Widgets.
+        reason: Replacing the application bundle can break extension discovery or access to the previously created container.
+    observe: The macOS widget gallery, desktop widget, system prompts and the app's Diagnostics log.
+    expected: The extension is available before and after the update, reads the local class cache, and shows the changed course after WidgetKit refreshes.
+    why_manual: |
+      Requires notarization, Gatekeeper, a fresh macOS user's privacy
+      controls, WidgetKit and an actual updater installation.
+    covers:
+      - apps/apple-widgets/**
+      - apps/desktop/src-tauri/src/widgets_macos.rs
+      - apps/desktop/src-tauri/Entitlements.plist
+      - bindings/apple-widgets/**
+      - scripts/desktop/macos-widgets.mjs
+      - scripts/desktop/tauri.mjs
+      - .github/workflows/desktop-release.yml
+    verified: null
+
+  - id: WIDGET-IOS-LOCKED
+    area: native
+    title: Lock Screen widget follows data protection and the system privacy setting
+    persona: mobile-commuter
+    preconditions: A signed iPhone build with the course Lock Screen widget and a real school cache.
+    steps:
+      - action: Lock the device after first unlock and observe the widget around a scheduled class transition.
+        reason: The extension must still be able to read the protected publication during an ordinary lock.
+      - action: Change the system setting for sensitive Lock Screen content and relock.
+        reason: Class title and room must follow WidgetKit's redaction policy.
+      - action: Restart the phone and observe the same widget before the first unlock.
+        reason: The operating system must withhold the protected snapshot after reboot.
+      - action: Unlock, background or force-quit the app, and check again around a later class transition.
+        reason: Entries carried by the system timeline should advance through class changes without the main app running.
+    observe: The rectangular Lock Screen widget before unlock, after unlock and during the next class transition.
+    expected: Sensitive content follows the system preference, initial locked boot shows a placeholder, and the published timeline can advance without the app.
+    why_manual: File protection and WidgetKit's real refresh and privacy policies require a signed build on a physical device.
+    covers:
+      - apps/apple-widgets/Extension/**
+      - apps/ios/IsctCompanion/Core/WidgetStorage.swift
+      - apps/ios/project.yml
+      - bindings/apple-widgets/**
+      - crates/app-core/src/schedule/widgets.rs
+    verified: null
+
+  - id: WIDGET-ANDROID-BACKGROUND
+    area: native
+    title: Glance reads cached data during Android background restrictions
+    persona: mobile-commuter
+    preconditions: An Android 14 or later arm64 phone with Classes and Assignments widgets and a real school cache.
+    steps:
+      - action: Background the app, disconnect the network, and note the course widget before and after a published class boundary.
+        reason: WorkManager must be allowed to request a redraw from local data without an online school read.
+      - action: Repeat with battery saver and record the delay from the displayed class time to the observed update.
+        reason: The OS can defer background work, so the displayed absolute times must remain useful while the entry is old.
+      - action: Restart the phone, unlock, and check the launcher without opening the app.
+        reason: After boot, the existing recovery worker must be able to schedule future updates and publish from the cache.
+    observe: The launcher widgets, class boundary time, update time and device logs for the local wake.
+    expected: The launcher can draw existing data independently; local background opportunities advance the widgets even when offline.
+    why_manual: Real launcher behaviour, Doze, battery saver and boot delivery depend on the device and its WorkManager scheduler.
+    covers:
+      - apps/android/app/src/main/AndroidManifest.xml
+      - apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt
+      - apps/android/app/src/main/java/app/isctcompanion/widgets/**
+      - crates/app-core/src/widgets.rs
+    verified: null
+
   - id: SCHOOL-SIGNIN-SCIENCE
     area: school
     title: Core signs in to Science Tokyo over HTTP and the LMS page opens signed in
