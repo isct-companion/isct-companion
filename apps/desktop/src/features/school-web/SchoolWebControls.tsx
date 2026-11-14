@@ -7,6 +7,8 @@ import { useAnimatedNavigate } from "../../app/navigation";
 import { paths } from "../../app/routes";
 import type {
   SchoolLoadFailure,
+  SchoolOtpEnrollment,
+  SchoolOtpIntent,
   SchoolSite,
   SchoolWebNotice,
   SchoolWebPage,
@@ -75,6 +77,9 @@ export function SchoolWebNotices({
   const access = page?.access;
   return (
     <>
+      {page?.otp && (
+        <OtpNotice key={page.otp.id} otp={page.otp} onError={onError} />
+      )}
       {access?.kind === "signing-in" && (
         <div className="webNotice" role="status" aria-busy="true">
           <span>{t("web.signIn.signingIn")}</span>
@@ -156,16 +161,91 @@ export function SchoolWebNotices({
   );
 }
 
+const otpMessages: Record<SchoolOtpEnrollment["stage"], MessageKey> = {
+  "sign-in": "otpEnrollment.signIn",
+  checking: "otpEnrollment.checking",
+  "confirm-reset": "otpEnrollment.confirmReset",
+  "setting-up": "otpEnrollment.settingUp",
+  saving: "otpEnrollment.saving",
+  complete: "otpEnrollment.complete",
+  "account-mismatch": "otpEnrollment.accountMismatch",
+  incomplete: "otpEnrollment.incomplete",
+  unknown: "otpEnrollment.unknown",
+  "save-failed": "otpEnrollment.saveFailed",
+};
+
+function OtpNotice({
+  otp,
+  onError,
+}: {
+  otp: SchoolOtpEnrollment;
+  onError: (error: unknown) => void;
+}) {
+  const routed = useInRouterContext();
+  const send = (intent: SchoolOtpIntent) =>
+    desktopBridge?.schoolOtpIntent?.(otp.id, intent).catch(onError);
+  const confirm = otp.stage === "confirm-reset";
+  const active = [
+    "sign-in",
+    "checking",
+    "setting-up",
+    "confirm-reset",
+  ].includes(otp.stage);
+  return (
+    <div className="webNotice otpEnrollmentNotice" role="status">
+      <span>{t(otpMessages[otp.stage], { account: otp.owner ?? "" })}</span>
+      {confirm && (
+        <UiButton type="button" onClick={() => void send("reset")}>
+          {t("otpEnrollment.reset")}
+        </UiButton>
+      )}
+      {routed && (confirm || otp.stage === "complete") && (
+        <OpenAccounts
+          label={confirm ? "otpEnrollment.import" : "otpEnrollment.settings"}
+          beforeOpen={() => {
+            if (confirm) void send("stop");
+          }}
+        />
+      )}
+      {otp.stage === "save-failed" && (
+        <UiButton type="button" onClick={() => void send("retry-save")}>
+          {t("otpEnrollment.retrySave")}
+        </UiButton>
+      )}
+      {otp.stage !== "saving" && (
+        <UiButton type="button" onClick={() => void send("stop")}>
+          {t(
+            confirm
+              ? "otpEnrollment.keep"
+              : active
+                ? "common.cancel"
+                : "common.done",
+          )}
+        </UiButton>
+      )}
+    </div>
+  );
+}
+
 /** Settings › Accounts, where a refused password is updated. Only a surface
  * inside the app's routes has somewhere to go. */
-function OpenAccounts() {
+function OpenAccounts({
+  label = "web.signIn.openSettings",
+  beforeOpen,
+}: {
+  label?: MessageKey;
+  beforeOpen?: () => void;
+}) {
   const navigate = useAnimatedNavigate();
   return (
     <UiButton
       type="button"
-      onClick={() => void navigate(paths.settings("accounts"))}
+      onClick={() => {
+        beforeOpen?.();
+        void navigate(paths.settings("accounts"));
+      }}
     >
-      {t("web.signIn.openSettings")}
+      {t(label)}
     </UiButton>
   );
 }

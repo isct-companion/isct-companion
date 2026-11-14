@@ -615,6 +615,12 @@ impl Session {
             .await
     }
 }
+/// Decodes a `school-web-page` stream event exactly like its snapshot.
+#[uniffi::export]
+pub fn decode_school_web_page(payload: JsonValue) -> Result<SchoolWebPage, SdkError> {
+    project_input(payload.0)
+}
+
 /// Decodes the payload of a `sync-snapshot` stream event, so a shell can
 /// render it without another `sync_snapshot` round trip.
 #[uniffi::export]

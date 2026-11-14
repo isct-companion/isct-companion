@@ -356,11 +356,19 @@ impl browser::SchoolBrowser for Browser {
             .map_err(dispatch_error)
     }
     fn dispatch(&self, command: browser::BrowserCommand) -> Result<(), browser::BrowserError> {
+        // A workspace build can unify Core's desktop features with the SDK's.
+        #[allow(unreachable_patterns)]
         let action = match command.command {
             browser::BrowserAction::Navigate(url) => BrowserAction::Navigate { url: url.into() },
             browser::BrowserAction::GoBack => BrowserAction::GoBack,
             browser::BrowserAction::GoForward => BrowserAction::GoForward,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
+            #[cfg(any(target_os = "macos", windows))]
+            _ => {
+                return Err(browser::BrowserError::Dispatch(
+                    "The mobile SDK does not evaluate OTP enrollment scripts.".into(),
+                ));
+            }
         };
         self.native
             .dispatch(BrowserCommand {

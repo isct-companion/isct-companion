@@ -1277,9 +1277,19 @@ export function WorkspaceApp() {
       showLoginPage={(profile, options) => {
         const site = profile === "science" ? "science-portal" : "tokyo-portal";
         sessionStorage.setItem("isct-companion-active-school-site", site);
-        // The Web page opens the start page without a sign-in once.
-        if (options?.unsigned)
-          sessionStorage.setItem("isct-companion-unsigned-school-site", site);
+        // An explicit entry is consumed on the next opening of this site.
+        if (options) {
+          const entry =
+            "otpUsername" in options
+              ? { kind: "otpSetup", username: options.otpUsername }
+              : { kind: "unsigned" };
+          sessionStorage.setItem(
+            "isct-companion-school-entry",
+            JSON.stringify(entry),
+          );
+        } else {
+          sessionStorage.removeItem("isct-companion-school-entry");
+        }
         void navigate(paths.web());
       }}
     />

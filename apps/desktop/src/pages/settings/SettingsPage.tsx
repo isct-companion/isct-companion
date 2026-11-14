@@ -109,7 +109,7 @@ function SettingsBody({
    * start page without signing in. */
   showLoginPage: (
     profile: SchoolAuthProfile,
-    options?: { unsigned: true },
+    options?: { unsigned: true } | { otpUsername: string },
   ) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   /** Whether reference data can be checked now (the desktop app). */
@@ -197,10 +197,7 @@ function SettingsBody({
     current === "accounts" ? (
       <>
         <SettingsHeader title="settings.main.schoolAccounts" />
-        <SchoolAccounts
-          notify={notify}
-          showLoginPage={showLoginPage}
-        />
+        <SchoolAccounts notify={notify} showLoginPage={showLoginPage} />
       </>
     ) : current === "study" ? (
       <StudyProfileSettings

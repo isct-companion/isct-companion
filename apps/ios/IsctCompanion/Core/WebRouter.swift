@@ -205,22 +205,13 @@ final class WebRouter {
 
     /// Core's `school-web-page` and `school-web-notice`.
     func receive(_ name: String, payload: String) {
-        guard let row = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any],
-            let site = Self.site(row["site"] as? String)
-        else { return }
         switch name {
         case "school-web-page":
-            guard let revision = (row["revision"] as? NSNumber)?.uint64Value else { return }
-            let notice = (row["notice"] as? [String: Any]).map {
-                SchoolWebFailure(url: $0["url"] as? String, reason: Self.loadFailure($0["reason"] as? String))
-            }
-            adopt(SchoolWebPage(
-                site: site, revision: revision, url: row["url"] as? String,
-                popups: (row["popups"] as? NSNumber)?.uint64Value ?? 0,
-                back: Self.step(row["back"] as? String), forward: Self.step(row["forward"] as? String),
-                notice: notice, access: Self.access(row["access"] as? [String: Any]),
-                signIn: row["signIn"] as? Bool ?? false))
+            if let page = try? decodeSchoolWebPage(payload: payload) { adopt(page) }
         case "school-web-notice":
+            guard let row = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any],
+                let site = Self.site(row["site"] as? String)
+            else { return }
             let notice: SchoolWebNotice
             switch row["kind"] as? String {
             case "reopened": notice = .reopened(url: row["url"] as? String ?? "")
@@ -237,47 +228,8 @@ final class WebRouter {
         }
     }
 
-    /// Core's `SchoolWebAccess` from its wire form.
-    private static func access(_ row: [String: Any]?) -> SchoolWebAccess? {
-        switch row?["kind"] as? String {
-        case "signing-in": return .signingIn
-        case "problem":
-            let problem: SchoolWebProblem
-            switch row?["problem"] as? String {
-            case "unreachable": problem = .unreachable
-            case "rejected": problem = .rejected
-            case "storage": problem = .storage
-            default: problem = .stillSignIn
-            }
-            return .problem(problem: problem)
-        default: return nil
-        }
-    }
-
     /// "Cancel, I'll sign in myself" while Core signs `site`'s view in.
     func cancelSignIn(_ site: SchoolSite) { _ = try? session?.cancelSchoolSignIn(site: site) }
-
-    /// Core's `SchoolWebStep` from its wire name.
-    private static func step(_ wire: String?) -> SchoolWebStep {
-        switch wire {
-        case "yes": .yes
-        case "no": .no
-        default: .unknown
-        }
-    }
-
-    /// Core's `LoadFailure` from its wire name.
-    private static func loadFailure(_ wire: String?) -> LoadFailure {
-        switch wire {
-        case "cancelled": .cancelled
-        case "offline": .offline
-        case "host-not-found": .hostNotFound
-        case "unreachable": .unreachable
-        case "insecure": .insecure
-        case "cleartext": .cleartext
-        default: .other
-        }
-    }
 
     func back(_ site: SchoolSite) { _ = try? session?.backSchool(site: site) }
     func forward(_ site: SchoolSite) { _ = try? session?.forwardSchool(site: site) }

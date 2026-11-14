@@ -322,6 +322,7 @@ pub fn run() {
             commands::school::configure_school_web_policy,
             commands::school::open_school_site,
             commands::school::school_web_page,
+            commands::school::school_otp_intent,
             commands::school::set_school_web_bounds,
             commands::school::hide_school_web,
             commands::school::reload_school_web,

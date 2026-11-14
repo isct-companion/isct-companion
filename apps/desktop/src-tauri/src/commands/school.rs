@@ -87,6 +87,17 @@ pub(crate) fn school_web_page(
 }
 
 #[tauri::command]
+pub(crate) fn school_otp_intent(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    id: u64,
+    intent: app_core::school_browser::SchoolOtpIntent,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    controller.engine.school_otp_intent(id, intent).map_err(coded)
+}
+
+#[tauri::command]
 pub(crate) fn set_school_web_bounds(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,

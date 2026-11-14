@@ -347,7 +347,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
@@ -4833,7 +4833,7 @@ A packaged desktop app, a physical camera, a disposable test TOTP QR on another 
 **Steps**
 
 1. With an OTP saved, press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Confirm the account card shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect.
-   - *Why:* Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The app no longer registers OTP at the school; the setup comes from the person's authenticator, and the two paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
+   - *Why:* Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The import uses the person's existing authenticator, and the two import paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
 2. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
 3. Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -9821,7 +9821,7 @@ glance in the real app on three platforms.
 
 **Last recorded** never run
 
-### A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with a portal button (`SCHOOL-APP-OTP-ENTRY`)
+### Visible Extic App Authentication enrollment preserves the active account and saves the working seed (`SCHOOL-APP-OTP-ENTRY`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -9829,68 +9829,62 @@ glance in the real app on three platforms.
 
 **Preconditions**
 
-A desktop build, an iPhone build and an Android build from this
-commit, each freshly installed (or reset with everything), so no
-Science Tokyo credentials and no OTP setup are saved, and a Science
-Tokyo account that still uses the emailed one-time password (no App
-OTP registered).
+Desktop builds for macOS and Windows. Use disposable
+school accounts authorized for changes: one with only emailed codes,
+one with existing App Authentication, and a different account to
+exercise the owner check. Keep working email access for resetting.
 
 **Steps**
 
-1. Open Settings › Science Tokyo, enter the student id and password,
-   leave the OTP field empty, and press Connect.
-   - *Why:* The app must not refuse the empty OTP itself: the password goes to
-     the school, and the school asks for the emailed code, which the app
-     cannot answer. The form then explains that the app signs in by
-     itself only with App OTP and offers one button, "Open the Science
-     Tokyo portal". A local "OTP setup is required" error means the
-     first Connect never reached the school. Nothing is saved and the
-     card stays Not connected.
-2. Press the button.
-   - *Why:* The portal uses the web view's existing cookies. It may show a
-     signed-in page from a previous visit. Opening it must not start
-     an app sign-in or fill in credentials.
-3. Sign in there by hand (with the emailed code) and register App OTP.
-   Back in Settings, press Connect again with the OTP field still
-   empty.
-   - *Why:* Now the school asks for the App one-time password: the form says
-     the school asks for it and to enter its setup link or secret, and
-     nothing is saved. A "not accepted" message would blame a code the
-     person never entered.
-4. Paste the App OTP setup link or secret into the OTP field and press
-   Connect.
-   - *Why:* With App OTP the app signs in by itself and the account is saved.
+1. With no saved Science Tokyo credentials, press Connect with the
+   account ID and password and a blank OTP field. Check the emailed-code
+   verdict in Settings. Open Set it up myself, then return to Settings.
+   - *Why:* A blank OTP must reach Extic and report its real requirement. The
+     manual portal must let the person sign in and leave their settings
+     alone.
+2. Start Help me set up and continue. Sign in on the visible school
+   page. With the account that has only emailed codes, wait for the
+   App Authentication verdict and the saved notice. Open School
+   Accounts, export to an authenticator and verify a code against Extic.
+   Relaunch and check the saved OTP still appears. Then Connect with
+   the password and a blank OTP field.
+   - *Why:* Detects changes to Extic's forms, a false success, or failure to
+     save the seed before Connect. A confirmed seed must be usable both
+     in another authenticator and in the later Connect.
+3. Repeat Help me set up using the account with an existing
+   authenticator. At the reset choice, keep the existing setup and
+   confirm its code still works. Start again, confirm the reset
+   explicitly and verify the newly exported setup on the school page.
+   - *Why:* Detects deletion before reset consent or a successful-looking
+     rotation with the previous seed still saved.
+4. Enter one account ID in Settings and sign in to the school page
+   as the other account. Check the account mismatch notice and both
+   accounts' App Authentication settings.
+   - *Why:* The live portal can already hold an unrelated signed-in cookie.
+     A mismatched page must never receive a reset or registration.
 
 **Where to look**
 
-The Science Tokyo form, the Web page showing the portal, and the card.
+The visible Extic page, its App Authentication status, and the School Accounts OTP field.
 
 **Expected**
 
-The first Connect shows the emailed-code reason, the App OTP
-explanation and one portal button, and saves nothing; the portal opens
-with the existing web session; a Connect without the OTP after App OTP is registered asks
-for it and saves nothing; the last Connect ends Connected.
+Only the authorized account is enrolled. Keeping an existing setup
+preserves its working authenticator. Confirmed rotation saves the new
+seed on the device before Connect.
 
 **Why this is manual**
 
-Needs a live account still on the emailed code, the real Extic pages
-and the real portal in each platform's web view. That an empty OTP
-reaches the school and ends on its page is in the session suite, and
-that the unsigned entry starts no web operation in the school browser
-suite.
+The live authenticated Extic form, its native web view sign-in and
+confirmation dialogs, and a working code require a real school account.
+Offline tests cover only vault and authority checks.
 
 **Covers**
 
-- `crates/app-core/src/school_auth.rs`
-- `crates/app-core/src/school_session/login.rs`
-- `crates/app-core/src/school_browser/engine.rs`
-- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
-- `apps/desktop/src/pages/web/WebPage.tsx`
-- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
-- `apps/ios/IsctCompanion/Core/WebRouter.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `crates/adpt-isct/assets/otp-enrollment.js`
+- `crates/app-core/src/school_browser/engine/otp.rs`
+- `crates/app-core/src/school_auth/otp_enrollment.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
 
 **Last recorded** never run
 

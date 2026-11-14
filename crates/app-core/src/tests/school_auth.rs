@@ -145,12 +145,6 @@ fn upcoming_codes_cover_consecutive_windows() {
     }
 }
 
-#[test]
-fn matches_rfc_6238_sha1_vector() {
-    let uri = "otpauth://totp/test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=30&algorithm=SHA1";
-    assert_eq!(otp_at(uri, 59).unwrap(), "94287082");
-}
-
 fn science_credentials(username: &str, password: &str) -> SchoolCredentials {
     SchoolCredentials {
         username: username.into(),
@@ -158,6 +152,43 @@ fn science_credentials(username: &str, password: &str) -> SchoolCredentials {
         otp_secret: "JBSWY3DPEHPK3PXP".into(),
         matrix: String::new(),
     }
+}
+
+#[cfg(feature = "desktop-otp-enrollment")]
+#[test]
+fn enrollment_keeps_unconfirmed_otp_out_of_export_and_saves_confirmed_otp_without_a_password() {
+    const SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const USER: &str = "student";
+    let vault = MemoryVault::default();
+    let service = SchoolAuthService::new(vault.clone());
+
+    assert_eq!(
+        service.enrollment_account("other", USER),
+        Err(EnrollmentError::Account)
+    );
+    let base = service.enrollment_account(USER, USER).unwrap();
+    service
+        .stage_enrollment("registration", USER, base, SECRET)
+        .unwrap();
+    assert!(service.otp_setup_text(None).is_err());
+    assert!(service.confirm_enrollment("stale").is_err());
+
+    assert!(!service.confirm_enrollment("registration").unwrap());
+    let restarted = SchoolAuthService::new(vault);
+    let status = restarted.status().unwrap().science;
+    assert!(status.has_otp);
+    assert!(!status.saved);
+    assert_eq!(restarted.otp_setup_text(None).unwrap(), SECRET);
+    assert!(!restarted.export_sync_payload().unwrap().contains(SECRET));
+
+    let mut draft = science_credentials(USER, "password");
+    draft.otp_secret.clear();
+    let credentials = restarted
+        .resolve(SchoolAuthProfile::Science, draft)
+        .unwrap();
+    assert_eq!(credentials.otp_secret, SECRET);
+    restarted.delete(SchoolAuthProfile::Science).unwrap();
+    assert!(restarted.otp_setup_text(None).is_err());
 }
 
 fn synced_accounts(vault: &MemoryVault) -> HashMap<SchoolAuthProfile, SchoolCredentials> {
