@@ -7,3 +7,5 @@
 # LiteRT is used only through its native library (Core opens libLiteRt.so);
 # its Java classes refer to the excluded litert-api module and are removed.
 -dontwarn org.tensorflow.lite.**
+# ML Kit discovers these registrars by name and invokes their no-argument constructors.
+-keep class * implements com.google.firebase.components.ComponentRegistrar { void <init>(); }
