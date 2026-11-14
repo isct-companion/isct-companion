@@ -566,3 +566,81 @@ async fn a_retry_the_vault_refuses_says_why() {
     assert_eq!(sessions.0.account(profile).identity.sign_ins_started(), 1);
     assert!(sessions.0.account(profile).identity.configured());
 }
+
+/// A vault that refuses writes of the saved credentials past
+/// `credential_writes` (unlimited when `None`), as a declined Keychain
+/// consent refuses them.
+#[derive(Clone, Default)]
+struct RefusingVault {
+    items: MemoryVault,
+    credential_writes: Arc<Mutex<Option<usize>>>,
+}
+
+impl crate::ports::SecretVault for RefusingVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+        if account == "school-accounts" {
+            if let Some(left) = self.credential_writes.lock().unwrap().as_mut() {
+                if *left == 0 {
+                    return Err(crate::ports::SecretError::Access("denied".into()));
+                }
+                *left -= 1;
+            }
+        }
+        self.items.store(account, secret)
+    }
+    fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        self.items.load(account)
+    }
+    fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+        self.items.delete(account)
+    }
+}
+
+// A reset deletes both accounts' credentials last, one after the other. When
+// the second delete is refused, the first account is done: it is not left
+// waiting for a sign-out it already finished, after a relaunch neither, and
+// signing the second out again finishes it.
+#[tokio::test]
+async fn a_reset_finishes_each_account_whose_credentials_went() {
+    let (science, tokyo) = (SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech);
+    let dir = std::env::temp_dir().join(format!("school-sign-out-{}", uuid::Uuid::new_v4()));
+    let status = dir.join("school-credential-status.json");
+    let vault = RefusingVault::default();
+    let auth = || {
+        Arc::new(SchoolAuthService::with_status_cache(
+            vault.clone(),
+            status.clone(),
+        ))
+    };
+    let first = auth();
+    first.promote(science, &saved_credentials()).unwrap();
+    let matrix = crate::school_auth::SchoolCredentials {
+        matrix: "A".repeat(70),
+        otp_secret: String::new(),
+        ..saved_credentials()
+    };
+    first.promote(tokyo, &matrix).unwrap();
+    let sessions = SchoolSessions::new(None, first);
+
+    *vault.credential_writes.lock().unwrap() = Some(1);
+    assert!(matches!(
+        sessions.reset(true, true).await,
+        Err(SchoolAuthError::SignOutIncomplete(_))
+    ));
+    assert!(!sessions.sign_out_pending(science));
+    assert!(!sessions.0.auth.configured(science));
+    assert!(sessions.sign_out_pending(tokyo));
+    assert!(sessions.0.auth.configured(tokyo), "credentials go last");
+    let relaunched = SchoolSessions::new(None, auth());
+    assert!(!relaunched.sign_out_pending(science) && relaunched.sign_out_pending(tokyo));
+
+    *vault.credential_writes.lock().unwrap() = None;
+    assert_eq!(sessions.sign_out(tokyo).await, Ok(true));
+    assert!(!sessions.sign_out_pending(tokyo));
+    assert!(!sessions.0.auth.configured(tokyo));
+    let relaunched = SchoolSessions::new(None, auth());
+    assert!(PROFILES
+        .iter()
+        .all(|profile| !relaunched.sign_out_pending(*profile)));
+    std::fs::remove_dir_all(dir).unwrap();
+}

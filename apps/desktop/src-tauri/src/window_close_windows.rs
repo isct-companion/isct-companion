@@ -1,7 +1,8 @@
 //! Windows half of `window_close`: a task dialog whose verification checkbox
 //! is "Remember my choice", and the tray icon that brings a hidden window
 //! back or quits.
-use crate::window_close::{answered, show_main, text, CloseAction, Prompt};
+use crate::native_text::{self, WindowText};
+use crate::window_close::{answered, show_main, CloseAction};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -19,7 +20,7 @@ const TRAY: &str = "main";
 
 static ASKING: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn ask(window: &tauri::Window, prompt: Prompt) {
+pub(crate) fn ask(window: &tauri::Window, prompt: &'static WindowText) {
     // A second close while the dialog shows changes nothing.
     if ASKING.swap(true, Ordering::SeqCst) {
         return;
@@ -33,20 +34,20 @@ pub(crate) fn ask(window: &tauri::Window, prompt: Prompt) {
     let app = window.app_handle().clone();
     // The dialog runs its own message loop; keep it off the event loop.
     std::thread::spawn(move || {
-        let (action, remember) = show(parent, &prompt);
+        let (action, remember) = show(parent, prompt);
         ASKING.store(false, Ordering::SeqCst);
         let handle = app.clone();
         let _ = handle.run_on_main_thread(move || answered(&app, action, remember));
     });
 }
 
-fn show(parent: isize, prompt: &Prompt) -> (Option<CloseAction>, bool) {
+fn show(parent: isize, prompt: &WindowText) -> (Option<CloseAction>, bool) {
     let caption = HSTRING::from("IsctCompanion");
-    let title = HSTRING::from(prompt.title.as_str());
-    let message = HSTRING::from(prompt.message.as_str());
-    let quit = HSTRING::from(prompt.quit.as_str());
-    let keep = HSTRING::from(prompt.keep.as_str());
-    let remember = HSTRING::from(prompt.remember.as_str());
+    let title = HSTRING::from(prompt.title);
+    let message = HSTRING::from(prompt.message);
+    let quit = HSTRING::from(prompt.quit);
+    let keep = HSTRING::from(prompt.keep);
+    let remember = HSTRING::from(prompt.remember);
     let buttons = [
         TASKDIALOG_BUTTON {
             nButtonID: QUIT,
@@ -100,14 +101,9 @@ pub(crate) fn show_tray(app: &AppHandle) {
         return;
     }
     let built = (|| -> tauri::Result<()> {
-        let show = MenuItem::with_id(app, "tray-show", text(app, "tray.show"), true, None::<&str>)?;
-        let quit = MenuItem::with_id(
-            app,
-            "tray-quit",
-            text(app, "common.quit"),
-            true,
-            None::<&str>,
-        )?;
+        let labels = &native_text::current(app).window;
+        let show = MenuItem::with_id(app, "tray-show", labels.tray_show, true, None::<&str>)?;
+        let quit = MenuItem::with_id(app, "tray-quit", labels.quit, true, None::<&str>)?;
         let menu = Menu::with_items(app, &[&show, &quit])?;
         let mut tray = TrayIconBuilder::with_id(TRAY)
             .tooltip("IsctCompanion")
