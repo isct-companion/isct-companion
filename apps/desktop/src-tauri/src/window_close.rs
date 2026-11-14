@@ -2,7 +2,7 @@
 //! keeps the Dock icon, Windows a tray icon), or ask with the system's own
 //! prompt, which can remember the answer as the `closeWindow` device
 //! preference.
-use crate::core_ports;
+use crate::{core_ports, native_text};
 use app_core::workspace::{WorkspaceIntent, WorkspaceMutation};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -17,36 +17,6 @@ pub(crate) enum CloseAction {
     Quit,
     Background,
 }
-
-/// The prompt's copy in this device's language.
-pub(crate) struct Prompt {
-    pub title: String,
-    pub message: String,
-    pub quit: String,
-    pub keep: String,
-    /// Windows labels its own Cancel button.
-    #[cfg_attr(target_os = "windows", allow(dead_code))]
-    pub cancel: String,
-    pub remember: String,
-}
-
-impl Prompt {
-    fn new(app: &AppHandle) -> Self {
-        Self {
-            title: text(app, "window.close.prompt.title"),
-            message: text(app, "window.close.prompt.message"),
-            quit: text(app, "common.quit"),
-            keep: text(app, KEEP_LABEL),
-            cancel: text(app, "common.cancel"),
-            remember: text(app, "window.close.prompt.remember"),
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-const KEEP_LABEL: &str = "window.close.keepInDock";
-#[cfg(target_os = "windows")]
-const KEEP_LABEL: &str = "window.close.minimizeToTray";
 
 /// The main window's close button, Cmd-W or Alt-F4.
 pub(crate) fn close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
@@ -70,7 +40,7 @@ pub(crate) fn close_requested(window: &tauri::Window, api: &tauri::CloseRequestA
         }
         _ => {
             api.prevent_close();
-            platform::ask(window, Prompt::new(app));
+            platform::ask(window, &native_text::current(app).window);
         }
     }
 }
@@ -121,35 +91,4 @@ pub(crate) fn show_main(app: &AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
-}
-
-const EN: &str = include_str!("../../../../resources/locales/en.json");
-const JA: &str = include_str!("../../../../resources/locales/ja.json");
-const ZH: &str = include_str!("../../../../resources/locales/zh.json");
-
-/// A string from the shared catalogs in `resources/locales`, in this
-/// device's language. A language that lacks the key reads the English
-/// catalogue, which has them all.
-pub(crate) fn text(app: &AppHandle, key: &str) -> String {
-    let locale = core_ports::core(app)
-        .store
-        .device_preference("/locale")
-        .ok()
-        .flatten();
-    let catalog = match locale.as_ref().and_then(Value::as_str) {
-        Some("ja") => JA,
-        Some("zh") => ZH,
-        _ => EN,
-    };
-    entry(catalog, key)
-        .or_else(|| entry(EN, key))
-        .unwrap_or_else(|| key.to_string())
-}
-
-fn entry(catalog: &str, key: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Map<String, Value>>(catalog)
-        .ok()?
-        .get(key)?
-        .as_str()
-        .map(str::to_owned)
 }
