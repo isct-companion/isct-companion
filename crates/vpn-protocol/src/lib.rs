@@ -11,7 +11,7 @@ use std::net::Ipv4Addr;
 
 /// The helper this app bundles. An installed helper that reports less (or
 /// nothing, as the first ones did) is replaced before the next connect.
-pub const HELPER_REVISION: u32 = 5;
+pub const HELPER_REVISION: u32 = 6;
 
 /// Socket the daemon listens on; the installer creates it as root:staff 0660.
 #[cfg(unix)]

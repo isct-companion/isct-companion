@@ -118,7 +118,11 @@ pub(crate) fn install_script(resources: &Path) -> String {
 }
 
 /// The daemon's launch arguments, pointing at the copied openconnect and its
-/// libraries rather than anything under Homebrew.
+/// libraries rather than anything under Homebrew. A daemon without a
+/// `ProcessType` runs as background work: its sleeping threads wake minutes
+/// late, so an idle tunnel outlived its idle time by as long, and the
+/// connections it relays get throttled CPU. It relays what the person is
+/// using right now, which is what `Interactive` is for.
 fn launchd_plist() -> String {
     let openconnect = format!("{SUPPORT_DIR}/openconnect/bin/openconnect");
     let lib = format!("{SUPPORT_DIR}/openconnect/lib");
@@ -145,6 +149,7 @@ fn launchd_plist() -> String {
          \x20 <key>ProgramArguments</key>\n  <array>\n{items}  </array>\n\
          \x20 <key>RunAtLoad</key><true/>\n\
          \x20 <key>KeepAlive</key><true/>\n\
+         \x20 <key>ProcessType</key><string>Interactive</string>\n\
          \x20 <key>StandardOutPath</key><string>/var/log/app.isctcompanion.vpnhelper.out.log</string>\n\
          \x20 <key>StandardErrorPath</key><string>/var/log/app.isctcompanion.vpnhelper.err.log</string>\n\
          </dict>\n</plist>\n"

@@ -29,7 +29,9 @@ fn installer_script_parses_as_sh() {
 }
 
 /// The daemon must run the copied openconnect and its libraries, never a
-/// Homebrew path, or an install on a Mac without Homebrew would fail.
+/// Homebrew path, or an install on a Mac without Homebrew would fail. It
+/// must not run as background work either: its idle check then woke
+/// minutes late and an unused tunnel stayed up past the school's limit.
 #[test]
 fn launchd_plist_points_only_at_installed_copies() {
     let plist = launchd_plist();
@@ -41,4 +43,23 @@ fn launchd_plist_points_only_at_installed_copies() {
     ));
     assert!(!plist.contains("/opt/homebrew"));
     assert!(!plist.contains("/tmp"));
+    assert!(plist.contains("<key>ProcessType</key><string>Interactive</string>"));
+    plutil_lint(&plist);
+}
+
+/// The plist launchd reads must be one it can parse.
+fn plutil_lint(plist: &str) {
+    let path = std::env::temp_dir().join(format!("isct-vpnhelper-{}.plist", std::process::id()));
+    std::fs::write(&path, plist).unwrap();
+    let lint = std::process::Command::new("/usr/bin/plutil")
+        .arg("-lint")
+        .arg(&path)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        lint.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lint.stdout)
+    );
 }
