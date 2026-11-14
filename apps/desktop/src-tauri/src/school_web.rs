@@ -9,15 +9,35 @@ pub use crate::school_browser_native::{
     SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
 };
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl};
+use tauri::{AppHandle, Manager, Position, Size, WebviewUrl};
 use url::Url;
 pub(crate) type NativeWebview = tauri::Webview;
 
+/// The units the shell measures a pane in (`school-web-bounds.ts`): physical
+/// pixels on Windows, where WebView2's CSS pixel need not be the window's
+/// logical pixel; logical points on macOS.
+#[cfg(target_os = "windows")]
+fn placement(x: f64, y: f64, width: f64, height: f64) -> (Position, Size) {
+    (
+        tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32).into(),
+        tauri::PhysicalSize::new(width.round() as u32, height.round() as u32).into(),
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn placement(x: f64, y: f64, width: f64, height: f64) -> (Position, Size) {
+    (
+        tauri::LogicalPosition::new(x, y).into(),
+        tauri::LogicalSize::new(width, height).into(),
+    )
+}
+
 pub(crate) fn apply_bounds(webview: &NativeWebview, bounds: WebBounds) -> Result<(), String> {
     let bounds = bounds.sanitized();
+    let (position, size) = placement(bounds.x, bounds.y, bounds.width, bounds.height);
     webview
-        .set_position(LogicalPosition::new(bounds.x, bounds.y))
-        .and_then(|_| webview.set_size(LogicalSize::new(bounds.width, bounds.height)))
+        .set_position(position)
+        .and_then(|_| webview.set_size(size))
         .map_err(|_| "School view bounds could not be updated.".to_string())
 }
 
@@ -107,15 +127,11 @@ pub(crate) fn create_webview(
     .on_download(move |_, event| (callbacks.download)(event));
     #[cfg(windows)]
     let builder = interim.attach(app, builder);
-    let position = if visible {
-        LogicalPosition::new(bounds.x, bounds.y)
+    let (position, size) = if visible {
+        let bounds = bounds.sanitized();
+        placement(bounds.x, bounds.y, bounds.width, bounds.height)
     } else {
-        LogicalPosition::new(0.0, 0.0)
-    };
-    let size = if visible {
-        LogicalSize::new(bounds.width, bounds.height)
-    } else {
-        LogicalSize::new(1.0, 1.0)
+        placement(0.0, 0.0, 1.0, 1.0)
     };
     main.add_child(builder, position, size)
         .map_err(|error| error.to_string())
