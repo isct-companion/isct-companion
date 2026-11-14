@@ -11,7 +11,9 @@ fn the_route_hook_shim_starts_the_helper_beside_it() {
     fs::create_dir_all(&dir).unwrap();
     let script = dir.join(SCRIPT);
     fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(SCRIPT),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(SCRIPT),
         &script,
     )
     .unwrap();
@@ -58,6 +60,9 @@ fn the_service_runs_only_the_installed_copies() {
         value("--script"),
         r"C:\Program Files\IsctCompanion\VPN\isct-vpn-script.js"
     );
-    assert_eq!(value("--log"), r"C:\ProgramData\IsctCompanion\VPN\helper.log");
+    assert_eq!(
+        value("--log"),
+        r"C:\ProgramData\IsctCompanion\VPN\helper.log"
+    );
     assert_eq!(value("--server"), "apm.example");
 }

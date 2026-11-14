@@ -7,6 +7,7 @@
 //! Windows a LocalSystem service on a named pipe (`windows.rs`). A production
 //! build must also verify the peer's code signature.
 
+mod ondemand;
 #[cfg(unix)]
 #[path = "unix.rs"]
 mod platform;
@@ -23,7 +24,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
-use vpn_protocol::{HelperState, Reply, Request, SessionCookie, HELPER_REVISION};
+use vpn_protocol::{Ending, HelperState, Reply, Request, SessionCookie, HELPER_REVISION};
 
 const DEFAULT_SERVER: &str = "apm.nap.gsic.titech.ac.jp";
 /// The only subnet sent through the tunnel; the default route stays put.
@@ -48,6 +49,9 @@ struct Inner {
     routed: bool,
     error: Option<String>,
     expires: Option<i64>,
+    /// Why the helper ended the last tunnel itself; kept past `clear` until
+    /// the next start or stop.
+    ended: Option<Ending>,
 }
 
 impl Inner {
@@ -85,7 +89,10 @@ enum Observation {
     /// The route hook's own `route add` output for the campus net (macOS).
     Route(String),
     /// The Wintun adapter openconnect opened, and its index (Windows).
-    Device { name: String, index: u32 },
+    Device {
+        name: String,
+        index: u32,
+    },
     /// When the server ends the session (Unix seconds).
     Expires(i64),
     Other,
@@ -178,8 +185,22 @@ fn new_state() -> State {
         tun_index: None,
         routed: false,
         error: None,
+        ended: None,
         expires: None,
     }))
+}
+
+/// openconnect's interface while its tunnel carries the campus routes. Like
+/// a status, it first forgets a tunnel whose openconnect has exited.
+fn current_tunnel(cfg: &Config, state: &State) -> Option<u32> {
+    let mut st = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if reap(&mut st) {
+        platform::after_stop(cfg);
+    }
+    platform::confirm_route(&mut st);
+    st.routed.then(|| platform::tunnel_index(&st)).flatten()
 }
 
 /// Answers one request line read from `reader` on `writer`.
@@ -191,16 +212,30 @@ fn handle(reader: impl Read, mut writer: impl Write, cfg: &Config, state: &State
     }
     let reply = match Request::from_line(&line) {
         Ok(Request::Start { cookie }) => start(cfg, state, &cookie),
-        Ok(Request::Stop) => stop(cfg, state),
+        // It writes its own lines until the app hangs up.
+        Ok(Request::Standby { bypass }) => return ondemand::serve(writer, cfg, state, bypass),
+        Ok(Request::Stop) => {
+            let reply = stop(cfg, state);
+            state.lock().unwrap().ended = None;
+            reply
+        }
         Ok(Request::Status) => status(cfg, state),
         Err(e) => Reply::error(format!("bad request: {e}")),
     };
-    let _ = writeln!(writer, "{}", serde_json::to_string(&reply).unwrap_or_default());
+    let _ = writeln!(
+        writer,
+        "{}",
+        serde_json::to_string(&reply).unwrap_or_default()
+    );
 }
 
 fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
     let _ = stop(cfg, state);
-    state.lock().unwrap().clear();
+    {
+        let mut st = state.lock().unwrap();
+        st.clear();
+        st.ended = None;
+    }
 
     let mut cmd = Command::new(&cfg.openconnect);
     cmd.arg("--protocol=f5")
@@ -265,16 +300,13 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
                     pid: Some(pid),
                     expires: st.expires,
                     revision: Some(HELPER_REVISION),
+                    ended: None,
                 };
             }
             if let Some(err) = st.error.clone() {
                 return Reply::error(err);
             }
-            let exited = st
-                .child
-                .as_mut()
-                .and_then(|c| c.try_wait().ok())
-                .flatten();
+            let exited = st.child.as_mut().and_then(|c| c.try_wait().ok()).flatten();
             if let Some(status) = exited {
                 st.child = None;
                 st.error = Some(format!("openconnect exited: {status}"));
@@ -369,6 +401,7 @@ fn status(cfg: &Config, state: &State) -> Reply {
         pid: st.child.as_ref().map(|c| c.id()),
         expires: st.expires.filter(|_| st.routed),
         revision: Some(HELPER_REVISION),
+        ended: st.ended,
     }
 }
 

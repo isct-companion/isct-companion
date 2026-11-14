@@ -22,7 +22,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use vpn_protocol::{PIPE_PATH, SERVICE_NAME};
 use windows::core::{w, BOOL, PCWSTR};
-use windows::Win32::Foundation::{HANDLE, ERROR_PIPE_CONNECTED};
+use windows::Win32::Foundation::{ERROR_PIPE_CONNECTED, HANDLE};
 use windows::Win32::Globalization::{MultiByteToWideChar, CP_ACP, MULTI_BYTE_TO_WIDE_CHAR_FLAGS};
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
@@ -171,7 +171,11 @@ mod service {
             Duration::from_secs(10),
         );
         let _ = crate::stop(&cfg, &state);
-        report(ServiceState::Stopped, ServiceControlAccept::empty(), Duration::ZERO);
+        report(
+            ServiceState::Stopped,
+            ServiceControlAccept::empty(),
+            Duration::ZERO,
+        );
     }
 }
 
@@ -181,6 +185,7 @@ mod service {
 fn serve(cfg: Config, state: State) {
     let _ = fs::create_dir_all(data_dir());
     windows_net::clean_up(&data_dir(), None);
+    crate::ondemand::watch_idle(cfg.clone(), state.clone());
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     if let Err(error) = unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -223,7 +228,10 @@ fn serve(cfg: Config, state: State) {
             )
         };
         if pipe.is_invalid() {
-            log(&cfg, &format!("create pipe: {}", windows::core::Error::from_thread()));
+            log(
+                &cfg,
+                &format!("create pipe: {}", windows::core::Error::from_thread()),
+            );
             if first {
                 return;
             }
@@ -495,3 +503,57 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 #[path = "tests/windows.rs"]
 mod tests;
+
+/// The tunnel's Wintun adapter, as openconnect named its index.
+pub(crate) fn tunnel_index(state: &Inner) -> Option<u32> {
+    state.tun_index
+}
+
+/// The adapter openconnect would never pick: its own name, not `TUN_PREFIX`.
+const STANDBY_NAME: &str = "isct-standby";
+
+/// A Wintun adapter of the helper's own for standby, from the wintun.dll the
+/// payload ships beside openconnect. The helper installs every route.
+pub(crate) fn standby_device(cfg: &Config) -> Result<tun::AsyncDevice, String> {
+    use crate::ondemand::{STANDBY_ADDRESS, STANDBY_MTU};
+    let wintun = cfg.openconnect.with_file_name("wintun.dll");
+    let mut config = tun::Configuration::default();
+    config
+        .tun_name(STANDBY_NAME)
+        .address(STANDBY_ADDRESS)
+        .netmask(std::net::Ipv4Addr::BROADCAST)
+        .mtu(STANDBY_MTU)
+        .up();
+    config.platform_config(|platform| platform.wintun_file(wintun));
+    tun::create_as_async(&config).map_err(|error| error.to_string())
+}
+
+pub(crate) fn standby_interface(
+    device: &tun::AsyncDevice,
+) -> Result<crate::ondemand::StandbyIf, String> {
+    use tun::AbstractDevice;
+    let name = device.tun_name().map_err(|error| error.to_string())?;
+    let index = device.tun_index().map_err(|error| error.to_string())?;
+    Ok(crate::ondemand::StandbyIf {
+        name,
+        index: index as u32,
+    })
+}
+
+pub(crate) fn add_standby_route(
+    net: std::net::Ipv4Addr,
+    len: u8,
+    interface: &crate::ondemand::StandbyIf,
+) -> Result<(), String> {
+    windows_net::add_route(net, len, interface.index, std::net::Ipv4Addr::UNSPECIFIED)
+}
+
+pub(crate) fn delete_standby_route(
+    net: std::net::Ipv4Addr,
+    len: u8,
+    interface: &crate::ondemand::StandbyIf,
+) -> Result<(), String> {
+    windows_net::delete_route(net, len, interface.index)
+}
+
+pub(crate) use windows_net::{bind_to_interface, has_connections, traffic};

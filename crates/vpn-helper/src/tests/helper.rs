@@ -101,6 +101,7 @@ fn inner_with_exited_child(routed: bool) -> Inner {
         routed,
         error: None,
         expires: Some(1),
+        ended: None,
     }
 }
 
@@ -134,6 +135,7 @@ fn an_openconnect_that_never_came_up_leaves_its_failure() {
         routed: false,
         error: None,
         expires: None,
+        ended: None,
     };
     assert!(!reap(&mut idle));
 }
