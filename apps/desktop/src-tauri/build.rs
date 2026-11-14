@@ -14,7 +14,7 @@ fn plugin(tool: &str) -> tauri_build::InlinedPlugin {
     use tauri_build::{DefaultPermissionRule, InlinedPlugin};
     let commands: &[&str] = match tool {
         "campus-printer" => &["status", "install"],
-        "campus-vpn" => &["status", "connect", "disconnect", "keep", "install"],
+        "campus-vpn" => &["status", "connect", "disconnect", "on_demand", "install"],
         "campus-wifi" => &["status", "connect"],
         _ => panic!("{tool} has no plugin"),
     };
