@@ -65,6 +65,8 @@ struct VpnStatus {
     /// While on-demand has spent the hour's sign-ins, when it resumes
     /// (RFC 3339).
     demand_paused_until: Option<String>,
+    /// On the campus network, where the VPN is not needed.
+    on_campus: bool,
     error: Option<&'static str>,
     detail: Option<String>,
 }
@@ -77,6 +79,7 @@ impl From<VpnState> for VpnStatus {
             expires_at: None,
             on_demand: false,
             demand_paused_until: None,
+            on_campus: false,
             error: None,
             detail: None,
         };
@@ -100,10 +103,20 @@ impl From<VpnState> for VpnStatus {
     }
 }
 
+/// This device's addresses, for Core to tell the campus network apart.
+pub(crate) fn addresses() -> Vec<std::net::IpAddr> {
+    if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| entry.ip())
+        .collect()
+}
+
 /// The webview's status: `state` with whether on-demand connecting is on.
 fn report(service: &VpnService, state: VpnState) -> VpnStatus {
     VpnStatus {
         on_demand: service.on_demand(),
+        on_campus: service.network(addresses()),
         demand_paused_until: service
             .demand_paused_until(chrono::Utc::now())
             .map(|at| at.to_rfc3339()),

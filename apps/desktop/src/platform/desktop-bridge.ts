@@ -405,6 +405,8 @@ export type VpnStatus = {
   onDemand?: boolean;
   /** While on-demand has signed in its hourly most, when it resumes. */
   demandPausedUntil?: string | null;
+  /** On the campus network, where the VPN is not needed. */
+  onCampus?: boolean;
   error?: string | null;
   detail?: string | null;
 };

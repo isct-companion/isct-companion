@@ -8,7 +8,7 @@ import {
   type PrinterAccount,
 } from "../../platform/desktop-bridge";
 import { accountText } from "../../features/campus-print/account";
-import { UiButton } from "../../components/ui";
+import { InfoTip, UiButton } from "../../components/ui";
 import { ToolCard } from "./ToolCard";
 import { errorText } from "../../app/shared";
 
@@ -95,47 +95,53 @@ export function CampusPrinter({
   };
 
   const ready = status?.account.kind === "ready";
-  const busy = !ready || adding || checking;
+  const reachable = status?.reach === "reachable";
+  // One line: what stops printing first, else that it can print and whose
+  // ID it bills. An Add outcome takes its place until the next check.
+  const line = checking
+    ? t("settings.academicCalendar.checking")
+    : result
+      ? resultText(result)
+      : !status
+        ? t("tools.campusPrinter.connectScienceTokyo")
+        : !ready
+          ? accountText(status.account)
+          : !reachable
+            ? t("tools.campusPrinter.connectScienceTokyo")
+            : `${t("tools.campusPrinter.readyToPrint")} · ${accountText(status.account)}`;
   return (
     <ToolCard
       icon={<Printer aria-hidden strokeWidth={1.75} />}
       title="tools.campusPrinter.campusPrinter"
-      status={
-        <>
-          <span>
-            {checking
-              ? t("settings.academicCalendar.checking")
-              : status?.reach === "reachable"
-                ? t("tools.campusPrinter.readyToPrint")
-                : t("tools.campusPrinter.cannotReachThePrinter")}
-          </span>
-          {status && <span>{accountText(status.account)}</span>}
-          {result && <span>{resultText(result)}</span>}
-        </>
+      info={
+        <InfoTip label={t("tools.campusPrinter.printerRulesLabel")}>
+          {t(
+            windows
+              ? "tools.campusPrinter.printerRulesWindows"
+              : "tools.campusPrinter.printerRulesMac",
+          )}
+        </InfoTip>
       }
-      note="tools.campusPrinter.printsToTheKyoceraPrinter"
+      status={line}
+      note="tools.campusPrinter.printerHint"
       actions={
         <>
-          <UiButton
-            className="button small"
-            disabled={checking}
-            onClick={() => void check()}
-          >
-            {t("tools.campusPrinter.check")}
-          </UiButton>
-          <UiButton
-            className="button small"
-            disabled={busy}
-            aria-busy={adding || undefined}
-            title={t(
-              windows
-                ? "tools.campusPrinter.addsTheWindowsPrinter"
-                : "tools.campusPrinter.addsTheSystemPrinter",
-            )}
-            onClick={() => void add()}
-          >
-            {t("tools.campusPrinter.addSystemPrinter")}
-          </UiButton>
+          {/* The page checks on opening; again is only for after a change. */}
+          {!checking && (!ready || !reachable) && (
+            <UiButton className="button small" onClick={() => void check()}>
+              {t("tools.campusPrinter.checkAgain")}
+            </UiButton>
+          )}
+          {ready && (
+            <UiButton
+              className="button small"
+              disabled={adding || checking}
+              aria-busy={adding || undefined}
+              onClick={() => void add()}
+            >
+              {t("tools.campusPrinter.addSystemPrinter")}
+            </UiButton>
+          )}
         </>
       }
     />

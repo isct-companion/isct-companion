@@ -2,19 +2,24 @@
 //! thread holds the helper's standby connection open and turns each demand
 //! into a sign-in. The helper keeps the campus routes on standby only while
 //! this connection lives, so the app quitting or crashing takes them away.
-//! Whether a demand signs in is Core's (`VpnService::demanded`).
+//! Whether a demand signs in is Core's (`VpnService::demanded`), and so is
+//! whether standby is wanted at all: on the campus network it is not
+//! (`VpnService::wants_standby`), so this thread rereads the network now and
+//! then and lets standby go or takes it back.
 use super::helper::{self, standby_stream};
 use app_core::vpn::{VpnError, VpnService};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::Manager;
 use vpn_protocol::{Request, StandbyEvent};
 
 /// How long a helper that cannot hold standby is left before trying again.
 const RETRY: Duration = Duration::from_secs(30);
+/// How often the network is reread, to notice joining or leaving campus.
+const NETWORK_EVERY: Duration = Duration::from_secs(10);
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -27,15 +32,24 @@ pub(crate) fn ensure(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let service = app.state::<Arc<VpnService>>().inner().clone();
         while service.on_demand() {
-            if let Err(error) = hold(&app, &service) {
-                log::warn!("[vpn] standby: {error}");
-                // Asleep in small steps, so turning it off ends the thread.
-                for _ in 0..RETRY.as_secs() {
-                    if !service.on_demand() {
-                        break;
+            let wait = if !reread(&app, &service) {
+                // On campus: nothing to hold until the device leaves.
+                NETWORK_EVERY
+            } else {
+                match hold(&app, &service) {
+                    Ok(()) => Duration::ZERO,
+                    Err(error) => {
+                        log::warn!("[vpn] standby: {error}");
+                        RETRY
                     }
-                    std::thread::sleep(Duration::from_secs(1));
                 }
+            };
+            // Asleep in small steps, so turning it off ends the thread.
+            for _ in 0..wait.as_secs() {
+                if !service.on_demand() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(1));
             }
         }
         RUNNING.store(false, Ordering::SeqCst);
@@ -44,6 +58,17 @@ pub(crate) fn ensure(app: tauri::AppHandle) {
             ensure(app);
         }
     });
+}
+
+/// Rereads the network; whether standby is wanted now. The card is told when
+/// the device joins or leaves campus, so it says why nothing is held.
+fn reread(app: &tauri::AppHandle, service: &VpnService) -> bool {
+    let before = service.on_campus();
+    service.network(super::addresses());
+    if service.on_campus() != before {
+        helper::tell(app, service, service.state(), None);
+    }
+    service.wants_standby()
 }
 
 /// The campus addresses of the hosts standby must leave alone, looked up
@@ -71,6 +96,7 @@ fn hold(app: &tauri::AppHandle, service: &Arc<VpnService>) -> Result<(), String>
     writeln!(stream, "{line}").map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
+    let mut network_read = Instant::now();
     loop {
         line.clear();
         match reader.read_line(&mut line) {
@@ -78,9 +104,16 @@ fn hold(app: &tauri::AppHandle, service: &Arc<VpnService>) -> Result<(), String>
             Ok(_) => {}
             Err(error) => return Err(error.to_string()),
         }
-        // Dropping the connection is how standby is turned off.
+        // Dropping the connection is how standby is turned off, also on
+        // reaching the campus network. The helper's heartbeat paces this.
         if !service.on_demand() {
             return Ok(());
+        }
+        if network_read.elapsed() >= NETWORK_EVERY {
+            network_read = Instant::now();
+            if !reread(app, service) {
+                return Ok(());
+            }
         }
         match serde_json::from_str::<StandbyEvent>(line.trim()) {
             Ok(StandbyEvent::Standby { .. }) => {}

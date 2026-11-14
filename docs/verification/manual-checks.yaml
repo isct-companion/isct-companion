@@ -2275,6 +2275,15 @@ checks:
           The connection check reads the system's TCP table, which only a
           real tunnel address fills.
       - action: |
+          On ScienceTokyo or ScienceTokyoX with automatic management on, open
+          the card, check the routes, and reach a campus host; then press
+          Connect with automatic management off.
+        reason: |
+          On campus the school's network reaches campus hosts already: standby
+          must let the routes go and sign in for nothing, and a press must ask
+          before taking one of the few VPN ports. Leaving the campus network
+          must bring standby back within seconds.
+      - action: |
           Save a wrong password in the school account, then reach a campus host.
         reason: |
           A refused password must turn on-demand off with one notice, not post
@@ -2291,7 +2300,9 @@ checks:
       First use connects within the sign-in time and succeeds, an idle tunnel
       ends after 5 minutes (quietly when it was demanded), an open ssh keeps
       it until 30 minutes without real traffic and then ends with the unused
-      notice, a refused password stops it once, and no standby route or
+      notice, on campus the card says no VPN is needed with campus routes on
+      the physical interface and a press asks first, a refused password
+      stops it once, and no standby route or
       interface remains after the app quits.
     why_manual: |
       Needs root or a service to own the standby interface and routes, the
@@ -2303,6 +2314,7 @@ checks:
       - crates/vpn-helper/src/windows_net.rs
       - apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs
       - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
+      - crates/app-core/src/campus_network.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
     verified: null
 
