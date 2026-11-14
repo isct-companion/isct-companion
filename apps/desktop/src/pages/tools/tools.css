@@ -45,6 +45,10 @@
   font-size: calc(var(--type-row-size) * var(--text));
   overflow-wrap: anywhere;
 }
+/* A setting beside the card's press, pushed to the left edge. */
+.toolCardOption {
+  margin-right: auto;
+}
 .toolCardNote {
   margin: 0;
   color: var(--muted);
@@ -56,6 +60,7 @@
 .toolCardActions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: auto;
