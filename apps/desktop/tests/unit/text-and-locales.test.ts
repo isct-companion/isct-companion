@@ -60,8 +60,10 @@ const SOURCE_ROOTS = [
   "apps/desktop/src-tauri/src",
   "apps/ios",
   "apps/android",
+  // The OTP guide's step list names its captions.
+  "resources/otp-guide",
 ];
-const SOURCE_FILE = /\.(tsx?|rs|swift|kt)$/;
+const SOURCE_FILE = /\.(tsx?|rs|swift|kt)$|^resources\/otp-guide\/.*\.json$/;
 
 /** Sources that spell keys: tracked files of the four shells, without tests,
  * generated code and the Rust shell's test modules. */

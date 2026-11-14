@@ -354,7 +354,25 @@ export type SchoolWebPage = {
   /** The page in front is a sign-in page Core is not signing in now, and the
    * saved account could: the manual way out, through Reload. */
   signIn: boolean;
+  otp: SchoolOtpEnrollment | null;
 };
+
+export type SchoolOtpEnrollment = {
+  id: number;
+  owner: string | null;
+  stage:
+    | "sign-in"
+    | "checking"
+    | "confirm-reset"
+    | "setting-up"
+    | "saving"
+    | "complete"
+    | "account-mismatch"
+    | "incomplete"
+    | "unknown"
+    | "save-failed";
+};
+export type SchoolOtpIntent = "reset" | "stop" | "retry-save";
 
 /** How a surface brings a site's view on screen. Core resumes, goes to the
  * URL, or (for "return") resumes only when this surface showed it last. */
@@ -364,7 +382,8 @@ export type SchoolWebEntry =
   | { kind: "return"; url: string }
   /** The site's start page as it is: Core writes no identity and signs in
    * nowhere, so the person signs in on the page by hand. */
-  | { kind: "unsigned" };
+  | { kind: "unsigned" }
+  | { kind: "otpSetup"; username: string };
 
 export type SchoolWebBounds = {
   x: number;
@@ -604,6 +623,7 @@ export interface DesktopBridge {
   /** Hide every embedded school webview (when leaving the Web page). */
   hideSchoolWeb?(): Promise<boolean>;
   reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
+  schoolOtpIntent?(id: number, intent: SchoolOtpIntent): Promise<boolean>;
   /** "Cancel, I'll sign in myself" while Core signs the view in. */
   cancelSchoolWebSignIn?(site: SchoolSite): Promise<boolean>;
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
@@ -700,6 +720,7 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
   if (!value || typeof value !== "object") return false;
   const page = value as Record<string, unknown>;
   const notice = page.notice as Record<string, unknown> | null | undefined;
+  const otp = page.otp as Record<string, unknown> | null | undefined;
   const access = page.access as Record<string, unknown> | null | undefined;
   return (
     typeof page.site === "string" &&
@@ -709,6 +730,22 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
     schoolWebSteps.includes(page.back) &&
     schoolWebSteps.includes(page.forward) &&
     typeof page.signIn === "boolean" &&
+    (otp === null ||
+      (typeof otp === "object" &&
+        Number.isSafeInteger(otp.id) &&
+        (otp.owner === null || typeof otp.owner === "string") &&
+        [
+          "sign-in",
+          "checking",
+          "confirm-reset",
+          "setting-up",
+          "saving",
+          "complete",
+          "account-mismatch",
+          "incomplete",
+          "unknown",
+          "save-failed",
+        ].includes(String(otp.stage)))) &&
     (notice === null ||
       (typeof notice === "object" &&
         (notice.url === null || typeof notice.url === "string") &&
@@ -978,6 +1015,8 @@ export function createTauriDesktopBridge(
     setSchoolWebBounds: (bounds) =>
       booleanCommand("set_school_web_bounds", { bounds }),
     hideSchoolWeb: () => booleanCommand("hide_school_web"),
+    schoolOtpIntent: (id, intent) =>
+      booleanCommand("school_otp_intent", { id, intent }),
     reloadSchoolWeb: (site) => booleanCommand("reload_school_web", { site }),
     cancelSchoolWebSignIn: (site) =>
       booleanCommand("cancel_school_web_sign_in", { site }),

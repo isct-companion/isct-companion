@@ -94,6 +94,11 @@ struct WelcomeSheet: View {
                     Text(t("guide.canDifferFromTheApp"))
                 }
                 Section {
+                    Label(t("widget.addOnPhone"), systemImage: "square.grid.2x2")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Section {
                     if model.needsAccount {
                         Button {
                             dismiss()

@@ -48,6 +48,7 @@ pub struct Core {
     events: Option<Arc<CoreEvents>>,
     pub(crate) reset_lease: crate::reset::ResetLease,
     finder: crate::course_query::FinderCache,
+    pub(crate) widgets: Arc<crate::widgets::Publisher>,
     /// Campus print sends wait here for the one before them
     /// (`Core::campus_print`).
     #[cfg(all(feature = "campus-printer", any(windows, target_os = "android")))]
@@ -59,6 +60,7 @@ struct CoreEvents {
     /// Every event passes the relay below, so the session snapshot reaches the
     /// sync planner once for all shells.
     sync: PlanHints,
+    widgets: std::sync::Weak<crate::widgets::Publisher>,
 }
 
 struct NoopEvents;
@@ -76,6 +78,11 @@ impl EventSink for CoreEvents {
             crate::events::CoreEvent::SyncSnapshot(_) | crate::events::CoreEvent::WakeDirective(_)
         ) {
             self.sync.observe(&event);
+        }
+        if matches!(event, crate::events::CoreEvent::SchoolSession(_)) {
+            if let Some(widgets) = self.widgets.upgrade() {
+                widgets.changed();
+            }
         }
         let sink = self
             .sink
@@ -104,6 +111,7 @@ struct StoreChanges {
     reminders: crate::schedule::ReminderChanges,
     reminder_reads: Vec<WorkspaceChange>,
     plan: PlanHints,
+    widgets: std::sync::Weak<crate::widgets::Publisher>,
     #[cfg(feature = "agent")]
     agent_access: std::sync::Weak<crate::deadlines::AgentAccess>,
 }
@@ -144,6 +152,14 @@ impl CommitObserver for StoreChanges {
         {
             self.reminders.changed();
             self.plan.duties_changed();
+        }
+        if changes
+            .iter()
+            .any(|change| crate::schedule::widgets::READS.contains(change))
+        {
+            if let Some(widgets) = self.widgets.upgrade() {
+                widgets.changed();
+            }
         }
         let Some(events) = &self.events else {
             return;
@@ -209,10 +225,17 @@ impl Core {
         events: Option<Arc<dyn EventSink>>,
     ) -> Self {
         let sync = PlanEngine::new(store.clone(), auth.clone(), Network::Unknown);
+        let plan_hints = sync.hints();
+        let widgets = Arc::new(crate::widgets::Publisher::new(
+            store.clone(),
+            plan_hints.clone(),
+        ));
+        sync.register(widgets.clone());
         let events = events.map(|events| {
             Arc::new(CoreEvents {
                 sink: Mutex::new(Some(events)),
-                sync: sync.hints(),
+                sync: plan_hints.clone(),
+                widgets: Arc::downgrade(&widgets),
             })
         });
         if let Some(events) = &events {
@@ -239,7 +262,6 @@ impl Core {
             moodle: moodle.clone(),
         });
         let sync = Arc::new(sync);
-        let plan_hints = sync.hints();
         let seq = store.commit_seq_handle();
         store.observe(Arc::new(StoreChanges {
             seq: seq.clone(),
@@ -274,6 +296,7 @@ impl Core {
             }
             .reads(),
             plan: plan_hints.clone(),
+            widgets: Arc::downgrade(&widgets),
             #[cfg(feature = "agent")]
             agent_access: Arc::downgrade(&agent_access),
         }));
@@ -350,6 +373,7 @@ impl Core {
             events,
             reset_lease: Default::default(),
             finder: Default::default(),
+            widgets,
             #[cfg(all(feature = "campus-printer", any(windows, target_os = "android")))]
             campus_print_turn: Default::default(),
         }
@@ -359,6 +383,9 @@ impl Core {
     pub fn sync_hint(&self, hint: Hint) {
         if let Hint::Network { network } = &hint {
             self.sessions.network(*network);
+        }
+        if matches!(hint, Hint::Foreground | Hint::Resume) {
+            self.widgets.changed();
         }
         self.sync.hint(hint);
     }
@@ -444,6 +471,11 @@ impl Core {
     /// event.
     pub async fn sync_snapshot(&self) -> SyncSnapshot {
         self.sync.snapshot()
+    }
+
+    /// Records a cold background start before a mobile shell starts the driver.
+    pub fn prepare_background_start(&self) {
+        self.sync.prepare_background_start();
     }
 
     /// Starts the sync driver on the shell's runtime. A hint from inside a

@@ -3,7 +3,11 @@ import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
-import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
+import {
+  nativeOs,
+  type SchoolSite,
+  type SchoolWebEntry,
+} from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import {
   boundsOf,
@@ -177,11 +181,10 @@ function WebBody({
       setSite(requested as SchoolSite);
       return;
     }
-    // Settings → "Open the Science Tokyo portal" asks once for the site's
-    // start page without a sign-in (`SchoolWebEntry` `unsigned`).
-    const unsigned =
-      !target &&
-      sessionStorage.getItem("isct-companion-unsigned-school-site") === site;
+    const pending =
+      !target && requested === site
+        ? sessionStorage.getItem("isct-companion-school-entry")
+        : null;
     let cancelled = false;
     let ready = false;
     const { css, js } = customization(site);
@@ -200,17 +203,20 @@ function WebBody({
             setSite(resolved.site);
             return undefined;
           }
+          if (pending !== null)
+            sessionStorage.removeItem("isct-companion-school-entry");
+          const entry: SchoolWebEntry = resolved.url
+            ? { kind: "go", url: resolved.url }
+            : pending !== null
+              ? (JSON.parse(pending) as SchoolWebEntry)
+              : { kind: "resume" };
           return desktopBridge!.openSchoolSite(
             resolved.site,
             css,
             js,
             boundsOf(host.current),
             surface,
-            resolved.url
-              ? { kind: "go", url: resolved.url }
-              : unsigned
-                ? { kind: "unsigned" }
-                : { kind: "resume" },
+            entry,
           );
         });
       })
@@ -218,8 +224,6 @@ function WebBody({
         if (cancelled || !state) return;
         ready = true;
         openedRequest.current = requestKey;
-        if (unsigned)
-          sessionStorage.removeItem("isct-companion-unsigned-school-site");
         if (!editingAddress.current) setAddress(state.url);
         setStatus("");
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);

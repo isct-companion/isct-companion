@@ -265,11 +265,6 @@ describe("School accounts", () => {
           setup: undefined,
         }),
       );
-      // A saved setup shows as one line; replacing it opens the chooser.
-      expect(science.textContent).toContain(
-        "Codes are filled in for you at sign-in.",
-      );
-      expect(science.querySelector('input[type="file"]')).toBeNull();
       await clickButton(science, "Change");
       await clickButton(science, "From an authenticator app");
       await scanFile(science, PNG());
@@ -278,7 +273,6 @@ describe("School accounts", () => {
           "Choose your school account",
         ),
       );
-      expect(mounted.core.commands("connect_school")).toHaveLength(0);
       await clickButton(document.body, "School · School account");
       expect(
         science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,

@@ -134,13 +134,17 @@ final class AppModel {
             let cloud: NativeCloud? = CloudKitStore.available ? CloudKitStore() : nil
             let icloud: [CloudProvider] = cloud == nil ? [] : [.icloud]
             #endif
+            let inFront = UIApplication.shared.applicationState != .background
             let config = SessionConfig(
                 dataDirectory: data.path, filesDirectory: files.path, initialNetwork: .unknown,
-                cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
+                startSuspended: !inFront, cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
                 notifications: nil, webCookies: WebCookieSeed(),
                 webAuthentication: GoogleSignIn(), driveTokens: nil)
+            if let widgets = WidgetStorage() {
+                try session.attachWidgets(port: widgets)
+            }
             self.session = session
             let stream = try session.subscribe()
             Task { await self.listen(stream) }
@@ -157,12 +161,22 @@ final class AppModel {
             let foreground = UIApplication.shared.applicationState != .background
             syncHint(foreground ? .foreground : .background)
             if let directive = try? session.wakeDirective() { apply(directive) }
-            if !foreground {
-                _ = try? session.suspend()
-            }
+            if foreground && !inFront { _ = try? session.resume() }
+            if !foreground && inFront { _ = try? session.suspend() }
         } catch {
             status = .failed(Self.describe(error))
         }
+    }
+
+    func refreshWidgets() {
+        try? session?.refreshWidgets()
+    }
+
+    func widgetRoute(_ url: URL) async throws -> WidgetRoute? {
+        guard let session,
+              case .widgetRoute(let route) = try await session.widgetRoute(url: url.absoluteString).value()
+        else { return nil }
+        return route
     }
 
     func scenePhase(_ phase: ScenePhase) {
@@ -351,6 +365,7 @@ final class AppModel {
                         scheduleRefresh()
                     }
                 case .snapshotRequired:
+                    try? session?.refreshWidgets()
                     scheduleRefresh()
                     if let next = try? session?.wakeDirective() { apply(next) }
                     web.refreshPages()

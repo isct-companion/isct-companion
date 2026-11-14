@@ -132,6 +132,7 @@ private val periodWidth = 26.dp
 @Composable
 fun TimetableScreen() {
     val model = LocalModel.current
+    val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
     var week by remember { mutableStateOf(model.cachedWeek(monday)) }
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
@@ -144,6 +145,11 @@ fun TimetableScreen() {
     val reduced = LocalReducedMotion.current
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { model.open(SyncView.Timetable) }
+    LaunchedEffect(navigator.timetableDate) {
+        val date = navigator.timetableDate ?: return@LaunchedEffect
+        monday = monday(LocalDate.parse(date))
+        navigator.timetableDate = null
+    }
     // A week read with its neighbours draws at once; the effect below still
     // checks it against the current revision.
     LaunchedEffect(monday) { model.cachedWeek(monday)?.let { week = it } }

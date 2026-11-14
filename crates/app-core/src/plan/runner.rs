@@ -1070,6 +1070,12 @@ impl PlanEngine {
         Ok(())
     }
 
+    pub(crate) fn prepare_background_start(&self) {
+        let mut state = guard(&self.0.state);
+        state.facts.foreground = false;
+        state.facts.suspended = true;
+    }
+
     /// A hint from a thread inside a runtime starts the driver too, so a
     /// shell that never called `start` still syncs once it wakes Core.
     fn ensure_started(&self) {

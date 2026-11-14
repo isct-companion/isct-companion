@@ -55,9 +55,8 @@ gh variable set IOS_TESTFLIGHT_ENABLED --body true
 
 Until then the job only checks that the app compiles for a device.
 
-The workflow uses manual signing for team `FB7AL944GK` and three bundle IDs,
-the app `app.isctcompanion` and its extensions `app.isctcompanion.share` and
-`app.isctcompanion.open`, using these repository secrets:
+The workflow uses manual signing for team `FB7AL944GK` and four bundle IDs,
+the app `app.isctcompanion` and its share, open and widget extensions, using these repository secrets:
 
 | Secret | Content |
 |---|---|
@@ -66,18 +65,18 @@ the app `app.isctcompanion` and its extensions `app.isctcompanion.share` and
 | `IOS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the app (`app.isctcompanion`) |
 | `IOS_SHARE_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the share extension (`app.isctcompanion.share`) |
 | `IOS_OPEN_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the "Open in" action extension (`app.isctcompanion.open`) |
+| `IOS_WIDGETS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the widget extension (`app.isctcompanion.widgets`) |
 | `APPLE_API_KEY_ID` | App Store Connect API key ID |
 | `APPLE_API_ISSUER` | API issuer ID |
 | `APPLE_API_PRIVATE_KEY` | Raw `.p8` private key used to upload builds |
 
-All three profiles are made with the same Apple Distribution certificate, and
-their App IDs have the App Group `group.app.isctcompanion` (the extensions hand
-shared files to the app through it). A profile made before its App ID had the
+All four profiles are made with the same Apple Distribution certificate, and
+their App IDs have the App Group `group.app.isctcompanion` (for shared files and widget snapshots). A profile made before its App ID had the
 group lacks the entitlement: regenerate it after ticking App Groups.
 
 The job fails before building if a secret is missing, a profile has expired,
 belongs to another app/team, is not an App Store profile or lacks the App
-Group, or the certificate does not match all three profiles.
+Group, or the certificate does not match all four profiles.
 It installs the supplied certificate and profile, then explicitly selects them
 for both archive and export. It does not create cloud-managed certificates or
 refresh profiles. Renew the existing secrets when their signing materials expire.
@@ -88,7 +87,7 @@ answer.
 
 The IPA on the GitHub release is the App Store-signed one: sideloading tools
 (AltStore, Sideloadly) re-sign it with the person's own Apple account, which
-needs room for three App IDs (the app and its two extensions). Such an account
+needs room for four App IDs (the app and its three extensions). Such an account
 usually lacks the iCloud container, so the app checks its embedded profile
 (`CloudKitStore.available`) and backs up through Google Drive or a file
 instead of opening CloudKit, which would trap.

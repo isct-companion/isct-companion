@@ -12,6 +12,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.PowerManager
 import android.util.Log
+import app.isctcompanion.widgets.WidgetStorage
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -132,23 +133,26 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     // Lifecycle
 
-    /** Opens the session once; the application and a background wake both
-     * call this, and the later caller waits for the first. */
+    /** Opens the session once for the activity, background work or printing.
+     * Other system entry points can run without loading the SDK. */
     suspend fun start() = opening.withLock {
         if (session != null) return@withLock
         try {
+            TlsVerifier.install(context)
             val data = File(context.filesDir, "core").apply { mkdirs() }
             val files = File(context.filesDir, "files").apply { mkdirs() }
             // Google Drive is Android's provider; Core reads whether it was
             // connected and owns every Drive request.
+            val inFront = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             val config = SessionConfig(
                 dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
-                initialNetwork = SyncNetwork.UNKNOWN, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
+                initialNetwork = SyncNetwork.UNKNOWN, startSuspended = !inFront, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
                 config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, drive,
             )
+            session.attachWidgets(WidgetStorage(context))
             this.session = session
             val stream = session.subscribe()
             scope.launch { listen(stream) }
@@ -165,9 +169,22 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
             runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
-            if (!foreground) runCatching { session.suspend() }
+            if (foreground && !inFront) runCatching { session.resume() }
+            if (!foreground && inFront) runCatching { session.suspend() }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
+        }
+    }
+
+    suspend fun widgetRoute(url: String): WidgetRoute? {
+        val session = session ?: return null
+        return try {
+            (session.widgetRoute(url).value() as? OperationResult.WidgetRoute)?.route
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("isct", "widget link", error)
+            null
         }
     }
 
@@ -206,9 +223,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * reference files) and runs its local work, within [budgetSeconds], then
      * suspends again unless the app came to the front. A stopped worker ends
      * it early. */
-    suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt) {
+    suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt, systemChange: Boolean) {
         start()
         val session = session ?: return
+        if (systemChange) runCatching { session.refreshWidgets() }
         val id = java.util.UUID.randomUUID().toString()
         val operation = runCatching { session.beginBackgroundOpportunity(id, budgetSeconds, network) }
             .getOrNull() ?: return
@@ -343,6 +361,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     else -> scheduleRefresh()
                 }
                 is StreamUpdate.SnapshotRequired -> {
+                    runCatching { session?.refreshWidgets() }
                     scheduleRefresh()
                     session?.let { runCatching { it.wakeDirective() }.onSuccess(::applyDirective) }
                     web.refreshPages()

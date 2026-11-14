@@ -1,0 +1,14 @@
+{
+  "google": [
+    { "image": "otp-google-1.webp", "tap": { "x": 0.062, "y": 0.094 }, "caption": "otpGuide.google.openMenu" },
+    { "image": "otp-google-2.webp", "tap": { "x": 0.282, "y": 0.162 }, "caption": "otpGuide.google.transferAccounts" },
+    { "image": "otp-google-3.webp", "tap": { "x": 0.342, "y": 0.377 }, "caption": "otpGuide.google.exportAccounts" },
+    { "image": "otp-google-4.webp", "tap": { "x": 0.092, "y": 0.425 }, "caption": "otpGuide.google.selectSchoolOnly" },
+    { "image": "otp-google-4.webp", "tap": { "x": 0.846, "y": 0.91 }, "caption": "otpGuide.google.next" },
+    { "image": "otp-google-5.webp", "action": "screenshot", "caption": "otpGuide.google.screenshotTheQR" }
+  ],
+  "titechApp": [
+    { "image": "otp-titech-1.webp", "tap": { "x": 0.325, "y": 0.4975 }, "caption": "otpGuide.titechApp.exportOTPSecret" },
+    { "image": "otp-titech-2.webp", "tap": { "x": 0.5, "y": 0.565 }, "caption": "otpGuide.titechApp.pasteItHere" }
+  ]
+}

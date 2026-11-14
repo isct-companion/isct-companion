@@ -1,0 +1,111 @@
+/* A screenshot with where to tap: the frame sizes to the image, so the tap
+   point's percentages land on the same spot at any height. */
+.otpGuideShot {
+  position: relative;
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.otpGuideShot > img {
+  display: block;
+  height: min(56vh, 480px);
+  width: auto;
+}
+.otpGuideCaption {
+  max-width: 360px;
+  text-align: center;
+}
+/* A ring that keeps pulsing out of a dot, like a touch indicator in a screen
+   recording. White edges keep it visible on light and dark screenshots. */
+.otpGuideTap {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  pointer-events: none;
+}
+.otpGuideTap::before,
+.otpGuideTap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+.otpGuideTap::before {
+  inset: 10px;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85);
+}
+.otpGuideTap::after {
+  border: 3px solid var(--accent);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.85),
+    inset 0 0 0 1px rgb(255 255 255 / 0.85);
+  animation: otpGuideTap 1.6s var(--motion-easing-emphasized) infinite;
+}
+@keyframes otpGuideTap {
+  from {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+/* "Take a screenshot": the screen flashes, then shrinks into a thumbnail in
+   the corner, the way the phone shows a capture. */
+.otpGuideShot[data-action="screenshot"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: otpGuideFlash 2.6s linear;
+}
+.otpGuideShot > img.otpGuideThumb {
+  position: absolute;
+  left: 5%;
+  bottom: 4%;
+  width: 30%;
+  height: auto;
+  border: 3px solid #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.3);
+  transform-origin: bottom left;
+  animation: otpGuideThumb 2.6s var(--motion-easing-emphasized) forwards;
+}
+@keyframes otpGuideFlash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.85;
+  }
+  18% {
+    opacity: 0;
+  }
+}
+@keyframes otpGuideThumb {
+  0%,
+  5% {
+    opacity: 0;
+    transform: scale(3.2);
+  }
+  8% {
+    opacity: 1;
+    transform: scale(3.2);
+  }
+  30%,
+  85% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}

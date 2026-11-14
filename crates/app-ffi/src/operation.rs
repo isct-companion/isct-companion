@@ -79,6 +79,9 @@ pub enum OperationResult {
     CampusMapScene {
         scene: Option<CampusMapScene>,
     },
+    WidgetRoute {
+        route: crate::WidgetRoute,
+    },
     Document {
         value: JsonValue,
     },

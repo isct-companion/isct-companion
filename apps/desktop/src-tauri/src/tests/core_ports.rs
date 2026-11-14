@@ -114,9 +114,10 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     problem: SchoolWebProblem::StillSignIn,
                 }),
                 sign_in: true,
+                otp: None,
             }),
             "school-web-page",
-            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"still-sign-in"},"signIn":true}),
+            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"still-sign-in"},"signIn":true,"otp":null}),
         ),
         (
             CoreEvent::SchoolWebNotice {
