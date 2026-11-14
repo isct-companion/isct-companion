@@ -6,7 +6,7 @@
 //! module serves a fixed loopback URL, installs the queue behind UAC and
 //! tells the person about a job that did not print.
 use super::{CampusPrinterSetup, Setup};
-use crate::{core_ports, CommandError};
+use crate::{core_ports, native_text, CommandError};
 use ::windows::{
     core::{w, HSTRING, PCWSTR},
     Win32::{
@@ -140,13 +140,17 @@ const BODY_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A notification titled with the tool's name, in the UI language.
 async fn notify(app: &tauri::AppHandle, body: String) {
-    let title = crate::window_close::text(app, "tools.campusPrinter.campusPrinter");
+    let title = native_text::current(app)
+        .campus_print("tools.campusPrinter.campusPrinter")
+        .to_owned();
     crate::commands::notifications::show_text(app, title, body).await;
 }
 
 /// Core's message in the UI language, its placeholders filled.
 fn message_text(app: &tauri::AppHandle, message: &CampusPrintMessage) -> String {
-    let copy = crate::window_close::text(app, message.key);
+    let copy = native_text::current(app)
+        .campus_print(message.key)
+        .to_owned();
     message.args.iter().fold(copy, |copy, (name, value)| {
         copy.replace(&format!("{{{{{name}}}}}"), &value.to_string())
     })
