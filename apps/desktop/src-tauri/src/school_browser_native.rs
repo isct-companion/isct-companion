@@ -28,6 +28,9 @@ pub(crate) const SCHOOL_DATA_STORE: [u8; 16] = [
 pub struct SchoolWebPolicy {
     pub restore_across_restarts: bool,
 }
+/// A school view's rectangle in the main window's client area: physical
+/// pixels on Windows, logical points on macOS (`school-web-bounds.ts`,
+/// `school_web::apply_bounds`).
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct WebBounds {
     pub x: f64,

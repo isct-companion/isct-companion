@@ -40,6 +40,7 @@ const viewport = (
     innerHeight: number;
     outerWidth: number;
     outerHeight: number;
+    devicePixelRatio: number;
   }> = {},
 ) =>
   ({
@@ -47,11 +48,12 @@ const viewport = (
     innerHeight: 740,
     outerWidth: 1196,
     outerHeight: 779,
+    devicePixelRatio: 1,
     ...dimensions,
   }) as Window;
 
 describe("school webview bounds", () => {
-  it("uses the DOM client-area rectangle unchanged on Windows", () => {
+  it("sends the DOM client-area rectangle in physical pixels on Windows", () => {
     expect(
       schoolWebBounds(
         { left: 180.4, top: 32.4, width: 987.6, height: 674.6 },
@@ -59,6 +61,15 @@ describe("school webview bounds", () => {
         "windows",
       ),
     ).toEqual({ x: 180, y: 32, width: 988, height: 675 });
+    // A 125% page: the view covers the pane's physical pixels, edges rounded
+    // so it neither falls short of nor overruns the pane.
+    expect(
+      schoolWebBounds(
+        { left: 289, top: 61, width: 987, height: 559 },
+        viewport({ devicePixelRatio: 1.25 }),
+        "windows",
+      ),
+    ).toEqual({ x: 361, y: 76, width: 1234, height: 699 });
   });
 
   it("keeps the WKWebView title-bar compensation on macOS", () => {
