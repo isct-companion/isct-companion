@@ -41,6 +41,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
@@ -296,6 +297,29 @@ fun CampusMapScreen(room: String?) {
                 )
             }
             val current = scene
+            // The building's floors as a stack seen at an angle, and back.
+            if (current != null && (current.levels.isNotEmpty() || current.stacked)) {
+                val stacked = current.stacked
+                val label = t(if (stacked) "campusMap.stackOff" else "campusMap.stackOn")
+                Box(
+                    Modifier
+                        .size(Control)
+                        .floating(RoundedCornerShape(Theme.radiusChip))
+                        .background(if (stacked) Theme.colors.accent else Color.Transparent)
+                        .clickable(role = Role.Button) { send(CampusMapIntent.Stack(!stacked)) }
+                        .semantics {
+                            contentDescription = label
+                            this.selected = stacked
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.Layers, null,
+                        tint = if (stacked) Theme.colors.accentInk else Theme.colors.ink,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             if (current != null && current.levels.isNotEmpty()) {
                 LevelPicker(
                     current.levels, current.levelId, current.markedLevelId,
@@ -631,7 +655,8 @@ private fun SearchRow(result: CampusMapSearchResult, pick: () -> Unit) {
 
 /** Floors top floor first. A dot marks the floor the selected room is on. A
  * tall building scrolls within the space the page leaves, keeping the floor
- * shown in view. */
+ * shown in view. A floor with no plan (the stack lists the ones between two
+ * that have one) is greyed and cannot be picked. */
 @Composable
 private fun LevelPicker(
     levels: List<CampusMapLevel>,
@@ -655,7 +680,7 @@ private fun LevelPicker(
                 Modifier
                     .size(Control)
                     .background(if (isSelected) Theme.colors.accent else Color.Transparent)
-                    .clickable(role = Role.Button) { pick(level.id) }
+                    .clickable(enabled = level.hasPlan, role = Role.Button) { pick(level.id) }
                     .semantics {
                         contentDescription = spoken
                         stateDescription = destination
@@ -666,7 +691,12 @@ private fun LevelPicker(
                 Text(
                     level.name,
                     style = MaterialTheme.typography.bodySmall.tabular(), fontWeight = FontWeight.SemiBold,
-                    color = if (isSelected) Theme.colors.accentInk else Theme.colors.ink, maxLines = 1,
+                    color = when {
+                        isSelected -> Theme.colors.accentInk
+                        level.hasPlan -> Theme.colors.ink
+                        else -> Theme.colors.muted.copy(alpha = 0.5f)
+                    },
+                    maxLines = 1,
                 )
                 if (level.id == marked) {
                     Box(

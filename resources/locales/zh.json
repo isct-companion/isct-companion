@@ -895,6 +895,8 @@
   "campusMap.openInMaps": "在地图中打开",
   "campusMap.position": "当前位置",
   "campusMap.search": "搜索楼和教室",
+  "campusMap.stackOff": "显示单层",
+  "campusMap.stackOn": "立体显示楼层",
   "campusMap.suzukakedai": "铃悬台",
   "campusMap.unavailable": "无法显示地图",
   "campusMap.unfoldCard": "展开",

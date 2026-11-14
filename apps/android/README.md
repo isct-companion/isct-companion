@@ -72,6 +72,27 @@ UniFFI checks signatures when the library loads.
   window size (iOS moves it to the leading edge in a wide one) and its card
   folds in one step rather than following the finger; the position button
   follows the person until they move the map, with no heading mode.
+- Android adds a view iOS does not have: the building's floors as a stack
+  seen at an angle (`Stack`), the layers button by the level picker. Core
+  gives each floor a height and its shapes; a room string that names a room
+  on the plans (from a course or 今日) opens the map in it, its floor picked.
+  - Every building's street floor (its main entrance's: 3F for the west
+    buildings on the slope, 2F for W9 and J2・J3, else 1F) lies on the
+    ground, the others above and below it, so buildings on the slope line
+    up and a building switch keeps the height above the street.
+  - Floors above the ground are MapLibre fill extrusions: the floor picked
+    solid, the ones below faint, the ones above an outline. Floors with no
+    plan between two that have one (W9's 4F to 6F) are an outline, greyed
+    in the picker.
+  - MapLibre raises nothing below the ground, so the floors under the
+    street are laid over the map while one of them is picked, under a veil
+    that dims the ground.
+  - The selected room is drawn over the map too, so no floor hides it:
+    solid on its floor, half seen from any other. It stays lit while
+    another building is looked at, and switching between the stack and one
+    floor keeps it.
+  - The entrances keep the flat map's icons, at their floor's height, on
+    the floor picked only.
 - Logins stay on the device (Keystore); there is no iCloud Keychain to share
   them with the desktop app.
 - The quarter export is a share button in the 時間割 header rather than a long

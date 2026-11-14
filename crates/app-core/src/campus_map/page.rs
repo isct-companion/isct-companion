@@ -11,8 +11,9 @@ use super::{
     map::{maps_url, point, polygon, rect_bounds, Map, MapsApp, Match, Target, TAP_SLOP_POINTS},
     search::Found,
     CampusMapCamera, CampusMapCandidate, CampusMapCard, CampusMapFraming, CampusMapIntent,
-    CampusMapLayer, CampusMapLayerRole, CampusMapLink, CampusMapMark, CampusMapMarkKind,
-    CampusMapPlace, CampusMapPoint, CampusMapScene, CampusMapSearchResult,
+    CampusMapLayer, CampusMapLayerRole, CampusMapLevel, CampusMapLink, CampusMapMark,
+    CampusMapMarkKind, CampusMapPlace, CampusMapPoint, CampusMapScene, CampusMapSearchResult,
+    CampusMapStackEntrance, CampusMapStackFloor,
 };
 use std::sync::Arc;
 
@@ -20,12 +21,18 @@ use std::sync::Arc;
 const LEAST_FRAMED_SIDE_M: f64 = 60.0;
 /// A page opened on no room string starts over this campus.
 const HOME_CAMPUS: &str = "ookayama";
+/// Metres between floors in the stack: about twice as built, so the plan
+/// of each floor shows between the ones above and below it.
+const STACK_SPACING_M: f64 = 8.0;
 
 /// What a page reads from the settings when it opens.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Preferences {
     pub(super) english: bool,
     pub(super) maps: MapsApp,
+    /// The shell draws the stack, and a room on the plans opens in it.
+    /// Only Android's does.
+    pub(super) stacks: bool,
 }
 
 /// What the card describes. Each keeps the building (and floor) it was
@@ -58,6 +65,7 @@ struct Shown {
     floor: Option<(usize, usize)>,
     selection: Selection,
     framing: u64,
+    stacked: bool,
 }
 
 pub(super) struct Page {
@@ -67,12 +75,19 @@ pub(super) struct Page {
     /// The building whose floor is shown, and that floor.
     floor: Option<(usize, usize)>,
     selection: Selection,
+    /// The last room selected, from the room string or a search: it stays
+    /// lit while the person looks at another building or entrance, so the
+    /// way back to it shows it still. Another room, a unit or closing the
+    /// card replaces it.
+    room: Option<Target>,
     framing: Option<CampusMapFraming>,
     /// The floor to show once the latest framing lands (the app's own camera
     /// report for it); `Some(None)` shows none.
     arrival: Option<Option<(usize, usize)>>,
     /// What the person saw at the last camera report the page took.
     view: Option<Viewport>,
+    /// The floors are shown as a stack.
+    stacked: bool,
     revision: u64,
     shown: Option<Shown>,
 }
@@ -88,9 +103,11 @@ impl Page {
             targets,
             floor: None,
             selection: Selection::None,
+            room: None,
             framing: None,
             arrival: None,
             view: None,
+            stacked: false,
             revision: 0,
             shown: None,
         };
@@ -100,6 +117,17 @@ impl Page {
             }
         } else {
             page.choose(0);
+            page.keep_room();
+            // A room string that names a room on the plans (W9-324, not just
+            // W9) opens as the stack, the room standing out on its floor.
+            if page.preferences.stacks
+                && page
+                    .targets
+                    .first()
+                    .is_some_and(|target| target.matched == Match::Room && target.level.is_some())
+            {
+                page.stack(true);
+            }
         }
         page
     }
@@ -112,7 +140,33 @@ impl Page {
             CampusMapIntent::Tap { point, level_id } => self.tap(point, level_id.as_deref()),
             CampusMapIntent::Select { place } => self.select(&place),
             CampusMapIntent::Clear => self.selection = Selection::None,
+            CampusMapIntent::Stack { on } => self.stack(on),
         }
+        self.keep_room();
+    }
+
+    /// Remembers the room selected; a building or an entrance picked since
+    /// keeps the one before.
+    fn keep_room(&mut self) {
+        match &self.selection {
+            Selection::Target(_) | Selection::Room(_) => {
+                self.room = self
+                    .selected_target()
+                    .filter(|target| target.matched == Match::Room)
+                    .cloned();
+            }
+            Selection::None | Selection::Unit { .. } => self.room = None,
+            Selection::Building(_) | Selection::Entrance { .. } => {}
+        }
+    }
+
+    /// The room lit: the one selected, else the one kept from before.
+    fn kept_room(&self) -> Option<&Target> {
+        match &self.selection {
+            Selection::Target(_) | Selection::Room(_) => self.selected_target(),
+            _ => self.room.as_ref(),
+        }
+        .filter(|target| target.matched == Match::Room)
     }
 
     /// The scene, when anything drawn changed since the last one.
@@ -121,6 +175,7 @@ impl Page {
             floor: self.floor,
             selection: self.selection.clone(),
             framing: self.framing.as_ref().map_or(0, |framing| framing.key),
+            stacked: self.stacked,
         };
         if self.shown.as_ref() == Some(&shown) {
             return None;
@@ -167,9 +222,10 @@ impl Page {
     /// on the building already in focus. Its floor changes only on landing.
     fn pick_building(&mut self, building: usize) {
         self.selection = Selection::Building(building);
+        // Back at the kept room's building, its floor.
         let arrival = self
-            .map
-            .arrival_level(self.floor, building)
+            .room_floor(building)
+            .or_else(|| self.map.arrival_level(self.floor, building))
             .map(|level| (building, level));
         self.frame(self.map.building_bounds(building), arrival);
     }
@@ -241,7 +297,11 @@ impl Page {
         };
         if camera.by_user {
             self.arrival = None;
-            self.floor = self.map.focus(&view, self.floor);
+            // A stack stays on its building however the person turns it:
+            // seen at an angle, the camera's centre is no guide.
+            if !self.stacked {
+                self.floor = self.map.focus(&view, self.floor);
+            }
         } else if let Some(arrival) = self.arrival.take() {
             self.floor = arrival;
         }
@@ -290,6 +350,155 @@ impl Page {
         }
     }
 
+    /// Stacks the floors of the building in view (else the selection's),
+    /// framed whole; back on, one floor from above.
+    fn stack(&mut self, on: bool) {
+        if !on {
+            self.stacked = false;
+            // Back on the flat map the selected room stays in view: its
+            // floor comes forward, as it did in the stack.
+            if let Some((building, _)) = self.floor {
+                if let Some(level) = self.room_floor(building) {
+                    self.floor = Some((building, level));
+                }
+            }
+            return;
+        }
+        let Some(building) = self
+            .floor
+            .map(|(building, _)| building)
+            .or_else(|| self.selected_building())
+            .filter(|building| !self.map.export.buildings[*building].levels.is_empty())
+        else {
+            return;
+        };
+        // The selected room's floor comes forward, so the room stands out
+        // in the stack; else the floor already shown, else the ground.
+        let room_floor = self.room_floor(building);
+        let floor = room_floor
+            .map(|level| (building, level))
+            .or_else(|| self.floor.filter(|(shown, _)| *shown == building))
+            .or_else(|| {
+                self.map
+                    .street_level(building)
+                    .map(|level| (building, level))
+            });
+        self.stacked = true;
+        // The stack shows its floor at once; the framing lands on the same.
+        if floor.is_some() {
+            self.floor = floor;
+        }
+        self.frame(self.map.building_bounds(building), floor);
+    }
+
+    /// A floor's height in the stack, by its ordinal: its rank above the
+    /// building's street floor, which lies on the ground; a floor below the
+    /// street is under it, at a negative height.
+    fn base_m(&self, building: usize, ordinal: i32) -> f64 {
+        f64::from(ordinal - self.map.street_ordinal(building)) * STACK_SPACING_M
+    }
+
+    /// The floor of `building` the selected room is on, if the selection is
+    /// a room there.
+    fn room_floor(&self, building: usize) -> Option<usize> {
+        match &self.selection {
+            Selection::Unit {
+                building: owner,
+                level,
+                ..
+            } if *owner == building => Some(*level),
+            _ => self
+                .kept_room()
+                .filter(|target| target.building == building)
+                .and_then(|target| target.level),
+        }
+    }
+
+    /// Every floor of the stacked building, lowest first.
+    fn stack_floors(&self) -> Vec<CampusMapStackFloor> {
+        let Some((building, shown)) = self.floor.filter(|_| self.stacked) else {
+            return Vec::new();
+        };
+        let map = &self.map;
+        let lit = self.highlighted();
+        let record = &map.export.buildings[building];
+        map.stack_levels(building)
+            .into_iter()
+            .map(|(ordinal, level)| {
+                let Some(level) = level else {
+                    // A floor between two with plans: only where it is.
+                    return CampusMapStackFloor {
+                        level_id: gap_level_id(&record.id, ordinal),
+                        name: level_name(ordinal),
+                        base_m: self.base_m(building, ordinal),
+                        shown: false,
+                        has_plan: false,
+                        outline: record.footprint.iter().map(polygon).collect(),
+                        rooms: Vec::new(),
+                        walkways: Vec::new(),
+                        highlight: Vec::new(),
+                        entrances: Vec::new(),
+                    };
+                };
+                let source = &record.levels[level];
+                let mut floor = CampusMapStackFloor {
+                    level_id: source.id.clone(),
+                    name: source.name.clone(),
+                    base_m: self.base_m(building, ordinal),
+                    shown: level == shown,
+                    has_plan: true,
+                    outline: source.outline.iter().map(polygon).collect(),
+                    rooms: Vec::new(),
+                    walkways: Vec::new(),
+                    highlight: Vec::new(),
+                    entrances: record
+                        .entrances
+                        .iter()
+                        .enumerate()
+                        // Only the floor picked shows its entrances: the
+                        // stack is read one floor at a time.
+                        .filter(|(_, entrance)| {
+                            level == shown
+                                && entrance.level_id.as_deref() == Some(source.id.as_str())
+                        })
+                        .map(|(index, entrance)| CampusMapStackEntrance {
+                            entrance_id: entrance.id.clone(),
+                            name: entrance
+                                .name
+                                .as_ref()
+                                .map(|name| name.pick(self.preferences.english).to_owned()),
+                            point: point(entrance.point),
+                            selected: self.selection
+                                == Selection::Entrance {
+                                    building,
+                                    entrance: index,
+                                },
+                        })
+                        .collect(),
+                };
+                for unit in map.units_by_level.get(&source.id).into_iter().flatten() {
+                    let record = &map.export.units[*unit];
+                    let shape = polygon(&record.polygon);
+                    if lit.contains(unit) {
+                        floor.highlight.push(shape);
+                    } else if matches!(
+                        record.category,
+                        UnitCategory::Corridor
+                            | UnitCategory::ElevatorLobby
+                            | UnitCategory::Stairs
+                            | UnitCategory::Lounge
+                            | UnitCategory::Porch
+                    ) {
+                        floor.walkways.push(shape);
+                    } else {
+                        floor.rooms.push(shape);
+                    }
+                }
+                floor
+            })
+            .collect()
+    }
+
     // MARK: Scene
 
     /// The room string's target or the searched room the card shows.
@@ -318,8 +527,11 @@ impl Page {
     fn highlighted(&self) -> Vec<usize> {
         match &self.selection {
             Selection::Unit { unit, .. } => vec![*unit],
-            _ => self
+            Selection::Target(_) | Selection::Room(_) => self
                 .selected_target()
+                .map_or_else(Vec::new, |target| target.units.clone()),
+            _ => self
+                .kept_room()
                 .map_or_else(Vec::new, |target| target.units.clone()),
         }
     }
@@ -336,26 +548,29 @@ impl Page {
     /// building.
     fn marked_level(&self) -> Option<usize> {
         let (shown, _) = self.floor?;
-        match &self.selection {
-            Selection::Target(_) | Selection::Room(_) => {
-                let target = self.selected_target()?;
-                if target.matched != Match::Room || target.building != shown {
-                    return None;
-                }
-                target.level
-            }
-            Selection::Unit {
-                building, level, ..
-            } => (*building == shown).then_some(*level),
-            Selection::None | Selection::Building(_) | Selection::Entrance { .. } => None,
-        }
+        self.room_floor(shown)
     }
 
     pub(super) fn render(&self, page: u64) -> CampusMapScene {
         let map = &self.map;
         let floor = self.floor;
         let levels = floor.map_or_else(Vec::new, |(building, _)| {
-            let mut levels = map.level_models(building);
+            let mut levels = if self.stacked {
+                map.stack_levels(building)
+                    .into_iter()
+                    .map(|(ordinal, level)| match level {
+                        Some(level) => map.level_model(building, level),
+                        None => CampusMapLevel {
+                            id: gap_level_id(&map.export.buildings[building].id, ordinal),
+                            ordinal,
+                            name: level_name(ordinal),
+                            has_plan: false,
+                        },
+                    })
+                    .collect()
+            } else {
+                map.level_models(building)
+            };
             levels.reverse();
             levels
         });
@@ -365,7 +580,9 @@ impl Page {
             .zip(self.marked_level())
             .map(|((building, _), level)| map.export.buildings[building].levels[level].id.clone());
         let mut layers = self.footprints();
-        layers.extend(self.floor_layers());
+        if !self.stacked {
+            layers.extend(self.floor_layers());
+        }
         CampusMapScene {
             page,
             revision: self.revision,
@@ -377,6 +594,8 @@ impl Page {
             card: self.card(),
             framing: self.framing.clone(),
             attribution: map.export.attribution.clone(),
+            stacked: self.stacked && floor.is_some(),
+            stack: self.stack_floors(),
         }
     }
 
@@ -529,6 +748,11 @@ impl Page {
         let mut amenities = Vec::new();
         let mut highlighted = Vec::new();
         let selected = self.highlighted();
+        // A stack lies above the ground, where marks are drawn: it carries
+        // its entrances on their own floors, and the ground has no marks.
+        if self.stacked && self.floor.is_some() {
+            return Vec::new();
+        }
         let level_id = self
             .floor
             .map(|(building, level)| map.export.buildings[building].levels[level].id.as_str());
@@ -745,6 +969,21 @@ pub(super) fn search(map: &Map, english: bool, query: &str) -> Vec<CampusMapSear
             }
         })
         .collect()
+}
+
+/// The id the stack gives a floor the export has no plan of: no level of
+/// the export has it, so picking it changes nothing.
+fn gap_level_id(building_id: &str, ordinal: i32) -> String {
+    format!("{building_id}#{ordinal}")
+}
+
+/// A floor's name by its ordinal, as the export names them: `B1`, `1F`.
+fn level_name(ordinal: i32) -> String {
+    if ordinal < 0 {
+        format!("B{}", -ordinal)
+    } else {
+        format!("{}F", ordinal + 1)
+    }
 }
 
 #[cfg(test)]

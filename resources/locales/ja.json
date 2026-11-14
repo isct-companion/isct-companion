@@ -895,6 +895,8 @@
   "campusMap.openInMaps": "マップで開く",
   "campusMap.position": "現在地",
   "campusMap.search": "建物・教室を検索",
+  "campusMap.stackOff": "1フロアで表示",
+  "campusMap.stackOn": "フロアを立体表示",
   "campusMap.suzukakedai": "すずかけ台",
   "campusMap.unavailable": "地図を表示できません",
   "campusMap.unfoldCard": "展開",

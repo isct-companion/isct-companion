@@ -895,6 +895,8 @@
   "campusMap.openInMaps": "Open in Maps",
   "campusMap.position": "Current location",
   "campusMap.search": "Search buildings and rooms",
+  "campusMap.stackOff": "Show one floor",
+  "campusMap.stackOn": "Show floors in 3D",
   "campusMap.suzukakedai": "Suzukakedai",
   "campusMap.unavailable": "Map unavailable",
   "campusMap.unfoldCard": "Show more",
