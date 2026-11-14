@@ -122,9 +122,11 @@ targets:
     platform: iOS
     sources:
       - path: ../apple-widgets/Extension
+        createIntermediateGroups: false
       - path: ../../resources/locales
         buildPhase: resources
       - path: ../apple-widgets/Privacy/PrivacyInfo.xcprivacy
+        createIntermediateGroups: false
         buildPhase: resources
     dependencies:
       - package: IsctWidgets
