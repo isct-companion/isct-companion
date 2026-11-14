@@ -49,6 +49,12 @@ impl HelperSocket {
     }
 }
 
+/// The connection standby lives on. A pipe has no read timeout; a helper
+/// that goes away closes it, which ends the read.
+pub(crate) fn standby_stream() -> Result<std::fs::File, VpnError> {
+    open_pipe()
+}
+
 fn open_pipe() -> Result<std::fs::File, VpnError> {
     for _ in 0..20 {
         match OpenOptions::new().read(true).write(true).open(PIPE_PATH) {

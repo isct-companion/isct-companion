@@ -3,9 +3,7 @@
 //! app-core; this file and its platform halves (`macos.rs`: launchd and a
 //! Unix socket, `windows.rs`: a service and a named pipe) do the IO.
 //! Blocking calls run under `spawn_blocking`.
-use app_core::vpn::{
-    HelperReport, VpnAction, VpnCheck, VpnError, VpnNotice, VpnPort, VpnService, VpnState,
-};
+use app_core::vpn::{HelperReport, VpnCheck, VpnError, VpnNotice, VpnPort, VpnService, VpnState};
 use std::{
     io::{BufRead, BufReader, ErrorKind, Read, Write},
     sync::Arc,
@@ -17,7 +15,7 @@ use vpn_protocol::{Reply, Request, SessionCookie};
 use super::macos as platform;
 #[cfg(target_os = "windows")]
 use super::windows as platform;
-pub(crate) use platform::{run_install, HELPER};
+pub(crate) use platform::{run_install, standby_stream, HELPER};
 
 /// Status answers at once and a stop within the helper's 5-second wait for
 /// openconnect. A start waits up to its own 30-second deadline, plus such a
@@ -55,6 +53,7 @@ pub(crate) fn converse(
             .expires
             .and_then(|at| chrono::DateTime::from_timestamp(at, 0)),
         revision: reply.revision,
+        ended: reply.ended,
     })
 }
 
@@ -90,8 +89,7 @@ pub(crate) fn service() -> Arc<VpnService> {
     )))
 }
 
-/// How often a tunnel that is up, or auto-continue, is checked: a local
-/// socket read, and how long a dropped tunnel waits to be reconnected.
+/// How often a tunnel that is up is checked: a local socket read.
 const WATCH_EVERY: Duration = Duration::from_secs(15);
 
 /// What the webview hears without asking: the state after each check, and a
@@ -118,68 +116,38 @@ impl From<VpnNotice> for NoticePayload {
                 ..plain("ending")
             },
             VpnNotice::Ended => plain("ended"),
-            VpnNotice::KeepEnded => plain("keepEnded"),
-            VpnNotice::KeepStopped { code } => Self {
+            VpnNotice::Unused => plain("unused"),
+            VpnNotice::DemandStopped { code } => Self {
                 code: Some(code),
-                ..plain("keepStopped")
+                ..plain("demandStopped")
             },
         }
     }
 }
 
-/// Carries out what a check asked for. Core decided; this does the IO.
-async fn act(
+/// Tells the main window where the VPN stands, and a reminder if one is due.
+pub(crate) fn tell(
     app: &tauri::AppHandle,
-    service: &Arc<VpnService>,
-    check: VpnCheck,
-) -> (VpnState, Option<VpnNotice>) {
-    let VpnCheck {
-        state,
-        notice,
-        action,
-    } = check;
-    let blocking = |work: fn(&VpnService) -> VpnState| {
-        let service = service.clone();
-        tauri::async_runtime::spawn_blocking(move || work(&service))
-    };
-    match action {
-        Some(VpnAction::Disconnect) => {
-            let state = blocking(|service| service.disconnect())
-                .await
-                .unwrap_or(state);
-            (state, notice)
+    service: &VpnService,
+    state: VpnState,
+    notice: Option<VpnNotice>,
+) {
+    use tauri::Emitter;
+    let status = super::report(service, state);
+    if let Err(error) = app.emit_to("main", "vpn-status", &status) {
+        log::warn!("[vpn] status was not delivered: {error}");
+    }
+    if let Some(notice) = notice {
+        if let Err(error) = app.emit_to("main", "vpn-notice", NoticePayload::from(notice)) {
+            log::warn!("[vpn] notice was not delivered: {error}");
         }
-        Some(VpnAction::Reconnect) => {
-            // A press in progress is doing this already.
-            let Some(_login) = service.begin_login() else {
-                return (state, notice);
-            };
-            let outcome = match crate::core_ports::core(app)
-                .sessions()
-                .campus_vpn_login()
-                .await
-            {
-                // A disconnect while signing in: no tunnel behind its back.
-                Ok(_) if !service.keeps() => service.state(),
-                Ok(login) => {
-                    let connecting = service.clone();
-                    tauri::async_runtime::spawn_blocking(move || connecting.connect(&login.cookie))
-                        .await
-                        .unwrap_or(state)
-                }
-                Err(error) => service.failed(VpnError::Login(error)),
-            };
-            let stopped = service.reconnected(&outcome, chrono::Utc::now());
-            (outcome, notice.or(stopped))
-        }
-        None => (state, notice),
     }
 }
 
 /// Reads the helper once at launch (a tunnel may have outlived the app), then
-/// checks it while a tunnel is up or auto-continue is on.
+/// checks it while a tunnel is up.
 pub(crate) fn watch(app: tauri::AppHandle) {
-    use tauri::{Emitter, Manager};
+    use tauri::Manager;
     tauri::async_runtime::spawn(async move {
         let service = app.state::<Arc<VpnService>>().inner().clone();
         let first = service.clone();
@@ -187,31 +155,20 @@ pub(crate) fn watch(app: tauri::AppHandle) {
         let mut ticks = tokio::time::interval(WATCH_EVERY);
         loop {
             ticks.tick().await;
-            if !service.keeps()
-                && !matches!(
-                    service.state(),
-                    VpnState::Connected { .. } | VpnState::Connecting
-                )
-            {
+            if !matches!(
+                service.state(),
+                VpnState::Connected { .. } | VpnState::Connecting
+            ) {
                 continue;
             }
             let checking = service.clone();
-            let Ok(check) =
+            let Ok(VpnCheck { state, notice }) =
                 tauri::async_runtime::spawn_blocking(move || checking.watch(chrono::Utc::now()))
                     .await
             else {
                 continue;
             };
-            let (state, notice) = act(&app, &service, check).await;
-            let status = super::report(&service, state);
-            if let Err(error) = app.emit_to("main", "vpn-status", &status) {
-                log::warn!("[vpn] status was not delivered: {error}");
-            }
-            if let Some(notice) = notice {
-                if let Err(error) = app.emit_to("main", "vpn-notice", NoticePayload::from(notice)) {
-                    log::warn!("[vpn] notice was not delivered: {error}");
-                }
-            }
+            tell(&app, &service, state, notice);
         }
     });
 }

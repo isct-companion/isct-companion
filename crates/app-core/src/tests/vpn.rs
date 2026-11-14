@@ -49,6 +49,7 @@ fn report(state: HelperState) -> HelperReport {
         detail: None,
         expires_at: None,
         revision: Some(HELPER_REVISION),
+        ended: None,
     }
 }
 
@@ -92,6 +93,7 @@ fn a_connected_report_keeps_the_tunnel_address() {
         detail: None,
         expires_at: None,
         revision: Some(HELPER_REVISION),
+        ended: None,
     });
     assert_eq!(
         next,
@@ -112,6 +114,7 @@ fn a_disconnected_report_with_a_detail_is_a_failure() {
         detail: Some("openconnect exited".into()),
         expires_at: None,
         revision: Some(HELPER_REVISION),
+        ended: None,
     });
     assert_eq!(
         failed,
@@ -131,6 +134,7 @@ fn connect_goes_connecting_then_connected() {
         detail: None,
         expires_at: None,
         revision: Some(HELPER_REVISION),
+        ended: None,
     })]);
     let service = VpnService::new(port.clone());
     assert_eq!(
@@ -259,6 +263,19 @@ fn an_ending_is_announced_only_when_the_tunnel_ends_by_itself() {
     ]));
     silent.refresh();
     assert_eq!(silent.watch(now).notice, None);
+
+    // A forgotten SSH the helper cut is told even with on-demand on, where a
+    // plain ending is not news.
+    let unused = VpnService::new(FakePort::answering(vec![
+        Ok(report(HelperState::Connected)),
+        Ok(HelperReport {
+            ended: Some(vpn_protocol::Ending::Unused),
+            ..report(HelperState::Disconnected)
+        }),
+    ]));
+    unused.refresh();
+    unused.set_on_demand(true);
+    assert_eq!(unused.watch(now).notice, Some(VpnNotice::Unused));
 }
 
 /// A login that failed before the helper is the state the person sees, with
@@ -278,155 +295,153 @@ fn minutes_after(start: DateTime<Utc>, minutes: i64) -> DateTime<Utc> {
     start + chrono::Duration::minutes(minutes)
 }
 
-/// A service with a tunnel up and auto-continue on for an hour, then the
-/// helper answering `answers`.
-fn keeping(start: DateTime<Utc>, answers: Vec<Result<HelperReport, VpnError>>) -> VpnService {
-    let mut script = vec![Ok(report(HelperState::Connected))];
-    script.extend(answers);
-    let service = VpnService::new(FakePort::answering(script));
-    service.refresh();
-    service.set_keep(Some(1), start).unwrap();
-    service
-}
-
-/// Auto-continue always has an end, and starts from a tunnel that is up.
+/// A standby demand signs in only while on-demand is on and no tunnel is up,
+/// waits longer after each failure, and turns itself off on what retrying
+/// cannot fix: each demand would otherwise post a refused password again.
+/// Being offline only waits: no password was accepted, so it never stops.
 #[test]
-fn auto_continue_needs_a_bounded_duration_and_a_tunnel() {
-    let now = at(1_793_690_000);
-    let down = VpnService::new(FakePort::answering(vec![]));
-    assert_eq!(down.set_keep(Some(4), now), Err(VpnKeepError::NotConnected));
-    let up = keeping(now, vec![]);
-    assert_eq!(
-        up.set_keep(Some(0), now),
-        Err(VpnKeepError::InvalidDuration)
-    );
-    assert_eq!(
-        up.set_keep(Some(KEEP_MAX_HOURS + 1), now),
-        Err(VpnKeepError::InvalidDuration)
-    );
-    assert_eq!(
-        up.keep_until(),
-        Some(minutes_after(now, 60)),
-        "a refusal changes nothing"
-    );
-    assert_eq!(up.set_keep(None, now), Ok(None));
-    assert_eq!(up.keep_until(), None);
-}
-
-/// A tunnel ending inside the duration reconnects, without announcing an end
-/// that does not matter; the next attempts wait, so a tunnel that keeps dying
-/// does not loop on the password.
-#[test]
-fn a_tunnel_ending_inside_the_duration_reconnects_with_growing_waits() {
+fn demands_sign_in_with_growing_waits_and_stop_on_what_cannot_work() {
     let start = at(1_793_690_000);
-    let service = keeping(
-        start,
-        vec![
-            Ok(report(HelperState::Disconnected)),
-            Ok(report(HelperState::Disconnected)),
-            Ok(report(HelperState::Disconnected)),
-        ],
-    );
-    let dropped = service.watch(minutes_after(start, 10));
-    assert_eq!(dropped.action, Some(VpnAction::Reconnect));
-    assert_eq!(dropped.notice, None);
-    let up = VpnState::Connected {
-        address: None,
-        expires_at: None,
-    };
-    assert_eq!(service.reconnected(&up, minutes_after(start, 10)), None);
-    // It died again at once: not before the wait is over.
-    assert_eq!(service.watch(minutes_after(start, 10)).action, None);
-    assert_eq!(
-        service.watch(minutes_after(start, 11)).action,
-        Some(VpnAction::Reconnect)
-    );
-}
-
-/// The duration's end disconnects, once, and its reminder replaces the
-/// session's, which would only have reconnected.
-#[test]
-fn the_end_of_the_duration_is_announced_and_disconnects() {
-    let start = at(1_793_690_000);
-    let session_ends = minutes_after(start, 52);
-    let service = keeping(
-        start,
-        vec![
-            Ok(connected_until(session_ends)),
-            Ok(connected_until(session_ends)),
-            Ok(report(HelperState::Connected)),
-            Ok(report(HelperState::Disconnected)),
-        ],
-    );
-    assert_eq!(service.watch(minutes_after(start, 45)).notice, None);
-    assert_eq!(
-        service.watch(minutes_after(start, 50)).notice,
-        Some(VpnNotice::EndingSoon { minutes: 10 })
-    );
-    let end = service.watch(minutes_after(start, 60));
-    assert_eq!(end.notice, Some(VpnNotice::KeepEnded));
-    assert_eq!(end.action, Some(VpnAction::Disconnect));
-    assert_eq!(service.keep_until(), None);
-    // Nothing reconnects after it.
-    assert_eq!(service.watch(minutes_after(start, 61)).action, None);
-}
-
-/// A refused password is never sent again; being offline only waits.
-#[test]
-fn reconnecting_stops_on_what_it_cannot_fix_and_waits_out_the_rest() {
-    let start = at(1_793_690_000);
-    let refused = VpnState::Error(VpnError::Login(CampusVpnError::Rejected));
-    let service = keeping(start, vec![]);
-    assert_eq!(
-        service.reconnected(&refused, start),
-        Some(VpnNotice::KeepStopped {
-            code: "vpn_login_rejected"
-        })
-    );
-    assert_eq!(service.keep_until(), None);
+    let port = FakePort::answering(vec![Ok(report(HelperState::Connected))]);
+    let service = VpnService::new(port.clone());
+    assert!(!service.demanded(start), "off by default");
+    service.set_on_demand(true);
+    assert!(service.demanded(start));
 
     let offline = VpnState::Error(VpnError::Login(CampusVpnError::Unreachable("x".into())));
-    let service = keeping(start, vec![]);
-    for attempt in 0..20 {
+    let mut at_minute = 0;
+    for wait in [1, 2, 5, 5] {
         assert_eq!(
-            service.reconnected(&offline, minutes_after(start, attempt)),
+            service.demand_finished(&offline, minutes_after(start, at_minute)),
+            None
+        );
+        assert!(!service.demanded(minutes_after(start, at_minute + wait - 1)));
+        at_minute += wait;
+        assert!(service.demanded(minutes_after(start, at_minute)));
+    }
+    for minute in 0..20 {
+        assert_eq!(
+            service.demand_finished(&offline, minutes_after(start, 100 + minute)),
             None
         );
     }
-    assert!(
-        service.keeps(),
-        "offline never gives up before the duration"
+    assert!(service.on_demand(), "offline never gives up");
+
+    assert!(matches!(
+        service.connect(&cookie()),
+        VpnState::Connected { .. }
+    ));
+    assert_eq!(port.calls(), ["start"]);
+    assert!(!service.demanded(minutes_after(start, 300)), "already up");
+
+    let refused = VpnState::Error(VpnError::Login(CampusVpnError::Rejected));
+    assert_eq!(
+        service.demand_finished(&refused, start),
+        Some(VpnNotice::DemandStopped {
+            code: "vpn_login_rejected"
+        })
     );
+    assert!(!service.on_demand());
+
+    // The sign-in itself must never wait on standby.
+    let bypass: Vec<_> = VpnService::standby_bypass_hosts().collect();
+    for host in [
+        f5::CAMPUS_APM_HOST,
+        "portal.nap.gsic.titech.ac.jp",
+        "rp.nap.gsic.titech.ac.jp",
+    ] {
+        assert!(bypass.contains(&host), "{host}");
+    }
 }
 
-/// Logins the school accepts but whose tunnel keeps dying end it, so a broken
-/// tunnel does not post the password every few minutes for a day.
+/// Logins the school accepts but whose tunnel keeps dying end on-demand, so
+/// a broken tunnel does not post the password on every connection. A tunnel
+/// up long enough clears that count, and its ending needs no notice: the
+/// next use brings it back.
 #[test]
-fn logins_that_never_last_give_up() {
+fn logins_that_never_last_give_up_and_lasting_ones_reset_the_count() {
     let start = at(1_793_690_000);
-    let service = keeping(start, vec![]);
     let up = VpnState::Connected {
         address: None,
         expires_at: None,
     };
-    for _ in 1..KEEP_MAX_SPENT {
-        assert_eq!(service.reconnected(&up, start), None);
+    let never_lasting = VpnService::new(FakePort::answering(vec![]));
+    never_lasting.set_on_demand(true);
+    for _ in 1..MAX_SPENT {
+        assert_eq!(never_lasting.demand_finished(&up, start), None);
     }
     assert_eq!(
-        service.reconnected(&up, start),
-        Some(VpnNotice::KeepStopped {
+        never_lasting.demand_finished(&up, start),
+        Some(VpnNotice::DemandStopped {
             code: "tunnel_failed"
         })
     );
+
+    let service = VpnService::new(FakePort::answering(vec![
+        Ok(report(HelperState::Connected)),
+        Ok(report(HelperState::Connected)),
+        Ok(report(HelperState::Connected)),
+        Ok(report(HelperState::Disconnected)),
+    ]));
+    service.refresh();
+    service.set_on_demand(true);
+    for minute in 0..i64::from(MAX_SPENT) - 1 {
+        assert_eq!(
+            service.demand_finished(&up, minutes_after(start, minute)),
+            None
+        );
+    }
+    for minute in [0, STABLE_MINUTES] {
+        service.watch(minutes_after(start, 10 + minute));
+    }
+    assert_eq!(service.demand_finished(&up, minutes_after(start, 20)), None);
+    assert!(service.on_demand(), "a lasting tunnel restarted the count");
+    let ended = service.watch(minutes_after(start, 40));
+    assert_eq!(ended.state, VpnState::Disconnected);
+    assert_eq!(ended.notice, None);
 }
 
-/// A disconnect turns it off, and two sign-ins never run at once.
+/// Something touching the campus network every few minutes must not sign in
+/// each time: on-demand signs in at most six times an hour by itself, says
+/// until when it holds back, and a press is never held back.
 #[test]
-fn a_disconnect_ends_auto_continue_and_logins_are_one_at_a_time() {
+fn demands_sign_in_at_most_six_times_an_hour() {
     let start = at(1_793_690_000);
-    let service = keeping(start, vec![Ok(report(HelperState::Disconnected))]);
-    service.disconnect();
-    assert!(!service.keeps());
+    let service = VpnService::new(FakePort::answering(vec![Ok(report(
+        HelperState::Connected,
+    ))]));
+    service.set_on_demand(true);
+    let offline = VpnState::Error(VpnError::Login(CampusVpnError::Unreachable("x".into())));
+    let mut signed_in = vec![];
+    for minute in 0..60 {
+        let now = minutes_after(start, minute);
+        if service.demanded(now) {
+            signed_in.push(minute);
+            service.demand_finished(&offline, now);
+        }
+    }
+    assert_eq!(signed_in, [0, 1, 3, 8, 13, 18]);
+    assert_eq!(
+        service.demand_paused_until(minutes_after(start, 30)),
+        Some(minutes_after(start, 60))
+    );
+    assert!(service.demanded(minutes_after(start, 60)));
+    // The hour slides: the next frees up when the second one turns an hour.
+    assert_eq!(
+        service.demand_paused_until(minutes_after(start, 60)),
+        Some(minutes_after(start, 61))
+    );
+    assert!(service.on_demand(), "holding back is not giving up");
+    assert!(matches!(
+        service.connect(&cookie()),
+        VpnState::Connected { .. }
+    ));
+}
+
+/// A press and a demand must not each spend a one-time session.
+#[test]
+fn logins_are_one_at_a_time() {
+    let service = VpnService::new(FakePort::answering(vec![]));
     let first = service.begin_login();
     assert!(first.is_some());
     assert!(service.begin_login().is_none());

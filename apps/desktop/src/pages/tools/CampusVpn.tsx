@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import type { VpnNotice, VpnStatus } from "../../platform/desktop-bridge";
-import { UiButton, UiSelect } from "../../components/ui";
+import { Switch, UiButton } from "../../components/ui";
+import { workspaceActions } from "../../store/workspace";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
 import { errorText } from "../../app/shared";
+import { jstClock } from "../../lib/civil-date";
 
 /** Codes from the desktop's VPN commands, keyed as the shell reports them. */
 const VPN_ERROR_TEXT: Record<string, MessageKey> = {
@@ -29,17 +31,6 @@ const vpnErrorText = (status: VpnStatus) =>
     ? t(VPN_ERROR_TEXT[status.error])
     : (status.detail ?? t("common.signInFailed"));
 
-/** Auto-continue always ends: these are its only choices. */
-const KEEP_HOURS = [2, 4, 8, 12, 24];
-
-const clockTime = (at: string) =>
-  new Date(at).toLocaleString(undefined, {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
 /** Title and body of the system notification for a reminder. */
 export const vpnNoticeText = (notice: VpnNotice): [string, string] => {
   switch (notice.kind) {
@@ -53,18 +44,25 @@ export const vpnNoticeText = (notice: VpnNotice): [string, string] => {
         t("tools.campusWifi.vpnEndedTitle"),
         t("tools.campusWifi.vpnEndedBody"),
       ];
-    case "keepEnded":
+    case "unused":
       return [
-        t("tools.campusWifi.vpnEndedTitle"),
-        t("tools.campusWifi.vpnKeepEndedBody"),
+        t("tools.campusWifi.vpnUnusedTitle"),
+        t("tools.campusWifi.vpnUnusedBody"),
       ];
-    case "keepStopped":
+    case "demandStopped":
       return [
-        t("tools.campusWifi.vpnKeepStoppedTitle"),
+        t("tools.campusWifi.vpnDemandStoppedTitle"),
         vpnErrorText({ state: "error", error: notice.code }),
       ];
   }
 };
+
+/** This device's on-demand choice, which the next launch reads. */
+export const saveVpnOnDemand = (enabled: boolean) =>
+  workspaceActions.updateSettings((draft) => {
+    draft.settings.campusVpnOnDemand = enabled;
+    return draft;
+  });
 
 /** The APM session's countdown, as the webtop shows it, in whole minutes. */
 const vpnRemaining = (expiresAt: string | null | undefined, now: number) => {
@@ -111,34 +109,37 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     };
   }, []);
 
+  // The helper, installed or updated once with the person's consent; the
+  // status after it, or nothing when they declined.
+  const readyHelper = async () => {
+    if (!desktopBridge?.vpnStatus) return;
+    const next = await desktopBridge.vpnStatus();
+    if (
+      next.error !== "helper_not_installed" &&
+      next.error !== "helper_outdated"
+    )
+      return next;
+    const update = next.error === "helper_outdated";
+    const confirmed = await confirmAction(
+      t(
+        update
+          ? "tools.campusWifi.vpnHelperOutdated"
+          : "tools.campusWifi.vpnInstallNeeded",
+      ),
+      t(update ? "tools.campusWifi.vpnUpdate" : "tools.campusWifi.vpnInstall"),
+      { title: t("tools.campusWifi.campusVpn"), danger: false },
+    );
+    return confirmed ? desktopBridge.vpnInstall!() : undefined;
+  };
+
   // One press: install the helper once if needed, then Core signs in to the
   // campus VPN with the saved Tokyo Tech account and connects.
   const connectVpn = async () => {
-    if (!desktopBridge?.vpnStatus || !desktopBridge.vpnConnect) return;
+    if (!desktopBridge?.vpnConnect) return;
     setVpnBusy(true);
     try {
-      let next = await desktopBridge.vpnStatus();
-      if (
-        next.error === "helper_not_installed" ||
-        next.error === "helper_outdated"
-      ) {
-        const update = next.error === "helper_outdated";
-        const confirmed = await confirmAction(
-          t(
-            update
-              ? "tools.campusWifi.vpnHelperOutdated"
-              : "tools.campusWifi.vpnInstallNeeded",
-          ),
-          t(
-            update
-              ? "tools.campusWifi.vpnUpdate"
-              : "tools.campusWifi.vpnInstall",
-          ),
-          { title: t("tools.campusWifi.campusVpn"), danger: false },
-        );
-        if (!confirmed) return;
-        next = await desktopBridge.vpnInstall!();
-      }
+      const next = await readyHelper();
+      if (!next) return;
       setVpn(next);
       // Any error here is the last attempt's, which the helper keeps reporting
       // until the next start. `vpn_connect` itself stops on a helper it cannot
@@ -168,25 +169,33 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     }
   };
 
-  const setKeep = async (hours: number | null) => {
-    if (!desktopBridge?.vpnKeep) return;
+  // Standby needs the current helper, as a connect does.
+  const setOnDemand = async (enabled: boolean) => {
+    if (!desktopBridge?.vpnOnDemand) return;
+    setVpnBusy(true);
     try {
-      setVpn(await desktopBridge.vpnKeep(hours));
+      if (enabled && !(await readyHelper())) return;
+      setVpn(await desktopBridge.vpnOnDemand(enabled));
+      await saveVpnOnDemand(enabled);
     } catch (error) {
       notify(errorText(error) ?? t("common.signInFailed"));
+    } finally {
+      setVpnBusy(false);
     }
   };
 
-  const keeping = Boolean(vpn?.keepUntil);
-  const vpnHint =
-    keeping && !vpnConnected
-      ? t("tools.campusWifi.vpnReconnecting")
-      : vpn?.error
-        ? vpnErrorText(vpn)
-        : vpnConnected
-          ? vpnRemaining(vpn.expiresAt, now)
-          : vpnBusy
-            ? t("tools.campusWifi.vpnConnecting")
+  const vpnHint = vpn?.error
+    ? vpnErrorText(vpn)
+    : vpnConnected
+      ? vpnRemaining(vpn.expiresAt, now)
+      : vpnBusy
+        ? t("tools.campusWifi.vpnConnecting")
+        : vpn?.demandPausedUntil
+          ? t("tools.campusWifi.vpnPaused", {
+              time: jstClock(new Date(vpn.demandPausedUntil)),
+            })
+          : vpn?.onDemand
+            ? t("tools.campusWifi.vpnStandby")
             : t("tools.campusWifi.vpnDisconnected");
 
   const unavailable = vpn?.state === "unavailable";
@@ -201,12 +210,10 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
           <UiButton
             className={`button small${vpnConnected ? " toolConnected" : ""}`}
             disabled={vpnBusy}
-            onClick={() =>
-              void (vpnConnected || keeping ? disconnectVpn() : connectVpn())
-            }
+            onClick={() => void (vpnConnected ? disconnectVpn() : connectVpn())}
           >
             {t(
-              vpnConnected || keeping
+              vpnConnected
                 ? "tools.campusWifi.vpnDisconnect"
                 : vpn?.error === "helper_not_installed"
                   ? "tools.campusWifi.vpnInstall"
@@ -218,32 +225,14 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
         )
       }
     >
-      {(vpnConnected || keeping) &&
-        (keeping ? (
-          <p className="toolCardNote">
-            {vpn?.keepUntil &&
-              t("tools.campusWifi.vpnKeepOnHint", {
-                until: clockTime(vpn.keepUntil),
-              })}{" "}
-            <UiButton
-              className="button small"
-              onClick={() => void setKeep(null)}
-            >
-              {t("tools.campusWifi.vpnKeepOff")}
-            </UiButton>
-          </p>
-        ) : (
-          <UiSelect
-            aria-label={t("tools.campusWifi.vpnKeep")}
-            placeholder={t("tools.campusWifi.vpnKeepChoose")}
-            value={undefined}
-            onChange={(value) => void setKeep(Number(value))}
-            data={KEEP_HOURS.map((hours) => ({
-              value: String(hours),
-              label: t("tools.campusWifi.vpnKeepHours", { hours }),
-            }))}
-          />
-        ))}
+      {!unavailable && vpn && (
+        <Switch
+          label={t("tools.campusWifi.vpnOnDemand")}
+          checked={Boolean(vpn.onDemand)}
+          disabled={vpnBusy}
+          onCheckedChange={(enabled) => void setOnDemand(enabled)}
+        />
+      )}
     </ToolCard>
   );
 }

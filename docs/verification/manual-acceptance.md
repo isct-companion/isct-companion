@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 162 checks must be re-run before the next release.**
+**5 of 165 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**157 checks have never been run or could not be run:**
+**160 checks have never been run or could not be run:**
 
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
@@ -37,6 +37,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-CREDENTIAL-BACKUP` — never verified
 - `CLOUD-RESILIENCE` — never verified
+- `SCHOOL-MATRIX-TITECH-APP-IMPORT` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
 - `DESKTOP-SCHOOL-WEBVIEW` — never verified
 - `DESKTOP-SCHOOL-POPUPS` — never verified
@@ -56,6 +57,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-ABOUT-DESIGN` — never verified
 - `DESKTOP-TOOLS-PAGE` — never verified
 - `DESKTOP-CAMPUS-VPN` — never verified
+- `DESKTOP-CAMPUS-VPN-ON-DEMAND` — never verified
 - `DESKTOP-CAMPUS-VPN-WINDOWS` — never verified
 - `DESKTOP-MCP-LMS-WRITE` — never verified
 - `DESKTOP-LEGACY-STORE-CUTOVER` — never verified
@@ -184,6 +186,7 @@ an unverified area becomes an assumed-good one.
 - `MOBILE-VIEW-QUERIES` — never verified
 - `DESKTOP-BACKUP-IMPORT-REQUERIES` — never verified
 - `ANDROID-START-FAILURE-COPY` — never verified
+- `SCHOOL-PORTAL-GMAIL-SYSTEM-BROWSER` — never verified
 
 ## Status
 
@@ -202,6 +205,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `SCHOOL-MATRIX-TITECH-APP-IMPORT` | school | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
@@ -221,6 +225,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/pages/about/IconToy.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
+| `DESKTOP-CAMPUS-VPN-ON-DEMAND` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/ondemand.rs<br>crates/vpn-helper/src/unix.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
@@ -351,6 +356,7 @@ an unverified area becomes an assumed-good one.
 | `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
 | `DESKTOP-BACKUP-IMPORT-REQUERIES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>apps/desktop/src/store/workspace.ts |
 | `ANDROID-START-FAILURE-COPY` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt |
+| `SCHOOL-PORTAL-GMAIL-SYSTEM-BROWSER` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_browser/policy.rs |
 
 ## Personas
 
@@ -1393,6 +1399,54 @@ Android builds with camera hardware.
 67 expected cells recognised, no wrong accepted cells; private image not committed.
 
 Evidence: `docs/verification/core-consolidation.md#automated-acceptance`
+
+### A Matrix exported from titech-app pastes in the card's own order (`SCHOOL-MATRIX-TITECH-APP-IMPORT`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build from this source, a TestFlight build on an iPhone and a
+CI-built APK on an Android phone; the Tokyo Tech Matrix card, and its
+Matrix exported from titech-app (a JSON array listing A1…A7, B1…B7, …).
+
+**Steps**
+
+1. On the desktop, open Settings → school accounts → Tokyo Tech and
+   paste the export into any Matrix cell. Compare column A and row 1 of
+   the grid with the card, and read the message that appears.
+   - *Why:* The export lists cells down columns while our own copy runs along
+     rows; only a person holding the card can tell the grid matches it,
+     and the message says it was read as titech-app's export.
+2. Repeat on the iPhone and on the Android phone (Settings → school
+   account → Matrix card → Paste).
+   - *Why:* Each phone reads its own clipboard and shows its own note; only the
+     native shells show that the paste reaches Core and fills the grid.
+
+**Where to look**
+
+The Matrix grid beside the physical card on each device.
+
+**Expected**
+
+Every cell matches the card on all three devices, and each shows that
+the Matrix was imported from titech-app.
+
+**Why this is manual**
+
+Needs the real card and a real export; whether the grid matches the
+card is a glance in the real app. Core's reading of both shapes is
+tested in crates/app-core/src/tests/school_auth.rs.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+
+**Last recorded** never run
 
 ### Camera outline follows the card on the frame it was fitted on (`OCR-CAMERA-GEOMETRY`)
 
@@ -2499,9 +2553,9 @@ A macOS and a Windows desktop build from this source.
      shows Campus Wi-Fi, Campus VPN and Campus printer; a Wi-Fi card on
      Windows would offer a sign-in that build does not have. Buttons stay
      at the bottom of a card and no text overflows when they wrap.
-2. Connect the VPN and look at its card, then disconnect.
-   - *Why:* Only the VPN card grows when connected, with the auto-continue choice
-     inside it; a card that pushes its button off the page breaks that.
+2. Turn the VPN card's 用到时自动连接 switch on and off.
+   - *Why:* The switch sits inside the VPN card; a card that grows and pushes its
+     button off the page breaks the grid.
 3. Open Settings, read its sidebar and search it for "VPN" and "printer".
    - *Why:* The three moved, not copied: a leftover row would give one tool two
      homes.
@@ -2581,18 +2635,12 @@ campus VPN helper not yet installed for the first run.
    the app open, then let it end.
    - *Why:* The reminder and the ended notice come from the minute check, not
      from the Settings page; neither may reconnect.
-9. While connected, choose a time under Auto-continue, then switch to
-   another network so the tunnel ends. Wait for the row to come back.
-   - *Why:* Inside the chosen time the app signs in again by itself, which only a
-     real session ending can exercise.
-10. During that switch, run `route -n get 131.112.12.180` and `scutil --dns`.
+9. While connected, switch to another network so the tunnel ends, and
+   run `route -n get 131.112.12.180` and `scutil --dns`.
    - *Why:* The APM's pin must follow the new network's gateway and the campus
      resolvers must be gone until the tunnel is back; otherwise neither
      openconnect nor a new sign-in can reach the APM.
-11. Let the chosen time run out (2 hours is the shortest).
-   - *Why:* Auto-continue must end: the reminder comes ten minutes ahead, the
-     tunnel disconnects at the time shown, and nothing reconnects after.
-12. Disconnect, then check the routes and the scoped DNS resolver.
+10. Disconnect, then check the routes and the scoped DNS resolver.
    - *Why:* Disconnect must remove 131.112.0.0/16, the host route pinning the APM
      (131.112.12.180) and the isct.ac.jp resolver. A pin left behind points
      at this network's gateway and blocks connecting from the next one.
@@ -2635,6 +2683,79 @@ install on macOS. None of that is reachable from automated suites.
 - `apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 - `scripts/desktop/bundle-vpn.mjs`
+
+**Last recorded** never run
+
+### Campus VPN connects when needed, ends when idle, and leaves no routes (`DESKTOP-CAMPUS-VPN-ON-DEMAND`)
+
+**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Off campus, a working school login, the helper of this build installed.
+Run once on macOS and once on Windows.
+
+**Steps**
+
+1. In 工具 → 校园 VPN turn on 用到时自动连接 (必要なときに自動接続) and
+   check that 131.112.133.61 routes to the standby interface while
+   131.112.12.180 (the APM) keeps the physical one (macOS
+   `route -n get`, Windows `Find-NetRoute -RemoteIPAddress`).
+   - *Why:* A sign-in host caught by standby waits on the tunnel its own sign-in
+     starts; a campus host left out is never connected for.
+2. With no tunnel up, run `ssh login.t4.gsic.titech.ac.jp` and open
+   https://portal.t4.gsic.titech.ac.jp/ in a browser.
+   - *Why:* The first packets carry the standby address, not the one F5 assigns;
+     only the held connection being dialled again through the tunnel lets
+     them succeed without a retry.
+3. Leave the tunnel unused for more than 5 minutes, then use ssh again.
+   Once, with on-demand off, press Connect and leave it unused too.
+   - *Why:* The school asks for disconnecting as soon as possible: the helper
+     must end any unused tunnel, a demanded one without a notice, and
+     standby must take the routes back so the next use reconnects.
+4. Keep an ssh session open at its prompt for more than 5 minutes, once
+   with ServerAliveInterval 30 for more than 30 minutes, without typing.
+   - *Why:* An open connection must keep the tunnel past the idle time, or an
+     SSH dies mid-session; but keepalives alone must not hold one of the
+     school's few VPN ports past half an hour, which ends with a notice.
+     The connection check reads the system's TCP table, which only a
+     real tunnel address fills.
+5. Save a wrong password in the school account, then reach a campus host.
+   - *Why:* A refused password must turn on-demand off with one notice, not post
+     the password again on every connection.
+6. Quit the app (and once, force-quit it), then check the routes again.
+   - *Why:* Standby lives only on the app's connection to the helper; a route
+     left behind sends campus traffic into an interface nobody serves.
+
+**Where to look**
+
+The VPN card's state, the system notifications, the ssh and browser
+results, `netstat -rn -f inet` or `route print`, and the helper log.
+
+**Expected**
+
+First use connects within the sign-in time and succeeds, an idle tunnel
+ends after 5 minutes (quietly when it was demanded), an open ssh keeps
+it until 30 minutes without real traffic and then ends with the unused
+notice, a refused password stops it once, and no standby route or
+interface remains after the app quits.
+
+**Why this is manual**
+
+Needs root or a service to own the standby interface and routes, the
+school's F5 login and a real tunnel; none is reachable from the suites.
+
+**Covers**
+
+- `crates/vpn-helper/src/ondemand.rs`
+- `crates/vpn-helper/src/unix.rs`
+- `crates/vpn-helper/src/windows.rs`
+- `crates/vpn-helper/src/windows_net.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs`
+- `apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs`
+- `apps/desktop/src/pages/tools/CampusVpn.tsx`
 
 **Last recorded** never run
 
@@ -10201,5 +10322,46 @@ Core's data-root suite.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt`
+
+**Last recorded** never run
+
+### The portal's Gmail tile opens in the system browser (`SCHOOL-PORTAL-GMAIL-SYSTEM-BROWSER`)
+
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A signed-in Science Tokyo account, on any shell, and a system browser
+already signed in to the school Google account.
+
+**Steps**
+
+1. Open the Science Tokyo portal (isct.ex-tic.com/idm/user/portal/) in
+   the app and choose the Gmail tile.
+   - *Why:* A school view holds no Google session, so Gmail kept in the app
+     lands on Google's "enter your email" page; only the real portal
+     link shows whether it reaches Google through a host the rule sends
+     out.
+
+**Where to look**
+
+Which window shows Gmail.
+
+**Expected**
+
+The system browser opens the school mailbox without asking for an
+email; the app's view stays on the portal.
+
+**Why this is manual**
+
+Needs real school and Google accounts and the shells' hand-off to the
+system browser; a person sees where the click lands at a glance. The
+rule itself is covered by Core's school-browser suite.
+
+**Covers**
+
+- `crates/app-core/src/school_browser/policy.rs`
 
 **Last recorded** never run

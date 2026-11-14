@@ -44,6 +44,15 @@ impl HelperSocket {
     }
 }
 
+/// The connection standby lives on. A helper writes on it every
+/// `STANDBY_HEARTBEAT_SECS`; one silent far longer than that has hung.
+pub(crate) fn standby_stream() -> Result<UnixStream, VpnError> {
+    let stream = UnixStream::connect(SOCKET_PATH).map_err(connect_error)?;
+    let silent = Duration::from_secs(vpn_protocol::STANDBY_HEARTBEAT_SECS * 5);
+    stream.set_read_timeout(Some(silent)).map_err(io_error)?;
+    Ok(stream)
+}
+
 /// No socket file means the installer never ran. A socket file with nobody
 /// listening means the daemon is not running, which is not the same thing.
 fn connect_error(error: std::io::Error) -> VpnError {

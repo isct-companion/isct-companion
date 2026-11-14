@@ -1,8 +1,9 @@
 //! The campus VPN tool, as the `campus-vpn` plugin
-//! (`plugin:campus-vpn|status`, `connect`, `disconnect`, `keep`,
+//! (`plugin:campus-vpn|status`, `connect`, `disconnect`, `on_demand`,
 //! `install`): install once, then one press signs in to the APM with the
-//! saved Tokyo Tech account and connects; auto-continue keeps it connected
-//! for a chosen time. Decisions are app-core's; this plugin carries them to
+//! saved Tokyo Tech account and connects, or on-demand connecting signs in
+//! when something uses the campus network (`standby`). The helper ends any
+//! tunnel left unused. Decisions are app-core's; this plugin carries them to
 //! the webview and does the IO (`helper`).
 use crate::{core_ports::core, require_local_main, CommandError};
 use app_core::vpn::{VpnError, VpnService, VpnState};
@@ -13,13 +14,14 @@ use tauri::Manager;
 mod helper;
 #[cfg(target_os = "macos")]
 mod macos;
+mod standby;
 #[cfg(target_os = "windows")]
 mod windows;
 
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("campus-vpn")
         .invoke_handler(tauri::generate_handler![
-            status, connect, disconnect, keep, install
+            status, connect, disconnect, on_demand, install
         ])
         .setup(|app, _| {
             app.manage(helper::service());
@@ -31,6 +33,18 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .on_event(|app, event| {
             if let tauri::RunEvent::Ready = event {
                 helper::watch(app.clone());
+                // This device's choice, kept across launches.
+                let stored = core(app)
+                    .store
+                    .device_preference("/campusVpnOnDemand")
+                    .unwrap_or_else(|error| {
+                        log::warn!("[vpn] on-demand preference is unreadable: {error}");
+                        None
+                    });
+                if stored.and_then(|value| value.as_bool()) == Some(true) {
+                    service(app).set_on_demand(true);
+                    standby::ensure(app.clone());
+                }
             }
         })
         .build()
@@ -45,8 +59,12 @@ struct VpnStatus {
     address: Option<String>,
     /// When the APM session ends (RFC 3339), for the countdown.
     expires_at: Option<String>,
-    /// When auto-continue ends and disconnects (RFC 3339), while it is on.
-    keep_until: Option<String>,
+    /// Whether on-demand connecting is on now; it turns itself off on what
+    /// retrying cannot fix.
+    on_demand: bool,
+    /// While on-demand has spent the hour's sign-ins, when it resumes
+    /// (RFC 3339).
+    demand_paused_until: Option<String>,
     error: Option<&'static str>,
     detail: Option<String>,
 }
@@ -57,7 +75,8 @@ impl From<VpnState> for VpnStatus {
             state,
             address: None,
             expires_at: None,
-            keep_until: None,
+            on_demand: false,
+            demand_paused_until: None,
             error: None,
             detail: None,
         };
@@ -81,10 +100,13 @@ impl From<VpnState> for VpnStatus {
     }
 }
 
-/// The webview's status: `state` with auto-continue's end.
+/// The webview's status: `state` with whether on-demand connecting is on.
 fn report(service: &VpnService, state: VpnState) -> VpnStatus {
     VpnStatus {
-        keep_until: service.keep_until().map(|at| at.to_rfc3339()),
+        on_demand: service.on_demand(),
+        demand_paused_until: service
+            .demand_paused_until(chrono::Utc::now())
+            .map(|at| at.to_rfc3339()),
         ..state.into()
     }
 }
@@ -178,18 +200,20 @@ async fn connect(
     Ok(report(&service, state))
 }
 
-/// Turns auto-continue on for `hours`, which it always needs, or off (`None`).
+/// Turns on-demand connecting on or off for now; the page keeps the choice
+/// in this device's preferences, which the next launch reads.
 #[tauri::command]
-async fn keep(
+async fn on_demand(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    hours: Option<u32>,
+    enabled: bool,
 ) -> Result<VpnStatus, CommandError> {
     require_local_main(&webview)?;
     let service = service(&app);
-    service
-        .set_keep(hours, chrono::Utc::now())
-        .map_err(|error| CommandError::from(error.to_string()))?;
+    service.set_on_demand(enabled);
+    if enabled {
+        standby::ensure(app.clone());
+    }
     Ok(report(&service, service.state()))
 }
 

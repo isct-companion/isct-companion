@@ -13,6 +13,17 @@ fn start_request_uses_the_wire_names() {
     );
     assert!(Request::from_line(r#"{"op":"stop"}"#).is_ok());
     assert!(Request::from_line(r#"{"op":"status"}"#).is_ok());
+    assert_eq!(
+        Request::from_line(r#"{"op":"standby","bypass":["131.112.12.180"]}"#).unwrap(),
+        Request::Standby {
+            bypass: vec![std::net::Ipv4Addr::new(131, 112, 12, 180)]
+        }
+    );
+    assert_eq!(
+        StandbyEvent::Standby { tunnel: true }.to_line(),
+        r#"{"event":"standby","tunnel":true}"#
+    );
+    assert_eq!(StandbyEvent::Demand.to_line(), r#"{"event":"demand"}"#);
 }
 
 /// The helper accepts start/stop/status only; anything else must be refused
@@ -35,7 +46,12 @@ fn cookie_with_a_line_break_is_refused() {
 #[test]
 fn cookie_never_prints_its_value() {
     let cookie = SessionCookie::new("MRHSession=secret").unwrap();
-    let rendered = format!("{cookie:?} {:?}", Request::Start { cookie: cookie.clone() });
+    let rendered = format!(
+        "{cookie:?} {:?}",
+        Request::Start {
+            cookie: cookie.clone()
+        }
+    );
     assert!(!rendered.contains("secret"));
 }
 
@@ -52,4 +68,9 @@ fn reply_state_serializes_as_lowercase_names() {
     let error = serde_json::to_value(Reply::error("boom")).unwrap();
     assert_eq!(error["state"], "error");
     assert_eq!(error["detail"], "boom");
+    let unused = Reply {
+        ended: Some(Ending::Unused),
+        ..Reply::disconnected()
+    };
+    assert_eq!(serde_json::to_value(unused).unwrap()["ended"], "unused");
 }

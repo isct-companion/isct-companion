@@ -1069,6 +1069,43 @@ checks:
         committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
+  - id: SCHOOL-MATRIX-TITECH-APP-IMPORT
+    area: school
+    title: A Matrix exported from titech-app pastes in the card's own order
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build from this source, a TestFlight build on an iPhone and a
+      CI-built APK on an Android phone; the Tokyo Tech Matrix card, and its
+      Matrix exported from titech-app (a JSON array listing A1…A7, B1…B7, …).
+    steps:
+      - action: |
+          On the desktop, open Settings → school accounts → Tokyo Tech and
+          paste the export into any Matrix cell. Compare column A and row 1 of
+          the grid with the card, and read the message that appears.
+        reason: |
+          The export lists cells down columns while our own copy runs along
+          rows; only a person holding the card can tell the grid matches it,
+          and the message says it was read as titech-app's export.
+      - action: |
+          Repeat on the iPhone and on the Android phone (Settings → school
+          account → Matrix card → Paste).
+        reason: |
+          Each phone reads its own clipboard and shows its own note; only the
+          native shells show that the paste reaches Core and fills the grid.
+    observe: The Matrix grid beside the physical card on each device.
+    expected: |
+      Every cell matches the card on all three devices, and each shows that
+      the Matrix was imported from titech-app.
+    why_manual: |
+      Needs the real card and a real export; whether the grid matches the
+      card is a glance in the real app. Core's reading of both shapes is
+      tested in crates/app-core/src/tests/school_auth.rs.
+    covers:
+      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+      - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+    verified: null
+
   - id: OCR-CAMERA-GEOMETRY
     area: ocr
     title: Camera outline follows the card on the frame it was fitted on
@@ -2068,10 +2105,10 @@ checks:
           Windows would offer a sign-in that build does not have. Buttons stay
           at the bottom of a card and no text overflows when they wrap.
       - action: |
-          Connect the VPN and look at its card, then disconnect.
+          Turn the VPN card's 用到时自动连接 switch on and off.
         reason: |
-          Only the VPN card grows when connected, with the auto-continue choice
-          inside it; a card that pushes its button off the page breaks that.
+          The switch sits inside the VPN card; a card that grows and pushes its
+          button off the page breaks the grid.
       - action: |
           Open Settings, read its sidebar and search it for "VPN" and "printer".
         reason: |
@@ -2153,22 +2190,12 @@ checks:
           The reminder and the ended notice come from the minute check, not
           from the Settings page; neither may reconnect.
       - action: |
-          While connected, choose a time under Auto-continue, then switch to
-          another network so the tunnel ends. Wait for the row to come back.
-        reason: |
-          Inside the chosen time the app signs in again by itself, which only a
-          real session ending can exercise.
-      - action: |
-          During that switch, run `route -n get 131.112.12.180` and `scutil --dns`.
+          While connected, switch to another network so the tunnel ends, and
+          run `route -n get 131.112.12.180` and `scutil --dns`.
         reason: |
           The APM's pin must follow the new network's gateway and the campus
           resolvers must be gone until the tunnel is back; otherwise neither
           openconnect nor a new sign-in can reach the APM.
-      - action: |
-          Let the chosen time run out (2 hours is the shortest).
-        reason: |
-          Auto-continue must end: the reminder comes ten minutes ahead, the
-          tunnel disconnects at the time shown, and nothing reconnects after.
       - action: |
           Disconnect, then check the routes and the scoped DNS resolver.
         reason: |
@@ -2206,6 +2233,77 @@ checks:
       - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - scripts/desktop/bundle-vpn.mjs
+    verified: null
+
+  - id: DESKTOP-CAMPUS-VPN-ON-DEMAND
+    area: desktop
+    title: Campus VPN connects when needed, ends when idle, and leaves no routes
+    persona: undergraduate-first-term
+    preconditions: |
+      Off campus, a working school login, the helper of this build installed.
+      Run once on macOS and once on Windows.
+    steps:
+      - action: |
+          In 工具 → 校园 VPN turn on 用到时自动连接 (必要なときに自動接続) and
+          check that 131.112.133.61 routes to the standby interface while
+          131.112.12.180 (the APM) keeps the physical one (macOS
+          `route -n get`, Windows `Find-NetRoute -RemoteIPAddress`).
+        reason: |
+          A sign-in host caught by standby waits on the tunnel its own sign-in
+          starts; a campus host left out is never connected for.
+      - action: |
+          With no tunnel up, run `ssh login.t4.gsic.titech.ac.jp` and open
+          https://portal.t4.gsic.titech.ac.jp/ in a browser.
+        reason: |
+          The first packets carry the standby address, not the one F5 assigns;
+          only the held connection being dialled again through the tunnel lets
+          them succeed without a retry.
+      - action: |
+          Leave the tunnel unused for more than 5 minutes, then use ssh again.
+          Once, with on-demand off, press Connect and leave it unused too.
+        reason: |
+          The school asks for disconnecting as soon as possible: the helper
+          must end any unused tunnel, a demanded one without a notice, and
+          standby must take the routes back so the next use reconnects.
+      - action: |
+          Keep an ssh session open at its prompt for more than 5 minutes, once
+          with ServerAliveInterval 30 for more than 30 minutes, without typing.
+        reason: |
+          An open connection must keep the tunnel past the idle time, or an
+          SSH dies mid-session; but keepalives alone must not hold one of the
+          school's few VPN ports past half an hour, which ends with a notice.
+          The connection check reads the system's TCP table, which only a
+          real tunnel address fills.
+      - action: |
+          Save a wrong password in the school account, then reach a campus host.
+        reason: |
+          A refused password must turn on-demand off with one notice, not post
+          the password again on every connection.
+      - action: |
+          Quit the app (and once, force-quit it), then check the routes again.
+        reason: |
+          Standby lives only on the app's connection to the helper; a route
+          left behind sends campus traffic into an interface nobody serves.
+    observe: |
+      The VPN card's state, the system notifications, the ssh and browser
+      results, `netstat -rn -f inet` or `route print`, and the helper log.
+    expected: |
+      First use connects within the sign-in time and succeeds, an idle tunnel
+      ends after 5 minutes (quietly when it was demanded), an open ssh keeps
+      it until 30 minutes without real traffic and then ends with the unused
+      notice, a refused password stops it once, and no standby route or
+      interface remains after the app quits.
+    why_manual: |
+      Needs root or a service to own the standby interface and routes, the
+      school's F5 login and a real tunnel; none is reachable from the suites.
+    covers:
+      - crates/vpn-helper/src/ondemand.rs
+      - crates/vpn-helper/src/unix.rs
+      - crates/vpn-helper/src/windows.rs
+      - crates/vpn-helper/src/windows_net.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
+      - apps/desktop/src/pages/tools/CampusVpn.tsx
     verified: null
 
   - id: DESKTOP-CAMPUS-VPN-WINDOWS
@@ -8888,4 +8986,32 @@ checks:
       Core's data-root suite.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
+    verified: null
+  - id: SCHOOL-PORTAL-GMAIL-SYSTEM-BROWSER
+    area: school
+    title: The portal's Gmail tile opens in the system browser
+    persona: undergraduate-first-term
+    preconditions: |
+      A signed-in Science Tokyo account, on any shell, and a system browser
+      already signed in to the school Google account.
+    steps:
+      - action: |
+          Open the Science Tokyo portal (isct.ex-tic.com/idm/user/portal/) in
+          the app and choose the Gmail tile.
+        reason: |
+          A school view holds no Google session, so Gmail kept in the app
+          lands on Google's "enter your email" page; only the real portal
+          link shows whether it reaches Google through a host the rule sends
+          out.
+    observe: |
+      Which window shows Gmail.
+    expected: |
+      The system browser opens the school mailbox without asking for an
+      email; the app's view stays on the portal.
+    why_manual: |
+      Needs real school and Google accounts and the shells' hand-off to the
+      system browser; a person sees where the click lands at a glance. The
+      rule itself is covered by Core's school-browser suite.
+    covers:
+      - crates/app-core/src/school_browser/policy.rs
     verified: null
