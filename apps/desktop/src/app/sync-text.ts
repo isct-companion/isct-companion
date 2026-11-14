@@ -200,7 +200,7 @@ export const signInProblemText = (kind: SchoolSignInProblemKind) =>
 
 /** The state's label; `unavailable` adds when Core tries again. */
 export function sessionText(session: SchoolProfileSession, locale: string) {
-  if (session.signOutPending) return t("error.sign-out-incomplete");
+  if (session.signOutPending) return t("schoolSession.state.signOutPending");
   if (session.state === "unavailable" && session.retryAt)
     return t("schoolSession.state.unavailableRetry", {
       time: clock(session.retryAt, locale),

@@ -1256,6 +1256,7 @@ summary,
 }
 .schoolConnection[data-state="needs-web"],
 .schoolConnection[data-state="unavailable"],
+.schoolConnection[data-state="sign-out-pending"],
 .schoolConnection[data-maintenance] {
   color: var(--warn);
 }

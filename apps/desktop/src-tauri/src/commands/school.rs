@@ -69,9 +69,9 @@ pub(crate) async fn open_school_site(
     if css.len() > 256 * 1024 || js.len() > 256 * 1024 {
         return Err("school customization exceeds the safe size".into());
     }
-    Ok(controller
+    controller
         .open(site, css, js, bounds, &surface, entry)
-        .await?)
+        .await
 }
 
 /// The page the person sees of `site`. A surface reads it once its

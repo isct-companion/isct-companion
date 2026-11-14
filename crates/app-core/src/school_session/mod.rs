@@ -1401,24 +1401,29 @@ impl Inner {
         if !unfinished.is_empty() {
             return Err(SchoolAuthError::SignOutIncomplete(unfinished.join(", ")));
         }
+        // Each account is done once its own credentials went: one whose
+        // delete went through is not left pending because the next failed.
         let auth = self.auth.clone();
         let batch = profiles.to_vec();
-        tokio::task::spawn_blocking(move || {
-            for profile in &batch {
-                auth.delete(*profile)?;
-            }
+        let (done, result) = tokio::task::spawn_blocking(move || {
+            let mut done = Vec::new();
             for profile in batch {
-                auth.mark_sign_out(profile, false)?;
+                if let Err(error) = auth
+                    .delete(profile)
+                    .and_then(|_| auth.mark_sign_out(profile, false))
+                {
+                    return (done, Err(error));
+                }
+                done.push(profile);
             }
-            Ok::<_, SchoolAuthError>(())
+            (done, Ok(()))
         })
         .await
-        .map_err(|_| SchoolAuthError::SignOutIncomplete("the saved credentials".into()))?
-        .map_err(|error| SchoolAuthError::SignOutIncomplete(error.to_string()))?;
-        for profile in profiles {
-            self.account(*profile).owner.set_sign_out_pending(false);
+        .map_err(|_| SchoolAuthError::SignOutIncomplete("the saved credentials".into()))?;
+        for profile in done {
+            self.account(profile).owner.set_sign_out_pending(false);
         }
-        Ok(())
+        result.map_err(|error| SchoolAuthError::SignOutIncomplete(error.to_string()))
     }
 
     /// Clears every school website from the web view, both accounts', in

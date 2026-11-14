@@ -752,7 +752,7 @@ impl SchoolWebController {
         bounds: Option<WebBounds>,
         surface: &str,
         entry: SchoolWebEntry,
-    ) -> Result<SchoolWebResult, String> {
+    ) -> Result<SchoolWebResult, crate::CommandError> {
         self.native.visible(Some(site), bounds)?;
         self.engine
             .set_customization(
@@ -768,7 +768,8 @@ impl SchoolWebController {
             let _ = self.native.visible(None, None);
             let _ = self.engine.user_browsing(None);
         }
-        result.map_err(|e| e.to_string())
+        // Coded, so the page shows why in the person's language.
+        result.map_err(crate::coded)
     }
     pub fn close_popup(&self, site: SchoolSite) -> Result<bool, String> {
         self.engine.close_popup(site).map_err(|e| e.to_string())
