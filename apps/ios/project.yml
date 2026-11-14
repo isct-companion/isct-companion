@@ -53,10 +53,12 @@ targets:
         # each upload for an export compliance answer.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        # Background refresh (AppModel.backgroundRefresh): Core reads what a
-        # token reaches while the app is out of front.
-        UIBackgroundModes: [fetch]
-        BGTaskSchedulerPermittedIdentifiers: [app.isctcompanion.refresh]
+        # Core's existing network and local opportunities, including
+        # publication renewal while the host is in the background.
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - app.isctcompanion.refresh
+          - app.isctcompanion.maintenance
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
