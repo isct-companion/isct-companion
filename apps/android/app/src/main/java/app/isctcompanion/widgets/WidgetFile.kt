@@ -52,7 +52,7 @@ internal object WidgetFile {
         runCatching {
             val raw = widgetFile(context).current() ?: return unavailable()
             val file = JSONObject(raw)
-            check(file.getInt("schemaVersion") == SCHEMA_VERSION)
+            check(file.get("schemaVersion") == SCHEMA_VERSION)
             val locale = file.getString("locale")
             val zone = ZoneId.of(file.getString("schoolTimeZone"))
             val terminal = file.getJSONObject("terminalContent")
