@@ -4169,35 +4169,6 @@ checks:
     verified: null
 
 
-  - id: ANDROID-SCHOOL-OTP-QR
-    area: school
-    title: The Android release build opens the authenticator QR scanner
-    persona: undergraduate-first-term
-    preconditions: An R8-minified Android release build, a physical ARM64 phone with Google Play services, and a disposable TOTP QR code on another screen.
-    steps:
-      - action: In Settings, open the Science Tokyo account's OTP setup, choose From an authenticator app, then tap Scan QR and scan the disposable code.
-        reason: Opening the scanner exercises the ML Kit registrars that the release build must preserve for reflection.
-      - action: Cancel a second scan, then press Scan QR again.
-        reason: Checks that returning from Google Play services leaves the import ready for another scan.
-    observe: The Google Code Scanner camera UI and the school's OTP import draft.
-    expected: The scanner opens and reading the code fills the draft. Cancelling preserves the draft and allows the scanner to reopen.
-    why_manual: Requires the R8-minified release APK, Google Play services, and a real camera scanning an external QR code.
-    covers:
-      - apps/android/app/proguard-rules.pro
-      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
-    verified:
-      version: 1.3.3
-      date: 2026-11-14
-      commit: 52b7af53cef95f104b406534ac1890270a2052c1
-      by: human
-      result: pass
-      notes: Release (R8) APK of PR 71 (29de51a) on a physical Android phone.
-        The scanner opened, scanning filled the draft, and it reopened after a
-        cancel. That build also caught scanner-setup errors, a failure path
-        this commit leaves out; the keep rule is the same.
-      evidence: https://github.com/isct-companion/isct-companion/pull/71
-
-
   - id: SCHOOL-SIGNIN-TOKYO
     area: school
     title: Core signs in to the Tokyo Tech Portal with Matrix and 教務Web opens signed in

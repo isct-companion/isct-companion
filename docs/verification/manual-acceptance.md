@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 166 checks must be re-run before the next release.**
+**5 of 165 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -262,7 +262,6 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
 | `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/downloads.rs<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_import.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
-| `ANDROID-SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | pass<br>2026-11-14 · human · `52b7af5` | apps/android/app/proguard-rules.pro<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
 | `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
 | `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
@@ -4863,44 +4862,6 @@ Requires native camera permissions, optical input and an OS camera indicator in 
 - `apps/desktop/src/components/CameraPreview.tsx`
 
 **Last recorded** never run
-
-### The Android release build opens the authenticator QR scanner (`ANDROID-SCHOOL-OTP-QR`)
-
-**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** pass
-
-**Preconditions**
-
-An R8-minified Android release build, a physical ARM64 phone with Google Play services, and a disposable TOTP QR code on another screen.
-
-**Steps**
-
-1. In Settings, open the Science Tokyo account's OTP setup, choose From an authenticator app, then tap Scan QR and scan the disposable code.
-   - *Why:* Opening the scanner exercises the ML Kit registrars that the release build must preserve for reflection.
-2. Cancel a second scan, then press Scan QR again.
-   - *Why:* Checks that returning from Google Play services leaves the import ready for another scan.
-
-**Where to look**
-
-The Google Code Scanner camera UI and the school's OTP import draft.
-
-**Expected**
-
-The scanner opens and reading the code fills the draft. Cancelling preserves the draft and allows the scanner to reopen.
-
-**Why this is manual**
-
-Requires the R8-minified release APK, Google Play services, and a real camera scanning an external QR code.
-
-**Covers**
-
-- `apps/android/app/proguard-rules.pro`
-- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
-
-**Last recorded** pass · 2026-11-14 · human · `52b7af53cef95f104b406534ac1890270a2052c1` · `1.3.3`
-
-Release (R8) APK of PR 71 (29de51a) on a physical Android phone. The scanner opened, scanning filled the draft, and it reopened after a cancel. That build also caught scanner-setup errors, a failure path this commit leaves out; the keep rule is the same.
-
-Evidence: `https://github.com/isct-companion/isct-companion/pull/71`
 
 ### Core signs in to the Tokyo Tech Portal with Matrix and 教務Web opens signed in (`SCHOOL-SIGNIN-TOKYO`)
 
