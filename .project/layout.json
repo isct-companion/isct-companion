@@ -1,0 +1,5951 @@
+{
+ "version": 1,
+ "compiledAt": "01M72005RRJFV1SQX4AN1SZ08T",
+ "compiledTime": "2026-11-10T05:48:52.398Z",
+ "tables": [
+  {
+   "id": "t1",
+   "members": [
+    "goal/matrix-scan-reliability",
+    "assum/matrix-scan-success-definition",
+    "approach/matrix-streaming-recognition",
+    "approach/matrix-canonical-grid",
+    "approach/matrix-ocr-color-input",
+    "approach/matrix-blur-rejection",
+    "approach/matrix-locator-tuning",
+    "approach/matrix-inference-backends"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "含错格的结果",
+     "def": "会话完成但有格子识别错误的扫描结果"
+    },
+    {
+     "kind": "object",
+     "name": "帧和格",
+     "def": "相机采集的帧及从中切出的单格"
+    },
+    {
+     "kind": "object",
+     "name": "采集与微批 OCR",
+     "def": "相机采集与按小批次执行的 OCR 两个阶段"
+    },
+    {
+     "kind": "object",
+     "name": "OCR 微批",
+     "def": "送入模型的一小批待识别格"
+    },
+    {
+     "kind": "object",
+     "name": "已确认格",
+     "def": "识别过程中已被确认的格结果"
+    },
+    {
+     "kind": "object",
+     "name": "卡片图像",
+     "def": "定位后的整张卡片图像"
+    },
+    {
+     "kind": "object",
+     "name": "卡片正文",
+     "def": "不含 A–J 与 1–7 标签的 7×10 格区域"
+    },
+    {
+     "kind": "object",
+     "name": "单格裁图",
+     "def": "切格后送入模型的单格图像"
+    },
+    {
+     "kind": "object",
+     "name": "诊断输入通道",
+     "def": "RedChroma 与 PaperDistance 两种非默认模型输入"
+    },
+    {
+     "kind": "object",
+     "name": "输入对照比较",
+     "def": "不同模型输入通道之间的效果对比"
+    },
+    {
+     "kind": "object",
+     "name": "关键帧",
+     "def": "被采样用于识别的帧"
+    },
+    {
+     "kind": "object",
+     "name": "帧模糊判定",
+     "def": "判断帧是否过度模糊的规则"
+    },
+    {
+     "kind": "object",
+     "name": "采样间隔",
+     "def": "关键帧之间的 100 ms 采样间隔"
+    },
+    {
+     "kind": "cond",
+     "name": "清晰度",
+     "def": "帧或格的清晰程度（清晰、模糊、过度模糊）"
+    },
+    {
+     "kind": "cond",
+     "name": "用途",
+     "def": "使用某项输入或数据的目的"
+    },
+    {
+     "kind": "cond",
+     "name": "帧状态",
+     "def": "帧是否被模糊判定拒绝"
+    },
+    {
+     "kind": "object",
+     "name": "单应",
+     "def": "卡片定位的单应矩阵"
+    },
+    {
+     "kind": "object",
+     "name": "定位框",
+     "def": "预览中绘制的定位框"
+    },
+    {
+     "kind": "object",
+     "name": "定位实现",
+     "def": "实时定位的实现"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "触发的时刻"
+    },
+    {
+     "kind": "object",
+     "name": "字母分类模型运行时",
+     "def": "字母分类模型的推理运行时"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "编译目标平台"
+    }
+   ],
+   "title": "Matrix OCR 识别",
+   "kind": "behavior",
+   "desc": "Matrix 卡片扫描在线识别的目标、判定和运行规则"
+  },
+  {
+   "id": "t2",
+   "members": [
+    "approach/matrix-session-validation",
+    "env/matrix-iqrsh-replay",
+    "approach/matrix-ocr-dataset-pipeline",
+    "constraint/matrix-model-promotion-gate"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "整卡全对率",
+     "def": "约 10 秒内整卡 70 格全部正确的会话比例"
+    },
+    {
+     "kind": "object",
+     "name": "失败会话",
+     "def": "超时、定位失败、拒识或误识的会话"
+    },
+    {
+     "kind": "object",
+     "name": "验证集",
+     "def": "用于验证或 checkpoint 选择的数据"
+    },
+    {
+     "kind": "object",
+     "name": "评估指标",
+     "def": "验证时报告的各项指标"
+    },
+    {
+     "kind": "object",
+     "name": "训练关键帧",
+     "def": "从录像导出用于训练的关键帧"
+    },
+    {
+     "kind": "object",
+     "name": "训练数据",
+     "def": "用于训练模型的单格裁图与标签"
+    },
+    {
+     "kind": "object",
+     "name": "对位",
+     "def": "关键帧与格网格的对齐"
+    },
+    {
+     "kind": "object",
+     "name": "格",
+     "def": "从关键帧切出的单格样本"
+    },
+    {
+     "kind": "object",
+     "name": "合成数据",
+     "def": "程序生成的训练样本"
+    },
+    {
+     "kind": "object",
+     "name": "候选模型",
+     "def": "训练得到、待采用的模型"
+    },
+    {
+     "kind": "object",
+     "name": "训练任务",
+     "def": "在 TSUBAME 上运行的模型训练进程"
+    },
+    {
+     "kind": "object",
+     "name": "训练文件",
+     "def": "本机与 TSUBAME 之间传输的文件"
+    },
+    {
+     "kind": "cond",
+     "name": "清晰度",
+     "def": "帧的清晰程度（清晰、模糊）"
+    },
+    {
+     "kind": "cond",
+     "name": "准入",
+     "def": "格是否被 Core 准入"
+    },
+    {
+     "kind": "cond",
+     "name": "文件",
+     "def": "要传输的文件种类"
+    },
+    {
+     "kind": "object",
+     "name": "置信度与投票阈值",
+     "def": "识别的置信度与投票阈值"
+    },
+    {
+     "kind": "object",
+     "name": "温度标定",
+     "def": "模型输出的温度标定"
+    },
+    {
+     "kind": "object",
+     "name": "Python 训练代码",
+     "def": "Python 训练与评估脚本"
+    },
+    {
+     "kind": "cond",
+     "name": "条件",
+     "def": "模型提升条件"
+    },
+    {
+     "kind": "cond",
+     "name": "标定",
+     "def": "温度标定的效果"
+    }
+   ],
+   "title": "Matrix OCR 训练与验证",
+   "kind": "process",
+   "desc": "Matrix OCR 模型的数据集、训练、评估与验证流程及其运行环境"
+  },
+  {
+   "id": "t3",
+   "members": [
+    "assum/matrix-card-size",
+    "assum/matrix-measured-body-ratio"
+   ],
+   "names": [],
+   "title": "Matrix 卡片版式",
+   "kind": "facts",
+   "desc": "Matrix 卡片的物理尺寸与版面比例"
+  },
+  {
+   "id": "t4",
+   "members": [
+    "goal/cloud-any-provider-combination",
+    "approach/cloud-remote-checks",
+    "approach/cloud-drive-in-core",
+    "approach/cloud-upload-queue",
+    "approach/cloud-record-merge",
+    "approach/cloud-recovery-retention",
+    "constraint/cloud-sync-scope",
+    "approach/cloud-durable-queue",
+    "approach/workspace-snapshot-no-e2e"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "云同步",
+     "def": "跨设备的云端数据同步功能"
+    },
+    {
+     "kind": "object",
+     "name": "已开启云端",
+     "def": "用户当前开启的 iCloud 或 Google Drive"
+    },
+    {
+     "kind": "object",
+     "name": "落后云端",
+     "def": "数据比本机旧的已开启云端"
+    },
+    {
+     "kind": "object",
+     "name": "云端开关",
+     "def": "某个云端的开启状态"
+    },
+    {
+     "kind": "object",
+     "name": "登录",
+     "def": "开启云端所需的账号登录"
+    },
+    {
+     "kind": "object",
+     "name": "Drive 备份密码",
+     "def": "Drive 凭据备份使用的密码"
+    },
+    {
+     "kind": "object",
+     "name": "本机 Drive 登录",
+     "def": "本机保存的 Google Drive 登录状态"
+    },
+    {
+     "kind": "object",
+     "name": "Drive 授权",
+     "def": "用户在 Google 侧授予本 App 的授权"
+    },
+    {
+     "kind": "cond",
+     "name": "设备",
+     "def": "运行 App 的设备平台"
+    },
+    {
+     "kind": "cond",
+     "name": "云端开关组合",
+     "def": "iCloud 与 Google Drive 的开关组合及其变化"
+    },
+    {
+     "kind": "cond",
+     "name": "模式",
+     "def": "云同步模式"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "触发远端检查的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "云端状态",
+     "def": "云端数据相对本机的新旧"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户对云端开关的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "登录结果",
+     "def": "开启云端时登录的结果"
+    },
+    {
+     "kind": "cond",
+     "name": "凭据备份",
+     "def": "解锁或加密上传是否已成功"
+    },
+    {
+     "kind": "object",
+     "name": "本地改动",
+     "def": "本机产生的用户数据改动"
+    },
+    {
+     "kind": "object",
+     "name": "云端上传",
+     "def": "向某个云端上传数据"
+    },
+    {
+     "kind": "object",
+     "name": "上传计时",
+     "def": "对每个云端的上传间隔计时"
+    },
+    {
+     "kind": "object",
+     "name": "本地应用",
+     "def": "把远端数据应用到本地"
+    },
+    {
+     "kind": "object",
+     "name": "文档恢复",
+     "def": "导入与恢复备份文档"
+    },
+    {
+     "kind": "object",
+     "name": "待办上传",
+     "def": "尚未完成的上传"
+    },
+    {
+     "kind": "cond",
+     "name": "内容",
+     "def": "本地内容与该云端已确认版本的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "间隔",
+     "def": "距上次对该云端确认上传的时间"
+    },
+    {
+     "kind": "object",
+     "name": "副本",
+     "def": "任意一份工作区数据副本"
+    },
+    {
+     "kind": "object",
+     "name": "记录",
+     "def": "用户数据记录"
+    },
+    {
+     "kind": "object",
+     "name": "云端名称或下载顺序",
+     "def": "云端名称与下载先后"
+    },
+    {
+     "kind": "object",
+     "name": "单例数据",
+     "def": "单例偏好、档案和学季"
+    },
+    {
+     "kind": "object",
+     "name": "工作区对象",
+     "def": "云端保存的工作区对象"
+    },
+    {
+     "kind": "object",
+     "name": "本地恢复点",
+     "def": "本机保存的恢复点"
+    },
+    {
+     "kind": "object",
+     "name": "工作区文档",
+     "def": "工作区备份文档"
+    },
+    {
+     "kind": "object",
+     "name": "同步数据",
+     "def": "参与同步和备份的数据"
+    },
+    {
+     "kind": "object",
+     "name": "本地笔记",
+     "def": "课程笔记"
+    },
+    {
+     "kind": "object",
+     "name": "学校数据与设备设置",
+     "def": "学校缓存与设备专属设置"
+    },
+    {
+     "kind": "object",
+     "name": "令牌与加密密码",
+     "def": "OAuth 令牌和加密密码"
+    },
+    {
+     "kind": "object",
+     "name": "同步任务",
+     "def": "cloud-sync.sqlite 中的同步任务"
+    },
+    {
+     "kind": "object",
+     "name": "provider revision",
+     "def": "云端提供的 revision/ETag"
+    },
+    {
+     "kind": "object",
+     "name": "确认",
+     "def": "云端写入确认"
+    },
+    {
+     "kind": "object",
+     "name": "同步状态",
+     "def": "界面显示的同步状态"
+    },
+    {
+     "kind": "cond",
+     "name": "写入",
+     "def": "写入结果"
+    },
+    {
+     "kind": "cond",
+     "name": "schema",
+     "def": "文档 schema 版本"
+    },
+    {
+     "kind": "cond",
+     "name": "数据",
+     "def": "数据种类"
+    },
+    {
+     "kind": "cond",
+     "name": "用途",
+     "def": "使用目的"
+    },
+    {
+     "kind": "cond",
+     "name": "确认",
+     "def": "各云端确认情况"
+    },
+    {
+     "kind": "object",
+     "name": "工作区快照",
+     "def": "云同步的工作区快照"
+    }
+   ],
+   "title": "云同步",
+   "kind": "behavior",
+   "desc": "iCloud 与 Google Drive 云同步的开关、拉取、上传与凭据规则"
+  },
+  {
+   "id": "t5",
+   "members": [
+    "assum/google-oauth-mobile-clients",
+    "env/android-dev-windows",
+    "env/native-sdk-floors",
+    "env/icloud-cloudkit-setup",
+    "env/google-oauth-registration",
+    "env/macos-minimum"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "平台下限",
+     "def": "iOS/Android 最低系统版本"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "对平台下限的操作"
+    },
+    {
+     "kind": "object",
+     "name": "CloudKit schema",
+     "def": "CloudKit 记录类型 schema"
+    },
+    {
+     "kind": "object",
+     "name": "CloudKit 调用",
+     "def": "对 CloudKit 的调用"
+    },
+    {
+     "kind": "object",
+     "name": "OAuth scope",
+     "def": "请求的 Google OAuth 权限"
+    },
+    {
+     "kind": "object",
+     "name": "桌面客户端 secret",
+     "def": "Google 桌面 OAuth 客户端 secret"
+    },
+    {
+     "kind": "object",
+     "name": "其他平台 OAuth 配置",
+     "def": "非本平台的 OAuth 配置"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "构建平台"
+    },
+    {
+     "kind": "cond",
+     "name": "scope",
+     "def": "OAuth 权限种类"
+    }
+   ],
+   "title": "开发与发布环境",
+   "kind": "facts",
+   "desc": "开发分工所在机器、外部服务账号与客户端注册等环境事实"
+  },
+  {
+   "id": "t6",
+   "members": [
+    "goal/desktop-polish-direction",
+    "approach/desktop-close-window"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "iOS 设计语言",
+     "def": "与 iOS 端共用的设计语言"
+    },
+    {
+     "kind": "object",
+     "name": "桌面习惯",
+     "def": "各桌面系统的交互习惯"
+    },
+    {
+     "kind": "object",
+     "name": "侧栏",
+     "def": "桌面端主窗口侧栏"
+    },
+    {
+     "kind": "object",
+     "name": "字体与密度",
+     "def": "界面字体和信息密度"
+    },
+    {
+     "kind": "object",
+     "name": "右键菜单",
+     "def": "元素上的上下文菜单"
+    },
+    {
+     "kind": "object",
+     "name": "焦点框",
+     "def": "元素获得焦点时的外框"
+    },
+    {
+     "kind": "object",
+     "name": "平台 token",
+     "def": "按平台区分的 design token"
+    },
+    {
+     "kind": "object",
+     "name": "阴影",
+     "def": "元素投影"
+    },
+    {
+     "kind": "object",
+     "name": "外框",
+     "def": "界面框架与边框"
+    },
+    {
+     "kind": "object",
+     "name": "Radix Colors 色阶",
+     "def": "Radix Colors 的 12 级色阶"
+    },
+    {
+     "kind": "object",
+     "name": "动效",
+     "def": "界面动画与过渡"
+    },
+    {
+     "kind": "object",
+     "name": "交互状态",
+     "def": "悬停、按下、选中、禁用、加载、空状态"
+    },
+    {
+     "kind": "cond",
+     "name": "输入方式",
+     "def": "用户当前使用的输入方式"
+    },
+    {
+     "kind": "cond",
+     "name": "元素",
+     "def": "界面元素所在层次"
+    },
+    {
+     "kind": "cond",
+     "name": "减少动态效果",
+     "def": "系统的减少动态效果设置"
+    },
+    {
+     "kind": "object",
+     "name": "关闭窗口",
+     "def": "关闭桌面主窗口的处理"
+    },
+    {
+     "kind": "object",
+     "name": "二次启动",
+     "def": "已运行时再次启动 App"
+    },
+    {
+     "kind": "object",
+     "name": "记住的选择",
+     "def": "关闭窗口的记住选择"
+    },
+    {
+     "kind": "cond",
+     "name": "closeWindow",
+     "def": "设备偏好 closeWindow 的值"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "桌面平台"
+    }
+   ],
+   "title": "桌面端视觉与交互",
+   "kind": "design",
+   "desc": "桌面端的质感方向、材质层次、色彩、动效与交互状态"
+  },
+  {
+   "id": "t7",
+   "members": [
+    "approach/page-overlay-layer",
+    "approach/desktop-ui-primitives",
+    "approach/desktop-polish-native",
+    "approach/frontend-query-cache",
+    "approach/query-cache-consistency",
+    "approach/desktop-no-plugin-scripts-in-school-views",
+    "approach/overlay-anchoring"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "页面内 Radix Portal",
+     "def": "页面内 Radix 组件渲染的 Portal"
+    },
+    {
+     "kind": "object",
+     "name": "自写 portal",
+     "def": "项目自己实现的 portal"
+    },
+    {
+     "kind": "object",
+     "name": "页面浮层",
+     "def": "保活页面自己的浮层容器"
+    },
+    {
+     "kind": "object",
+     "name": "依赖",
+     "def": "项目引入的第三方库"
+    },
+    {
+     "kind": "object",
+     "name": "原生能力",
+     "def": "系统或框架自带的能力"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "保活页面的显示状态"
+    },
+    {
+     "kind": "object",
+     "name": "视图数据缓存",
+     "def": "桌面前端的视图数据缓存"
+    },
+    {
+     "kind": "object",
+     "name": "zustand",
+     "def": "桌面前端的 zustand store"
+    },
+    {
+     "kind": "object",
+     "name": "组件",
+     "def": "React 组件"
+    },
+    {
+     "kind": "object",
+     "name": "查询声明",
+     "def": "Core 对每个查询所读变更名的声明"
+    },
+    {
+     "kind": "object",
+     "name": "变更通知",
+     "def": "写入返回与 workspace-changed 推送"
+    },
+    {
+     "kind": "object",
+     "name": "查询结果",
+     "def": "前端查询缓存中的结果"
+    },
+    {
+     "kind": "object",
+     "name": "业务数据",
+     "def": "来自 Core 的业务数据"
+    },
+    {
+     "kind": "object",
+     "name": "界面",
+     "def": "前端界面显示"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "查询结果的数据版本"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "触发重取的事件"
+    },
+    {
+     "kind": "object",
+     "name": "Tauri 插件",
+     "def": "Tauri 插件"
+    },
+    {
+     "kind": "object",
+     "name": "文件对话框",
+     "def": "桌面文件选择对话框"
+    },
+    {
+     "kind": "cond",
+     "name": "插件",
+     "def": "插件是否带 init 脚本"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "开发操作"
+    },
+    {
+     "kind": "object",
+     "name": "弹出层定位",
+     "def": "弹出层的定位"
+    },
+    {
+     "kind": "object",
+     "name": "入场动画",
+     "def": "浮层入场动画"
+    },
+    {
+     "kind": "cond",
+     "name": "视图",
+     "def": "视图种类"
+    },
+    {
+     "kind": "cond",
+     "name": "组件",
+     "def": "浮层组件种类"
+    },
+    {
+     "kind": "cond",
+     "name": "动画",
+     "def": "动画关键帧形式"
+    }
+   ],
+   "title": "桌面端前端结构",
+   "kind": "structure",
+   "desc": "桌面端前端的组件库、依赖选型与页面结构"
+  },
+  {
+   "id": "t8",
+   "members": [
+    "approach/main-squash-integration"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "开发分支",
+     "def": "实际开发所在的 feat/fix 分支"
+    },
+    {
+     "kind": "object",
+     "name": "dev",
+     "def": "从最新 main 开出的一次性汇总分支"
+    },
+    {
+     "kind": "object",
+     "name": "压缩提交",
+     "def": "在 dev 上按主题压成的提交"
+    },
+    {
+     "kind": "object",
+     "name": "提交",
+     "def": "git 提交"
+    },
+    {
+     "kind": "object",
+     "name": "署名",
+     "def": "提交的作者署名"
+    },
+    {
+     "kind": "object",
+     "name": "main",
+     "def": "主分支"
+    },
+    {
+     "kind": "cond",
+     "name": "作者",
+     "def": "待合并提交的作者是否相同"
+    }
+   ],
+   "title": "Git 分支与集成",
+   "kind": "process",
+   "desc": "开发分支、dev 汇总与推进 main 的流程"
+  },
+  {
+   "id": "t9",
+   "members": [
+    "goal/exam-data-agentic-workflow",
+    "approach/exam-update-polling",
+    "approach/exam-copilot-personal-billing",
+    "approach/exam-pr-auth",
+    "approach/isct-public-data-workflows"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "公开数据",
+     "def": "Isct-Data 中来自公开来源的数据"
+    },
+    {
+     "kind": "object",
+     "name": "main",
+     "def": "Isct-Data 主分支"
+    },
+    {
+     "kind": "object",
+     "name": "官方页面与 PDF",
+     "def": "学校公开发布的页面和 PDF"
+    },
+    {
+     "kind": "object",
+     "name": "Copilot",
+     "def": "执行审核的 Copilot 代理"
+    },
+    {
+     "kind": "object",
+     "name": "候选与考试周授课",
+     "def": "代理产出的候选数据与考试周授课数据"
+    },
+    {
+     "kind": "object",
+     "name": "写入凭据",
+     "def": "可向 Isct-Data 写入的凭据"
+    },
+    {
+     "kind": "object",
+     "name": "组织计费权限",
+     "def": "GitHub 组织的 Copilot 计费权限"
+    },
+    {
+     "kind": "object",
+     "name": "模型",
+     "def": "Copilot 使用的语言模型"
+    },
+    {
+     "kind": "object",
+     "name": "候选提交",
+     "def": "等待发布到 main 的数据提交"
+    },
+    {
+     "kind": "object",
+     "name": "Isct-Data 仓库",
+     "def": "Isct-Data 的 Git 仓库"
+    },
+    {
+     "kind": "object",
+     "name": "workflow 设置",
+     "def": "每条 workflow 的 prompt、指纹与触发设置"
+    },
+    {
+     "kind": "object",
+     "name": "共用流程",
+     "def": "采集、固定写入、可信发布和全量 CI"
+    },
+    {
+     "kind": "object",
+     "name": "外部域名",
+     "def": "采集时可访问的外部站点"
+    },
+    {
+     "kind": "cond",
+     "name": "触发",
+     "def": "运行代理的触发原因"
+    },
+    {
+     "kind": "cond",
+     "name": "主体",
+     "def": "执行操作的角色"
+    },
+    {
+     "kind": "cond",
+     "name": "任务",
+     "def": "执行操作的 GitHub Actions 任务"
+    },
+    {
+     "kind": "cond",
+     "name": "workflow",
+     "def": "公开数据 workflow 的种类"
+    }
+   ],
+   "title": "Isct-Data 自动更新",
+   "kind": "process",
+   "desc": "Isct-Data 公开数据的判新、代理审核、校验与写入 main 的流程和凭据"
+  },
+  {
+   "id": "t10",
+   "members": [
+    "approach/isct-data-readme",
+    "constraint/isct-data-public-sources",
+    "constraint/public-data-semantics"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "README",
+     "def": "Isct-Data 仓库根目录 README"
+    },
+    {
+     "kind": "object",
+     "name": "专题内容",
+     "def": "数据语义、维护命令、考试更新及自动化配置说明"
+    },
+    {
+     "kind": "object",
+     "name": "重复说明",
+     "def": "在多处重复的文档说明"
+    },
+    {
+     "kind": "object",
+     "name": "Isct-Data 数据",
+     "def": "Isct-Data 仓库中的数据"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 采集",
+     "def": "登录 LMS 并采集数据的能力"
+    },
+    {
+     "kind": "object",
+     "name": "人工维护记录",
+     "def": "现有 LMS 授课表与两条考试记录"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "数据来源是否需要登录"
+    },
+    {
+     "kind": "cond",
+     "name": "更新方式",
+     "def": "数据更新是自动还是人工"
+    },
+    {
+     "kind": "object",
+     "name": "公开数据",
+     "def": "Isct-Data 的公开数据"
+    },
+    {
+     "kind": "object",
+     "name": "考试行",
+     "def": "考试 feed 中的一行"
+    },
+    {
+     "kind": "object",
+     "name": "数据文件",
+     "def": "Isct-Data 的数据文件"
+    },
+    {
+     "kind": "object",
+     "name": "校历",
+     "def": "校历数据"
+    },
+    {
+     "kind": "object",
+     "name": "课次",
+     "def": "一节课"
+    },
+    {
+     "kind": "cond",
+     "name": "事实",
+     "def": "事实是否有官方出处"
+    },
+    {
+     "kind": "cond",
+     "name": "时刻",
+     "def": "考试时刻的已知程度"
+    },
+    {
+     "kind": "cond",
+     "name": "考试",
+     "def": "考试种类"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "数据变化种类"
+    },
+    {
+     "kind": "cond",
+     "name": "数据",
+     "def": "年份或学季是否有数据"
+    },
+    {
+     "kind": "cond",
+     "name": "例外",
+     "def": "授课例外的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "日期",
+     "def": "校历日期种类"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程授课形式"
+    }
+   ],
+   "title": "Isct-Data 范围与仓库组织",
+   "kind": "scope",
+   "desc": "Isct-Data 允许的数据来源、人工维护部分与仓库文档组织"
+  },
+  {
+   "id": "t11",
+   "members": [
+    "approach/now-card-tint",
+    "approach/course-colour-tokens",
+    "approach/course-tint-opaque-mix",
+    "approach/radius-roles-per-platform",
+    "approach/type-roles",
+    "approach/spacing-gutter",
+    "approach/containers-elevation",
+    "approach/course-marker-square",
+    "approach/appearance-follow-system",
+    "approach/on-solid-ink-tokens",
+    "approach/neutral-themes",
+    "approach/chip-variants",
+    "approach/android-no-dynamic-color",
+    "constraint/visual-rules-in-slotledger"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "卡片背景",
+     "def": "课程卡片的背景填充"
+    },
+    {
+     "kind": "object",
+     "name": "卡片描边",
+     "def": "课程卡片的描边"
+    },
+    {
+     "kind": "cond",
+     "name": "卡片",
+     "def": "今日页卡片的种类"
+    },
+    {
+     "kind": "object",
+     "name": "课程色",
+     "def": "课程的显示颜色"
+    },
+    {
+     "kind": "object",
+     "name": "平台 token",
+     "def": "各平台对 design token 的取值"
+    },
+    {
+     "kind": "object",
+     "name": "课程色块和卡片",
+     "def": "时间表块与卡片的课程色填充"
+    },
+    {
+     "kind": "object",
+     "name": "块上文字",
+     "def": "课程色块上的文字"
+    },
+    {
+     "kind": "object",
+     "name": "透明度值",
+     "def": "写死的透明度数值"
+    },
+    {
+     "kind": "object",
+     "name": "圆角",
+     "def": "元素圆角"
+    },
+    {
+     "kind": "object",
+     "name": "时间表块和日列",
+     "def": "时间表块与日列"
+    },
+    {
+     "kind": "object",
+     "name": "字号",
+     "def": "文字字号"
+    },
+    {
+     "kind": "object",
+     "name": "字重",
+     "def": "文字字重"
+    },
+    {
+     "kind": "object",
+     "name": "间距",
+     "def": "页面与列表间距"
+    },
+    {
+     "kind": "object",
+     "name": "容器",
+     "def": "页面中的内容容器"
+    },
+    {
+     "kind": "object",
+     "name": "阴影",
+     "def": "元素投影"
+    },
+    {
+     "kind": "object",
+     "name": "浮层材质",
+     "def": "弹窗、菜单等浮层的材质"
+    },
+    {
+     "kind": "object",
+     "name": "课程色标记",
+     "def": "列表中表示所属课程的标记"
+    },
+    {
+     "kind": "object",
+     "name": "深浅色",
+     "def": "浅色/深色外观"
+    },
+    {
+     "kind": "object",
+     "name": "外观开关",
+     "def": "App 内的外观设置"
+    },
+    {
+     "kind": "object",
+     "name": "实色底文字",
+     "def": "实色背景上的文字"
+    },
+    {
+     "kind": "object",
+     "name": "背景主题",
+     "def": "中性色背景主题"
+    },
+    {
+     "kind": "object",
+     "name": "中性色",
+     "def": "bg、surface、line、ink、muted 等中性色"
+    },
+    {
+     "kind": "object",
+     "name": "标签",
+     "def": "标签（chip）组件"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "元素",
+     "def": "元素种类"
+    },
+    {
+     "kind": "cond",
+     "name": "底",
+     "def": "文字所在背景种类"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "写法",
+     "def": "标签写法"
+    },
+    {
+     "kind": "object",
+     "name": "配色",
+     "def": "App 使用的配色来源"
+    },
+    {
+     "kind": "object",
+     "name": "视觉规则",
+     "def": "视觉、样式和动效规则"
+    },
+    {
+     "kind": "object",
+     "name": "设计文档",
+     "def": "design/README.md 等设计文档"
+    },
+    {
+     "kind": "cond",
+     "name": "文档",
+     "def": "文档与决策的关系"
+    }
+   ],
+   "title": "视觉 tokens 与组件",
+   "kind": "design",
+   "desc": "三端共用的颜色、圆角、字号、间距、容器、主题与标签等 design tokens 和组件写法"
+  },
+  {
+   "id": "t12",
+   "members": [
+    "approach/lms-timetable-read-depth",
+    "approach/unchanged-school-rows-not-written",
+    "approach/sync-prerequisite-table",
+    "approach/school-credential-blank-fields",
+    "approach/school-session-recovery",
+    "approach/syllabus-school-page",
+    "approach/lms-token-rest-transport",
+    "assum/lms-token-lifetime",
+    "assum/lms-token-current-quarter-only",
+    "approach/kyomu-maintenance-handling",
+    "approach/sync-parks-while-session-pending",
+    "approach/sync-account-hold",
+    "approach/lms-token-function-fallback-evidence"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "LMS 课程表",
+     "def": "从 LMS 读取的课程表格子"
+    },
+    {
+     "kind": "cond",
+     "name": "触发",
+     "def": "读取的触发方式"
+    },
+    {
+     "kind": "object",
+     "name": "学校行",
+     "def": "本地存储的学校数据行"
+    },
+    {
+     "kind": "object",
+     "name": "course_identity_map",
+     "def": "课程身份映射表"
+    },
+    {
+     "kind": "object",
+     "name": "依赖 key",
+     "def": "依赖其他 key 先读的同步 key"
+    },
+    {
+     "kind": "object",
+     "name": "前置 key",
+     "def": "被依赖、须先读的同步 key"
+    },
+    {
+     "kind": "object",
+     "name": "同步规划",
+     "def": "同步读取的规划"
+    },
+    {
+     "kind": "object",
+     "name": "读取 key",
+     "def": "被规划读取的同步 key"
+    },
+    {
+     "kind": "object",
+     "name": "登录字段",
+     "def": "Connect 表单中的账号凭据字段"
+    },
+    {
+     "kind": "object",
+     "name": "学校读取",
+     "def": "对学校站点的读取操作"
+    },
+    {
+     "kind": "object",
+     "name": "not_before",
+     "def": "临时故障后的暂停截止时间"
+    },
+    {
+     "kind": "object",
+     "name": "账号",
+     "def": "学校账号"
+    },
+    {
+     "kind": "object",
+     "name": "网页附件",
+     "def": "学校网页中的附件"
+    },
+    {
+     "kind": "cond",
+     "name": "读取",
+     "def": "读取的范围"
+    },
+    {
+     "kind": "cond",
+     "name": "哈希",
+     "def": "学校行内容哈希是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "行状态",
+     "def": "学校行相对上次的状态"
+    },
+    {
+     "kind": "cond",
+     "name": "前置 key",
+     "def": "前置 key 是否已按当前账号读取"
+    },
+    {
+     "kind": "cond",
+     "name": "前置",
+     "def": "前置 key 的提交状态"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "ingest 的结果种类"
+    },
+    {
+     "kind": "cond",
+     "name": "字段",
+     "def": "Connect 时字段是否为空"
+    },
+    {
+     "kind": "cond",
+     "name": "账号许可",
+     "def": "是否已拿到读取钥匙串的账号许可"
+    },
+    {
+     "kind": "cond",
+     "name": "站点会话",
+     "def": "学校站点会话状态"
+    },
+    {
+     "kind": "cond",
+     "name": "故障",
+     "def": "读取故障的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "凭据",
+     "def": "学校对凭据的判定"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "object",
+     "name": "シラバス内容",
+     "def": "学校シラバス页面的内容"
+    },
+    {
+     "kind": "object",
+     "name": "シラバス页面",
+     "def": "学校自己的シラバス页面"
+    },
+    {
+     "kind": "object",
+     "name": "课程目录",
+     "def": "教務Web 课程检索得到的目录"
+    },
+    {
+     "kind": "object",
+     "name": "英文课程目录",
+     "def": "课程目录的英文标题与教员名"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "语言",
+     "def": "读取的语言版本"
+    },
+    {
+     "kind": "object",
+     "name": "token REST 请求",
+     "def": "发往 Moodle 移动服务 token REST 的请求"
+    },
+    {
+     "kind": "object",
+     "name": "Moodle 函数",
+     "def": "Moodle REST 函数"
+    },
+    {
+     "kind": "object",
+     "name": "Moodle 写入",
+     "def": "经 token REST 的写入调用"
+    },
+    {
+     "kind": "object",
+     "name": "token REST 响应",
+     "def": "Moodle token REST 的响应"
+    },
+    {
+     "kind": "object",
+     "name": "文件下载",
+     "def": "学校文件的下载"
+    },
+    {
+     "kind": "object",
+     "name": "下载日志",
+     "def": "下载相关日志"
+    },
+    {
+     "kind": "object",
+     "name": "LMS token",
+     "def": "Moodle 移动服务 token"
+    },
+    {
+     "kind": "object",
+     "name": "维护提示",
+     "def": "学校站点维护公告提示"
+    },
+    {
+     "kind": "cond",
+     "name": "函数",
+     "def": "调用的 Moodle 函数集合"
+    },
+    {
+     "kind": "cond",
+     "name": "用途",
+     "def": "调用方用途"
+    },
+    {
+     "kind": "cond",
+     "name": "路径",
+     "def": "代码路径"
+    },
+    {
+     "kind": "cond",
+     "name": "响应",
+     "def": "响应内容"
+    },
+    {
+     "kind": "cond",
+     "name": "文件",
+     "def": "下载文件的 URL 来源"
+    },
+    {
+     "kind": "cond",
+     "name": "错误",
+     "def": "返回的错误种类"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "学校站点返回的页面"
+    },
+    {
+     "kind": "object",
+     "name": "同步项",
+     "def": "规划中的单个同步项"
+    },
+    {
+     "kind": "cond",
+     "name": "状态",
+     "def": "同步项的执行状态"
+    },
+    {
+     "kind": "cond",
+     "name": "会话",
+     "def": "学校会话状态"
+    },
+    {
+     "kind": "object",
+     "name": "等待判断",
+     "def": "学校读取是否等待的判断"
+    },
+    {
+     "kind": "object",
+     "name": "凭证事实",
+     "def": "school_session 提供的凭证事实"
+    },
+    {
+     "kind": "object",
+     "name": "旧阻塞机制",
+     "def": "facts.blocked、HoldVersions、unblock() 与 AccountWait::Network"
+    },
+    {
+     "kind": "object",
+     "name": "身份快照",
+     "def": "学校账号身份快照"
+    },
+    {
+     "kind": "object",
+     "name": "来源摘要",
+     "def": "界面显示的来源摘要"
+    },
+    {
+     "kind": "object",
+     "name": "等待结束的 key",
+     "def": "以等待结束的读取 key"
+    },
+    {
+     "kind": "object",
+     "name": "函数不可用事实",
+     "def": "某函数在某 token 下不可用的事实"
+    },
+    {
+     "kind": "object",
+     "name": "读取路径",
+     "def": "某 key 的读取凭证路径"
+    },
+    {
+     "kind": "cond",
+     "name": "凭证",
+     "def": "路径上凭证的失效证据"
+    },
+    {
+     "kind": "cond",
+     "name": "恢复",
+     "def": "是否允许恢复凭证"
+    },
+    {
+     "kind": "cond",
+     "name": "事实",
+     "def": "凭证事实是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "来源摘要",
+     "def": "来源摘要中是否有可运行项"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    }
+   ],
+   "title": "学校数据读取与会话",
+   "kind": "behavior",
+   "desc": "从 LMS 等学校系统读取数据的深度、顺序、写入、会话恢复与凭据补全规则"
+  },
+  {
+   "id": "t13",
+   "members": [
+    "goal/ios-share-to-submit",
+    "approach/ios-share-extension-inbox",
+    "approach/share-entry-points"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "分享文件",
+     "def": "从系统分享进 App 的文件"
+    },
+    {
+     "kind": "object",
+     "name": "作业页",
+     "def": "单个作业的页面"
+    },
+    {
+     "kind": "object",
+     "name": "多文件",
+     "def": "一次投递的多个文件"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 草稿区",
+     "def": "LMS 作业提交的草稿区"
+    },
+    {
+     "kind": "object",
+     "name": "分享投递",
+     "def": "从系统分享到作业提交的功能"
+    },
+    {
+     "kind": "object",
+     "name": "Android 实现",
+     "def": "Android 端的代码与构建"
+    },
+    {
+     "kind": "object",
+     "name": "作业",
+     "def": "LMS 作业"
+    },
+    {
+     "kind": "object",
+     "name": "上传",
+     "def": "把文件上传到 LMS 草稿区的过程"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "cond",
+     "name": "设备",
+     "def": "运行 App 的设备形态"
+    },
+    {
+     "kind": "cond",
+     "name": "收件箱",
+     "def": "App 的分享收件箱中是否有文件"
+    },
+    {
+     "kind": "cond",
+     "name": "待提交文件",
+     "def": "作业是否有等待提交的分享文件（Core waitingHandIns）"
+    }
+   ],
+   "title": "移动端分享与投递",
+   "kind": "behavior",
+   "desc": "从系统分享文件到 App 并投递到作业草稿区的行为"
+  },
+  {
+   "id": "t14",
+   "members": [
+    "approach/today-recent-seen-local",
+    "approach/ipad-landscape-workstation",
+    "approach/ipad-today-dashboard",
+    "approach/mobile-moment-first",
+    "approach/mobile-layout-by-width",
+    "approach/mobile-today-phases",
+    "approach/first-launch",
+    "approach/mobile-gestures",
+    "approach/today-phase-boundary-in-core",
+    "approach/android-orientation-by-size"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "已看新内容",
+     "def": "用户点开过的新内容条目"
+    },
+    {
+     "kind": "object",
+     "name": "新内容条目",
+     "def": "今日页「新内容」中的条目"
+    },
+    {
+     "kind": "object",
+     "name": "recentSeen",
+     "def": "记录已看新内容的本机设置"
+    },
+    {
+     "kind": "object",
+     "name": "iPad 界面",
+     "def": "iPadOS 的整体外壳"
+    },
+    {
+     "kind": "object",
+     "name": "今日页",
+     "def": "今日页面"
+    },
+    {
+     "kind": "object",
+     "name": "平板工作台",
+     "def": "平板横屏宽窗口的桌面式工作台"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户在页面上的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "新内容",
+     "def": "新内容条目的变化状态"
+    },
+    {
+     "kind": "cond",
+     "name": "窗口",
+     "def": "iPad 的方向与窗口宽度"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "是否打开了课程页"
+    },
+    {
+     "kind": "object",
+     "name": "移动端页面",
+     "def": "移动端 App 的页面"
+    },
+    {
+     "kind": "object",
+     "name": "系统直达入口",
+     "def": "widget、锁屏和通知"
+    },
+    {
+     "kind": "object",
+     "name": "widget",
+     "def": "主屏与锁屏小组件"
+    },
+    {
+     "kind": "object",
+     "name": "页面内容",
+     "def": "页面主体内容"
+    },
+    {
+     "kind": "object",
+     "name": "深入操作",
+     "def": "从页面进入的下一层操作"
+    },
+    {
+     "kind": "object",
+     "name": "系统外框",
+     "def": "大标题、分组列表、系统 tab bar、sheet、返回手势、Dynamic Type"
+    },
+    {
+     "kind": "object",
+     "name": "品牌感",
+     "def": "App 自有视觉风格"
+    },
+    {
+     "kind": "object",
+     "name": "禁用样式",
+     "def": "左边框卡片、数字角标和解释性脚注"
+    },
+    {
+     "kind": "object",
+     "name": "移动端动效",
+     "def": "移动端动画与过渡"
+    },
+    {
+     "kind": "object",
+     "name": "iOS 容器",
+     "def": "iOS 页面所用的外层容器"
+    },
+    {
+     "kind": "object",
+     "name": "tab bar",
+     "def": "底部标签栏"
+    },
+    {
+     "kind": "object",
+     "name": "运行时设备检查",
+     "def": "运行时区分 iPhone 与 iPad"
+    },
+    {
+     "kind": "object",
+     "name": "已打开内容",
+     "def": "工作台右侧已打开的内容"
+    },
+    {
+     "kind": "object",
+     "name": "同步错误",
+     "def": "Core 报告的同步错误"
+    },
+    {
+     "kind": "object",
+     "name": "同步反馈文案",
+     "def": "同步状态提示文字"
+    },
+    {
+     "kind": "object",
+     "name": "欢迎 sheet",
+     "def": "首次启动的欢迎面板"
+    },
+    {
+     "kind": "object",
+     "name": "真实工作区",
+     "def": "真实用户的工作区数据"
+    },
+    {
+     "kind": "object",
+     "name": "看不见的手势",
+     "def": "界面上没有可见入口的手势"
+    },
+    {
+     "kind": "object",
+     "name": "手势提示",
+     "def": "说明手势的一次性提示"
+    },
+    {
+     "kind": "object",
+     "name": "手势",
+     "def": "App 中的触摸手势"
+    },
+    {
+     "kind": "object",
+     "name": "作业行",
+     "def": "作业列表中的一行"
+    },
+    {
+     "kind": "object",
+     "name": "时间表块",
+     "def": "时间表中的课程块"
+    },
+    {
+     "kind": "object",
+     "name": "课次 chip",
+     "def": "课次标签"
+    },
+    {
+     "kind": "object",
+     "name": "拖动",
+     "def": "拖动手势"
+    },
+    {
+     "kind": "object",
+     "name": "撤销",
+     "def": "手势操作的撤销"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "减少动态效果",
+     "def": "系统的减少动态效果设置"
+    },
+    {
+     "kind": "cond",
+     "name": "设备",
+     "def": "设备形态"
+    },
+    {
+     "kind": "cond",
+     "name": "账号",
+     "def": "学校账号连接状态"
+    },
+    {
+     "kind": "cond",
+     "name": "手势",
+     "def": "具体手势与位置"
+    },
+    {
+     "kind": "cond",
+     "name": "起点",
+     "def": "拖动起点位置"
+    },
+    {
+     "kind": "object",
+     "name": "今日页与 widget",
+     "def": "今日页及各端 widget"
+    },
+    {
+     "kind": "object",
+     "name": "屏幕方向",
+     "def": "Android 屏幕方向"
+    },
+    {
+     "kind": "object",
+     "name": "设备类别",
+     "def": "手机或平板的设备类别"
+    },
+    {
+     "kind": "object",
+     "name": "授業 tab",
+     "def": "tab bar 中的「授業」"
+    }
+   ],
+   "title": "移动端界面布局",
+   "kind": "design",
+   "desc": "iPhone、iPad 各页面的布局分流与内容排布"
+  },
+  {
+   "id": "t15",
+   "members": [
+    "approach/course-files-root-split",
+    "approach/mobile-no-zip",
+    "approach/workspace-service-in-core"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "下载资料",
+     "def": "materials/ 下的下载资料"
+    },
+    {
+     "kind": "object",
+     "name": "笔记",
+     "def": "<section>/notes/ 下的笔记"
+    },
+    {
+     "kind": "object",
+     "name": "课程文件",
+     "def": "课程文件根目录下的文件"
+    },
+    {
+     "kind": "object",
+     "name": "布局迁移",
+     "def": "旧布局到新布局的迁移"
+    },
+    {
+     "kind": "object",
+     "name": "冲突项",
+     "def": "迁移时目标已存在的文件"
+    },
+    {
+     "kind": "object",
+     "name": "zip 能力",
+     "def": "zip 打包与附件解包"
+    },
+    {
+     "kind": "object",
+     "name": "workspace-archives",
+     "def": "Core 的 workspace-archives feature"
+    },
+    {
+     "kind": "object",
+     "name": "投递",
+     "def": "工作区向草稿区的投递"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "执行的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "布局",
+     "def": "课程文件目录布局版本"
+    },
+    {
+     "kind": "cond",
+     "name": "迁移",
+     "def": "迁移单项的结果"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "cond",
+     "name": "工作区",
+     "def": "作业工作区的形式"
+    },
+    {
+     "kind": "object",
+     "name": "作业说明生成",
+     "def": "HandInTarget::from_detail 与 assignmentBrief"
+    },
+    {
+     "kind": "object",
+     "name": "工作区操作",
+     "def": "对作业工作区的一次操作"
+    }
+   ],
+   "title": "课程文件与工作区",
+   "kind": "structure",
+   "desc": "课程资料、作业工作区的目录布局、迁移与打包能力"
+  },
+  {
+   "id": "t16",
+   "members": [
+    "goal/release-1-2-0",
+    "approach/app-store-school-review",
+    "goal/release-assets-clean",
+    "approach/release-update-assets",
+    "approach/app-store-github-release",
+    "approach/mobile-updates-and-sideload",
+    "d/7e98hy"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "iOS 发布",
+     "def": "iOS/iPadOS 正式版发布"
+    },
+    {
+     "kind": "object",
+     "name": "商店截图",
+     "def": "App Store 商店截图"
+    },
+    {
+     "kind": "object",
+     "name": "App",
+     "def": "提交审核的 App"
+    },
+    {
+     "kind": "object",
+     "name": "商店说明",
+     "def": "App Store 商店描述"
+    },
+    {
+     "kind": "object",
+     "name": "演示凭据",
+     "def": "提供给审核的演示账号"
+    },
+    {
+     "kind": "object",
+     "name": "安装文件",
+     "def": "用户直接安装的文件"
+    },
+    {
+     "kind": "object",
+     "name": "Release 附件",
+     "def": "正式 Release 的下载附件"
+    },
+    {
+     "kind": "cond",
+     "name": "功能",
+     "def": "本次版本功能是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "场景",
+     "def": "适用场景"
+    },
+    {
+     "kind": "object",
+     "name": "更新签名",
+     "def": "Mac 自动更新包的签名"
+    },
+    {
+     "kind": "object",
+     "name": "IPA",
+     "def": "iOS 安装包"
+    },
+    {
+     "kind": "object",
+     "name": "App 更新",
+     "def": "已安装 App 的版本更新"
+    },
+    {
+     "kind": "object",
+     "name": "安装",
+     "def": "下载后的 APK 安装"
+    },
+    {
+     "kind": "object",
+     "name": "app-store.yml",
+     "def": "App Store 发布 workflow"
+    },
+    {
+     "kind": "object",
+     "name": "TestFlight 上传",
+     "def": "向 TestFlight 上传构建"
+    },
+    {
+     "kind": "object",
+     "name": "定价设置",
+     "def": "App Store 的价格与地区设置"
+    },
+    {
+     "kind": "object",
+     "name": "首次申报",
+     "def": "首次隐私申报、分级和开发者协议"
+    },
+    {
+     "kind": "cond",
+     "name": "附件",
+     "def": "正式 Release 附件的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "cond",
+     "name": "iCloud 权限",
+     "def": "安装包是否带 iCloud 权限"
+    },
+    {
+     "kind": "cond",
+     "name": "IOS_APP_STORE_ENABLED",
+     "def": "是否开启 App Store 自动提审开关"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "触发发布动作的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "审核",
+     "def": "Apple 审核结果"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生在首次还是之后"
+    },
+    {
+     "kind": "cond",
+     "name": "版本",
+     "def": "商店上架版本与本机版本的关系"
+    },
+    {
+     "kind": "object",
+     "name": "更新弹窗",
+     "def": "发现新版时的弹窗"
+    },
+    {
+     "kind": "object",
+     "name": "检查结果",
+     "def": "更新检查结果"
+    },
+    {
+     "kind": "object",
+     "name": "自动检查",
+     "def": "自动更新检查"
+    },
+    {
+     "kind": "cond",
+     "name": "检查",
+     "def": "更新检查方式与结果"
+    },
+    {
+     "kind": "cond",
+     "name": "跳过",
+     "def": "新版与已跳过版本的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "自动更新",
+     "def": "桌面自动更新开关"
+    },
+    {
+     "kind": "cond",
+     "name": "状态",
+     "def": "更新包下载状态"
+    }
+   ],
+   "title": "发布与上架",
+   "kind": "process",
+   "desc": "正式发布渠道、App Store 审核与 Release 附件"
+  },
+  {
+   "id": "t17",
+   "members": [
+    "approach/app-store-age-rating",
+    "approach/app-store-pricing-rights",
+    "approach/app-store-privacy",
+    "goal/app-store-age-rating"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "年龄分级",
+     "def": "App Store 年龄分级"
+    },
+    {
+     "kind": "object",
+     "name": "统计类 SDK",
+     "def": "广告、跟踪或统计 SDK"
+    }
+   ],
+   "title": "App Store 申报",
+   "kind": "facts",
+   "desc": "App Store 上申报的年龄分级、隐私标签、定价与版权"
+  },
+  {
+   "id": "t18",
+   "members": [
+    "approach/exam-unified-read-model",
+    "approach/exam-correction-conflicts",
+    "approach/exam-delete-not-hide",
+    "approach/exam-course-matching"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "官方与手动考试",
+     "def": "官方考试表与课堂手动标记的 exam/quiz"
+    },
+    {
+     "kind": "object",
+     "name": "考试展示",
+     "def": "日历、Lectures 考试栏、课程详情、今日即将考试与考试提醒"
+    },
+    {
+     "kind": "object",
+     "name": "考试标记",
+     "def": "课次上的 exam/quiz/cancelled 标记"
+    },
+    {
+     "kind": "object",
+     "name": "课次",
+     "def": "一节课"
+    },
+    {
+     "kind": "object",
+     "name": "考试校正",
+     "def": "学生对考试信息的本地校正"
+    },
+    {
+     "kind": "object",
+     "name": "官方行",
+     "def": "官方考试表中的一行"
+    },
+    {
+     "kind": "object",
+     "name": "考试",
+     "def": "考试条目"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户对考试菜单的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "官方值",
+     "def": "刷新后官方值与 base、学生值的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "校正",
+     "def": "考试校正的状态"
+    },
+    {
+     "kind": "cond",
+     "name": "考试",
+     "def": "考试条目的种类或状态"
+    },
+    {
+     "kind": "object",
+     "name": "offering 代码",
+     "def": "确切 offering 的课程代码"
+    },
+    {
+     "kind": "object",
+     "name": "syllabus 基础代码",
+     "def": "syllabus 的基础课程代码"
+    },
+    {
+     "kind": "cond",
+     "name": "匹配",
+     "def": "考试与课程的匹配方式"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "考试信息来源"
+    }
+   ],
+   "title": "考试",
+   "kind": "behavior",
+   "desc": "考试列表的来源合并、标记、校正冲突与删除"
+  },
+  {
+   "id": "t21",
+   "members": [
+    "approach/mutation-returns-patch",
+    "approach/snapshot-without-offerings",
+    "approach/exam-timetable-read-input"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "变更结果",
+     "def": "workspace 变更返回给调用方的内容"
+    },
+    {
+     "kind": "object",
+     "name": "store",
+     "def": "桌面前端的状态 store"
+    },
+    {
+     "kind": "object",
+     "name": "workspace",
+     "def": "Core 的 workspace 状态与快照"
+    },
+    {
+     "kind": "object",
+     "name": "课程投影",
+     "def": "由 LMS 课程与 offerings 得出的课程读模型"
+    },
+    {
+     "kind": "object",
+     "name": "SchoolReads",
+     "def": "Core 内部的学校目录读输入"
+    },
+    {
+     "kind": "object",
+     "name": "课程面板",
+     "def": "桌面课程面板"
+    },
+    {
+     "kind": "object",
+     "name": "ExamTimetable",
+     "def": "Core 内部的考试表读输入"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "调用方平台"
+    },
+    {
+     "kind": "cond",
+     "name": "变更",
+     "def": "变更的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "实施的时机"
+    }
+   ],
+   "title": "Core 读模型与快照",
+   "kind": "structure",
+   "desc": "Core 快照、读模型输入与变更返回的形状"
+  },
+  {
+   "id": "t22",
+   "members": [
+    "approach/school-provider-boundary",
+    "goal/core-decides-shells-render",
+    "approach/desktop-stays-tauri-react",
+    "approach/ocr-optional-crate",
+    "approach/error-codes-shell-copy",
+    "approach/desktop-only-features-compiled-out"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "学校会话",
+     "def": "学校登录与会话"
+    },
+    {
+     "kind": "object",
+     "name": "登录任务",
+     "def": "学校登录的执行任务"
+    },
+    {
+     "kind": "object",
+     "name": "登录结果",
+     "def": "学校登录任务的结果"
+    },
+    {
+     "kind": "object",
+     "name": "学校抽象",
+     "def": "学校接口抽象层"
+    },
+    {
+     "kind": "object",
+     "name": "app-core",
+     "def": "领域核心 crate"
+    },
+    {
+     "kind": "object",
+     "name": "壳层",
+     "def": "桌面与移动端外壳"
+    },
+    {
+     "kind": "object",
+     "name": "桌面壳",
+     "def": "桌面端外壳实现"
+    },
+    {
+     "kind": "cond",
+     "name": "等待方",
+     "def": "等待登录结果的调用方状态"
+    },
+    {
+     "kind": "cond",
+     "name": "场景",
+     "def": "用户当前的使用场景"
+    },
+    {
+     "kind": "object",
+     "name": "OCR 后端",
+     "def": "app-ocr 提供的识别后端"
+    },
+    {
+     "kind": "object",
+     "name": "OCR 可用性",
+     "def": "当前平台是否能使用 OCR"
+    },
+    {
+     "kind": "cond",
+     "name": "目标",
+     "def": "编译目标平台"
+    },
+    {
+     "kind": "object",
+     "name": "Core 错误",
+     "def": "Core 对外返回的错误"
+    },
+    {
+     "kind": "object",
+     "name": "错误文案",
+     "def": "面向用户的错误文字"
+    },
+    {
+     "kind": "object",
+     "name": "桌面专属能力",
+     "def": "MCP 工具、LMS 写入的提交服务、账本与写入传输及其辅助代码"
+    },
+    {
+     "kind": "object",
+     "name": "共用领域逻辑",
+     "def": "作业工作区、ASSIGNMENT.md、错误码名称、持久化的设置字段"
+    }
+   ],
+   "title": "架构边界",
+   "kind": "structure",
+   "desc": "Core 与壳层、学校适配、桌面技术栈的职责边界"
+  },
+  {
+   "id": "t23",
+   "members": [
+    "approach/core-operation-ownership",
+    "approach/single-commit-path-events",
+    "approach/workspace-revision-conflict",
+    "approach/core-deadline-plan"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "已受理工作",
+     "def": "Core 已受理的操作"
+    },
+    {
+     "kind": "object",
+     "name": "变更",
+     "def": "写入用户数据的变更操作"
+    },
+    {
+     "kind": "object",
+     "name": "新工作",
+     "def": "shutdown 期间新提交的工作"
+    },
+    {
+     "kind": "object",
+     "name": "提交写入任务",
+     "def": "向 store.db 提交写入的任务"
+    },
+    {
+     "kind": "object",
+     "name": "后台机会",
+     "def": "移动端系统给予的后台执行机会"
+    },
+    {
+     "kind": "object",
+     "name": "后台预算",
+     "def": "后台机会的时间预算"
+    },
+    {
+     "kind": "object",
+     "name": "租用",
+     "def": "新的任务租用"
+    },
+    {
+     "kind": "object",
+     "name": "可重建的读取",
+     "def": "可在之后重新执行的读取"
+    },
+    {
+     "kind": "object",
+     "name": "持久意图",
+     "def": "已持久化、须保留的用户意图"
+    },
+    {
+     "kind": "object",
+     "name": "共享读取",
+     "def": "前台后来加入的共享读取"
+    },
+    {
+     "kind": "object",
+     "name": "store.db 提交",
+     "def": "对 store.db 的每次提交"
+    },
+    {
+     "kind": "object",
+     "name": "提交观察者",
+     "def": "观察提交并发出变更事件的组件"
+    },
+    {
+     "kind": "object",
+     "name": "变更事件",
+     "def": "workspace-changed 等变更提示事件"
+    },
+    {
+     "kind": "object",
+     "name": "订阅",
+     "def": "壳层对变更事件的订阅"
+    },
+    {
+     "kind": "object",
+     "name": "expectedRevision",
+     "def": "变更携带的预期 revision"
+    },
+    {
+     "kind": "object",
+     "name": "失败变更",
+     "def": "返回 Conflict/InvalidIntent 的变更"
+    },
+    {
+     "kind": "object",
+     "name": "创建类写入",
+     "def": "创建新记录的写入"
+    },
+    {
+     "kind": "cond",
+     "name": "调用方",
+     "def": "调用方的等待状态"
+    },
+    {
+     "kind": "cond",
+     "name": "阶段",
+     "def": "变更执行阶段"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "对变更的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "后台预算",
+     "def": "后台预算是否到期"
+    },
+    {
+     "kind": "cond",
+     "name": "主体",
+     "def": "执行操作的组件"
+    },
+    {
+     "kind": "cond",
+     "name": "FFI 队列",
+     "def": "FFI 事件队列状态"
+    },
+    {
+     "kind": "object",
+     "name": "领域服务",
+     "def": "Core 的各领域服务"
+    },
+    {
+     "kind": "object",
+     "name": "Core 唤醒指令",
+     "def": "WakeDirective"
+    },
+    {
+     "kind": "object",
+     "name": "壳层",
+     "def": "桌面/iOS/Android 壳层"
+    },
+    {
+     "kind": "object",
+     "name": "唤醒处理",
+     "def": "一次唤醒中的服务执行"
+    },
+    {
+     "kind": "object",
+     "name": "轮询",
+     "def": "定时轮询机制"
+    },
+    {
+     "kind": "object",
+     "name": "等待",
+     "def": "Core 内部的等待"
+    },
+    {
+     "kind": "object",
+     "name": "请求",
+     "def": "提交给 PlanEngine 的请求"
+    },
+    {
+     "kind": "object",
+     "name": "清理",
+     "def": "后台清理工作"
+    },
+    {
+     "kind": "object",
+     "name": "刷新请求",
+     "def": "学校数据刷新请求"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "请求",
+     "def": "请求的种类"
+    }
+   ],
+   "title": "Core 运行时与提交",
+   "kind": "behavior",
+   "desc": "Core 受理工作的持有、取消、shutdown、提交路径、变更事件与 revision 冲突"
+  },
+  {
+   "id": "t24",
+   "members": [
+    "approach/jst-date-rules",
+    "approach/three-db-ownership",
+    "approach/reset-scopes",
+    "constraint/storage-upgrade-compat",
+    "approach/short-lived-store-rebuild",
+    "approach/data-root-single-owner",
+    "approach/store-generation-publication",
+    "approach/snapshot-reference-publication",
+    "approach/view-cache-table-versions",
+    "approach/single-file-wal-store"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "日期",
+     "def": "存储与接口中的日期值"
+    },
+    {
+     "kind": "object",
+     "name": "时间戳",
+     "def": "存储与接口中的时间戳"
+    },
+    {
+     "kind": "object",
+     "name": "学业日期",
+     "def": "学期、课次等学业相关日期"
+    },
+    {
+     "kind": "object",
+     "name": "时间",
+     "def": "写入或读取的时间值"
+    },
+    {
+     "kind": "object",
+     "name": "日期解析器",
+     "def": "日期时间解析器"
+    },
+    {
+     "kind": "object",
+     "name": "已存记录",
+     "def": "已存储的记录"
+    },
+    {
+     "kind": "object",
+     "name": "备份与云同步",
+     "def": "备份与云同步读取的数据源"
+    },
+    {
+     "kind": "object",
+     "name": "学校表",
+     "def": "store.db 中存学校缓存的表"
+    },
+    {
+     "kind": "object",
+     "name": "overlay",
+     "def": "用户对学校数据的覆盖记录"
+    },
+    {
+     "kind": "object",
+     "name": "sourceKey",
+     "def": "指向学校来源的键"
+    },
+    {
+     "kind": "object",
+     "name": "设备偏好",
+     "def": "外观、语言、下载上限等设备级设置"
+    },
+    {
+     "kind": "object",
+     "name": "重置",
+     "def": "设置中的重置操作"
+    },
+    {
+     "kind": "object",
+     "name": "本机数据",
+     "def": "本机存储的数据"
+    },
+    {
+     "kind": "object",
+     "name": "云端",
+     "def": "已开启的云同步"
+    },
+    {
+     "kind": "object",
+     "name": "数据库升级",
+     "def": "store.db 的 schema 升级"
+    },
+    {
+     "kind": "object",
+     "name": "备份文档",
+     "def": "备份文档格式"
+    },
+    {
+     "kind": "cond",
+     "name": "写入",
+     "def": "写入的新旧"
+    },
+    {
+     "kind": "cond",
+     "name": "值",
+     "def": "已存值的形式"
+    },
+    {
+     "kind": "cond",
+     "name": "记录",
+     "def": "记录能否求值"
+    },
+    {
+     "kind": "cond",
+     "name": "重置",
+     "def": "重置的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "schema",
+     "def": "现有数据库 schema 的类型"
+    },
+    {
+     "kind": "object",
+     "name": "学校与同步表",
+     "def": "store.db 的学校与同步表"
+    },
+    {
+     "kind": "object",
+     "name": "submissions.db",
+     "def": "LMS 写入账本数据库"
+    },
+    {
+     "kind": "object",
+     "name": "token 与会话记录",
+     "def": "token 和已保存会话记录"
+    },
+    {
+     "kind": "object",
+     "name": "school-candidates",
+     "def": "退役的钥匙串条目"
+    },
+    {
+     "kind": "cond",
+     "name": "格式",
+     "def": "存储格式版本"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "object",
+     "name": "数据目录",
+     "def": "Core 的数据目录"
+    },
+    {
+     "kind": "object",
+     "name": "core.lock",
+     "def": "数据目录中的排他锁文件"
+    },
+    {
+     "kind": "object",
+     "name": "崩溃恢复",
+     "def": "崩溃后的恢复处理"
+    },
+    {
+     "kind": "object",
+     "name": "存储代",
+     "def": "store.db 或 submissions.db 的一代"
+    },
+    {
+     "kind": "object",
+     "name": "store-index.db",
+     "def": "记录活动代的小型索引库"
+    },
+    {
+     "kind": "object",
+     "name": "旧代",
+     "def": "被替换的存储代"
+    },
+    {
+     "kind": "object",
+     "name": "数据库文件",
+     "def": "SQLite 数据库文件"
+    },
+    {
+     "kind": "object",
+     "name": "存储路径",
+     "def": "存储相关文件路径"
+    },
+    {
+     "kind": "object",
+     "name": "用户表",
+     "def": "store.db 中的用户表"
+    },
+    {
+     "kind": "object",
+     "name": "普通 JSON",
+     "def": "普通 JSON 文件"
+    },
+    {
+     "kind": "object",
+     "name": "提交快照",
+     "def": "LMS 提交用的文件快照"
+    },
+    {
+     "kind": "object",
+     "name": "快照对象",
+     "def": "SnapshotStore 中的快照文件对象"
+    },
+    {
+     "kind": "object",
+     "name": "快照 GC",
+     "def": "快照对象回收"
+    },
+    {
+     "kind": "object",
+     "name": "execute",
+     "def": "提交执行入口"
+    },
+    {
+     "kind": "object",
+     "name": "快照引用",
+     "def": "快照对象的引用管理"
+    },
+    {
+     "kind": "object",
+     "name": "快照目录",
+     "def": "快照存储目录"
+    },
+    {
+     "kind": "object",
+     "name": "视图缓存",
+     "def": "Core 的视图缓存"
+    },
+    {
+     "kind": "object",
+     "name": "表版本",
+     "def": "每张表的内存版本号"
+    },
+    {
+     "kind": "object",
+     "name": "三组表",
+     "def": "user、cache、sync 三组表"
+    },
+    {
+     "kind": "object",
+     "name": "写事务",
+     "def": "数据库写事务"
+    },
+    {
+     "kind": "object",
+     "name": "store.db",
+     "def": "本地主数据库"
+    },
+    {
+     "kind": "cond",
+     "name": "进程",
+     "def": "打开数据目录的进程"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "操作结果"
+    },
+    {
+     "kind": "cond",
+     "name": "升级",
+     "def": "升级是否受支持"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "触发的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "版本",
+     "def": "依赖表版本与缓存序号的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    }
+   ],
+   "title": "本地数据存储与格式",
+   "kind": "behavior",
+   "desc": "store.db 表的归属、日期时间格式、重置范围与升级兼容"
+  },
+  {
+   "id": "t25",
+   "members": [
+    "constraint/credential-custody",
+    "approach/school-credentials-bundle",
+    "approach/otp-qr-import",
+    "approach/desktop-keychain-old-paths-kept"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "敏感凭据",
+     "def": "学校凭据、Matrix 表与 OTP 配置"
+    },
+    {
+     "kind": "object",
+     "name": "备份密码",
+     "def": "凭据备份的设备本地密码"
+    },
+    {
+     "kind": "object",
+     "name": "不同步数据",
+     "def": "Cookie、OAuth 令牌、下载文件、原始 HTML、WebView 状态与诊断"
+    },
+    {
+     "kind": "cond",
+     "name": "同意",
+     "def": "用户是否明确同意"
+    },
+    {
+     "kind": "cond",
+     "name": "目标",
+     "def": "凭据提交的目标"
+    },
+    {
+     "kind": "cond",
+     "name": "开关",
+     "def": "凭据云同步开关"
+    },
+    {
+     "kind": "cond",
+     "name": "场景",
+     "def": "使用场景"
+    },
+    {
+     "kind": "object",
+     "name": "school-accounts",
+     "def": "存学校凭据的钥匙串项"
+    },
+    {
+     "kind": "object",
+     "name": "凭据值",
+     "def": "学校凭据的明文值"
+    },
+    {
+     "kind": "object",
+     "name": "凭据状态缓存",
+     "def": "凭据的非敏感状态缓存"
+    },
+    {
+     "kind": "object",
+     "name": "凭据库",
+     "def": "系统原生凭据库"
+    },
+    {
+     "kind": "object",
+     "name": "凭据",
+     "def": "学校账号凭据"
+    },
+    {
+     "kind": "object",
+     "name": "凭据候选",
+     "def": "本机未验证的候选凭据"
+    },
+    {
+     "kind": "object",
+     "name": "school-candidates",
+     "def": "已退役的候选凭据项"
+    },
+    {
+     "kind": "object",
+     "name": "OTP 导入",
+     "def": "从二维码导入 OTP 配置"
+    },
+    {
+     "kind": "object",
+     "name": "OTP 识别结果",
+     "def": "二维码识别出的 OTP 配置"
+    },
+    {
+     "kind": "object",
+     "name": "二维码数据",
+     "def": "OTP 二维码的原始数据"
+    },
+    {
+     "kind": "object",
+     "name": "帮助文字",
+     "def": "OTP 导入的帮助说明"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "验证",
+     "def": "凭据是否经学校验证"
+    },
+    {
+     "kind": "cond",
+     "name": "类型",
+     "def": "OTP 的类型与参数"
+    },
+    {
+     "kind": "cond",
+     "name": "输入",
+     "def": "二维码输入的状态"
+    },
+    {
+     "kind": "cond",
+     "name": "导出",
+     "def": "迁移导出的账号数"
+    },
+    {
+     "kind": "cond",
+     "name": "用户",
+     "def": "用户的设置状态"
+    },
+    {
+     "kind": "object",
+     "name": "旧钥匙串位置",
+     "def": "旧产品名、LEGACY_SERVICES 和 macOS 本地钥匙串"
+    },
+    {
+     "kind": "object",
+     "name": "旧钥匙串条目",
+     "def": "在旧位置读到的条目"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "读取结果"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "开发操作"
+    }
+   ],
+   "title": "凭据与敏感数据",
+   "kind": "behavior",
+   "desc": "学校凭据等敏感数据的保管、加密备份与不同步范围"
+  },
+  {
+   "id": "t26",
+   "members": [
+    "approach/mcp-local-server",
+    "approach/mcp-desktop-loopback-only",
+    "approach/mcp-submit-confirmation",
+    "approach/agent-tool-registry",
+    "approach/mcp-reads-project-core-read-models"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "MCP 服务",
+     "def": "桌面本地 MCP 服务"
+    },
+    {
+     "kind": "object",
+     "name": "MCP 调用",
+     "def": "对 MCP 工具的一次调用"
+    },
+    {
+     "kind": "object",
+     "name": "Bearer 令牌",
+     "def": "MCP 服务的访问令牌"
+    },
+    {
+     "kind": "object",
+     "name": "MCP 请求",
+     "def": "到达 MCP 服务的 HTTP 请求"
+    },
+    {
+     "kind": "object",
+     "name": "学校站点",
+     "def": "学校网站"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 写入",
+     "def": "写入 LMS 的操作"
+    },
+    {
+     "kind": "object",
+     "name": "工具元数据",
+     "def": "MCP 工具的 _meta 元数据"
+    },
+    {
+     "kind": "object",
+     "name": "本地写入",
+     "def": "MCP 发起的本地数据写入"
+    },
+    {
+     "kind": "object",
+     "name": "调用历史",
+     "def": "代理调用历史记录"
+    },
+    {
+     "kind": "object",
+     "name": "敏感信息",
+     "def": "凭据、Cookie、会话、token、原始 HTML、账号或云设置"
+    },
+    {
+     "kind": "cond",
+     "name": "允许本地代理",
+     "def": "「允许本地代理」开关"
+    },
+    {
+     "kind": "cond",
+     "name": "工具",
+     "def": "MCP 工具的类别"
+    },
+    {
+     "kind": "cond",
+     "name": "允许 AI 写入 LMS",
+     "def": "「允许 AI 写入 LMS」开关"
+    },
+    {
+     "kind": "object",
+     "name": "提交确认窗",
+     "def": "App 自己弹出的确认窗"
+    },
+    {
+     "kind": "object",
+     "name": "领域服务",
+     "def": "Core 领域服务"
+    },
+    {
+     "kind": "object",
+     "name": "工具契约",
+     "def": "Core agent 工具契约"
+    },
+    {
+     "kind": "object",
+     "name": "MCP 适配器",
+     "def": "壳层的 MCP HTTP 适配器"
+    },
+    {
+     "kind": "object",
+     "name": "工具输出",
+     "def": "MCP 工具的输出"
+    },
+    {
+     "kind": "object",
+     "name": "工具错误",
+     "def": "MCP 工具的错误"
+    },
+    {
+     "kind": "object",
+     "name": "写权限",
+     "def": "工具的写权限"
+    },
+    {
+     "kind": "object",
+     "name": "agent 模块",
+     "def": "Core 的 agent 模块"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "调用方",
+     "def": "调用领域服务的一方"
+    },
+    {
+     "kind": "object",
+     "name": "MCP 读工具",
+     "def": "MCP 读取类工具"
+    },
+    {
+     "kind": "object",
+     "name": "courses 工具",
+     "def": "MCP courses 工具"
+    },
+    {
+     "kind": "cond",
+     "name": "字段",
+     "def": "DTO 字段"
+    }
+   ],
+   "title": "本地 MCP 服务",
+   "kind": "behavior",
+   "desc": "桌面本地 MCP 服务的开关、认证、工具分级与暴露范围"
+  },
+  {
+   "id": "t27",
+   "members": [
+    "approach/catalog-eligibility-evidence",
+    "approach/teaching-periods-default",
+    "approach/day-source-precedence",
+    "approach/calendar-actual-dates",
+    "approach/credit-split-by-quarter",
+    "goal/weekly-commitments-only"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "选课资格规则",
+     "def": "判定选课资格的规则"
+    },
+    {
+     "kind": "object",
+     "name": "选课资格判定",
+     "def": "选课资格的判定结果"
+    },
+    {
+     "kind": "object",
+     "name": "毕业要件",
+     "def": "毕业与学分要件"
+    },
+    {
+     "kind": "object",
+     "name": "teachingPeriods",
+     "def": "academicProfile.teachingPeriods 上课时段"
+    },
+    {
+     "kind": "object",
+     "name": "teachingPeriods 变更",
+     "def": "修改 teachingPeriods 的变更"
+    },
+    {
+     "kind": "cond",
+     "name": "规则",
+     "def": "规则的出处"
+    },
+    {
+     "kind": "cond",
+     "name": "事实",
+     "def": "判定所需事实是否齐全"
+    },
+    {
+     "kind": "cond",
+     "name": "年度",
+     "def": "目标年度与规则年度的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "时段",
+     "def": "时段是否有效"
+    },
+    {
+     "kind": "cond",
+     "name": "字段",
+     "def": "字段是否存在"
+    },
+    {
+     "kind": "object",
+     "name": "实际日期",
+     "def": "课次的实际日期"
+    },
+    {
+     "kind": "object",
+     "name": "周课日期",
+     "def": "每周课的实际日期"
+    },
+    {
+     "kind": "object",
+     "name": "课程日期",
+     "def": "某门课的上课日期"
+    },
+    {
+     "kind": "object",
+     "name": "每周固定日程",
+     "def": "每周固定的日程"
+    },
+    {
+     "kind": "object",
+     "name": "本地校历例外",
+     "def": "用户本地设置的校历例外"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程的授课形式"
+    },
+    {
+     "kind": "object",
+     "name": "学分",
+     "def": "课程学分"
+    },
+    {
+     "kind": "object",
+     "name": "已修学分",
+     "def": "已修得的学分"
+    },
+    {
+     "kind": "object",
+     "name": "能力点数",
+     "def": "能力点数"
+    },
+    {
+     "kind": "object",
+     "name": "本学期申报",
+     "def": "本学期的履修申报"
+    },
+    {
+     "kind": "cond",
+     "name": "成绩",
+     "def": "成绩状态"
+    },
+    {
+     "kind": "object",
+     "name": "用户自建时间",
+     "def": "用户在课表里自建的时间项"
+    },
+    {
+     "kind": "object",
+     "name": "旧 Plan 数据",
+     "def": "原 Plan 记录"
+    },
+    {
+     "kind": "object",
+     "name": "ICS 导出",
+     "def": "时间表 ICS 导出"
+    },
+    {
+     "kind": "cond",
+     "name": "时间",
+     "def": "时间与课程的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "所在页面"
+    }
+   ],
+   "title": "课程与日程规则",
+   "kind": "behavior",
+   "desc": "选课资格、上课时段与同日课次来源优先级"
+  },
+  {
+   "id": "t28",
+   "members": [
+    "constraint/school-parsing-markup",
+    "constraint/school-failure-keeps-data",
+    "approach/school-unavailable-outcome",
+    "approach/school-parser-boundary",
+    "constraint/lms-generic-structure"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "学校页面",
+     "def": "学校网页"
+    },
+    {
+     "kind": "object",
+     "name": "页面字段",
+     "def": "页面中的叶子值"
+    },
+    {
+     "kind": "object",
+     "name": "解析字段",
+     "def": "解析后展示的字段"
+    },
+    {
+     "kind": "object",
+     "name": "fixtures 与日志",
+     "def": "测试 fixtures 与日志"
+    },
+    {
+     "kind": "object",
+     "name": "已有行",
+     "def": "已入库的学校数据行"
+    },
+    {
+     "kind": "object",
+     "name": "提取结果",
+     "def": "一次页面提取的结果"
+    },
+    {
+     "kind": "object",
+     "name": "空集合",
+     "def": "提取得到的空集合"
+    },
+    {
+     "kind": "object",
+     "name": "缺失行",
+     "def": "本次读取未出现的已有行"
+    },
+    {
+     "kind": "object",
+     "name": "上次有效缓存",
+     "def": "上次成功读取的缓存"
+    },
+    {
+     "kind": "object",
+     "name": "学校记录",
+     "def": "入库的学校数据记录"
+    },
+    {
+     "kind": "object",
+     "name": "订阅文件",
+     "def": "订阅的数据文件"
+    },
+    {
+     "kind": "object",
+     "name": "拉取",
+     "def": "一次学校数据拉取"
+    },
+    {
+     "kind": "object",
+     "name": "页面可用性",
+     "def": "schoolRecords.pageAvailability"
+    },
+    {
+     "kind": "object",
+     "name": "解析器",
+     "def": "adpt-isct 的解析器"
+    },
+    {
+     "kind": "object",
+     "name": "WebView 提取输出",
+     "def": "WebView 提取脚本的输出"
+    },
+    {
+     "kind": "object",
+     "name": "UI",
+     "def": "前端界面"
+    },
+    {
+     "kind": "object",
+     "name": "课程",
+     "def": "跨来源关联的课程"
+    },
+    {
+     "kind": "cond",
+     "name": "值",
+     "def": "被解析值的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "字段",
+     "def": "字段的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "页面的形态"
+    },
+    {
+     "kind": "cond",
+     "name": "读取",
+     "def": "读取的结果"
+    },
+    {
+     "kind": "cond",
+     "name": "哈希",
+     "def": "记录哈希是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "校验",
+     "def": "文件校验结果"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "读取结果种类"
+    },
+    {
+     "kind": "cond",
+     "name": "状态",
+     "def": "数据所处的处理阶段"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 课程内容",
+     "def": "LMS 课程页面的内容"
+    },
+    {
+     "kind": "object",
+     "name": "日历修改",
+     "def": "对日历的修改"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 推断",
+     "def": "从 LMS 路径、顺序或时间做的推断"
+    },
+    {
+     "kind": "object",
+     "name": "作业正式提交",
+     "def": "作业的正式提交"
+    }
+   ],
+   "title": "学校页面解析与入库",
+   "kind": "behavior",
+   "desc": "学校页面的解析边界、匹配方式、失败保留与入库判定"
+  },
+  {
+   "id": "t29",
+   "members": [
+    "approach/school-browser-core-engine",
+    "approach/school-browsing-vs-automation",
+    "constraint/school-write-boundary",
+    "approach/web-extensions-scope",
+    "approach/school-web-resident",
+    "approach/school-web-post-resubmission",
+    "approach/school-web-windows-host-later",
+    "approach/school-web-host-contract",
+    "assum/ios-webkit-history-moved-at-resubmit",
+    "constraint/school-network-two-stacks",
+    "approach/school-web-front-page",
+    "approach/school-web-popup-sibling-views",
+    "approach/school-web-input-layer"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "SchoolBrowserEngine",
+     "def": "Core 的学校网页浏览宿主引擎"
+    },
+    {
+     "kind": "object",
+     "name": "壳层",
+     "def": "桌面与移动端外壳"
+    },
+    {
+     "kind": "object",
+     "name": "浏览器回调",
+     "def": "壳层 WebView 发回 Core 的回调"
+    },
+    {
+     "kind": "object",
+     "name": "外部网页",
+     "def": "官方域名白名单以外的网页"
+    },
+    {
+     "kind": "object",
+     "name": "隐藏任务",
+     "def": "后台隐藏 WebView 任务"
+    },
+    {
+     "kind": "object",
+     "name": "学校系统",
+     "def": "学校的各类网站与接口"
+    },
+    {
+     "kind": "object",
+     "name": "学校请求",
+     "def": "发往学校系统的请求"
+    },
+    {
+     "kind": "object",
+     "name": "学校写入",
+     "def": "对学校系统的写入"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 草稿",
+     "def": "LMS 作业草稿区内容"
+    },
+    {
+     "kind": "object",
+     "name": "作业提交",
+     "def": "LMS 作业提交"
+    },
+    {
+     "kind": "cond",
+     "name": "回调",
+     "def": "回调是否过期"
+    },
+    {
+     "kind": "cond",
+     "name": "场景",
+     "def": "浏览场景"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "页面的来源或可见性"
+    },
+    {
+     "kind": "cond",
+     "name": "请求",
+     "def": "请求的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "允许 AI 写入 LMS",
+     "def": "「允许 AI 写入 LMS」开关"
+    },
+    {
+     "kind": "cond",
+     "name": "确认",
+     "def": "用户确认方式"
+    },
+    {
+     "kind": "object",
+     "name": "站点扩展",
+     "def": "站点 CSS/JS 扩展"
+    },
+    {
+     "kind": "cond",
+     "name": "主机",
+     "def": "扩展匹配的主机"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "object",
+     "name": "学校网页",
+     "def": "App 内的学校网页视图"
+    },
+    {
+     "kind": "object",
+     "name": "网页 cookie",
+     "def": "学校网页 WebView 的 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "弹窗",
+     "def": "页面自己打开的窗口"
+    },
+    {
+     "kind": "object",
+     "name": "站点视图",
+     "def": "某站点的网页视图"
+    },
+    {
+     "kind": "object",
+     "name": "App 内跳转",
+     "def": "从 App 跳转到学校网页"
+    },
+    {
+     "kind": "object",
+     "name": "原生视图",
+     "def": "承载网页的原生视图"
+    },
+    {
+     "kind": "object",
+     "name": "路由",
+     "def": "App 路由"
+    },
+    {
+     "kind": "object",
+     "name": "最后站点",
+     "def": "最后访问的站点和安全 URL"
+    },
+    {
+     "kind": "object",
+     "name": "恢复内容",
+     "def": "认证回调、凭据或不安全的查询参数"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "窗口",
+     "def": "窗口的来源"
+    },
+    {
+     "kind": "object",
+     "name": "宿主导航事实",
+     "def": "壳层交给 Core 的导航与新窗口事实"
+    },
+    {
+     "kind": "object",
+     "name": "restore_record",
+     "def": "写到磁盘上的恢复记录"
+    },
+    {
+     "kind": "object",
+     "name": "Windows 浏览宿主",
+     "def": "Windows 的 school_webview2.rs 宿主实现"
+    },
+    {
+     "kind": "object",
+     "name": "旧补丁",
+     "def": "kyomu-popup.js 等旧补丁脚本"
+    },
+    {
+     "kind": "object",
+     "name": "导航判定",
+     "def": "Core 对导航和新窗口的判定"
+    },
+    {
+     "kind": "object",
+     "name": "宿主通知",
+     "def": "交给界面的通知事件"
+    },
+    {
+     "kind": "object",
+     "name": "HostCapabilities",
+     "def": "宿主声明的能力"
+    },
+    {
+     "kind": "object",
+     "name": "Reload",
+     "def": "App 的刷新按钮"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "宿主事件"
+    },
+    {
+     "kind": "object",
+     "name": "学校网络传输",
+     "def": "访问学校主机的网络传输"
+    },
+    {
+     "kind": "object",
+     "name": "学校文件下载",
+     "def": "学校主机文件的原生下载"
+    },
+    {
+     "kind": "object",
+     "name": "SchoolWebPage",
+     "def": "Core 的学校前台页读模型"
+    },
+    {
+     "kind": "object",
+     "name": "notice",
+     "def": "SchoolWebPage 中的加载失败通知"
+    },
+    {
+     "kind": "object",
+     "name": "GET 重开提示",
+     "def": "刷新改 GET 时的提示"
+    },
+    {
+     "kind": "object",
+     "name": "界面读取",
+     "def": "界面读取 SchoolWebPage"
+    },
+    {
+     "kind": "object",
+     "name": "页面打开",
+     "def": "open(surface, entry) 的处理"
+    },
+    {
+     "kind": "object",
+     "name": "后退",
+     "def": "学校网页的后退操作"
+    },
+    {
+     "kind": "object",
+     "name": "文件面板",
+     "def": "学校网页的文件选择面板"
+    },
+    {
+     "kind": "object",
+     "name": "诊断日志",
+     "def": "诊断用日志"
+    },
+    {
+     "kind": "cond",
+     "name": "导航",
+     "def": "WebKit 询问的导航类型"
+    },
+    {
+     "kind": "cond",
+     "name": "历史",
+     "def": "backForwardList 是否已移动"
+    },
+    {
+     "kind": "cond",
+     "name": "通道",
+     "def": "网络传输所走的栈"
+    },
+    {
+     "kind": "cond",
+     "name": "需求",
+     "def": "壳层的需求种类"
+    },
+    {
+     "kind": "cond",
+     "name": "入口",
+     "def": "open 的 entry 种类"
+    },
+    {
+     "kind": "cond",
+     "name": "presenter",
+     "def": "Core 记下的 presenter 与当前界面的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "位置",
+     "def": "当前所在视图"
+    },
+    {
+     "kind": "cond",
+     "name": "back",
+     "def": "SchoolWebPage.back 的取值"
+    },
+    {
+     "kind": "cond",
+     "name": "状态",
+     "def": "窗口的前台与可见状态"
+    },
+    {
+     "kind": "object",
+     "name": "学校内容区域",
+     "def": "每个窗口的学校内容区域"
+    },
+    {
+     "kind": "object",
+     "name": "学校视图",
+     "def": "学校 WebView 视图"
+    },
+    {
+     "kind": "object",
+     "name": "Stage",
+     "def": "壳层的视图舞台"
+    },
+    {
+     "kind": "object",
+     "name": "隔离方式",
+     "def": "非前台学校视图的输入隔离方式"
+    },
+    {
+     "kind": "object",
+     "name": "输入补丁",
+     "def": "_hitTest:dragTypes: 与 acceptsFirstResponder 补丁"
+    },
+    {
+     "kind": "cond",
+     "name": "视图",
+     "def": "学校视图的展示状态"
+    }
+   ],
+   "title": "学校网页与写入边界",
+   "kind": "behavior",
+   "desc": "学校网页浏览宿主、自动化范围与对学校系统的只读写入边界"
+  },
+  {
+   "id": "t30",
+   "members": [
+    "approach/bilingual-storage",
+    "approach/language-model",
+    "approach/i18n-semantic-keys"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "学校文本",
+     "def": "来自学校的文本"
+    },
+    {
+     "kind": "object",
+     "name": "语言无关事实",
+     "def": "代码、学分、时段等与语言无关的数据"
+    },
+    {
+     "kind": "object",
+     "name": "枚举",
+     "def": "存储中的枚举值"
+    },
+    {
+     "kind": "object",
+     "name": "显示文本",
+     "def": "界面显示的学校内容文本"
+    },
+    {
+     "kind": "object",
+     "name": "学校内容语言",
+     "def": "学校内容显示语言设置"
+    },
+    {
+     "kind": "object",
+     "name": "学校网站语言",
+     "def": "LMS 或学校网站本身的语言"
+    },
+    {
+     "kind": "object",
+     "name": "界面词条",
+     "def": "界面文案的 i18next 词条"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "文本来源或来源语言数"
+    },
+    {
+     "kind": "cond",
+     "name": "语言",
+     "def": "所需语言是否缺失"
+    },
+    {
+     "kind": "cond",
+     "name": "内容语言",
+     "def": "学校内容语言设置值"
+    },
+    {
+     "kind": "object",
+     "name": "ja/zh 词条",
+     "def": "日文与中文词条文件"
+    },
+    {
+     "kind": "object",
+     "name": "error 键",
+     "def": "error.<code> 词条键"
+    },
+    {
+     "kind": "object",
+     "name": "桌面翻译函数",
+     "def": "桌面 TS 的 t() 翻译函数"
+    },
+    {
+     "kind": "object",
+     "name": "壳词条读取",
+     "def": "iOS/Android/Rust 壳读取词条"
+    },
+    {
+     "kind": "object",
+     "name": "Core 词条读取",
+     "def": "Core 自有键的 lookup()"
+    },
+    {
+     "kind": "object",
+     "name": "覆盖测试",
+     "def": "text-and-locales 覆盖测试"
+    },
+    {
+     "kind": "cond",
+     "name": "键",
+     "def": "词条键的状态或归属"
+    }
+   ],
+   "title": "语言与多语内容",
+   "kind": "behavior",
+   "desc": "界面语言、学校内容语言与双语数据的存储和显示"
+  },
+  {
+   "id": "t31",
+   "members": [
+    "approach/course-material-cache",
+    "approach/material-download-lanes",
+    "approach/lms-file-scheme",
+    "constraint/offline-file-integrity"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "LMS 文件",
+     "def": "LMS 上的课程文件"
+    },
+    {
+     "kind": "object",
+     "name": "下载大小",
+     "def": "下载文件的大小上限"
+    },
+    {
+     "kind": "object",
+     "name": "笔记",
+     "def": "课程笔记文件"
+    },
+    {
+     "kind": "object",
+     "name": "下载文件",
+     "def": "正在下载的文件"
+    },
+    {
+     "kind": "object",
+     "name": "partial 文件",
+     "def": "未完成的 .part 文件"
+    },
+    {
+     "kind": "object",
+     "name": "旧文件",
+     "def": "原根目录下的文件"
+    },
+    {
+     "kind": "object",
+     "name": "下载请求",
+     "def": "调用方发起的下载"
+    },
+    {
+     "kind": "object",
+     "name": "下载通道",
+     "def": "Downloader 的并发通道"
+    },
+    {
+     "kind": "object",
+     "name": "下载 worker",
+     "def": "执行下载的 worker"
+    },
+    {
+     "kind": "object",
+     "name": "等待者",
+     "def": "等待下载结果的调用方"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 资源",
+     "def": "桌面界面引用的 LMS 资源"
+    },
+    {
+     "kind": "object",
+     "name": "lmsfile 请求",
+     "def": "经 lmsfile 协议的请求"
+    },
+    {
+     "kind": "object",
+     "name": "资源地址",
+     "def": "数据库中记录的资源地址"
+    },
+    {
+     "kind": "object",
+     "name": "主窗口",
+     "def": "桌面主窗口"
+    },
+    {
+     "kind": "object",
+     "name": "教学文件",
+     "def": "下载的课程教学文件"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "下载来源"
+    },
+    {
+     "kind": "cond",
+     "name": "下载",
+     "def": "下载的方式"
+    },
+    {
+     "kind": "cond",
+     "name": "文件",
+     "def": "文件的种类或大小"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "请求",
+     "def": "下载请求的参数"
+    },
+    {
+     "kind": "cond",
+     "name": "调用方",
+     "def": "调用方状态"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "请求结果"
+    },
+    {
+     "kind": "object",
+     "name": "本地文件",
+     "def": "本地缓存的课程文件"
+    },
+    {
+     "kind": "object",
+     "name": "本地文件缓存",
+     "def": "本地文件缓存记录"
+    },
+    {
+     "kind": "cond",
+     "name": "刷新",
+     "def": "刷新结果"
+    }
+   ],
+   "title": "课程资料下载与缓存",
+   "kind": "behavior",
+   "desc": "LMS 文件的下载来源、缓存、通道、清理与 lmsfile 协议"
+  },
+  {
+   "id": "t32",
+   "members": [
+    "approach/native-sdk-uniffi"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "FFI 类型",
+     "def": "app-ffi 暴露的 Swift/Kotlin 值类型"
+    },
+    {
+     "kind": "object",
+     "name": "Session",
+     "def": "SDK 的数据目录会话"
+    },
+    {
+     "kind": "object",
+     "name": "SDK 方法",
+     "def": "SDK 暴露的方法"
+    },
+    {
+     "kind": "object",
+     "name": "SdkError",
+     "def": "SDK 错误类型"
+    },
+    {
+     "kind": "object",
+     "name": "Rust 库与绑定",
+     "def": "Rust 库及生成的 Swift/Kotlin 绑定"
+    }
+   ],
+   "title": "原生 SDK 与绑定",
+   "kind": "structure",
+   "desc": "app-ffi、UniFFI 生成的绑定与 SDK 调用形状"
+  },
+  {
+   "id": "t33",
+   "members": [
+    "approach/reminders-local"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "提醒",
+     "def": "本地通知提醒"
+    },
+    {
+     "kind": "object",
+     "name": "已触发日志",
+     "def": "已触发提醒的日志"
+    },
+    {
+     "kind": "object",
+     "name": "作业提醒",
+     "def": "作业截止提醒"
+    },
+    {
+     "kind": "cond",
+     "name": "错过",
+     "def": "提醒错过触发时间的时长"
+    },
+    {
+     "kind": "cond",
+     "name": "作业",
+     "def": "作业状态"
+    },
+    {
+     "kind": "cond",
+     "name": "通知权限",
+     "def": "系统通知权限"
+    }
+   ],
+   "title": "提醒",
+   "kind": "behavior",
+   "desc": "课前、作业与考试提醒的本地排程、默认值与日志"
+  },
+  {
+   "id": "t34",
+   "members": [
+    "goal/product-promise",
+    "goal/out-of-scope",
+    "approach/course-editing-desktop-only",
+    "goal/school-owner-only"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "官方信息",
+     "def": "学校官方信息"
+    },
+    {
+     "kind": "object",
+     "name": "选课",
+     "def": "学校选课操作"
+    },
+    {
+     "kind": "object",
+     "name": "App",
+     "def": "本 App"
+    },
+    {
+     "kind": "object",
+     "name": "作业",
+     "def": "LMS 作业"
+    },
+    {
+     "kind": "object",
+     "name": "暂不做功能",
+     "def": "当前范围外的功能"
+    },
+    {
+     "kind": "object",
+     "name": "地图按钮",
+     "def": "教室地图按钮"
+    },
+    {
+     "kind": "object",
+     "name": "桌面专属功能",
+     "def": "仅桌面提供的功能"
+    },
+    {
+     "kind": "object",
+     "name": "时间表",
+     "def": "课程时间表"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 课程内容",
+     "def": "LMS 课程页面内容"
+    },
+    {
+     "kind": "cond",
+     "name": "确认",
+     "def": "用户确认方式"
+    },
+    {
+     "kind": "cond",
+     "name": "前提",
+     "def": "功能的前置条件"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行 App 的平台"
+    },
+    {
+     "kind": "object",
+     "name": "换账号",
+     "def": "在本机换成别人的学校账号"
+    },
+    {
+     "kind": "object",
+     "name": "他人账号处理",
+     "def": "为他人账号做的判断、屏障或数据隔离"
+    },
+    {
+     "kind": "object",
+     "name": "登录他人账号的后果",
+     "def": "登录别人账号时的行为"
+    }
+   ],
+   "title": "产品范围",
+   "kind": "scope",
+   "desc": "产品承诺、不做的功能与各端功能范围"
+  },
+  {
+   "id": "t35",
+   "members": [
+    "approach/assignment-state-lms-only",
+    "approach/course-finder-rules"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "作业状态",
+     "def": "作业的提交状态"
+    },
+    {
+     "kind": "object",
+     "name": "作业",
+     "def": "LMS 作业"
+    },
+    {
+     "kind": "object",
+     "name": "隐藏项",
+     "def": "被隐藏的作业"
+    },
+    {
+     "kind": "object",
+     "name": "课程",
+     "def": "可加入的课程"
+    },
+    {
+     "kind": "object",
+     "name": "加课",
+     "def": "加入课程的操作"
+    },
+    {
+     "kind": "object",
+     "name": "时间表格",
+     "def": "时间表中的格子"
+    },
+    {
+     "kind": "object",
+     "name": "粘贴文字",
+     "def": "用户粘贴的文字"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程的修得状态"
+    },
+    {
+     "kind": "cond",
+     "name": "格",
+     "def": "时间表格的冲突状态"
+    },
+    {
+     "kind": "cond",
+     "name": "代码",
+     "def": "粘贴文字中课程代码的识别结果"
+    }
+   ],
+   "title": "作业与加课",
+   "kind": "behavior",
+   "desc": "作业状态与隐藏、加课规则与提示"
+  },
+  {
+   "id": "t36",
+   "members": [
+    "constraint/subscription-cohort-axes",
+    "approach/subscription-polling",
+    "approach/departments-reference-refresh"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "校历订阅",
+     "def": "订阅的校历数据"
+    },
+    {
+     "kind": "object",
+     "name": "学系与推荐课订阅",
+     "def": "订阅的学系与推荐课数据"
+    },
+    {
+     "kind": "object",
+     "name": "行 ID",
+     "def": "订阅数据行的 ID"
+    },
+    {
+     "kind": "object",
+     "name": "按入学届区分的行",
+     "def": "区分入学届的订阅数据行"
+    },
+    {
+     "kind": "object",
+     "name": "订阅轮询",
+     "def": "客户端检查订阅更新"
+    },
+    {
+     "kind": "object",
+     "name": "数据集",
+     "def": "订阅的单个数据集文件"
+    },
+    {
+     "kind": "cond",
+     "name": "学修案内",
+     "def": "该入学年的学修案内是否存在"
+    },
+    {
+     "kind": "cond",
+     "name": "哈希",
+     "def": "index.json 原始字节哈希是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "变化",
+     "def": "数据集元数据的变化种类"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "入学年",
+     "def": "academicProfile.admissionYear 是否已设"
+    }
+   ],
+   "title": "订阅数据",
+   "kind": "behavior",
+   "desc": "订阅数据的选取轴、轮询与下载判定"
+  },
+  {
+   "id": "t37",
+   "members": [
+    "approach/settings-layering",
+    "approach/desktop-tools-page",
+    "approach/desktop-about-page",
+    "approach/desktop-about-page-design"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "开发者设置项",
+     "def": "站点样式与脚本、应用日志"
+    },
+    {
+     "kind": "object",
+     "name": "侧栏搜索",
+     "def": "设置侧栏的搜索"
+    },
+    {
+     "kind": "object",
+     "name": "设置项",
+     "def": "设置中的选项"
+    },
+    {
+     "kind": "object",
+     "name": "日常操作",
+     "def": "日常使用中的操作"
+    },
+    {
+     "kind": "object",
+     "name": "说明文字",
+     "def": "页面副标题或说明"
+    },
+    {
+     "kind": "cond",
+     "name": "开发者开关",
+     "def": "开发者开关状态"
+    },
+    {
+     "kind": "cond",
+     "name": "默认值",
+     "def": "能否确定默认值"
+    },
+    {
+     "kind": "cond",
+     "name": "情况",
+     "def": "页面操作的性质"
+    },
+    {
+     "kind": "object",
+     "name": "工具页",
+     "def": "桌面「工具」页"
+    },
+    {
+     "kind": "object",
+     "name": "校园工具项",
+     "def": "校园 Wi-Fi、VPN、打印机"
+    },
+    {
+     "kind": "object",
+     "name": "关于页",
+     "def": "桌面「关于」页"
+    },
+    {
+     "kind": "object",
+     "name": "图标",
+     "def": "App 图标"
+    },
+    {
+     "kind": "object",
+     "name": "其余元素",
+     "def": "关于页图标以外的元素"
+    },
+    {
+     "kind": "object",
+     "name": "关于页动效",
+     "def": "关于页的动画"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "减少动态效果",
+     "def": "系统减少动态效果设置"
+    }
+   ],
+   "title": "设置与页面结构",
+   "kind": "design",
+   "desc": "设置的分层、入口位置与页面说明文字"
+  },
+  {
+   "id": "t38",
+   "members": [
+    "env/desktop-release-pipeline",
+    "env/macos-signing-secrets",
+    "approach/windows-artifact-signing",
+    "env/updater-signing",
+    "constraint/updater-download-and-exit",
+    "env/android-release-signing",
+    "env/ios-signing-secrets"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "发布 workflow",
+     "def": "发布 GitHub Actions workflow"
+    },
+    {
+     "kind": "object",
+     "name": "发布 tag",
+     "def": "v<x.y.z> 发布 tag"
+    },
+    {
+     "kind": "object",
+     "name": "Release",
+     "def": "GitHub Release"
+    },
+    {
+     "kind": "object",
+     "name": "校园 VPN",
+     "def": "校园 VPN 功能与入口"
+    },
+    {
+     "kind": "object",
+     "name": "macOS 签名",
+     "def": "macOS 签名与公证"
+    },
+    {
+     "kind": "object",
+     "name": "provisioning profile",
+     "def": "APPLE_MACOS_PROVISIONING_PROFILE"
+    },
+    {
+     "kind": "object",
+     "name": "macOS 构建",
+     "def": "macOS 发布产物"
+    },
+    {
+     "kind": "object",
+     "name": "Windows 产物",
+     "def": "Windows 应用二进制和 NSIS 安装器"
+    },
+    {
+     "kind": "object",
+     "name": "Windows 签名",
+     "def": "Windows 代码签名"
+    },
+    {
+     "kind": "object",
+     "name": "latest.json",
+     "def": "桌面更新索引"
+    },
+    {
+     "kind": "object",
+     "name": "本地更新服务",
+     "def": "127.0.0.1 本地更新服务"
+    },
+    {
+     "kind": "object",
+     "name": "签名校验",
+     "def": "更新包签名校验"
+    },
+    {
+     "kind": "object",
+     "name": "更新下载",
+     "def": "桌面更新包下载"
+    },
+    {
+     "kind": "object",
+     "name": "安装结果",
+     "def": "更新安装结果"
+    },
+    {
+     "kind": "object",
+     "name": "退出",
+     "def": "App 退出流程"
+    },
+    {
+     "kind": "object",
+     "name": "窗口",
+     "def": "App 窗口"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "触发事件"
+    },
+    {
+     "kind": "cond",
+     "name": "版本",
+     "def": "版本号形式"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "发布操作"
+    },
+    {
+     "kind": "cond",
+     "name": "目标",
+     "def": "发布目标机型"
+    },
+    {
+     "kind": "cond",
+     "name": "开关",
+     "def": "签名开关"
+    },
+    {
+     "kind": "cond",
+     "name": "secret",
+     "def": "签名 secret 是否齐全"
+    },
+    {
+     "kind": "cond",
+     "name": "签名包",
+     "def": "各目标签名包是否齐全"
+    },
+    {
+     "kind": "cond",
+     "name": "构建",
+     "def": "构建类型"
+    },
+    {
+     "kind": "cond",
+     "name": "停滞",
+     "def": "下载无数据的时长"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "object",
+     "name": "Android 发布密钥",
+     "def": "Android 发布签名 keystore"
+    },
+    {
+     "kind": "object",
+     "name": "Android 产物",
+     "def": "Android 构建产物"
+    },
+    {
+     "kind": "object",
+     "name": "Android OAuth 客户端",
+     "def": "Android 端 Google OAuth 客户端"
+    },
+    {
+     "kind": "object",
+     "name": "App Store profile",
+     "def": "iOS 三个 bundle 的 App Store 描述文件"
+    },
+    {
+     "kind": "object",
+     "name": "云托管证书",
+     "def": "Apple 云托管签名证书"
+    },
+    {
+     "kind": "object",
+     "name": "TestFlight 构建",
+     "def": "上传到 TestFlight 的 iOS 构建"
+    }
+   ],
+   "title": "构建、签名与更新",
+   "kind": "process",
+   "desc": "发布 tag 触发、macOS/Windows/Android/iOS 签名、更新包签名与下载退出流程"
+  },
+  {
+   "id": "t39",
+   "members": [
+    "approach/course-internal-id",
+    "approach/synced-records-use-course-keys",
+    "approach/derived-rows-in-write-transaction",
+    "approach/course-id-merge"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "课程",
+     "def": "本机课程"
+    },
+    {
+     "kind": "object",
+     "name": "本地数据引用",
+     "def": "本地表、查询和用户数据中的课程引用"
+    },
+    {
+     "kind": "object",
+     "name": "课程写入",
+     "def": "Core 写入学校课程数据"
+    },
+    {
+     "kind": "object",
+     "name": "外部键",
+     "def": "offering ID、LMS ID、教務 jwc 等外部键"
+    },
+    {
+     "kind": "object",
+     "name": "内部 ID",
+     "def": "Core 生成的课程内部 ID"
+    },
+    {
+     "kind": "object",
+     "name": "已有 ID",
+     "def": "已存在的课程 ID"
+    },
+    {
+     "kind": "object",
+     "name": "同步用户记录",
+     "def": "云同步和备份中的用户记录"
+    },
+    {
+     "kind": "object",
+     "name": "course_identity_map",
+     "def": "课程身份映射表"
+    },
+    {
+     "kind": "object",
+     "name": "旧记录 ID",
+     "def": "旧记录中的课程 ID"
+    },
+    {
+     "kind": "object",
+     "name": "派生数据",
+     "def": "合并后的课程行等派生数据"
+    },
+    {
+     "kind": "object",
+     "name": "读取",
+     "def": "读模型查询"
+    },
+    {
+     "kind": "object",
+     "name": "读模型",
+     "def": "读取侧模型"
+    },
+    {
+     "kind": "cond",
+     "name": "查找",
+     "def": "在 course_identity_map 中的查找结果"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程来源"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "触发的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "键",
+     "def": "外部键在本机的状态"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "object",
+     "name": "非 offering 外部键",
+     "def": "LMS ID、教務键等别名外部键"
+    },
+    {
+     "kind": "object",
+     "name": "本机用户记录",
+     "def": "本机引用课程的用户记录"
+    },
+    {
+     "kind": "object",
+     "name": "被合并 ID",
+     "def": "合并后不再作为主 ID 的内部 ID"
+    },
+    {
+     "kind": "cond",
+     "name": "新记录",
+     "def": "新写入记录对外部键的连接情况"
+    }
+   ],
+   "title": "课程身份与派生数据",
+   "kind": "structure",
+   "desc": "课程内部 ID 与外部键的映射、同步记录中的课程引用与派生行的更新方式"
+  },
+  {
+   "id": "t40",
+   "members": [
+    "approach/timetable-block-true-time",
+    "approach/timetable-exam-emphasis",
+    "approach/timetable-cancelled-stripes",
+    "approach/timetable-overlap-lanes",
+    "approach/timetable-planned-outline",
+    "approach/timetable-intensive",
+    "approach/timetable-today-marker"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "时间表块",
+     "def": "时间表中的课程块"
+    },
+    {
+     "kind": "object",
+     "name": "壳层渲染",
+     "def": "三端壳层的时间表渲染"
+    },
+    {
+     "kind": "object",
+     "name": "块标签",
+     "def": "时间表块标题前的标签"
+    },
+    {
+     "kind": "object",
+     "name": "课程色 token",
+     "def": "course.tint.* 系列 token"
+    },
+    {
+     "kind": "object",
+     "name": "日列",
+     "def": "时间表中的一天列"
+    },
+    {
+     "kind": "object",
+     "name": "停课样式",
+     "def": "停课块与假日列的画法"
+    },
+    {
+     "kind": "object",
+     "name": "冲突提示",
+     "def": "时间冲突的提示"
+    },
+    {
+     "kind": "object",
+     "name": "无日期集中课",
+     "def": "还没有日期的集中课"
+    },
+    {
+     "kind": "object",
+     "name": "选课页",
+     "def": "桌面选课页"
+    },
+    {
+     "kind": "object",
+     "name": "今天标记",
+     "def": "时间表上表示今天与现在的标记"
+    },
+    {
+     "kind": "cond",
+     "name": "时间",
+     "def": "块的时间与节次、其他块的关系"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程是否正在上"
+    },
+    {
+     "kind": "cond",
+     "name": "块",
+     "def": "块的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "列",
+     "def": "日列的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    }
+   ],
+   "title": "时间表视觉",
+   "kind": "design",
+   "desc": "时间表块的范围、填充、描边、斜纹、分道与今天标记"
+  },
+  {
+   "id": "t41",
+   "members": [
+    "approach/loading-skeleton",
+    "approach/empty-state",
+    "approach/feedback-banner-toast",
+    "approach/button-hierarchy",
+    "approach/press-feedback-native",
+    "approach/transient-containers-native",
+    "approach/icons-per-platform",
+    "approach/haptics-state-only"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "列表和时间表",
+     "def": "列表与时间表视图"
+    },
+    {
+     "kind": "object",
+     "name": "骨架屏",
+     "def": "灰色占位块"
+    },
+    {
+     "kind": "object",
+     "name": "加载指示",
+     "def": "操作进行中的指示"
+    },
+    {
+     "kind": "object",
+     "name": "空状态",
+     "def": "没有内容时的页面状态"
+    },
+    {
+     "kind": "object",
+     "name": "错误提示",
+     "def": "页面级错误提示"
+    },
+    {
+     "kind": "object",
+     "name": "底部提示",
+     "def": "操作结果与撤销的底部提示"
+    },
+    {
+     "kind": "object",
+     "name": "按钮",
+     "def": "按钮组件"
+    },
+    {
+     "kind": "object",
+     "name": "按下反馈",
+     "def": "点击或按下时的视觉反馈"
+    },
+    {
+     "kind": "object",
+     "name": "临时容器",
+     "def": "承载临时补充内容的容器"
+    },
+    {
+     "kind": "object",
+     "name": "图标",
+     "def": "界面图标"
+    },
+    {
+     "kind": "object",
+     "name": "触感反馈",
+     "def": "手机触感震动"
+    },
+    {
+     "kind": "cond",
+     "name": "数据",
+     "def": "数据是否已到"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作种类"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "错误",
+     "def": "错误的影响范围"
+    },
+    {
+     "kind": "cond",
+     "name": "消息",
+     "def": "提示消息的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "级别",
+     "def": "按钮级别"
+    },
+    {
+     "kind": "cond",
+     "name": "元素",
+     "def": "被按下的元素种类"
+    },
+    {
+     "kind": "cond",
+     "name": "内容",
+     "def": "临时内容的种类"
+    }
+   ],
+   "title": "界面反馈与交互组件",
+   "kind": "design",
+   "desc": "骨架屏、空状态、错误横幅与底部提示、按钮层级、按下反馈、临时容器、图标与触感"
+  },
+  {
+   "id": "t42",
+   "members": [
+    "approach/motion-tokens",
+    "approach/motion-course-zoom",
+    "approach/motion-week-swipe",
+    "approach/motion-reduced",
+    "approach/android-course-zoom-no-relayout"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "动效",
+     "def": "界面动画与过渡"
+    },
+    {
+     "kind": "object",
+     "name": "课程页转场",
+     "def": "打开课程页的转场"
+    },
+    {
+     "kind": "object",
+     "name": "翻周动效",
+     "def": "时间表翻周的动效"
+    },
+    {
+     "kind": "object",
+     "name": "日期数字",
+     "def": "时间表日期数字"
+    },
+    {
+     "kind": "object",
+     "name": "数字变化",
+     "def": "数字值的变化显示"
+    },
+    {
+     "kind": "object",
+     "name": "现在线",
+     "def": "时间表上的现在线"
+    },
+    {
+     "kind": "object",
+     "name": "减少动态效果设置",
+     "def": "系统的减少动态效果设置"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "减少动态效果",
+     "def": "系统减少动态效果是否开启"
+    },
+    {
+     "kind": "object",
+     "name": "转场源端",
+     "def": "时间表块、Today 卡片、授業行"
+    }
+   ],
+   "title": "动效",
+   "kind": "design",
+   "desc": "动效时长曲线、课程页转场、翻周动效与减少动态效果"
+  },
+  {
+   "id": "t43",
+   "members": [
+    "approach/android-deps-latest-stable",
+    "approach/deps-latest-stable-weekly"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "Android 壳层依赖",
+     "def": "Compose BOM、androidx、AGP、Kotlin、Gradle 等"
+    },
+    {
+     "kind": "object",
+     "name": "JNA 与 rustls-platform-verifier",
+     "def": "随 Core SDK 走的 Android 依赖"
+    },
+    {
+     "kind": "object",
+     "name": "targetSdk",
+     "def": "Android targetSdk"
+    },
+    {
+     "kind": "object",
+     "name": "项目依赖",
+     "def": "Rust workspace、桌面 npm 和 GitHub Actions 依赖"
+    },
+    {
+     "kind": "object",
+     "name": "windows/objc2",
+     "def": "windows 与 objc2 系列 crate"
+    },
+    {
+     "kind": "object",
+     "name": "ort 与 optical-flow-lk",
+     "def": "Matrix OCR 相关 crate"
+    },
+    {
+     "kind": "object",
+     "name": "rust-toolchain action",
+     "def": "dtolnay/rust-toolchain"
+    }
+   ],
+   "title": "依赖升级",
+   "kind": "process",
+   "desc": "各生态依赖跟随稳定版的策略、Dependabot 分组与手动升级项"
+  },
+  {
+   "id": "t44",
+   "members": [
+    "approach/lms-submission-contract",
+    "approach/submission-capabilities",
+    "assum/lms-assignments-save-is-submit",
+    "approach/assignment-drop-lms-native"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "LMS 写入",
+     "def": "对 LMS 作业的写入"
+    },
+    {
+     "kind": "object",
+     "name": "提交相关读取",
+     "def": "准备、预检、核对与状态刷新所需的 LMS 读取"
+    },
+    {
+     "kind": "object",
+     "name": "status",
+     "def": "提交状态查询"
+    },
+    {
+     "kind": "object",
+     "name": "预检",
+     "def": "写入前的预检"
+    },
+    {
+     "kind": "object",
+     "name": "身份 permit",
+     "def": "贯穿预检、上传和保存的身份许可"
+    },
+    {
+     "kind": "object",
+     "name": "成功证据",
+     "def": "证明写入成功的证据"
+    },
+    {
+     "kind": "object",
+     "name": "未知结果",
+     "def": "结果未知的写入"
+    },
+    {
+     "kind": "object",
+     "name": "终态",
+     "def": "写入操作的最终状态"
+    },
+    {
+     "kind": "object",
+     "name": "refresh_outbox",
+     "def": "写入后的刷新待办"
+    },
+    {
+     "kind": "object",
+     "name": "目标作业",
+     "def": "被写入的作业"
+    },
+    {
+     "kind": "object",
+     "name": "写前读取",
+     "def": "写入开始前发起的读取"
+    },
+    {
+     "kind": "object",
+     "name": "提交操作",
+     "def": "已记录的提交操作"
+    },
+    {
+     "kind": "object",
+     "name": "SubmissionCapabilities",
+     "def": "保存、提交、撤回能力"
+    },
+    {
+     "kind": "object",
+     "name": "作业提交",
+     "def": "作业的保存、提交或撤回"
+    },
+    {
+     "kind": "object",
+     "name": "小测作答和课程评价",
+     "def": "小测作答与课程评价"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "写入结果"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "操作的执行者状态"
+    },
+    {
+     "kind": "cond",
+     "name": "作业",
+     "def": "作业种类"
+    },
+    {
+     "kind": "cond",
+     "name": "canedit",
+     "def": "作业 canedit 的值"
+    },
+    {
+     "kind": "object",
+     "name": "作业文件拖放",
+     "def": "桌面作业文件拖放"
+    },
+    {
+     "kind": "object",
+     "name": "App 拖放区",
+     "def": "App 自己的拖放区"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    }
+   ],
+   "title": "LMS 作业提交",
+   "kind": "behavior",
+   "desc": "SubmissionService 的唯一幂等写入、能力计算与本校作业事实"
+  },
+  {
+   "id": "t45",
+   "members": [
+    "approach/school-timing-table",
+    "approach/getaccess-cert-page-redirect",
+    "approach/school-web-manual-sign-in-web-only",
+    "approach/school-session-jar-persist",
+    "approach/school-second-factor-user-managed",
+    "approach/school-session-core-owned",
+    "approach/school-mobile-background-sign-in",
+    "approach/school-credential-change-discovery",
+    "approach/school-sign-in-verification",
+    "approach/school-web-identity-write-gate",
+    "approach/school-web-auth-verdict",
+    "approach/school-web-status-split",
+    "approach/school-web-write-owned-by-view",
+    "approach/school-password-submission-limit",
+    "approach/school-web-recovery-outage"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "其余时限",
+     "def": "时间常数表以外的时限"
+    },
+    {
+     "kind": "object",
+     "name": "同步项时限",
+     "def": "单个同步项的时限"
+    },
+    {
+     "kind": "object",
+     "name": "操作期限",
+     "def": "网页写入操作的期限"
+    },
+    {
+     "kind": "object",
+     "name": "时限关系",
+     "def": "时限之间的包含关系"
+    },
+    {
+     "kind": "object",
+     "name": "密码",
+     "def": "学校账号密码等认证因素"
+    },
+    {
+     "kind": "object",
+     "name": "拒绝记录",
+     "def": "本机 school-refusals 中的记录"
+    },
+    {
+     "kind": "object",
+     "name": "凭据",
+     "def": "保存的学校凭据"
+    },
+    {
+     "kind": "object",
+     "name": "拒绝判定",
+     "def": "判定凭据被拒的方式"
+    },
+    {
+     "kind": "object",
+     "name": "GetAccess 登录",
+     "def": "Core 的 GetAccess HTTP 登录"
+    },
+    {
+     "kind": "object",
+     "name": "网页会话",
+     "def": "学校网页自己的会话"
+    },
+    {
+     "kind": "object",
+     "name": "网页 cookie",
+     "def": "学校网页 WebView 的 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "后台登录",
+     "def": "Core 用保存凭据自动登录"
+    },
+    {
+     "kind": "object",
+     "name": "Core 会话 cookie",
+     "def": "Core 持有的学校会话 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "Core 会话",
+     "def": "Core 持有的学校会话"
+    },
+    {
+     "kind": "object",
+     "name": "第二步验证",
+     "def": "学校账号的第二步验证"
+    },
+    {
+     "kind": "object",
+     "name": "身份快照",
+     "def": "每个账号一份的身份快照"
+    },
+    {
+     "kind": "object",
+     "name": "换账号",
+     "def": "切换学校账号"
+    },
+    {
+     "kind": "object",
+     "name": "站点实例",
+     "def": "每个网站一个的站点会话实例"
+    },
+    {
+     "kind": "object",
+     "name": "学校读取",
+     "def": "对学校站点的读取操作"
+    },
+    {
+     "kind": "object",
+     "name": "网页",
+     "def": "App 内的学校网页"
+    },
+    {
+     "kind": "object",
+     "name": "网页 cookie 写入",
+     "def": "向网页写身份 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "旧登录机制",
+     "def": "隐藏网页登录、登录脚本、浏览让路和 App 内 OTP 注册"
+    },
+    {
+     "kind": "object",
+     "name": "同步凭据项",
+     "def": "经钥匙串同步的凭据项"
+    },
+    {
+     "kind": "object",
+     "name": "钥匙串",
+     "def": "系统钥匙串"
+    },
+    {
+     "kind": "object",
+     "name": "学校登录测试",
+     "def": "学校登录与会话的自动化测试"
+    },
+    {
+     "kind": "object",
+     "name": "学校登录行为",
+     "def": "学校登录与会话的实际行为"
+    },
+    {
+     "kind": "object",
+     "name": "Core 测试",
+     "def": "Core 中保留的纯逻辑用例"
+    },
+    {
+     "kind": "object",
+     "name": "身份验证",
+     "def": "对身份快照的一次 SSO 验证"
+    },
+    {
+     "kind": "object",
+     "name": "网页登录状态",
+     "def": "网页的登录状态判定"
+    },
+    {
+     "kind": "object",
+     "name": "Core HTTP 判定",
+     "def": "Core HTTP 路径的登录判定"
+    },
+    {
+     "kind": "object",
+     "name": "Core HTTP 结果",
+     "def": "Core HTTP 路径的登录结果"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "当前页面种类"
+    },
+    {
+     "kind": "cond",
+     "name": "范围",
+     "def": "提交发生的范围"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "登录或验证结果"
+    },
+    {
+     "kind": "cond",
+     "name": "凭据",
+     "def": "凭据的被拒状态"
+    },
+    {
+     "kind": "cond",
+     "name": "会话",
+     "def": "会话来源或状态"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "验证方式",
+     "def": "用户选的第二步验证方式"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "代际",
+     "def": "写入所属的代际"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "账号",
+     "def": "账号状态"
+    },
+    {
+     "kind": "cond",
+     "name": "快照",
+     "def": "身份快照状态"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "证据",
+     "def": "登录判定证据的种类"
+    },
+    {
+     "kind": "object",
+     "name": "网页登录恢复",
+     "def": "网页落到登录页时的自动恢复"
+    },
+    {
+     "kind": "object",
+     "name": "恢复按钮",
+     "def": "「用已保存账号登录」按钮"
+    },
+    {
+     "kind": "object",
+     "name": "网页面板",
+     "def": "学校网页上方的状态面板"
+    },
+    {
+     "kind": "object",
+     "name": "账号与网页状态",
+     "def": "账号设置与网页面板显示的状态"
+    },
+    {
+     "kind": "object",
+     "name": "一次性事件",
+     "def": "一次性提示事件"
+    },
+    {
+     "kind": "cond",
+     "name": "当前访问",
+     "def": "网页当前访问的状态"
+    },
+    {
+     "kind": "cond",
+     "name": "状态",
+     "def": "网页登录状态取值"
+    },
+    {
+     "kind": "cond",
+     "name": "写入",
+     "def": "cookie 写入的种类"
+    }
+   ],
+   "title": "学校登录与会话",
+   "kind": "behavior",
+   "desc": "Core 持有的学校登录、身份快照、凭据提交与拒绝、网页身份写入与登录状态判定"
+  },
+  {
+   "id": "t46",
+   "members": [
+    "assum/web-cookie-seed-cross-platform",
+    "assum/school-identity-only-sso",
+    "assum/school-sessions-independent",
+    "assum/school-identity-cookies-session-only"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "身份 cookie 写入",
+     "def": "原生写身份 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "跨平台实验",
+     "def": "跨平台 cookie 实验"
+    },
+    {
+     "kind": "object",
+     "name": "平台人工检查",
+     "def": "每个平台的人工检查"
+    }
+   ],
+   "title": "学校会话事实",
+   "kind": "facts",
+   "desc": "两校身份 cookie、SSO 与多会话行为的实测前提"
+  },
+  {
+   "id": "t47",
+   "members": [
+    "approach/campus-vpn-layout",
+    "goal/campus-printer-desktop",
+    "assum/portal-account-is-student-id",
+    "approach/printer-student-id-from-verified-portal",
+    "approach/printer-macos-linux-cups-queue",
+    "approach/printer-windows-direct-lpd",
+    "approach/printer-availability-probe",
+    "approach/campus-vpn-auto-continue",
+    "approach/printer-compile-time-split",
+    "assum/campus-printer-network"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "VPN helper",
+     "def": "校园 VPN 的 root helper"
+    },
+    {
+     "kind": "object",
+     "name": "壳层",
+     "def": "桌面壳层"
+    },
+    {
+     "kind": "object",
+     "name": "自动继续",
+     "def": "校园 VPN 自动继续"
+    },
+    {
+     "kind": "object",
+     "name": "VPN 隧道",
+     "def": "校园 VPN 隧道"
+    },
+    {
+     "kind": "object",
+     "name": "自动继续状态",
+     "def": "自动继续的运行状态"
+    },
+    {
+     "kind": "object",
+     "name": "打印功能",
+     "def": "学校打印机打印功能"
+    },
+    {
+     "kind": "object",
+     "name": "打印学号",
+     "def": "打印使用的学号"
+    },
+    {
+     "kind": "object",
+     "name": "打印入口",
+     "def": "打印安装与打印入口"
+    },
+    {
+     "kind": "object",
+     "name": "学号输入",
+     "def": "手动输入学号"
+    },
+    {
+     "kind": "object",
+     "name": "打印安装器",
+     "def": "打包的 CUPS 打印安装器"
+    },
+    {
+     "kind": "object",
+     "name": "打印队列",
+     "def": "CUPS 打印队列"
+    },
+    {
+     "kind": "object",
+     "name": "打印发送",
+     "def": "Windows 打印发送"
+    },
+    {
+     "kind": "object",
+     "name": "打印驱动",
+     "def": "端口监视器或驱动"
+    },
+    {
+     "kind": "object",
+     "name": "打印探测",
+     "def": "打印机可用性探测"
+    },
+    {
+     "kind": "object",
+     "name": "打印可用提示",
+     "def": "「可以打印」提示"
+    },
+    {
+     "kind": "object",
+     "name": "CUPS 后端与安装器",
+     "def": "titech-lpd 后端与安装器程序"
+    },
+    {
+     "kind": "object",
+     "name": "LPD/PJL 代码",
+     "def": "LPD/PJL/document 代码"
+    },
+    {
+     "kind": "object",
+     "name": "端口权限兜底",
+     "def": "端口权限兜底代码"
+    },
+    {
+     "kind": "object",
+     "name": "打印路径",
+     "def": "打印相关路径与工具"
+    },
+    {
+     "kind": "object",
+     "name": "Kyocera 驱动检测",
+     "def": "Kyocera 驱动检测代码"
+    },
+    {
+     "kind": "cond",
+     "name": "状态",
+     "def": "VPN 连接状态"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "错误",
+     "def": "错误种类"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "学号来源"
+    },
+    {
+     "kind": "cond",
+     "name": "身份",
+     "def": "身份验证状态"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "探测",
+     "def": "探测结果"
+    }
+   ],
+   "title": "校园工具",
+   "kind": "behavior",
+   "desc": "桌面校园 VPN 与学校打印机的结构、启用条件与运行规则"
+  },
+  {
+   "id": "t48",
+   "members": [
+    "approach/school-identity-derived-state",
+    "approach/school-account-state-fencing",
+    "approach/school-app-otp-entry",
+    "approach/school-web-clear-all",
+    "approach/school-person-turn-holds-sign-ins",
+    "approach/school-refusal-outlives-stuck-marker"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "学校身份",
+     "def": "Core 存储的学校身份事实"
+    },
+    {
+     "kind": "object",
+     "name": "进行中的登录",
+     "def": "正在进行的学校登录"
+    },
+    {
+     "kind": "object",
+     "name": "Connect 输入",
+     "def": "Connect 表单输入的凭据"
+    },
+    {
+     "kind": "object",
+     "name": "Connect 结果",
+     "def": "Connect 的返回结果"
+    },
+    {
+     "kind": "object",
+     "name": "已保存凭据",
+     "def": "已保存的学校凭据"
+    },
+    {
+     "kind": "object",
+     "name": "已有 token 和 cookie",
+     "def": "账号已有的 LMS token 与会话 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "账号状态异步结果",
+     "def": "账号状态相关的异步操作结果"
+    },
+    {
+     "kind": "object",
+     "name": "状态版本",
+     "def": "保护某个判断的版本号"
+    },
+    {
+     "kind": "object",
+     "name": "账号门",
+     "def": "账号操作的准入门"
+    },
+    {
+     "kind": "object",
+     "name": "进行中操作",
+     "def": "账号上正在进行的操作"
+    },
+    {
+     "kind": "object",
+     "name": "账号许可",
+     "def": "账号操作许可"
+    },
+    {
+     "kind": "object",
+     "name": "账号数据",
+     "def": "凭据、会话和 token"
+    },
+    {
+     "kind": "object",
+     "name": "退出",
+     "def": "学校账号退出或重置"
+    },
+    {
+     "kind": "object",
+     "name": "凭据恢复",
+     "def": "凭据备份恢复"
+    },
+    {
+     "kind": "object",
+     "name": "同步阻塞",
+     "def": "同步是否被账号阻塞的判断"
+    },
+    {
+     "kind": "object",
+     "name": "学校门户",
+     "def": "学校门户网页"
+    },
+    {
+     "kind": "object",
+     "name": "学校网页数据",
+     "def": "cookie、网页存储与缓存"
+    },
+    {
+     "kind": "object",
+     "name": "学校视图",
+     "def": "学校网页视图"
+    },
+    {
+     "kind": "object",
+     "name": "身份 cookie",
+     "def": "账号身份 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "旧清除机制",
+     "def": "clears_by_site、web_kept 和 Android 的清除按钮"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户或系统操作"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "学校返回的页面"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "操作结果"
+    },
+    {
+     "kind": "cond",
+     "name": "清理",
+     "def": "退出清理的完成情况"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "读取",
+     "def": "读取的新旧"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "object",
+     "name": "本人回合",
+     "def": "Connect/Retry 期间账号的本人回合"
+    },
+    {
+     "kind": "object",
+     "name": "后台和网页发起的登录",
+     "def": "非本人发起的登录"
+    },
+    {
+     "kind": "object",
+     "name": "拒绝记录",
+     "def": "学校拒绝记录"
+    },
+    {
+     "kind": "object",
+     "name": "带 after_marker 的拒绝",
+     "def": "记有 after_marker 的拒绝记录"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    }
+   ],
+   "title": "学校账号状态与退出",
+   "kind": "behavior",
+   "desc": "学校账号状态的推导与栅栏、Connect 结果、退出与重置清理"
+  }
+ ]
+}
