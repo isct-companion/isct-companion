@@ -176,6 +176,43 @@ impl NativeBrowser {
                 }
                 return;
             }
+            Operation::Dispatch(BrowserCommand {
+                browser,
+                action,
+                command: BrowserAction::EvalOtp { page, script },
+            }) => {
+                let Some(listener) = self.listener() else {
+                    return;
+                };
+                let sent = self.with_view(browser, |view| {
+                    let url = view
+                        .url()
+                        .map_err(|_| "OTP page is unavailable.".to_string())?;
+                    if !self
+                        .presentation
+                        .lock()
+                        .is_ok_and(|state| state.visible == Some(browser.site))
+                        || self.current_page(browser) != Some(page)
+                        || !view.window().is_visible().unwrap_or(false)
+                        || !listener.otp_script_allowed(page, action, &url)
+                    {
+                        return Err("OTP page changed.".into());
+                    }
+                    let listener = listener.clone();
+                    view.eval_with_callback(script.0, move |raw| {
+                        listener.otp_script_result(
+                            page,
+                            action,
+                            serde_json::from_str::<String>(&raw).ok(),
+                        );
+                    })
+                    .map_err(|_| "OTP script could not run.".into())
+                });
+                if sent.is_err() {
+                    listener.otp_script_result(page, action, None);
+                }
+                return;
+            }
             Operation::Dispatch(command) if self.is_popup(command.browser) => {
                 let id = command.browser;
                 if let Err(error) = self.popup_dispatch(command) {
@@ -194,6 +231,7 @@ impl NativeBrowser {
                     BrowserAction::GoBack => crate::school_web::go(&view, true),
                     BrowserAction::GoForward => crate::school_web::go(&view, false),
                     BrowserAction::Eval(script) => view.eval(&script).map_err(|e| e.to_string()),
+                    BrowserAction::EvalOtp { .. } => Err("OTP evaluation requires a page.".into()),
                 });
                 (id, cause, result)
             }
@@ -373,6 +411,11 @@ impl NativeBrowser {
                 BrowserAction::GoBack => Command::GoBack,
                 BrowserAction::GoForward => Command::GoForward,
                 BrowserAction::Eval(script) => Command::Evaluate(script),
+                BrowserAction::EvalOtp { .. } => {
+                    return Err(BrowserError::Dispatch(
+                        "OTP evaluation belongs to the main view.".into(),
+                    ))
+                }
             };
             let native = self.app()?;
             native

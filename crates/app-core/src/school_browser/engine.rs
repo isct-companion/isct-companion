@@ -5,10 +5,11 @@ use super::policy::{
 use super::{
     ActionId, BecameDownload, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     DownloadDisposition, History, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
-    NavigationKind, NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded,
-    SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolPageCustomization,
-    SchoolWebAccess, SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
-    SchoolWebProblem, SchoolWebResult, SchoolWebStep,
+    NavigationKind, NavigationRequest, NewWindowDecision, NewWindowRequest, OtpScript, PageId,
+    PageLoaded, SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolOtpEnrollment,
+    SchoolOtpIntent, SchoolOtpStage, SchoolPageCustomization, SchoolWebAccess, SchoolWebEntry,
+    SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebProblem, SchoolWebResult,
+    SchoolWebStep,
 };
 use crate::{
     events::CoreEvent,
@@ -29,6 +30,7 @@ use std::{
 use url::Url;
 
 mod operation;
+mod otp;
 mod restore;
 
 use operation::{Landing, Start, Visit, WebOp};
@@ -76,6 +78,7 @@ struct State {
     views: HashMap<SchoolSite, ViewState>,
     /// The site on screen; only its page is published.
     browsing: Option<SchoolSite>,
+    otp: Option<otp::Enrollment>,
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
     submission: Option<super::submission::PendingSubmission>,
@@ -89,6 +92,7 @@ struct State {
 struct ViewState {
     id: BrowserId,
     last_page: u64,
+    otp_loading: bool,
     url: String,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
@@ -199,6 +203,9 @@ impl State {
             notice: None,
             access: None,
             sign_in: false,
+            otp: (site == SchoolSite::SciencePortal)
+                .then(|| self.otp.as_ref().map(|otp| otp.view.clone()))
+                .flatten(),
         };
         let Some(view) = self.views.get(&site) else {
             return page;
@@ -234,6 +241,14 @@ impl State {
                 page.notice = view.failure.clone();
                 page.sign_in = view.op.is_none() && view.visit.offer;
             }
+        }
+        if page
+            .otp
+            .as_ref()
+            .is_some_and(|_| self.otp.as_ref().is_some_and(otp::Enrollment::active))
+        {
+            page.sign_in = false;
+            page.access = None;
         }
         page
     }
@@ -310,6 +325,7 @@ pub(super) fn entry_target(
         SchoolWebEntry::Return { .. } if presenter == Some(surface) => None,
         SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
         SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
+        SchoolWebEntry::OtpSetup { .. } => Some(otp::ENTRY.into()),
     }
 }
 
@@ -351,6 +367,11 @@ impl SchoolBrowserEngine {
                 return Ok(());
             }
             state.browsing = site;
+            if site != Some(SchoolSite::SciencePortal) {
+                if let Some(otp) = state.otp.as_mut() {
+                    otp.stop();
+                }
+            }
         }
         // Changes made while the site was off screen were not published.
         if let Some(site) = site {
@@ -377,8 +398,22 @@ impl SchoolBrowserEngine {
             )
         };
         let already_open = view.is_some();
-        let unsigned = entry == SchoolWebEntry::Unsigned;
+        let enrollment = match &entry {
+            SchoolWebEntry::OtpSetup { username } if site == SchoolSite::SciencePortal => {
+                Some(username.clone())
+            }
+            SchoolWebEntry::OtpSetup { .. } => {
+                return Err(SchoolBrowserError::InvalidInput(
+                    "OTP setup requires the Science Tokyo portal.".into(),
+                ))
+            }
+            _ => None,
+        };
+        let unsigned = entry == SchoolWebEntry::Unsigned || enrollment.is_some();
         let target = entry_target(entry, presenter.as_deref(), surface, site);
+        if enrollment.is_none() && site == SchoolSite::SciencePortal && target.is_some() {
+            self.0.leave_otp();
+        }
         if unsigned {
             self.cancel_sign_in(site)?;
         }
@@ -402,7 +437,7 @@ impl SchoolBrowserEngine {
         // loads after.
         let created = match view {
             Some(browser) => Ok(browser),
-            None if operation.is_some() => Url::parse("about:blank")
+            None if operation.is_some() || enrollment.is_some() => Url::parse("about:blank")
                 .map_err(|_| SchoolBrowserError::InvalidInput("Web URL is invalid.".into()))
                 .and_then(|initial| self.ensure_browser(site, initial)),
             None => self.ensure_browser(site, url.clone()),
@@ -425,21 +460,27 @@ impl SchoolBrowserEngine {
             if already_open && explicit_target {
                 self.0.close_popups(site);
             }
-            match operation {
-                Some(profile) => self.0.start(site, browser, profile, Start::Go(url.clone())),
-                None if already_open && navigates => {
+            if let Some(username) = enrollment.as_ref() {
+                if self.start_otp(browser, username)? {
                     self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
                 }
-                // A view coming back on the sign-in page it reached while
-                // hidden.
-                None => {
-                    let front = self.0.state.with(|state| {
-                        let front = state.front(site, self.0.capabilities.inline_popups)?;
-                        let url = Url::parse(&state.known_url(front)?).ok()?;
-                        is_identity_login(&url).then_some(front)
-                    });
-                    if let Some(front) = front {
-                        self.0.sign_in_page(front);
+            } else {
+                match operation {
+                    Some(profile) => self.0.start(site, browser, profile, Start::Go(url.clone())),
+                    None if already_open && navigates => {
+                        self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
+                    }
+                    // A view coming back on the sign-in page it reached while
+                    // hidden.
+                    None => {
+                        let front = self.0.state.with(|state| {
+                            let front = state.front(site, self.0.capabilities.inline_popups)?;
+                            let url = Url::parse(&state.known_url(front)?).ok()?;
+                            is_identity_login(&url).then_some(front)
+                        });
+                        if let Some(front) = front {
+                            self.0.sign_in_page(front);
+                        }
                     }
                 }
             }
@@ -486,6 +527,9 @@ impl SchoolBrowserEngine {
 
     /// Loads an address the person typed in the frontmost view or popup.
     pub fn navigate(&self, site: SchoolSite, raw: &str) -> Result<bool, SchoolBrowserError> {
+        if site == SchoolSite::SciencePortal {
+            self.0.leave_otp();
+        }
         let url = interactive_url(raw)?;
         self.user_browsing(Some(site))?;
         self.ensure_browser(site, url.clone())?;
@@ -503,6 +547,9 @@ impl SchoolBrowserEngine {
     /// page's `sign_in` button calls this too: the way out when the automatic
     /// recovery got stuck.
     pub fn reload(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
+        if site == SchoolSite::SciencePortal {
+            self.0.leave_otp();
+        }
         let Ok(browser) = self.front(site) else {
             return Ok(false);
         };
@@ -546,6 +593,9 @@ impl SchoolBrowserEngine {
     /// start of its history closes instead, as a browser closes a tab a page
     /// opened, and the page under it is in front again.
     pub fn back(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
+        if site == SchoolSite::SciencePortal {
+            self.0.leave_otp();
+        }
         let Some((browser, popup, history)) = self.front_history(site) else {
             return Ok(false);
         };
@@ -564,6 +614,9 @@ impl SchoolBrowserEngine {
 
     /// The app's Forward, the counterpart of Back.
     pub fn forward(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
+        if site == SchoolSite::SciencePortal {
+            self.0.leave_otp();
+        }
         let Some((browser, _, history)) = self.front_history(site) else {
             return Ok(false);
         };
@@ -677,6 +730,7 @@ impl SchoolBrowserEngine {
                 ViewState {
                     id,
                     last_page: 0,
+                    otp_loading: false,
                     url: initial.to_string(),
                     navigation: None,
                     actions: HashMap::new(),
@@ -732,6 +786,16 @@ impl SchoolBrowserListener for Listener {
             inner.tasks.spawn(async move {
                 owner.page_loaded(event);
             });
+        }
+    }
+    fn otp_script_allowed(&self, page: PageId, action: ActionId, url: &Url) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|inner| inner.otp_script_allowed(page, action, url))
+    }
+    fn otp_script_result(&self, page: PageId, action: ActionId, result: Option<String>) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.otp_result(page, action, result);
         }
     }
     fn load_failed(&self, event: LoadFailed) {
@@ -854,6 +918,7 @@ impl Inner {
                 return;
             }
             view.last_page = event.page.sequence;
+            view.otp_loading = false;
             if let Some(cause) = event.cause {
                 view.actions.remove(&cause);
             } else if let Some(action) = view.navigation {
@@ -880,6 +945,14 @@ impl Inner {
                 foreground,
             )
         };
+        if event.page.browser.site == SchoolSite::SciencePortal
+            && self
+                .state
+                .with(|state| state.otp.as_ref().is_some_and(otp::Enrollment::active))
+        {
+            self.otp_page(&event);
+            return;
+        }
         // The opener behind an inline popup does not move the page on screen.
         if foreground {
             self.publish_page(event.page.browser.site);
@@ -957,6 +1030,11 @@ impl Inner {
             view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
             view.failure = Some(failure);
+            if browser.site == SchoolSite::SciencePortal {
+                if let Some(otp) = state.otp.as_mut() {
+                    otp.stop();
+                }
+            }
         });
         self.publish_page(browser.site);
         self.landed(browser, event.cause, Landing::Failed);
@@ -1010,6 +1088,15 @@ impl Inner {
         match navigation_rule(&request) {
             Verdict::Allow | Verdict::Popup => {
                 self.state.with(|state| {
+                    if request.main_frame && browser.site == SchoolSite::SciencePortal {
+                        if let Some(view) = state
+                            .views
+                            .get_mut(&browser.site)
+                            .filter(|view| view.id == browser)
+                        {
+                            view.otp_loading = true;
+                        }
+                    }
                     if let Some(visit) = state.visit_mut(browser) {
                         visit.requested(&request);
                     }
@@ -1209,7 +1296,14 @@ impl Inner {
         let view = {
             let mut state = self.state.guard();
             match state.views.get(&browser.site) {
-                Some(view) if view.id == browser => state.views.remove(&browser.site),
+                Some(view) if view.id == browser => {
+                    if browser.site == SchoolSite::SciencePortal {
+                        if let Some(otp) = state.otp.as_mut() {
+                            otp.stop();
+                        }
+                    }
+                    state.views.remove(&browser.site)
+                }
                 _ => None,
             }
         };

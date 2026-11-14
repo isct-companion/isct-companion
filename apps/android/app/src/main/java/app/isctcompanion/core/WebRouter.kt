@@ -74,22 +74,11 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
 
     /** Core's school web events, from the app's event stream. */
     fun handle(name: String, payload: String) {
-        val row = runCatching { JSONObject(payload) }.getOrNull() ?: return
-        val site = site(row.optString("site")) ?: return
         when (name) {
-            "school-web-page" -> {
-                val notice = row.optJSONObject("notice")?.let {
-                    SchoolWebFailure(it.text("url"), loadFailure(it.optString("reason")))
-                }
-                adopt(
-                    SchoolWebPage(
-                        site, row.optLong("revision").toULong(), row.text("url"), row.optLong("popups").toULong(),
-                        step(row.optString("back")), step(row.optString("forward")), notice,
-                        access(row.optJSONObject("access")), row.optBoolean("signIn"),
-                    ),
-                )
-            }
+            "school-web-page" -> runCatching { decodeSchoolWebPage(payload) }.onSuccess(::adopt)
             "school-web-notice" -> {
+                val row = runCatching { JSONObject(payload) }.getOrNull() ?: return
+                val site = site(row.optString("site")) ?: return
                 val notice = when (row.optString("kind")) {
                     "reopened" -> Notice.REOPENED
                     else -> return
@@ -162,9 +151,19 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     /** The ウェブ tab shows `site`'s start page as it is, signed in nowhere
      * (`openSchoolUnsigned`): the Connect form's way to the Science Tokyo
      * portal, where the person sets up App OTP by hand. */
-    fun openUnsigned(site: SchoolSite) {
+    fun openUnsigned(site: SchoolSite, otpUsername: String? = null) {
         tabSite = site
-        load(site) { it.openSchoolUnsigned(site) }
+        load(site) { if (otpUsername == null) it.openSchoolUnsigned(site) else it.openSchoolOtp(otpUsername) }
+    }
+
+    fun otpIntent(otp: SchoolOtpEnrollment, intent: SchoolOtpIntent) {
+        scope.launch {
+            try {
+                session?.schoolOtpIntent(otp.id, intent)?.value()
+            } catch (failure: Exception) {
+                error = AppModel.describe(failure)
+            }
+        }
     }
 
     /** Runs Core's opening of `site`, then re-attaches its view and reads
@@ -215,20 +214,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         runCatching { session?.cancelSchoolSignIn(site) }
     }
 
-    /** Core's `SchoolWebAccess` from its wire form. */
-    private fun access(row: JSONObject?): SchoolWebAccess? = when (row?.optString("kind")) {
-        "signing-in" -> SchoolWebAccess.SigningIn
-        "problem" -> SchoolWebAccess.Problem(
-            when (row.optString("problem")) {
-                "unreachable" -> SchoolWebProblem.UNREACHABLE
-                "rejected" -> SchoolWebProblem.REJECTED
-                "storage" -> SchoolWebProblem.STORAGE
-                else -> SchoolWebProblem.STILL_SIGN_IN
-            },
-        )
-        else -> null
-    }
-
     /** The notice's Reopen: loads the page that failed again with GET, in the
      * page the person sees, as on iOS; a form result is opened by its address,
      * never sent again. The notice stays until Core hears how it went. */
@@ -264,24 +249,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         }
 
         fun site(raw: String?): SchoolSite? = SchoolSite.entries.firstOrNull { wireName(it) == raw }
-
-        /** Core's `SchoolWebStep` from its wire name. */
-        private fun step(raw: String): SchoolWebStep = when (raw) {
-            "yes" -> SchoolWebStep.YES
-            "no" -> SchoolWebStep.NO
-            else -> SchoolWebStep.UNKNOWN
-        }
-
-        /** Core's `LoadFailure` from its wire name. */
-        private fun loadFailure(raw: String): LoadFailure = when (raw) {
-            "cancelled" -> LoadFailure.CANCELLED
-            "offline" -> LoadFailure.OFFLINE
-            "host-not-found" -> LoadFailure.HOST_NOT_FOUND
-            "unreachable" -> LoadFailure.UNREACHABLE
-            "insecure" -> LoadFailure.INSECURE
-            "cleartext" -> LoadFailure.CLEARTEXT
-            else -> LoadFailure.OTHER
-        }
 
         /** Core's wire name for a site (`SchoolSite` serde names). */
         fun wireName(site: SchoolSite): String = when (site) {

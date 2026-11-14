@@ -88,6 +88,7 @@ pub struct SchoolWebPage {
     /// The page in front is a sign-in page Core could sign in with the saved
     /// credentials and is not signing in now: the manual way out (Reload).
     pub sign_in: bool,
+    pub otp: Option<SchoolOtpEnrollment>,
 }
 
 /// Whether the app's Back or Forward does something for the page in front.
@@ -131,6 +132,40 @@ pub enum SchoolWebEntry {
     /// Connect form offers it for the Science Tokyo portal when the school
     /// sends its one-time password by email, to set up App OTP there.
     Unsigned,
+    /// The person authorized visible App Authentication setup in Settings.
+    OtpSetup { username: String },
+}
+
+/// The visible enrollment, without any credential material.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolOtpEnrollment {
+    pub id: u64,
+    pub stage: SchoolOtpStage,
+    pub owner: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolOtpStage {
+    SignIn,
+    Checking,
+    ConfirmReset,
+    SettingUp,
+    Saving,
+    Complete,
+    AccountMismatch,
+    Incomplete,
+    Unknown,
+    SaveFailed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolOtpIntent {
+    Reset,
+    Stop,
+    RetrySave,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

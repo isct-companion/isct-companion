@@ -59,6 +59,8 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
         | "school-sign-out-tokyo-tech"
         | "school-accepted-science"
         | "school-accepted-tokyo-tech" => return Ok(format!("{app_id}.passwords.{account}")),
+        "school-otp-enrollment" => "passwords.school-otp-enrollment",
+        "school-otp-only" => "passwords.school-otp-only",
         "school-refusals" => "passwords.school-refusals",
         // An earlier release's device item; Core only deletes it.
         "school-candidates" => "passwords.school-candidates",

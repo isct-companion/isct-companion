@@ -65,6 +65,17 @@ pub fn import_otp(raw: &str) -> Result<Vec<OtpImportAccount>, OtpImportError> {
     if raw.len() > 64 * 1024 {
         return Err(OtpImportError::Invalid);
     }
+    // A bare Base32 secret, as TitechApp's Export OTP Secret copies it: checked
+    // here like a link, so every shell rejects a wrong paste before Connect.
+    if !raw.contains("://") {
+        let setup = raw.replace([' ', '-'], "");
+        super::otp_config(&setup).map_err(|_| OtpImportError::Invalid)?;
+        return Ok(vec![OtpImportAccount {
+            label: String::new(),
+            issuer: String::new(),
+            setup,
+        }]);
+    }
     let url = Url::parse(raw).map_err(|_| OtpImportError::Invalid)?;
     match (url.scheme(), url.host_str()) {
         ("otpauth", Some("totp")) => {

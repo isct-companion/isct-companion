@@ -417,7 +417,7 @@ function Account({
   notify: (message: string) => void;
   showLoginPage: (
     profile: SchoolAuthProfile,
-    options?: { unsigned: true },
+    options?: { unsigned: true } | { otpUsername: string },
   ) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -654,8 +654,14 @@ function Account({
           <OtpSetupInput
             value={draft.otpSecret}
             saved={summary.hasOtp}
+            otpOnly={!summary.saved}
             disabled={busy}
             onScanState={setScanning}
+            openSetup={() => {
+              edit({ ...draft, otpSecret: "" });
+              showLoginPage(profile, { otpUsername: draft.username });
+            }}
+            openManual={() => showLoginPage(profile, { unsigned: true })}
             onChange={(otpSecret) => edit({ ...draft, otpSecret })}
           />
         )}
@@ -696,22 +702,6 @@ function Account({
           {connectOutcomeText(outcome)}
         </Text>
       )}
-      {/* The app signs in to the portal by itself only with App OTP: the
-          person sets it up on the portal, signed in by hand there. */}
-      {profile === "science" &&
-        outcome?.kind === "needs-web" &&
-        outcome.reason === "email-otp" && (
-          <div className="schoolConnection">
-            <span>{t("schoolSession.appOtp.explain")}</span>
-            <Button
-              variant="subtle"
-              size="compact-xs"
-              onClick={() => showLoginPage(profile, { unsigned: true })}
-            >
-              {t("schoolSession.appOtp.openPortal")}
-            </Button>
-          </div>
-        )}
     </Paper>
   );
 }
@@ -726,7 +716,7 @@ export function SchoolAccounts({
   notify: (message: string) => void;
   showLoginPage: (
     profile: SchoolAuthProfile,
-    options?: { unsigned: true },
+    options?: { unsigned: true } | { otpUsername: string },
   ) => void;
 }) {
   const [status, setStatus] = useState(emptyStatus);
@@ -746,7 +736,9 @@ export function SchoolAccounts({
     }));
   };
   useEffect(() => {
-    void refresh().catch((error) => appNotify.error(error));
+    const read = () => void refresh().catch((error) => appNotify.error(error));
+    read();
+    return schoolSessions.subscribe(read);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!desktopBridge)

@@ -92,9 +92,13 @@ android {
     buildFeatures {
         compose = true
     }
-    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`.
+    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`, and the
+    // OTP setup guides' screenshots and step list.
     sourceSets {
-        getByName("main") { assets.directories.add("../../../resources/locales") }
+        getByName("main") {
+            assets.directories.add("../../../resources/locales")
+            assets.directories.add("../../../resources/otp-guide")
+        }
     }
     packaging {
         jniLibs.useLegacyPackaging = false

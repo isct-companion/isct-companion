@@ -682,6 +682,11 @@ impl Inner {
     /// recovery or why there is none.
     pub(super) fn sign_in_page(self: &Arc<Self>, browser: BrowserId) {
         let site = browser.site;
+        if site == SchoolSite::SciencePortal
+            && self.state.with(|state| state.otp.as_ref().is_some_and(otp::Enrollment::active))
+        {
+            return;
+        }
         let Some(profile) = site_profile(site).filter(|_| self.sessions.seeds_web()) else {
             return;
         };
@@ -770,7 +775,10 @@ impl SchoolBrowserEngine {
 impl AccountViews for Inner {
     /// The account's sign-out: its operations end and its views close.
     fn stop(&self) {
-        let gone = self.state.with(|state| std::mem::take(&mut state.views));
+        let gone = self.state.with(|state| {
+            if let Some(otp) = state.otp.as_mut() { otp.stop(); }
+            std::mem::take(&mut state.views)
+        });
         for view in gone.into_values() {
             if let Some(op) = &view.op {
                 op.cancel();

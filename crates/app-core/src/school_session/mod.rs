@@ -794,6 +794,64 @@ impl SchoolSessions {
         self.snapshot()
     }
 
+    /// Run enrollment vault I/O for the same account generation as the
+    /// visible operation, ordered with Connect's credential commits.
+    pub(crate) async fn otp_vault<T: Send + 'static>(
+        &self,
+        generation: u64,
+        work: impl FnOnce(&SchoolAuthService) -> Result<T, crate::school_auth::EnrollmentError>
+            + Send
+            + 'static,
+    ) -> Result<T, crate::school_auth::EnrollmentError> {
+        use crate::school_auth::EnrollmentError;
+        let account = self.0.account(SchoolAuthProfile::Science);
+        let _commit = account.commit.lock().await;
+        let permit = account
+            .owner
+            .permit_of(generation)
+            .ok_or(EnrollmentError::Stopped)?;
+        let auth = self.0.auth.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            work(&auth)
+        })
+        .await
+        .map_err(|_| EnrollmentError::Storage)?
+    }
+
+    pub(crate) async fn confirm_otp(
+        &self,
+        generation: u64,
+        id: String,
+    ) -> Result<(), crate::school_auth::EnrollmentError> {
+        use crate::school_auth::EnrollmentError;
+        let account = self.0.account(SchoolAuthProfile::Science);
+        let commit = account.commit.lock().await;
+        let permit = account
+            .owner
+            .permit_of(generation)
+            .ok_or(EnrollmentError::Stopped)?;
+        // A Connect started with the previous seed may not overwrite the
+        // new seed after the registration verdict has been saved.
+        let turn = account.identity.begin_connect();
+        self.0.publish();
+        let auth = self.0.auth.clone();
+        let saved = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            auth.confirm_enrollment(&id)
+        })
+        .await
+        .map_err(|_| EnrollmentError::Storage)?;
+        if let Ok(configured) = saved {
+            account.identity.set_configured_for(turn.intent, configured);
+        }
+        drop(turn);
+        drop(commit);
+        self.0.changed();
+        self.0.publish();
+        saved.map(|_| ())
+    }
+
     /// Capture before fetching the remote backup, without holding up a sign-out.
     pub(crate) fn credential_generations(&self) -> [u64; 2] {
         PROFILES.map(|profile| self.account_generation(profile))

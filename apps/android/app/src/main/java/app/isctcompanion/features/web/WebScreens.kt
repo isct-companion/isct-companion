@@ -19,6 +19,8 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,6 +77,10 @@ import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.LoadFailure
 import app.isctcompanion.core.SchoolBrowserHost
+import app.isctcompanion.core.SchoolAuthProfile
+import app.isctcompanion.core.SchoolOtpEnrollment
+import app.isctcompanion.core.SchoolOtpIntent
+import app.isctcompanion.core.SchoolOtpStage
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SchoolWebAccess
 import app.isctcompanion.core.SchoolWebFailure
@@ -223,6 +229,7 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
             HorizontalDivider()
         }
+        page?.otp?.let { OtpEnrollmentNotice(it, web) }
         when (val access = page?.access) {
             is SchoolWebAccess.SigningIn -> NoticeBanner(t("web.signIn.signingIn"), Theme.colors.accentSoft) {
                 TextButton(onClick = { web.cancelSignIn(site) }) { Text(t("web.signIn.cancel")) }
@@ -279,6 +286,57 @@ private fun problemText(problem: SchoolWebProblem): String = when (problem) {
     SchoolWebProblem.REJECTED -> "web.signIn.rejected"
     SchoolWebProblem.STORAGE -> "web.signIn.storage"
     SchoolWebProblem.STILL_SIGN_IN -> "web.signIn.stillSignIn"
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OtpEnrollmentNotice(otp: SchoolOtpEnrollment, web: WebRouter) {
+    val navigator = LocalNavigator.current
+    val message = when (otp.stage) {
+        SchoolOtpStage.SIGN_IN -> t("otpEnrollment.signIn")
+        SchoolOtpStage.CHECKING -> t("otpEnrollment.checking")
+        SchoolOtpStage.CONFIRM_RESET -> t("otpEnrollment.confirmReset", "account" to otp.owner.orEmpty())
+        SchoolOtpStage.SETTING_UP -> t("otpEnrollment.settingUp")
+        SchoolOtpStage.SAVING -> t("otpEnrollment.saving")
+        SchoolOtpStage.COMPLETE -> t("otpEnrollment.complete")
+        SchoolOtpStage.ACCOUNT_MISMATCH -> t("otpEnrollment.accountMismatch")
+        SchoolOtpStage.INCOMPLETE -> t("otpEnrollment.incomplete")
+        SchoolOtpStage.UNKNOWN -> t("otpEnrollment.unknown")
+        SchoolOtpStage.SAVE_FAILED -> t("otpEnrollment.saveFailed")
+    }
+    fun stop() = web.otpIntent(otp, SchoolOtpIntent.STOP)
+    fun accounts() {
+        stop()
+        navigator.openSettings(SchoolAuthProfile.SCIENCE)
+    }
+    Column(
+        Modifier.fillMaxWidth().background(Theme.colors.accentSoft).padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(message, style = MaterialTheme.typography.bodySmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            when (otp.stage) {
+                SchoolOtpStage.CONFIRM_RESET -> {
+                    TextButton(onClick = { web.otpIntent(otp, SchoolOtpIntent.RESET) }) {
+                        Text(t("otpEnrollment.reset"), color = Theme.colors.danger)
+                    }
+                    TextButton(onClick = ::accounts) { Text(t("otpEnrollment.import")) }
+                    TextButton(onClick = ::stop) { Text(t("otpEnrollment.keep")) }
+                }
+                SchoolOtpStage.COMPLETE -> {
+                    TextButton(onClick = ::accounts) { Text(t("otpEnrollment.settings")) }
+                    TextButton(onClick = ::stop) { Text(t("common.done")) }
+                }
+                SchoolOtpStage.SAVE_FAILED -> {
+                    TextButton(onClick = { web.otpIntent(otp, SchoolOtpIntent.RETRY_SAVE) }) { Text(t("otpEnrollment.retrySave")) }
+                    TextButton(onClick = ::stop) { Text(t("common.done")) }
+                }
+                SchoolOtpStage.SAVING -> Unit
+                SchoolOtpStage.SIGN_IN, SchoolOtpStage.CHECKING, SchoolOtpStage.SETTING_UP ->
+                    TextButton(onClick = ::stop) { Text(t("common.cancel")) }
+                else -> TextButton(onClick = ::stop) { Text(t("common.done")) }
+            }
+        }
+    }
 }
 
 @Composable

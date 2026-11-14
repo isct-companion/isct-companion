@@ -29,6 +29,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -275,7 +277,21 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             }
             is BrowserAction.GoBack -> webView.goBack()
             is BrowserAction.GoForward -> webView.goForward()
-            // Scripts report through navigation relays.
+            is BrowserAction.EvaluateOtp -> {
+                val events = listener() ?: return
+                val url = webView.url
+                if (tab.page != action.page || tab.loading || url == null ||
+                    !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) ||
+                    runCatching { events.otpScriptAllowed(action.page, command.actionId, url) }.getOrNull() != true
+                ) {
+                    runCatching { events.otpScriptResult(action.page, command.actionId, null) }
+                    return
+                }
+                webView.evaluateJavascript(action.script) { raw ->
+                    val result = runCatching { org.json.JSONTokener(raw).nextValue() as? String }.getOrNull()
+                    runCatching { events.otpScriptResult(action.page, command.actionId, result) }
+                }
+            }
             is BrowserAction.Evaluate -> webView.evaluateJavascript(action.script, null)
         }
     }
@@ -333,6 +349,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
         val front: Tab get() = popups.lastOrNull() ?: this
 
+        var loading = false
         var sequence: ULong = 0u
             private set
 
@@ -402,11 +419,14 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                loading = true
                 if (url != failedUrl) failedUrl = null
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 url ?: return
+                if (url != view.url) return
+                loading = false
                 if (url == failedUrl) {
                     failedUrl = null
                     return

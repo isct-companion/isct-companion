@@ -320,6 +320,10 @@ private struct PageBars: View {
                 .padding(.vertical, 8)
                 Divider()
             }
+            if let otp = web.pages[site]?.otp {
+                OtpEnrollmentNotice(otp: otp, web: web)
+                Divider()
+            }
             if let access = web.pages[site]?.access {
                 signIn(access)
                 Divider()
@@ -433,5 +437,74 @@ private struct ProblemNote: View {
             .padding(12)
             .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: 12))
             .padding()
+    }
+}
+
+
+private struct OtpEnrollmentNotice: View {
+    let otp: SchoolOtpEnrollment
+    let web: WebRouter
+    @Environment(Navigator.self) private var navigator
+
+    private var message: String {
+        switch otp.stage {
+        case .signIn: t("otpEnrollment.signIn")
+        case .checking: t("otpEnrollment.checking")
+        case .confirmReset: t("otpEnrollment.confirmReset", ["account": otp.owner ?? ""])
+        case .settingUp: t("otpEnrollment.settingUp")
+        case .saving: t("otpEnrollment.saving")
+        case .complete: t("otpEnrollment.complete")
+        case .accountMismatch: t("otpEnrollment.accountMismatch")
+        case .incomplete: t("otpEnrollment.incomplete")
+        case .unknown: t("otpEnrollment.unknown")
+        case .saveFailed: t("otpEnrollment.saveFailed")
+        }
+    }
+
+    private func accounts() {
+        web.otpIntent(otp, .stop)
+        navigator.tab = .settings
+        navigator.paths[.settings] = NavigationPath()
+        navigator.push(SettingsRoute.account(.science))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(message).font(.subheadline)
+            switch otp.stage {
+            case .confirmReset:
+                ViewThatFits(in: .horizontal) {
+                    HStack { resetActions }
+                    VStack(alignment: .leading) { resetActions }
+                }
+            case .complete:
+                HStack {
+                    Button(t("otpEnrollment.settings"), action: accounts)
+                    Button(t("common.done")) { web.otpIntent(otp, .stop) }
+                }
+            case .saveFailed:
+                HStack {
+                    Button(t("otpEnrollment.retrySave")) { web.otpIntent(otp, .retrySave) }
+                    Button(t("common.done")) { web.otpIntent(otp, .stop) }
+                }
+            case .saving:
+                ProgressView()
+            case .signIn, .checking, .settingUp:
+                Button(t("common.cancel")) { web.otpIntent(otp, .stop) }
+            case .accountMismatch, .incomplete, .unknown:
+                Button(t("common.done")) { web.otpIntent(otp, .stop) }
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder private var resetActions: some View {
+        Button(t("otpEnrollment.reset"), role: .destructive) { web.otpIntent(otp, .reset) }
+        Button(t("otpEnrollment.import"), action: accounts)
+        Button(t("otpEnrollment.keep")) { web.otpIntent(otp, .stop) }
     }
 }
