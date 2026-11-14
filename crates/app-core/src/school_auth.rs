@@ -1,4 +1,6 @@
+#[cfg(feature = "desktop-otp-enrollment")]
 mod otp_enrollment;
+#[cfg(feature = "desktop-otp-enrollment")]
 pub(crate) use otp_enrollment::EnrollmentError;
 mod otp_import;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
@@ -455,6 +457,13 @@ impl SchoolAuthService {
             SchoolAuthProfile::Science => status.science.clone(),
             SchoolAuthProfile::TokyoTech => status.tokyo_tech.clone(),
         };
+        let preserve_previous = availability == CredentialAvailability::AccessDenied;
+        #[cfg(feature = "desktop-otp-enrollment")]
+        let preserve_previous = preserve_previous
+            || (profile == SchoolAuthProfile::Science
+                && availability == CredentialAvailability::NotConfigured
+                && previous.has_otp
+                && !previous.saved);
         let summary = credentials
             .map(|c| CredentialSummary {
                 availability,
@@ -464,12 +473,7 @@ impl SchoolAuthService {
                 has_matrix: !c.matrix.is_empty(),
             })
             .unwrap_or_else(|| {
-                if availability == CredentialAvailability::AccessDenied
-                    || (profile == SchoolAuthProfile::Science
-                        && availability == CredentialAvailability::NotConfigured
-                        && previous.has_otp
-                        && !previous.saved)
-                {
+                if preserve_previous {
                     CredentialSummary {
                         availability,
                         ..previous
@@ -789,6 +793,7 @@ impl SchoolAuthService {
             self.adopt(&mut accounts, Some(payload))?;
         }
         self.accepted(&mut accounts, profile)?;
+        #[cfg(feature = "desktop-otp-enrollment")]
         if profile == SchoolAuthProfile::Science {
             let _ = self.delete_enrollment();
         }
@@ -946,6 +951,7 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
+        #[cfg(feature = "desktop-otp-enrollment")]
         if profile == SchoolAuthProfile::Science && credentials.otp_secret.trim().is_empty() {
             if let Some((owner, secret)) = self.enrolled_otp()? {
                 if credentials.username.trim().is_empty() {
@@ -997,6 +1003,7 @@ impl SchoolAuthService {
         self.unlock_accounts(&mut accounts)?;
         let mut verified = accounts.verified.clone();
         verified.remove(&profile);
+        #[cfg(feature = "desktop-otp-enrollment")]
         if profile == SchoolAuthProfile::Science {
             self.delete_enrollment()?;
             if let Some(mut status) = self.cached_status() {
@@ -1129,12 +1136,14 @@ impl SchoolAuthService {
             },
             None => CredentialSummary::default(),
         };
-        let mut science = summary(self.load(SchoolAuthProfile::Science)?);
-        if !science.saved {
-            if let Some((owner, _)) = self.enrolled_otp()? {
-                science = Self::enrollment_summary(owner);
-            }
-        }
+        let science = summary(self.load(SchoolAuthProfile::Science)?);
+        #[cfg(feature = "desktop-otp-enrollment")]
+        let science = match science {
+            summary if summary.saved => summary,
+            summary => self
+                .enrolled_otp()?
+                .map_or(summary, |(owner, _)| Self::enrollment_summary(owner)),
+        };
         let mut status = SchoolCredentialStatus {
             science,
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
@@ -1163,10 +1172,14 @@ impl SchoolAuthService {
     }
 
     fn saved_otp(&self) -> Result<Option<(String, String)>, SchoolAuthError> {
-        match self.load(SchoolAuthProfile::Science)? {
-            Some(credentials) => Ok(Some((credentials.username, credentials.otp_secret))),
-            None => self.enrolled_otp(),
+        let saved = self
+            .load(SchoolAuthProfile::Science)?
+            .map(|credentials| (credentials.username, credentials.otp_secret));
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if saved.is_none() {
+            return self.enrolled_otp();
         }
+        Ok(saved)
     }
 
     /// Explicit export only. Native shells write the result directly to the

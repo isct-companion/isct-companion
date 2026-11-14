@@ -370,13 +370,7 @@ private struct AccountScreen: View {
                     Section(t("settings.main.oneTimePassword")) {
                         OtpImportField(
                             saved: summary?.hasOtp == true,
-                            otpOnly: summary?.saved != true,
                             setup: $otpSecret,
-                            openSetup: {
-                                otpSecret = ""
-                                web.showUnsigned(.sciencePortal, otpUsername: username)
-                                navigator.tab = .web
-                            },
                             openManual: {
                                 web.showUnsigned(.sciencePortal)
                                 navigator.tab = .web
@@ -406,7 +400,7 @@ private struct AccountScreen: View {
                     }
                     .disabled(saving || session?.signOutPending == true || username.isEmpty || (password.isEmpty && summary?.saved != true))
                 }
-                if summary?.saved == true || summary?.hasOtp == true || session?.signOutPending == true {
+                if summary?.saved == true || session?.signOutPending == true {
                     Section {
                         // Core first stops the account's reads, so this can take a moment.
                         Button(role: .destructive) {

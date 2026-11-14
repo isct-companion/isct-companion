@@ -8441,7 +8441,7 @@ checks:
     title: Visible Extic App Authentication enrollment preserves the active account and saves the working seed
     persona: undergraduate-first-term
     preconditions: |
-      Builds for macOS, Windows, iOS/iPadOS and Android. Use disposable
+      Desktop builds for macOS and Windows. Use disposable
       school accounts authorized for changes: one with only emailed codes,
       one with existing App Authentication, and a different account to
       exercise the owner check. Keep working email access for resetting.
@@ -8494,8 +8494,6 @@ checks:
       - crates/app-core/src/school_browser/engine/otp.rs
       - crates/app-core/src/school_auth/otp_enrollment.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
-      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
-      - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
     verified: null
 
   - id: SCHOOL-ACCOUNT-STATES

@@ -651,13 +651,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 SectionLabel(t("settings.main.oneTimePassword"))
                 OtpImportField(
                     saved = summary?.hasOtp == true,
-                    otpOnly = !saved,
                     setup = otpSecret,
-                    openSetup = {
-                        otpSecret = ""
-                        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL, otpUsername = username)
-                        navigator.openTab("tab/web")
-                    },
                     openManual = {
                         model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
                         navigator.openTab("tab/web")
@@ -698,7 +692,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
         ) {
             if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
         }
-        if (saved || summary?.hasOtp == true || session?.signOutPending == true) {
+        if (saved || session?.signOutPending == true) {
             // Core stops the account's reads and clears the web sign-in
             // before this returns, which can take a moment.
             TextButton(

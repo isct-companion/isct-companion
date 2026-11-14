@@ -34,6 +34,7 @@ pub enum BrowserAction {
     GoForward,
     Eval(String),
     /// Evaluate on this exact main document and return its JSON string value.
+    #[cfg(feature = "desktop-otp-enrollment")]
     EvalOtp {
         page: PageId,
         script: OtpScript,
@@ -41,6 +42,7 @@ pub enum BrowserAction {
 }
 
 /// The enrollment script can contain a secret or a time-limited code.
+#[cfg(feature = "desktop-otp-enrollment")]
 #[derive(Clone, Eq, PartialEq)]
 pub struct OtpScript(pub String);
 
@@ -51,6 +53,7 @@ impl std::fmt::Debug for BrowserAction {
             Self::GoBack => formatter.write_str("GoBack"),
             Self::GoForward => formatter.write_str("GoForward"),
             Self::Eval(_) => formatter.write_str("Eval"),
+            #[cfg(feature = "desktop-otp-enrollment")]
             Self::EvalOtp { page, .. } => formatter.debug_tuple("EvalOtp").field(page).finish(),
         }
     }
@@ -247,7 +250,9 @@ pub trait SchoolBrowserListener: Send + Sync {
     fn page_loaded(&self, event: PageLoaded);
     /// Recheck at native execution time, after any queued visibility or
     /// navigation changes. A result is reported even when evaluation fails.
+    #[cfg(feature = "desktop-otp-enrollment")]
     fn otp_script_allowed(&self, page: PageId, action: ActionId, url: &Url) -> bool;
+    #[cfg(feature = "desktop-otp-enrollment")]
     fn otp_script_result(&self, page: PageId, action: ActionId, result: Option<String>);
     fn load_failed(&self, event: LoadFailed);
     /// The engine's history of a view or popup may have changed: a page

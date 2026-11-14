@@ -2,7 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use crate::school_auth::{upcoming_otps, EnrollmentError};
+use crate::{school_auth::EnrollmentError, school_session::fresh_otp};
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -590,25 +590,24 @@ impl Inner {
                         inner.fail_otp(id, error);
                         return;
                     }
-                    let Ok(codes) = upcoming_otps(&setup) else {
+                    let Ok((window, period)) = fresh_otp(&setup).await else {
                         inner.fail_otp(id, EnrollmentError::Invalid);
                         return;
                     };
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                        .map_or(0, |time| time.as_secs());
-                    let code = if codes.first().is_some_and(|code| code.from + 30 <= now + 5) {
-                        let Some(next) = codes.get(1) else { return };
-                        tokio::time::sleep(Duration::from_secs(next.from.saturating_sub(now))).await;
-                        next
-                    } else {
-                        let Some(current) = codes.first() else { return };
-                        current
-                    };
-                    {
-                        inner.otp_eval(id, page, ADD, "submit",
-                            json!({ "owner": actual, "secret": setup, "code": code.code, "validFrom": code.from, "validUntil": code.from + 30 }),
-                            Some(Phase::Submitting));
-                    }
+                    inner.otp_eval(
+                        id,
+                        page,
+                        ADD,
+                        "submit",
+                        json!({
+                            "owner": actual,
+                            "secret": setup,
+                            "code": window.code,
+                            "validFrom": window.from,
+                            "validUntil": window.from + period,
+                        }),
+                        Some(Phase::Submitting),
+                    );
                 });
             }
             (

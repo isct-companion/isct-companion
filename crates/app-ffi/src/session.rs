@@ -467,38 +467,6 @@ impl Session {
             })
         })
     }
-    pub fn open_school_otp(&self, username: String) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            Ok(OperationResult::SchoolWeb {
-                result: project(
-                    i.core
-                        .school_browser()?
-                        .open(
-                            app_core::lifecycle::SchoolSite::SciencePortal,
-                            WEB_SURFACE,
-                            app_core::school_browser::SchoolWebEntry::OtpSetup { username },
-                        )
-                        .await?,
-                )?,
-            })
-        })
-    }
-
-    pub fn school_otp_intent(
-        &self,
-        id: u64,
-        intent: SchoolOtpIntent,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            Ok(OperationResult::Flag {
-                value: i
-                    .core
-                    .school_browser()?
-                    .school_otp_intent(id, project_input(intent)?)?,
-            })
-        })
-    }
-
     /// The page the person sees of `site`. Read it after subscribing to
     /// events and keep the higher `revision` of it and `school-web-page`.
     pub fn school_web_page(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {

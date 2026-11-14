@@ -95,16 +95,14 @@ final class WebRouter {
     /// The ウェブ tab shows `site`'s start page as it is
     /// (`openSchoolUnsigned`): Core writes no sign-in and signs in nowhere,
     /// so the person signs in there themselves.
-    func showUnsigned(_ site: SchoolSite, otpUsername: String? = nil) {
+    func showUnsigned(_ site: SchoolSite) {
         guard let session else { return }
         tabSite = site
         loading = site
         error = nil
         Task {
             do {
-                let operation = try otpUsername.map { try session.openSchoolOtp(username: $0) }
-                    ?? session.openSchoolUnsigned(site: site)
-                _ = try await operation.value()
+                _ = try await session.openSchoolUnsigned(site: site).value()
                 opened.insert(site)
                 attachRevision += 1
                 await readPage(site)
@@ -112,16 +110,6 @@ final class WebRouter {
                 self.error = AppModel.describe(error)
             }
             if loading == site { loading = nil }
-        }
-    }
-
-    func otpIntent(_ otp: SchoolOtpEnrollment, _ intent: SchoolOtpIntent) {
-        Task {
-            do {
-                _ = try await session?.schoolOtpIntent(id: otp.id, intent: intent).value()
-            } catch {
-                self.error = AppModel.describe(error)
-            }
         }
     }
 

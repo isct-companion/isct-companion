@@ -62,9 +62,7 @@ private struct TileLabel: LabelStyle {
 /// export QR (camera or a screenshot on this phone) and a pasted setup.
 struct OtpImportField: View {
     let saved: Bool
-    let otpOnly: Bool
     @Binding var setup: String
-    let openSetup: () -> Void
     let openManual: () -> Void
     @State private var changing = false
     @State private var path = Path.export
@@ -76,9 +74,6 @@ struct OtpImportField: View {
     @State private var read: (setup: String, name: String)?
     @State private var error: String?
     @State private var copied = false
-    /// Whether the school OTP is already in an authenticator: asked first,
-    /// since someone without one has to set it up at the portal instead.
-    @State private var consent = false
     @FocusState private var editing: Bool
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
@@ -88,7 +83,7 @@ struct OtpImportField: View {
     var body: some View {
         if saved && !changing && setup.isEmpty {
             HStack {
-                Label(t(otpOnly ? "otpEnrollment.savedOnDevice" : "settings.credentialImport.codesAreFilledInFor"), systemImage: "checkmark.circle.fill")
+                Label(t("settings.credentialImport.codesAreFilledInFor"), systemImage: "checkmark.circle.fill")
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(Theme.ok, Theme.ink)
                 Spacer()
@@ -107,14 +102,6 @@ struct OtpImportField: View {
                 Text(error).font(.footnote).foregroundStyle(Theme.danger)
             }
         } else {
-            Button(t("otpEnrollment.help"), systemImage: "wand.and.stars") { consent = true }
-                .alert(t("otpEnrollment.help"), isPresented: $consent) {
-                    Button(t("otpEnrollment.continue"), action: openSetup)
-                    Button(t("otpEnrollment.manual"), action: openManual)
-                    Button(t("common.cancel"), role: .cancel) {}
-                } message: {
-                    Text(t("otpEnrollment.consent"))
-                }
             Button(t("otpEnrollment.manual"), action: openManual)
             importing
         }

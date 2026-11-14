@@ -682,6 +682,7 @@ impl Inner {
     /// recovery or why there is none.
     pub(super) fn sign_in_page(self: &Arc<Self>, browser: BrowserId) {
         let site = browser.site;
+        #[cfg(feature = "desktop-otp-enrollment")]
         if site == SchoolSite::SciencePortal
             && self.state.with(|state| state.otp.as_ref().is_some_and(otp::Enrollment::active))
         {
@@ -776,6 +777,7 @@ impl AccountViews for Inner {
     /// The account's sign-out: its operations end and its views close.
     fn stop(&self) {
         let gone = self.state.with(|state| {
+            #[cfg(feature = "desktop-otp-enrollment")]
             if let Some(otp) = state.otp.as_mut() { otp.stop(); }
             std::mem::take(&mut state.views)
         });

@@ -151,19 +151,9 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     /** The ウェブ tab shows `site`'s start page as it is, signed in nowhere
      * (`openSchoolUnsigned`): the Connect form's way to the Science Tokyo
      * portal, where the person sets up App OTP by hand. */
-    fun openUnsigned(site: SchoolSite, otpUsername: String? = null) {
+    fun openUnsigned(site: SchoolSite) {
         tabSite = site
-        load(site) { if (otpUsername == null) it.openSchoolUnsigned(site) else it.openSchoolOtp(otpUsername) }
-    }
-
-    fun otpIntent(otp: SchoolOtpEnrollment, intent: SchoolOtpIntent) {
-        scope.launch {
-            try {
-                session?.schoolOtpIntent(otp.id, intent)?.value()
-            } catch (failure: Exception) {
-                error = AppModel.describe(failure)
-            }
-        }
+        load(site) { it.openSchoolUnsigned(site) }
     }
 
     /** Runs Core's opening of `site`, then re-attaches its view and reads

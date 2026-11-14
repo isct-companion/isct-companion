@@ -42,7 +42,7 @@ impl core::SecretVault for Vault {
     }
 }
 
-#[derive(Clone, uniffi::Enum)]
+#[derive(Clone, Debug, uniffi::Enum)]
 pub enum BrowserAction {
     /// Also the App's Reload, which opens the last page with a GET.
     Navigate {
@@ -53,12 +53,8 @@ pub enum BrowserAction {
     Evaluate {
         script: String,
     },
-    EvaluateOtp {
-        page: PageId,
-        script: String,
-    },
 }
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct BrowserCommand {
     pub browser: BrowserId,
     pub action_id: u64,
@@ -213,31 +209,6 @@ impl BrowserEvents {
         });
         Ok(())
     }
-    pub fn otp_script_allowed(
-        &self,
-        page: PageId,
-        action_id: u64,
-        url: String,
-    ) -> Result<bool, SdkError> {
-        Ok(self.listener()?.otp_script_allowed(
-            project_input(page)?,
-            browser::ActionId(action_id),
-            &parse_url(&url)?,
-        ))
-    }
-    pub fn otp_script_result(
-        &self,
-        page: PageId,
-        action_id: u64,
-        result: Option<String>,
-    ) -> Result<(), SdkError> {
-        self.listener()?.otp_script_result(
-            project_input(page)?,
-            browser::ActionId(action_id),
-            result,
-        );
-        Ok(())
-    }
     /// `reason` is `Cancelled` for loads the engine replaced or policy
     /// cancelled; Core never shows those.
     pub fn load_failed(
@@ -385,15 +356,19 @@ impl browser::SchoolBrowser for Browser {
             .map_err(dispatch_error)
     }
     fn dispatch(&self, command: browser::BrowserCommand) -> Result<(), browser::BrowserError> {
+        // A workspace build can unify Core's desktop features with the SDK's.
+        #[allow(unreachable_patterns)]
         let action = match command.command {
             browser::BrowserAction::Navigate(url) => BrowserAction::Navigate { url: url.into() },
             browser::BrowserAction::GoBack => BrowserAction::GoBack,
             browser::BrowserAction::GoForward => BrowserAction::GoForward,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
-            browser::BrowserAction::EvalOtp { page, script } => BrowserAction::EvaluateOtp {
-                page: project(page).map_err(dispatch_error)?,
-                script: script.0,
-            },
+            #[cfg(any(target_os = "macos", windows))]
+            _ => {
+                return Err(browser::BrowserError::Dispatch(
+                    "The mobile SDK does not evaluate OTP enrollment scripts.".into(),
+                ));
+            }
         };
         self.native
             .dispatch(BrowserCommand {

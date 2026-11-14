@@ -10,7 +10,7 @@ final class KeychainVault: NativeVault, @unchecked Sendable {
     /// and the school's refusals of saved credentials: kept on this device
     /// only, never synchronized, and readable after the first unlock so a
     /// background wake can sign in.
-    private static let deviceOnly: Set<String> = ["school-session-science", "school-session-tokyo-tech", "school-refusals", "school-otp-enrollment", "school-otp-only"]
+    private static let deviceOnly: Set<String> = ["school-session-science", "school-session-tokyo-tech", "school-refusals"]
 
     func load(account: String) throws -> String? {
         var query = try baseQuery(account)

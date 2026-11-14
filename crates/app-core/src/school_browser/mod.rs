@@ -1,4 +1,8 @@
 mod engine;
+#[cfg(feature = "desktop-otp-enrollment")]
+mod otp_types;
+#[cfg(feature = "desktop-otp-enrollment")]
+pub use otp_types::*;
 mod policy;
 mod port;
 mod submission;
@@ -88,6 +92,7 @@ pub struct SchoolWebPage {
     /// The page in front is a sign-in page Core could sign in with the saved
     /// credentials and is not signing in now: the manual way out (Reload).
     pub sign_in: bool,
+    #[cfg(feature = "desktop-otp-enrollment")]
     pub otp: Option<SchoolOtpEnrollment>,
 }
 
@@ -133,39 +138,8 @@ pub enum SchoolWebEntry {
     /// sends its one-time password by email, to set up App OTP there.
     Unsigned,
     /// The person authorized visible App Authentication setup in Settings.
+    #[cfg(feature = "desktop-otp-enrollment")]
     OtpSetup { username: String },
-}
-
-/// The visible enrollment, without any credential material.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolOtpEnrollment {
-    pub id: u64,
-    pub stage: SchoolOtpStage,
-    pub owner: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SchoolOtpStage {
-    SignIn,
-    Checking,
-    ConfirmReset,
-    SettingUp,
-    Saving,
-    Complete,
-    AccountMismatch,
-    Incomplete,
-    Unknown,
-    SaveFailed,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SchoolOtpIntent {
-    Reset,
-    Stop,
-    RetrySave,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

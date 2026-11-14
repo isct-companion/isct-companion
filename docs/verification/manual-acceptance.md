@@ -341,7 +341,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
@@ -9684,7 +9684,7 @@ glance in the real app on three platforms.
 
 **Preconditions**
 
-Builds for macOS, Windows, iOS/iPadOS and Android. Use disposable
+Desktop builds for macOS and Windows. Use disposable
 school accounts authorized for changes: one with only emailed codes,
 one with existing App Authentication, and a different account to
 exercise the owner check. Keep working email access for resetting.
@@ -9740,8 +9740,6 @@ Offline tests cover only vault and authority checks.
 - `crates/app-core/src/school_browser/engine/otp.rs`
 - `crates/app-core/src/school_auth/otp_enrollment.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
-- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 
 **Last recorded** never run
 

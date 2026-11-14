@@ -168,9 +168,7 @@ private fun copySensitive(context: Context, text: String) {
 @Composable
 fun OtpImportField(
     saved: Boolean,
-    otpOnly: Boolean,
     setup: String,
-    openSetup: () -> Unit,
     openManual: () -> Unit,
     onSetup: (String) -> Unit,
 ) {
@@ -185,7 +183,6 @@ fun OtpImportField(
     var label by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf(false) }
-    var consent by remember { mutableStateOf(false) }
 
     fun choose(account: OtpImportAccount) {
         onSetup(account.setup)
@@ -221,7 +218,7 @@ fun OtpImportField(
     if (saved && !changing && setup.isEmpty()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
-            Text(t(if (otpOnly) "otpEnrollment.savedOnDevice" else "settings.credentialImport.codesAreFilledInFor"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+            Text(t("settings.credentialImport.codesAreFilledInFor"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
         // A QR on this screen cannot be scanned by this phone, so the
@@ -259,23 +256,7 @@ fun OtpImportField(
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
-    ChipRow {
-        TextButton(onClick = { consent = true }) { Text(t("otpEnrollment.help")) }
-        TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
-    }
-    if (consent) {
-        AlertDialog(
-            onDismissRequest = { consent = false },
-            title = { Text(t("otpEnrollment.help")) },
-            text = { Text(t("otpEnrollment.consent")) },
-            confirmButton = {
-                TextButton(onClick = { consent = false; openSetup() }) { Text(t("otpEnrollment.continue")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { consent = false; openManual() }) { Text(t("otpEnrollment.manual")) }
-            },
-        )
-    }
+    TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
     Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
     if (path == "export") {
         ChipRow {

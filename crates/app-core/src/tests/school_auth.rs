@@ -154,6 +154,7 @@ fn science_credentials(username: &str, password: &str) -> SchoolCredentials {
     }
 }
 
+#[cfg(feature = "desktop-otp-enrollment")]
 #[test]
 fn enrollment_keeps_unconfirmed_otp_out_of_export_and_saves_confirmed_otp_without_a_password() {
     const SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
