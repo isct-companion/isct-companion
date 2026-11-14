@@ -9,13 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "adpt-cups"
-version = "1.0.0-rc.1"
-dependencies = [
- "adpt-printer",
-]
-
-[[package]]
 name = "adpt-isct"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -35,8 +28,6 @@ dependencies = [
 name = "adpt-printer"
 version = "1.0.0-rc.1"
 dependencies = [
- "serde",
- "serde_json",
  "socket2",
 ]
 
@@ -100,7 +91,6 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "app-core"
 version = "1.0.0-rc.1"
 dependencies = [
- "adpt-cups",
  "adpt-isct",
  "adpt-printer",
  "base64 0.23.1",
@@ -112,6 +102,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "futures-util",
+ "ipp",
  "log",
  "md-5",
  "percent-encoding",
@@ -1491,6 +1482,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
+name = "enum-as-inner"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0359ee92f81184d7985519e474bda2a5738476334edd3746c9b1265c067afe70"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "enum-primitive-derive"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba7795da175654fe16979af73f81f26a8ea27638d8d9823d317016888a63dc4c"
+dependencies = [
+ "num-traits",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "enumflags2"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2718,6 +2732,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipp"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b845ac766857ac8a0746a488c40e1727b99c21ab5707ae83856630ba698cf7e"
+dependencies = [
+ "bytes",
+ "enum-as-inner",
+ "enum-primitive-derive",
+ "http",
+ "num-traits",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "is-docker"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2785,7 +2813,6 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-collections",
- "windows-registry",
  "windows-version",
 ]
 
