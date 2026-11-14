@@ -9,6 +9,8 @@ options:
   developmentLanguage: en
   createIntermediateGroups: true
 packages:
+  IsctWidgets:
+    path: ../../bindings/apple-widgets
   IsctCore:
     path: ../../bindings/swift
   # Celebratory effects the platform lacks; everything else uses SwiftUI's own
@@ -27,17 +29,23 @@ targets:
       # The desktop's UI catalogs, read by `Localizer` (ja.json, zh.json).
       - path: ../../resources/locales
         buildPhase: resources
+      # The OTP setup guides' screenshots and step list, shared with the desktop.
+      - path: ../../resources/otp-guide
+        buildPhase: resources
     dependencies:
+      - package: IsctWidgets
       - package: IsctCore
       - package: Pow
       # The share sheet's entries (slotledger `approach/share-entry-points`): the app-row
       # sheet and the "Open in IsctCompanion" action.
       - target: IsctShare
       - target: IsctOpen
+      - target: IsctWidgetsExtension
     info:
       path: IsctCompanion/Info.plist
       properties:
         CFBundleDisplayName: IsctCompanion
+        IsctWidgetGroup: group.app.isctcompanion
         CFBundleDevelopmentRegion: en
         # System UI (share sheet, photo picker) follows these; the app's own
         # text follows settings.locale.
@@ -48,10 +56,12 @@ targets:
         # each upload for an export compliance answer.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        # Background refresh (AppModel.backgroundRefresh): Core reads what a
-        # token reaches while the app is out of front.
-        UIBackgroundModes: [fetch]
-        BGTaskSchedulerPermittedIdentifiers: [app.isctcompanion.refresh]
+        # Core's existing network and local opportunities, including
+        # publication renewal while the host is in the background.
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - app.isctcompanion.refresh
+          - app.isctcompanion.maintenance
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
@@ -110,6 +120,44 @@ targets:
         ENABLE_PREVIEWS: true
         CODE_SIGN_STYLE: Automatic
         ISCT_GOOGLE_IOS_CLIENT_ID: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
+  IsctWidgetsExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../apple-widgets/Extension
+        createIntermediateGroups: false
+      - path: ../../resources/locales
+        buildPhase: resources
+      - path: ../apple-widgets/Privacy/PrivacyInfo.xcprivacy
+        createIntermediateGroups: false
+        buildPhase: resources
+    dependencies:
+      - package: IsctWidgets
+    info:
+      path: build/IsctWidgetsExtension/Info.plist
+      properties:
+        CFBundleDisplayName: IsctCompanion
+        CFBundleLocalizations: [en, ja, zh-Hans]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        IsctWidgetGroup: $(ISCT_WIDGET_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: build/IsctWidgetsExtension/IsctWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(ISCT_WIDGET_GROUP)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.widgets
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ISCT_WIDGET_GROUP: group.app.isctcompanion
   # Share extension: what is shared from another app goes to the app's inbox
   # in the App Group, optionally for an assignment picked in the sheet. It
   # never loads Core; the app hands the files in.
@@ -125,6 +173,8 @@ targets:
       - path: IsctCompanion/Design/Localization.swift
       - path: ../../resources/locales
         buildPhase: resources
+    dependencies:
+      - package: IsctWidgets
     info:
       path: IsctShare/Info.plist
       properties:

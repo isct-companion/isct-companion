@@ -92,9 +92,13 @@ android {
     buildFeatures {
         compose = true
     }
-    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`.
+    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`, and the
+    // OTP setup guides' screenshots and step list.
     sourceSets {
-        getByName("main") { assets.directories.add("../../../resources/locales") }
+        getByName("main") {
+            assets.directories.add("../../../resources/locales")
+            assets.directories.add("../../../resources/otp-guide")
+        }
     }
     packaging {
         jniLibs.useLegacyPackaging = false
@@ -118,6 +122,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-process:2.11.0")
+    implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.navigation:navigation-compose:2.10.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")

@@ -63,14 +63,18 @@ private struct TileLabel: LabelStyle {
 struct OtpImportField: View {
     let saved: Bool
     @Binding var setup: String
+    let openManual: () -> Void
     @State private var changing = false
     @State private var path = Path.export
     @State private var scanning = false
     @State private var photo: PhotosPickerItem?
     @State private var choices: [OtpImportAccount] = []
-    @State private var label: String?
+    /// What was read and the setup it filled in: shown only while the field
+    /// still holds that setup. An empty name is a bare secret.
+    @State private var read: (setup: String, name: String)?
     @State private var error: String?
     @State private var copied = false
+    @FocusState private var editing: Bool
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
 
@@ -98,7 +102,8 @@ struct OtpImportField: View {
                 Text(error).font(.footnote).foregroundStyle(Theme.danger)
             }
         } else {
-            chooser
+            Button(t("otpEnrollment.manual"), action: openManual)
+            importing
         }
     }
 
@@ -109,7 +114,7 @@ struct OtpImportField: View {
             .sheet(isPresented: $scanning) {
                 QRScanner { payload in
                     scanning = false
-                    read(payload)
+                    load(payload)
                 }
                 .ignoresSafeArea()
             }
@@ -127,7 +132,7 @@ struct OtpImportField: View {
     }
 
     @ViewBuilder
-    private var chooser: some View {
+    private var importing: some View {
         presenters(
             Picker(t("settings.credentialImport.source"), selection: $path) {
                 Text(t("settings.credentialImport.fromAnAuthenticatorApp")).tag(Path.export)
@@ -145,9 +150,10 @@ struct OtpImportField: View {
                     Label(t("settings.credentialImport.fromPhoto"), systemImage: "photo")
                 }
             }
-            Text(t("settings.credentialImport.googleAuthenticatorTransferAccountsExport"))
+            Text(t("settings.credentialImport.exportFromGoogleAuthenticator"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
+            OtpGuideButton(guide: .google)
         case .paste:
             TextField(t("settings.credentialImport.otpauthOrSecretKey"), text: $setup)
                 .textContentType(nil)
@@ -155,18 +161,27 @@ struct OtpImportField: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .privacySensitive()
-                .onChange(of: setup) { _, _ in label = nil }
+                .focused($editing)
+                // A finished entry is read at once, like a paste; saving is
+                // only for whether the school accepts it.
+                .onSubmit { checkTyped() }
+                .onChange(of: editing) { _, now in if !now { checkTyped() } }
+                .onChange(of: setup) { _, _ in error = nil }
             SourceTiles {
                 Button(t("settings.credentialImport.paste"), systemImage: "doc.on.clipboard") {
-                    if let text = UIPasteboard.general.string { read(text) } else { error = t("settings.credentialImport.theClipboardIsEmpty") }
+                    if let text = UIPasteboard.general.string { load(text, pasted: true) } else { error = t("settings.credentialImport.theClipboardIsEmpty") }
                 }
             }
-            Text(t("settings.credentialImport.notTheSixDigitCode"))
+            Text(t("settings.credentialImport.pasteFromTitechApp"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
+            OtpGuideButton(guide: .titechApp)
         }
-        if let label {
-            Text(t("settings.credentialImport.readLabelSaveToUse", ["label": label]))
+        Text(t("settings.credentialImport.readOnThisDevice"))
+            .font(.footnote)
+            .foregroundStyle(Theme.muted)
+        if let read, read.setup == setup {
+            Text(t("settings.credentialImport.readAccountReadyOnceConnected", ["account": read.name.isEmpty ? t("settings.credentialImport.otpSecret") : read.name]))
                 .font(.footnote)
                 .foregroundStyle(Theme.ok)
         }
@@ -178,24 +193,25 @@ struct OtpImportField: View {
         }
     }
 
-    private func read(_ payload: String) {
+    /// `pasted` text is a setup link or secret, not a QR code, so a payload
+    /// Core cannot read is worded for what the person gave.
+    private func load(_ payload: String, pasted: Bool = false) {
         error = nil
-        let text = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A bare secret is typed or pasted as is; Core validates it on save.
-        guard text.contains("://") else {
-            setup = text
-            return
-        }
         do {
-            let accounts = try importOtp(payload: text)
+            let accounts = try importOtp(payload: payload)
             if accounts.count == 1 { choose(accounts[0]) } else { choices = accounts }
         } catch OtpImportError.MultiplePages {
-            error = t("settings.credentialImport.exportOnlyYourSchoolAccount")
+            error = t("error.otp-import-multiple")
         } catch OtpImportError.Unsupported {
-            error = t("settings.credentialImport.thisAccountUsesACode")
+            error = t("error.otp-import-unsupported")
         } catch {
-            self.error = t("settings.credentialImport.thisIsNotAQR")
+            self.error = t(pasted ? "settings.credentialImport.notASetupLinkOrSecret" : "error.otp-import-invalid")
         }
+    }
+
+    private func checkTyped() {
+        guard !setup.isEmpty, read?.setup != setup, error == nil else { return }
+        load(setup, pasted: true)
     }
 
     private func readPhoto(_ item: PhotosPickerItem) async {
@@ -209,7 +225,7 @@ struct OtpImportField: View {
             error = t("settings.credentialImport.noQRCodeFoundChoose")
             return
         }
-        read(payload)
+        load(payload)
     }
 
     private func addToAuthenticator() async {
@@ -245,7 +261,7 @@ struct OtpImportField: View {
     private func choose(_ account: OtpImportAccount) {
         setup = account.setup
         choices = []
-        label = Self.name(account)
+        read = (account.setup, Self.name(account))
     }
 
     private static func name(_ account: OtpImportAccount) -> String {

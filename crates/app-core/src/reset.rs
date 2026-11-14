@@ -173,6 +173,7 @@ impl Core {
             scope,
             store: self.store.clone(),
             engine: self.reset_engine(),
+            widgets: self.widgets.clone(),
             sessions: self.sessions().clone(),
             device,
         };
@@ -195,6 +196,7 @@ struct ResetRun {
     scope: ResetScope,
     store: DataStore,
     engine: Arc<PlanEngine>,
+    widgets: Arc<crate::widgets::Publisher>,
     sessions: SchoolSessions,
     device: Option<Arc<dyn ResetDevice>>,
 }
@@ -228,7 +230,13 @@ impl ResetRun {
                 IDLE_LIMIT.as_secs()
             );
         }
+        if let Err(error) = self.widgets.pause_and_clear() {
+            crate::diagnostics::report("widgets", &error);
+            self.widgets.resume();
+            return Err(ResetError::Files(error.to_string()));
+        }
         let result = self.clear().await;
+        self.widgets.resume();
         drop(admission);
         // Announced even after a later step failed: a database step may
         // already have committed.

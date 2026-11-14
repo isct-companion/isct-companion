@@ -368,7 +368,14 @@ private struct AccountScreen: View {
                 // the saved login. They stay out of screenshots and the app switcher.
                 if profile == .science {
                     Section(t("settings.main.oneTimePassword")) {
-                        OtpImportField(saved: summary?.hasOtp == true, setup: $otpSecret)
+                        OtpImportField(
+                            saved: summary?.hasOtp == true,
+                            setup: $otpSecret,
+                            openManual: {
+                                web.showUnsigned(.sciencePortal)
+                                navigator.tab = .web
+                            }
+                        )
                     }
                 } else {
                     MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
@@ -422,14 +429,14 @@ private struct AccountScreen: View {
         .themedList()
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { username = summary?.username ?? "" }
+        .onAppear { if username.isEmpty { username = summary?.username ?? "" } }
+        .onChange(of: summary?.username) { _, owner in
+            if username.isEmpty { username = owner ?? "" }
+        }
     }
 
     /// What Connect did. Only `.connected` saved the entries; after anything
-    /// else they stay in the form to be fixed and sent again. When the
-    /// Science account wants an emailed code, the way on is App OTP: the
-    /// portal opens as it is, the person sets it up there and pastes its
-    /// secret into the OTP field.
+    /// else they stay in the form to be fixed and sent again.
     private func connectOutcome(_ outcome: SchoolConnectOutcome) -> some View {
         Section {
             switch outcome {
@@ -441,13 +448,6 @@ private struct AccountScreen: View {
             case let .needsWeb(reason, _):
                 Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.needsWeb)).foregroundStyle(Theme.warn)
                 Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
-                if reason == .emailOtp {
-                    Text(t("schoolSession.appOtp.explain")).font(.footnote).foregroundStyle(Theme.muted)
-                    Button(t("schoolSession.appOtp.openPortal")) {
-                        web.showUnsigned(.sciencePortal)
-                        navigator.tab = .web
-                    }
-                }
             case .unreachable:
                 Text(t("schoolSession.connect.unreachable")).foregroundStyle(Theme.warn)
             case .notSaved:

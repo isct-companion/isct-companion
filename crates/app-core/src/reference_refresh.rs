@@ -459,8 +459,7 @@ pub(crate) fn reference_due(
                 .state
                 .as_ref()
                 .and_then(|state| state.fetched_at)
-                .zip(ttl)
-                .map(|(fetched, ttl)| fetched + ttl)
+                .and_then(|fetched| sync_state::expires_at(fetched, ttl))
         })
         .flatten();
     Ok((due, stale_at))

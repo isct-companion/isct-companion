@@ -40,9 +40,14 @@ pub use matrix::{
     MatrixConfidence, MatrixPoint,
 };
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};
-pub use session::{decode_sync_snapshot, Capabilities, Session, SessionConfig};
+pub use session::{
+    decode_school_web_page, decode_sync_snapshot, Capabilities, Session, SessionConfig,
+};
 mod services;
 
 #[cfg(test)]
 #[path = "tests/crate.rs"]
 mod tests;
+
+mod widgets;
+pub use widgets::{NativeWidgets, WidgetRoute};

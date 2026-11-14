@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 162 checks must be re-run before the next release.**
+**5 of 165 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,8 +25,11 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**157 checks have never been run or could not be run:**
+**160 checks have never been run or could not be run:**
 
+- `WIDGET-MAC-DISTRIBUTION` — never verified
+- `WIDGET-IOS-LOCKED` — never verified
+- `WIDGET-ANDROID-BACKGROUND` — never verified
 - `SCHOOL-SIGNIN-SCIENCE` — never verified
 - `SCHOOL-SESSION-WINDOWS-VAULT` — never verified
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
@@ -189,6 +192,9 @@ an unverified area becomes an assumed-good one.
 
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
+| `WIDGET-MAC-DISTRIBUTION` | desktop | International student | —<br>not run | apps/apple-widgets/**<br>apps/desktop/src-tauri/src/widgets_macos.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>bindings/apple-widgets/**<br>scripts/desktop/macos-widgets.mjs<br>scripts/desktop/tauri.mjs<br>.github/workflows/desktop-release.yml |
+| `WIDGET-IOS-LOCKED` | native | Mobile commuter checking class and assignment widgets | —<br>not run | apps/apple-widgets/Extension/**<br>apps/ios/IsctCompanion/Core/WidgetStorage.swift<br>apps/ios/project.yml<br>bindings/apple-widgets/**<br>crates/app-core/src/schedule/widgets.rs |
+| `WIDGET-ANDROID-BACKGROUND` | native | Mobile commuter checking class and assignment widgets | —<br>not run | apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/java/app/isctcompanion/widgets/**<br>crates/app-core/src/widgets.rs |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx |
 | `SCHOOL-SESSION-WINDOWS-VAULT` | school | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/secret_parts.rs<br>crates/app-core/src/school_session/store.rs |
 | `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | crates/app-core/src/downloads.rs |
@@ -341,7 +347,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
@@ -456,7 +462,146 @@ browser or course document using Windows Snap.
 Expects the desktop navigation and the open course reader to stay usable
 as the app moves between full-size, half-screen and quarter-screen sizes.
 
+### Mobile commuter checking class and assignment widgets (`mobile-commuter`)
+
+Identity: undergraduate · Language: ja · Device: iOS and Android arm64
+
+Has a real class schedule and LMS cache on an iPhone and an Android
+phone. Checks the next room while walking between classrooms.
+
+Checks the lock screen or Home Screen first. Leaves the app in the
+background and sometimes turns on battery saver.
+
 ## Checks
+
+### Signed Mac widgets survive installation and an in-app update (`WIDGET-MAC-DISTRIBUTION`)
+
+**Area** desktop · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A clean macOS 15 or later user account, an Intel or Apple silicon Mac,
+two successive Developer ID signed and notarized builds reachable
+through the updater, and a real course cache.
+
+**Steps**
+
+1. Install the older DMG, open the app, and add Classes from Edit Widgets.
+   - *Why:* Launch Services must discover the extension and the shared container must open without a data access prompt.
+2. Sync a change to a visible course and look again at the widget.
+   - *Why:* The main app's refresh request must cause WidgetKit to read the newly signed app group's snapshot.
+3. Install the newer version through the in-app updater and reopen Edit Widgets.
+   - *Why:* Replacing the application bundle can break extension discovery or access to the previously created container.
+
+**Where to look**
+
+The macOS widget gallery, desktop widget, system prompts and the app's Diagnostics log.
+
+**Expected**
+
+The extension is available before and after the update, reads the local class cache, and shows the changed course after WidgetKit refreshes.
+
+**Why this is manual**
+
+Requires notarization, Gatekeeper, a fresh macOS user's privacy
+controls, WidgetKit and an actual updater installation.
+
+**Covers**
+
+- `apps/apple-widgets/**`
+- `apps/desktop/src-tauri/src/widgets_macos.rs`
+- `apps/desktop/src-tauri/Entitlements.plist`
+- `bindings/apple-widgets/**`
+- `scripts/desktop/macos-widgets.mjs`
+- `scripts/desktop/tauri.mjs`
+- `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Lock Screen widget follows data protection and the system privacy setting (`WIDGET-IOS-LOCKED`)
+
+**Area** native · **Persona** Mobile commuter checking class and assignment widgets · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A signed iPhone build with the course Lock Screen widget and a real school cache.
+
+**Steps**
+
+1. Lock the device after first unlock and observe the widget around a scheduled class transition.
+   - *Why:* The extension must still be able to read the protected publication during an ordinary lock.
+2. Change the system setting for sensitive Lock Screen content and relock.
+   - *Why:* Class title and room must follow WidgetKit's redaction policy.
+3. Restart the phone and observe the same widget before the first unlock.
+   - *Why:* The operating system must withhold the protected snapshot after reboot.
+4. Unlock, background or force-quit the app, and check again around a later class transition.
+   - *Why:* Entries carried by the system timeline should advance through class changes without the main app running.
+
+**Where to look**
+
+The rectangular Lock Screen widget before unlock, after unlock and during the next class transition.
+
+**Expected**
+
+Sensitive content follows the system preference, initial locked boot shows a placeholder, and the published timeline can advance without the app.
+
+**Why this is manual**
+
+File protection and WidgetKit's real refresh and privacy policies require a signed build on a physical device.
+
+**Covers**
+
+- `apps/apple-widgets/Extension/**`
+- `apps/ios/IsctCompanion/Core/WidgetStorage.swift`
+- `apps/ios/project.yml`
+- `bindings/apple-widgets/**`
+- `crates/app-core/src/schedule/widgets.rs`
+
+**Last recorded** never run
+
+### Glance reads cached data during Android background restrictions (`WIDGET-ANDROID-BACKGROUND`)
+
+**Area** native · **Persona** Mobile commuter checking class and assignment widgets · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An Android 14 or later arm64 phone with Classes and Assignments widgets and a real school cache.
+
+**Steps**
+
+1. Background the app, disconnect the network, and note the course widget before and after a published class boundary.
+   - *Why:* WorkManager must be allowed to request a redraw from local data without an online school read.
+2. Repeat with battery saver and record the delay from the displayed class time to the observed update.
+   - *Why:* The OS can defer background work, so the displayed absolute times must remain useful while the entry is old.
+3. Restart the phone, unlock, and check the launcher without opening the app.
+   - *Why:* After boot, the existing recovery worker must be able to schedule future updates and publish from the cache.
+
+**Where to look**
+
+The launcher widgets, class boundary time, update time and device logs for the local wake.
+
+**Expected**
+
+The launcher can draw existing data independently; local background opportunities advance the widgets even when offline.
+
+**Why this is manual**
+
+Real launcher behaviour, Doze, battery saver and boot delivery depend on the device and its WorkManager scheduler.
+
+**Covers**
+
+- `apps/android/app/src/main/AndroidManifest.xml`
+- `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/widgets/**`
+- `crates/app-core/src/widgets.rs`
+
+**Last recorded** never run
 
 ### Core signs in to Science Tokyo over HTTP and the LMS page opens signed in (`SCHOOL-SIGNIN-SCIENCE`)
 
@@ -4688,7 +4833,7 @@ A packaged desktop app, a physical camera, a disposable test TOTP QR on another 
 **Steps**
 
 1. With an OTP saved, press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Confirm the account card shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect.
-   - *Why:* Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The app no longer registers OTP at the school; the setup comes from the person's authenticator, and the two paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
+   - *Why:* Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The import uses the person's existing authenticator, and the two import paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
 2. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
 3. Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -9676,7 +9821,7 @@ glance in the real app on three platforms.
 
 **Last recorded** never run
 
-### A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with a portal button (`SCHOOL-APP-OTP-ENTRY`)
+### Visible Extic App Authentication enrollment preserves the active account and saves the working seed (`SCHOOL-APP-OTP-ENTRY`)
 
 **Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -9684,68 +9829,62 @@ glance in the real app on three platforms.
 
 **Preconditions**
 
-A desktop build, an iPhone build and an Android build from this
-commit, each freshly installed (or reset with everything), so no
-Science Tokyo credentials and no OTP setup are saved, and a Science
-Tokyo account that still uses the emailed one-time password (no App
-OTP registered).
+Desktop builds for macOS and Windows. Use disposable
+school accounts authorized for changes: one with only emailed codes,
+one with existing App Authentication, and a different account to
+exercise the owner check. Keep working email access for resetting.
 
 **Steps**
 
-1. Open Settings › Science Tokyo, enter the student id and password,
-   leave the OTP field empty, and press Connect.
-   - *Why:* The app must not refuse the empty OTP itself: the password goes to
-     the school, and the school asks for the emailed code, which the app
-     cannot answer. The form then explains that the app signs in by
-     itself only with App OTP and offers one button, "Open the Science
-     Tokyo portal". A local "OTP setup is required" error means the
-     first Connect never reached the school. Nothing is saved and the
-     card stays Not connected.
-2. Press the button.
-   - *Why:* The portal uses the web view's existing cookies. It may show a
-     signed-in page from a previous visit. Opening it must not start
-     an app sign-in or fill in credentials.
-3. Sign in there by hand (with the emailed code) and register App OTP.
-   Back in Settings, press Connect again with the OTP field still
-   empty.
-   - *Why:* Now the school asks for the App one-time password: the form says
-     the school asks for it and to enter its setup link or secret, and
-     nothing is saved. A "not accepted" message would blame a code the
-     person never entered.
-4. Paste the App OTP setup link or secret into the OTP field and press
-   Connect.
-   - *Why:* With App OTP the app signs in by itself and the account is saved.
+1. With no saved Science Tokyo credentials, press Connect with the
+   account ID and password and a blank OTP field. Check the emailed-code
+   verdict in Settings. Open Set it up myself, then return to Settings.
+   - *Why:* A blank OTP must reach Extic and report its real requirement. The
+     manual portal must let the person sign in and leave their settings
+     alone.
+2. Start Help me set up and continue. Sign in on the visible school
+   page. With the account that has only emailed codes, wait for the
+   App Authentication verdict and the saved notice. Open School
+   Accounts, export to an authenticator and verify a code against Extic.
+   Relaunch and check the saved OTP still appears. Then Connect with
+   the password and a blank OTP field.
+   - *Why:* Detects changes to Extic's forms, a false success, or failure to
+     save the seed before Connect. A confirmed seed must be usable both
+     in another authenticator and in the later Connect.
+3. Repeat Help me set up using the account with an existing
+   authenticator. At the reset choice, keep the existing setup and
+   confirm its code still works. Start again, confirm the reset
+   explicitly and verify the newly exported setup on the school page.
+   - *Why:* Detects deletion before reset consent or a successful-looking
+     rotation with the previous seed still saved.
+4. Enter one account ID in Settings and sign in to the school page
+   as the other account. Check the account mismatch notice and both
+   accounts' App Authentication settings.
+   - *Why:* The live portal can already hold an unrelated signed-in cookie.
+     A mismatched page must never receive a reset or registration.
 
 **Where to look**
 
-The Science Tokyo form, the Web page showing the portal, and the card.
+The visible Extic page, its App Authentication status, and the School Accounts OTP field.
 
 **Expected**
 
-The first Connect shows the emailed-code reason, the App OTP
-explanation and one portal button, and saves nothing; the portal opens
-with the existing web session; a Connect without the OTP after App OTP is registered asks
-for it and saves nothing; the last Connect ends Connected.
+Only the authorized account is enrolled. Keeping an existing setup
+preserves its working authenticator. Confirmed rotation saves the new
+seed on the device before Connect.
 
 **Why this is manual**
 
-Needs a live account still on the emailed code, the real Extic pages
-and the real portal in each platform's web view. That an empty OTP
-reaches the school and ends on its page is in the session suite, and
-that the unsigned entry starts no web operation in the school browser
-suite.
+The live authenticated Extic form, its native web view sign-in and
+confirmation dialogs, and a working code require a real school account.
+Offline tests cover only vault and authority checks.
 
 **Covers**
 
-- `crates/app-core/src/school_auth.rs`
-- `crates/app-core/src/school_session/login.rs`
-- `crates/app-core/src/school_browser/engine.rs`
-- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
-- `apps/desktop/src/pages/web/WebPage.tsx`
-- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
-- `apps/ios/IsctCompanion/Core/WebRouter.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `crates/adpt-isct/assets/otp-enrollment.js`
+- `crates/app-core/src/school_browser/engine/otp.rs`
+- `crates/app-core/src/school_auth/otp_enrollment.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
 
 **Last recorded** never run
 

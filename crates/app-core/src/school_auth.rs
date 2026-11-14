@@ -1,3 +1,7 @@
+#[cfg(feature = "desktop-otp-enrollment")]
+mod otp_enrollment;
+#[cfg(feature = "desktop-otp-enrollment")]
+pub(crate) use otp_enrollment::EnrollmentError;
 mod otp_import;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
 
@@ -453,6 +457,13 @@ impl SchoolAuthService {
             SchoolAuthProfile::Science => status.science.clone(),
             SchoolAuthProfile::TokyoTech => status.tokyo_tech.clone(),
         };
+        let preserve_previous = availability == CredentialAvailability::AccessDenied;
+        #[cfg(feature = "desktop-otp-enrollment")]
+        let preserve_previous = preserve_previous
+            || (profile == SchoolAuthProfile::Science
+                && availability == CredentialAvailability::NotConfigured
+                && previous.has_otp
+                && !previous.saved);
         let summary = credentials
             .map(|c| CredentialSummary {
                 availability,
@@ -462,7 +473,7 @@ impl SchoolAuthService {
                 has_matrix: !c.matrix.is_empty(),
             })
             .unwrap_or_else(|| {
-                if availability == CredentialAvailability::AccessDenied {
+                if preserve_previous {
                     CredentialSummary {
                         availability,
                         ..previous
@@ -782,6 +793,10 @@ impl SchoolAuthService {
             self.adopt(&mut accounts, Some(payload))?;
         }
         self.accepted(&mut accounts, profile)?;
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if profile == SchoolAuthProfile::Science {
+            let _ = self.delete_enrollment();
+        }
         self.record_summary(
             profile,
             Some(credentials),
@@ -936,6 +951,17 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if profile == SchoolAuthProfile::Science && credentials.otp_secret.trim().is_empty() {
+            if let Some((owner, secret)) = self.enrolled_otp()? {
+                if credentials.username.trim().is_empty() {
+                    credentials.username.clone_from(&owner);
+                }
+                if credentials.username.trim() == owner {
+                    credentials.otp_secret = secret;
+                }
+            }
+        }
         credentials.validate_input(profile)?;
         Ok(credentials)
     }
@@ -977,6 +1003,16 @@ impl SchoolAuthService {
         self.unlock_accounts(&mut accounts)?;
         let mut verified = accounts.verified.clone();
         verified.remove(&profile);
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if profile == SchoolAuthProfile::Science {
+            self.delete_enrollment()?;
+            if let Some(mut status) = self.cached_status() {
+                if !status.science.saved {
+                    status.science = CredentialSummary::default();
+                    self.write_status(&status);
+                }
+            }
+        }
         let payload = self.write_accounts(&verified)?;
         // Drops the profile's refusal with its credentials.
         self.adopt(&mut accounts, Some(payload))?;
@@ -1100,8 +1136,16 @@ impl SchoolAuthService {
             },
             None => CredentialSummary::default(),
         };
+        let science = summary(self.load(SchoolAuthProfile::Science)?);
+        #[cfg(feature = "desktop-otp-enrollment")]
+        let science = match science {
+            summary if summary.saved => summary,
+            summary => self
+                .enrolled_otp()?
+                .map_or(summary, |(owner, _)| Self::enrollment_summary(owner)),
+        };
         let mut status = SchoolCredentialStatus {
-            science: summary(self.load(SchoolAuthProfile::Science)?),
+            science,
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
             ..Default::default()
         };
@@ -1127,15 +1171,24 @@ impl SchoolAuthService {
             )
     }
 
+    fn saved_otp(&self) -> Result<Option<(String, String)>, SchoolAuthError> {
+        let saved = self
+            .load(SchoolAuthProfile::Science)?
+            .map(|credentials| (credentials.username, credentials.otp_secret));
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if saved.is_none() {
+            return self.enrolled_otp();
+        }
+        Ok(saved)
+    }
+
     /// Explicit export only. Native shells write the result directly to the
     /// clipboard instead of returning a saved secret to their WebView.
     pub fn otp_setup_text(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
         let text = if let Some(value) = draft.filter(|value| !value.trim().is_empty()) {
             value.trim().replace(' ', "")
         } else {
-            self.load(SchoolAuthProfile::Science)?
-                .map(|credentials| credentials.otp_secret)
-                .unwrap_or_default()
+            self.saved_otp()?.map(|(_, otp)| otp).unwrap_or_default()
         };
         if text.is_empty() {
             return Err(SchoolAuthError::invalid(
@@ -1154,10 +1207,13 @@ impl SchoolAuthService {
     /// name as its label. Mobile shells hand it to the OS to open one.
     pub fn otp_setup_link(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
         let text = self.otp_setup_text(draft)?;
-        let account = self
-            .load(SchoolAuthProfile::Science)?
-            .map(|credentials| credentials.username)
-            .unwrap_or_default();
+        let account = if draft.is_some_and(|value| !value.trim().is_empty()) {
+            self.status()?.science.username
+        } else {
+            self.saved_otp()?
+                .map(|(owner, _)| owner)
+                .unwrap_or_default()
+        };
         Ok(otp_setup_uri(&text, &account))
     }
 

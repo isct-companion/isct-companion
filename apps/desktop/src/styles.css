@@ -1080,6 +1080,12 @@ summary,
   flex: 1;
   min-width: 0;
 }
+.otpEnrollmentNotice {
+  flex-wrap: wrap;
+}
+.otpEnrollmentNotice > span {
+  flex: 1 0 min(28ch, 100%);
+}
 .webNotice.warning {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
@@ -1513,7 +1519,10 @@ summary,
   /* Looping indicators would flicker at that length: they hold still. */
   .schoolStatusAccount[data-state="checking"] > i,
   .schoolStatusAccount[data-state="signing-in"] > i,
-  .skeleton {
+  .skeleton,
+  .otpGuideTap::after,
+  .otpGuideShot > img.otpGuideThumb,
+  .otpGuideShot[data-action="screenshot"]::after {
     animation: none !important;
   }
   .weekStrip::before,

@@ -41,7 +41,7 @@ use crate::{
     plan::{Credential, Held, Lane, PlanHints, ReadRefused, ReadRequest},
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
-    sync_state::{Dataset, Key},
+    sync_state::Key,
     workspaces::{AssignmentWorkspaces, HandInError, SubmitFile, WorkspaceError},
 };
 use ledger::{Claim, Ledger, Refresh};
@@ -607,7 +607,7 @@ impl Operation {
     fn resource(&self) -> Option<(u64, Key)> {
         self.module
             .course
-            .map(|course| (course, Key::new(Dataset::LmsAssign, course.to_string())))
+            .map(|course| (course, Key::lms_assignments(course)))
     }
 }
 
@@ -954,7 +954,7 @@ impl SubmissionService {
             }
         }
         for refresh in self.ledger.refreshes_due(now)? {
-            let key = Key::new(Dataset::LmsAssign, refresh.lms_course_id.to_string());
+            let key = Key::lms_assignments(refresh.lms_course_id);
             let Some(plan) = self.plan.engine() else {
                 return Ok(());
             };

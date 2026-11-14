@@ -23,6 +23,42 @@ fn plugin(tool: &str) -> tauri_build::InlinedPlugin {
         .default_permission(DefaultPermissionRule::AllowAllCommands)
 }
 
+fn build_widget_bridge() {
+    use std::{env, path::PathBuf, process::Command};
+
+    let source = "../../apple-widgets/macOS/WidgetBridge.swift";
+    println!("cargo::rerun-if-changed={source}");
+    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is missing"));
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Target architecture is missing");
+    let arch = match arch.as_str() {
+        "aarch64" => "arm64",
+        "x86_64" => "x86_64",
+        _ => unreachable!("Unsupported Mac architecture: {arch}"),
+    };
+    let target = format!("{arch}-apple-macos15.0");
+    let status = Command::new("xcrun")
+        .args([
+            "--sdk",
+            "macosx",
+            "swiftc",
+            "-target",
+            &target,
+            "-O",
+            "-parse-as-library",
+            "-emit-library",
+            "-static",
+            "-o",
+        ])
+        .arg(out.join("libisct_widget_bridge.a"))
+        .arg(source)
+        .status()
+        .expect("Could not start the Swift compiler");
+    assert!(status.success(), "Could not compile the WidgetKit bridge");
+    println!("cargo::rustc-link-search=native={}", out.display());
+    println!("cargo::rustc-link-lib=static=isct_widget_bridge");
+    println!("cargo::rustc-link-lib=framework=WidgetKit");
+}
+
 // Native controls and the Windows print queue use the shared UI catalogs
 // without a running WebView.
 fn write_native_text(os: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -81,6 +117,9 @@ fn write_native_text(os: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if os == "macos" {
+        build_widget_bridge();
+    }
     if let Err(error) = write_native_text(&os) {
         panic!("Generating native desktop text failed: {error}");
     }

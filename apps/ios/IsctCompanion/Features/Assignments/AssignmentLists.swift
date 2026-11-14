@@ -71,6 +71,21 @@ struct TodayAssignmentSections: View {
     }
 }
 
+struct AssignmentListScreen: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        List { TodayAssignmentSections(now: .now) }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .navigationTitle(t("widget.assignments"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
+            .onAppear { model.syncHint(.open(view: .assignments)) }
+    }
+}
+
 extension DeadlineGroups {
     /// Nothing left to do among the groups 今日 shows.
     var isOpenEmpty: Bool {

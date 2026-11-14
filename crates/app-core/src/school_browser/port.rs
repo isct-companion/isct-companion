@@ -23,7 +23,7 @@ pub struct PageId {
     pub sequence: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum BrowserAction {
     /// Also the App's Reload: Core opens the last page again with a GET and
     /// never asks the engine to reload, so the App never sends a form twice.
@@ -33,6 +33,30 @@ pub enum BrowserAction {
     GoBack,
     GoForward,
     Eval(String),
+    /// Evaluate on this exact main document and return its JSON string value.
+    #[cfg(feature = "desktop-otp-enrollment")]
+    EvalOtp {
+        page: PageId,
+        script: OtpScript,
+    },
+}
+
+/// The enrollment script can contain a secret or a time-limited code.
+#[cfg(feature = "desktop-otp-enrollment")]
+#[derive(Clone, Eq, PartialEq)]
+pub struct OtpScript(pub String);
+
+impl std::fmt::Debug for BrowserAction {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Navigate(url) => formatter.debug_tuple("Navigate").field(url).finish(),
+            Self::GoBack => formatter.write_str("GoBack"),
+            Self::GoForward => formatter.write_str("GoForward"),
+            Self::Eval(_) => formatter.write_str("Eval"),
+            #[cfg(feature = "desktop-otp-enrollment")]
+            Self::EvalOtp { page, .. } => formatter.debug_tuple("EvalOtp").field(page).finish(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -224,6 +248,12 @@ pub trait SchoolBrowser: Send + Sync {
 
 pub trait SchoolBrowserListener: Send + Sync {
     fn page_loaded(&self, event: PageLoaded);
+    /// Recheck at native execution time, after any queued visibility or
+    /// navigation changes. A result is reported even when evaluation fails.
+    #[cfg(feature = "desktop-otp-enrollment")]
+    fn otp_script_allowed(&self, page: PageId, action: ActionId, url: &Url) -> bool;
+    #[cfg(feature = "desktop-otp-enrollment")]
+    fn otp_script_result(&self, page: PageId, action: ActionId, result: Option<String>);
     fn load_failed(&self, event: LoadFailed);
     /// The engine's history of a view or popup may have changed: a page
     /// committed or finished, or a popup was created (none yet).

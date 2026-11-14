@@ -108,6 +108,17 @@ impl DesktopRuntime {
         core.attach_agent_listener(Arc::new(crate::agent_server::AgentListenerPort(
             app.clone(),
         )));
+        #[cfg(target_os = "macos")]
+        if app.path().resource_dir().is_ok_and(|path| {
+            path.parent().is_some_and(|contents| {
+                contents.join("PlugIns/IsctWidgetsExtension.appex").is_dir()
+            })
+        }) {
+            match crate::widgets_macos::MacWidgets::open() {
+                Ok(port) => core.attach_widgets(Arc::new(port), false),
+                Err(error) => log::error!("[widgets] {error}"),
+            }
+        }
         let tasks = app.state::<Self>().tasks.clone();
         // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
         // before registering the owned timer.
@@ -151,7 +162,10 @@ async fn deadline_timer(core: Arc<app_core::Core>, tasks: RuntimeTasks) {
         let now = chrono::Utc::now();
         let wait = match directive.at {
             Some(_) if reported == Some(directive.revision) => WALL_CLOCK_CHECK,
-            Some(at) => (at - now).to_std().unwrap_or_default().min(WALL_CLOCK_CHECK),
+            Some(at) => (at - now)
+                .to_std()
+                .unwrap_or_default()
+                .min(WALL_CLOCK_CHECK),
             None => WALL_CLOCK_CHECK,
         };
         tokio::select! {

@@ -20,6 +20,8 @@ import {
   readOtpImage,
   type OtpImportAccount,
 } from "../platform/otp-import";
+import { NativeError } from "../platform/native-error";
+import { OtpGuideButton } from "./OtpGuide";
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
@@ -73,15 +75,21 @@ function OtpPath({
 export function OtpSetupInput({
   value,
   saved,
+  otpOnly,
   disabled,
   onChange,
   onScanState,
+  openSetup,
+  openManual,
 }: {
   value: string;
   saved: boolean;
+  otpOnly: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
+  openSetup: () => void;
+  openManual: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   useTimeout(() => setCopied(false), copied ? 2000 : null);
@@ -113,9 +121,12 @@ export function OtpSetupInput({
   const [reading, setReading] = useState(false);
   const [accounts, setAccounts] = useState<OtpImportAccount[]>([]);
   const [error, setError] = useState("");
-  const [label, setLabel] = useState("");
+  // What the field holds was read: the account's name, or "" for a bare
+  // secret. `null` until something is read.
+  const [label, setLabel] = useState<string | null>(null);
   const [changing, setChanging] = useState(false);
   const [path, setPath] = useState<OtpPathId>("export");
+  const [consent, setConsent] = useState(false);
   // A newly saved setup closes the chooser again.
   useEffect(() => setChanging(false), [saved]);
   const generation = useRef(0);
@@ -138,7 +149,9 @@ export function OtpSetupInput({
     setAccounts([]);
     setError("");
   };
-  const load = async (source: string | File) => {
+  // `pasted` text is a setup link or secret, not a QR code, so a payload Core
+  // cannot read is worded for what the person gave.
+  const load = async (source: string | File, pasted = false) => {
     const current = ++generation.current;
     setError("");
     setReading(true);
@@ -162,7 +175,14 @@ export function OtpSetupInput({
         if (found.length === 1) choose(found[0]);
         else setAccounts(found);
       } catch (reason) {
-        if (current === generation.current) setError(otpImportError(reason));
+        if (current !== generation.current) return;
+        setError(
+          pasted &&
+            reason instanceof NativeError &&
+            reason.code === "otp-import-invalid"
+            ? t("settings.credentialImport.notASetupLinkOrSecret")
+            : otpImportError(reason),
+        );
       }
     } finally {
       if (current === generation.current) setReading(false);
@@ -204,11 +224,58 @@ export function OtpSetupInput({
       label={t("settings.otp.automaticSchoolVerificationCodes")}
       id="school-otp-setup"
     >
+      {choosing && (
+        <Group gap="xs">
+          <Button size="xs" disabled={busy} onClick={() => setConsent(true)}>
+            {t("otpEnrollment.help")}
+          </Button>
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={busy}
+            onClick={openManual}
+          >
+            {t("otpEnrollment.manual")}
+          </Button>
+        </Group>
+      )}
+      <Modal
+        opened={consent}
+        onClose={() => setConsent(false)}
+        title={t("otpEnrollment.help")}
+      >
+        <Stack gap="sm">
+          <Text size="sm">{t("otpEnrollment.consent")}</Text>
+          <Group justify="end">
+            <Button
+              variant="default"
+              onClick={() => {
+                setConsent(false);
+                openManual();
+              }}
+            >
+              {t("otpEnrollment.manual")}
+            </Button>
+            <Button
+              onClick={() => {
+                setConsent(false);
+                openSetup();
+              }}
+            >
+              {t("otpEnrollment.continue")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
       {!choosing ? (
         <div className="otpSaved" role="status">
           <Check size={16} strokeWidth={1.75} aria-hidden />
           <Text size="sm">
-            {t("settings.credentialImport.codesAreFilledInFor")}
+            {t(
+              otpOnly
+                ? "otpEnrollment.savedOnDevice"
+                : "settings.credentialImport.codesAreFilledInFor",
+            )}
           </Text>
           {exportButtons}
           <Button
@@ -227,9 +294,7 @@ export function OtpSetupInput({
             current={path}
             onSelect={setPath}
             title={t("settings.credentialImport.fromAnAuthenticatorApp")}
-            hint={t(
-              "settings.credentialImport.googleAuthenticatorTransferAccountsExport",
-            )}
+            hint={t("settings.credentialImport.exportFromGoogleAuthenticator")}
           >
             <Group gap="xs">
               <Button
@@ -258,6 +323,7 @@ export function OtpSetupInput({
                   </Button>
                 )}
               </FileButton>
+              <OtpGuideButton guide="google" />
             </Group>
           </OtpPath>
           <OtpPath
@@ -265,7 +331,7 @@ export function OtpSetupInput({
             current={path}
             onSelect={setPath}
             title={t("settings.otp.pasteASetupLinkOr")}
-            hint={t("settings.credentialImport.notTheSixDigitCode")}
+            hint={t("settings.credentialImport.pasteFromTitechApp")}
           >
             <div className="otpSetupRow">
               <TextInput
@@ -281,12 +347,25 @@ export function OtpSetupInput({
                 placeholder={t("settings.credentialImport.otpauthOrSecretKey")}
                 onChange={(event) => {
                   onChange(event.target.value);
-                  setLabel("");
+                  setLabel(null);
                   setError("");
+                }}
+                // A paste or a finished entry is read at once; Connect is
+                // only for whether the school accepts it.
+                onPaste={(event) => {
+                  const text = event.clipboardData.getData("text");
+                  if (!text.trim()) return;
+                  event.preventDefault();
+                  void load(text, true);
+                }}
+                onBlur={() => {
+                  if (value.trim() && label === null && !error)
+                    void load(value, true);
                 }}
               />
               {exportButtons}
             </div>
+            <OtpGuideButton guide="titechApp" />
           </OtpPath>
           {saved && changing && !value.trim() && (
             <Button
@@ -301,10 +380,15 @@ export function OtpSetupInput({
           )}
         </div>
       )}
-      {label && (
+      {choosing && (
         <Text size="xs" c="dimmed">
-          {t("settings.otp.readAccountConnectToSave", {
-            account: label,
+          {t("settings.credentialImport.readOnThisDevice")}
+        </Text>
+      )}
+      {label !== null && (
+        <Text size="xs" c="dimmed">
+          {t("settings.credentialImport.readAccountReadyOnceConnected", {
+            account: label || t("settings.credentialImport.otpSecret"),
           })}
         </Text>
       )}

@@ -1134,6 +1134,91 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(evening.deadline_hero.unwrap().assignment_id, "tonight");
     assert_eq!(evening.upcoming[0].occurrence.date, "2026-04-20");
 
+    // The published widget follows the same courses and task groups across a
+    // day, and repeated publication within that day cannot move its entries.
+    let now = |raw: &str| DateTime::parse_from_rfc3339(raw).unwrap().to_utc();
+    let school = SchoolReads::fixture(&data);
+    let morning_at = now("2026-04-13T08:00:00+09:00");
+    let evening_at = now("2026-04-13T21:10:00+09:00");
+    let snapshot = widgets::project(&data, &school, morning_at).unwrap();
+    let same_day = widgets::project(&data, &school, evening_at).unwrap();
+    assert_eq!(snapshot.content_hash, same_day.content_hash);
+    let mut outdated = data.clone();
+    let assignments = outdated["assignments"].as_array_mut().unwrap();
+    assignments
+        .iter_mut()
+        .find(|row| row["id"] == "graded")
+        .unwrap()["lmsCourseId"] = json!(8);
+    outdated["lmsCourses"] = json!([{"lmsId":8,"year":2026,"quarters":["1Q"]}]);
+    let at = |time: &str| json!({"fetchedAt":time});
+    outdated["freshness"] = json!({
+        (crate::sync_state::Key::lms_enrolment().to_string()): at("2026-04-13T08:00:00+09:00"),
+        (crate::sync_state::Key::lms_deadlines().to_string()): at("2026-04-13T08:00:00+09:00"),
+        (crate::sync_state::Key::lms_assignments(8).to_string()): at("2026-04-12T20:00:00+09:00"),
+    });
+    let active_snapshot = |data: &Value| {
+        let projected =
+            serde_json::to_value(widgets::project(data, &school, morning_at).unwrap()).unwrap();
+        projected["assignmentEntries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|entry| now(entry["effectiveAt"].as_str().unwrap()) <= morning_at)
+            .unwrap()["content"]["freshness"]["availability"]
+            .clone()
+    };
+    // A fetched but expired course detail only affects work shown by the widget.
+    assert_eq!(active_snapshot(&outdated), "fresh");
+    let open = outdated["assignments"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|row| row["id"] == "tonight")
+        .unwrap();
+    open["lmsCourseId"] = json!(8);
+    assert_eq!(active_snapshot(&outdated), "cached");
+    let wire = serde_json::to_value(snapshot).unwrap();
+    let entry_at = |kind: &str, at| {
+        wire[kind]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|entry| now(entry["effectiveAt"].as_str().unwrap()) <= at)
+            .unwrap()["content"]
+            .clone()
+    };
+    let widget_morning = entry_at("courseEntries", morning_at);
+    let widget_evening = entry_at("courseEntries", evening_at);
+    assert_eq!(
+        widget_morning["primary"]["destination"]["key"],
+        morning.upcoming[0].occurrence.key
+    );
+    assert_eq!(
+        widget_evening["primary"]["destination"]["key"],
+        evening.upcoming[0].occurrence.key
+    );
+    let board = assignment_board(&data, morning_at.fixed_offset(), None).unwrap();
+    let expected: Vec<_> = [
+        &board.today.pinned,
+        &board.today.due_this_week,
+        &board.today.later,
+        &board.today.undated,
+        &board.today.past_recent,
+    ]
+    .into_iter()
+    .flat_map(|group| ids(group))
+    .collect();
+    let assignment_entry = entry_at("assignmentEntries", morning_at);
+    let exported: Vec<_> = assignment_entry["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["destination"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(exported, expected);
+
     // A day without classes shows deadlines, recent changes and the next class.
     let mut off = data.clone();
     off["exceptions"] = json!([{"id":"off","date":"2026-04-13","type":"no-class","label":"Trip"}]);

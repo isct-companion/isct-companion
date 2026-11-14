@@ -35,6 +35,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="isctcompanion" android:host="widget" />
+            </intent-filter>
             <!-- Files shared from another app wait in the inbox to be handed in
                  (slotledger `approach/share-entry-points`). -->
             <intent-filter>
@@ -57,7 +62,19 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
+        </receiver>
+        <receiver android:name=".widgets.ClassesWidgetReceiver" android:exported="false"
+            android:label="@string/widget_classes">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_classes" />
+        </receiver>
+        <receiver android:name=".widgets.AssignmentsWidgetReceiver" android:exported="false"
+            android:label="@string/widget_assignments">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_assignments" />
         </receiver>
         <!-- The campus printer in every app's print dialog. Only the system
              may bind it; Android enables it on install. -->
