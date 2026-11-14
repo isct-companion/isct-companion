@@ -5,6 +5,7 @@ import { t, type MessageKey } from "../../i18n";
 export function ToolCard({
   icon,
   title,
+  info,
   status,
   note,
   actions,
@@ -12,6 +13,8 @@ export function ToolCard({
 }: {
   icon: ReactNode;
   title: MessageKey;
+  /** Beside the title: what a curious reader can look up, on hover. */
+  info?: ReactNode;
   status?: ReactNode;
   note?: MessageKey;
   actions: ReactNode;
@@ -22,6 +25,7 @@ export function ToolCard({
       <header>
         {icon}
         <h3>{t(title)}</h3>
+        {info}
       </header>
       {status && <div className="toolCardStatus">{status}</div>}
       {note && <p className="toolCardNote">{t(note)}</p>}

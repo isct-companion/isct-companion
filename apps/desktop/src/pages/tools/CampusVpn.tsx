@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import type { VpnNotice, VpnStatus } from "../../platform/desktop-bridge";
-import { Switch, UiButton } from "../../components/ui";
+import { InfoTip, Switch, UiButton } from "../../components/ui";
 import { workspaceActions } from "../../store/workspace";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
@@ -157,6 +157,20 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     }
   };
 
+  // Installs or updates the helper only: automatic management connects by
+  // itself once it is there.
+  const installHelper = async () => {
+    setVpnBusy(true);
+    try {
+      const next = await readyHelper();
+      if (next) setVpn(next);
+    } catch (error) {
+      notify(errorText(error) ?? t("common.signInFailed"));
+    } finally {
+      setVpnBusy(false);
+    }
+  };
+
   const disconnectVpn = async () => {
     if (!desktopBridge?.vpnDisconnect) return;
     setVpnBusy(true);
@@ -188,7 +202,7 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     ? vpnErrorText(vpn)
     : vpnConnected
       ? vpnRemaining(vpn.expiresAt, now)
-      : vpnBusy
+      : vpnBusy || vpn?.state === "connecting"
         ? t("tools.campusWifi.vpnConnecting")
         : vpn?.demandPausedUntil
           ? t("tools.campusWifi.vpnPaused", {
@@ -199,40 +213,68 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
             : t("tools.campusWifi.vpnDisconnected");
 
   const unavailable = vpn?.state === "unavailable";
+  const helperNeeded =
+    vpn?.error === "helper_not_installed" || vpn?.error === "helper_outdated";
+  // Automatic management connects and disconnects by itself: a press beside
+  // it would only be undone by the next use, so it shows none. The helper
+  // still needs the person's consent to install, in either mode.
+  const action = helperNeeded ? (
+    <UiButton
+      className="button small"
+      disabled={vpnBusy}
+      onClick={() => void installHelper()}
+    >
+      {t(
+        vpn?.error === "helper_outdated"
+          ? "tools.campusWifi.vpnUpdate"
+          : "tools.campusWifi.vpnInstall",
+      )}
+    </UiButton>
+  ) : vpn?.onDemand ? null : (
+    <UiButton
+      className={`button small${vpnConnected ? " toolConnected" : ""}`}
+      disabled={vpnBusy}
+      onClick={() => void (vpnConnected ? disconnectVpn() : connectVpn())}
+    >
+      {t(
+        vpnConnected
+          ? "tools.campusWifi.vpnDisconnect"
+          : "tools.campusWifi.vpnConnect",
+      )}
+    </UiButton>
+  );
+
   return (
     <ToolCard
       icon={<ShieldCheck aria-hidden strokeWidth={1.75} />}
       title="tools.campusWifi.campusVpn"
+      info={
+        !unavailable && (
+          <InfoTip label={t("tools.campusWifi.vpnRulesLabel")}>
+            {t("tools.campusWifi.vpnRules")}
+          </InfoTip>
+        )
+      }
       status={unavailable ? t("tools.campusWifi.vpnUnavailable") : vpnHint}
       note={unavailable ? undefined : "tools.campusWifi.vpnHint"}
       actions={
         !unavailable && (
-          <UiButton
-            className={`button small${vpnConnected ? " toolConnected" : ""}`}
-            disabled={vpnBusy}
-            onClick={() => void (vpnConnected ? disconnectVpn() : connectVpn())}
-          >
-            {t(
-              vpnConnected
-                ? "tools.campusWifi.vpnDisconnect"
-                : vpn?.error === "helper_not_installed"
-                  ? "tools.campusWifi.vpnInstall"
-                  : vpn?.error === "helper_outdated"
-                    ? "tools.campusWifi.vpnUpdate"
-                    : "tools.campusWifi.vpnConnect",
+          <>
+            {vpn && (
+              // The person's choice sits apart from the press, on the left.
+              <div className="toolCardOption">
+                <Switch
+                  label={t("tools.campusWifi.vpnOnDemand")}
+                  checked={Boolean(vpn.onDemand)}
+                  disabled={vpnBusy}
+                  onCheckedChange={(enabled) => void setOnDemand(enabled)}
+                />
+              </div>
             )}
-          </UiButton>
+            {action}
+          </>
         )
       }
-    >
-      {!unavailable && vpn && (
-        <Switch
-          label={t("tools.campusWifi.vpnOnDemand")}
-          checked={Boolean(vpn.onDemand)}
-          disabled={vpnBusy}
-          onCheckedChange={(enabled) => void setOnDemand(enabled)}
-        />
-      )}
-    </ToolCard>
+    />
   );
 }
