@@ -36,18 +36,6 @@ use url::Url;
 /// client range below.
 const SSID: &str = "ScienceTokyo";
 const PASSPHRASE: &str = "STWireless";
-const CLIENT_PREFIX: [u8; 2] = [10, 2];
-/// ScienceTokyoX (802.1X, NOC ID) client ranges, Ookayama/Tamachi then
-/// Yokohama, published on
-/// https://www.noc.cii.isct.ac.jp/service/nocid/sciencetokyox/. IPv4 is often
-/// not leased at all (IPv6 only, macOS adds a 192.0.0.2 CLAT address), so the
-/// IPv6 prefixes matter as much.
-const X_CLIENT_NETS: [&str; 4] = [
-    "10.3.0.0/17",
-    "10.3.128.0/20",
-    "2403:4440:40:61::/64",
-    "2403:4440:50:63::/64",
-];
 const PROBE_URL: &str = "http://captive.apple.com/hotspot-detect.html";
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -322,7 +310,7 @@ fn addresses(interface: &str) -> Vec<IpAddr> {
 /// The interface's IPv4 address when it is a ScienceTokyo client address.
 fn campus_address(interface: &str) -> Option<Ipv4Addr> {
     addresses(interface).into_iter().find_map(|ip| match ip {
-        IpAddr::V4(ip) if ip.octets()[..2] == CLIENT_PREFIX => Some(ip),
+        IpAddr::V4(v4) if app_core::campus_network::is_science_tokyo_address(ip) => Some(v4),
         _ => None,
     })
 }
@@ -332,15 +320,7 @@ fn campus_address(interface: &str) -> Option<Ipv4Addr> {
 fn on_science_tokyo_x(interface: &str) -> bool {
     addresses(interface)
         .into_iter()
-        .any(is_science_tokyo_x_address)
-}
-
-fn is_science_tokyo_x_address(ip: IpAddr) -> bool {
-    X_CLIENT_NETS.iter().any(|net| {
-        net.parse::<ipnet::IpNet>()
-            .expect("static network")
-            .contains(&ip)
-    })
+        .any(app_core::campus_network::is_science_tokyo_x_address)
 }
 
 fn join(interface: &str) -> Result<(), CommandError> {
@@ -414,7 +394,3 @@ impl reqwest::dns::Resolve for WifiResolver {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/campus_wifi.rs"]
-mod tests;

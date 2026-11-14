@@ -8,6 +8,7 @@ pub mod f5;
 use crate::school_session::CampusVpnError;
 use chrono::Duration;
 use chrono::{DateTime, Utc};
+use std::net::IpAddr;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, MutexGuard,
@@ -267,6 +268,9 @@ pub struct VpnService {
     /// On while on-demand connecting is: a standby demand may sign in.
     on_demand: Mutex<Option<Attempts>>,
     logging_in: Arc<AtomicBool>,
+    /// On the campus network, as `network` last read it: the VPN is not
+    /// needed there.
+    on_campus: AtomicBool,
 }
 
 impl VpnService {
@@ -277,6 +281,7 @@ impl VpnService {
             warned: Mutex::new(None),
             on_demand: Mutex::new(None),
             logging_in: Arc::new(AtomicBool::new(false)),
+            on_campus: AtomicBool::new(false),
         }
     }
 
@@ -327,11 +332,39 @@ impl VpnService {
         lock(&self.on_demand).is_some()
     }
 
-    /// Whether a standby demand at `now` should sign in: on-demand is on, no
-    /// tunnel is up, the wait after a failed attempt is over, and the hour's
-    /// sign-ins are not spent. A yes counts as one of them.
+    /// The device's addresses now; whether it is on the campus network.
+    /// While a sign-in runs or a tunnel is up the last answer stands: the
+    /// tunnel's own campus address appears before Core knows it, and would
+    /// read as the campus network and tear standby down mid-sign-in.
+    pub fn network(&self, addresses: impl IntoIterator<Item = IpAddr>) -> bool {
+        if self.logging_in.load(Ordering::SeqCst)
+            || matches!(
+                self.state(),
+                VpnState::Connected { .. } | VpnState::Connecting
+            )
+        {
+            return self.on_campus();
+        }
+        let on = crate::campus_network::on_campus(addresses, None);
+        self.on_campus.store(on, Ordering::SeqCst);
+        on
+    }
+
+    pub fn on_campus(&self) -> bool {
+        self.on_campus.load(Ordering::SeqCst)
+    }
+
+    /// Whether the helper's standby should hold the campus routes: on-demand
+    /// is on and campus hosts are not reached directly anyway.
+    pub fn wants_standby(&self) -> bool {
+        self.on_demand() && !self.on_campus()
+    }
+
+    /// Whether a standby demand at `now` should sign in: standby is wanted,
+    /// no tunnel is up, the wait after a failed attempt is over, and the
+    /// hour's sign-ins are not spent. A yes counts as one of them.
     pub fn demanded(&self, now: DateTime<Utc>) -> bool {
-        if !self.needs_login() {
+        if !self.needs_login() || self.on_campus() {
             return false;
         }
         let mut current = lock(&self.on_demand);

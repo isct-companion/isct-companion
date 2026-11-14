@@ -438,6 +438,33 @@ fn demands_sign_in_at_most_six_times_an_hour() {
     ));
 }
 
+/// On the campus network campus hosts are reached directly, so automatic
+/// management neither holds standby nor signs in, and picks up again once the
+/// device leaves. A tunnel's own campus address, which appears before Core
+/// knows it, must not read as the campus network.
+#[test]
+fn automatic_management_stands_down_on_the_campus_network() {
+    let start = at(1_793_690_000);
+    let science_tokyo_x: std::net::IpAddr = "2403:4440:40:61::5".parse().unwrap();
+    let home: std::net::IpAddr = "192.168.1.20".parse().unwrap();
+    let service = VpnService::new(FakePort::answering(vec![Ok(report(
+        HelperState::Connected,
+    ))]));
+    service.set_on_demand(true);
+    assert!(service.network([science_tokyo_x]));
+    assert!(!service.wants_standby());
+    assert!(!service.demanded(start));
+    assert!(!service.network([home]));
+    assert!(service.wants_standby());
+
+    // Mid-sign-in, the tunnel's address shows up first.
+    let login = service.begin_login();
+    assert!(!service.network([home, "131.112.10.19".parse().unwrap()]));
+    drop(login);
+    service.connect(&cookie());
+    assert!(!service.network([home, "131.112.10.19".parse().unwrap()]));
+}
+
 /// A press and a demand must not each spend a one-time session.
 #[test]
 fn logins_are_one_at_a_time() {

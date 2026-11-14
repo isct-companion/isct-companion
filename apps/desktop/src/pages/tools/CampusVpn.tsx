@@ -145,6 +145,17 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
       // until the next start. `vpn_connect` itself stops on a helper it cannot
       // use, before it spends a login.
       if (next.state === "connected") return;
+      // On campus the school's network reaches campus hosts already; a
+      // tunnel would only take one of its few VPN ports.
+      if (
+        next.onCampus &&
+        !(await confirmAction(
+          t("tools.campusWifi.vpnOnCampusBody"),
+          t("tools.campusWifi.vpnConnectAnyway"),
+          { title: t("tools.campusWifi.vpnOnCampusTitle"), danger: false },
+        ))
+      )
+        return;
       setVpn({ state: "connecting" });
       const outcome = await desktopBridge.vpnConnect();
       setNow(Date.now());
@@ -204,13 +215,15 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
       ? vpnRemaining(vpn.expiresAt, now)
       : vpnBusy || vpn?.state === "connecting"
         ? t("tools.campusWifi.vpnConnecting")
-        : vpn?.demandPausedUntil
-          ? t("tools.campusWifi.vpnPaused", {
-              time: jstClock(new Date(vpn.demandPausedUntil)),
-            })
-          : vpn?.onDemand
-            ? t("tools.campusWifi.vpnStandby")
-            : t("tools.campusWifi.vpnDisconnected");
+        : vpn?.onCampus
+          ? t("tools.campusWifi.vpnOnCampus")
+          : vpn?.demandPausedUntil
+            ? t("tools.campusWifi.vpnPaused", {
+                time: jstClock(new Date(vpn.demandPausedUntil)),
+              })
+            : vpn?.onDemand
+              ? t("tools.campusWifi.vpnStandby")
+              : t("tools.campusWifi.vpnDisconnected");
 
   const unavailable = vpn?.state === "unavailable";
   const helperNeeded =
