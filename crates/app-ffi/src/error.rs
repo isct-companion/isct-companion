@@ -54,6 +54,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::WriteDenied
         | C::VaultUnavailable
         | C::SignOutIncomplete
+        | C::WebSignOutIncomplete
         | C::ResetCredentials
         | C::ResetFiles => SdkError::Storage { detail },
         C::Compatibility | C::CloudFormat | C::CloudVersionMissing => {

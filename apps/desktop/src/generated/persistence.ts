@@ -1996,6 +1996,7 @@ export type ErrorCode =
   | "too-large"
   | "vault-unavailable"
   | "sign-out-incomplete"
+  | "web-sign-out-incomplete"
   | "sign-in-required"
   | "school-maintenance"
   | "school-site-changed"

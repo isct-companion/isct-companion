@@ -13,6 +13,11 @@ on:
       - Cargo.toml
       - Cargo.lock
       - .github/workflows/native-sdk.yml
+  # Only main saves the SDK caches (see platform-checks.yml), and pull
+  # requests never run on main: this weekly run saves them, an hour after
+  # the platform checks warm theirs. It gates nothing.
+  schedule:
+    - cron: '0 19 * * 0' # Monday 04:00 in Japan
 
 permissions:
   contents: read

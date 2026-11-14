@@ -54,6 +54,7 @@ codes! {
     TooLarge => "too-large",
     VaultUnavailable => "vault-unavailable",
     SignOutIncomplete => "sign-out-incomplete",
+    WebSignOutIncomplete => "web-sign-out-incomplete",
     SignInRequired => "sign-in-required",
     SchoolMaintenance => "school-maintenance",
     SchoolSiteChanged => "school-site-changed",
@@ -383,7 +384,8 @@ coded!(SchoolBrowserError, |e| match e {
     SchoolBrowserError::InvalidInput(_) => C::InvalidInput,
     SchoolBrowserError::Platform(_) => C::Platform,
     SchoolBrowserError::Storage(_) => C::Storage,
-    SchoolBrowserError::SignOutIncomplete => C::SignOutIncomplete,
+    // Said where to finish it: the web page shows it, not Settings.
+    SchoolBrowserError::SignOutIncomplete => C::WebSignOutIncomplete,
     SchoolBrowserError::Stopped => C::Stopped,
 });
 coded!(BrowserError, |e| match e {
