@@ -58,8 +58,9 @@ issues are visible to others.
 Send feedback in Settings opens a Google Form in your browser, with the app
 version and your device's system version filled in. The form asks you to sign in
 to Google and records your email address with your response, so the developers
-can reply and unsigned spam cannot reach them. Google processes what you submit
-under its own privacy policy; the app itself sends nothing.
+can reply and unsigned spam cannot reach them. Screenshots you attach are stored
+in the maintainer's Google Drive. Google processes what you submit under its own
+privacy policy; the app itself sends nothing.
 
 ## Your controls and deletion
 
