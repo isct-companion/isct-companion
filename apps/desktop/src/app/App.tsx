@@ -30,7 +30,6 @@ import {
 } from "../platform/core-query";
 import { useFinder } from "../pages/courses/useFinder";
 import type { FinderRowView } from "../platform/finder-query";
-import { contentLanguage } from "../lib/model";
 import { Notifications } from "./notifications";
 import {
   createHashRouter,
@@ -1070,7 +1069,6 @@ export function WorkspaceApp() {
             year={Number(courseTerm.slice(0, 4))}
             term={courseTerm}
             summary={`${finderTermCourses.length} ${t("course.status.onTimetable")} · ${termCredits} ${t("common.creditsUnit")}`}
-            language={contentLanguage(data.settings)}
             finder={finder}
             openCourse={(row) => {
               setPanelCourseId(null);
@@ -1096,7 +1094,6 @@ export function WorkspaceApp() {
             <OfferingPanel
               key={offeringPanel.course.id}
               course={offeringPanel.course}
-              language={contentLanguage(data.settings)}
               placed={finder.placedCodes.has(offeringPanel.course.code)}
               replaces={(
                 finder.rows.find(

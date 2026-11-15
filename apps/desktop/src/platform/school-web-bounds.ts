@@ -7,16 +7,28 @@ import {
 type Rect = Pick<DOMRect, "left" | "top" | "width" | "height">;
 type Viewport = Pick<
   Window,
-  "innerWidth" | "innerHeight" | "outerWidth" | "outerHeight"
+  | "innerWidth"
+  | "innerHeight"
+  | "outerWidth"
+  | "outerHeight"
+  | "devicePixelRatio"
 >;
 
 const chromeInset = (outer: number, inner: number, maximum: number) =>
   Math.min(Math.max(outer - inner, 0), maximum);
 
 /**
- * DOM rectangles and Tauri child-webview bounds share client-area coordinates
- * everywhere but macOS, whose WKWebView is the exception: its child origin includes
- * the macOS title-bar inset, which must be added back here.
+ * On Windows the bounds are physical pixels of the client area: the DOM
+ * rectangle times the page's own `devicePixelRatio`. WebView2's CSS pixel is
+ * not always the window's logical pixel (a 125% laptop panel whose page
+ * renders at another scale, a window moved between monitors), and Tauri turns
+ * logical bounds into physical ones with the window's scale factor, so a
+ * logical rectangle lands shrunk or grown toward the window's top-left
+ * (`school_web::apply_bounds` takes these as physical). Edges are rounded,
+ * not the width, so the view meets the pane exactly.
+ *
+ * On macOS they stay logical points: WKWebView's child origin includes the
+ * title-bar inset, which must be added back here.
  */
 export function schoolWebBounds(
   rect: Rect,
@@ -24,11 +36,17 @@ export function schoolWebBounds(
   os: NativeOs | undefined = nativeOs(),
 ): SchoolWebBounds {
   if (os !== "macos") {
+    const scale =
+      Number.isFinite(viewport.devicePixelRatio) && viewport.devicePixelRatio > 0
+        ? viewport.devicePixelRatio
+        : 1;
+    const x = Math.round(rect.left * scale);
+    const y = Math.round(rect.top * scale);
     return {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.max(1, Math.round(rect.width)),
-      height: Math.max(1, Math.round(rect.height)),
+      x,
+      y,
+      width: Math.max(1, Math.round((rect.left + rect.width) * scale) - x),
+      height: Math.max(1, Math.round((rect.top + rect.height) * scale) - y),
     };
   }
 

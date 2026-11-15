@@ -6,9 +6,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use serde_json::Value;
 
-use super::calendar::{
-    academic_year_of, calendar_state, content_language, localized, quarter_range,
-};
+use super::calendar::{academic_year_of, calendar_state, quarter_range, shown_label};
 use super::occurrence::{
     finalize_agenda, personal_occurrences, resolve_day_agenda_with, scheduled_courses,
 };
@@ -16,6 +14,7 @@ use super::{
     array, parse_civil_date, placement_terms, teaching_periods, text, visible, AgendaOptions,
     DatedAgenda, OccurrenceKind, ScheduleError, Term,
 };
+use crate::locale::ContentLanguage;
 
 /// Inclusive civil-date range. Cancelled classes remain in the content so each
 /// consumer can present or omit them without recomputing calendar policy.
@@ -67,7 +66,7 @@ pub fn calendar_between(
         })
         .filter(|(_, courses, exams)| !courses.is_empty() || !exams.is_empty())
         .collect();
-    let locale = content_language(workspace);
+    let language = ContentLanguage::of(workspace);
     let mut agendas = Vec::with_capacity((days + 1) as usize);
     for offset in 0..=days {
         let date = (start + chrono::Duration::days(offset)).to_string();
@@ -138,19 +137,17 @@ pub fn calendar_between(
                     && text(row, "startDate").is_some_and(|from| date.as_str() >= from)
                     && text(row, "endDate").is_some_and(|to| date.as_str() <= to)
             })
-            .cloned()
+            .map(|row| shown_label(row, language))
             .collect();
         let mut notices = Vec::new();
-        if let Some(state) = state.as_ref() {
-            let label = localized(state.get("label"), locale, "");
-            if !label.is_empty() {
-                notices.push(label);
-            }
-        }
-        notices.extend(important_dates.iter().filter_map(|row| {
-            let label = localized(row.get("label"), locale, "");
-            (!label.is_empty()).then_some(label)
-        }));
+        notices.extend(
+            state
+                .iter()
+                .chain(&important_dates)
+                .filter_map(|row| text(row, "label"))
+                .filter(|label| !label.is_empty())
+                .map(str::to_owned),
+        );
         let occurrences = finalize_agenda(blocks, &periods)?;
         // Exams and timetable classes still happen when the weekly pattern
         // stops; such a day must not read as a day without classes.
@@ -161,7 +158,7 @@ pub fn calendar_between(
             });
         if notices.is_empty() && weekly_classes_stop {
             notices.push(
-                match (exam_period, locale == "ja") {
+                match (exam_period, language == ContentLanguage::Ja) {
                     (true, true) => "試験期間",
                     (true, false) => "Exam period",
                     (false, true) => "授業なし",

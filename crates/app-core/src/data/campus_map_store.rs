@@ -4,7 +4,7 @@
 //! the table with the rest, and the file is downloaded again.
 use super::*;
 
-/// The one row's key: the format the file has (`campus-map/v1`).
+/// The one row's key: the format the file has (`campus-map/v2`).
 const FORMAT: i64 = crate::campus_map::FORMAT_VERSION as i64;
 
 /// Stores the file, replacing the previous one. Returns 1 when it changed.

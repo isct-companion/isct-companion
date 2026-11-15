@@ -49,7 +49,7 @@ fn english_names_from_the_english_page_survive_japanese_rereads() {
         &merged,
         "planned",
         "2026-3Q",
-        "en",
+        crate::locale::ContentLanguage::En,
         &crate::schedule::default_teaching_periods(),
     )
     .unwrap();

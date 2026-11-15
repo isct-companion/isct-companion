@@ -51,7 +51,6 @@ import app.isctcompanion.core.StudyEntryKind
 import app.isctcompanion.core.StudyStage
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SyncIndicatorView
 import app.isctcompanion.design.SyncSections
@@ -305,7 +304,7 @@ internal fun StudyProfilePage() {
     val raw = model.records.settings.optString("departmentId")
     val departmentId = departments.firstOrNull { raw == it.id || raw.endsWith(":${it.id}") }?.id ?: raw
     val departmentOptions = listOf("" to t("settings.studyProfile.notSet")) +
-        departments.map { it.id to (Localizer.pick(it.name, model.records.settings) ?: it.id) } +
+        departments.map { it.id to it.name } +
         // A stored id this list does not hold still shows.
         listOfNotNull(departmentId.takeIf { id -> id.isNotEmpty() && departments.none { it.id == id } }?.let { it to it })
     // The desktop's choices: the ten years up to next year, plus a stored one.

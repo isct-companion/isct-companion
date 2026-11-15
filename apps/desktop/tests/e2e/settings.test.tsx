@@ -21,6 +21,7 @@ import {
   type FakeCore,
   type FakeCoreOptions,
   type MountedApp,
+  readRepoFile,
   schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
@@ -139,12 +140,14 @@ function mountSettings(
     apply?: Apply;
     queries?: FakeCoreOptions["queries"];
     tools?: FakeCoreOptions["tools"];
+    finder?: FakeCoreOptions["finder"];
   } = {},
 ): Promise<MountedApp> {
   return mountApp(
     {
       workspace: options.workspace ?? workspaceFixture(),
       tools: options.tools,
+      finder: options.finder,
       capabilities: options.capabilities ?? {},
       queries: {
         workspaceOverview: (_query, core) => overviewFor(core.workspace),
@@ -1546,6 +1549,15 @@ const departmentSelect = (pane: HTMLElement) =>
     '[data-setting="department"] [role="combobox"]',
   )!;
 
+/** The syllabus departments as Core's finder page names them, in English
+ * (the suite's content language). */
+const finderDepartments = () =>
+  (
+    JSON.parse(
+      readRepoFile("crates/app-core/src/course_query/departments.json"),
+    ) as { id: string; name: { en: string } }[]
+  ).map((department) => ({ ...department, name: department.name.en }));
+
 async function mountStudy(
   workspace: Workspace,
   options: { handle?: Handler; apply?: Apply } = {},
@@ -1554,6 +1566,11 @@ async function mountStudy(
     workspace,
     handle: options.handle,
     apply: options.apply,
+    finder: () => ({
+      context: { departments: finderDepartments() },
+      reads: ["settings"],
+      seq: 0,
+    }),
   });
   app = mounted;
   await wait(() => {

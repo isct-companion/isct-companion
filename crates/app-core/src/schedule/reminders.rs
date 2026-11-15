@@ -14,11 +14,11 @@ use serde_json::Value;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
-use super::calendar::{content_language, localized};
 use super::{
     array, resolve_day_agenda, scheduled_courses, text, tokyo_date, visible, AgendaOptions,
     Occurrence, OccurrenceKind, ScheduleError,
 };
+use crate::locale::{pick, ContentLanguage};
 
 pub const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
 
@@ -558,13 +558,12 @@ pub fn notification_plan(
             "notification horizon is too long".into(),
         ));
     }
-    let configured_locale = content_language(workspace);
-    let locale = match locale {
-        Some(NotificationLocale::Ja) => "ja",
-        Some(NotificationLocale::En) => "en",
-        None => configured_locale,
+    let language = match locale {
+        Some(NotificationLocale::Ja) => ContentLanguage::Ja,
+        Some(NotificationLocale::En) => ContentLanguage::En,
+        None => ContentLanguage::of(workspace),
     };
-    let japanese = locale == "ja";
+    let japanese = language == ContentLanguage::Ja;
     let settings = workspace
         .pointer("/settings/notifications")
         .unwrap_or(&Value::Null);
@@ -703,14 +702,11 @@ pub fn notification_plan(
                         .iter()
                         .find(|c| text(c, "id") == Some(id))
                 })
-                .map(|course| {
-                    localized(
-                        course.get("names").and_then(|n| n.get("title")),
-                        locale,
-                        text(course, "title").unwrap_or_default(),
-                    )
+                .and_then(|course| {
+                    pick(course.pointer("/names/title"), language).or_else(|| text(course, "title"))
                 })
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .to_owned();
             for &lead in &assignment_leads {
                 let at = due - Duration::minutes(lead);
                 if at < now || at > horizon {

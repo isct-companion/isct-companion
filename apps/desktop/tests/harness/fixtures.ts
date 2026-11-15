@@ -67,8 +67,8 @@ export function offering(
     year: YEAR,
     quarters: ["3Q"],
     code,
-    title: { ja: title, en: title },
-    instructors: [{ ja: "教員", en: "Teacher" }],
+    title,
+    instructors: ["Teacher"],
     instructionLanguage: "ja",
     format: { kinds: ["lecture"] },
     credits: { lecture: 2, exercise: 0, lab: 0 },
@@ -83,7 +83,7 @@ export function courseFor(
   source: FinderCourse,
   overrides: Partial<Course> = {},
 ): Course {
-  const title = source.title?.en ?? source.title?.ja ?? source.code;
+  const title = source.title || source.code;
   return {
     id: `${YEAR}-${source.id}`,
     kind: "course",
@@ -92,7 +92,10 @@ export function courseFor(
     updatedBy: DEVICE,
     termId: TERM,
     offeringId: source.id,
-    names: { title: source.title, instructor: source.instructors?.[0] },
+    names: {
+      title: { en: source.title },
+      instructor: { en: source.instructors?.[0] },
+    },
     code: source.code,
     title,
     instructor: "Teacher",

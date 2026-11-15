@@ -11,7 +11,7 @@ import {
   type FinderCourse,
   type Suggestion,
 } from "../../lib/course-query";
-import { pickLocalized, type Lang, type TermId } from "../../lib/model";
+import type { TermId } from "../../lib/model";
 import type { FinderRowView } from "../../platform/finder-query";
 import type { CourseEligibility } from "../../generated/persistence";
 import { runsFor } from "../../platform/sync";
@@ -124,7 +124,6 @@ export function CourseFinder({
   term,
   enabled,
   activate,
-  language,
   finder,
   add,
   undo,
@@ -138,7 +137,6 @@ export function CourseFinder({
   term: TermId;
   enabled: boolean;
   activate: () => void;
-  language: Lang;
   finder: Finder;
   add: (courses: FinderCourse[]) => Promise<unknown>;
   undo: (courses: FinderCourse[]) => Promise<unknown>;
@@ -627,10 +625,7 @@ export function CourseFinder({
                               aria-hidden
                             />
                           )}
-                          <Highlight
-                            text={pickLocalized(s.row.course.title, language)}
-                            query={query}
-                          />
+                          <Highlight text={s.row.course.title} query={query} />
                           <em>
                             <Highlight text={s.row.course.code} query={query} />{" "}
                             · {schedule(s.row.course)} ·{" "}
@@ -756,10 +751,7 @@ export function CourseFinder({
                   onClick={() => openCourse?.(row)}
                 >
                   <b>
-                    <Highlight
-                      text={pickLocalized(course.title, language)}
-                      query={live}
-                    />
+                    <Highlight text={course.title} query={live} />
                   </b>
                   <small>
                     <code>{course.code}</code> · {schedule(course)} ·{" "}

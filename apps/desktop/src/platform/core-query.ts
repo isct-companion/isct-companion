@@ -38,15 +38,21 @@ type OmittedNulls<T> = {
 } & { [K in keyof T as null extends T[K] ? K : never]?: Exclude<T[K], null> };
 export type ScheduleOccurrence = OmittedNulls<Protocol.Occurrence>;
 export type QuarterRange = OmittedNulls<Protocol.QuarterRange>;
+/** An important date as read models show it: its label in the content
+ * language. */
+export type ImportantDateView = Omit<ImportantDate, "label"> & {
+  label: string;
+};
 export type DatedAgenda = {
   date: string;
   occurrences: ScheduleOccurrence[];
+  /** Its label is in the content language. */
   calendarState?: {
-    label?: string | Record<string, string>;
+    label: string;
     type?: string;
     replacementDay?: number;
   } | null;
-  importantDates: ImportantDate[];
+  importantDates: ImportantDateView[];
   noClasses: boolean;
   calendarNotice?: string;
 };
@@ -109,7 +115,7 @@ export type AcademicYearCalendar = {
     origin: Exclude<CalendarOrigin, "changed">;
   }[];
   days: CalendarDayView[];
-  importantDates: ImportantDate[];
+  importantDates: ImportantDateView[];
   published: boolean;
 };
 export type { AcademicProfile };

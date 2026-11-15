@@ -1,13 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { desktopBridge } from "../../app/native";
 import { t } from "../../i18n";
-import {
-  contentLanguage,
-  pickLocalized,
-  type StudyEnrollment,
-  type Workspace,
-} from "../../lib/model";
-import { SYLLABUS_DEPARTMENTS, departmentById } from "../../lib/departments";
+import type { StudyEnrollment, Workspace } from "../../lib/model";
+import { departmentById } from "../../lib/departments";
 import { tokyoDate } from "../../lib/civil-date";
 import { UiButton, UiSelect } from "../../components/ui";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
@@ -15,6 +10,9 @@ import {
   useScheduleQuery,
   type AcademicYearIndex,
 } from "../../platform/core-query";
+import { finderQuery } from "../../platform/finder-query";
+import { useViewQuery } from "../../platform/view-query";
+import type { FinderDepartment } from "../../generated/persistence";
 import { useClock } from "../../platform/use-clock";
 
 type DraftEnrollment = Omit<StudyEnrollment, "admittedTerm"> & {
@@ -43,7 +41,25 @@ export function StudyProfileSettings({
   openSection?: (section: "calendar") => void;
 }) {
   const now = useClock();
-  const department = departmentById(data.settings.departmentId);
+  // The syllabus departments, named in the content language, as the course
+  // finder lists them.
+  const departments =
+    useViewQuery<FinderDepartment[]>(
+      ["finderDepartments", data.selectedTerm],
+      async () => {
+        const page = await finderQuery({
+          year: Number(data.selectedTerm.slice(0, 4)),
+          term: data.selectedTerm,
+          limit: 0,
+        });
+        return {
+          value: page.context.departments,
+          reads: page.reads,
+          seq: page.seq,
+        };
+      },
+    ).value ?? [];
+  const department = departmentById(departments, data.settings.departmentId);
   const admissionYear = data.academicProfile.admissionYear;
   const studyEnrollments = data.academicProfile.studyEnrollments ?? [];
   const committedKey = JSON.stringify([admissionYear, studyEnrollments]);
@@ -177,13 +193,9 @@ export function StudyProfileSettings({
             }}
             data={[
               { value: "", label: t("settings.studyProfile.notSelected") },
-              ...SYLLABUS_DEPARTMENTS.map((item) => ({
+              ...departments.map((item) => ({
                 value: item.id,
-                label: pickLocalized(
-                  item.name,
-                  contentLanguage(data.settings),
-                  item.id,
-                ),
+                label: item.name,
               })),
             ]}
           />

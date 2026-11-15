@@ -28,7 +28,7 @@ struct StudyProfileScreen: View {
                     Picker(t("settings.main.department"), selection: departmentBinding) {
                         Text(t("settings.studyProfile.notSet")).tag("")
                         ForEach(departments, id: \.id) { department in
-                            Text(Localizer.shared.pick(department.name, content: model.records.settings) ?? department.id).tag(department.id)
+                            Text(department.name).tag(department.id)
                         }
                         // A stored id this list does not hold still shows.
                         if !departmentId.isEmpty, !departments.contains(where: { $0.id == departmentId }) {

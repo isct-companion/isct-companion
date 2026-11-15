@@ -1,4 +1,5 @@
 use super::*;
+use crate::locale::{pick, ContentLanguage};
 
 /// Adds catalog offerings to the timetable of `term_id`, the quarter on
 /// screen.  An offering running over several quarters (3Q–4Q) that is added
@@ -63,7 +64,7 @@ pub(super) fn add_catalog_courses(
             }
         }
     }
-    let locale = workspace_content_locale(current);
+    let language = ContentLanguage::of(current);
     let plan_year = &term_id[..4];
     let mut offering_ids = offerings
         .iter()
@@ -143,7 +144,7 @@ pub(super) fn add_catalog_courses(
                         &offering,
                         &course_id,
                         term_id,
-                        locale,
+                        language,
                         &teaching_periods,
                     )?,
                     tombstone.and_then(revision),
@@ -305,7 +306,7 @@ pub(crate) fn planned_catalog_course(
     offering: &Value,
     course_id: &str,
     term_id: &str,
-    locale: &str,
+    language: ContentLanguage,
     teaching_periods: &[crate::schedule::TeachingPeriod],
 ) -> Result<Value, DataError> {
     let offering_id = string(offering, "id")?;
@@ -322,18 +323,17 @@ pub(crate) fn planned_catalog_course(
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|value| localized(Some(value), locale))
-        .filter(|value| !value.is_empty())
+        .filter_map(|value| pick(Some(value), language))
         .collect::<Vec<_>>()
         .join(" / ");
     Ok(json!({
         "id":course_id, "kind":"course", "termId":term_id, "offeringId":offering_id,
         "names":{"title":offering.get("title"),"instructor":catalog_instructor_names(offering)},
         "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
-        "title":localized(offering.get("title"), locale), "instructor":instructor, "credits":total,
+        "title":pick(offering.get("title"), language).unwrap_or_default(), "instructor":instructor, "credits":total,
         "creditSplit":credits,
         "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
-        "color":"#556b8d", "meetings":catalog_meetings(offering, locale, teaching_periods)?,
+        "color":"#556b8d", "meetings":catalog_meetings(offering, language, teaching_periods)?,
         "url":offering.get("syllabusUrl"),
         "source":{"provider":"kyomu","externalId":offering_id}
     }))
@@ -341,7 +341,7 @@ pub(crate) fn planned_catalog_course(
 
 pub(super) fn catalog_meetings(
     offering: &Value,
-    locale: &str,
+    language: ContentLanguage,
     teaching_periods: &[crate::schedule::TeachingPeriod],
 ) -> Result<Value, DataError> {
     let mut meetings = Vec::new();
@@ -381,7 +381,7 @@ pub(super) fn catalog_meetings(
         let (start_time, end_time) = crate::schedule::clock_for_periods(teaching_periods, bounds)
             .map_err(|error| DataError::from(error.to_string()))?;
         let room_names = entry.get("room").cloned();
-        let room = localized(room_names.as_ref(), locale);
+        let room = pick(room_names.as_ref(), language).unwrap_or_default();
         meetings.push(json!({"days":[day],"periods":periods,"startTime":start_time,"endTime":end_time,"room":room,"roomNames":room_names}));
     }
     Ok(Value::Array(meetings))

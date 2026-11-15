@@ -1,6 +1,6 @@
 //! Reference files: what the person follows, when a file is due, and the
 //! executor that reads one leased reference key: `{kind}/{year}` for a file
-//! chosen by a year, `campus-map/v1` for the campus map.
+//! chosen by a year, `campus-map/v2` for the campus map.
 
 use crate::{
     data::{DataError, WorkspaceChangeSource},

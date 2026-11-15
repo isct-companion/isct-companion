@@ -12,6 +12,10 @@
     <!-- Live Matrix card scanning; optional so camera-less devices can install. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- The campus map's blue dot, asked for when the map first opens; only
+         while the app is in use, never in the background. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <application
         android:name=".IsctApplication"

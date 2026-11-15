@@ -40,17 +40,6 @@ final class Localizer: @unchecked Sendable {
     }
 
     var locale: Locale { catalog.locale }
-
-    /// School text in the content language: `settings.contentLanguage`, or on
-    /// automatic the UI language (`zh` reads Japanese), as the desktop's
-    /// `contentLanguage` and `pickLocalized`. The other language fills a gap.
-    func pick(_ value: [String: String], content settings: [String: Any]) -> String? {
-        let chosen = settings["contentLanguage"] as? String
-        let first = ["ja", "en"].contains(chosen ?? "") ? chosen ?? "ja" : (language == "en" ? "en" : "ja")
-        let order = first == "en" ? ["en", "ja"] : ["ja", "en"]
-        return order.lazy.compactMap { value[$0].flatMap { $0.isEmpty ? nil : $0 } }.first
-    }
-
 }
 
 /// The UI string for a catalog key, with `{{name}}` placeholders filled.

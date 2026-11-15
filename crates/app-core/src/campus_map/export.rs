@@ -1,7 +1,8 @@
-//! The Isct-Data campus map export, format 1, as published: gzip of one JSON
+//! The Isct-Data campus map export, format 2, as published: gzip of one JSON
 //! object. Only this format is read; any other `formatVersion` is refused
 //! before its fields are looked at.
 use super::{CampusMapError, FORMAT_VERSION, MAX_JSON_BYTES};
+use crate::locale::Localized;
 use serde::Deserialize;
 use std::{collections::BTreeMap, io::Read};
 
@@ -101,34 +102,20 @@ pub(super) struct Export {
     pub aliases: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Name {
-    pub ja: String,
-    #[serde(default)]
-    pub en: Option<String>,
-}
-
-impl Name {
-    pub(super) fn pick(&self, english: bool) -> &str {
-        match (&self.en, english) {
-            (Some(en), true) if !en.trim().is_empty() => en,
-            _ => &self.ja,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Building {
     pub id: String,
     pub campus: String,
-    pub name: Name,
+    pub name: Localized,
     pub codes: Vec<String>,
     pub center: Position,
     /// MultiPolygon coordinates.
     pub footprint: Vec<Rings>,
     pub levels: Vec<Level>,
+    /// The floor the main entrance is on, one of `levels`; null only for a
+    /// building with no floors.
+    pub street_level_id: Option<String>,
     pub entrances: Vec<Entrance>,
 }
 
@@ -147,7 +134,7 @@ pub(super) struct Entrance {
     pub id: String,
     pub point: Position,
     #[serde(default)]
-    pub name: Option<Name>,
+    pub name: Option<Localized>,
     #[serde(default)]
     pub level_id: Option<String>,
 }
@@ -196,14 +183,14 @@ pub(super) struct Room {
 }
 
 /// Only the version, read before the strict parse so a later format is
-/// refused as a format, not as malformed v1.
+/// refused as a format, not as malformed v2.
 #[derive(Deserialize)]
 struct Version {
     #[serde(rename = "formatVersion")]
     format_version: Option<serde_json::Value>,
 }
 
-/// Unpacks the file (at most [`MAX_JSON_BYTES`]) and parses format 1.
+/// Unpacks the file (at most [`MAX_JSON_BYTES`]) and parses format 2.
 pub(super) fn read(gz: &[u8]) -> Result<Export, CampusMapError> {
     let mut json = Vec::new();
     flate2::read::GzDecoder::new(gz)
@@ -218,7 +205,7 @@ pub(super) fn read(gz: &[u8]) -> Result<Export, CampusMapError> {
     parse(&json)
 }
 
-/// Parses the unpacked JSON of format 1.
+/// Parses the unpacked JSON of format 2.
 fn parse(json: &[u8]) -> Result<Export, CampusMapError> {
     let version: Version = serde_json::from_slice(json)
         .map_err(|error| CampusMapError::Invalid(error.to_string()))?;
