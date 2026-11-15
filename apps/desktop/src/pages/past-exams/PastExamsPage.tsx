@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -53,10 +54,12 @@ const reasons = [
 ] as const;
 export function PastExams({
   active,
+  courseId,
   currentTerm,
   terms,
 }: {
   active: boolean;
+  courseId?: string;
   currentTerm: string;
   terms: string[];
 }) {
@@ -110,8 +113,29 @@ export function PastExams({
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const courseOpened = useRef(false);
+  const pendingCalls = useRef(0);
+  const applyAccount = useCallback(
+    (next: ExamAccount) => {
+      setAccount(next);
+      if (next.status === "connected") return;
+      courseOpened.current = false;
+      closeUpload();
+      setUploadStatus(undefined);
+      setSubjects([]);
+      setSubject(undefined);
+      setFile(undefined);
+      setLibrary(undefined);
+      setRequests(undefined);
+      setSearched(false);
+      setReport(false);
+      setRequestDraft(false);
+    },
+    [closeUpload],
+  );
   const call = useCallback(
     async (action: ExamAction): Promise<ExamAnswer | undefined> => {
+      pendingCalls.current += 1;
       setBusy(true);
       setConnecting(action.kind === "connect");
       setError("");
@@ -126,48 +150,38 @@ export function PastExams({
         const snapshot = await desktopBridge
           ?.examShare?.({ kind: "accountSnapshot" })
           .catch(() => undefined);
-        if (snapshot?.kind === "account") {
-          setAccount(snapshot.value);
-          if (snapshot.value.status !== "connected") {
-            closeUpload();
-            setUploadStatus(undefined);
-            setSubjects([]);
-            setSubject(undefined);
-            setFile(undefined);
-            setLibrary(undefined);
-            setRequests(undefined);
-            setSearched(false);
-          }
-        }
+        if (snapshot?.kind === "account") applyAccount(snapshot.value);
         return undefined;
       } finally {
-        setConnecting(false);
-        setBusy(false);
+        pendingCalls.current -= 1;
+        if (pendingCalls.current === 0) {
+          setConnecting(false);
+          setBusy(false);
+        }
       }
     },
-    [closeUpload],
+    [applyAccount],
   );
   const accountAction = useCallback(
     async (kind: "account" | "connect" | "disconnect" | "acceptTerms") => {
       const answer = await call({ kind });
-      if (answer?.kind === "account") {
-        setAccount(answer.value);
-        if (kind === "disconnect") {
-          closeUpload();
-          setUploadStatus(undefined);
-          setSubjects([]);
-          setSubject(undefined);
-          setFile(undefined);
-          setLibrary(undefined);
-          setRequests(undefined);
-          setSearched(false);
-        }
-      }
+      if (answer?.kind === "account") applyAccount(answer.value);
     },
-    [call, closeUpload],
+    [applyAccount, call],
   );
   useEffect(() => {
-    if (active) void accountAction("account");
+    if (!active) return;
+    const refreshAccount = () => {
+      if (pendingCalls.current === 0 && document.visibilityState !== "hidden")
+        void accountAction("account");
+    };
+    refreshAccount();
+    window.addEventListener("focus", refreshAccount);
+    document.addEventListener("visibilitychange", refreshAccount);
+    return () => {
+      window.removeEventListener("focus", refreshAccount);
+      document.removeEventListener("visibilitychange", refreshAccount);
+    };
   }, [active, accountAction]);
 
   const loadLibrary = useCallback(async () => {
@@ -204,15 +218,35 @@ export function PastExams({
     const answer = await call({ kind: "open", id, download });
     if (answer?.kind === "document") setFile(answer.value);
   };
-  const browse = async (code: string) => {
-    const answer = await call({ kind: "subject", code });
-    if (answer?.kind === "subject") {
-      setSubject(answer.value);
-      setYear("");
-      setTeacher("");
-      setOccasion("");
-    }
-  };
+  const loadSubject = useCallback(
+    async (
+      action: Extract<ExamAction, { kind: "subject" | "courseSubject" }>,
+    ) => {
+      const answer = await call(action);
+      if (answer?.kind === "subject") {
+        setSubject(answer.value);
+        setYear("");
+        setTeacher("");
+        setOccasion("");
+      } else if (answer?.kind === "subjects") {
+        setSubjects(answer.value);
+        setSearched(true);
+        setSubject(undefined);
+      }
+    },
+    [call],
+  );
+  useEffect(() => {
+    if (
+      !active ||
+      !courseId ||
+      account?.status !== "connected" ||
+      courseOpened.current
+    )
+      return;
+    courseOpened.current = true;
+    void loadSubject({ kind: "courseSubject", courseId });
+  }, [active, account?.status, courseId, loadSubject]);
   useEffect(() => {
     if (!active || account?.status !== "connected") return;
     let stopped = false;
@@ -366,10 +400,12 @@ export function PastExams({
           )}
         </div>
       </header>
-      {error && !upload && <p role="alert">{error}</p>}
+      {error && !upload && account?.status !== "unavailable" && (
+        <p role="alert">{error}</p>
+      )}
       {notice && <p role="status">{notice}</p>}
       {busy && !uploadRunning && <p role="status">{t("common.loading")}</p>}
-      {!upload && uploadRunning && (
+      {!upload && uploadRunning && account?.status === "connected" && (
         <ExamUploadProgress status={uploadStatus} cancel={cancelUpload} />
       )}
       {!upload &&
@@ -386,7 +422,7 @@ export function PastExams({
             </UiButton>
           </div>
         )}
-      {upload && (
+      {upload && account?.status === "connected" && (
         <ExamUploadDialog
           options={upload.options}
           subject={upload.subject}
@@ -450,7 +486,7 @@ export function PastExams({
         </UiButton>
       )}
       {account?.status === "unavailable" && (
-        <p>{t("error.exam-share-unsupported")}</p>
+        <p role="alert">{t("error.exam-share-unsupported")}</p>
       )}
       {tab === "browse" && !file && (
         <div>
@@ -691,7 +727,9 @@ export function PastExams({
                     <UiButton
                       className="textButton"
                       disabled={busy}
-                      onClick={() => void browse(entry.code)}
+                      onClick={() =>
+                        void loadSubject({ kind: "subject", code: entry.code })
+                      }
                     >
                       {subjectLabel(entry)}
                     </UiButton>

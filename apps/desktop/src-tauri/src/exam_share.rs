@@ -17,7 +17,7 @@ pub(crate) fn service(
     app: tauri::AppHandle,
     vault: OsSecretVault,
     folder: PathBuf,
-) -> Option<ExamShare> {
+) -> Option<Arc<ExamShare>> {
     let version = app.package_info().version.to_string();
     let browser = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID").map(|id| {
         let client = OAuthClient {
@@ -27,13 +27,15 @@ pub(crate) fn service(
         let browser: Arc<dyn NativeBrowserAuth> = Arc::new(SystemBrowser(app));
         (client, browser)
     });
-    ExamShare::new(Arc::new(vault), folder, version, browser).ok()
+    ExamShare::new(Arc::new(vault), folder, version, browser)
+        .ok()
+        .map(Arc::new)
 }
 
 #[tauri::command]
 pub(crate) async fn exam_share(
     webview: Webview,
-    service: tauri::State<'_, Option<ExamShare>>,
+    service: tauri::State<'_, Option<Arc<ExamShare>>>,
     selection: tauri::State<'_, UploadSelection>,
     mut action: ExamAction,
 ) -> Result<ExamAnswer, CommandError> {
@@ -48,10 +50,12 @@ pub(crate) async fn exam_share(
     };
     let cancel = CancellationToken::new();
     let _guard = cancel.clone().drop_guard();
-    let mut answer = service.act(action, cancel).await.map_err(coded)?;
-    answer
-        .localize_subject_names(&crate::core_ports::core(webview.app_handle()).store)
+    let core = crate::core_ports::core(webview.app_handle());
+    let mut answer = service
+        .act(action, cancel, &core.store)
+        .await
         .map_err(coded)?;
+    answer.localize_subject_names(&core.store).map_err(coded)?;
     if let ExamAnswer::Document(file) = &answer {
         webview
             .app_handle()

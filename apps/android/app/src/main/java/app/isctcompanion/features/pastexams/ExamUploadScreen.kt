@@ -122,6 +122,7 @@ internal fun ExamUploadProgress(status: ExamUploadStatus?, sending: Boolean) {
 internal fun ExamUploadScreen(
     options: ExamUploadOptions,
     onBack: () -> Unit,
+    onUnsupported: () -> Unit,
     onUploaded: () -> Unit,
 ) {
     val model = LocalModel.current
@@ -203,6 +204,14 @@ internal fun ExamUploadScreen(
         draft = draft.copy(subjectCodes = codes, teacherIds = draft.teacherIds.filter(ids::contains))
     }
 
+    fun reportFailure(failure: Exception) {
+        if (failure is SdkException.Unavailable && failure.detail == "exam-share-unsupported") {
+            onUnsupported()
+        } else {
+            error = AppModel.describe(failure)
+        }
+    }
+
     fun addSubject(hit: ExamSubject) {
         scope.launch {
             loading = true
@@ -218,7 +227,7 @@ internal fun ExamUploadScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = AppModel.describe(failure)
+                reportFailure(failure)
             } finally {
                 loading = false
             }
@@ -239,7 +248,7 @@ internal fun ExamUploadScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (!disposed) error = AppModel.describe(failure)
+                if (!disposed) reportFailure(failure)
             } finally {
                 sending = false
                 if (disposed) withContext(Dispatchers.IO) { staging.deleteRecursively() }
@@ -307,7 +316,7 @@ internal fun ExamUploadScreen(
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (failure: Exception) {
-                                    error = AppModel.describe(failure)
+                                    reportFailure(failure)
                                 } finally {
                                     loading = false
                                 }
@@ -408,7 +417,7 @@ internal fun ExamUploadScreen(
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (failure: Exception) {
-                                        error = AppModel.describe(failure)
+                                        reportFailure(failure)
                                     }
                                 }
                             }) { Text(t("common.cancel")) }

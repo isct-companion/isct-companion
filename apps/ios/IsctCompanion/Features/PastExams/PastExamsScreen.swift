@@ -2,12 +2,19 @@ import IsctCore
 import SwiftUI
 import QuickLook
 
-struct PastExamsRoute: Hashable {}
+struct PastExamsRoute: Hashable {
+    let courseId: String?
+
+    init(courseId: String? = nil) { self.courseId = courseId }
+}
 
 struct PastExamsScreen: View {
+    let courseId: String?
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: Tab = .browse
     @State private var account: ExamAccount?
+    @State private var courseLookupPending = true
     @State private var query = ""
     @State private var subjects: [ExamSubject]?
     @State private var subject: ExamSubjectPage?
@@ -29,6 +36,8 @@ struct PastExamsScreen: View {
     @State private var teacher = ""
     @State private var occasion = ""
 
+    init(courseId: String? = nil) { self.courseId = courseId }
+
     private func subjectName(_ subject: ExamSubject) -> String {
         subject.name
     }
@@ -43,7 +52,7 @@ struct PastExamsScreen: View {
         List {
             Section {
                 if let email = account?.email { Text(email).foregroundStyle(Theme.muted) }
-                if let problem { Text(problem).foregroundStyle(.red) }
+                if let problem, account?.status != .unavailable { Text(problem).foregroundStyle(.red) }
                 if let notice { Text(notice).foregroundStyle(Theme.muted) }
                 switch account?.status {
                 case .connected:
@@ -69,21 +78,23 @@ struct PastExamsScreen: View {
                     Button(t("examShare.connect")) { Task { await accountAction(.connect) } }
                 }
             }
-            Section {
-                Picker(t("examShare.title"), selection: $tab) {
-                    ForEach(Tab.allCases, id: \.self) { Text(t("examShare.\($0.rawValue)")).tag($0) }
+            if account?.status != .unavailable {
+                Section {
+                    Picker(t("examShare.title"), selection: $tab) {
+                        ForEach(Tab.allCases, id: \.self) { Text(t("examShare.\($0.rawValue)")).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
-            }
-            if let file {
-                document(file)
-            } else {
-                switch tab {
-                case .browse: browse
-                case .requests:
-                    if account?.status == .connected { requestBoard }
-                case .library:
-                    if account?.status == .connected { librarySections }
+                if let file {
+                    document(file)
+                } else {
+                    switch tab {
+                    case .browse: browse
+                    case .requests:
+                        if account?.status == .connected { requestBoard }
+                    case .library:
+                        if account?.status == .connected { librarySections }
+                    }
                 }
             }
         }
@@ -96,11 +107,13 @@ struct PastExamsScreen: View {
             }
         }
         .disabled(busy)
-        .task { await accountAction(.account) }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await accountAction(.account)
+        }
         .refreshable {
             guard file == nil else { return }
-            await loadTab(refresh: true)
-            await refreshUploadStatus()
+            await accountAction(.account, refresh: true)
         }
         .onChange(of: tab) {
             file = nil
@@ -204,11 +217,7 @@ struct PastExamsScreen: View {
                     if subjects.isEmpty { Text(t("examShare.noItems")) }
                     ForEach(subjects, id: \.code) { result in
                         Button {
-                            Task {
-                                guard case let .subject(page)? = await call(.subject(code: result.code)) else { return }
-                                subject = page
-                                year = nil; teacher = ""; occasion = ""
-                            }
+                            Task { await loadSubject(.subject(code: result.code)) }
                         } label: {
                             VStack(alignment: .leading) {
                                 Text(subjectName(result))
@@ -341,18 +350,19 @@ struct PastExamsScreen: View {
         }
     }
 
-    private func accountAction(_ action: ExamAction) async {
+    private func accountAction(_ action: ExamAction, refresh: Bool = false) async {
         guard case let .account(value)? = await call(action) else { return }
         displayAccount(value)
         if value.status == .connected {
             await refreshUploadStatus()
-            await loadTab()
+            await loadTab(refresh: refresh)
         }
     }
 
     private func displayAccount(_ value: ExamAccount) {
         account = value
         if value.status != .connected {
+            courseLookupPending = true
             subjects = nil
             subject = nil
             file = nil
@@ -364,6 +374,10 @@ struct PastExamsScreen: View {
             uploadEntry = nil
             pendingUpload = false
         }
+        if value.status == .unavailable {
+            showsTimetable = false
+            confirmation = nil
+        }
     }
 
     private func refreshUploadStatus() async {
@@ -373,20 +387,43 @@ struct PastExamsScreen: View {
     }
 
     private func search() async {
-        guard case let .subjects(result)? = await call(.search(query: query)) else { return }
-        subjects = result
-        subject = nil
+        await loadSubject(.search(query: query))
+    }
+
+    private func loadSubject(_ action: ExamAction, resetFilters: Bool = true) async {
+        switch await call(action) {
+        case let .subject(page)?:
+            subject = page
+            if resetFilters {
+                year = nil
+                teacher = ""
+                occasion = ""
+            }
+        case let .subjects(results)?:
+            subjects = results
+            subject = nil
+        default: return
+        }
+        courseLookupPending = false
     }
 
     private func loadTab(refresh: Bool = false) async {
         guard account?.status == .connected else { return }
         switch tab {
         case .browse:
+            if let courseId, courseLookupPending {
+                await loadSubject(.courseSubject(courseId: courseId))
+                return
+            }
             guard refresh else { return }
             if let code = subject?.subject.code {
-                if case let .subject(page)? = await call(.subject(code: code)) { subject = page }
+                await loadSubject(.subject(code: code), resetFilters: false)
             } else if subjects != nil {
-                await search()
+                if let courseId, query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    await loadSubject(.courseSubject(courseId: courseId))
+                } else {
+                    await search()
+                }
             }
         case .requests:
             if refresh || requestPages[mine] == nil { await loadRequests() }

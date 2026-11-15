@@ -483,7 +483,9 @@ extension View {
         .navigationDestination(for: AssignmentListRoute.self) { _ in AssignmentListScreen() }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
-        .navigationDestination(for: PastExamsRoute.self) { _ in PastExamsScreen() }
+        .navigationDestination(for: PastExamsRoute.self) { route in
+            PastExamsScreen(courseId: route.courseId)
+        }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
     }
 }

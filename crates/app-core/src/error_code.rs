@@ -254,7 +254,7 @@ coded!(crate::exam_share::ExamError, |e| {
         E::Denied => C::ExamShareDenied,
         E::Consent => C::ExamShareConsent,
         E::Administrator => C::ExamShareAdministrator,
-        E::NotFound => C::ExamShareNotFound,
+        E::NotFound | E::SubjectNotFound => C::ExamShareNotFound,
         E::Rejected => C::ExamShareRejected,
         E::Identity => C::ExamShareIdentity,
         E::Storage => C::ExamShareStorage,

@@ -75,7 +75,7 @@ pub(crate) struct Inner {
     sync_services: CloudServices,
     /// Drive's sign-in, when the shell installed a Drive port.
     drive: Option<Arc<DriveAuth>>,
-    pub(crate) exam_share: Option<app_core::exam_share::ExamShare>,
+    pub(crate) exam_share: Option<Arc<app_core::exam_share::ExamShare>>,
     pub notifications: Option<Arc<dyn NativeNotifications>>,
     pub files: PathBuf,
     backup_directory: PathBuf,
@@ -750,6 +750,9 @@ async fn initialize(
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
+    if let Some(exams) = &exam_share {
+        core.attach_exam_cache(exams);
+    }
     if let Some(web_cookies) = web_cookies {
         core.attach_web_cookies(Arc::new(crate::ports::WebCookies(web_cookies)));
     }

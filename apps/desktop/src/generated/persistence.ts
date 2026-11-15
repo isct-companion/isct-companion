@@ -870,6 +870,7 @@ export type ExamAction =
   | { kind: "disconnect" }
   | { kind: "search"; query: string }
   | { kind: "subject"; code: string }
+  | { kind: "courseSubject"; courseId: string }
   | { kind: "open"; id: string; download: boolean }
   | { kind: "library" }
   | { kind: "save"; id: string; saved: boolean }

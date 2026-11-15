@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -229,7 +230,8 @@ class Navigator(private val controller: NavHostController) {
     fun openAssignments() = controller.navigate("assignments")
 
     fun openRecord() = controller.navigate("record")
-    fun openPastExams() = controller.navigate(PAST_EXAMS_DETAIL) { launchSingleTop = true }
+    fun openPastExams(courseId: String? = null) =
+        controller.navigate("past-exams/detail?course=${Uri.encode(courseId.orEmpty())}") { launchSingleTop = true }
 
     /** Opens the campus map full screen, on a room string or on none to browse. */
     fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
@@ -253,7 +255,7 @@ class Navigator(private val controller: NavHostController) {
     fun back() = controller.popBackStack()
 }
 
-private const val PAST_EXAMS_DETAIL = "past-exams/detail"
+private const val PAST_EXAMS_DETAIL = "past-exams/detail?course={course}"
 
 /** On phones, past exams have a tab. On tablets they open from 授業. */
 private enum class AppTab(
@@ -342,12 +344,14 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     val context = LocalContext.current
     val wide = remember(configuration) { context.largeScreen() }
     LaunchedEffect(wide, current) {
+        val courseId = entry?.arguments?.getString("course")?.ifEmpty { null }
         if (!wide && current == AppTab.Lectures) {
             val tab = if (destination?.route == PAST_EXAMS_DETAIL) AppTab.PastExams else AppTab.Today
             navigator.openTab(tab.route)
+            if (tab == AppTab.PastExams && courseId != null) navigator.openPastExams(courseId)
         } else if (wide && current == AppTab.PastExams) {
             navigator.openTab(AppTab.Lectures.route)
-            navigator.openPastExams()
+            navigator.openPastExams(courseId)
         }
     }
     // A pushed school page fills the screen, like a browser tab; so does the
@@ -432,7 +436,13 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 tab(AppTab.Web) { WebTabScreen() }
                 tab(AppTab.PastExams) { PastExamsScreen() }
                 tab(AppTab.Settings) { SettingsScreen() }
-                destination(PAST_EXAMS_DETAIL) { PastExamsScreen(onBack = { navigator.back() }) }
+                destination(
+                    PAST_EXAMS_DETAIL,
+                    listOf(navArgument("course") { type = NavType.StringType; defaultValue = "" }),
+                ) {
+                    val courseId = it.arguments?.getString("course")?.ifEmpty { null }
+                    key(courseId) { PastExamsScreen(courseId = courseId, onBack = { navigator.back() }) }
+                }
                 destination(
                     "course/{id}?zoom={zoom}",
                     listOf(

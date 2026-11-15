@@ -20,6 +20,7 @@ export const routePatterns = {
   web: "/web",
   tools: "/tools",
   pastExams: "/past-exams",
+  pastExamCourse: "/past-exams/course/:examCourseId",
   settings: "/settings",
   section: "/settings/:section",
   about: "/about",
@@ -37,7 +38,10 @@ export const paths = {
       : routePatterns.lectures,
   web: () => routePatterns.web,
   tools: () => routePatterns.tools,
-  pastExams: () => routePatterns.pastExams,
+  pastExams: (courseId?: string) =>
+    courseId
+      ? `${routePatterns.pastExams}/course/${encode(courseId)}`
+      : routePatterns.pastExams,
   settings: (section?: Section) =>
     section ? `${routePatterns.settings}/${section}` : routePatterns.settings,
   about: () => routePatterns.about,
@@ -66,7 +70,7 @@ export function parseRoute(location: string) {
             ? "web"
             : id === "tools"
               ? "tools"
-              : id === "pastExams"
+              : id === "pastExams" || id === "pastExamCourse"
                 ? "pastExams"
                 : id === "about"
                   ? "about"
@@ -77,6 +81,7 @@ export function parseRoute(location: string) {
     homeView: id === "week" ? ("week" as const) : ("day" as const),
     section: match?.params.section,
     courseId: match?.params.courseId,
+    examCourseId: match?.params.examCourseId,
     assignmentId: match?.params.aid,
     examKey: match?.params.examKey,
     examTerm: match?.params.examTerm,
@@ -134,13 +139,15 @@ export function routeRedirect(
   )
     target = paths.settings("accounts");
   else if (
-    route.courseId &&
+    (route.courseId || route.examCourseId) &&
     options.courses &&
     !options.courses.some(
-      (course) => course.id === route.courseId && !course.deletedAt,
+      (course) =>
+        course.id === (route.courseId ?? route.examCourseId) &&
+        !course.deletedAt,
     )
   )
-    target = paths.lectures();
+    target = route.examCourseId ? paths.pastExams() : paths.lectures();
   return target
     ? target + (location.includes("?") ? `?${location.split("?")[1]}` : "")
     : undefined;

@@ -246,6 +246,9 @@ pub enum ExamAction {
     Subject {
         code: String,
     },
+    CourseSubject {
+        course_id: String,
+    },
     Open {
         id: String,
         download: bool,

@@ -41,7 +41,7 @@ fn course_code_parts(code: &str) -> Option<regex::Captures<'_>> {
 
 /// Subject lookup candidates from school course codes. The service resolves
 /// canonical subjects and aliases, so multiple codes remain candidates.
-pub(super) fn subject_code_candidates(
+pub(crate) fn subject_code_candidates(
     workspace: &Value,
     school: &SchoolReads,
     course: &Value,

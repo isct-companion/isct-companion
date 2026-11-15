@@ -81,6 +81,7 @@ pub use reminders::{
 pub use requests::{ColorCourse, ColorOverrides};
 pub use school::SchoolReads;
 pub(crate) use school::{CatalogEntry, ExamTimetable};
+pub(crate) use search::subject_code_candidates;
 pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};

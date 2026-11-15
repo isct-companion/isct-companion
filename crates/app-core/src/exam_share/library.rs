@@ -1,6 +1,12 @@
+use super::cache::{
+    cache_file, downloads, erase, file_path, local, save_metadata, Cached, TempFile,
+};
 use super::*;
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 use tokio::io::AsyncWriteExt;
 
 #[derive(Deserialize)]
@@ -81,7 +87,41 @@ struct OneExam {
 }
 #[derive(Deserialize)]
 struct Subjects {
-    subjects: Vec<ExamSubject>,
+    subjects: Vec<SubjectHit>,
+}
+
+#[derive(Deserialize)]
+struct SubjectHit {
+    #[serde(flatten)]
+    subject: ExamSubject,
+    rows: Vec<ExamClass>,
+}
+
+struct SubjectCandidate {
+    subject: ExamSubject,
+    class_matches: bool,
+    page: Option<ExamSubjectPage>,
+}
+
+fn has_class(rows: &[ExamClass], id: Option<u32>) -> bool {
+    id.is_some_and(|id| rows.iter().any(|row| row.class_ids.contains(&id)))
+}
+
+fn course_candidates(candidates: BTreeMap<String, SubjectCandidate>) -> Vec<SubjectCandidate> {
+    let class_matches = candidates.values().any(|candidate| candidate.class_matches);
+    let direct_matches = candidates
+        .values()
+        .any(|candidate| candidate.page.is_some());
+    candidates
+        .into_values()
+        .filter(|candidate| {
+            if class_matches {
+                candidate.class_matches
+            } else {
+                !direct_matches || candidate.page.is_some()
+            }
+        })
+        .collect()
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,17 +136,6 @@ struct Requests {
 #[derive(Deserialize)]
 struct ReadUrl {
     url: String,
-}
-
-#[derive(serde::Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Cached {
-    document: ExamDocument,
-    updated_at: u64,
-    downloaded: bool,
-    // A new download uses a different name, so replacing the manifest works
-    // while a native preview still holds the previous file open.
-    file: uuid::Uuid,
 }
 
 fn key(value: &str) -> String {
@@ -148,6 +177,82 @@ impl ExamShare {
         }
     }
 
+    async fn search_subjects(
+        &self,
+        session: &mut Session,
+        query: &str,
+        limit: &str,
+    ) -> Result<Vec<SubjectHit>, ExamError> {
+        let answer: Subjects = self
+            .call(
+                session,
+                self.service(Method::GET, &["subjects", "search"])?
+                    .query(&[("q", query), ("limit", limit)]),
+            )
+            .await?;
+        Ok(answer.subjects)
+    }
+
+    pub(super) async fn resolve_subjects(
+        &self,
+        session: &mut Session,
+        codes: Vec<String>,
+        class_id: Option<u32>,
+    ) -> Result<ExamAnswer, ExamError> {
+        let mut candidates = BTreeMap::new();
+        for code in codes {
+            match self.subject_details(session, &code).await {
+                Ok(found) => {
+                    let page = found.page;
+                    candidates.insert(
+                        page.subject.code.clone(),
+                        SubjectCandidate {
+                            subject: page.subject.clone(),
+                            class_matches: has_class(&page.rows, class_id),
+                            page: Some(page),
+                        },
+                    );
+                }
+                // The production contract points clients to search on this
+                // specific 404. Its ordering does not establish identity.
+                Err(ExamError::SubjectNotFound) => {
+                    for hit in self.search_subjects(session, &code, "50").await? {
+                        let matches = has_class(&hit.rows, class_id);
+                        candidates
+                            .entry(hit.subject.code.clone())
+                            .and_modify(|candidate| candidate.class_matches |= matches)
+                            .or_insert(SubjectCandidate {
+                                subject: hit.subject,
+                                page: None,
+                                class_matches: matches,
+                            });
+                    }
+                }
+                Err(ExamError::NotFound) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let mut candidates = course_candidates(candidates);
+        if candidates.len() == 1 {
+            let candidate = candidates.pop().ok_or(ExamError::Response)?;
+            let page = match candidate.page {
+                Some(page) => page,
+                None => {
+                    self.subject_details(session, &candidate.subject.code)
+                        .await?
+                        .page
+                }
+            };
+            return Ok(ExamAnswer::Subject(page));
+        }
+        Ok(ExamAnswer::Subjects(
+            candidates
+                .into_iter()
+                .map(|choice| choice.subject)
+                .collect(),
+        ))
+    }
+
     pub(super) async fn feature(
         &self,
         session: &mut Session,
@@ -164,19 +269,12 @@ impl ExamShare {
                 if query.encode_utf16().count() > 100 {
                     return Err(ExamError::InvalidInput);
                 }
-                let answer: Subjects = self
-                    .call(
-                        session,
-                        self.service(get, &["subjects", "search"])?
-                            .query(&[("q", query)]),
-                    )
-                    .await?;
-                Ok(ExamAnswer::Subjects(answer.subjects))
+                let matches = self.search_subjects(session, query, "20").await?;
+                Ok(ExamAnswer::Subjects(
+                    matches.into_iter().map(|hit| hit.subject).collect(),
+                ))
             }
-            ExamAction::Subject { code } => {
-                let details = self.subject_details(session, &code).await?;
-                Ok(ExamAnswer::Subject(details.page))
-            }
+            ExamAction::Subject { code } => self.resolve_subjects(session, vec![code], None).await,
             ExamAction::UploadOptions {
                 subject_code,
                 request,
@@ -327,6 +425,7 @@ impl ExamShare {
             | ExamAction::CancelConnect
             | ExamAction::AcceptTerms
             | ExamAction::Disconnect
+            | ExamAction::CourseSubject { .. }
             | ExamAction::Upload { .. }
             | ExamAction::UploadStatus
             | ExamAction::CancelUpload
@@ -394,7 +493,7 @@ impl ExamShare {
         let saved = session.saved.as_ref().ok_or(ExamError::SignedOut)?;
         let registered = saved.registered;
         let base = self.account_folder(&saved.uid).join(key(id));
-        let cached = cached_file(&base).await;
+        let cached = cache_file(&base).await?;
         let remote = match exam {
             Ok(OneExam { exam: Some(remote) }) if remote.document.id == id => remote,
             Ok(OneExam { exam: None }) | Err(ExamError::NotFound) => {
@@ -406,7 +505,7 @@ impl ExamShare {
                 if cached.is_some() && registered && !download =>
             {
                 let cached = cached.ok_or(ExamError::Storage)?;
-                return local(&base, cached, true, None);
+                return local(&base, cached, true, None).await;
             }
             Err(error) => return Err(error),
         };
@@ -439,7 +538,10 @@ impl ExamShare {
                     return Err(ExamError::NotFound);
                 }
                 Err(error) if error.temporarily_unavailable() && !download && registered => {
-                    return cached.map_or(Err(error), |cached| local(&base, cached, true, None));
+                    return match cached {
+                        Some(cached) => local(&base, cached, true, None).await,
+                        None => Err(error),
+                    };
                 }
                 result => result?,
             };
@@ -469,7 +571,10 @@ impl ExamShare {
                     return Err(ExamError::NotFound);
                 }
                 Err(error) if error.temporarily_unavailable() && !download && registered => {
-                    return cached.map_or(Err(error), |cached| local(&base, cached, true, None));
+                    return match cached {
+                        Some(cached) => local(&base, cached, true, None).await,
+                        None => Err(error),
+                    };
                 }
                 result => result?,
             }
@@ -495,7 +600,7 @@ impl ExamShare {
         let _ = self
             .call::<Value>(session, self.service(Method::POST, &["me", "views", id])?)
             .await;
-        local(&base, metadata, false, saved)
+        local(&base, metadata, false, saved).await
     }
 
     async fn fetch(&self, url: url::Url, path: &Path) -> Result<(), ExamError> {
@@ -537,91 +642,5 @@ impl ExamShare {
                 .map_err(|_| ExamError::Storage)?;
         }
         stream.flush().await.map_err(|_| ExamError::Storage)
-    }
-}
-
-fn file_path(base: &Path, cached: &Cached) -> Result<PathBuf, ExamError> {
-    let suffix = match cached.document.file_type.as_str() {
-        "application/pdf" => "pdf",
-        "image/jpeg" => "jpg",
-        "image/png" => "png",
-        "image/webp" => "webp",
-        "text/plain" => "txt",
-        _ => return Err(ExamError::Response),
-    };
-    Ok(base.join(format!("{}.{suffix}", cached.file)))
-}
-
-fn local(
-    base: &Path,
-    cached: Cached,
-    offline: bool,
-    saved: Option<bool>,
-) -> Result<ExamLocalDocument, ExamError> {
-    let path = file_path(base, &cached)?
-        .to_str()
-        .ok_or(ExamError::Storage)?
-        .to_owned();
-    Ok(ExamLocalDocument {
-        document: cached.document,
-        path,
-        offline,
-        downloaded: cached.downloaded,
-        saved,
-    })
-}
-
-async fn cached_file(base: &Path) -> Option<Cached> {
-    let body = tokio::fs::read(base.join("metadata.json")).await.ok()?;
-    let value: Cached = serde_json::from_slice(&body).ok()?;
-    tokio::fs::metadata(file_path(base, &value).ok()?)
-        .await
-        .ok()?
-        .is_file()
-        .then_some(value)
-}
-
-async fn save_metadata(base: &Path, cached: &Cached) -> Result<(), ExamError> {
-    let temp = TempFile(base.join("metadata-new.json"));
-    let data = serde_json::to_vec(cached).map_err(|_| ExamError::Storage)?;
-    tokio::fs::write(&temp.0, data)
-        .await
-        .map_err(|_| ExamError::Storage)?;
-    tokio::fs::rename(&temp.0, base.join("metadata.json"))
-        .await
-        .map_err(|_| ExamError::Storage)
-}
-
-async fn erase(base: &Path) -> Result<(), ExamError> {
-    match tokio::fs::remove_dir_all(base).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(ExamError::Storage),
-    }
-}
-
-async fn downloads(base: &Path) -> Result<Vec<ExamDocument>, ExamError> {
-    let mut entries = match tokio::fs::read_dir(base).await {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
-        Err(_) => return Err(ExamError::Storage),
-    };
-    let mut list = vec![];
-    while let Some(entry) = entries.next_entry().await.map_err(|_| ExamError::Storage)? {
-        if let Some(cached) = cached_file(&entry.path())
-            .await
-            .filter(|item| item.downloaded)
-        {
-            list.push(cached.document);
-        }
-    }
-    list.sort_by(|a, b| a.file_name.cmp(&b.file_name).then_with(|| a.id.cmp(&b.id)));
-    Ok(list)
-}
-
-struct TempFile(PathBuf);
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }

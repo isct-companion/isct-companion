@@ -301,7 +301,7 @@ export function WorkspaceApp() {
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
   const webMatch = useMatch(`${routePatterns.web}/*`);
   const toolsMatch = useMatch(routePatterns.tools);
-  const pastExamsMatch = useMatch(routePatterns.pastExams);
+  const pastExamsMatch = useMatch(`${routePatterns.pastExams}/*`);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
   const aboutMatch = useMatch(routePatterns.about);
   const weekMatch = useMatch(routePatterns.week);
@@ -395,6 +395,7 @@ export function WorkspaceApp() {
     section,
     lectureEntry: null as CourseEntry | null,
     examEntry: null as { key: string; term: TermId; request: number } | null,
+    pastExamCourse: null as { courseId: string; key: string } | null,
   });
   // Timing context and repeated entrances stay in history state, outside the URL.
   // Returning through the page's remembered URL carries no state; it resumes
@@ -433,7 +434,22 @@ export function WorkspaceApp() {
     renderedRoutes.current.lectureEntry = lectureEntry;
     renderedRoutes.current.examEntry = examEntry;
   }
+  if (page === "pastExams") {
+    const courseId = params.examCourseId;
+    const retained = renderedRoutes.current.pastExamCourse;
+    renderedRoutes.current.pastExamCourse = courseId
+      ? {
+          courseId,
+          key:
+            retained?.courseId === courseId &&
+            !location.state?.pastExamsShortcut
+              ? retained.key
+              : location.key,
+        }
+      : null;
+  }
   const retainedLecture = renderedRoutes.current.lectureEntry;
+  const pastExamCourse = renderedRoutes.current.pastExamCourse;
   const blocker = useBlocker(
     ({ nextLocation }) =>
       (page === "web" || (page === "lectures" && Boolean(params.courseId))) &&
@@ -805,6 +821,12 @@ export function WorkspaceApp() {
       ...(within && { viewTransition: false }),
     });
   };
+  const openPastExams = desktopBridge?.examShare
+    ? (courseId: string) =>
+        void navigate(paths.pastExams(courseId), {
+          state: { pastExamsShortcut: true },
+        })
+    : undefined;
   const openExam = (key: string, term: string) => {
     void navigate(paths.exam(key, term), {
       state: { lectureRequest: Date.now() },
@@ -902,6 +924,7 @@ export function WorkspaceApp() {
               active={active}
               navigationProvided
               headerStart={sidebarToggle}
+              openPastExams={openPastExams && (() => openPastExams(course.id))}
               schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
               close={() =>
                 void hideNativeSchoolWeb()
@@ -1145,6 +1168,9 @@ export function WorkspaceApp() {
               }
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
               openWeb={(url) => openWeb(url)}
+              openPastExams={
+                openPastExams && (() => openPastExams(panelCourse.id))
+              }
               openLecture={() =>
                 openLecture(panelCourse.id, { term: panelCourse.termId })
               }
@@ -1506,6 +1532,8 @@ export function WorkspaceApp() {
         {keep(
           "pastExams",
           <PastExams
+            key={pastExamCourse?.key}
+            courseId={pastExamCourse?.courseId}
             terms={workspaceView.allTerms}
             currentTerm={currentTerm}
             active={page === "pastExams"}

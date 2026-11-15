@@ -1,4 +1,5 @@
 //! Native client for the ScienceTokyoExam sharing service.
+mod cache;
 mod client;
 #[cfg(any(
     target_os = "ios",
@@ -21,17 +22,24 @@ pub use model::*;
     target_os = "android"
 ))]
 use crate::oauth::{code_exchange::OAuthClient, NativeBrowserAuth};
-use crate::{net::Host, oauth::OAuthError, ports::SecretVault};
+use crate::{data::DataStore, net::Host, oauth::OAuthError, ports::SecretVault};
 use client::Client;
 use identity::{SavedSession, SessionToken};
 use reqwest::Method;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 const ACCOUNT: &str = "sciencetokyoexam";
+// Match client-config's public Cache-Control max-age.
+const VERSION_MAX_AGE: Duration = Duration::from_secs(300);
+const VERSION_RETRY: Duration = Duration::from_secs(60);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExamError {
@@ -57,6 +65,8 @@ pub enum ExamError {
     Administrator,
     #[error("The ScienceTokyoExam item is missing")]
     NotFound,
+    #[error("The ScienceTokyoExam subject is missing")]
+    SubjectNotFound,
     #[error("ScienceTokyoExam rejected the action")]
     Rejected,
     #[error("The Google identity could not be verified")]
@@ -111,7 +121,7 @@ struct Session {
     saved: Option<SavedSession>,
     token: Option<SessionToken>,
     status: ExamAccountStatus,
-    version_checked: bool,
+    version_check: Option<VersionCheck>,
 }
 
 pub struct ExamShare {
@@ -178,7 +188,7 @@ impl ExamShare {
                 saved,
                 token: None,
                 status,
-                version_checked: false,
+                version_check: None,
             }),
             #[cfg(any(
                 target_os = "ios",
@@ -196,6 +206,13 @@ impl ExamShare {
         Ok(service)
     }
 
+    pub(crate) fn clean_cached_materials(&self, now: SystemTime) -> Result<(), ExamError> {
+        let Ok(_session) = self.session.try_lock() else {
+            return Ok(());
+        };
+        cache::clean_root(&self.folder, now)
+    }
+
     pub fn cancel(&self) {
         if let Ok(generation) = self.generation.lock() {
             generation.cancel();
@@ -206,6 +223,7 @@ impl ExamShare {
         &self,
         action: ExamAction,
         cancel: CancellationToken,
+        store: &DataStore,
     ) -> Result<ExamAnswer, ExamError> {
         if matches!(action, ExamAction::UploadStatus) {
             return self.upload.status().map(ExamAnswer::UploadStatus);
@@ -237,7 +255,7 @@ impl ExamShare {
         let wake = operation.clone();
         // Authorization owns its platform cleanup, so give it a cancellation
         // signal and let it return before releasing the session gate.
-        let action = self.run(action, &operation);
+        let action = self.run(action, &operation, store);
         tokio::pin!(action);
         tokio::select! {
             biased;
@@ -250,6 +268,7 @@ impl ExamShare {
         &self,
         action: ExamAction,
         cancel: &CancellationToken,
+        store: &DataStore,
     ) -> Result<ExamAnswer, ExamError> {
         let mut session = tokio::select! {
             biased;
@@ -273,11 +292,7 @@ impl ExamShare {
             {
                 let (client, browser) = self.browser.as_ref().ok_or(ExamError::Unavailable)?;
                 self.clear(&mut session).await?;
-                tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => return Err(ExamError::Cancelled),
-                    result = self.check_version(&mut session) => result?,
-                }
+                self.check_version_for_action(&mut session, cancel).await?;
                 let token = google::connect(&self.api, client, browser.as_ref(), cancel).await?;
                 if cancel.is_cancelled() {
                     return Err(ExamError::Cancelled);
@@ -296,6 +311,14 @@ impl ExamShare {
                 return Ok(ExamAnswer::Account(session.account()));
             }
         }
+        if !matches!(action, ExamAction::AccountSnapshot)
+            && (session.saved.is_some() || matches!(session.status, ExamAccountStatus::Unavailable))
+        {
+            self.check_version_for_action(&mut session, cancel).await?;
+            if session.saved.is_none() {
+                session.status = ExamAccountStatus::Disconnected;
+            }
+        }
         let result = match action {
             ExamAction::Upload { .. } | ExamAction::RecoverUpload => {
                 self.upload_action(&mut session, action, cancel).await
@@ -303,7 +326,7 @@ impl ExamShare {
             _ => tokio::select! {
                 biased;
                 _ = cancel.cancelled() => Err(ExamError::Cancelled),
-                result = self.perform(&mut session, action) => result,
+                result = self.perform(&mut session, action, store) => result,
             },
         };
         self.apply_session_error(&mut session, &result).await?;
@@ -314,6 +337,7 @@ impl ExamShare {
         &self,
         session: &mut Session,
         action: ExamAction,
+        store: &DataStore,
     ) -> Result<ExamAnswer, ExamError> {
         match action {
             ExamAction::AccountSnapshot => Ok(ExamAnswer::Account(session.account())),
@@ -353,13 +377,43 @@ impl ExamShare {
                 self.establish(session, updated).await?;
                 Ok(ExamAnswer::Account(session.account()))
             }
+            ExamAction::CourseSubject { course_id } => {
+                let (workspace, school, _) = store
+                    .view(&["courses", "lmsCourses"].into())
+                    .map_err(|_| ExamError::Storage)?;
+                let course = crate::schedule::visible_by_id(&workspace, "courses", &course_id)
+                    .ok_or(ExamError::NotFound)?;
+                let codes = crate::schedule::subject_code_candidates(&workspace, &school, course);
+                let class_id = course
+                    .get("offeringId")
+                    .and_then(Value::as_str)
+                    .and_then(|id| id.parse().ok());
+                self.resolve_subjects(session, codes, class_id).await
+            }
             _ => self.feature(session, action).await,
         }
     }
 
+    async fn check_version_for_action(
+        &self,
+        session: &mut Session,
+        cancel: &CancellationToken,
+    ) -> Result<(), ExamError> {
+        let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(ExamError::Cancelled),
+            result = self.check_version(session) => result,
+        };
+        self.apply_session_error(session, &result).await?;
+        result
+    }
+
     async fn check_version(&self, session: &mut Session) -> Result<(), ExamError> {
-        if session.version_checked {
-            return Ok(());
+        let now = SystemTime::now();
+        if let Some(check) = &session.version_check {
+            if check.is_fresh(now) {
+                return check.result();
+            }
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -369,25 +423,39 @@ impl ExamShare {
         let config = self
             .api
             .service::<Config>(self.service(Method::GET, &["client-config"])?)
-            .await?;
-        if let Some(minimum) = config.min_app_version {
-            let min = semver::Version::parse(&minimum).map_err(|_| ExamError::Response)?;
-            let version = self
-                .version
-                .split(['-', '+'])
-                .next()
-                .ok_or(ExamError::Response)?;
-            let current = semver::Version::parse(version).map_err(|_| ExamError::Response)?;
-            if current < min {
-                return Err(ExamError::Unsupported);
+            .await;
+        let (compatible, max_age) = match config {
+            Ok(config) => (
+                compatible_version(&self.version, config.min_app_version.as_deref())?,
+                VERSION_MAX_AGE,
+            ),
+            Err(error)
+                if error.temporarily_unavailable()
+                    && session.saved.as_ref().is_some_and(|saved| saved.registered) =>
+            {
+                // A failed refresh does not lock out a previously registered
+                // account offline, or override a known minimum that blocked it.
+                (
+                    session
+                        .version_check
+                        .as_ref()
+                        .is_none_or(|known| known.compatible),
+                    VERSION_RETRY,
+                )
             }
-        }
-        session.version_checked = true;
-        Ok(())
+            Err(error) => return Err(error),
+        };
+        let check = VersionCheck {
+            checked_at: SystemTime::now(),
+            compatible,
+            max_age,
+        };
+        let result = check.result();
+        session.version_check = Some(check);
+        result
     }
 
     async fn resume(&self, session: &mut Session) -> Result<(), ExamError> {
-        self.check_version(session).await?;
         let saved = session.saved.as_ref().ok_or(ExamError::SignedOut)?;
         let token = identity::refresh(&self.api, saved).await?;
         self.establish(session, token).await
@@ -470,7 +538,12 @@ impl ExamShare {
             Err(ExamError::Expired | ExamError::Denied | ExamError::Administrator) => {
                 self.clear(session).await?
             }
-            Err(ExamError::Unsupported) => session.status = ExamAccountStatus::Unavailable,
+            Err(ExamError::Unsupported) => {
+                session.status = ExamAccountStatus::Unavailable;
+                // If the version gate opens again, re-establish the account
+                // through its stored session instead of showing stale state.
+                session.token = None;
+            }
             Err(ExamError::Consent) => session.status = ExamAccountStatus::NeedsConsent,
             _ => {}
         }
@@ -480,7 +553,7 @@ impl ExamShare {
     async fn clear(&self, session: &mut Session) -> Result<(), ExamError> {
         session.token = None;
         session.status = ExamAccountStatus::Disconnected;
-        session.version_checked = false;
+        session.version_check = None;
         self.upload.settled(false);
         self.vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
         if let Some(saved) = session.saved.take() {
@@ -551,6 +624,36 @@ impl ExamShare {
         session.token = Some(token);
         Ok(())
     }
+}
+
+struct VersionCheck {
+    checked_at: SystemTime,
+    compatible: bool,
+    max_age: Duration,
+}
+
+impl VersionCheck {
+    fn is_fresh(&self, now: SystemTime) -> bool {
+        now.duration_since(self.checked_at)
+            .is_ok_and(|age| age < self.max_age)
+    }
+
+    fn result(&self) -> Result<(), ExamError> {
+        self.compatible.then_some(()).ok_or(ExamError::Unsupported)
+    }
+}
+
+fn compatible_version(current: &str, minimum: Option<&str>) -> Result<bool, ExamError> {
+    let Some(minimum) = minimum else {
+        return Ok(true);
+    };
+    let current = current
+        .split(['-', '+'])
+        .next()
+        .ok_or(ExamError::Response)?;
+    let current = semver::Version::parse(current).map_err(|_| ExamError::Response)?;
+    let minimum = semver::Version::parse(minimum).map_err(|_| ExamError::Response)?;
+    Ok(current >= minimum)
 }
 
 impl Session {

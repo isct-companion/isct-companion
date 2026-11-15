@@ -29,7 +29,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -41,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.ExamAccount
@@ -80,7 +80,7 @@ private data class Confirmation(val key: String, val action: ExamAction)
 internal val examOccasions = listOf("final", "midterm", "makeup", "quiz", "check", "report", "exercise", "textbook", "mock")
 
 @Composable
-fun PastExamsScreen(onBack: (() -> Unit)? = null) {
+fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
@@ -89,6 +89,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var subjects by remember { mutableStateOf<List<ExamSubject>?>(null) }
     var subject by remember { mutableStateOf<ExamSubjectPage?>(null) }
+    var courseResolved by remember { mutableStateOf(false) }
     var requests by remember { mutableStateOf<ExamRequestPage?>(null) }
     var mine by rememberSaveable { mutableStateOf(false) }
     var library by remember { mutableStateOf<ExamLibrary?>(null) }
@@ -109,7 +110,13 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
 
     fun displayAccount(updated: ExamAccount) {
         account = updated
+        if (updated.status == ExamAccountStatus.UNAVAILABLE) {
+            error = null
+            timetable = false
+        }
         if (updated.status != ExamAccountStatus.CONNECTED) {
+            courseResolved = false
+            confirmation = null
             subjects = null
             subject = null
             file = null
@@ -119,6 +126,16 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
             reportForm = false
             uploadForm = null
             uploadStatus = null
+        }
+    }
+
+    suspend fun refreshAccountSnapshot() {
+        try {
+            (model.examShare(ExamAction.AccountSnapshot) as? ExamAnswer.Account)?.v1?.let(::displayAccount)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Keep the original failure if the app session has already closed.
         }
     }
 
@@ -136,13 +153,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
             throw e
         } catch (e: Exception) {
             error = AppModel.describe(e)
-            try {
-                (model.examShare(ExamAction.AccountSnapshot) as? ExamAnswer.Account)?.v1?.let(::displayAccount)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // Keep the original failure if the app session has already closed.
-            }
+            refreshAccountSnapshot()
             null
         } finally {
             connecting = false
@@ -171,10 +182,33 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
         }
     }
 
+    suspend fun showSubject(action: ExamAction): Boolean {
+        when (val answer = call(action)) {
+            is ExamAnswer.Subject -> {
+                subject = answer.v1
+                year = ""
+                teacher = ""
+                occasion = ""
+            }
+            is ExamAnswer.Subjects -> {
+                subject = null
+                subjects = answer.v1
+            }
+            else -> return false
+        }
+        return true
+    }
+
     suspend fun updateAccount(action: ExamAction) {
         val updated = (call(action) as? ExamAnswer.Account)?.v1 ?: return
         displayAccount(updated)
-        if (updated.status == ExamAccountStatus.CONNECTED) uploadStatus = model.examUploadStatus()
+        if (updated.status == ExamAccountStatus.CONNECTED) {
+            uploadStatus = model.examUploadStatus()
+            if (courseId != null && !courseResolved) {
+                tab = Tab.Browse
+                courseResolved = showSubject(ExamAction.CourseSubject(courseId))
+            }
+        }
         reload()
     }
 
@@ -196,13 +230,18 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
         }
         notice = t("examShare.upload.uploaded")
     }
-    LaunchedEffect(Unit) { updateAccount(ExamAction.Account) }
+    LifecycleResumeEffect(courseId) {
+        val refresh = scope.launch { updateAccount(ExamAction.Account) }
+        onPauseOrDispose { refresh.cancel() }
+    }
 
     val editingUpload = uploadForm
     if (editingUpload != null) {
         ExamUploadScreen(options = editingUpload, onBack = {
             uploadForm = null
             scope.launch { uploadStatus = model.examUploadStatus() }
+        }, onUnsupported = {
+            scope.launch { refreshAccountSnapshot() }
         }, onUploaded = {
             // Use the parent scope so the refresh survives dismissing the form.
             scope.launch {
@@ -267,6 +306,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                     }) { Text(t("examShare.connect")) }
                 }
             }
+            if (account?.status == ExamAccountStatus.UNAVAILABLE) return@LazyColumn
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Tab.entries.forEach { choice ->
@@ -305,7 +345,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                     item {
                         OutlinedTextField(query, { query = it.take(100) }, label = { Text(t("examShare.search")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         TextButton(enabled = !busy && query.isNotBlank(), onClick = {
-                            scope.launch { (call(ExamAction.Search(query)) as? ExamAnswer.Subjects)?.v1?.let { subjects = it; subject = null } }
+                            scope.launch { showSubject(ExamAction.Search(query)) }
                         }) { Text(t("examShare.search")) }
                     }
                     val selected = subject
@@ -332,11 +372,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                         if (subjects?.isEmpty() == true) item { Text(t("examShare.noItems")) }
                         items(subjects.orEmpty(), key = { it.code }) { hit ->
                             TextButton(enabled = !busy, onClick = {
-                                scope.launch {
-                                    (call(ExamAction.Subject(hit.code)) as? ExamAnswer.Subject)?.v1?.let {
-                                        subject = it; year = ""; teacher = ""; occasion = ""
-                                    }
-                                }
+                                scope.launch { showSubject(ExamAction.Subject(hit.code)) }
                             }) { Text("${hit.name} · ${hit.code}") }
                         }
                     }

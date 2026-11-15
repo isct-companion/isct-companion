@@ -107,6 +107,7 @@ function CoursePanelBody({
   editIntensive,
   openWeb,
   openLecture,
+  openPastExams,
   conflicts = [],
   openCourse,
   findOtherTimes,
@@ -122,6 +123,7 @@ function CoursePanelBody({
   openWeb: (url: string) => void;
   /** Opens the course in Lectures, where its materials and work live. */
   openLecture: () => void;
+  openPastExams?: () => void;
   /** This course's clashes on the quarter template, from Core. */
   conflicts?: CourseConflict[];
   /** Shows another timetable course in this panel. */
@@ -271,6 +273,11 @@ function CoursePanelBody({
         <Button size="xs" variant="light" onClick={openLecture}>
           {t("courses.openInLectures")}
         </Button>
+        {openPastExams && (
+          <Button size="xs" variant="light" onClick={openPastExams}>
+            {t("examShare.openCourse")}
+          </Button>
+        )}
         {detail?.lmsUrl && (
           <OfficialLink url={detail.lmsUrl} label="LMS" openWeb={openWeb} />
         )}

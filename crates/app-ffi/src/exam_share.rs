@@ -13,7 +13,7 @@ pub(crate) fn service(
     ios_client_id: Option<String>,
     data: &Path,
     version: String,
-) -> Option<ExamShare> {
+) -> Option<Arc<ExamShare>> {
     #[cfg(target_os = "ios")]
     let configuration = browser
         .zip(ios_client_id)
@@ -63,6 +63,7 @@ pub(crate) fn service(
         browser,
     )
     .ok()
+    .map(Arc::new)
 }
 
 #[uniffi::export]
@@ -73,7 +74,9 @@ impl Session {
                 .exam_share
                 .as_ref()
                 .ok_or_else(|| SdkError::from(ExamError::Unavailable))?;
-            let mut answer = service.act(project_input(action)?, cancel).await?;
+            let mut answer = service
+                .act(project_input(action)?, cancel, &inner.core.store)
+                .await?;
             answer.localize_subject_names(&inner.core.store)?;
             Ok(OperationResult::ExamShare {
                 answer: project(answer)?,

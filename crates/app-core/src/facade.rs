@@ -39,6 +39,7 @@ pub struct Core {
     /// reference data, and the deadline duties (`crate::deadlines`);
     /// `Core::reset` closes its admission.
     pub(crate) sync: Arc<PlanEngine>,
+    maintenance: Arc<crate::deadlines::Maintenance>,
     /// The desktop's MCP listener as a duty of the engine.
     #[cfg(feature = "agent")]
     agent_access: Arc<crate::deadlines::AgentAccess>,
@@ -335,11 +336,12 @@ impl Core {
             store: store.clone(),
         }));
         sync.register(Arc::new(crate::deadlines::Cloud(runtime.clone())));
-        sync.register(Arc::new(crate::deadlines::Maintenance::new(
+        let maintenance = Arc::new(crate::deadlines::Maintenance::new(
             store.clone(),
             #[cfg(feature = "agent")]
             submissions.as_ref().as_ref().ok().cloned(),
-        )));
+        ));
+        sync.register(maintenance.clone());
         #[cfg(feature = "agent")]
         {
             sync.register(agent_access.clone());
@@ -364,6 +366,7 @@ impl Core {
             #[cfg(feature = "campus-map")]
             campus_map: crate::campus_map::CampusMapService::new(store.clone()),
             sync,
+            maintenance,
             #[cfg(feature = "agent")]
             agent_access,
             sessions,
@@ -405,6 +408,11 @@ impl Core {
             sync.attach(cloud);
         }
         self.sync.duties_changed();
+    }
+
+    /// Include ScienceTokyoExam's cache in the existing maintenance duty.
+    pub fn attach_exam_cache(&self, exams: &Arc<crate::exam_share::ExamShare>) {
+        self.maintenance.attach_exam_cache(exams);
     }
 
     /// The desktop's MCP listener, which Core starts and stops to match the

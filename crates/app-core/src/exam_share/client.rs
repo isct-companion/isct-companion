@@ -101,6 +101,7 @@ impl Client {
                 Err(ExamError::InvalidInput)
             }
             (_, Some("rate.too_many")) => Err(ExamError::Unavailable),
+            (StatusCode::NOT_FOUND, Some("course.not_found")) => Err(ExamError::SubjectNotFound),
             (StatusCode::NOT_FOUND, _) => Err(ExamError::NotFound),
             (StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS, None) => {
                 Err(ExamError::Unavailable)

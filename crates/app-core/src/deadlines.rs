@@ -10,7 +10,7 @@ use crate::{
     school_session::SchoolSessions,
 };
 use chrono::{DateTime, Duration, Utc};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 /// Maintenance runs this often, and first this long after start, clear of
 /// startup work.
@@ -126,7 +126,7 @@ impl Duty for Cloud {
 }
 
 /// Low-frequency maintenance, the only place stored things are collected:
-/// unused school content (`sync_gc`), retired store generations and, on the
+/// unused school content (`sync_gc`), exam file caches, retired store generations and, on the
 /// desktop, the LMS write ledger's expired records and unreferenced
 /// snapshots. It also keeps a copy of the user tables outside the store: they
 /// share one file with everything else, and cloud sync is optional, so a
@@ -134,6 +134,7 @@ impl Duty for Cloud {
 /// restarts in `store-index.db`.
 pub(crate) struct Maintenance {
     store: DataStore,
+    exam_cache: Mutex<Weak<crate::exam_share::ExamShare>>,
     #[cfg(feature = "agent")]
     submissions: Option<crate::submissions::SubmissionService>,
     next: Mutex<DateTime<Utc>>,
@@ -154,13 +155,31 @@ impl Maintenance {
             .map_or(earliest, |at| at.max(earliest));
         Self {
             store,
+            exam_cache: Mutex::default(),
             #[cfg(feature = "agent")]
             submissions,
             next: Mutex::new(next),
         }
     }
 
+    pub(crate) fn attach_exam_cache(&self, exams: &Arc<crate::exam_share::ExamShare>) {
+        *self
+            .exam_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::downgrade(exams);
+    }
+
     pub(crate) fn pass(&self, now: DateTime<Utc>) -> Result<(), String> {
+        let exam_cache = self
+            .exam_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .upgrade();
+        let exams = exam_cache.map_or(Ok(()), |cache| {
+            cache
+                .clean_cached_materials(now.into())
+                .map_err(|error| error.to_string())
+        });
         let gc = self
             .store
             .write(None, |transaction| crate::sync_gc::gc(transaction, now))
@@ -186,6 +205,7 @@ impl Maintenance {
             .and(retired.map(|_| ()))
             .and(snapshot.map(|_| ()))
             .and(ledger)
+            .and(exams)
     }
 }
 
