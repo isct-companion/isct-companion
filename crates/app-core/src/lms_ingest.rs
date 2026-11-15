@@ -211,11 +211,7 @@ fn mark_missing(
 }
 
 /// Records `key` fresh in the transaction that wrote its rows.
-fn commit_key(
-    tx: &Transaction<'_>,
-    key: Key,
-    now: DateTime<Utc>,
-) -> Result<(), IngestError> {
+fn commit_key(tx: &Transaction<'_>, key: Key, now: DateTime<Utc>) -> Result<(), IngestError> {
     sync_state::commit(
         tx,
         &key,

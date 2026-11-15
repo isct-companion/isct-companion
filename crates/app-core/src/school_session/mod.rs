@@ -43,9 +43,9 @@ mod walk;
 mod web;
 
 pub(crate) use identity::{Ended, SignInAdmission};
-pub(crate) use owner::Permit;
 #[cfg(feature = "desktop-otp-enrollment")]
 pub(crate) use login::fresh_otp;
+pub(crate) use owner::Permit;
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
 pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};

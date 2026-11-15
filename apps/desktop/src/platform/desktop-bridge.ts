@@ -426,6 +426,9 @@ export type VpnStatus = {
   demandPausedUntil?: string | null;
   /** On the campus network, where the VPN is not needed. */
   onCampus?: boolean;
+  /** Publisher sites the tunnel carries, and whether that is the default list. */
+  publishers?: string[];
+  publishersDefault?: boolean;
   error?: string | null;
   detail?: string | null;
 };
@@ -658,6 +661,8 @@ export interface DesktopBridge {
   vpnDisconnect?(): Promise<VpnStatus>;
   /** On-demand connecting on or off for now; the page stores the choice. */
   vpnOnDemand?(enabled: boolean): Promise<VpnStatus>;
+  /** The publisher list, or `null` for the default; the page stores it. */
+  vpnPublishers?(list: string[] | null): Promise<VpnStatus>;
   /** The state after each check while a tunnel is up (every minute). */
   onVpnStatus?(callback: (status: VpnStatus) => void): () => void;
   /** The session ends in a few minutes, or ended on its own. */
@@ -934,6 +939,8 @@ export function createTauriDesktopBridge(
     vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
     vpnOnDemand: (enabled) =>
       invokeCommand("plugin:campus-vpn|on_demand", { enabled }),
+    vpnPublishers: (list) =>
+      invokeCommand("plugin:campus-vpn|publishers", { list }),
     onVpnStatus: (callback) =>
       subscribe<VpnStatus>(
         "vpn-status",

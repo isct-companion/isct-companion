@@ -13,7 +13,7 @@
 //! or not the app is still running: the school asks for connecting on demand
 //! and disconnecting as soon as possible, its VPN ports being few.
 
-use super::{current_tunnel, log, platform, stop, Config, State};
+use super::{current_tunnel, log, platform, publisher_routes, stop, Config, State};
 use ipstack::{IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -139,23 +139,36 @@ pub(crate) fn serve(mut writer: impl Write, cfg: &Config, state: &State, bypass:
         tunnel,
         wanted: AtomicBool::new(false),
     });
-    let routed = Mutex::new(false);
+    // What standby routes now: the campus prefixes and each publisher's
+    // address while it holds the routes, nothing while a tunnel does. Only
+    // the difference from what is installed is applied, so a changed
+    // publisher list follows within a tick.
+    let installed: Mutex<Vec<(Ipv4Addr, u8)>> = Mutex::new(Vec::new());
     let route = |on: bool| {
-        let mut routed = routed
+        let mut installed = installed
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if *routed == on {
-            return Ok(());
+        let mut wanted = Vec::new();
+        if on {
+            wanted.extend(prefixes.iter().copied());
+            let st = state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            wanted.extend(st.publishers_v4.iter().map(|ip| (*ip, 32)));
         }
-        *routed = on;
-        for (net, len) in &prefixes {
-            if on {
-                platform::add_standby_route(*net, *len, &interface)?;
-            } else {
+        for (net, len) in installed.clone() {
+            if !wanted.contains(&(net, len)) {
                 // Removal goes on past a failure, so nothing stays behind.
-                if let Err(error) = platform::delete_standby_route(*net, *len, &interface) {
+                if let Err(error) = platform::delete_standby_route(net, len, &interface) {
                     log(cfg, &format!("standby route {net}/{len}: {error}"));
                 }
+                installed.retain(|route| *route != (net, len));
+            }
+        }
+        for (net, len) in wanted {
+            if !installed.contains(&(net, len)) {
+                platform::add_standby_route(net, len, &interface)?;
+                installed.push((net, len));
             }
         }
         Ok::<(), String>(())
@@ -189,6 +202,7 @@ pub(crate) fn serve(mut writer: impl Write, cfg: &Config, state: &State, bypass:
                 log(&cfg, "standby stack stopped");
             })
         };
+        publisher_routes::STANDBY.store(true, Ordering::SeqCst);
         let mut last_demand: Option<Instant> = None;
         let mut last_beat: Option<Instant> = None;
         let mut ticks = tokio::time::interval(TICK);
@@ -204,11 +218,12 @@ pub(crate) fn serve(mut writer: impl Write, cfg: &Config, state: &State, bypass:
                 }
                 plane.tunnel.send_replace(up);
             } else if up.is_none() {
-                // The first pass: no tunnel, so standby takes the routes.
+                // No tunnel: standby holds the routes, publishers as listed now.
                 if let Err(error) = route(true) {
                     break Err(format!("standby route: {error}"));
                 }
             }
+            publisher_routes::sync(cfg, state);
             let now = Instant::now();
             if up.is_none()
                 && plane.wanted.load(Ordering::SeqCst)
@@ -240,6 +255,8 @@ pub(crate) fn serve(mut writer: impl Write, cfg: &Config, state: &State, bypass:
     if let Err(error) = route(false) {
         log(cfg, &format!("standby route: {error}"));
     }
+    publisher_routes::STANDBY.store(false, Ordering::SeqCst);
+    publisher_routes::sync(cfg, state);
     runtime.shutdown_timeout(Duration::from_secs(2));
     match outcome {
         Ok(()) => log(cfg, "standby ended"),
@@ -413,6 +430,8 @@ pub(crate) fn watch_idle(cfg: Config, state: State) {
         let mut idleness = Idleness::default();
         loop {
             std::thread::sleep(IDLE_CHECK);
+            // A tunnel that ended on its own takes the IPv6 refusals with it.
+            publisher_routes::sync(&cfg, &state);
             let tunnel = {
                 let st = state
                     .lock()

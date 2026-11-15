@@ -52,8 +52,10 @@ impl Enrollment {
     }
 
     fn prevents_restart(&self) -> bool {
-        matches!(self.view.stage, SchoolOtpStage::Saving | SchoolOtpStage::SaveFailed | SchoolOtpStage::Unknown)
-            || (self.active() && self.mutation)
+        matches!(
+            self.view.stage,
+            SchoolOtpStage::Saving | SchoolOtpStage::SaveFailed | SchoolOtpStage::Unknown
+        ) || (self.active() && self.mutation)
     }
 
     pub(super) fn stop(&mut self) {
@@ -583,9 +585,12 @@ impl Inner {
                 let inner = self.clone();
                 self.tasks.spawn_on(&self.runtime, async move {
                     let (prepared, setup, account) = (secret.clone(), secret, actual.clone());
-                    let staged = inner.sessions.otp_vault(generation, move |auth| {
-                        auth.stage_enrollment(&candidate, &account, base, &prepared)
-                    }).await;
+                    let staged = inner
+                        .sessions
+                        .otp_vault(generation, move |auth| {
+                            auth.stage_enrollment(&candidate, &account, base, &prepared)
+                        })
+                        .await;
                     if let Err(error) = staged {
                         inner.fail_otp(id, error);
                         return;

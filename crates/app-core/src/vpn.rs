@@ -8,7 +8,7 @@ pub mod f5;
 use crate::school_session::CampusVpnError;
 use chrono::Duration;
 use chrono::{DateTime, Utc};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, MutexGuard,
@@ -224,6 +224,58 @@ impl Drop for LoginGuard {
     }
 }
 
+/// Publisher sites that serve the library's subscribed papers, sent through
+/// the tunnel as well: they grant access by the campus address a request
+/// comes from. Each is the host that serves full text; a person can change
+/// the list on the card.
+pub const DEFAULT_PUBLISHERS: &[&str] = &[
+    "www.sciencedirect.com",
+    "link.springer.com",
+    "www.nature.com",
+    "onlinelibrary.wiley.com",
+    "ieeexplore.ieee.org",
+    "pubs.acs.org",
+    "journals.aps.org",
+    "pubs.aip.org",
+    "iopscience.iop.org",
+    "www.tandfonline.com",
+    "academic.oup.com",
+    "www.science.org",
+    "www.cambridge.org",
+    "dl.acm.org",
+    "pubs.rsc.org",
+    "www.jstor.org",
+];
+
+/// A publisher as the person typed it, as the host name to route: a pasted
+/// address loses its scheme, path and port, and case. `None` for what cannot
+/// be a host name.
+pub fn normalize_publisher(input: &str) -> Option<String> {
+    let text = input.trim();
+    let host = text
+        .split_once("://")
+        .map_or(text, |(_, rest)| rest)
+        .split(['/', '?', '#'])
+        .next()?
+        .rsplit('@')
+        .next()?;
+    let host = host
+        .split(':')
+        .next()?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let valid = host.contains('.')
+        && host.len() <= 253
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        });
+    valid.then_some(host)
+}
+
 /// How long before the session's end the reminder comes.
 pub const ENDING_NOTICE_MINUTES: i64 = 10;
 
@@ -233,6 +285,8 @@ pub trait VpnPort: Send + Sync {
     fn status(&self) -> Result<HelperReport, VpnError>;
     fn start(&self, cookie: &SessionCookie) -> Result<HelperReport, VpnError>;
     fn stop(&self) -> Result<HelperReport, VpnError>;
+    /// Hands the helper the publisher sites' addresses (`Request::Routes`).
+    fn routes(&self, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> Result<HelperReport, VpnError>;
 }
 
 /// The state a helper report means to the person. The helper keeps the last
@@ -271,6 +325,8 @@ pub struct VpnService {
     /// On the campus network, as `network` last read it: the VPN is not
     /// needed there.
     on_campus: AtomicBool,
+    /// The publisher sites the person chose; `None` is the default list.
+    publishers: Mutex<Option<Vec<String>>>,
 }
 
 impl VpnService {
@@ -282,6 +338,7 @@ impl VpnService {
             on_demand: Mutex::new(None),
             logging_in: Arc::new(AtomicBool::new(false)),
             on_campus: AtomicBool::new(false),
+            publishers: Mutex::new(None),
         }
     }
 
@@ -388,6 +445,77 @@ impl VpnService {
         let code = current.as_mut()?.finished(state, now).err()?;
         *current = None;
         Some(VpnNotice::DemandStopped { code })
+    }
+
+    /// The person's publisher list as stored; `None` restores the default.
+    /// Entries are normalized and deduplicated, and ones that cannot be host
+    /// names are dropped.
+    pub fn set_publishers(&self, list: Option<Vec<String>>) {
+        *lock(&self.publishers) = list.map(|list| {
+            let mut hosts: Vec<String> = Vec::new();
+            for host in list.iter().filter_map(|entry| normalize_publisher(entry)) {
+                if !hosts.contains(&host) {
+                    hosts.push(host);
+                }
+            }
+            hosts
+        });
+    }
+
+    /// The publisher sites sent through the tunnel now.
+    pub fn publishers(&self) -> Vec<String> {
+        lock(&self.publishers).clone().unwrap_or_else(|| {
+            DEFAULT_PUBLISHERS
+                .iter()
+                .map(|host| host.to_string())
+                .collect()
+        })
+    }
+
+    /// Whether the list is the default one, so the card offers no reset.
+    pub fn publishers_are_default(&self) -> bool {
+        lock(&self.publishers).is_none()
+    }
+
+    /// The names a publisher is reached by: a bare domain (`nature.com`) is
+    /// usually served from its `www.` host too.
+    pub fn publisher_names(host: &str) -> Vec<String> {
+        let mut names = vec![host.to_owned()];
+        if host.matches('.').count() == 1 {
+            names.push(format!("www.{host}"));
+        }
+        names
+    }
+
+    /// Hands the helper the publisher sites' addresses now, as `resolve` (the
+    /// shell's DNS) finds each name: before a connect and when standby
+    /// starts, so a publisher's changing CDN addresses are followed, and when
+    /// the list changes. An address the campus network covers already, or a
+    /// name that does not resolve, is left out.
+    pub fn send_publisher_routes(
+        &self,
+        resolve: impl Fn(&str) -> Vec<IpAddr>,
+    ) -> Result<(), VpnError> {
+        let mut v4: Vec<Ipv4Addr> = Vec::new();
+        let mut v6: Vec<Ipv6Addr> = Vec::new();
+        for host in self.publishers() {
+            for name in Self::publisher_names(&host) {
+                for ip in resolve(&name) {
+                    match ip {
+                        IpAddr::V4(ip) if !crate::campus_network::on_campus([ip.into()], None) => {
+                            v4.push(ip)
+                        }
+                        IpAddr::V6(ip) => v6.push(ip),
+                        IpAddr::V4(_) => {}
+                    }
+                }
+            }
+        }
+        v4.sort();
+        v4.dedup();
+        v6.sort();
+        v6.dedup();
+        self.port.routes(&v4, &v6).map(|_| ())
     }
 
     /// Campus hosts standby must leave to the physical network: the hosts

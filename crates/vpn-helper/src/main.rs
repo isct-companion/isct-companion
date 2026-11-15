@@ -14,6 +14,7 @@ mod platform;
 #[cfg(windows)]
 #[path = "windows.rs"]
 mod platform;
+mod publisher_routes;
 #[cfg(windows)]
 mod windows_net;
 
@@ -52,6 +53,10 @@ struct Inner {
     /// Why the helper ended the last tunnel itself; kept past `clear` until
     /// the next start or stop.
     ended: Option<Ending>,
+    /// The publisher sites' addresses (`Request::Routes`), kept across
+    /// tunnels: the app sets them, not a connection.
+    publishers_v4: Vec<std::net::Ipv4Addr>,
+    publishers_v6: Vec<std::net::Ipv6Addr>,
 }
 
 impl Inner {
@@ -187,6 +192,8 @@ fn new_state() -> State {
         error: None,
         ended: None,
         expires: None,
+        publishers_v4: Vec::new(),
+        publishers_v6: Vec::new(),
     }))
 }
 
@@ -220,6 +227,15 @@ fn handle(reader: impl Read, mut writer: impl Write, cfg: &Config, state: &State
             reply
         }
         Ok(Request::Status) => status(cfg, state),
+        Ok(Request::Routes { v4, v6 }) => {
+            {
+                let mut st = state.lock().unwrap();
+                st.publishers_v4 = v4;
+                st.publishers_v6 = v6;
+            }
+            publisher_routes::sync(cfg, state);
+            status(cfg, state)
+        }
         Err(e) => Reply::error(format!("bad request: {e}")),
     };
     let _ = writeln!(
@@ -282,7 +298,7 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
 
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        {
+        let up = {
             let mut st = state.lock().unwrap();
             // A stop, or a newer start, took this tunnel away; what happens
             // from here belongs to them.
@@ -291,7 +307,7 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
             }
             platform::confirm_route(&mut st);
             if let (Some(addr), true) = (st.address.clone(), st.routed) {
-                return Reply {
+                Some(Reply {
                     ok: true,
                     state: HelperState::Connected,
                     detail: None,
@@ -301,8 +317,18 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
                     expires: st.expires,
                     revision: Some(HELPER_REVISION),
                     ended: None,
-                };
+                })
+            } else {
+                None
             }
+        };
+        // Up: the publishers go through it too, before the app is told.
+        if let Some(reply) = up {
+            publisher_routes::sync(cfg, state);
+            return reply;
+        }
+        {
+            let mut st = state.lock().unwrap();
             if let Some(err) = st.error.clone() {
                 return Reply::error(err);
             }
@@ -382,6 +408,7 @@ fn stop(cfg: &Config, state: &State) -> Reply {
     }
     platform::after_stop(cfg);
     state.lock().unwrap().clear();
+    publisher_routes::sync(cfg, state);
     Reply::disconnected()
 }
 

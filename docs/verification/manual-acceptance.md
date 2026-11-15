@@ -233,7 +233,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/pages/about/IconToy.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
-| `DESKTOP-CAMPUS-VPN-ON-DEMAND` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/ondemand.rs<br>crates/vpn-helper/src/unix.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>crates/app-core/src/campus_network.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx |
+| `DESKTOP-CAMPUS-VPN-ON-DEMAND` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/ondemand.rs<br>crates/vpn-helper/src/unix.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>crates/app-core/src/campus_network.rs<br>crates/vpn-helper/src/publisher_routes.rs<br>apps/desktop/src/pages/tools/VpnPublishers.tsx<br>apps/desktop/src/pages/tools/CampusVpn.tsx |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
@@ -2925,10 +2925,22 @@ Run once on macOS and once on Windows.
      must let the routes go and sign in for nothing, and a press must ask
      before taking one of the few VPN ports. Leaving the campus network
      must bring standby back within seconds.
-6. Save a wrong password in the school account, then reach a campus host.
+6. Off campus, with automatic management on and no tunnel up, open
+   https://www.sciencedirect.com/ and a paper the library subscribes
+   to; then add nature.com from the card's pencil and open a Nature
+   article. On macOS check `route -n get www.sciencedirect.com` (the
+   tunnel's utun) and `route -n get -inet6 www.sciencedirect.com`
+   (reject) while it is up.
+   - *Why:* Publishers grant papers by the campus address a request comes from:
+     only a real APM tunnel shows that their IPv4 addresses go through it,
+     that reaching one wakes standby, and that their IPv6 addresses are
+     refused so a browser on an IPv6 network falls back to the tunnel.
+     Windows leaves IPv6 alone, so there an IPv6 network may still go
+     around the tunnel.
+7. Save a wrong password in the school account, then reach a campus host.
    - *Why:* A refused password must turn on-demand off with one notice, not post
      the password again on every connection.
-7. Quit the app (and once, force-quit it), then check the routes again.
+8. Quit the app (and once, force-quit it), then check the routes again.
    - *Why:* Standby lives only on the app's connection to the helper; a route
      left behind sends campus traffic into an interface nobody serves.
 
@@ -2942,7 +2954,8 @@ results, `netstat -rn -f inet` or `route print`, and the helper log.
 First use connects within the sign-in time and succeeds, an idle tunnel
 ends after 5 minutes (quietly when it was demanded), an open ssh keeps
 it until 30 minutes without real traffic and then ends with the unused
-notice, on campus the card says no VPN is needed with campus routes on
+notice, a subscribed paper opens in full through the tunnel and an added
+publisher works too, on campus the card says no VPN is needed with campus routes on
 the physical interface and a press asks first, a refused password
 stops it once, and no standby route or
 interface remains after the app quits.
@@ -2961,6 +2974,8 @@ school's F5 login and a real tunnel; none is reachable from the suites.
 - `apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs`
 - `crates/app-core/src/campus_network.rs`
+- `crates/vpn-helper/src/publisher_routes.rs`
+- `apps/desktop/src/pages/tools/VpnPublishers.tsx`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 
 **Last recorded** never run

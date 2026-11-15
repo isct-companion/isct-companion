@@ -178,15 +178,54 @@ pub(crate) fn standby_interface(device: &tun::AsyncDevice) -> Result<StandbyIf, 
 }
 
 fn route(action: &str, net: Ipv4Addr, len: u8, interface: &StandbyIf) -> Result<(), String> {
+    run_route(&[
+        "-n",
+        action,
+        "-net",
+        &format!("{net}/{len}"),
+        "-interface",
+        &interface.name,
+    ])
+}
+
+/// The tunnel's routes point at its utun by name.
+pub(crate) type Via = String;
+
+pub(crate) fn tunnel_via(state: &Inner) -> Option<Via> {
+    state.ifname.clone()
+}
+
+/// A publisher's address through the tunnel.
+pub(crate) fn add_host_route(ip: Ipv4Addr, via: &Via) -> Result<(), String> {
+    run_route(&["-n", "add", "-host", &ip.to_string(), "-interface", via])
+}
+
+pub(crate) fn delete_host_route(ip: Ipv4Addr, via: &Via) -> Result<(), String> {
+    run_route(&["-n", "delete", "-host", &ip.to_string(), "-interface", via])
+}
+
+/// A publisher's IPv6 address refused at once (`-reject` answers
+/// unreachable), so a browser falls back to its IPv4 one, which goes through
+/// the tunnel.
+pub(crate) fn add_refused_route(ip: std::net::Ipv6Addr) -> Result<(), String> {
+    run_route(&[
+        "-n",
+        "add",
+        "-inet6",
+        "-host",
+        &ip.to_string(),
+        "::1",
+        "-reject",
+    ])
+}
+
+pub(crate) fn delete_refused_route(ip: std::net::Ipv6Addr) -> Result<(), String> {
+    run_route(&["-n", "delete", "-inet6", "-host", &ip.to_string()])
+}
+
+fn run_route(args: &[&str]) -> Result<(), String> {
     let output = Command::new("/sbin/route")
-        .args([
-            "-n",
-            action,
-            "-net",
-            &format!("{net}/{len}"),
-            "-interface",
-            &interface.name,
-        ])
+        .args(args)
         .stdin(Stdio::null())
         .output()
         .map_err(|error| error.to_string())?;

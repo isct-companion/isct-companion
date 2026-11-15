@@ -21,7 +21,7 @@ mod windows;
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("campus-vpn")
         .invoke_handler(tauri::generate_handler![
-            status, connect, disconnect, on_demand, install
+            status, connect, disconnect, on_demand, publishers, install
         ])
         .setup(|app, _| {
             app.manage(helper::service());
@@ -41,6 +41,13 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                         log::warn!("[vpn] on-demand preference is unreadable: {error}");
                         None
                     });
+                let publishers = core(app)
+                    .store
+                    .device_preference("/campusVpnPublishers")
+                    .ok()
+                    .flatten()
+                    .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok());
+                service(app).set_publishers(publishers);
                 if stored.and_then(|value| value.as_bool()) == Some(true) {
                     service(app).set_on_demand(true);
                     standby::ensure(app.clone());
@@ -67,6 +74,10 @@ struct VpnStatus {
     demand_paused_until: Option<String>,
     /// On the campus network, where the VPN is not needed.
     on_campus: bool,
+    /// The publisher sites sent through the tunnel, and whether that is the
+    /// default list.
+    publishers: Vec<String>,
+    publishers_default: bool,
     error: Option<&'static str>,
     detail: Option<String>,
 }
@@ -80,6 +91,8 @@ impl From<VpnState> for VpnStatus {
             on_demand: false,
             demand_paused_until: None,
             on_campus: false,
+            publishers: Vec::new(),
+            publishers_default: true,
             error: None,
             detail: None,
         };
@@ -103,6 +116,23 @@ impl From<VpnState> for VpnStatus {
     }
 }
 
+/// The addresses a name resolves to now, IPv4 and IPv6.
+fn resolve(name: &str) -> Vec<std::net::IpAddr> {
+    use std::net::ToSocketAddrs;
+    (name, 443)
+        .to_socket_addrs()
+        .map(|found| found.map(|address| address.ip()).collect())
+        .unwrap_or_default()
+}
+
+/// Hands the helper the publisher sites' addresses as they resolve now. A
+/// helper that cannot take them only misses the papers, so this logs.
+pub(crate) fn send_publisher_routes(service: &VpnService) {
+    if let Err(error) = service.send_publisher_routes(resolve) {
+        log::warn!("[vpn] publisher routes: {error}");
+    }
+}
+
 /// This device's addresses, for Core to tell the campus network apart.
 pub(crate) fn addresses() -> Vec<std::net::IpAddr> {
     if_addrs::get_if_addrs()
@@ -117,6 +147,8 @@ fn report(service: &VpnService, state: VpnState) -> VpnStatus {
     VpnStatus {
         on_demand: service.on_demand(),
         on_campus: service.network(addresses()),
+        publishers: service.publishers(),
+        publishers_default: service.publishers_are_default(),
         demand_paused_until: service
             .demand_paused_until(chrono::Utc::now())
             .map(|at| at.to_rfc3339()),
@@ -201,6 +233,10 @@ async fn connect(
     let Some(_login) = service.begin_login() else {
         return Ok(report(&service, VpnState::Connecting));
     };
+    {
+        let service = service.clone();
+        blocking(move || send_publisher_routes(&service)).await?;
+    }
     let login = match core(&app).sessions().campus_vpn_login().await {
         Ok(login) => login,
         Err(error) => {
@@ -226,6 +262,24 @@ async fn on_demand(
     service.set_on_demand(enabled);
     if enabled {
         standby::ensure(app.clone());
+    }
+    Ok(report(&service, service.state()))
+}
+
+/// The publisher list as the person edited it, or `None` for the default;
+/// the page stores the choice.
+#[tauri::command]
+async fn publishers(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    list: Option<Vec<String>>,
+) -> Result<VpnStatus, CommandError> {
+    require_local_main(&webview)?;
+    let service = service(&app);
+    service.set_publishers(list);
+    {
+        let service = service.clone();
+        blocking(move || send_publisher_routes(&service)).await?;
     }
     Ok(report(&service, service.state()))
 }

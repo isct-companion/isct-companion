@@ -32,11 +32,17 @@ fn the_queue_bills_the_student_and_takes_only_the_installing_login() {
         .any(|pair| pair == ["-o", "Option18=HardDisk"]));
 
     for login in ["taro", "taro.y", "s_24m-1", "_spool"] {
-        assert!(lpadmin_args(&student(), login, "/q.ppd").is_some(), "{login}");
+        assert!(
+            lpadmin_args(&student(), login, "/q.ppd").is_some(),
+            "{login}"
+        );
     }
     let long = "a".repeat(256);
     for login in ["", "-x", "a,b", "@admin", "a b", "a;b", "名前", &long] {
-        assert!(lpadmin_args(&student(), login, "/q.ppd").is_none(), "{login:?}");
+        assert!(
+            lpadmin_args(&student(), login, "/q.ppd").is_none(),
+            "{login:?}"
+        );
     }
 }
 

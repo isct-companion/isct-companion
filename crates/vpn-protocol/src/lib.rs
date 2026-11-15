@@ -7,11 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// The helper this app bundles. An installed helper that reports less (or
 /// nothing, as the first ones did) is replaced before the next connect.
-pub const HELPER_REVISION: u32 = 6;
+pub const HELPER_REVISION: u32 = 7;
 
 /// Socket the daemon listens on; the installer creates it as root:staff 0660.
 #[cfg(unix)]
@@ -101,6 +101,17 @@ pub enum Request {
     Standby {
         #[serde(default)]
         bypass: Vec<Ipv4Addr>,
+    },
+    /// The publisher sites' addresses, which go through the tunnel like the
+    /// campus network (their papers are licensed to campus addresses), and
+    /// to standby while it holds the routes. The tunnel carries IPv4 only,
+    /// so their IPv6 addresses are refused instead, while a tunnel or
+    /// standby is up, and browsers fall back to IPv4. Replaces the last set.
+    Routes {
+        #[serde(default)]
+        v4: Vec<Ipv4Addr>,
+        #[serde(default)]
+        v6: Vec<Ipv6Addr>,
     },
 }
 

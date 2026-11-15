@@ -81,6 +81,20 @@ impl VpnPort for platform::HelperSocket {
     fn stop(&self) -> Result<HelperReport, VpnError> {
         self.exchange(&Request::Stop, QUICK)
     }
+
+    fn routes(
+        &self,
+        v4: &[std::net::Ipv4Addr],
+        v6: &[std::net::Ipv6Addr],
+    ) -> Result<HelperReport, VpnError> {
+        self.exchange(
+            &Request::Routes {
+                v4: v4.to_vec(),
+                v6: v6.to_vec(),
+            },
+            QUICK,
+        )
+    }
 }
 
 pub(crate) fn service() -> Arc<VpnService> {

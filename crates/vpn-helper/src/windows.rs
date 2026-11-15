@@ -509,6 +509,33 @@ pub(crate) fn tunnel_index(state: &Inner) -> Option<u32> {
     state.tun_index
 }
 
+/// The tunnel's routes point at its adapter by index.
+pub(crate) type Via = u32;
+
+pub(crate) fn tunnel_via(state: &Inner) -> Option<Via> {
+    state.tun_index
+}
+
+/// A publisher's address through the tunnel.
+pub(crate) fn add_host_route(ip: std::net::Ipv4Addr, via: &Via) -> Result<(), String> {
+    windows_net::add_route(ip, 32, *via, std::net::Ipv4Addr::UNSPECIFIED)
+}
+
+pub(crate) fn delete_host_route(ip: std::net::Ipv4Addr, via: &Via) -> Result<(), String> {
+    windows_net::delete_route(ip, 32, *via)
+}
+
+/// Windows has no reject route without naming its loopback adapter, which
+/// is not fixed in advance; a publisher's IPv6 address is left alone, so a
+/// browser on an IPv6 network may reach it around the tunnel.
+pub(crate) fn add_refused_route(_ip: std::net::Ipv6Addr) -> Result<(), String> {
+    Ok(())
+}
+
+pub(crate) fn delete_refused_route(_ip: std::net::Ipv6Addr) -> Result<(), String> {
+    Ok(())
+}
+
 /// The adapter openconnect would never pick: its own name, not `TUN_PREFIX`.
 const STANDBY_NAME: &str = "isct-standby";
 

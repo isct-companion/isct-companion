@@ -559,6 +559,12 @@ export type Settings = {
    * campus network (desktop only); absent reads as off.
    */
   campusVpnOnDemand?: boolean;
+  /**
+   * Publisher sites this device sends through the campus VPN, for the
+   * papers the library subscribes to (desktop only); absent reads as
+   * `vpn::DEFAULT_PUBLISHERS`.
+   */
+  campusVpnPublishers?: Array<string>;
   siteConsents?: SiteConsents;
   locale: "en" | "ja" | "zh";
   contentLanguage?: "auto" | "ja" | "en";

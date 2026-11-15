@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 struct FakePort {
     answers: Mutex<VecDeque<Result<HelperReport, VpnError>>>,
     calls: Mutex<Vec<&'static str>>,
+    /// The publisher addresses the last `routes` call handed over.
+    routes: Mutex<(Vec<std::net::Ipv4Addr>, Vec<std::net::Ipv6Addr>)>,
 }
 
 impl FakePort {
@@ -13,6 +15,7 @@ impl FakePort {
         Arc::new(Self {
             answers: Mutex::new(answers.into()),
             calls: Mutex::new(Vec::new()),
+            routes: Mutex::default(),
         })
     }
 
@@ -39,6 +42,14 @@ impl VpnPort for FakePort {
     }
     fn stop(&self) -> Result<HelperReport, VpnError> {
         self.next("stop")
+    }
+    fn routes(
+        &self,
+        v4: &[std::net::Ipv4Addr],
+        v6: &[std::net::Ipv6Addr],
+    ) -> Result<HelperReport, VpnError> {
+        *self.routes.lock().unwrap() = (v4.to_vec(), v6.to_vec());
+        self.next("routes")
     }
 }
 
@@ -474,4 +485,81 @@ fn logins_are_one_at_a_time() {
     assert!(service.begin_login().is_none());
     drop(first);
     assert!(service.begin_login().is_some());
+}
+
+/// What a person pastes into the publisher list becomes the host to route:
+/// a full article address must not be stored as a host that never resolves,
+/// and junk must not reach the helper's routes.
+#[test]
+fn publishers_are_normalized_and_the_default_list_comes_back() {
+    for (input, host) in [
+        (
+            "https://www.Nature.com/articles/s41586?x=1",
+            "www.nature.com",
+        ),
+        ("  link.springer.com/  ", "link.springer.com"),
+        ("http://user@pubs.acs.org:443/doi", "pubs.acs.org"),
+        ("ieeexplore.ieee.org.", "ieeexplore.ieee.org"),
+    ] {
+        assert_eq!(normalize_publisher(input).as_deref(), Some(host), "{input}");
+    }
+    for junk in [
+        "",
+        "localhost",
+        "exa mple.com",
+        "-bad.com",
+        "a..b",
+        "a_b.com",
+    ] {
+        assert_eq!(normalize_publisher(junk), None, "{junk}");
+    }
+    assert_eq!(
+        VpnService::publisher_names("nature.com"),
+        ["nature.com", "www.nature.com"]
+    );
+    assert_eq!(
+        VpnService::publisher_names("link.springer.com"),
+        ["link.springer.com"]
+    );
+
+    let service = VpnService::new(FakePort::answering(vec![]));
+    assert!(service.publishers_are_default());
+    assert_eq!(service.publishers().len(), DEFAULT_PUBLISHERS.len());
+    service.set_publishers(Some(vec![
+        "nature.com".into(),
+        "https://nature.com/x".into(),
+        "not a host".into(),
+    ]));
+    assert_eq!(service.publishers(), ["nature.com"]);
+    assert!(!service.publishers_are_default());
+    service.set_publishers(None);
+    assert!(service.publishers_are_default());
+}
+
+/// The helper gets each publisher's addresses under both its names, each
+/// once; a campus address is routed already and a name that does not
+/// resolve sends nothing.
+#[test]
+fn publisher_routes_carry_every_name_once() {
+    let port = FakePort::answering(vec![Ok(report(HelperState::Disconnected))]);
+    let service = VpnService::new(port.clone());
+    service.set_publishers(Some(vec!["nature.com".into(), "gone.example".into()]));
+    let shared: std::net::IpAddr = "162.159.135.42".parse().unwrap();
+    service
+        .send_publisher_routes(|name| match name {
+            "nature.com" => vec![shared, "131.112.1.1".parse().unwrap()],
+            "www.nature.com" => vec![shared, "2606:4700::6810:1".parse().unwrap()],
+            _ => vec![],
+        })
+        .unwrap();
+    assert_eq!(port.calls(), ["routes"]);
+    let (v4, v6) = port.routes.lock().unwrap().clone();
+    assert_eq!(
+        v4,
+        ["162.159.135.42".parse::<std::net::Ipv4Addr>().unwrap()]
+    );
+    assert_eq!(
+        v6,
+        ["2606:4700::6810:1".parse::<std::net::Ipv6Addr>().unwrap()]
+    );
 }

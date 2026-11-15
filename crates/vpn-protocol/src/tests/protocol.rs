@@ -24,6 +24,14 @@ fn start_request_uses_the_wire_names() {
         r#"{"event":"standby","tunnel":true}"#
     );
     assert_eq!(StandbyEvent::Demand.to_line(), r#"{"event":"demand"}"#);
+    assert_eq!(
+        Request::from_line(r#"{"op":"routes","v4":["162.159.135.42"],"v6":["2606:4700::1"]}"#)
+            .unwrap(),
+        Request::Routes {
+            v4: vec![std::net::Ipv4Addr::new(162, 159, 135, 42)],
+            v6: vec!["2606:4700::1".parse().unwrap()],
+        }
+    );
 }
 
 /// The helper accepts start/stop/status only; anything else must be refused

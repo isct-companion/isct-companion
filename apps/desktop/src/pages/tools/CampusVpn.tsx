@@ -1,9 +1,10 @@
-import { ShieldCheck } from "lucide-react";
+import { Clock, Route, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import type { VpnNotice, VpnStatus } from "../../platform/desktop-bridge";
 import { InfoTip, Switch, UiButton } from "../../components/ui";
+import { VpnPublishers } from "./VpnPublishers";
 import { workspaceActions } from "../../store/workspace";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
@@ -64,16 +65,38 @@ export const saveVpnOnDemand = (enabled: boolean) =>
     return draft;
   });
 
-/** The APM session's countdown, as the webtop shows it, in whole minutes. */
+/** This device's publisher list; `undefined` stores the default. */
+export const saveVpnPublishers = (list: string[] | undefined) =>
+  workspaceActions.updateSettings((draft) => {
+    draft.settings.campusVpnPublishers = list;
+    return draft;
+  });
+
+/** The APM session's countdown as h:mm, or nothing when it is not known. */
 const vpnRemaining = (expiresAt: string | null | undefined, now: number) => {
   const end = expiresAt ? Date.parse(expiresAt) : NaN;
-  if (Number.isNaN(end)) return t("tools.campusWifi.vpnConnected");
+  if (Number.isNaN(end)) return undefined;
   const minutes = Math.max(0, Math.floor((end - now) / 60_000));
-  return t("tools.campusWifi.vpnRemaining", {
-    hours: Math.floor(minutes / 60),
-    minutes: minutes % 60,
-  });
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
 };
+
+type Badge = { key: MessageKey; role?: "ok" | "accent" | "warn" | "danger" };
+
+/** The one word for the state, as the card's badge says it. */
+const vpnBadge = (vpn: VpnStatus | undefined, busy: boolean): Badge =>
+  vpn?.error
+    ? { key: "tools.campusWifi.vpnBadgeError", role: "danger" }
+    : vpn?.state === "connected"
+      ? { key: "tools.campusWifi.vpnBadgeConnected", role: "ok" }
+      : busy || vpn?.state === "connecting"
+        ? { key: "tools.campusWifi.vpnBadgeConnecting", role: "accent" }
+        : vpn?.onCampus
+          ? { key: "tools.campusWifi.vpnBadgeOnCampus" }
+          : vpn?.demandPausedUntil
+            ? { key: "tools.campusWifi.vpnBadgePaused", role: "warn" }
+            : vpn?.onDemand
+              ? { key: "tools.campusWifi.vpnBadgeStandby" }
+              : { key: "tools.campusWifi.vpnBadgeOff" };
 
 /**
  * The campus VPN: one press signs in to the APM with the saved Tokyo Tech
@@ -209,25 +232,31 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     }
   };
 
-  const vpnHint = vpn?.error
-    ? vpnErrorText(vpn)
-    : vpnConnected
-      ? vpnRemaining(vpn.expiresAt, now)
-      : vpnBusy || vpn?.state === "connecting"
-        ? t("tools.campusWifi.vpnConnecting")
-        : vpn?.onCampus
-          ? t("tools.campusWifi.vpnOnCampus")
-          : vpn?.demandPausedUntil
-            ? t("tools.campusWifi.vpnPaused", {
-                time: jstClock(new Date(vpn.demandPausedUntil)),
-              })
-            : vpn?.onDemand
-              ? t("tools.campusWifi.vpnStandby")
-              : t("tools.campusWifi.vpnDisconnected");
+  // Persist first, then let Core take it and route it; Core normalizes, so
+  // an entry it could not read is what the returned list leaves out.
+  const setPublishers = async (list: string[] | undefined) => {
+    if (!desktopBridge?.vpnPublishers) return;
+    const next = await desktopBridge.vpnPublishers(list ?? null);
+    setVpn(next);
+    await saveVpnPublishers(
+      next.publishersDefault ? undefined : next.publishers,
+    );
+    return next;
+  };
 
   const unavailable = vpn?.state === "unavailable";
+  const badge = vpnBadge(vpn, vpnBusy);
+  const remaining = vpnConnected ? vpnRemaining(vpn.expiresAt, now) : undefined;
   const helperNeeded =
     vpn?.error === "helper_not_installed" || vpn?.error === "helper_outdated";
+  // A line only when something needs saying beyond the badge.
+  const detail = vpn?.error
+    ? vpnErrorText(vpn)
+    : vpn?.demandPausedUntil && !vpnConnected
+      ? t("tools.campusWifi.vpnPausedUntil", {
+          time: jstClock(new Date(vpn.demandPausedUntil)),
+        })
+      : undefined;
   // Automatic management connects and disconnects by itself: a press beside
   // it would only be undone by the next use, so it shows none. The helper
   // still needs the person's consent to install, in either mode.
@@ -257,37 +286,78 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     </UiButton>
   );
 
+  if (unavailable)
+    return (
+      <ToolCard
+        icon={<ShieldCheck aria-hidden strokeWidth={1.75} />}
+        title="tools.campusWifi.campusVpn"
+        status={t("tools.campusWifi.vpnUnavailable")}
+        actions={null}
+      />
+    );
   return (
     <ToolCard
       icon={<ShieldCheck aria-hidden strokeWidth={1.75} />}
       title="tools.campusWifi.campusVpn"
       info={
-        !unavailable && (
-          <InfoTip label={t("tools.campusWifi.vpnRulesLabel")}>
-            {t("tools.campusWifi.vpnRules")}
-          </InfoTip>
+        <InfoTip label={t("tools.campusWifi.vpnRulesLabel")}>
+          {t("tools.campusWifi.vpnRules")}
+        </InfoTip>
+      }
+      badge={
+        vpn && (
+          <span className="uiTag" data-role={badge.role}>
+            {t(badge.key)}
+          </span>
         )
       }
-      status={unavailable ? t("tools.campusWifi.vpnUnavailable") : vpnHint}
-      note={unavailable ? undefined : "tools.campusWifi.vpnHint"}
       actions={
-        !unavailable && (
-          <>
-            {vpn && (
-              // The person's choice sits apart from the press, on the left.
-              <div className="toolCardOption">
-                <Switch
-                  label={t("tools.campusWifi.vpnOnDemand")}
-                  checked={Boolean(vpn.onDemand)}
-                  disabled={vpnBusy}
-                  onCheckedChange={(enabled) => void setOnDemand(enabled)}
-                />
-              </div>
-            )}
-            {action}
-          </>
-        )
+        <>
+          {vpn && (
+            // The person's choice sits apart from the press, on the left.
+            <div className="toolCardOption">
+              <Switch
+                label={t("tools.campusWifi.vpnOnDemand")}
+                checked={Boolean(vpn.onDemand)}
+                disabled={vpnBusy}
+                onCheckedChange={(enabled) => void setOnDemand(enabled)}
+              />
+            </div>
+          )}
+          {action}
+        </>
       }
-    />
+    >
+      {vpn && (
+        <dl className="toolCardFacts">
+          <div>
+            <dt>
+              <Route aria-hidden size={14} strokeWidth={1.75} />
+            </dt>
+            <dd>
+              {t("tools.campusWifi.vpnRoutes", {
+                count: vpn.publishers?.length ?? 0,
+              })}
+              <VpnPublishers
+                publishers={vpn.publishers ?? []}
+                isDefault={vpn.publishersDefault ?? true}
+                onChange={setPublishers}
+              />
+            </dd>
+          </div>
+          {remaining && (
+            <div>
+              <dt>
+                <Clock aria-hidden size={14} strokeWidth={1.75} />
+              </dt>
+              <dd>
+                {t("tools.campusWifi.vpnSessionLeft", { time: remaining })}
+              </dd>
+            </div>
+          )}
+          {detail && <p className="toolCardDetail">{detail}</p>}
+        </dl>
+      )}
+    </ToolCard>
   );
 }

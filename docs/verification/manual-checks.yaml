@@ -2410,6 +2410,20 @@ checks:
           before taking one of the few VPN ports. Leaving the campus network
           must bring standby back within seconds.
       - action: |
+          Off campus, with automatic management on and no tunnel up, open
+          https://www.sciencedirect.com/ and a paper the library subscribes
+          to; then add nature.com from the card's pencil and open a Nature
+          article. On macOS check `route -n get www.sciencedirect.com` (the
+          tunnel's utun) and `route -n get -inet6 www.sciencedirect.com`
+          (reject) while it is up.
+        reason: |
+          Publishers grant papers by the campus address a request comes from:
+          only a real APM tunnel shows that their IPv4 addresses go through it,
+          that reaching one wakes standby, and that their IPv6 addresses are
+          refused so a browser on an IPv6 network falls back to the tunnel.
+          Windows leaves IPv6 alone, so there an IPv6 network may still go
+          around the tunnel.
+      - action: |
           Save a wrong password in the school account, then reach a campus host.
         reason: |
           A refused password must turn on-demand off with one notice, not post
@@ -2426,7 +2440,8 @@ checks:
       First use connects within the sign-in time and succeeds, an idle tunnel
       ends after 5 minutes (quietly when it was demanded), an open ssh keeps
       it until 30 minutes without real traffic and then ends with the unused
-      notice, on campus the card says no VPN is needed with campus routes on
+      notice, a subscribed paper opens in full through the tunnel and an added
+      publisher works too, on campus the card says no VPN is needed with campus routes on
       the physical interface and a press asks first, a refused password
       stops it once, and no standby route or
       interface remains after the app quits.
@@ -2441,6 +2456,8 @@ checks:
       - apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs
       - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - crates/app-core/src/campus_network.rs
+      - crates/vpn-helper/src/publisher_routes.rs
+      - apps/desktop/src/pages/tools/VpnPublishers.tsx
       - apps/desktop/src/pages/tools/CampusVpn.tsx
     verified: null
 

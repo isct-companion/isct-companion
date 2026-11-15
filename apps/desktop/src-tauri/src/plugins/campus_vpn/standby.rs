@@ -94,6 +94,8 @@ fn hold(app: &tauri::AppHandle, service: &Arc<VpnService>) -> Result<(), String>
     let request = Request::Standby { bypass: bypass() };
     let line = serde_json::to_string(&request).map_err(|error| error.to_string())?;
     writeln!(stream, "{line}").map_err(|error| error.to_string())?;
+    // Reaching a publisher wakes standby too, at the addresses it has now.
+    super::send_publisher_routes(service);
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     let mut network_read = Instant::now();
@@ -137,6 +139,9 @@ async fn demand(app: tauri::AppHandle, service: Arc<VpnService>) {
     let Some(_login) = service.begin_login() else {
         return;
     };
+    let routing = service.clone();
+    let _ =
+        tauri::async_runtime::spawn_blocking(move || super::send_publisher_routes(&routing)).await;
     let outcome = match crate::core_ports::core(&app)
         .sessions()
         .campus_vpn_login()

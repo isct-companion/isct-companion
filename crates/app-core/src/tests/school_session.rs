@@ -625,7 +625,10 @@ async fn a_sign_in_stopped_before_sending_anything_pauses() {
             .0
             .sign_in(profile, seen, identity::How::Background)
             .await;
-        assert!(matches!(ended, Err(identity::Ended::Unavailable(_))), "{ended:?}");
+        assert!(
+            matches!(ended, Err(identity::Ended::Unavailable(_))),
+            "{ended:?}"
+        );
     }
     assert_eq!(identity.sign_ins_started(), 1);
     assert!(sessions.0.auth.refusal(profile).is_none());
