@@ -68,6 +68,8 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: app.isctcompanion.inbox
             CFBundleURLSchemes: [isctcompanion]
+          - CFBundleURLName: app.isctcompanion.oauth
+            CFBundleURLSchemes: [$(ISCT_GOOGLE_IOS_CALLBACK_SCHEME)]
         CFBundleDocumentTypes:
           - CFBundleTypeName: File
             LSHandlerRank: Alternate
@@ -77,7 +79,7 @@ targets:
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
         # The campus map's blue dot (CampusMapLocation); never in the background.
         NSLocationWhenInUseUsageDescription: キャンパスマップに現在地を表示するために使います。
-        # Google Drive sign-in (GoogleSignIn.swift): the iOS client registered in
+        # Google sign-in: the iOS client registered in
         # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
         # this in step with that file.
         IsctGoogleClientID: $(ISCT_GOOGLE_IOS_CLIENT_ID)
@@ -110,6 +112,7 @@ targets:
         ENABLE_PREVIEWS: true
         CODE_SIGN_STYLE: Automatic
         ISCT_GOOGLE_IOS_CLIENT_ID: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
+        ISCT_GOOGLE_IOS_CALLBACK_SCHEME: com.googleusercontent.apps.681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv
   # Share extension: what is shared from another app goes to the app's inbox
   # in the App Group, optionally for an assignment picked in the sheet. It
   # never loads Core; the app hands the files in.

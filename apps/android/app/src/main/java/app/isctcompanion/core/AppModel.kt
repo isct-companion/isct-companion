@@ -141,11 +141,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             // connected and owns every Drive request.
             val config = SessionConfig(
                 dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
+                appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
                 initialNetwork = SyncNetwork.UNKNOWN, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, drive,
+                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), ExamBrowserAuth(context), null, drive,
             )
             this.session = session
             val stream = session.subscribe()
@@ -527,6 +528,15 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
         (query(WorkspaceQuery.WorkspaceOverview(term)) as? WorkspaceQueryResult.WorkspaceOverview)?.v1
+
+    suspend fun examShare(action: ExamAction): ExamAnswer {
+        val session = session ?: throw SdkException.Closed()
+        return (session.examShare(action).value() as? OperationResult.ExamShare)?.answer
+            ?: throw SdkException.Unavailable("exam-share-unavailable")
+    }
+
+    suspend fun examCourseImport(term: String?): ExamCourseImportPreview? =
+        (query(WorkspaceQuery.ExamCourseImport(term)) as? WorkspaceQueryResult.ExamCourseImport)?.v1
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */

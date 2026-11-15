@@ -122,7 +122,7 @@ final class AppModel {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             }
             // iCloud uses the device's account, so it needs no separate sign-in;
-            // Google Drive signs in through `GoogleSignIn`, and Core reads its
+            // Google Drive signs in through `BrowserAuthentication`, and Core reads its
             // saved authorization itself.
             #if ISCT_NO_ICLOUD
             // Personal-team builds carry no iCloud entitlement, and CKContainer
@@ -135,12 +135,16 @@ final class AppModel {
             let icloud: [CloudProvider] = cloud == nil ? [] : [.icloud]
             #endif
             let config = SessionConfig(
-                dataDirectory: data.path, filesDirectory: files.path, initialNetwork: .unknown,
+                dataDirectory: data.path, filesDirectory: files.path,
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                initialNetwork: .unknown,
                 cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
                 notifications: nil, webCookies: WebCookieSeed(),
-                webAuthentication: GoogleSignIn(), driveTokens: nil)
+                browserAuth: BrowserAuthentication(),
+                iosGoogleClientId: Bundle.main.object(forInfoDictionaryKey: "IsctGoogleClientID") as? String,
+                driveTokens: nil)
             self.session = session
             let stream = try session.subscribe()
             Task { await self.listen(stream) }
@@ -550,6 +554,23 @@ final class AppModel {
             case let .workspaceOverview(view)? = result.values.first
         else { return nil }
         return view
+    }
+
+    func examShare(_ action: ExamAction) async throws -> ExamAnswer {
+        guard let session,
+            case let .examShare(answer) = try await session.examShare(action: action).value()
+        else { throw SdkError.Unavailable(detail: "exam-share-unavailable") }
+        return answer
+    }
+
+    func examCourseImport(term: String?) async -> ExamCourseImportPreview? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .examCourseImport(term: term)
+            ]).value(),
+            case let .examCourseImport(preview)? = result.values.first
+        else { return nil }
+        return preview
     }
 
     /// One quarter's assignments as Core groups them, for 授業's 課題.

@@ -51,6 +51,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::SubmissionMismatch
         | C::SubmissionIdentityChanged => SdkError::Conflict { detail },
         C::Storage
+        | C::ExamShareStorage
         | C::WriteDenied
         | C::VaultUnavailable
         | C::SignOutIncomplete
@@ -59,20 +60,36 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::Compatibility | C::CloudFormat | C::CloudVersionMissing => {
             SdkError::Compatibility { detail }
         }
-        C::SignInRequired => SdkError::Authentication { detail },
+        C::SignInRequired
+        | C::ExamShareSignedOut
+        | C::ExamShareExpired
+        | C::ExamShareDenied
+        | C::ExamShareConsent
+        | C::ExamShareAdministrator
+        | C::ExamShareIdentity => SdkError::Authentication { detail },
         C::SchoolMaintenance => SdkError::Maintenance { detail },
-        C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
-        C::Timeout | C::CloudRetrying => SdkError::Timeout { detail },
+        C::Network | C::ExamShareNetwork | C::Offline | C::HostPaused => {
+            SdkError::Network { detail }
+        }
+        C::Timeout | C::ExamShareTimeout | C::CloudRetrying => SdkError::Timeout { detail },
         C::Busy
+        | C::ExamShareBusy
         | C::ResetBusy
         | C::SubmissionInProgress
         | C::SubmissionOutcomeUnknown
         | C::DataFolderInUse => SdkError::Busy { detail },
-        C::Cancelled | C::ResetStopped => SdkError::Cancelled,
+        C::Cancelled | C::ExamShareCancelled | C::ResetStopped => SdkError::Cancelled,
         C::Stopped => SdkError::Closed,
         C::Callback => SdkError::Callback { detail },
         C::Internal => SdkError::Internal { detail },
         C::Unavailable
+        | C::ExamShareUnavailable
+        | C::ExamShareUnsupported
+        | C::ExamShareResponse
+        | C::ExamShareNotFound
+        | C::ExamShareRejected
+        | C::ExamShareAlreadyReported
+        | C::ExamShareQuota
         | C::Platform
         | C::LogsUnavailable
         | C::SchoolSiteChanged
@@ -82,6 +99,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::LmsWritesDisabled
         | C::SubmissionUnsupported => SdkError::Unavailable { detail },
         C::InvalidInput
+        | C::ExamShareInvalidInput
         | C::TooLarge
         | C::NoteTooLarge
         | C::StudyAdmissionTerm
@@ -122,6 +140,7 @@ macro_rules! from_coded {
 }
 
 from_coded!(
+    app_core::exam_share::ExamError,
     app_core::schedule::ReminderError,
     app_core::schedule::ScheduleError,
     app_core::facade::CredentialMutationError,

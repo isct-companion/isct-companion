@@ -7,6 +7,7 @@ struct WorkspaceRecords {
     typealias Row = [String: Any]
     private(set) var courses: [String: Row] = [:]
     private(set) var assignments: [String: Row] = [:]
+    private(set) var currentTerm: String?
     /// The complete settings object; forms edit a copy and replace it.
     private(set) var settings: Row = [:]
 
@@ -18,6 +19,7 @@ struct WorkspaceRecords {
         else { return }
         courses = Self.index(root["courses"])
         assignments = Self.index(root["assignments"])
+        currentTerm = root.text("currentTerm")
         settings = root["settings"] as? Row ?? [:]
     }
 

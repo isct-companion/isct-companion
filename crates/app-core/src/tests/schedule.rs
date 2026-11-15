@@ -914,6 +914,47 @@ pub(crate) fn multi_quarter_workspace() -> Value {
 }
 
 #[test]
+fn exam_course_import_keeps_cross_listed_and_uncoded_timetable_courses() {
+    let mut data = multi_quarter_workspace();
+    // These are local timetable records, as stored after editing or importing
+    // a course. The two codes on one row must survive for manual matching.
+    data["courses"][0]["code"] = json!("ＥＮＴ．Ｂ１０１（ＬＡＳ．Ｆ１０１）-02");
+    data["courses"].as_array_mut().unwrap().extend([
+        json!({"id":"manual","termId":"2026-4Q","title":"Independent Study","code":""}),
+        json!({"id":"off-timetable","termId":"2026-4Q","title":"Removed","code":"CSC.T101"}),
+    ]);
+    data["memberships"] = json!([{"courseId":"manual","termId":"2026-4Q","status":"declared"}]);
+
+    let WorkspaceQueryResult::ExamCourseImport(preview) = query(
+        &data,
+        &SchoolReads::default(),
+        WorkspaceQuery::ExamCourseImport { term: None },
+    )
+    .unwrap() else {
+        panic!("expected the local exam course import preview");
+    };
+    let candidates: Vec<_> = preview
+        .courses
+        .iter()
+        .map(|course| {
+            (
+                course.course_id.as_str(),
+                course
+                    .subject_codes
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(preview.term, "2026-4Q");
+    assert_eq!(
+        candidates,
+        [("multi", vec!["ENT.B101", "LAS.F101"]), ("manual", vec![])]
+    );
+}
+
+#[test]
 fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
     let data = multi_quarter_workspace();
     let at = |raw: &str| DateTime::parse_from_rfc3339(raw).unwrap();

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.FileCopy
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Settings
@@ -96,6 +97,7 @@ import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.lectures.LecturesScreen
+import app.isctcompanion.features.pastexams.PastExamsScreen
 import app.isctcompanion.features.settings.SettingsScreen
 import app.isctcompanion.features.settings.UpdatePrompt
 import app.isctcompanion.features.settings.WelcomeSheet
@@ -205,6 +207,7 @@ class Navigator(private val controller: NavHostController) {
     )
 
     fun openRecord() = controller.navigate("record")
+    fun openPastExams() = controller.navigate(PAST_EXAMS_DETAIL) { launchSingleTop = true }
 
     /** The account page 設定 should open on, taken (and cleared) by it. */
     var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
@@ -225,9 +228,9 @@ class Navigator(private val controller: NavHostController) {
     fun back() = controller.popBackStack()
 }
 
-/** Assignments live on 今日, and 設定 is the last tab. 授業 is a tab only on
- * tablets, as on iPad; a phone reaches courses from 今日 and
- * 時間割. */
+private const val PAST_EXAMS_DETAIL = "past-exams/detail"
+
+/** On phones, past exams have a tab. On tablets they open from 授業. */
 private enum class AppTab(
     val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
 ) {
@@ -235,6 +238,7 @@ private enum class AppTab(
     Timetable("tab/timetable", "timetable", "common.timetable", Icons.Rounded.GridView),
     Lectures("tab/lectures", "lectures", "common.courses", Icons.AutoMirrored.Rounded.LibraryBooks, wideOnly = true),
     Web("tab/web", "web", "common.web", Icons.Rounded.Language),
+    PastExams("tab/past-exams", "past-exams", "examShare.title", Icons.Rounded.FileCopy),
     Settings("tab/settings", "settings", "common.settings", Icons.Rounded.Settings),
 }
 
@@ -313,8 +317,13 @@ private fun Tabs() {
     val context = LocalContext.current
     val wide = remember(configuration) { context.largeScreen() }
     LaunchedEffect(wide, current) {
-        // Folded while on 授業, which the phone's bar has no tab for.
-        if (!wide && current == AppTab.Lectures) navigator.openTab(AppTab.Today.route)
+        if (!wide && current == AppTab.Lectures) {
+            val tab = if (destination?.route == PAST_EXAMS_DETAIL) AppTab.PastExams else AppTab.Today
+            navigator.openTab(tab.route)
+        } else if (wide && current == AppTab.PastExams) {
+            navigator.openTab(AppTab.Lectures.route)
+            navigator.openPastExams()
+        }
     }
     // A pushed school page fills the screen, like a browser tab.
     val showsBar = destination?.route?.startsWith("page/") != true
@@ -338,7 +347,9 @@ private fun Tabs() {
             bottomBar = {
                 if (showsBar) {
                     NavigationBar {
-                        for (tab in AppTab.entries.filter { wide || !it.wideOnly }) {
+                        for (tab in AppTab.entries.filter {
+                            if (wide) it != AppTab.PastExams else !it.wideOnly
+                        }) {
                             NavigationBarItem(
                                 selected = tab == current,
                                 onClick = {
@@ -368,7 +379,9 @@ private fun Tabs() {
                 tab(AppTab.Timetable) { TimetableScreen() }
                 tab(AppTab.Lectures) { LecturesScreen() }
                 tab(AppTab.Web) { WebTabScreen() }
+                tab(AppTab.PastExams) { PastExamsScreen() }
                 tab(AppTab.Settings) { SettingsScreen() }
+                destination(PAST_EXAMS_DETAIL) { PastExamsScreen(onBack = { navigator.back() }) }
                 destination(
                     "course/{id}?zoom={zoom}",
                     listOf(

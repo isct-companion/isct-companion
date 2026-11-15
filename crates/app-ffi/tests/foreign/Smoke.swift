@@ -88,9 +88,9 @@ func require(_ condition: Bool, _ detail: String) throws {
 @main struct Smoke {
     static func main() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("isct-swift-\(UUID().uuidString)")
-        let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
+        let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, appVersion: "1.0.0", initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
         let vault = MemoryVault()
-        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, webCookies: nil, webAuthentication: nil, driveTokens: nil)
+        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, webCookies: nil, browserAuth: nil, iosGoogleClientId: nil, driveTokens: nil)
         let logs = try exportApplicationLogs(about: "smoke")
         try require(logs.hasPrefix("smoke\n") && logs.contains("Application started"), "Opening a session must install Core's logger")
         let waitingOperation = WaitingOperation()

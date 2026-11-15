@@ -34,6 +34,7 @@ const WEB_SURFACE: &str = "web";
 pub struct SessionConfig {
     pub data_directory: String,
     pub files_directory: String,
+    pub app_version: String,
     /// Sent to Core's planner as the first `Hint::Network`.
     pub initial_network: SyncNetwork,
     pub cloud_providers: Vec<CloudProvider>,
@@ -71,6 +72,7 @@ pub(crate) struct Inner {
     sync_services: CloudServices,
     /// Drive's sign-in, when the shell installed a Drive port.
     drive: Option<Arc<DriveAuth>>,
+    pub(crate) exam_share: Option<app_core::exam_share::ExamShare>,
     pub notifications: Option<Arc<dyn NativeNotifications>>,
     pub files: PathBuf,
     backup_directory: PathBuf,
@@ -112,6 +114,7 @@ impl Inner {
         *self.gate.lock().map_err(|_| SdkError::Closed)? = true;
         self.tasks.close();
         self.closed.cancel();
+        if let Some(exam_share) = &self.exam_share { exam_share.cancel(); }
         if let Ok(operations) = self.operations.lock() {
             for op in operations.values().filter_map(Weak::upgrade) {
                 if op.cancellable {
@@ -243,7 +246,8 @@ impl Session {
         cloud: Option<Arc<dyn NativeCloud>>,
         notifications: Option<Arc<dyn NativeNotifications>>,
         web_cookies: Option<Arc<dyn NativeWebCookies>>,
-        web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
+        browser_auth: Option<Arc<dyn NativeBrowserAuth>>,
+        ios_google_client_id: Option<String>,
         drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
     ) -> Result<Arc<Self>, SdkError> {
         // The first session installs Core's logger for the process; later
@@ -275,7 +279,8 @@ impl Session {
                     cloud,
                     notifications,
                     web_cookies,
-                    web_authentication,
+                    browser_auth,
+                    ios_google_client_id,
                     drive_tokens,
                 },
             ))
@@ -593,7 +598,7 @@ impl Session {
             if enabled && matches!(provider, CloudProvider::GoogleDrive) && i.drive.is_none() {
                 return Err(unavailable("Google Drive"));
             }
-            let sign_in = crate::ports::DriveSignIn(i.drive.as_deref());
+            let sign_in = crate::ports::DriveSignIn(i.drive.as_deref(), &i.closed);
             Ok(OperationResult::Cloud {
                 state: project(
                     sync.set_enabled(
@@ -656,7 +661,8 @@ struct Ports {
     cloud: Option<Arc<dyn NativeCloud>>,
     notifications: Option<Arc<dyn NativeNotifications>>,
     web_cookies: Option<Arc<dyn NativeWebCookies>>,
-    web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
+    browser_auth: Option<Arc<dyn NativeBrowserAuth>>,
+    ios_google_client_id: Option<String>,
     drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
 }
 
@@ -670,13 +676,21 @@ async fn initialize(
         cloud,
         notifications,
         web_cookies,
-        web_authentication,
+        browser_auth,
+        ios_google_client_id,
         drive_tokens,
     } = ports;
     let data = PathBuf::from(&config.data_directory);
     let files = PathBuf::from(&config.files_directory);
     let backup_directory = data.join("backups");
-    let drive = DriveAuth::new(vault.clone(), web_authentication, drive_tokens)?.map(Arc::new);
+    let exam_share = crate::exam_share::service(vault.clone(), browser_auth.clone(), ios_google_client_id.clone(), &data, config.app_version);
+    let drive = DriveAuth::new(
+        vault.clone(),
+        browser_auth,
+        ios_google_client_id,
+        drive_tokens,
+    )?
+    .map(Arc::new);
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
         cloud: cloud.is_some() || drive.is_some(),
@@ -711,7 +725,7 @@ async fn initialize(
             })
             .collect::<Vec<_>>();
         if let Some(drive) = &store_drive {
-            if drive.authorized()? {
+            if drive.authorized().map_err(SdkError::from)? {
                 authorized.push(CloudProvider::GoogleDrive);
             }
         }
@@ -767,6 +781,7 @@ async fn initialize(
         sync,
         sync_services,
         drive,
+        exam_share,
         notifications,
         files,
         backup_directory,
@@ -787,7 +802,10 @@ async fn initialize(
         notifications: inner.notifications.as_ref().map(|sink| {
             Arc::new(Notifications(sink.clone())) as Arc<dyn app_core::schedule::NotificationSink>
         }),
-        cloud: inner.capabilities.cloud.then(|| inner.sync_services.clone()),
+        cloud: inner
+            .capabilities
+            .cloud
+            .then(|| inner.sync_services.clone()),
     });
     inner.core.start(&Handle::current())?;
     Ok(inner)

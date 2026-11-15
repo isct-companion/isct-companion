@@ -145,6 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("../app-core/src");
     let files = [
         "workspace.rs",
+        "exam_share/model.rs",
         "workspace_changes.rs",
         "study_profile.rs",
         "schedule/mod.rs",
@@ -152,6 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/requests.rs",
         "schedule/course_detail.rs",
         "schedule/course_content.rs",
+        "schedule/exam_course_import.rs",
         "schedule/exams.rs",
         "schedule/search.rs",
         "schedule/calendar.rs",

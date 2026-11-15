@@ -106,6 +106,25 @@ codes! {
     LmsWritesDisabled => "lms-writes-disabled",
     DataFolderInUse => "data-folder-in-use",
     SubmissionIdentityChanged => "submission-identity-changed",
+    ExamShareNetwork => "exam-share-network",
+    ExamShareTimeout => "exam-share-timeout",
+    ExamShareUnavailable => "exam-share-unavailable",
+    ExamShareUnsupported => "exam-share-unsupported",
+    ExamShareResponse => "exam-share-response",
+    ExamShareSignedOut => "exam-share-signed-out",
+    ExamShareExpired => "exam-share-expired",
+    ExamShareDenied => "exam-share-denied",
+    ExamShareConsent => "exam-share-consent",
+    ExamShareAdministrator => "exam-share-administrator",
+    ExamShareNotFound => "exam-share-not-found",
+    ExamShareRejected => "exam-share-rejected",
+    ExamShareIdentity => "exam-share-identity",
+    ExamShareStorage => "exam-share-storage",
+    ExamShareCancelled => "exam-share-cancelled",
+    ExamShareBusy => "exam-share-busy",
+    ExamShareAlreadyReported => "exam-share-already-reported",
+    ExamShareQuota => "exam-share-quota",
+    ExamShareInvalidInput => "exam-share-invalid-input",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -215,6 +234,31 @@ macro_rules! coded {
         }
     };
 }
+
+coded!(crate::exam_share::ExamError, |e| {
+    use crate::exam_share::ExamError as E;
+    match e {
+        E::Network => C::ExamShareNetwork,
+        E::Timeout => C::ExamShareTimeout,
+        E::Unavailable => C::ExamShareUnavailable,
+        E::Unsupported => C::ExamShareUnsupported,
+        E::Response => C::ExamShareResponse,
+        E::SignedOut => C::ExamShareSignedOut,
+        E::Expired => C::ExamShareExpired,
+        E::Denied => C::ExamShareDenied,
+        E::Consent => C::ExamShareConsent,
+        E::Administrator => C::ExamShareAdministrator,
+        E::NotFound => C::ExamShareNotFound,
+        E::Rejected => C::ExamShareRejected,
+        E::Identity => C::ExamShareIdentity,
+        E::Storage => C::ExamShareStorage,
+        E::Cancelled => C::ExamShareCancelled,
+        E::Busy => C::ExamShareBusy,
+        E::AlreadyReported => C::ExamShareAlreadyReported,
+        E::Quota => C::ExamShareQuota,
+        E::InvalidInput => C::ExamShareInvalidInput,
+    }
+});
 
 #[cfg(feature = "campus-map")]
 coded!(crate::campus_map::CampusMapError, |e| {

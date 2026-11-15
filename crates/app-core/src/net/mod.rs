@@ -44,18 +44,24 @@ pub enum Host {
     GetAccessRouter,
     ScienceAccount,
     IsctData,
+    ScienceTokyoExam,
+    FirebaseIdentityToolkit,
+    FirebaseSecureToken,
     /// The F5 APM in front of the campus VPN.
     CampusVpn,
 }
 
 impl Host {
-    pub const ALL: [Host; 7] = [
+    pub const ALL: [Host; 10] = [
         Host::Moodle,
         Host::Kyomu,
         Host::GetAccess,
         Host::GetAccessRouter,
         Host::ScienceAccount,
         Host::IsctData,
+        Host::ScienceTokyoExam,
+        Host::FirebaseIdentityToolkit,
+        Host::FirebaseSecureToken,
         Host::CampusVpn,
     ];
 
@@ -67,6 +73,9 @@ impl Host {
             Host::GetAccessRouter => "rp.nap.gsic.titech.ac.jp",
             Host::ScienceAccount => "isct.ex-tic.com",
             Host::IsctData => "raw.githubusercontent.com",
+            Host::ScienceTokyoExam => "sciencetokyoexam.com",
+            Host::FirebaseIdentityToolkit => "identitytoolkit.googleapis.com",
+            Host::FirebaseSecureToken => "securetoken.googleapis.com",
             Host::CampusVpn => "apm.nap.gsic.titech.ac.jp",
         }
     }
@@ -94,6 +103,8 @@ impl Host {
             | Host::ScienceAccount
             | Host::CampusVpn => (1, Duration::from_millis(300)),
             Host::IsctData => (2, Duration::ZERO),
+            Host::ScienceTokyoExam => (1, Duration::from_millis(500)),
+            Host::FirebaseIdentityToolkit | Host::FirebaseSecureToken => (1, Duration::ZERO),
         }
     }
 }
@@ -290,3 +301,24 @@ pub(crate) mod one_answer;
 #[cfg(test)]
 #[path = "../tests/net.rs"]
 mod tests;
+
+/// Collect a non-redirecting client's response without exposing its URL in errors.
+pub(crate) async fn read_response_limited(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, NetError> {
+    if response
+        .content_length()
+        .is_some_and(|size| size > limit as u64)
+    {
+        return Err(NetError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| NetError::Stalled)? {
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(NetError::TooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}

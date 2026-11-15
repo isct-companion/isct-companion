@@ -15,6 +15,7 @@ pub struct ScheduleSnapshot {
 // UniFFI transports records by value and does not expose Box<T> in this ABI.
 #[allow(clippy::large_enum_variant)]
 pub enum OperationResult {
+    ExamShare { answer: ExamAnswer },
     Committed {
         commit: WorkspaceCommit,
     },

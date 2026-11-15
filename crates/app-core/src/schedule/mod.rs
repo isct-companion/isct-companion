@@ -7,6 +7,7 @@ mod colors;
 mod course_content;
 mod course_detail;
 mod credits;
+mod exam_course_import;
 mod exams;
 mod ics;
 mod lms_html;
@@ -53,6 +54,7 @@ pub use course_detail::{
     assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
 };
 pub use credits::declared_term_credits;
+pub use exam_course_import::{ExamCourseImportCandidate, ExamCourseImportPreview};
 pub(crate) use exams::{
     adopted_exam_override, corrected_exam_override, linked_exam_override, marked_session_override,
     removed_exam_override, ExamCorrection,
@@ -204,6 +206,11 @@ pub enum WorkspaceQuery {
     ScheduledCourses {
         term: String,
     },
+    /// Preview the local timetable before importing it into ScienceTokyoExam.
+    ExamCourseImport {
+        #[serde(default)]
+        term: Option<String>,
+    },
     AcademicYear {
         year: i32,
     },
@@ -302,7 +309,9 @@ impl WorkspaceQuery {
             | Self::TimetableYear { .. } => CALENDAR,
             Self::SubscriptionViews => &[Subscriptions, Settings],
             Self::DeclaredCredits { .. } => &[Registrations, Settings],
-            Self::ScheduledCourses { .. } | Self::ClassGroups { .. } => {
+            Self::ScheduledCourses { .. }
+            | Self::ExamCourseImport { .. }
+            | Self::ClassGroups { .. } => {
                 &[Courses, Registrations, Finder, Calendar, Plans, Settings]
             }
             Self::WorkspaceOverview { .. } => &[
@@ -482,6 +491,7 @@ pub enum WorkspaceQueryResult {
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
     QuarterRange(Option<QuarterRange>),
     ScheduledCourses(#[cfg_attr(feature = "ts", ts(type = "unknown[]"))] Vec<Value>),
+    ExamCourseImport(ExamCourseImportPreview),
     AcademicYear(AcademicYearCalendar),
     TimetableYear(TimetableYear),
     QuarterIcs(String),
@@ -683,6 +693,9 @@ pub fn query(
                 workspace, &term,
             )))
         }
+        WorkspaceQuery::ExamCourseImport { term } => Ok(WorkspaceQueryResult::ExamCourseImport(
+            exam_course_import::preview(workspace, school, term.as_deref())?,
+        )),
         WorkspaceQuery::AcademicYear { year } => Ok(WorkspaceQueryResult::AcademicYear(
             academic_year_calendar(workspace, year)?,
         )),
@@ -1012,6 +1025,8 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         AssignmentBoard::decl(cfg),
         AcademicYearIndex::decl(cfg),
         WorkspaceOverview::decl(cfg),
+        ExamCourseImportCandidate::decl(cfg),
+        ExamCourseImportPreview::decl(cfg),
         ScheduleView::decl(cfg),
         ScheduleIntensiveDay::decl(cfg),
         WorkspaceQuery::decl(cfg),

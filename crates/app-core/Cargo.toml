@@ -34,7 +34,7 @@ tokio = { version = "1", features = ["rt", "time", "sync", "macros", "fs", "io-u
 tokio-util = { version = "0.7", features = ["rt"] }
 ts-rs = { version = "12", features = ["serde-compat"], optional = true }
 rusqlite = { version = "0.41", features = ["bundled", "hooks", "fallible_uint", "backup"] }
-uuid = { version = "1", features = ["v4", "v7"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 # rustls with ring, not 0.13's default aws-lc-rs: ring is what the tree
 # already builds for every target, and aws-lc-rs needs a C/CMake toolchain per
 # target. `net::client_builder` installs ring as the process provider.
@@ -50,6 +50,7 @@ strsim = "0.11"
 scraper = "0.29"
 ego-tree = "0.11"
 ring = "0.17"
+jsonwebtoken = { version = "12", default-features = false, features = ["rust_crypto"] }
 percent-encoding = "2"
 base64 = "0.23"
 # Core's own school cookie jars (`school_session`): domain, path and expiry
@@ -69,6 +70,10 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # The campus printer's CUPS queue exists only on macOS.
 [target.'cfg(target_os = "macos")'.dependencies]
 adpt-cups = { path = "../adpt-cups", optional = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "android"))'.dependencies]
+httparse = "1"
+tokio = { version = "1", features = ["net"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

@@ -19,7 +19,10 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
-    for declaration in app_core::schedule::declarations(&cfg) {
+    for declaration in app_core::exam_share::declarations(&cfg)
+        .into_iter()
+        .chain(app_core::schedule::declarations(&cfg))
+    {
         output.push_str("export ");
         output.push_str(&declaration);
         output.push_str("\n\n");

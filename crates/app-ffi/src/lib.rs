@@ -15,6 +15,7 @@ uniffi::setup_scaffolding!();
 mod android_tls;
 mod diagnostics;
 mod error;
+mod exam_share;
 mod json;
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/contracts.rs"));

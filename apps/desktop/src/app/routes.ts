@@ -19,6 +19,7 @@ export const routePatterns = {
   assignment: "/lectures/:courseId/assignments/:aid",
   web: "/web",
   tools: "/tools",
+  pastExams: "/past-exams",
   settings: "/settings",
   section: "/settings/:section",
   about: "/about",
@@ -36,6 +37,7 @@ export const paths = {
       : routePatterns.lectures,
   web: () => routePatterns.web,
   tools: () => routePatterns.tools,
+  pastExams: () => routePatterns.pastExams,
   settings: (section?: Section) =>
     section ? `${routePatterns.settings}/${section}` : routePatterns.settings,
   about: () => routePatterns.about,
@@ -64,9 +66,11 @@ export function parseRoute(location: string) {
             ? "web"
             : id === "tools"
               ? "tools"
-              : id === "about"
-                ? "about"
-                : "home";
+              : id === "pastExams"
+                ? "pastExams"
+                : id === "about"
+                  ? "about"
+                  : "home";
   return {
     page,
     matched: Boolean(match),

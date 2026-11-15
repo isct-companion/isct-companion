@@ -62,6 +62,7 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
         "school-refusals" => "passwords.school-refusals",
         // An earlier release's device item; Core only deletes it.
         "school-candidates" => "passwords.school-candidates",
+        "sciencetokyoexam" => "passwords.sciencetokyoexam",
         "google-drive" => "passwords.google-drive",
         "icloud" => "passwords.icloud",
         "cloud-credential-sync" => "passwords.cloud-credential-sync",

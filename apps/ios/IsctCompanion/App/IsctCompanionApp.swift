@@ -44,7 +44,7 @@ struct IsctCompanionApp: App {
 
 /// The desktop's pages (`routes.ts`), as tabs, rail rows or both.
 enum AppTab: Hashable, CaseIterable {
-    case today, timetable, lectures, web, settings
+    case today, timetable, lectures, web, pastExams, settings
 
     var title: String {
         switch self {
@@ -52,6 +52,7 @@ enum AppTab: Hashable, CaseIterable {
         case .timetable: t("common.timetable")
         case .lectures: t("common.courses")
         case .web: t("common.web")
+        case .pastExams: t("examShare.title")
         case .settings: t("common.settings")
         }
     }
@@ -62,6 +63,7 @@ enum AppTab: Hashable, CaseIterable {
         case .timetable: "square.grid.3x3"
         case .lectures: "books.vertical"
         case .web: "globe"
+        case .pastExams: "doc.on.doc"
         case .settings: "gearshape"
         }
     }
@@ -83,11 +85,11 @@ enum Layout {
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     static var tabs: [AppTab] {
-        isPad ? [.today, .timetable, .lectures, .web, .settings] : [.today, .timetable, .web, .settings]
+        isPad ? [.today, .timetable, .lectures, .web, .settings] : [.today, .timetable, .web, .pastExams, .settings]
     }
 
     /// The workstation's rail, as desktop's; 設定 sits apart at its foot.
-    static let rail: [AppTab] = [.today, .timetable, .lectures, .web]
+    static let rail: [AppTab] = [.today, .timetable, .lectures, .web, .pastExams]
 }
 
 /// 授業's two lists, as desktop's LectureDesk switches them.
@@ -162,6 +164,10 @@ final class Navigator {
     func setWorkbench(_ wide: Bool) {
         guard wide != workbench else { return }
         workbench = wide
+        if !wide && Layout.isPad && tab == .pastExams {
+            tab = .lectures
+            push(PastExamsRoute())
+        }
         if !wide, let bench {
             var path = NavigationPath()
             path.append(bench)
@@ -380,6 +386,7 @@ struct RootView: View {
         case .timetable: stack(.timetable) { TimetableScreen() }
         case .lectures: stack(.lectures) { LecturesScreen() }
         case .web: stack(.web) { WebTabScreen() }
+        case .pastExams: stack(.pastExams) { PastExamsScreen() }
         case .settings: stack(.settings) { SettingsScreen() }
         }
     }
@@ -418,6 +425,7 @@ extension View {
         .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
+        .navigationDestination(for: PastExamsRoute.self) { _ in PastExamsScreen() }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
     }
 }

@@ -719,6 +719,124 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
+export type ExamSubject = {
+  code: string;
+  name: string;
+  nameEn: string | null;
+  examCount: number | null;
+};
+
+export type ExamTeacher = { id: string; name: string };
+
+export type ExamClass = {
+  classIds: Array<number>;
+  labels: Array<string>;
+  taughtIn: string;
+  teachers: Array<ExamTeacher>;
+};
+
+export type ExamDocument = {
+  id: string;
+  subjects: Array<ExamSubject>;
+  teachers: Array<ExamTeacher>;
+  academicYear: number | null;
+  occasion: string | null;
+  occasionNumber: number;
+  variant: string;
+  role: string | null;
+  note: string | null;
+  fileName: string;
+  fileType: string;
+};
+
+export type ExamSubjectPage = {
+  subject: ExamSubject;
+  rows: Array<ExamClass>;
+  exams: Array<ExamDocument>;
+};
+
+export type ExamRequest = {
+  id: string;
+  subject: ExamSubject;
+  teachers: Array<ExamTeacher>;
+  academicYear: number | null;
+  occasion: string | null;
+  wantedRole: string | null;
+  description: string;
+  status: string;
+  answerExamId: string | null;
+  mine: boolean;
+};
+
+export type ExamRequestCursor = { createdAt: number; id: string };
+
+export type ExamRequestPage = {
+  items: Array<ExamRequest>;
+  cursor: ExamRequestCursor | null;
+};
+
+export type ExamRequestDraft = {
+  subjectCode: string;
+  classId: number | null;
+  academicYear: number | null;
+  occasion: string | null;
+  wantedRole: string | null;
+  description: string;
+};
+
+export type ExamLocalDocument = {
+  document: ExamDocument;
+  path: string;
+  downloaded: boolean;
+  saved: boolean | null;
+  offline: boolean;
+};
+
+export type ExamLibrary = {
+  offline: boolean;
+  saved: Array<ExamDocument>;
+  downloaded: Array<ExamDocument>;
+  submitted: Array<ExamDocument>;
+};
+
+export type ExamAccountStatus =
+  "disconnected" | "needsConsent" | "connected" | "unavailable";
+
+export type ExamAccount = { status: ExamAccountStatus; email: string | null };
+
+export type ExamReportReason =
+  "copyright" | "inappropriate" | "wrongAnswer" | "brokenFile" | "other";
+
+export type ExamAction =
+  | { kind: "account" }
+  | { kind: "accountSnapshot" }
+  | { kind: "connect" }
+  | { kind: "cancelConnect" }
+  | { kind: "acceptTerms" }
+  | { kind: "disconnect" }
+  | { kind: "search"; query: string }
+  | { kind: "subject"; code: string }
+  | { kind: "open"; id: string; download: boolean }
+  | { kind: "library" }
+  | { kind: "save"; id: string; saved: boolean }
+  | { kind: "removeDownload"; id: string }
+  | { kind: "deleteSubmission"; id: string }
+  | { kind: "report"; id: string; reason: ExamReportReason; detail: string }
+  | { kind: "requests"; mine: boolean; cursor: ExamRequestCursor | null }
+  | { kind: "createRequest"; draft: ExamRequestDraft }
+  | { kind: "setRequestOpen"; id: string; open: boolean }
+  | { kind: "deleteRequest"; id: string };
+
+export type ExamAnswer =
+  | { kind: "account"; value: ExamAccount }
+  | { kind: "subjects"; value: Array<ExamSubject> }
+  | { kind: "subject"; value: ExamSubjectPage }
+  | { kind: "document"; value: ExamLocalDocument }
+  | { kind: "library"; value: ExamLibrary }
+  | { kind: "saved"; value: boolean }
+  | { kind: "requests"; value: ExamRequestPage }
+  | { kind: "done" };
+
 export type TeachingPeriod = {
   periods: [number, number];
   startTime: string;
@@ -1509,6 +1627,23 @@ export type WorkspaceOverview = {
   defaultFinderKeys: Array<string>;
 };
 
+export type ExamCourseImportCandidate = {
+  courseId: string;
+  title: string;
+  instructor: string;
+  subjectCodes: Array<string>;
+  /**
+   * Local syllabus offering, for matching against the remote subject's
+   * class list. It is not itself a verified remote class ID.
+   */
+  offeringId: string | null;
+};
+
+export type ExamCourseImportPreview = {
+  term: string;
+  courses: Array<ExamCourseImportCandidate>;
+};
+
 export type ScheduleView = {
   term: string;
   range: QuarterRange | null;
@@ -1563,6 +1698,7 @@ export type WorkspaceQuery =
   | { kind: "calendarState"; date: string }
   | { kind: "quarterRange"; term: string }
   | { kind: "scheduledCourses"; term: string }
+  | { kind: "examCourseImport"; term: string | null }
   | { kind: "academicYear"; year: number }
   | { kind: "timetableYear"; year: number }
   | {
@@ -1611,6 +1747,7 @@ export type WorkspaceQueryResult =
   | { kind: "calendarState"; value: unknown | null }
   | { kind: "quarterRange"; value: QuarterRange | null }
   | { kind: "scheduledCourses"; value: unknown[] }
+  | { kind: "examCourseImport"; value: ExamCourseImportPreview }
   | { kind: "academicYear"; value: AcademicYearCalendar }
   | { kind: "timetableYear"; value: TimetableYear }
   | { kind: "quarterIcs"; value: string }
@@ -2047,7 +2184,26 @@ export type ErrorCode =
   | "submission-mismatch"
   | "lms-writes-disabled"
   | "data-folder-in-use"
-  | "submission-identity-changed";
+  | "submission-identity-changed"
+  | "exam-share-network"
+  | "exam-share-timeout"
+  | "exam-share-unavailable"
+  | "exam-share-unsupported"
+  | "exam-share-response"
+  | "exam-share-signed-out"
+  | "exam-share-expired"
+  | "exam-share-denied"
+  | "exam-share-consent"
+  | "exam-share-administrator"
+  | "exam-share-not-found"
+  | "exam-share-rejected"
+  | "exam-share-identity"
+  | "exam-share-storage"
+  | "exam-share-cancelled"
+  | "exam-share-busy"
+  | "exam-share-already-reported"
+  | "exam-share-quota"
+  | "exam-share-invalid-input";
 
 export type CoreFailure = {
   code: ErrorCode;

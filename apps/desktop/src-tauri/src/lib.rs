@@ -12,6 +12,7 @@ use secrets::OsSecretVault;
 
 mod agent_server;
 mod cloud;
+mod exam_share;
 mod cloud_sync;
 mod command_error;
 pub(crate) use command_error::{coded, shell, CommandError};
@@ -341,6 +342,7 @@ pub fn run() {
             commands::notifications::open_notification_settings,
             commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
+            exam_share::exam_share,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,
@@ -381,6 +383,7 @@ pub fn run() {
             };
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
+            app.manage(exam_share::service(app.handle().clone(), vault.clone(), app_data_dir.join("exam-share")));
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,
@@ -476,6 +479,7 @@ pub fn run() {
                 if !runtime.stopped() {
                     api.prevent_exit();
                     if runtime.begin_exit() {
+                        app.state::<DesktopCloudService<OsSecretVault>>().shutdown();
                         // Draining owned work can take up to EXIT_TIMEOUT. A
                         // window left on screen meanwhile reads as a frozen
                         // app, most visibly after "Install and quit".
