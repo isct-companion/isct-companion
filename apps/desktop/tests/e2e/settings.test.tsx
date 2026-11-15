@@ -2461,4 +2461,76 @@ describe("Campus VPN", () => {
     },
     TIMEOUT,
   );
+
+  // A macOS helper waits for the person to allow it in Login Items. Connect
+  // must ask for that again rather than spend a one-time APM login on a
+  // helper that cannot start the tunnel, and connect once it is allowed.
+  it(
+    "asks for the helper's approval before it signs in",
+    async () => {
+      // Left to the default OS: the page has no platform branch for this,
+      // and a macOS binary also starts its widget links, which the scripted
+      // host does not serve.
+      const status = { address: null, expiresAt: null, keepUntil: null };
+      const waiting = {
+        ...status,
+        state: "error",
+        error: "helper_needs_approval",
+        detail: "the campus VPN helper waits to be allowed in System Settings",
+      };
+      let allowed = false;
+      try {
+        const mounted = await mountSettings(paths.tools(), {
+          tools: ["campus-vpn"],
+          handle: (command) => {
+            if (command === "plugin:campus-vpn|status") return waiting;
+            if (command === "plugin:campus-vpn|install")
+              return allowed
+                ? {
+                    ...status,
+                    state: "disconnected",
+                    error: null,
+                    detail: null,
+                  }
+                : waiting;
+            if (command === "plugin:campus-vpn|connect")
+              return {
+                ...status,
+                state: "connected",
+                error: null,
+                detail: null,
+              };
+            return undefined;
+          },
+        });
+        app = mounted;
+        const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+        await wait(() =>
+          expect(pane.textContent).toContain(
+            "Allow IsctCompanion in System Settings → Login Items",
+          ),
+        );
+        await clickButton(pane, "Allow…");
+        await wait(() =>
+          expect(
+            mounted.core.commands("plugin:campus-vpn|install"),
+          ).toHaveLength(1),
+        );
+        expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+          0,
+        );
+        allowed = true;
+        await clickButton(pane, "Allow…");
+        await clickButton(pane, "Connect");
+        await wait(() =>
+          expect(
+            mounted.core.commands("plugin:campus-vpn|connect"),
+          ).toHaveLength(1),
+        );
+      } finally {
+        delete window.__ISCT_COMPANION_NATIVE_OS__;
+      }
+    },
+    TIMEOUT,
+  );
 });

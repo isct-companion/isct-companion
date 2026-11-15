@@ -17,6 +17,20 @@ use super::macos as platform;
 use super::windows as platform;
 pub(crate) use platform::{run_install, standby_stream, HELPER};
 
+/// Where one install press left the helper.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Install {
+    /// Installed or updated; the helper starts on its own.
+    Ready,
+    /// The person declined the UAC prompt.
+    #[cfg(target_os = "windows")]
+    Declined,
+    /// Registered, and waiting for the person to allow it in the system's
+    /// settings, which are open now (Login Items).
+    #[cfg(target_os = "macos")]
+    NeedsApproval,
+}
+
 /// Status answers at once and a stop within the helper's 5-second wait for
 /// openconnect. A start waits up to its own 30-second deadline, plus such a
 /// stop of an old tunnel before it and of a failed one after it.

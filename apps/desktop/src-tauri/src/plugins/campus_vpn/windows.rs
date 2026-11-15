@@ -1,7 +1,7 @@
 //! The Windows campus VPN helper: a LocalSystem service on a named pipe,
 //! installed once through the UAC prompt. The helper binary is its own
 //! installer (`isct-vpn-helper.exe install`, crates/vpn-helper/src/windows.rs).
-use super::helper::{converse, io_error};
+use super::helper::{converse, io_error, Install};
 use app_core::vpn::{HelperReport, VpnError};
 use std::{
     fs::OpenOptions, io::ErrorKind, os::windows::ffi::OsStrExt, path::Path, sync::mpsc, thread,
@@ -93,8 +93,8 @@ fn service_registered() -> bool {
 }
 
 /// Runs the bundled helper's installer through the UAC prompt and waits for
-/// it. Returns false when the person declined the prompt.
-pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
+/// it.
+pub(crate) fn run_install(resources: &Path) -> Result<Install, String> {
     let file: Vec<u16> = resources
         .join(HELPER)
         .as_os_str()
@@ -116,7 +116,7 @@ pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
     };
     if let Err(error) = unsafe { ShellExecuteExW(&mut info) } {
         if error.code() == ERROR_CANCELLED.to_hresult() {
-            return Ok(false);
+            return Ok(Install::Declined);
         }
         return Err(format!(
             "the campus VPN helper could not be installed: {error}"
@@ -133,7 +133,7 @@ pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
         let _ = CloseHandle(process);
     }
     if code == 0 {
-        Ok(true)
+        Ok(Install::Ready)
     } else {
         Err("the campus VPN helper could not be installed".into())
     }

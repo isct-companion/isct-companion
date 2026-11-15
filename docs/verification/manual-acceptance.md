@@ -233,7 +233,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/pages/about/IconToy.tsx |
 | `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
-| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>apps/desktop/src-tauri/src/tests/vpn_macos.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs |
+| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>crates/vpn-helper/assets/app.isctcompanion.vpn.plist<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/tauri.mjs |
 | `DESKTOP-CAMPUS-VPN-ON-DEMAND` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/ondemand.rs<br>crates/vpn-helper/src/unix.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>crates/app-core/src/campus_network.rs<br>crates/vpn-helper/src/publisher_routes.rs<br>apps/desktop/src/pages/tools/VpnPublishers.tsx<br>apps/desktop/src/pages/tools/CampusVpn.tsx |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
@@ -2801,11 +2801,14 @@ campus VPN helper not yet installed for the first run.
    - *Why:* Without a baseline the later "default route unchanged" claim cannot
      be checked.
 2. Open 工具 → 校园 VPN (ツール → キャンパス VPN) and press
-   Connect once. Approve the one-time installer prompt; nothing else is
-   typed or clicked.
-   - *Why:* The installer is the only administrator prompt, and the APM sign-in
-     uses the saved Tokyo Tech account. Any other prompt or page means the
-     helper is not registered with launchd or the sign-in walk broke.
+   Connect once. System Settings opens at Login Items: turn on
+   IsctCompanion under "Allow in the Background" with Touch ID, then
+   press Connect again. Nothing else is typed or clicked.
+   - *Why:* The helper is an SMAppService daemon inside the app; allowing it
+     there is the only approval, and Touch ID must be offered for it. An
+     administrator password dialog means the old installer ran; any other
+     prompt or page means the daemon did not register or the sign-in walk
+     broke.
 3. Run ssh to login.t4.gsic.titech.ac.jp, open https://portal.t4.gsic.titech.ac.jp/
    and a kyomu page.
    - *Why:* 131.112.0.0/16 must be reachable through the tunnel; these three cover
@@ -2821,10 +2824,11 @@ campus VPN helper not yet installed for the first run.
      and a tunnel from the other ends with `HTTP/1.0 302 Found` and
      "无法建立校园 VPN 隧道", so the tunnel coming up is the proof that
      Core signs in over the path openconnect uses.
-6. With the helper of an older build installed and no tunnel up, press
-   Connect and approve the update prompt.
-   - *Why:* An outdated helper reports no session end; the app must replace it
-     once, with one administrator prompt, before it connects.
+6. Install a newer build over this one (a higher HELPER_REVISION), and
+   with no tunnel up press Connect.
+   - *Why:* The update brings the helper with the app; the running one must hand
+     over to it by itself, with no password dialog and no new approval in
+     Login Items, before it connects.
 7. Compare the countdown on the VPN row with the session end openconnect
    logs in /var/log/app.isctcompanion.vpnhelper.log.
    - *Why:* The countdown is read from openconnect's UTC expiry line; a wrong
@@ -2857,8 +2861,9 @@ leaves no campus route or DNS entry behind.
 
 **Why this is manual**
 
-Needs the school's F5 login, an actual tunnel and an administrator
-install on macOS. None of that is reachable from automated suites.
+Needs the school's F5 login, an actual tunnel, a signed and notarized
+bundle and the person's approval in System Settings. None of that is
+reachable from automated suites.
 
 **Covers**
 
@@ -2877,10 +2882,11 @@ install on macOS. None of that is reachable from automated suites.
 - `crates/vpn-helper/src/unix.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs`
-- `apps/desktop/src-tauri/src/tests/vpn_macos.rs`
+- `crates/vpn-helper/assets/app.isctcompanion.vpn.plist`
 - `apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs`
 - `apps/desktop/src/pages/tools/CampusVpn.tsx`
 - `scripts/desktop/bundle-vpn.mjs`
+- `scripts/desktop/tauri.mjs`
 
 **Last recorded** never run
 

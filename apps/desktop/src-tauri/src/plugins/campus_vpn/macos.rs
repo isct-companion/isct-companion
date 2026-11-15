@@ -1,23 +1,27 @@
-//! The macOS campus VPN helper: a launchd daemon on a root:staff Unix
-//! socket, installed once with the system's administrator prompt.
-use super::helper::{converse, io_error};
+//! The macOS campus VPN helper: a launchd daemon inside the app bundle,
+//! registered with SMAppService and allowed once by the person in System
+//! Settings (Login Items, where Touch ID works). An app update brings the new
+//! helper with it; the running one hands over by itself
+//! (crates/vpn-helper/src/unix.rs). The app reaches it on a root:staff Unix
+//! socket.
+use super::helper::{converse, io_error, Install};
 use app_core::vpn::{HelperReport, VpnError};
-use std::{
-    io::ErrorKind,
-    os::unix::net::UnixStream,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use objc2_foundation::NSString;
+use objc2_service_management::{SMAppService, SMAppServiceStatus};
+use std::{io::ErrorKind, os::unix::net::UnixStream, path::Path, path::PathBuf, time::Duration};
 use vpn_protocol::{Request, SOCKET_PATH};
 
 /// The helper binary in the app's `resources/vpn`.
 pub(crate) const HELPER: &str = "isct-vpn-helper";
 
-const LABEL: &str = "app.isctcompanion.vpnhelper";
-const HELPER_DEST: &str = "/Library/PrivilegedHelperTools/app.isctcompanion.vpnhelper";
-const SCRIPT_DEST: &str = "/Library/PrivilegedHelperTools/isct-vpn-script";
-const SUPPORT_DIR: &str = "/Library/Application Support/IsctCompanion/vpn";
-const PLIST_DEST: &str = "/Library/LaunchDaemons/app.isctcompanion.vpnhelper.plist";
+/// The daemon's plist in `Contents/Library/LaunchDaemons`, from
+/// crates/vpn-helper/assets; `tauri.mjs` puts it there with the payload.
+const DAEMON_PLIST: &str = "app.isctcompanion.vpn.plist";
+
+/// SMAppService's `kSMErrorAlreadyRegistered` and `kSMErrorLaunchDeniedByUser`:
+/// neither is a failure, the status that follows says where it stands.
+const ALREADY_REGISTERED: isize = 12;
+const DENIED_BY_USER: isize = 11;
 
 pub(crate) struct HelperSocket {
     path: PathBuf,
@@ -53,10 +57,18 @@ pub(crate) fn standby_stream() -> Result<UnixStream, VpnError> {
     Ok(stream)
 }
 
-/// No socket file means the installer never ran. A socket file with nobody
-/// listening means the daemon is not running, which is not the same thing.
+fn daemon() -> objc2::rc::Retained<SMAppService> {
+    unsafe { SMAppService::daemonServiceWithPlistName(&NSString::from_str(DAEMON_PLIST)) }
+}
+
+/// No socket means no helper is running; the daemon's registration says
+/// whether it was never set up or waits for the person's approval.
 fn connect_error(error: std::io::Error) -> VpnError {
+    let waiting = || unsafe { daemon().status() } == SMAppServiceStatus::RequiresApproval;
     match error.kind() {
+        ErrorKind::NotFound | ErrorKind::ConnectionRefused if waiting() => {
+            VpnError::HelperNeedsApproval
+        }
         ErrorKind::NotFound => VpnError::HelperNotInstalled,
         ErrorKind::ConnectionRefused => {
             VpnError::HelperUnreachable("the helper is not running".into())
@@ -65,130 +77,28 @@ fn connect_error(error: std::io::Error) -> VpnError {
     }
 }
 
-/// The installer script, run once with the administrator prompt. It copies
-/// the bundled helper, openconnect and route script into system locations,
-/// and registers the daemon with launchd. Every path is fixed here or comes
-/// from the app's own resource directory.
-pub(crate) fn install_script(resources: &Path) -> String {
-    let src = resources.to_string_lossy();
-    let plist = launchd_plist();
-    let steps = [
-        format!("mkdir -p {}", sh_quote(SUPPORT_DIR)),
-        format!(
-            "rm -rf {0}/openconnect && cp -R {1}/openconnect {0}/openconnect",
-            sh_quote(SUPPORT_DIR),
-            sh_quote(&src)
-        ),
-        format!(
-            "cp -f {} {}",
-            sh_quote(&format!("{src}/isct-vpn-helper")),
-            sh_quote(HELPER_DEST)
-        ),
-        format!(
-            "cp -f {} {}",
-            sh_quote(&format!("{src}/vpnc-script")),
-            sh_quote(SCRIPT_DEST)
-        ),
-        format!(
-            "chown root:wheel {} {}",
-            sh_quote(HELPER_DEST),
-            sh_quote(SCRIPT_DEST)
-        ),
-        format!(
-            "chmod 755 {} {}",
-            sh_quote(HELPER_DEST),
-            sh_quote(SCRIPT_DEST)
-        ),
-        format!("chown -R root:wheel {}", sh_quote(SUPPORT_DIR)),
-        format!("chmod -R go-w {}", sh_quote(SUPPORT_DIR)),
-        format!(
-            "printf '%s' {} > {}",
-            sh_quote(&plist),
-            sh_quote(PLIST_DEST)
-        ),
-        format!(
-            "chown root:wheel {} && chmod 644 {}",
-            sh_quote(PLIST_DEST),
-            sh_quote(PLIST_DEST)
-        ),
-        format!("launchctl bootout system/{LABEL} >/dev/null 2>&1 || true"),
-        format!("launchctl bootstrap system {}", sh_quote(PLIST_DEST)),
-    ];
-    steps.join(" && ")
-}
-
-/// The daemon's launch arguments, pointing at the copied openconnect and its
-/// libraries rather than anything under Homebrew. A daemon without a
-/// `ProcessType` runs as background work: its sleeping threads wake minutes
-/// late, so an idle tunnel outlived its idle time by as long, and the
-/// connections it relays get throttled CPU. It relays what the person is
-/// using right now, which is what `Interactive` is for.
-fn launchd_plist() -> String {
-    let openconnect = format!("{SUPPORT_DIR}/openconnect/bin/openconnect");
-    let lib = format!("{SUPPORT_DIR}/openconnect/lib");
-    let args = [
-        HELPER_DEST.to_owned(),
-        "--openconnect".into(),
-        openconnect,
-        "--script".into(),
-        SCRIPT_DEST.into(),
-        "--libdir".into(),
-        lib,
-        "--server".into(),
-        app_core::vpn::f5::CAMPUS_APM_HOST.into(),
-    ];
-    let items: String = args
-        .iter()
-        .map(|arg| format!("    <string>{}</string>\n", xml_escape(arg)))
-        .collect();
-    format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
-         <plist version=\"1.0\">\n<dict>\n\
-         \x20 <key>Label</key><string>{LABEL}</string>\n\
-         \x20 <key>ProgramArguments</key>\n  <array>\n{items}  </array>\n\
-         \x20 <key>RunAtLoad</key><true/>\n\
-         \x20 <key>KeepAlive</key><true/>\n\
-         \x20 <key>ProcessType</key><string>Interactive</string>\n\
-         \x20 <key>StandardOutPath</key><string>/var/log/app.isctcompanion.vpnhelper.out.log</string>\n\
-         \x20 <key>StandardErrorPath</key><string>/var/log/app.isctcompanion.vpnhelper.err.log</string>\n\
-         </dict>\n</plist>\n"
-    )
-}
-
-fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-/// Single-quotes a value for `/bin/sh`.
-fn sh_quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
-}
-
-/// Runs the install script with the system's administrator prompt. Returns
-/// false when the person cancelled the prompt.
-pub(crate) fn run_install(resources: &Path) -> Result<bool, String> {
-    let script = install_script(resources);
-    // AppleScript string literal: escape backslash and double quote.
-    let quoted = script.replace('\\', r"\\").replace('"', r#"\""#);
-    let apple = format!("do shell script \"{quoted}\" with administrator privileges");
-    let output = std::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(apple)
-        .output()
-        .map_err(|error| error.to_string())?;
-    if output.status.success() {
-        return Ok(true);
+/// Registers the daemon. The first time macOS asks the person to allow it;
+/// this opens Login Items for that. Once allowed it stays allowed, through
+/// app updates, until the app is deleted. The payload path is fixed by the
+/// plist, so `_resources` is only the shared signature.
+pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
+    let service = daemon();
+    let registered = unsafe { service.registerAndReturnError() };
+    if let Err(error) = &registered {
+        let code = error.code();
+        if code != ALREADY_REGISTERED && code != DENIED_BY_USER {
+            return Err(format!(
+                "the campus VPN helper could not be registered: {}",
+                error.localizedDescription()
+            ));
+        }
     }
-    // -128 is the person cancelling the administrator prompt.
-    if String::from_utf8_lossy(&output.stderr).contains("(-128)") {
-        return Ok(false);
+    match unsafe { service.status() } {
+        SMAppServiceStatus::Enabled => Ok(Install::Ready),
+        SMAppServiceStatus::RequiresApproval => {
+            unsafe { SMAppService::openSystemSettingsLoginItems() };
+            Ok(Install::NeedsApproval)
+        }
+        _ => Err("the campus VPN helper could not be registered".into()),
     }
-    Err("the campus VPN helper could not be installed".into())
 }
-
-#[cfg(test)]
-#[path = "../../tests/vpn_macos.rs"]
-mod tests;
