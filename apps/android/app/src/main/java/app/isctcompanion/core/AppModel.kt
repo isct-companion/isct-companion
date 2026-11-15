@@ -635,8 +635,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             ?: throw SdkException.Unavailable("exam-share-unavailable")
     }
 
-    suspend fun examCourseImport(term: String?): ExamCourseImportPreview? =
-        (query(WorkspaceQuery.ExamCourseImport(term)) as? WorkspaceQueryResult.ExamCourseImport)?.v1
+    suspend fun examCourses(): ExamCourseList? =
+        (query(WorkspaceQuery.ExamCourses) as? WorkspaceQueryResult.ExamCourses)?.v1
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */

@@ -1534,8 +1534,6 @@ export function WorkspaceApp() {
           <PastExams
             key={pastExamCourse?.key}
             courseId={pastExamCourse?.courseId}
-            terms={workspaceView.allTerms}
-            currentTerm={currentTerm}
             active={page === "pastExams"}
           />,
         )}

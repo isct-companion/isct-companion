@@ -39,20 +39,26 @@ fn course_code_parts(code: &str) -> Option<regex::Captures<'_>> {
         .captures(code)
 }
 
-/// Subject lookup candidates from school course codes. The service resolves
-/// canonical subjects and aliases, so multiple codes remain candidates.
-pub(crate) fn subject_code_candidates(
-    workspace: &Value,
-    school: &SchoolReads,
-    course: &Value,
-) -> Vec<String> {
-    let mut subjects = Vec::new();
-    for code in source_course_codes(workspace, school, course) {
-        if let Some(parts) = course_code_parts(&code) {
-            subjects
-                .extend((1..=2).filter_map(|index| parts.get(index).map(|m| m.as_str().into())));
-        }
-    }
+/// The ScienceTokyoExam subject codes to look a local course up by. A
+/// syllabus code written `PRIMARY(ALIAS)` names its primary code outside the
+/// brackets, and the site files the subject under that code, so the alias is
+/// never looked up: it may be another, older subject's own code. A lone code
+/// that another source of this course names as its alias is dropped for the
+/// same reason. A lone code of unknown standing stays; the site answers an
+/// alias with `course.not_found` and the lookup falls back to search.
+pub(crate) fn subject_codes(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
+    let codes = source_course_codes(workspace, school, course);
+    let parts: Vec<_> = codes.iter().filter_map(|code| course_code_parts(code)).collect();
+    let aliases: Vec<&str> = parts
+        .iter()
+        .filter_map(|parts| parts.get(2).map(|alias| alias.as_str()))
+        .collect();
+    let mut subjects: Vec<String> = parts
+        .iter()
+        .filter_map(|parts| parts.get(1).map(|primary| primary.as_str()))
+        .filter(|primary| !aliases.contains(primary))
+        .map(str::to_owned)
+        .collect();
     subjects.sort_unstable();
     subjects.dedup();
     subjects

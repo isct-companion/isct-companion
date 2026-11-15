@@ -768,7 +768,19 @@ export type ExamDocument = {
 export type ExamSubjectPage = {
   subject: ExamSubject;
   rows: Array<ExamClass>;
+  /**
+   * When the page was opened from a local course whose class is one of
+   * `rows`, materials naming that class's teachers come first.
+   */
   exams: Array<ExamDocument>;
+  /**
+   * Every teacher the materials name, for filtering, the class's first.
+   */
+  teachers: Array<ExamTeacher>;
+  /**
+   * This subject on the ScienceTokyoExam website.
+   */
+  webUrl: string;
 };
 
 export type ExamRequest = {
@@ -1695,22 +1707,18 @@ export type WorkspaceOverview = {
   defaultFinderKeys: Array<string>;
 };
 
-export type ExamCourseImportCandidate = {
+export type ExamCourse = {
   courseId: string;
   title: string;
   instructor: string;
-  subjectCodes: Array<string>;
   /**
-   * Local syllabus offering, for matching against the remote subject's
-   * class list. It is not itself a verified remote class ID.
+   * The codes its subject is looked up by; empty when it has none, and
+   * then it cannot be opened.
    */
-  offeringId: string | null;
+  subjectCodes: Array<string>;
 };
 
-export type ExamCourseImportPreview = {
-  term: string;
-  courses: Array<ExamCourseImportCandidate>;
-};
+export type ExamCourseList = { term: string; courses: Array<ExamCourse> };
 
 export type ScheduleView = {
   term: string;
@@ -1766,7 +1774,7 @@ export type WorkspaceQuery =
   | { kind: "calendarState"; date: string }
   | { kind: "quarterRange"; term: string }
   | { kind: "scheduledCourses"; term: string }
-  | { kind: "examCourseImport"; term: string | null }
+  | { kind: "examCourses" }
   | { kind: "academicYear"; year: number }
   | { kind: "timetableYear"; year: number }
   | {
@@ -1815,7 +1823,7 @@ export type WorkspaceQueryResult =
   | { kind: "calendarState"; value: unknown | null }
   | { kind: "quarterRange"; value: QuarterRange | null }
   | { kind: "scheduledCourses"; value: unknown[] }
-  | { kind: "examCourseImport"; value: ExamCourseImportPreview }
+  | { kind: "examCourses"; value: ExamCourseList }
   | { kind: "academicYear"; value: AcademicYearCalendar }
   | { kind: "timetableYear"; value: TimetableYear }
   | { kind: "quarterIcs"; value: string }

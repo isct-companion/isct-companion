@@ -964,43 +964,50 @@ pub(crate) fn multi_quarter_workspace() -> Value {
 }
 
 #[test]
-fn exam_course_import_keeps_cross_listed_and_uncoded_timetable_courses() {
+fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
     let mut data = multi_quarter_workspace();
-    // These are local timetable records, as stored after editing or importing
-    // a course. The two codes on one row must survive for manual matching.
-    data["courses"][0]["code"] = json!("ＥＮＴ．Ｂ１０１（ＬＡＳ．Ｆ１０１）-02");
-    data["courses"].as_array_mut().unwrap().extend([
-        json!({"id":"manual","termId":"2026-4Q","title":"Independent Study","code":""}),
-        json!({"id":"off-timetable","termId":"2026-4Q","title":"Removed","code":"CSC.T101"}),
+    // Local timetable records as stored after editing or importing a course.
+    // A syllabus code written PRIMARY(ALIAS) is looked up by its primary
+    // code only (ScienceTokyoExam files the subject there); a lone code of
+    // unknown standing stays, and a lone code another source of the same
+    // course names as its alias is dropped.
+    data["courses"] = json!([
+        {"id":"cross","termId":"2026-4Q","title":"Frontiers","code":"ＥＮＴ．Ｂ１０１（ＬＡＳ．Ｆ１０１）-02"},
+        {"id":"alias-only","termId":"2026-4Q","title":"Creativity","code":"LAW.X376"},
+        {"id":"lms-pair","termId":"2026-4Q","title":"Paired","code":"LAS.F101","lmsCourseId":7},
+        {"id":"manual","termId":"2026-4Q","title":"Independent Study","code":""},
+        {"id":"withdrawn","termId":"2026-4Q","title":"Dropped","code":"CSC.T101"},
+        {"id":"multi","termId":"2026-3Q","title":"Long Course","code":"MTH.B301"}
     ]);
-    data["memberships"] = json!([{"courseId":"manual","termId":"2026-4Q","status":"declared"}]);
+    data["lmsCourses"] = json!([{"lmsId":7,"shortname":"ENT.B101(LAS.F101)-01 [2026]"}]);
+    data["memberships"] = json!([
+        {"courseId":"cross","termId":"2026-4Q","status":"registered"},
+        {"courseId":"alias-only","termId":"2026-4Q","status":"lms-member"},
+        {"courseId":"lms-pair","termId":"2026-4Q","status":"registered"},
+        {"courseId":"manual","termId":"2026-4Q","status":"declared"},
+        {"courseId":"withdrawn","termId":"2026-4Q","status":"withdrawn"}
+    ]);
 
-    let WorkspaceQueryResult::ExamCourseImport(preview) = query(
-        &data,
-        &SchoolReads::default(),
-        WorkspaceQuery::ExamCourseImport { term: None },
-    )
-    .unwrap() else {
-        panic!("expected the local exam course import preview");
+    let WorkspaceQueryResult::ExamCourses(list) =
+        query(&data, &SchoolReads::default(), WorkspaceQuery::ExamCourses).unwrap()
+    else {
+        panic!("expected this quarter's past-exam courses");
     };
-    let candidates: Vec<_> = preview
+    let courses: Vec<_> = list
         .courses
         .iter()
-        .map(|course| {
-            (
-                course.course_id.as_str(),
-                course
-                    .subject_codes
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>(),
-            )
-        })
+        .map(|course| (course.course_id.as_str(), course.subject_codes.clone()))
         .collect();
-    assert_eq!(preview.term, "2026-4Q");
+    assert_eq!(list.term, "2026-4Q");
+    // "multi" is only planned in 4Q (a plan item), so it is not listed.
     assert_eq!(
-        candidates,
-        [("multi", vec!["ENT.B101", "LAS.F101"]), ("manual", vec![])]
+        courses,
+        [
+            ("cross", vec!["ENT.B101".to_owned()]),
+            ("alias-only", vec!["LAW.X376".to_owned()]),
+            ("lms-pair", vec!["ENT.B101".to_owned()]),
+            ("manual", vec![]),
+        ]
     );
 }
 

@@ -383,7 +383,7 @@ impl ExamShare {
                     .map_err(|_| ExamError::Storage)?;
                 let course = crate::schedule::visible_by_id(&workspace, "courses", &course_id)
                     .ok_or(ExamError::NotFound)?;
-                let codes = crate::schedule::subject_code_candidates(&workspace, &school, course);
+                let codes = crate::schedule::subject_codes(&workspace, &school, course);
                 let class_id = course
                     .get("offeringId")
                     .and_then(Value::as_str)

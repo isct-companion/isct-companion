@@ -580,14 +580,14 @@ final class AppModel {
         return answer
     }
 
-    func examCourseImport(term: String?) async -> ExamCourseImportPreview? {
+    func examCourses() async -> ExamCourseList? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .examCourseImport(term: term)
+                .examCourses
             ]).value(),
-            case let .examCourseImport(preview)? = result.values.first
+            case let .examCourses(list)? = result.values.first
         else { return nil }
-        return preview
+        return list
     }
 
     /// One quarter's assignments as Core groups them, for 授業's 課題.

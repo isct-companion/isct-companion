@@ -53,7 +53,13 @@ pub struct ExamDocument {
 pub struct ExamSubjectPage {
     pub subject: ExamSubject,
     pub rows: Vec<ExamClass>,
+    /// When the page was opened from a local course whose class is one of
+    /// `rows`, materials naming that class's teachers come first.
     pub exams: Vec<ExamDocument>,
+    /// Every teacher the materials name, for filtering, the class's first.
+    pub teachers: Vec<ExamTeacher>,
+    /// This subject on the ScienceTokyoExam website.
+    pub web_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

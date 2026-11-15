@@ -36,7 +36,7 @@ import {
   ExamUploadProgress,
   examOccasions as occasions,
 } from "./ExamUploadDialog";
-import { TimetableImportPreview } from "./TimetableImportPreview";
+import { CurrentCourses } from "./CurrentCourses";
 import "./past-exams.css";
 
 const Pdf = lazy(() =>
@@ -55,13 +55,9 @@ const reasons = [
 export function PastExams({
   active,
   courseId,
-  currentTerm,
-  terms,
 }: {
   active: boolean;
   courseId?: string;
-  currentTerm: string;
-  terms: string[];
 }) {
   const subjectLabel = (subject: ExamSubject) => subject.name;
   const examLabel = (document: ExamDocument) =>
@@ -91,7 +87,6 @@ export function PastExams({
   const [library, setLibrary] = useState<ExamLibrary>();
   const [requests, setRequests] = useState<ExamRequestPage>();
   const [mine, setMine] = useState(false);
-  const [preview, setPreview] = useState(false);
   const [requestDraft, setRequestDraft] = useState(false);
   const [report, setReport] = useState(false);
   const [upload, setUpload] = useState<{
@@ -488,24 +483,6 @@ export function PastExams({
       {account?.status === "unavailable" && (
         <p role="alert">{t("error.exam-share-unsupported")}</p>
       )}
-      {tab === "browse" && !file && (
-        <div>
-          <UiButton
-            disabled={busy}
-            aria-expanded={preview}
-            onClick={() => setPreview(!preview)}
-          >
-            {t("examShare.importPreview")}
-          </UiButton>
-          {preview && (
-            <TimetableImportPreview
-              terms={terms}
-              currentTerm={currentTerm}
-              active={active}
-            />
-          )}
-        </div>
-      )}
       {account?.status === "connected" &&
         (file ? (
           <>
@@ -636,6 +613,9 @@ export function PastExams({
                     >
                       {t("common.back")}
                     </UiButton>
+                    <ExternalLink href={subject.webUrl}>
+                      {t("examShare.openOnWeb")}
+                    </ExternalLink>
                     <UiButton
                       disabled={busy}
                       onClick={() => void openUpload(subject.subject)}
@@ -688,14 +668,10 @@ export function PastExams({
                     onChange={setTeacher}
                     data={[
                       { value: "", label: t("examShare.allTeachers") },
-                      ...new Map(
-                        subject.exams.flatMap((exam) =>
-                          exam.teachers.map(
-                            ({ id, name }) =>
-                              [id, { value: id, label: name }] as const,
-                          ),
-                        ),
-                      ).values(),
+                      ...subject.teachers.map(({ id, name }) => ({
+                        value: id,
+                        label: name,
+                      })),
                     ]}
                   />
                   <UiSelect
@@ -721,25 +697,37 @@ export function PastExams({
                 )}
               </>
             ) : (
-              <ul className="examImportList">
-                {subjects.map((entry) => (
-                  <li key={entry.code}>
-                    <UiButton
-                      className="textButton"
-                      disabled={busy}
-                      onClick={() =>
-                        void loadSubject({ kind: "subject", code: entry.code })
-                      }
-                    >
-                      {subjectLabel(entry)}
-                    </UiButton>
-                    <small>{entry.code}</small>
-                  </li>
-                ))}
-                {searched && !subjects.length && (
-                  <li>{t("examShare.noItems")}</li>
-                )}
-              </ul>
+              <>
+                <ul className="examImportList">
+                  {subjects.map((entry) => (
+                    <li key={entry.code}>
+                      <UiButton
+                        className="textButton"
+                        disabled={busy}
+                        onClick={() =>
+                          void loadSubject({
+                            kind: "subject",
+                            code: entry.code,
+                          })
+                        }
+                      >
+                        {subjectLabel(entry)}
+                      </UiButton>
+                      <small>{entry.code}</small>
+                    </li>
+                  ))}
+                  {searched && !subjects.length && (
+                    <li>{t("examShare.noItems")}</li>
+                  )}
+                </ul>
+                <CurrentCourses
+                  active={active}
+                  disabled={busy}
+                  choose={(id) =>
+                    void loadSubject({ kind: "courseSubject", courseId: id })
+                  }
+                />
+              </>
             )}
           </>
         ) : tab === "requests" ? (

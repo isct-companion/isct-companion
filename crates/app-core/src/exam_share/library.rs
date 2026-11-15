@@ -4,7 +4,7 @@ use super::cache::{
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
 };
 use tokio::io::AsyncWriteExt;
@@ -19,10 +19,55 @@ struct RemoteExam {
 }
 
 #[derive(Deserialize)]
+struct RemotePage {
+    subject: ExamSubject,
+    rows: Vec<ExamClass>,
+    exams: Vec<ExamDocument>,
+}
+
+impl RemotePage {
+    /// Materials naming a teacher of the course's own class come first. The
+    /// class is matched by its exact ID in this subject's latest-year rows;
+    /// teachers are matched by ID, since a name does not establish identity.
+    fn present(self, class_id: Option<u32>) -> Result<ExamSubjectPage, ExamError> {
+        let ours: HashSet<String> = self
+            .rows
+            .iter()
+            .filter(|row| class_id.is_some_and(|id| row.class_ids.contains(&id)))
+            .flat_map(|row| &row.teachers)
+            .map(|teacher| teacher.id.clone())
+            .collect();
+        let mut exams = self.exams;
+        exams.sort_by_key(|exam| !exam.teachers.iter().any(|t| ours.contains(&t.id)));
+        let mut seen = HashSet::new();
+        let mut teachers: Vec<ExamTeacher> = exams
+            .iter()
+            .flat_map(|exam| &exam.teachers)
+            .filter(|teacher| seen.insert(teacher.id.clone()))
+            .cloned()
+            .collect();
+        teachers.sort_by_key(|teacher| !ours.contains(&teacher.id));
+        let web_url = url::Url::parse_with_params(
+            &format!("https://{}/search", Host::ScienceTokyoExam.name()),
+            [("course", &self.subject.code)],
+        )
+        .map_err(|_| ExamError::Response)?
+        .into();
+        Ok(ExamSubjectPage {
+            subject: self.subject,
+            rows: self.rows,
+            exams,
+            teachers,
+            web_url,
+        })
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubjectDetails {
     #[serde(flatten)]
-    page: ExamSubjectPage,
+    page: RemotePage,
     current_teachers: Vec<ExamTeacher>,
     past_teachers: Vec<ExamTeacher>,
 }
@@ -100,7 +145,7 @@ struct SubjectHit {
 struct SubjectCandidate {
     subject: ExamSubject,
     class_matches: bool,
-    page: Option<ExamSubjectPage>,
+    page: Option<RemotePage>,
 }
 
 fn has_class(rows: &[ExamClass], id: Option<u32>) -> bool {
@@ -243,7 +288,7 @@ impl ExamShare {
                         .page
                 }
             };
-            return Ok(ExamAnswer::Subject(page));
+            return page.present(class_id).map(ExamAnswer::Subject);
         }
         Ok(ExamAnswer::Subjects(
             candidates
@@ -286,7 +331,7 @@ impl ExamShare {
                     return Err(ExamError::InvalidInput);
                 }
                 let details = self.subject_details(session, &subject_code).await?;
-                let mut seen = std::collections::HashSet::new();
+                let mut seen = HashSet::new();
                 let teachers: Vec<_> = details
                     .current_teachers
                     .into_iter()
@@ -644,3 +689,7 @@ impl ExamShare {
         stream.flush().await.map_err(|_| ExamError::Storage)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/exam_share__library.rs"]
+mod tests;

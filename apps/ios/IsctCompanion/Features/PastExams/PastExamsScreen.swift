@@ -26,7 +26,6 @@ struct PastExamsScreen: View {
     @State private var busy = false
     @State private var problem: String?
     @State private var notice: String?
-    @State private var showsTimetable = false
     @State private var showsRequest = false
     @State private var showsReport = false
     @State private var uploadEntry: ExamUploadEntry?
@@ -122,16 +121,6 @@ struct PastExamsScreen: View {
             Task { await loadTab() }
         }
         .quickLookPreview($quickLook)
-        .sheet(isPresented: $showsTimetable) {
-            NavigationStack {
-                TimetableImportPreview()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button(t("common.close")) { showsTimetable = false }
-                        }
-                    }
-            }
-        }
         .sheet(isPresented: $showsRequest) {
             if let subject {
                 ExamRequestForm(subject: subject, busy: busy, problem: problem) { draft in
@@ -176,9 +165,6 @@ struct PastExamsScreen: View {
     }
 
     @ViewBuilder private var browse: some View {
-        Section {
-            Button(t("examShare.importPreview"), systemImage: "calendar") { showsTimetable = true }
-        }
         if account?.status == .connected {
             Section {
                 TextField(t("examShare.search"), text: $query)
@@ -190,6 +176,9 @@ struct PastExamsScreen: View {
             if let subject {
                 Section(subjectName(subject.subject)) {
                     Button(t("common.back")) { self.subject = nil }
+                    if let web = URL(string: subject.webUrl) {
+                        Link(t("examShare.openOnWeb"), destination: web)
+                    }
                     Button(t("examShare.newRequest")) { showsRequest = true }
                     Button(t("examShare.upload.title"), systemImage: "arrow.up.doc") {
                         uploadEntry = .subject(subject.subject)
@@ -200,7 +189,7 @@ struct PastExamsScreen: View {
                     }
                     Picker(t("examShare.teacher"), selection: $teacher) {
                         Text(t("examShare.allTeachers")).tag("")
-                        ForEach(subjectTeachers(subject.exams), id: \.id) { Text($0.name).tag($0.id) }
+                        ForEach(subject.teachers, id: \.id) { Text($0.name).tag($0.id) }
                     }
                     Picker(t("examShare.occasion"), selection: $occasion) {
                         Text(t("examShare.allOccasions")).tag("")
@@ -212,19 +201,24 @@ struct PastExamsScreen: View {
                         (occasion.isEmpty || $0.occasion == occasion)
                     })
                 }
-            } else if let subjects {
-                Section {
-                    if subjects.isEmpty { Text(t("examShare.noItems")) }
-                    ForEach(subjects, id: \.code) { result in
-                        Button {
-                            Task { await loadSubject(.subject(code: result.code)) }
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(subjectName(result))
-                                Text(result.code).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
+            } else {
+                if let subjects {
+                    Section {
+                        if subjects.isEmpty { Text(t("examShare.noItems")) }
+                        ForEach(subjects, id: \.code) { result in
+                            Button {
+                                Task { await loadSubject(.subject(code: result.code)) }
+                            } label: {
+                                VStack(alignment: .leading) {
+                                    Text(subjectName(result))
+                                    Text(result.code).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
+                                }
                             }
                         }
                     }
+                }
+                CurrentCoursesSection { id in
+                    Task { await loadSubject(.courseSubject(courseId: id)) }
                 }
             }
         }
@@ -375,7 +369,6 @@ struct PastExamsScreen: View {
             pendingUpload = false
         }
         if value.status == .unavailable {
-            showsTimetable = false
             confirmation = nil
         }
     }
@@ -457,11 +450,6 @@ struct PastExamsScreen: View {
 }
 
 private let examOccasions = ["final", "midterm", "makeup", "quiz", "check", "report", "exercise", "textbook", "mock"]
-
-private func subjectTeachers(_ exams: [ExamDocument]) -> [ExamTeacher] {
-    var seen = Set<String>()
-    return exams.flatMap(\.teachers).filter { seen.insert($0.id).inserted }
-}
 
 private func examName(_ exam: ExamDocument) -> String {
     let occasion = exam.occasion.map { value in

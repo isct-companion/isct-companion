@@ -98,7 +98,6 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
     var connecting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
-    var timetable by rememberSaveable { mutableStateOf(false) }
     var requestForm by rememberSaveable { mutableStateOf(false) }
     var reportForm by rememberSaveable { mutableStateOf(false) }
     var uploadForm by remember { mutableStateOf<ExamUploadOptions?>(null) }
@@ -112,7 +111,6 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
         account = updated
         if (updated.status == ExamAccountStatus.UNAVAILABLE) {
             error = null
-            timetable = false
         }
         if (updated.status != ExamAccountStatus.CONNECTED) {
             courseResolved = false
@@ -251,11 +249,6 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
         })
         return
     }
-    if (timetable) {
-        androidx.activity.compose.BackHandler { timetable = false }
-        TimetableImportPreview(onBack = { timetable = false })
-        return
-    }
     if (file != null) androidx.activity.compose.BackHandler { file = null }
     val currentFile = file
 
@@ -338,9 +331,6 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                 }
                 item { NativeDocument(currentFile) }
             } else if (tab == Tab.Browse) {
-                item {
-                    TextButton(onClick = { timetable = true }) { Text(t("examShare.importPreview")) }
-                }
                 if (account?.status == ExamAccountStatus.CONNECTED) {
                     item {
                         OutlinedTextField(query, { query = it.take(100) }, label = { Text(t("examShare.search")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -353,12 +343,13 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                         item {
                             SectionLabel(selected.subject.name)
                             TextButton(onClick = { subject = null }) { Text(t("common.back")) }
+                            TextButton(onClick = { uri.openUri(selected.webUrl) }) { Text(t("examShare.openOnWeb")) }
                             TextButton(enabled = !busy, onClick = { requestForm = true }) { Text(t("examShare.newRequest")) }
                             TextButton(enabled = !busy, onClick = {
                                 scope.launch { startUpload(selected.subject.code) }
                             }) { Text(t("examShare.upload.title")) }
                             ChoiceRow("examShare.allYears", year, selected.exams.mapNotNull { it.academicYear?.toString() }.distinct().sortedDescending().map { it to it }) { year = it }
-                            ChoiceRow("examShare.allTeachers", teacher, selected.exams.flatMap { it.teachers }.distinctBy { it.id }.map { it.id to it.name }) { teacher = it }
+                            ChoiceRow("examShare.allTeachers", teacher, selected.teachers.map { it.id to it.name }) { teacher = it }
                             ChoiceRow("examShare.allOccasions", occasion, examOccasions.map { it to t("examShare.occasion.$it") }) { occasion = it }
                         }
                         val exams = selected.exams.filter {
@@ -374,6 +365,11 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                             TextButton(enabled = !busy, onClick = {
                                 scope.launch { showSubject(ExamAction.Subject(hit.code)) }
                             }) { Text("${hit.name} · ${hit.code}") }
+                        }
+                        item {
+                            CurrentCourses(enabled = !busy) { id ->
+                                scope.launch { showSubject(ExamAction.CourseSubject(id)) }
+                            }
                         }
                     }
                 }
