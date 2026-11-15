@@ -178,13 +178,17 @@ function MatrixEditor({
     onChange(next);
     inputs.current[Math.min(MATRIX_SIZE - 1, start + letters.length)]?.focus();
   };
-  const load = (text: string) => {
+  const load = async (text: string) => {
     try {
-      const cells = parseMatrixText(text);
+      const { cells, fromTitechApp } = await parseMatrixText(text);
       onBeginEdit();
       onChange(cells);
       setConfidence([]);
-      notify(t("settings.schoolAccounts.matrixPastedVerifyItAgainst"));
+      notify(
+        fromTitechApp
+          ? t("settings.credentialImport.matrixImportedFromTitechApp")
+          : t("settings.schoolAccounts.matrixPastedVerifyItAgainst"),
+      );
     } catch (error) {
       appNotify.error(error);
     }
@@ -352,7 +356,7 @@ function MatrixEditor({
                     // A complete Matrix always replaces the grid from A1;
                     // shorter snippets continue from the focused cell.
                     if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
-                      load(text);
+                      void load(text);
                     else write(index, text);
                   }}
                   onKeyDown={(event) => {

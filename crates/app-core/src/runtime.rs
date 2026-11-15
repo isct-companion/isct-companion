@@ -78,7 +78,10 @@ impl CoreRuntime {
         &self.scheduler
     }
 
-    pub(crate) fn scheduler_services(&self, store: &crate::data::DataStore) -> Option<SchedulerServices> {
+    pub(crate) fn scheduler_services(
+        &self,
+        store: &crate::data::DataStore,
+    ) -> Option<SchedulerServices> {
         let exporter = self.exporter.lock().ok()?.clone()?;
         Some(SchedulerServices {
             store: store.clone(),

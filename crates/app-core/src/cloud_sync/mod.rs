@@ -234,7 +234,11 @@ impl CloudSync {
     }
 
     pub(crate) fn services(&self) -> Option<CloudServices> {
-        self.0.services.lock().ok().and_then(|services| services.clone())
+        self.0
+            .services
+            .lock()
+            .ok()
+            .and_then(|services| services.clone())
     }
 
     /// When the next automatic pass is due: at once after a local change,
@@ -258,11 +262,15 @@ impl CloudSync {
         let automatic = self.state().map(|state| state.automatic).unwrap_or(false);
         let remote = automatic
             .then(|| {
-                self.0.remote_check.lock().ok().map(|check| match check.last {
-                    None => now,
-                    Some(last) if check.foreground => last + FOREGROUND_CHECK_SPACING,
-                    Some(last) => last + REMOTE_CHECK_INTERVAL,
-                })
+                self.0
+                    .remote_check
+                    .lock()
+                    .ok()
+                    .map(|check| match check.last {
+                        None => now,
+                        Some(last) if check.foreground => last + FOREGROUND_CHECK_SPACING,
+                        Some(last) => last + REMOTE_CHECK_INTERVAL,
+                    })
             })
             .flatten();
         [queue, remote].into_iter().flatten().min()
@@ -281,7 +289,8 @@ impl CloudSync {
             .interrupted
             .store(false, std::sync::atomic::Ordering::Release);
         let service = self.clone();
-        let ran = self.0
+        let ran = self
+            .0
             .tasks
             .run(async move {
                 if let Err(error) = service.resume_inner(&services).await {
@@ -718,7 +727,10 @@ impl CloudSync {
             .collect::<std::collections::HashSet<_>>();
         for mut job in jobs {
             if self.0.tasks.is_closed()
-                || self.0.interrupted.load(std::sync::atomic::Ordering::Acquire)
+                || self
+                    .0
+                    .interrupted
+                    .load(std::sync::atomic::Ordering::Acquire)
             {
                 return Err(CloudSyncError::Stopped);
             }
@@ -1219,13 +1231,15 @@ fn queue_due(
                 if let Some(at) = chrono::DateTime::from_timestamp(delivery.retry_at, 0) {
                     consider(at);
                 }
-            } else if job.task.direction == Direction::Pull
-                || job.manual
-                || delivery.attempts > 0
-            {
+            } else if job.task.direction == Direction::Pull || job.manual || delivery.attempts > 0 {
                 consider(now);
             } else if provider.synced_version.as_ref() != Some(&job.task.version) {
-                consider(journal.upload_due_at(delivery.provider).unwrap_or(now).max(now));
+                consider(
+                    journal
+                        .upload_due_at(delivery.provider)
+                        .unwrap_or(now)
+                        .max(now),
+                );
             }
         }
     }

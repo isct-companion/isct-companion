@@ -51,48 +51,173 @@ pub enum KyomuStage {
     ReconnectRequired,
 }
 
-pub const PAGES: [(&str, &str); 6] = [
-    (
-        "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
-        "gpa",
-    ),
-    (
-        "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx",
-        "registrations",
-    ),
-    (
-        "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx",
-        "declared",
-    ),
-    (
-        "/Titech/Student/%E5%AD%A6%E7%94%9F%E6%83%85%E5%A0%B1/PID4_2.aspx",
-        "profile",
-    ),
-    (
-        "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx",
-        "grades",
-    ),
-    (
-        "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx",
-        "requirements",
-    ),
+const SHINKOKU: &str = "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/";
+const SEISEKI: &str = "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/";
+
+/// The student top, whose side menu links the pages this account has.
+pub const STUDENT_TOP: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/";
+
+/// A 教務Web page the app reads: its kind and every address 教務Web
+/// publishes it at. The school gives each programme its own copy of some
+/// pages (the 学士 grades are `PID2_0`, the 修士 ones `PID2_2`) and sends an
+/// account away from a copy that is not its own, so a read asks the
+/// account's student menu which one it has ([`Menu::url`]). The list is
+/// closed: no other address is ever fetched, and each one's reader was
+/// checked against a real page.
+pub struct Page {
+    pub kind: &'static str,
+    /// Directory and file names, in the order a menu that links more than
+    /// one is read in.
+    dir: &'static str,
+    files: &'static [&'static str],
+    /// Linked from the student menu. The profile is not; it is one page
+    /// for every programme.
+    in_menu: bool,
+}
+
+impl Page {
+    fn paths(&self) -> impl Iterator<Item = String> + '_ {
+        self.files.iter().map(|file| format!("{}{file}", self.dir))
+    }
+}
+
+/// The six pages, in menu order.
+pub const PAGES: [Page; 6] = [
+    Page {
+        kind: "gpa",
+        dir: SEISEKI,
+        files: &["PID2_7.aspx"],
+        in_menu: true,
+    },
+    Page {
+        kind: "registrations",
+        dir: SHINKOKU,
+        files: &["PID1_0.aspx"],
+        in_menu: true,
+    },
+    Page {
+        kind: "declared",
+        dir: SHINKOKU,
+        // 科目から: 学士, then 修士 (issue #64).
+        files: &["PID1_1.aspx", "PID1_2.aspx"],
+        in_menu: true,
+    },
+    Page {
+        kind: "profile",
+        dir: "/Titech/Student/%E5%AD%A6%E7%94%9F%E6%83%85%E5%A0%B1/",
+        files: &["PID4_2.aspx"],
+        in_menu: false,
+    },
+    Page {
+        kind: "grades",
+        dir: SEISEKI,
+        // 成績一覧: 学士, then 修士 (issue #64).
+        files: &["PID2_0.aspx", "PID2_2.aspx"],
+        in_menu: true,
+    },
+    Page {
+        kind: "requirements",
+        dir: SEISEKI,
+        files: &["PID2_6.aspx"],
+        in_menu: true,
+    },
 ];
+
+fn page(kind: &str) -> Option<&'static Page> {
+    PAGES.iter().find(|page| page.kind == kind)
+}
 
 /// The page kind an approved path belongs to (case-insensitive, like the
 /// school's IIS).
 pub fn expected_kind(path: &str) -> Option<&'static str> {
     PAGES
         .iter()
-        .find(|(approved, _)| path.eq_ignore_ascii_case(approved))
-        .map(|(_, kind)| *kind)
+        .find(|page| {
+            page.paths()
+                .any(|approved| path.eq_ignore_ascii_case(&approved))
+        })
+        .map(|page| page.kind)
 }
 
-/// The absolute URL of one of the six approved pages.
+/// The first address of one of the six pages: the one a sync key is named
+/// after. What a read fetches is the account's own ([`Menu::url`]).
 pub fn page_url(kind: &str) -> Option<String> {
-    PAGES
-        .iter()
-        .find(|(_, approved)| *approved == kind)
-        .map(|(path, _)| format!("https://{HOST}{path}"))
+    page(kind)
+        .and_then(|page| page.paths().next())
+        .map(|path| format!("https://{HOST}{path}"))
+}
+
+/// What the student menu (`#ctl00_sideMenu1_pnlStudent`) links to on
+/// 教務Web, as paths. Only where the links point is read: their ids and
+/// words differ between programmes (成績一覧 is `HyperLink39` for a 学士
+/// account, `HyperLink8` for a 修士 one), the addresses of each page do not
+/// leave [`PAGES`].
+#[derive(Clone, Debug, Default)]
+pub struct Menu {
+    paths: Vec<String>,
+}
+
+impl Menu {
+    /// The menu of the page at `url`. A page without one is not a student
+    /// page of a signed-in account, or the menu's markup changed.
+    pub fn read(url: &str, html: &str) -> Result<Self, SchoolParseError> {
+        let base = Url::parse(url).map_err(|_| "the student menu's address is invalid")?;
+        let document = scraper::Html::parse_document(html);
+        let panel = scraper::Selector::parse("#ctl00_sideMenu1_pnlStudent")
+            .map_err(|_| "bad student menu selector")?;
+        let links = scraper::Selector::parse("a[href]").map_err(|_| "bad student menu selector")?;
+        let panel = document
+            .select(&panel)
+            .next()
+            .ok_or("教務Web's student menu is missing")?;
+        let paths = panel
+            .select(&links)
+            .filter_map(|link| base.join(link.value().attr("href")?.trim()).ok())
+            .filter(|url| url.host_str() == Some(HOST))
+            .map(|url| url.path().to_string())
+            .collect();
+        Ok(Self { paths })
+    }
+
+    fn links(&self, path: &str) -> bool {
+        self.paths
+            .iter()
+            .any(|linked| linked.eq_ignore_ascii_case(path))
+    }
+
+    /// The address of `kind` this account has: the first of its addresses
+    /// the menu links. A menu linking none of them is an error that names
+    /// the menu's other links in the page's directory, so a programme with
+    /// an address of its own shows it in the log instead of being guessed.
+    pub fn url(&self, kind: &str) -> Result<String, SchoolParseError> {
+        let page = page(kind).ok_or("unknown 教務Web page")?;
+        let found = match page.in_menu {
+            false => page.paths().next(),
+            true => page.paths().find(|path| self.links(path)),
+        };
+        if let Some(path) = found {
+            return Ok(format!("https://{HOST}{path}"));
+        }
+        let known: Vec<String> = PAGES.iter().flat_map(Page::paths).collect();
+        let mut others: Vec<&str> = self
+            .paths
+            .iter()
+            .filter(|path| {
+                path.to_ascii_lowercase()
+                    .starts_with(&page.dir.to_ascii_lowercase())
+                    && !known.iter().any(|known| known.eq_ignore_ascii_case(path))
+            })
+            .map(String::as_str)
+            .collect();
+        others.sort_unstable();
+        others.dedup();
+        others.truncate(8);
+        Err(format!(
+            "教務Web's student menu links no known address of the {kind} page (other links there: {})",
+            if others.is_empty() { "none".into() } else { others.join(", ") }
+        )
+        .into())
+    }
 }
 
 /// Validates the bounded DTO produced by [`extract_page`].

@@ -4,11 +4,11 @@
 
 use crate::{
     data::{DataError, WorkspaceChangeSource},
+    plan::{Gated, KeyEnd, Lease},
     subscriptions::{
         self, AcademicCalendar, ClassSchedules, Departments, ImportantDates, PublishedExamFeed,
         ReferenceFetch, SubscriptionClient, SubscriptionError,
     },
-    plan::{Gated, KeyEnd, Lease},
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, Term},
 };
 #[cfg(feature = "campus-map")]

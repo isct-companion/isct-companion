@@ -4,6 +4,7 @@ use app_core::{
     data::WorkspaceChangeSource,
     events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
+    plan::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
     school_browser::{
         LoadFailure, SchoolWebAccess, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
         SchoolWebProblem, SchoolWebStep,
@@ -13,7 +14,6 @@ use app_core::{
         SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot, SchoolSessionState,
         SchoolSignInProblem, SchoolSignInProblemKind,
     },
-    plan::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
     workspace_changes::WorkspaceChange,
 };
 use serde_json::json;

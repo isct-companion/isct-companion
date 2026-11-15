@@ -3,8 +3,9 @@
 //!
 //! These are operations: each GETs the six server-rendered student pages or
 //! runs the course search with the attempt's cookies, and parses the HTML in
-//! `adpt_isct::kyomu`. A session found gone is `NetError::SignInRequired`;
-//! recovering it is `school_session::run`'s. The English catalog reads on the
+//! `adpt_isct::kyomu`. Which address of a page an account has is its student
+//! menu's answer, read once per site instance. A session found gone is
+//! `NetError::SignInRequired`; recovering it is `school_session::run`'s. The English catalog reads on the
 //! English site instance, which was switched to English when it was set up,
 //! so the Japanese session never changes language.
 
@@ -18,6 +19,7 @@ use adpt_isct::kyomu::{
 };
 use reqwest::header::REFERER;
 use reqwest::Method;
+use std::sync::Arc;
 use url::Url;
 
 const GETACCESS_HOST: &str = "portal.nap.gsic.titech.ac.jp";
@@ -157,7 +159,42 @@ pub(crate) fn search_url(year: u16, query: &CatalogSearch) -> Result<Url, NetErr
     Ok(url)
 }
 
-/// One of the six pages in `adpt_isct::kyomu::PAGES`.
+/// The student menu of the 教務Web site instance it was read with: the
+/// instance id and the menu. A rebuilt session reads it again; clones
+/// share it.
+#[derive(Clone, Default)]
+pub(crate) struct MenuCache(Arc<tokio::sync::Mutex<Option<ReadMenu>>>);
+
+/// A student menu and the site instance it was read with.
+type ReadMenu = (u64, Arc<kyomu::Menu>);
+
+/// This instance's student menu: the cached one, or the student top's,
+/// read now.
+async fn menu(attempt: &Attempt, cache: &MenuCache) -> Result<Arc<kyomu::Menu>, NetError> {
+    let instance = attempt.instance().await?;
+    // Held across the read: 教務Web runs one operation per instance anyway.
+    let mut slot = cache.0.lock().await;
+    if let Some((id, menu)) = slot.as_ref() {
+        if *id == instance {
+            return Ok(menu.clone());
+        }
+    }
+    let url = Url::parse(kyomu::STUDENT_TOP).map_err(invalid)?;
+    let html = match send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await? {
+        Fetched::Html(html) => html,
+        Fetched::SignedOut => return Err(NetError::SignInRequired),
+        Fetched::Redirected(status) => return Err(NetError::Http(status)),
+    };
+    if let Some(notice) = adpt_isct::maintenance_notice(&url, &html) {
+        return Err(attempt.maintenance(Some(notice)));
+    }
+    let menu = Arc::new(kyomu::Menu::read(url.as_str(), &html).map_err(invalid)?);
+    *slot = Some((instance, menu.clone()));
+    Ok(menu)
+}
+
+/// One of the six pages in `adpt_isct::kyomu::PAGES`, at the address the
+/// account's student menu links.
 ///
 /// The payload `parse_payload` accepted: status `"ok"` (persist with
 /// `apply_kyomu_payload`) or `"unavailable"`, the school saying in words that
@@ -165,10 +202,13 @@ pub(crate) fn search_url(year: u16, query: &CatalogSearch) -> Result<Url, NetErr
 /// `record_kyomu_unavailable`). An incomplete or unfamiliar page is
 /// `NetError::Invalid` with the reader's reason; a maintenance page pauses
 /// the host (`NetError::HostPaused`).
-pub(crate) async fn page(attempt: &Attempt, kind: &str) -> Result<KyomuPayload, NetError> {
-    let url = kyomu::page_url(kind)
-        .and_then(|url| Url::parse(&url).ok())
-        .ok_or_else(|| NetError::Invalid(format!("Unknown 教務Web page: {kind}")))?;
+pub(crate) async fn page(
+    attempt: &Attempt,
+    cache: &MenuCache,
+    kind: &str,
+) -> Result<KyomuPayload, NetError> {
+    let address = menu(attempt, cache).await?.url(kind).map_err(invalid)?;
+    let url = Url::parse(&address).map_err(invalid)?;
     let html = match send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await? {
         Fetched::Html(html) => html,
         Fetched::SignedOut => return Err(NetError::SignInRequired),

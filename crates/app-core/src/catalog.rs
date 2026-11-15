@@ -6,8 +6,8 @@ use crate::net::{
     kyomu::{self, CatalogRows},
     BoxFuture, KeyOutcome, NetError,
 };
-use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
 use crate::plan::{net_end, session_end, KeyEnd, Lease};
+use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
 use crate::sync_state::{self, Commit, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile};
 use chrono::Utc;
