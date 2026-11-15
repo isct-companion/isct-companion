@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, ErrorBanner, Modal, Progress, Stack, Text } from "./ui";
+import {
+  Button,
+  ErrorBanner,
+  Group,
+  Modal,
+  Progress,
+  Stack,
+  Text,
+} from "./ui";
 import type { MatrixScanOutline, MatrixVote } from "../generated/persistence";
 import { openMatrixCamera } from "../platform/matrix-camera";
 import { t } from "../i18n";
@@ -87,17 +95,20 @@ export function MatrixCamera({
                 : t("matrixCamera.pointTheCameraAtThe")}
             </Text>
           )}
-          {error && (
-            <Button
-              variant="default"
-              onClick={() => setAttempt((value) => value + 1)}
-            >
-              {t("common.tryAgain")}
+          {/* Cancel keeps its corner when an error adds Try again. */}
+          <Group justify="flex-end" gap="xs">
+            {error && (
+              <Button
+                variant="default"
+                onClick={() => setAttempt((value) => value + 1)}
+              >
+                {t("common.tryAgain")}
+              </Button>
+            )}
+            <Button variant="default" onClick={onClose}>
+              {t("common.cancel")}
             </Button>
-          )}
-          <Button variant="default" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
+          </Group>
         </Stack>
       </Modal>
       {processing && (

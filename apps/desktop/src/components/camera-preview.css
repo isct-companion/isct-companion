@@ -4,6 +4,9 @@
   border-radius: var(--radius-surface);
   overflow: hidden;
   min-height: 160px;
+  /* Most cameras stream 16:9: the box starts at that shape instead of
+     growing under the buttons once the first frame arrives. */
+  aspect-ratio: 16 / 9;
 }
 .cameraPreview video {
   display: block;

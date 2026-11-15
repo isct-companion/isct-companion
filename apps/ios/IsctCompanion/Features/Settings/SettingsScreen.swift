@@ -372,10 +372,7 @@ private struct AccountScreen: View {
                         OtpImportField(
                             saved: summary?.hasOtp == true,
                             setup: $otpSecret,
-                            openManual: {
-                                web.showUnsigned(.sciencePortal)
-                                navigator.tab = .web
-                            }
+                            openManual: openPortal
                         )
                     }
                 } else {
@@ -459,24 +456,38 @@ private struct AccountScreen: View {
         }
     }
 
-    /// Why the account is stuck, then Retry. Needs-web says the person signs
-    /// in on the school page; refused says when Retry helps.
+    /// Why the account is stuck, then what to do. Without school OTP that is
+    /// setting it up on the portal (Retry would only get the emailed code
+    /// again); other needs-web says the person signs in on the school page;
+    /// refused says when Retry helps.
     private func status(_ session: SchoolProfileSession) -> some View {
         Section {
             Text(SchoolSessionText.line(session))
                 .foregroundStyle(session.state == .refused ? Theme.danger : Theme.warn)
-            if session.state == .needsWeb {
-                Text(t("schoolSession.needsWeb.signInYourself")).font(.footnote).foregroundStyle(Theme.muted)
+            if SchoolSessionText.otpNotSetUp(session.state, problem: session.problem) {
+                Text(t("schoolSession.problem.emailOtp")).font(.footnote).foregroundStyle(Theme.muted)
+                Button(t("schoolSession.openPortal"), action: openPortal)
+            } else {
+                if session.state == .needsWeb {
+                    Text(t("schoolSession.needsWeb.signInYourself")).font(.footnote).foregroundStyle(Theme.muted)
+                }
+                Button {
+                    Task { await retry() }
+                } label: {
+                    if retrying { ProgressView() } else { Text(t("common.retry")) }
+                }
+                .disabled(retrying)
             }
-            Button {
-                Task { await retry() }
-            } label: {
-                if retrying { ProgressView() } else { Text(t("common.retry")) }
-            }
-            .disabled(retrying)
         } footer: {
             if session.state == .refused { Text(t("schoolSession.retry.otherDevice")) }
         }
+    }
+
+    /// The portal's start page as it is, where the person signs in and sets
+    /// up school OTP by hand.
+    private func openPortal() {
+        web.showUnsigned(.sciencePortal)
+        navigator.tab = .web
     }
 
     private func retry() async {

@@ -186,19 +186,25 @@ fun OtpImportField(
     var error by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf(false) }
 
-    fun choose(account: OtpImportAccount) {
+    // A good read from a scan, a photo or a paste folds the chooser into one
+    // line. A typed entry read as the field loses focus stays open: that is
+    // often the tap on Save and Connect, which must not move under the finger.
+    fun choose(account: OtpImportAccount, fold: Boolean = true) {
         onSetup(account.setup)
         choices = emptyList()
         label = name(account)
+        // What was read shows in the paste field when Change opens it again.
+        path = "paste"
+        changing = !fold
     }
 
     // `pasted` text is a setup link or secret, not a QR code, so a payload
     // Core cannot read is worded for what the person gave.
-    fun read(payload: String, pasted: Boolean = false) {
+    fun read(payload: String, pasted: Boolean = false, fold: Boolean = true) {
         error = null
         try {
             val accounts = importOtp(payload)
-            if (accounts.size == 1) choose(accounts.first()) else choices = accounts
+            if (accounts.size == 1) choose(accounts.first(), fold) else choices = accounts
         } catch (failure: OtpImportException) {
             error = when (failure) {
                 is OtpImportException.MultiplePages -> t("error.otp-import-multiple")
@@ -258,6 +264,18 @@ fun OtpImportField(
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
+    val read = label?.takeIf { setup.isNotEmpty() }
+        ?.let { t("settings.credentialImport.readAccountReadyOnceConnected", "account" to it.ifEmpty { t("settings.credentialImport.otpSecret") }) }
+    if (read != null && !changing) {
+        // A good read folds the chooser into one line, like a saved setup;
+        // Change opens it again to fix a wrong image or link.
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
+            Text(read, color = Theme.colors.ok, modifier = Modifier.weight(1f))
+            TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
+        }
+        return
+    }
     TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
     Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
     if (path == "export") {
@@ -289,9 +307,9 @@ fun OtpImportField(
             ),
             // A finished entry is read at once, like a paste; saving is only
             // for whether the school accepts it.
-            keyboardActions = KeyboardActions(onDone = { if (setup.isNotBlank() && label == null && error == null) read(setup, pasted = true) }),
+            keyboardActions = KeyboardActions(onDone = { if (setup.isNotBlank() && label == null && error == null) read(setup, pasted = true, fold = false) }),
             modifier = Modifier.fillMaxWidth().onFocusChanged { focus ->
-                if (editing && !focus.isFocused && setup.isNotBlank() && label == null && error == null) read(setup, pasted = true)
+                if (editing && !focus.isFocused && setup.isNotBlank() && label == null && error == null) read(setup, pasted = true, fold = false)
                 editing = focus.isFocused
             },
         )
@@ -302,15 +320,20 @@ fun OtpImportField(
         OtpGuideButton(OtpGuide.TitechApp)
     }
     Hint(t("settings.credentialImport.readOnThisDevice"))
-    label?.let {
-        Text(
-            t("settings.credentialImport.readAccountReadyOnceConnected", "account" to it.ifEmpty { t("settings.credentialImport.otpSecret") }),
-            style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok,
-        )
-    }
+    read?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
-    if (saved && setup.isEmpty()) {
-        TextButton(onClick = { changing = false }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
+    // Opened with Change: fold back to the setup just read, or drop a wrong
+    // entry and keep the saved one.
+    if (changing && read != null) {
+        TextButton(onClick = { changing = false }) { Text(t("settings.credentialImport.collapse")) }
+    }
+    if (saved) {
+        TextButton(onClick = {
+            onSetup("")
+            label = null
+            error = null
+            changing = false
+        }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
     }
     if (choices.isNotEmpty()) {
         AlertDialog(

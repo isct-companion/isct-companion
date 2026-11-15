@@ -277,9 +277,6 @@ describe("School accounts", () => {
         ),
       );
       await clickButton(document.body, "School · School account");
-      expect(
-        science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,
-      ).toBe(setup);
       expect(revoke).toHaveBeenCalledWith("blob:qr-test");
       await click(
         science.querySelector<HTMLButtonElement>(
@@ -421,7 +418,7 @@ describe("School accounts", () => {
       // draft stays for another try.
       await wait(() =>
         expect(science.textContent).toContain(
-          "The one-time password was not accepted. The entered credentials were not saved.",
+          "The school did not accept the OTP. The entered credentials were not saved.",
         ),
       );
       expect(password.value).toBe("new-secret");
@@ -537,7 +534,9 @@ describe("School accounts", () => {
       await wait(() => expect(science.textContent).toContain("Connected"));
       expect(mounted.core.commands("connect_school")).toHaveLength(0);
 
-      // The web-only state sends the person to the portal page.
+      // The emailed-code page means the account has no school OTP: the way
+      // on is the portal as it is, where the person sets one up, and Retry
+      // would only get another emailed code.
       await act(async () =>
         emitNative(
           mounted.core,
@@ -549,16 +548,17 @@ describe("School accounts", () => {
         ),
       );
       await wait(() =>
-        expect(science.textContent).toContain("Sign in on the school page"),
-      );
-      expect(science.textContent).toContain(
-        "The school asks for a code sent by email.",
+        expect(buttonByText(science, "Open Science Tokyo Portal")).toBeTruthy(),
       );
       expect(science.textContent).not.toContain("on another device");
-      await clickButton(science, "Show page");
+      expect(buttonByText(science, "Retry")).toBeFalsy();
+      await clickButton(science, "Open Science Tokyo Portal");
       expect(sessionStorage.getItem("isct-companion-active-school-site")).toBe(
         "science-portal",
       );
+      expect(
+        JSON.parse(sessionStorage.getItem("isct-companion-school-entry")!),
+      ).toEqual({ kind: "unsigned" });
     },
     TIMEOUT,
   );

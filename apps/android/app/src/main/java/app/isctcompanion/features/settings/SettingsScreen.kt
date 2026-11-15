@@ -566,6 +566,7 @@ private fun SessionStatus(
     session: SchoolProfileSession,
     retrying: Boolean,
     enabled: Boolean,
+    openPortal: () -> Unit,
     retry: () -> Unit,
 ) {
     val state = session.state
@@ -575,7 +576,15 @@ private fun SessionStatus(
     if (!retryable && maintenance == null) return
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (retryable) {
+            if (AppModel.otpNotSetUp(state, session.problem)) {
+                // No school OTP: Retry would only get the emailed code again,
+                // so the way on is setting it up on the portal.
+                Text(AppModel.sessionText(state, session.problem), color = stateColor(state))
+                Text(t("schoolSession.problem.emailOtp"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
+                OutlinedButton(onClick = openPortal, modifier = Modifier.fillMaxWidth()) {
+                    Text(t("schoolSession.openPortal"))
+                }
+            } else if (retryable) {
                 // The kind says what the school page asks for; signing in there
                 // is the person's own and serves only that page.
                 val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let { AppModel.reason(it.kind) } else null
@@ -621,11 +630,17 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val busy = saving || retrying || removing
     val saved = summary?.saved == true
     val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
+    // The portal's start page as it is, where the person signs in and sets up
+    // school OTP by hand.
+    val openPortal: () -> Unit = {
+        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
+        navigator.openTab("tab/web")
+    }
     Page {
         if (session?.signOutPending == true) {
             Footer(t("error.sign-out-incomplete"), Theme.colors.danger)
         } else if (saved && session != null) {
-            SessionStatus(profile, session, retrying, enabled = !busy) {
+            SessionStatus(profile, session, retrying, enabled = !busy, openPortal = openPortal) {
                 scope.launch {
                     retrying = true
                     error = null
@@ -654,10 +669,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 OtpImportField(
                     saved = summary?.hasOtp == true,
                     setup = otpSecret,
-                    openManual = {
-                        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
-                        navigator.openTab("tab/web")
-                    },
+                    openManual = openPortal,
                 ) { otpSecret = it }
             } else {
                 SectionLabel(t("settings.main.matrixCard"))
