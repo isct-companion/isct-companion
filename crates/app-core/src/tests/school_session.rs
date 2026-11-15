@@ -295,7 +295,8 @@ impl crate::ports::SecretVault for MemoryVault {
     }
 }
 
-struct NoVault;
+/// A vault that holds nothing: an account never set up.
+pub(crate) struct NoVault;
 
 impl crate::ports::SecretVault for NoVault {
     fn store(&self, _account: &str, _secret: &str) -> Result<(), crate::ports::SecretError> {

@@ -2,6 +2,8 @@
 //! argument and answer types, and the changes it reads. The HTTP adapter
 //! serves this list as `tools/list`; the JSON Schemas come from the Rust
 //! types themselves.
+#[cfg(debug_assertions)]
+use super::school;
 use super::{assignments, reads, submissions, writes, AgentError, Context};
 use crate::workspace_changes::WorkspaceChange;
 use schemars::{generate::SchemaSettings, JsonSchema};
@@ -21,6 +23,21 @@ pub enum Effect {
     /// person's LMS switch, and asks every client to confirm with the person
     /// each time, whatever its approval mode.
     LmsWrite,
+    /// Dev builds only: any request other than GET or HEAD to a school site
+    /// (`approach/mcp-dev-school-fetch`). Asks every client to confirm with
+    /// the person each time.
+    #[cfg(debug_assertions)]
+    SchoolSend,
+}
+
+/// Whether every call asks the person, whatever the client's approval mode.
+const fn asks(effect: Effect) -> bool {
+    match effect {
+        Effect::LmsWrite => true,
+        #[cfg(debug_assertions)]
+        Effect::SchoolSend => true,
+        Effect::Read | Effect::LocalWrite => false,
+    }
 }
 
 /// The `_meta` key that has Claude Code ask the person before every call,
@@ -38,8 +55,7 @@ pub struct ToolSpec {
     /// Repeating the call with the same arguments changes nothing more
     /// (MCP `idempotentHint`).
     pub idempotent: bool,
-    /// Reaches beyond this device, to the school's LMS (MCP
-    /// `openWorldHint`).
+    /// Reaches beyond this device, to the school (MCP `openWorldHint`).
     pub open_world: bool,
     /// The tool's MCP `_meta`, as the adapter lists it.
     pub meta: Map<String, Value>,
@@ -64,6 +80,8 @@ pub(super) trait Tool {
     const DESTRUCTIVE: bool = false;
     /// Reads are idempotent by nature; a write says so itself.
     const IDEMPOTENT: bool = false;
+    /// Sends requests of the agent's own to the school.
+    const OPEN_WORLD: bool = false;
     /// The changes its answer is computed from, as the shared queries
     /// declare theirs; a tool that reads tables directly loads no view.
     const READS: &'static [WorkspaceChange] = &[];
@@ -99,6 +117,10 @@ static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         entry::<submissions::SubmissionSave>(),
         entry::<submissions::SubmissionRemove>(),
         entry::<submissions::SubmissionStatus>(),
+        #[cfg(debug_assertions)]
+        entry::<school::SchoolFetch>(),
+        #[cfg(debug_assertions)]
+        entry::<school::SchoolSend>(),
     ]
 });
 
@@ -115,15 +137,16 @@ pub(super) fn find(name: &str) -> Option<&'static ToolSpec> {
 /// it overwrites and whether repeating it is safe.
 fn entry<T: Tool>() -> ToolSpec {
     let lms_write = T::EFFECT == Effect::LmsWrite;
+    let asks = asks(T::EFFECT);
     ToolSpec {
         name: T::NAME,
         description: T::DESCRIPTION,
         effect: T::EFFECT,
         read_only: T::EFFECT == Effect::Read,
-        destructive: T::DESTRUCTIVE || lms_write,
+        destructive: T::DESTRUCTIVE || asks,
         idempotent: T::EFFECT == Effect::Read || T::IDEMPOTENT,
-        open_world: lms_write,
-        meta: if lms_write {
+        open_world: lms_write || T::OPEN_WORLD,
+        meta: if asks {
             Map::from_iter([(REQUIRES_INTERACTION.to_string(), Value::Bool(true))])
         } else {
             Map::new()

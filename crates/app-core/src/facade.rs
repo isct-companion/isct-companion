@@ -349,13 +349,16 @@ impl Core {
                 )));
             }
         }
+        #[cfg(feature = "agent")]
+        let agent = AgentService::new(
+            store.clone(),
+            assignment_workspaces.clone(),
+            submissions.clone(),
+            sessions.clone(),
+        );
         Self {
             #[cfg(feature = "agent")]
-            agent: AgentService::new(
-                store.clone(),
-                assignment_workspaces.clone(),
-                submissions.clone(),
-            ),
+            agent,
             assignment_workspaces,
             #[cfg(feature = "agent")]
             submissions,
