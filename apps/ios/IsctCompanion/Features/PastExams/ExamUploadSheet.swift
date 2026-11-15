@@ -123,7 +123,7 @@ struct ExamUploadSheet: View {
             }
             .sheet(isPresented: $choosingSubject) {
                 ExamUploadSubjectPicker(subjectName: subjectName, selected: Set(draft?.subjectCodes ?? [])) { subject in
-                    await addSubject(subject)
+                    try await addSubject(subject)
                 }
             }
             .task { await load() }

@@ -48,7 +48,10 @@ pub(crate) async fn exam_share(
     };
     let cancel = CancellationToken::new();
     let _guard = cancel.clone().drop_guard();
-    let answer = service.act(action, cancel).await.map_err(coded)?;
+    let mut answer = service.act(action, cancel).await.map_err(coded)?;
+    answer
+        .localize_subject_names(&crate::core_ports::core(webview.app_handle()).store)
+        .map_err(coded)?;
     if let ExamAnswer::Document(file) = &answer {
         webview
             .app_handle()

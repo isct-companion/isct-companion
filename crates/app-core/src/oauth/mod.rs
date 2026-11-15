@@ -4,7 +4,19 @@ pub mod code_exchange;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "android"))]
 pub mod loopback;
 
+#[cfg(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "android"
+))]
 use crate::net::BoxFuture;
+#[cfg(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "android"
+))]
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]

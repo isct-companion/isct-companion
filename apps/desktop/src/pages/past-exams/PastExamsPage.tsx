@@ -14,7 +14,6 @@ import { errorText } from "../../app/shared";
 import { errorCode } from "../../platform/native-error";
 import { localFileUrl } from "../../features/lms/files";
 import { lookup, t } from "../../i18n";
-import { pickLocalized, type Lang } from "../../lib/model";
 import type {
   ExamAccount,
   ExamAction,
@@ -56,19 +55,12 @@ export function PastExams({
   active,
   currentTerm,
   terms,
-  language,
 }: {
   active: boolean;
   currentTerm: string;
   terms: string[];
-  language: Lang;
 }) {
-  const subjectLabel = (subject: ExamSubject) =>
-    pickLocalized(
-      { ja: subject.name, en: subject.nameEn ?? "" },
-      language,
-      subject.code,
-    );
+  const subjectLabel = (subject: ExamSubject) => subject.name;
   const examLabel = (document: ExamDocument) =>
     [
       document.subjects.map(subjectLabel).join(" / "),

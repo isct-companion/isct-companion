@@ -317,7 +317,7 @@ internal fun ExamUploadScreen(
                     }
                     items(hits.orEmpty(), key = { "hit:${it.code}" }) { hit ->
                         TextButton(enabled = canEdit, onClick = { addSubject(hit) }) {
-                            Text("${subjectName(hit, model.records.settings)} · ${hit.code}")
+                            Text("${hit.name} · ${hit.code}")
                         }
                     }
                 }

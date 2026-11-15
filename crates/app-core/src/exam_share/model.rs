@@ -309,3 +309,46 @@ pub enum ExamAnswer {
     Uploaded(String),
     Done,
 }
+
+impl ExamAnswer {
+    pub fn localize_subject_names(
+        &mut self,
+        store: &crate::data::DataStore,
+    ) -> Result<(), super::ExamError> {
+        use crate::locale::{ContentLanguage, Localized};
+
+        let subjects: Vec<&mut ExamSubject> = match self {
+            Self::Subjects(subjects) => subjects.iter_mut().collect(),
+            Self::Subject(page) => std::iter::once(&mut page.subject)
+                .chain(page.exams.iter_mut().flat_map(|exam| &mut exam.subjects))
+                .collect(),
+            Self::Document(file) => file.document.subjects.iter_mut().collect(),
+            Self::Library(library) => library
+                .saved
+                .iter_mut()
+                .chain(&mut library.downloaded)
+                .chain(&mut library.submitted)
+                .flat_map(|exam| &mut exam.subjects)
+                .collect(),
+            Self::Requests(page) => page
+                .items
+                .iter_mut()
+                .map(|request| &mut request.subject)
+                .collect(),
+            _ => return Ok(()),
+        };
+        let (workspace, _, _) = store
+            .view(&["settings"].into())
+            .map_err(|_| super::ExamError::Storage)?;
+        let language = ContentLanguage::of(&workspace);
+        for subject in subjects {
+            let names = Localized {
+                ja: Some(std::mem::take(&mut subject.name)),
+                en: subject.name_en.take(),
+            };
+            subject.name = names.pick(language).unwrap_or(&subject.code).to_owned();
+            subject.name_en = names.en;
+        }
+        Ok(())
+    }
+}

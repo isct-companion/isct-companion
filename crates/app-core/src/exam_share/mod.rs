@@ -1,5 +1,12 @@
 //! Native client for the ScienceTokyoExam sharing service.
 mod client;
+#[cfg(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "android"
+))]
+mod google;
 mod identity;
 mod library;
 mod model;
@@ -7,11 +14,14 @@ mod upload;
 mod upload_file;
 pub use model::*;
 
-use crate::{
-    net::Host,
-    oauth::{code_exchange::OAuthClient, NativeBrowserAuth, OAuthError},
-    ports::SecretVault,
-};
+#[cfg(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "android"
+))]
+use crate::oauth::{code_exchange::OAuthClient, NativeBrowserAuth};
+use crate::{net::Host, oauth::OAuthError, ports::SecretVault};
 use client::Client;
 use identity::{SavedSession, SessionToken};
 use reqwest::Method;
@@ -110,6 +120,12 @@ pub struct ExamShare {
     vault: Arc<dyn SecretVault>,
     folder: PathBuf,
     session: Mutex<Session>,
+    #[cfg(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ))]
     browser: Option<(OAuthClient, Arc<dyn NativeBrowserAuth>)>,
     upload: upload::UploadTracker,
     // Cancellation travels with a connection generation. Disconnect cancels
@@ -122,6 +138,12 @@ impl ExamShare {
         vault: Arc<dyn SecretVault>,
         folder: PathBuf,
         version: String,
+        #[cfg(any(
+            target_os = "ios",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ))]
         browser: Option<(OAuthClient, Arc<dyn NativeBrowserAuth>)>,
     ) -> Result<Self, ExamError> {
         let api = Client::new(version.clone())?;
@@ -158,6 +180,12 @@ impl ExamShare {
                 status,
                 version_checked: false,
             }),
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "macos",
+                target_os = "windows",
+                target_os = "android"
+            ))]
             browser,
             upload: upload::UploadTracker::new(),
             generation: std::sync::Mutex::new(CancellationToken::new()),
@@ -229,13 +257,13 @@ impl ExamShare {
             lock = self.session.lock() => lock,
         };
         if matches!(action, ExamAction::Connect) {
-            let (client, browser) = self.browser.as_ref().ok_or(ExamError::Unavailable)?;
-            self.clear(&mut session).await?;
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => return Err(ExamError::Cancelled),
-                result = self.check_version(&mut session) => result?,
-            }
+            #[cfg(not(any(
+                target_os = "ios",
+                target_os = "macos",
+                target_os = "windows",
+                target_os = "android"
+            )))]
+            return Err(ExamError::Unavailable);
             #[cfg(any(
                 target_os = "ios",
                 target_os = "macos",
@@ -243,7 +271,14 @@ impl ExamShare {
                 target_os = "android"
             ))]
             {
-                let token = identity::connect(&self.api, client, browser.as_ref(), cancel).await?;
+                let (client, browser) = self.browser.as_ref().ok_or(ExamError::Unavailable)?;
+                self.clear(&mut session).await?;
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err(ExamError::Cancelled),
+                    result = self.check_version(&mut session) => result?,
+                }
+                let token = google::connect(&self.api, client, browser.as_ref(), cancel).await?;
                 if cancel.is_cancelled() {
                     return Err(ExamError::Cancelled);
                 }
@@ -259,16 +294,6 @@ impl ExamShare {
                 }
                 result?;
                 return Ok(ExamAnswer::Account(session.account()));
-            }
-            #[cfg(not(any(
-                target_os = "ios",
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "android"
-            )))]
-            {
-                let _ = (client, browser);
-                return Err(ExamError::Unavailable);
             }
         }
         let result = match action {

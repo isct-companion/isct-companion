@@ -30,7 +30,7 @@ struct PastExamsScreen: View {
     @State private var occasion = ""
 
     private func subjectName(_ subject: ExamSubject) -> String {
-        localizedSubject(subject, settings: model.records.settings)
+        subject.name
     }
 
     private enum Tab: String, CaseIterable { case browse, requests, library }
@@ -283,7 +283,7 @@ struct PastExamsScreen: View {
     @ViewBuilder private func documents(_ items: [ExamDocument], removal: String? = nil) -> some View {
         if items.isEmpty { Text(t("examShare.noItems")) }
         ForEach(items, id: \.id) { item in
-            Button(examName(item, settings: model.records.settings)) { Task { await open(item.id) } }
+            Button(examName(item)) { Task { await open(item.id) } }
                 .swipeActions {
                     if let removal {
                         Button(t(removal), role: .destructive) {
@@ -299,7 +299,7 @@ struct PastExamsScreen: View {
     }
 
     private func document(_ local: ExamLocalDocument) -> some View {
-        Section(examName(local.document, settings: model.records.settings)) {
+        Section(examName(local.document)) {
             let id = local.document.id
             Button(t("common.back")) { file = nil; Task { await loadTab() } }
             Button(t("examShare.preview")) { quickLook = URL(fileURLWithPath: local.path) }
@@ -426,16 +426,13 @@ private func subjectTeachers(_ exams: [ExamDocument]) -> [ExamTeacher] {
     return exams.flatMap(\.teachers).filter { seen.insert($0.id).inserted }
 }
 
-private func localizedSubject(_ subject: ExamSubject, settings: [String: Any]) -> String {
-    Localizer.shared.pick(["ja": subject.name, "en": subject.nameEn ?? ""], content: settings) ?? subject.code
-}
-private func examName(_ exam: ExamDocument, settings: [String: Any]) -> String {
+private func examName(_ exam: ExamDocument) -> String {
     let occasion = exam.occasion.map { value in
         let label = t("examShare.occasion.\(value)")
         return exam.occasionNumber > 1 ? "\(label) \(exam.occasionNumber)" : label
     }
     let fields = [
-        exam.subjects.map { localizedSubject($0, settings: settings) }.joined(separator: " / "),
+        exam.subjects.map(\.name).joined(separator: " / "),
         exam.academicYear.map(String.init),
         occasion,
         exam.variant,
@@ -462,7 +459,7 @@ private struct ExamRequestForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(localizedSubject(subject.subject, settings: model.records.settings)) {
+                Section(subject.subject.name) {
                     Picker(t("examShare.allClasses"), selection: $classId) {
                         Text(t("examShare.allClasses")).tag(nil as UInt32?)
                         ForEach(subject.rows, id: \.classIds) { row in

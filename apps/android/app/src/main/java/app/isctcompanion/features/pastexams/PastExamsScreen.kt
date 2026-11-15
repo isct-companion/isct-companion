@@ -62,13 +62,11 @@ import app.isctcompanion.core.ExamUploadPhase
 import app.isctcompanion.core.ExamUploadStatus
 import app.isctcompanion.core.SdkException
 import app.isctcompanion.design.Card
-import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import java.io.File
-import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -84,7 +82,6 @@ internal val examOccasions = listOf("final", "midterm", "makeup", "quiz", "check
 @Composable
 fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     val model = LocalModel.current
-    val settings = model.records.settings
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
     var tab by rememberSaveable { mutableStateOf(Tab.Browse) }
@@ -282,7 +279,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
             if (currentFile != null) {
                 item {
                     val id = currentFile.document.id
-                    SectionLabel(examLabel(currentFile.document, settings))
+                    SectionLabel(examLabel(currentFile.document))
                     if (currentFile.offline) Text(t("examShare.offline"))
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         TextButton(enabled = !busy && !currentFile.downloaded && !currentFile.offline, onClick = {
@@ -314,7 +311,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                     val selected = subject
                     if (selected != null) {
                         item {
-                            SectionLabel(subjectName(selected.subject, settings))
+                            SectionLabel(selected.subject.name)
                             TextButton(onClick = { subject = null }) { Text(t("common.back")) }
                             TextButton(enabled = !busy, onClick = { requestForm = true }) { Text(t("examShare.newRequest")) }
                             TextButton(enabled = !busy, onClick = {
@@ -330,7 +327,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                                 (occasion.isEmpty() || it.occasion == occasion)
                         }
                         if (exams.isEmpty()) item { Text(t("examShare.noItems")) }
-                        items(exams, key = { it.id }) { exam -> TextButton(enabled = !busy, onClick = { scope.launch { open(exam.id) } }) { Text(examLabel(exam, settings)) } }
+                        items(exams, key = { it.id }) { exam -> TextButton(enabled = !busy, onClick = { scope.launch { open(exam.id) } }) { Text(examLabel(exam)) } }
                     } else {
                         if (subjects?.isEmpty() == true) item { Text(t("examShare.noItems")) }
                         items(subjects.orEmpty(), key = { it.code }) { hit ->
@@ -340,7 +337,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                                         subject = it; year = ""; teacher = ""; occasion = ""
                                     }
                                 }
-                            }) { Text("${subjectName(hit, settings)} · ${hit.code}") }
+                            }) { Text("${hit.name} · ${hit.code}") }
                         }
                     }
                 }
@@ -355,7 +352,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                 items(requests?.items.orEmpty(), key = { it.id }) { request ->
                     Card {
                         Column(Modifier.padding(12.dp)) {
-                            Text(subjectName(request.subject, settings))
+                            Text(request.subject.name)
                             Text(listOfNotNull(request.academicYear?.toString(), t("examShare.requestStatus.${request.status}"), request.description.ifEmpty { null }).joinToString(" · "), color = Theme.colors.muted)
                             request.answerExamId?.let { id ->
                                 TextButton(enabled = !busy, onClick = { scope.launch { open(id) } }) { Text(t("examShare.viewAnswer")) }
@@ -389,7 +386,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                         item { SectionLabel(t(key)); if (exams.isEmpty()) Text(t("examShare.noItems")) }
                         items(exams, key = { "$key:${it.id}" }) { exam ->
                             Row {
-                                TextButton(modifier = Modifier.weight(1f), enabled = !busy, onClick = { scope.launch { open(exam.id) } }) { Text(examLabel(exam, settings)) }
+                                TextButton(modifier = Modifier.weight(1f), enabled = !busy, onClick = { scope.launch { open(exam.id) } }) { Text(examLabel(exam)) }
                                 if (key == "examShare.downloaded" || key == "examShare.submitted") {
                                     TextButton(enabled = !busy, onClick = {
                                         confirmation = if (key == "examShare.downloaded")
@@ -448,7 +445,7 @@ private fun RequestDialog(subject: ExamSubjectPage, busy: Boolean, error: String
     AlertDialog(onDismissRequest = dismiss, title = { Text(t("examShare.newRequest")) },
         text = {
             Column {
-                Text(subjectName(subject.subject, LocalModel.current.records.settings))
+                Text(subject.subject.name)
                 ChoiceRow("examShare.allClasses", classId, subject.rows.mapNotNull { row ->
                     row.classIds.firstOrNull()?.let { id -> id.toString() to (row.labels + row.teachers.map { it.name } + row.taughtIn).joinToString(" · ") }
                 }) { classId = it }
@@ -538,11 +535,8 @@ private fun NativeDocument(file: ExamLocalDocument) {
     }
 }
 
-internal fun subjectName(subject: ExamSubject, settings: JSONObject): String =
-    Localizer.pick(mapOf("ja" to subject.name, "en" to subject.nameEn.orEmpty()), settings) ?: subject.code
-
-private fun examLabel(exam: ExamDocument, settings: JSONObject): String = listOfNotNull(
-    exam.subjects.joinToString(" / ") { subjectName(it, settings) },
+private fun examLabel(exam: ExamDocument): String = listOfNotNull(
+    exam.subjects.joinToString(" / ") { it.name },
     exam.academicYear?.toString(),
     exam.occasion?.let {
         val label = t("examShare.occasion.$it")

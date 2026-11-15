@@ -38,15 +38,28 @@ pub(crate) fn service(
             Arc::new(crate::ports::BrowserAuth(browser));
         (client, port)
     });
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let browser = {
         let _ = (browser, ios_client_id);
         None
     };
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    )))]
+    let _ = (browser, ios_client_id);
     ExamShare::new(
         Arc::new(crate::ports::Vault(vault)),
         data.join("exam-share"),
         version,
+        #[cfg(any(
+            target_os = "ios",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ))]
         browser,
     )
     .ok()
@@ -60,7 +73,8 @@ impl Session {
                 .exam_share
                 .as_ref()
                 .ok_or_else(|| SdkError::from(ExamError::Unavailable))?;
-            let answer = service.act(project_input(action)?, cancel).await?;
+            let mut answer = service.act(project_input(action)?, cancel).await?;
+            answer.localize_subject_names(&inner.core.store)?;
             Ok(OperationResult::ExamShare {
                 answer: project(answer)?,
             })
