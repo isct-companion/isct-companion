@@ -59,25 +59,25 @@ pub(super) async fn local(
     })
 }
 
-enum CacheState {
-    Missing,
-    Expired,
-    Live(Cached),
+struct CacheEntry {
+    cached: Cached,
+    expired: bool,
 }
 
 pub(super) async fn cache_file(base: &Path) -> Result<Option<Cached>, ExamError> {
     let base = base.to_owned();
-    blocking(move || match read_cache(&base, SystemTime::now())? {
-        CacheState::Live(file) => Ok(Some(file)),
-        CacheState::Missing | CacheState::Expired => Ok(None),
+    blocking(move || {
+        Ok(read_cache(&base, SystemTime::now())?
+            .filter(|entry| !entry.expired)
+            .map(|entry| entry.cached))
     })
     .await
 }
 
-fn read_cache(base: &Path, now: SystemTime) -> Result<CacheState, ExamError> {
+fn read_cache(base: &Path, now: SystemTime) -> Result<Option<CacheEntry>, ExamError> {
     let body = match fs::read(base.join("metadata.json")) {
         Ok(body) => body,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(CacheState::Missing),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(storage(error)),
     };
     let cached: Cached = serde_json::from_slice(&body).map_err(storage)?;
@@ -85,7 +85,7 @@ fn read_cache(base: &Path, now: SystemTime) -> Result<CacheState, ExamError> {
     let facts = match fs::symlink_metadata(path) {
         Ok(facts) if facts.is_file() => facts,
         Ok(_) => return Err(ExamError::Storage),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(CacheState::Missing),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(storage(error)),
     };
     let retention = if cached.downloaded {
@@ -95,10 +95,10 @@ fn read_cache(base: &Path, now: SystemTime) -> Result<CacheState, ExamError> {
     };
     // The payload mtime records its last open, or initial download for copies
     // created before access tracking. The manifest still records remote freshness.
-    if older_than(facts, now, retention)? {
-        return Ok(CacheState::Expired);
-    }
-    Ok(CacheState::Live(cached))
+    Ok(Some(CacheEntry {
+        cached,
+        expired: older_than(facts, now, retention)?,
+    }))
 }
 
 pub(super) async fn save_metadata(base: &Path, cached: &Cached) -> Result<(), ExamError> {
@@ -134,10 +134,10 @@ pub(super) async fn downloads(base: &Path) -> Result<Vec<ExamDocument>, ExamErro
         let now = SystemTime::now();
         let mut list = Vec::new();
         for folder in directories(&base)? {
-            if let CacheState::Live(cached) = read_cache(&folder, now)? {
-                if cached.downloaded {
-                    list.push(cached.document);
-                }
+            if let Some(entry) =
+                read_cache(&folder, now)?.filter(|entry| !entry.expired && entry.cached.downloaded)
+            {
+                list.push(entry.cached.document);
             }
         }
         list.sort_by(|a, b| a.file_name.cmp(&b.file_name).then_with(|| a.id.cmp(&b.id)));
@@ -157,9 +157,9 @@ pub(super) fn clean_root(base: &Path, now: SystemTime) -> Result<(), ExamError> 
 
 fn sweep(folder: &Path, now: SystemTime) -> Result<(), ExamError> {
     let retained = match read_cache(folder, now)? {
-        CacheState::Expired => return remove_folder(folder),
-        CacheState::Missing => None,
-        CacheState::Live(file) => Some(file_path(folder, &file)?),
+        Some(entry) if entry.expired => return remove_folder(folder),
+        Some(entry) => Some(file_path(folder, &entry.cached)?),
+        None => None,
     };
     let Some(entries) = read_dir(folder)? else {
         return Ok(());

@@ -410,10 +410,12 @@ impl ExamShare {
 
     async fn check_version(&self, session: &mut Session) -> Result<(), ExamError> {
         let now = SystemTime::now();
-        if let Some(check) = &session.version_check {
-            if check.is_fresh(now) {
-                return check.result();
-            }
+        if let Some(check) = session
+            .version_check
+            .as_ref()
+            .filter(|check| check.is_fresh(now))
+        {
+            return check.result();
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
