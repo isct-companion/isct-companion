@@ -248,6 +248,8 @@ fn matches_original_typescript_finder_traces() {
     let mut context = fixture["context"].clone();
     let departments: Vec<SyllabusDepartment> =
         serde_json::from_value(context["departments"].take()).unwrap();
+    // Filled below in the content language.
+    context["departments"] = json!([]);
     let mut ctx: FinderContext = serde_json::from_value(context).unwrap();
     ctx.departments = departments
         .into_iter()
