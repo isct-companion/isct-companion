@@ -22,12 +22,20 @@ import type {
   ExamDocument,
   ExamLibrary,
   ExamLocalDocument,
+  ExamRequest,
   ExamRequestCursor,
   ExamRequestPage,
   ExamReportReason,
   ExamSubject,
   ExamSubjectPage,
+  ExamUploadOptions,
+  ExamUploadStatus,
 } from "../../generated/persistence";
+import {
+  ExamUploadDialog,
+  ExamUploadProgress,
+  examOccasions as occasions,
+} from "./ExamUploadDialog";
 import { TimetableImportPreview } from "./TimetableImportPreview";
 import "./past-exams.css";
 
@@ -43,17 +51,6 @@ const reasons = [
   "wrongAnswer",
   "brokenFile",
   "other",
-] as const;
-const occasions = [
-  "final",
-  "midterm",
-  "makeup",
-  "quiz",
-  "check",
-  "report",
-  "exercise",
-  "textbook",
-  "mock",
 ] as const;
 export function PastExams({
   active,
@@ -102,6 +99,17 @@ export function PastExams({
   const [preview, setPreview] = useState(false);
   const [requestDraft, setRequestDraft] = useState(false);
   const [report, setReport] = useState(false);
+  const [upload, setUpload] = useState<{
+    options: ExamUploadOptions;
+    subject: ExamSubject;
+    request: ExamRequest | null;
+  }>();
+  const [uploadStatus, setUploadStatus] = useState<ExamUploadStatus>();
+  const [uploadRunning, setUploadRunning] = useState(false);
+  const closeUpload = useCallback(() => {
+    setUpload(undefined);
+    void desktopBridge?.examUploadClearFiles?.().catch(() => undefined);
+  }, []);
   const [reason, setReason] = useState<ExamReportReason>(reasons[0]);
   const [year, setYear] = useState("");
   const [teacher, setTeacher] = useState("");
@@ -129,6 +137,8 @@ export function PastExams({
         if (snapshot?.kind === "account") {
           setAccount(snapshot.value);
           if (snapshot.value.status !== "connected") {
+            closeUpload();
+            setUploadStatus(undefined);
             setSubjects([]);
             setSubject(undefined);
             setFile(undefined);
@@ -143,7 +153,7 @@ export function PastExams({
         setBusy(false);
       }
     },
-    [],
+    [closeUpload],
   );
   const accountAction = useCallback(
     async (kind: "account" | "connect" | "disconnect" | "acceptTerms") => {
@@ -151,6 +161,8 @@ export function PastExams({
       if (answer?.kind === "account") {
         setAccount(answer.value);
         if (kind === "disconnect") {
+          closeUpload();
+          setUploadStatus(undefined);
           setSubjects([]);
           setSubject(undefined);
           setFile(undefined);
@@ -160,7 +172,7 @@ export function PastExams({
         }
       }
     },
-    [call],
+    [call, closeUpload],
   );
   useEffect(() => {
     if (active) void accountAction("account");
@@ -207,6 +219,70 @@ export function PastExams({
       setYear("");
       setTeacher("");
       setOccasion("");
+    }
+  };
+  useEffect(() => {
+    if (!active || account?.status !== "connected") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async () => {
+      const answer = await desktopBridge
+        ?.examShare?.({ kind: "uploadStatus" })
+        .catch(() => undefined);
+      if (stopped) return;
+      if (answer?.kind === "uploadStatus") setUploadStatus(answer.value);
+      if (uploadRunning) timer = setTimeout(() => void read(), 300);
+    };
+    void read();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [active, account?.status, uploadRunning]);
+  const openUpload = async (
+    subject: ExamSubject,
+    request: ExamRequest | null = null,
+  ) => {
+    const answer = await call({
+      kind: "uploadOptions",
+      subjectCode: subject.code,
+      request,
+    });
+    if (answer?.kind === "uploadOptions") {
+      setUpload({ options: answer.value, subject, request });
+    }
+  };
+  const cancelUpload = () => {
+    void desktopBridge
+      ?.examShare?.({ kind: "cancelUpload" })
+      .catch((failure) =>
+        setError(errorText(failure) ?? t("error.exam-share-unavailable")),
+      );
+  };
+  const submitUpload = async (action: ExamAction) => {
+    setUploadRunning(true);
+    try {
+      const answer = await call(action);
+      if (answer?.kind === "uploaded") {
+        closeUpload();
+        setLibrary(undefined);
+        if (tab === "library") {
+          await loadLibrary();
+        } else if (tab === "requests") {
+          await loadRequests(mine);
+        } else if (subject) {
+          const updated = await call({
+            kind: "subject",
+            code: subject.subject.code,
+          });
+          if (updated?.kind === "subject") setSubject(updated.value);
+        }
+        setNotice(t("examShare.upload.uploaded"));
+      } else if (action.kind === "recoverUpload" && answer?.kind === "done") {
+        setNotice(t("examShare.upload.cleaned"));
+      }
+    } finally {
+      setUploadRunning(false);
     }
   };
   const submitSearch = async (event: FormEvent) => {
@@ -298,9 +374,41 @@ export function PastExams({
           )}
         </div>
       </header>
-      {error && <p role="alert">{error}</p>}
+      {error && !upload && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
-      {busy && <p role="status">{t("common.loading")}</p>}
+      {busy && !uploadRunning && <p role="status">{t("common.loading")}</p>}
+      {!upload && uploadRunning && (
+        <ExamUploadProgress status={uploadStatus} cancel={cancelUpload} />
+      )}
+      {!upload &&
+        !uploadRunning &&
+        account?.status === "connected" &&
+        uploadStatus?.phase === "pending" && (
+          <div className="examShareActions">
+            <p role="status">{t("examShare.upload.pending")}</p>
+            <UiButton
+              disabled={busy}
+              onClick={() => void submitUpload({ kind: "recoverUpload" })}
+            >
+              {t("examShare.upload.recover")}
+            </UiButton>
+          </div>
+        )}
+      {upload && (
+        <ExamUploadDialog
+          options={upload.options}
+          subject={upload.subject}
+          request={upload.request}
+          subjectLabel={subjectLabel}
+          running={uploadRunning}
+          status={uploadStatus}
+          error={error}
+          run={call}
+          submit={submitUpload}
+          cancel={cancelUpload}
+          close={closeUpload}
+        />
+      )}
       <nav aria-label={t("examShare.title")} className="examShareActions">
         {tabs.map((key) => (
           <UiButton
@@ -502,6 +610,12 @@ export function PastExams({
                     </UiButton>
                     <UiButton
                       disabled={busy}
+                      onClick={() => void openUpload(subject.subject)}
+                    >
+                      {t("examShare.upload.title")}
+                    </UiButton>
+                    <UiButton
+                      disabled={busy}
                       onClick={() => setRequestDraft(!requestDraft)}
                     >
                       {t("examShare.newRequest")}
@@ -644,6 +758,14 @@ export function PastExams({
                     </small>
                   </div>
                   <span className="examShareActions">
+                    {item.status === "open" && (
+                      <UiButton
+                        disabled={busy}
+                        onClick={() => void openUpload(item.subject, item)}
+                      >
+                        {t("examShare.upload.answerRequest")}
+                      </UiButton>
+                    )}
                     {item.answerExamId && (
                       <UiButton
                         disabled={busy}

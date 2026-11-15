@@ -91,6 +91,9 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::ExamShareRejected
         | C::ExamShareAlreadyReported
         | C::ExamShareQuota
+        | C::ExamShareUploadDuplicate
+        | C::ExamShareUploadQuota
+        | C::ExamShareUploadPending
         | C::Platform
         | C::LogsUnavailable
         | C::SchoolSiteChanged
@@ -101,6 +104,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::SubmissionUnsupported => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::ExamShareInvalidInput
+        | C::ExamShareUploadFile
+        | C::ExamShareUploadSize
         | C::TooLarge
         | C::NoteTooLarge
         | C::StudyAdmissionTerm

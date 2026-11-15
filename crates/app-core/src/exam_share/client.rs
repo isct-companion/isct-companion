@@ -67,14 +67,40 @@ impl Client {
             return read(response).await;
         }
         let body: Result<ServiceError, _> = read(response).await;
-        let code = body.ok().and_then(|body| body.code);
-        match (status, code.as_deref()) {
+        let body = body.ok();
+        let code = body.as_ref().and_then(|body| body.code.as_deref());
+        match (status, code) {
             (StatusCode::UNAUTHORIZED, _) => Err(ExamError::Expired),
             (_, Some("auth.not_allowed")) => Err(ExamError::Denied),
             (_, Some("auth.not_registered")) => Err(ExamError::Consent),
             (_, Some("server.not_found")) => Err(ExamError::Unsupported),
             (_, Some("exam.report_duplicate")) => Err(ExamError::AlreadyReported),
             (_, Some("request.daily_limit")) => Err(ExamError::Quota),
+            (_, Some("upload.already_registered")) => body
+                .and_then(|body| body.params)
+                .and_then(|params| params.exam_id)
+                .filter(|id| !id.is_empty())
+                .map_or(Err(ExamError::Response), |id| {
+                    Err(ExamError::UploadRegistered(id))
+                }),
+            (_, Some("upload.duplicate_file")) => Err(ExamError::UploadDuplicate),
+            (_, Some("upload.quota_daily" | "upload.quota_total")) => Err(ExamError::UploadQuota),
+            (_, Some("upload.rollback_in_use")) => Err(ExamError::UploadInUse),
+            (_, Some("upload.too_large" | "upload.stored_too_large")) => Err(ExamError::UploadSize),
+            (
+                _,
+                Some(
+                    "upload.type_not_allowed"
+                    | "upload.format_mismatch"
+                    | "upload.file_empty"
+                    | "upload.file_name_missing"
+                    | "upload.file_missing",
+                ),
+            ) => Err(ExamError::UploadFile),
+            (StatusCode::BAD_REQUEST, Some(code)) if code.starts_with("upload.") => {
+                Err(ExamError::InvalidInput)
+            }
+            (_, Some("rate.too_many")) => Err(ExamError::Unavailable),
             (StatusCode::NOT_FOUND, _) => Err(ExamError::NotFound),
             (StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS, None) => {
                 Err(ExamError::Unavailable)
@@ -114,6 +140,23 @@ impl Client {
 #[derive(Deserialize)]
 struct ServiceError {
     code: Option<String>,
+    params: Option<ErrorParams>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorParams {
+    exam_id: Option<String>,
+}
+
+pub(super) fn is_file_url(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url
+            .host_str()
+            .is_some_and(|host| host.ends_with(".r2.cloudflarestorage.com"))
 }
 
 #[derive(Deserialize)]

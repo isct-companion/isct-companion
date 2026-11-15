@@ -1,4 +1,8 @@
-import type { ExamAction, ExamAnswer } from "../generated/persistence";
+import type {
+  ExamAction,
+  ExamAnswer,
+  ExamUploadFile,
+} from "../generated/persistence";
 import type { MessageKey } from "../i18n";
 import type {
   CoreWorkspaceCommit,
@@ -550,6 +554,8 @@ export type ApplicationLogSnapshot = {
 
 export interface DesktopBridge {
   examShare?(action: ExamAction): Promise<ExamAnswer>;
+  examUploadPickFiles?(title: string): Promise<ExamUploadFile[] | null>;
+  examUploadClearFiles?(): Promise<void>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -860,6 +866,8 @@ export function createTauriDesktopBridge(
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     examShare: (action) => result("exam_share", { action }),
+    examUploadPickFiles: (title) => result("exam_upload_pick_files", { title }),
+    examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url, site) =>

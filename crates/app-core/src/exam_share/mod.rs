@@ -3,6 +3,8 @@ mod client;
 mod identity;
 mod library;
 mod model;
+mod upload;
+mod upload_file;
 pub use model::*;
 
 use crate::{
@@ -61,6 +63,20 @@ pub enum ExamError {
     Quota,
     #[error("The ScienceTokyoExam input is invalid")]
     InvalidInput,
+    #[error("The selected upload files could not be prepared")]
+    UploadFile,
+    #[error("The upload exceeds the file size limit")]
+    UploadSize,
+    #[error("ScienceTokyoExam already has this material")]
+    UploadDuplicate,
+    #[error("The ScienceTokyoExam upload limit was reached")]
+    UploadQuota,
+    #[error("The upload result needs to be recovered")]
+    UploadPending,
+    #[error("The uploaded file is still referenced")]
+    UploadInUse,
+    #[error("The upload is already registered")]
+    UploadRegistered(String),
 }
 
 impl ExamError {
@@ -95,6 +111,7 @@ pub struct ExamShare {
     folder: PathBuf,
     session: Mutex<Session>,
     browser: Option<(OAuthClient, Arc<dyn NativeBrowserAuth>)>,
+    upload: upload::UploadTracker,
     // Cancellation travels with a connection generation. Disconnect cancels
     // the generation before waiting for the gate to clear the vault.
     generation: std::sync::Mutex<CancellationToken>,
@@ -130,7 +147,7 @@ impl ExamShare {
         } else {
             ExamAccountStatus::Disconnected
         };
-        Ok(Self {
+        let service = Self {
             api,
             version,
             vault,
@@ -142,8 +159,13 @@ impl ExamShare {
                 version_checked: false,
             }),
             browser,
+            upload: upload::UploadTracker::new(),
             generation: std::sync::Mutex::new(CancellationToken::new()),
-        })
+        };
+        if let Ok(session) = service.session.try_lock() {
+            service.update_upload_account(&session);
+        }
+        Ok(service)
     }
 
     pub fn cancel(&self) {
@@ -157,6 +179,13 @@ impl ExamShare {
         action: ExamAction,
         cancel: CancellationToken,
     ) -> Result<ExamAnswer, ExamError> {
+        if matches!(action, ExamAction::UploadStatus) {
+            return self.upload.status().map(ExamAnswer::UploadStatus);
+        }
+        if matches!(action, ExamAction::CancelUpload) {
+            self.upload.cancel()?;
+            return Ok(ExamAnswer::Done);
+        }
         if matches!(action, ExamAction::CancelConnect) {
             let mut generation = self.generation.lock().map_err(|_| ExamError::Storage)?;
             generation.cancel();
@@ -242,10 +271,15 @@ impl ExamShare {
                 return Err(ExamError::Unavailable);
             }
         }
-        let result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err(ExamError::Cancelled),
-            result = self.perform(&mut session, action) => result,
+        let result = match action {
+            ExamAction::Upload { .. } | ExamAction::RecoverUpload => {
+                self.upload_action(&mut session, action, cancel).await
+            }
+            _ => tokio::select! {
+                biased;
+                _ = cancel.cancelled() => Err(ExamError::Cancelled),
+                result = self.perform(&mut session, action) => result,
+            },
         };
         self.apply_session_error(&mut session, &result).await?;
         result
@@ -367,6 +401,7 @@ impl ExamShare {
         token.saved.registered = matches!(session.status, ExamAccountStatus::Connected);
         self.remember(session, &token);
         session.token = Some(token);
+        self.update_upload_account(session);
         Ok(())
     }
 
@@ -421,6 +456,7 @@ impl ExamShare {
         session.token = None;
         session.status = ExamAccountStatus::Disconnected;
         session.version_checked = false;
+        self.upload.settled(false);
         self.vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
         if let Some(saved) = session.saved.take() {
             let path = self.account_folder(&saved.uid);
@@ -519,6 +555,12 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamAccountStatus::decl(cfg),
         ExamAccount::decl(cfg),
         ExamReportReason::decl(cfg),
+        ExamUploadFile::decl(cfg),
+        ExamNewTeacher::decl(cfg),
+        ExamUploadDraft::decl(cfg),
+        ExamUploadOptions::decl(cfg),
+        ExamUploadPhase::decl(cfg),
+        ExamUploadStatus::decl(cfg),
         ExamAction::decl(cfg),
         ExamAnswer::decl(cfg),
     ]

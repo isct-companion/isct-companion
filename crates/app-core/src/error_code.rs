@@ -126,6 +126,11 @@ codes! {
     ExamShareAlreadyReported => "exam-share-already-reported",
     ExamShareQuota => "exam-share-quota",
     ExamShareInvalidInput => "exam-share-invalid-input",
+    ExamShareUploadFile => "exam-share-upload-file",
+    ExamShareUploadSize => "exam-share-upload-size",
+    ExamShareUploadDuplicate => "exam-share-upload-duplicate",
+    ExamShareUploadQuota => "exam-share-upload-quota",
+    ExamShareUploadPending => "exam-share-upload-pending",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -258,6 +263,11 @@ coded!(crate::exam_share::ExamError, |e| {
         E::AlreadyReported => C::ExamShareAlreadyReported,
         E::Quota => C::ExamShareQuota,
         E::InvalidInput => C::ExamShareInvalidInput,
+        E::UploadFile => C::ExamShareUploadFile,
+        E::UploadSize => C::ExamShareUploadSize,
+        E::UploadDuplicate => C::ExamShareUploadDuplicate,
+        E::UploadQuota => C::ExamShareUploadQuota,
+        E::UploadPending | E::UploadInUse | E::UploadRegistered(_) => C::ExamShareUploadPending,
     }
 });
 

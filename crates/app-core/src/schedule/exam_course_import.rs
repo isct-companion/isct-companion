@@ -1,6 +1,7 @@
 //! The local side of importing a timetable into ScienceTokyoExam.
-use super::{content_language, localized, occurrence::timetable_courses, text, ScheduleError};
+use super::{occurrence::timetable_courses, text, ScheduleError};
 use super::{search::subject_code_candidates, SchoolReads, Term};
+use crate::locale::{self, ContentLanguage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -36,7 +37,7 @@ pub(super) fn preview(
         .or_else(|| text(workspace, "currentTerm"))
         .ok_or_else(|| ScheduleError::InvalidInput("Current term is unavailable.".into()))?;
     let term = Term::parse(term)?.to_string();
-    let language = content_language(workspace);
+    let language = ContentLanguage::of(workspace);
     let courses = timetable_courses(workspace, &term)
         .map(|course| {
             let course_id = text(course, "id").ok_or_else(|| {
@@ -54,16 +55,23 @@ pub(super) fn preview(
     Ok(ExamCourseImportPreview { term, courses })
 }
 
-fn course_label(course: &Value, field: &str, override_path: &str, language: &str) -> String {
+fn course_label(
+    course: &Value,
+    field: &str,
+    override_path: &str,
+    language: ContentLanguage,
+) -> String {
     course
         .pointer(override_path)
         .and_then(Value::as_str)
         .map(str::to_owned)
         .unwrap_or_else(|| {
-            localized(
+            locale::pick(
                 course.get("names").and_then(|names| names.get(field)),
                 language,
-                text(course, field).unwrap_or_default(),
             )
+            .or_else(|| text(course, field))
+            .unwrap_or_default()
+            .to_owned()
         })
 }

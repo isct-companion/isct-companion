@@ -115,11 +115,13 @@ dependencies = [
  "flate2",
  "futures-util",
  "httparse",
- "jsonwebtoken",
+ "image",
  "ipnet",
  "ipp",
+ "jsonwebtoken",
  "log",
  "md-5",
+ "pdf-writer",
  "percent-encoding",
  "prost",
  "qrcode",
@@ -4163,6 +4165,18 @@ name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
+name = "pdf-writer"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e456864a7a304047bff84977dc6fb162bd956475d40ba50b2dcecaada7f753"
+dependencies = [
+ "bitflags 2.13.2",
+ "itoa",
+ "memchr",
+ "ryu",
+]
 
 [[package]]
 name = "pem-rfc7468"

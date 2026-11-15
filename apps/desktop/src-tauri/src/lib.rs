@@ -267,6 +267,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
+        .manage(exam_share::UploadSelection::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
     let builder = plugins::register(builder);
@@ -353,6 +354,8 @@ pub fn run() {
             commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
             exam_share::exam_share,
+            exam_share::exam_upload_pick_files,
+            exam_share::exam_upload_clear_files,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,

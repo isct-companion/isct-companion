@@ -55,6 +55,8 @@ scraper = "0.29"
 ego-tree = "0.11"
 ring = "0.17"
 jsonwebtoken = { version = "12", default-features = false, features = ["rust_crypto"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+pdf-writer = "0.15"
 percent-encoding = "2"
 base64 = "0.23"
 # Core's own school cookie jars (`school_session`): domain, path and expiry

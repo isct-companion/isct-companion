@@ -151,6 +151,69 @@ pub enum ExamReportReason {
     Other,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamUploadFile {
+    pub path: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamNewTeacher {
+    pub family_name: String,
+    pub given_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamUploadDraft {
+    pub subject_codes: Vec<String>,
+    pub teacher_ids: Vec<String>,
+    pub new_teachers: Vec<ExamNewTeacher>,
+    pub academic_year: Option<u32>,
+    pub occasion: String,
+    pub occasion_number: u32,
+    pub variant: String,
+    pub role: String,
+    pub provenance: String,
+    pub answer_source: Option<String>,
+    pub note: String,
+    pub request_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamUploadOptions {
+    pub draft: ExamUploadDraft,
+    pub teachers: Vec<ExamTeacher>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ExamUploadPhase {
+    Idle,
+    Preparing,
+    Transferring,
+    Registering,
+    Pending,
+    Cleaning,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamUploadStatus {
+    pub phase: ExamUploadPhase,
+    pub sent: u32,
+    pub total: u32,
+}
+
 impl ExamReportReason {
     pub(super) fn api_code(&self) -> &'static str {
         match self {
@@ -217,6 +280,17 @@ pub enum ExamAction {
     DeleteRequest {
         id: String,
     },
+    UploadOptions {
+        subject_code: String,
+        request: Option<ExamRequest>,
+    },
+    Upload {
+        files: Vec<ExamUploadFile>,
+        draft: ExamUploadDraft,
+    },
+    UploadStatus,
+    CancelUpload,
+    RecoverUpload,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -230,5 +304,8 @@ pub enum ExamAnswer {
     Library(ExamLibrary),
     Saved(bool),
     Requests(ExamRequestPage),
+    UploadOptions(ExamUploadOptions),
+    UploadStatus(ExamUploadStatus),
+    Uploaded(String),
     Done,
 }

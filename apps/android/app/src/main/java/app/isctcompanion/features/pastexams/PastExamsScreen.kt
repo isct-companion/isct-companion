@@ -51,11 +51,15 @@ import app.isctcompanion.core.ExamDocument
 import app.isctcompanion.core.ExamLibrary
 import app.isctcompanion.core.ExamLocalDocument
 import app.isctcompanion.core.ExamReportReason
+import app.isctcompanion.core.ExamRequest
 import app.isctcompanion.core.ExamRequestCursor
 import app.isctcompanion.core.ExamRequestDraft
 import app.isctcompanion.core.ExamRequestPage
 import app.isctcompanion.core.ExamSubject
 import app.isctcompanion.core.ExamSubjectPage
+import app.isctcompanion.core.ExamUploadOptions
+import app.isctcompanion.core.ExamUploadPhase
+import app.isctcompanion.core.ExamUploadStatus
 import app.isctcompanion.core.SdkException
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Localizer
@@ -75,7 +79,7 @@ private enum class Tab(val key: String) {
 }
 
 private data class Confirmation(val key: String, val action: ExamAction)
-private val occasions = listOf("final", "midterm", "makeup", "quiz", "check", "report", "exercise", "textbook", "mock")
+internal val examOccasions = listOf("final", "midterm", "makeup", "quiz", "check", "report", "exercise", "textbook", "mock")
 
 @Composable
 fun PastExamsScreen(onBack: (() -> Unit)? = null) {
@@ -99,6 +103,8 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     var timetable by rememberSaveable { mutableStateOf(false) }
     var requestForm by rememberSaveable { mutableStateOf(false) }
     var reportForm by rememberSaveable { mutableStateOf(false) }
+    var uploadForm by remember { mutableStateOf<ExamUploadOptions?>(null) }
+    var uploadStatus by remember { mutableStateOf<ExamUploadStatus?>(null) }
     var confirmation by remember { mutableStateOf<Confirmation?>(null) }
     var year by rememberSaveable { mutableStateOf("") }
     var teacher by rememberSaveable { mutableStateOf("") }
@@ -114,6 +120,8 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
             library = null
             requestForm = false
             reportForm = false
+            uploadForm = null
+            uploadStatus = null
         }
     }
 
@@ -169,10 +177,44 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     suspend fun updateAccount(action: ExamAction) {
         val updated = (call(action) as? ExamAnswer.Account)?.v1 ?: return
         displayAccount(updated)
+        if (updated.status == ExamAccountStatus.CONNECTED) uploadStatus = model.examUploadStatus()
         reload()
+    }
+
+    suspend fun startUpload(code: String, request: ExamRequest? = null) {
+        uploadForm = (call(ExamAction.UploadOptions(code, request)) as? ExamAnswer.UploadOptions)?.v1
+    }
+
+    suspend fun settledUpload(uploaded: Boolean) {
+        uploadStatus = model.examUploadStatus()
+        if (!uploaded) return
+        requests = null
+        library = null
+        if (tab == Tab.Browse) {
+            subject?.subject?.code?.let { code ->
+                (call(ExamAction.Subject(code)) as? ExamAnswer.Subject)?.v1?.let { subject = it }
+            }
+        } else {
+            reload()
+        }
+        notice = t("examShare.upload.uploaded")
     }
     LaunchedEffect(Unit) { updateAccount(ExamAction.Account) }
 
+    val editingUpload = uploadForm
+    if (editingUpload != null) {
+        ExamUploadScreen(options = editingUpload, onBack = {
+            uploadForm = null
+            scope.launch { uploadStatus = model.examUploadStatus() }
+        }, onUploaded = {
+            // Use the parent scope so the refresh survives dismissing the form.
+            scope.launch {
+                uploadForm = null
+                settledUpload(uploaded = true)
+            }
+        })
+        return
+    }
     if (timetable) {
         androidx.activity.compose.BackHandler { timetable = false }
         TimetableImportPreview(onBack = { timetable = false })
@@ -196,6 +238,12 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                 error?.let { Text(it, color = Theme.colors.danger) }
                 notice?.let { Text(it, color = Theme.colors.muted) }
                 if (busy) CircularProgressIndicator()
+                if (account?.status == ExamAccountStatus.CONNECTED && uploadStatus?.phase == ExamUploadPhase.PENDING) {
+                    ExamUploadProgress(uploadStatus, false)
+                    TextButton(enabled = !busy, onClick = {
+                        scope.launch { settledUpload(call(ExamAction.RecoverUpload) is ExamAnswer.Uploaded) }
+                    }) { Text(t("examShare.upload.recover")) }
+                }
                 if (connecting) TextButton(onClick = {
                     scope.launch {
                         try {
@@ -269,9 +317,12 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                             SectionLabel(subjectName(selected.subject, settings))
                             TextButton(onClick = { subject = null }) { Text(t("common.back")) }
                             TextButton(enabled = !busy, onClick = { requestForm = true }) { Text(t("examShare.newRequest")) }
+                            TextButton(enabled = !busy, onClick = {
+                                scope.launch { startUpload(selected.subject.code) }
+                            }) { Text(t("examShare.upload.title")) }
                             ChoiceRow("examShare.allYears", year, selected.exams.mapNotNull { it.academicYear?.toString() }.distinct().sortedDescending().map { it to it }) { year = it }
                             ChoiceRow("examShare.allTeachers", teacher, selected.exams.flatMap { it.teachers }.distinctBy { it.id }.map { it.id to it.name }) { teacher = it }
-                            ChoiceRow("examShare.allOccasions", occasion, occasions.map { it to t("examShare.occasion.$it") }) { occasion = it }
+                            ChoiceRow("examShare.allOccasions", occasion, examOccasions.map { it to t("examShare.occasion.$it") }) { occasion = it }
                         }
                         val exams = selected.exams.filter {
                             (year.isEmpty() || it.academicYear?.toString() == year) &&
@@ -308,6 +359,11 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                             Text(listOfNotNull(request.academicYear?.toString(), t("examShare.requestStatus.${request.status}"), request.description.ifEmpty { null }).joinToString(" · "), color = Theme.colors.muted)
                             request.answerExamId?.let { id ->
                                 TextButton(enabled = !busy, onClick = { scope.launch { open(id) } }) { Text(t("examShare.viewAnswer")) }
+                            }
+                            if (request.status == "open") {
+                                TextButton(enabled = !busy, onClick = {
+                                    scope.launch { startUpload(request.subject.code, request) }
+                                }) { Text(t("examShare.upload.answerRequest")) }
                             }
                             if (request.mine) Row {
                                 TextButton(enabled = !busy, onClick = {
@@ -397,7 +453,7 @@ private fun RequestDialog(subject: ExamSubjectPage, busy: Boolean, error: String
                     row.classIds.firstOrNull()?.let { id -> id.toString() to (row.labels + row.teachers.map { it.name } + row.taughtIn).joinToString(" · ") }
                 }) { classId = it }
                 OutlinedTextField(year, { year = it.take(4) }, label = { Text(t("examShare.year")) }, singleLine = true)
-                ChoiceRow("examShare.allOccasions", occasion, occasions.map { it to t("examShare.occasion.$it") }) { occasion = it }
+                ChoiceRow("examShare.allOccasions", occasion, examOccasions.map { it to t("examShare.occasion.$it") }) { occasion = it }
                 ChoiceRow("examShare.wantedRole", role, listOf("question", "answer").map { it to t("examShare.role.$it") }) { role = it }
                 OutlinedTextField(description, { description = it.take(1000) }, label = { Text(t("examShare.description")) })
                 error?.let { Text(it, color = Theme.colors.danger) }
@@ -482,7 +538,7 @@ private fun NativeDocument(file: ExamLocalDocument) {
     }
 }
 
-private fun subjectName(subject: ExamSubject, settings: JSONObject): String =
+internal fun subjectName(subject: ExamSubject, settings: JSONObject): String =
     Localizer.pick(mapOf("ja" to subject.name, "en" to subject.nameEn.orEmpty()), settings) ?: subject.code
 
 private fun examLabel(exam: ExamDocument, settings: JSONObject): String = listOfNotNull(

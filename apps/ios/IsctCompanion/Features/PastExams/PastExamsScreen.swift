@@ -22,6 +22,8 @@ struct PastExamsScreen: View {
     @State private var showsTimetable = false
     @State private var showsRequest = false
     @State private var showsReport = false
+    @State private var uploadEntry: ExamUploadEntry?
+    @State private var pendingUpload = false
     @State private var confirmation: Confirmation?
     @State private var year: UInt32?
     @State private var teacher = ""
@@ -45,6 +47,11 @@ struct PastExamsScreen: View {
                 if let notice { Text(notice).foregroundStyle(Theme.muted) }
                 switch account?.status {
                 case .connected:
+                    if pendingUpload {
+                        Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") {
+                            uploadEntry = .recovery
+                        }
+                    }
                     Button(t("examShare.disconnect"), role: .destructive) {
                         confirmation = Confirmation(key: "examShare.disconnectHint") { await accountAction(.disconnect) }
                     }
@@ -93,6 +100,7 @@ struct PastExamsScreen: View {
         .refreshable {
             guard file == nil else { return }
             await loadTab(refresh: true)
+            await refreshUploadStatus()
         }
         .onChange(of: tab) {
             file = nil
@@ -132,6 +140,18 @@ struct PastExamsScreen: View {
                 }
             }
         }
+        .sheet(item: $uploadEntry, onDismiss: {
+            Task { await refreshUploadStatus() }
+        }) { entry in
+            ExamUploadSheet(entry: entry, subjectName: subjectName) {
+                uploadEntry = nil
+                pendingUpload = false
+                requestPages.removeAll()
+                library = nil
+                await loadTab(refresh: true)
+                notice = t("examShare.upload.uploaded")
+            }
+        }
         .confirmationDialog(
             confirmation.map { t($0.key) } ?? "",
             isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }),
@@ -158,6 +178,9 @@ struct PastExamsScreen: View {
                 Section(subjectName(subject.subject)) {
                     Button(t("common.back")) { self.subject = nil }
                     Button(t("examShare.newRequest")) { showsRequest = true }
+                    Button(t("examShare.upload.title"), systemImage: "arrow.up.doc") {
+                        uploadEntry = .subject(subject.subject)
+                    }
                     Picker(t("examShare.year"), selection: $year) {
                         Text(t("examShare.allYears")).tag(nil as UInt32?)
                         ForEach(Set(subject.exams.compactMap(\.academicYear)).sorted(by: >), id: \.self) { Text(String($0)).tag(Optional($0)) }
@@ -216,6 +239,10 @@ struct PastExamsScreen: View {
                         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")).foregroundStyle(Theme.muted)
                     if let answer = item.answerExamId {
                         Button(t("examShare.viewAnswer")) { Task { await open(answer) } }.buttonStyle(.borderless)
+                    }
+                    if item.status == "open" {
+                        Button(t("examShare.upload.answerRequest")) { uploadEntry = .request(item) }
+                            .buttonStyle(.borderless)
                     }
                     if item.mine {
                         HStack {
@@ -317,7 +344,10 @@ struct PastExamsScreen: View {
     private func accountAction(_ action: ExamAction) async {
         guard case let .account(value)? = await call(action) else { return }
         displayAccount(value)
-        if value.status == .connected { await loadTab() }
+        if value.status == .connected {
+            await refreshUploadStatus()
+            await loadTab()
+        }
     }
 
     private func displayAccount(_ value: ExamAccount) {
@@ -331,6 +361,14 @@ struct PastExamsScreen: View {
             library = nil
             showsRequest = false
             showsReport = false
+            uploadEntry = nil
+            pendingUpload = false
+        }
+    }
+
+    private func refreshUploadStatus() async {
+        if case let .uploadStatus(status)? = try? await model.examShare(.uploadStatus) {
+            pendingUpload = status.phase == .pending
         }
     }
 

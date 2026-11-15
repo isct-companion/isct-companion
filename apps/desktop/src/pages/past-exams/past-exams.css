@@ -42,3 +42,29 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.examUpload,
+.examUploadFields {
+  display: grid;
+  gap: 12px;
+}
+.examUploadFields {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  min-inline-size: 0;
+}
+.examUploadList li > span:first-child {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.examUploadMetadata,
+.examUploadTeacherList {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 208px), 1fr));
+}
+.examUploadFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

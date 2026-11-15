@@ -14,6 +14,25 @@ struct RemoteExam {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SubjectDetails {
+    #[serde(flatten)]
+    page: ExamSubjectPage,
+    current_teachers: Vec<ExamTeacher>,
+    past_teachers: Vec<ExamTeacher>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SubjectResponse {
+    Page(SubjectDetails),
+    Moved {
+        #[serde(rename = "movedTo")]
+        moved_to: Value,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RemoteRequest {
     #[serde(flatten)]
     request: RequestRecord,
@@ -100,6 +119,35 @@ impl ExamShare {
         self.folder.join(key(uid))
     }
 
+    async fn subject_details(
+        &self,
+        session: &mut Session,
+        code: &str,
+    ) -> Result<SubjectDetails, ExamError> {
+        let response: SubjectResponse = self
+            .call(
+                session,
+                self.service(Method::GET, &["subjects", code, "view"])?,
+            )
+            .await?;
+        match response {
+            SubjectResponse::Page(details) => Ok(details),
+            SubjectResponse::Moved {
+                moved_to: Value::String(code),
+            } => {
+                self.call(
+                    session,
+                    self.service(Method::GET, &["subjects", &code, "view"])?,
+                )
+                .await
+            }
+            SubjectResponse::Moved {
+                moved_to: Value::Null,
+            } => Err(ExamError::NotFound),
+            SubjectResponse::Moved { .. } => Err(ExamError::Response),
+        }
+    }
+
     pub(super) async fn feature(
         &self,
         session: &mut Session,
@@ -126,31 +174,56 @@ impl ExamShare {
                 Ok(ExamAnswer::Subjects(answer.subjects))
             }
             ExamAction::Subject { code } => {
-                let request = self.service(get, &["subjects", &code, "view"])?;
-                #[derive(Deserialize)]
-                #[serde(untagged)]
-                enum SubjectResponse {
-                    Page(ExamSubjectPage),
-                    Moved {
-                        #[serde(rename = "movedTo")]
-                        moved_to: Option<String>,
-                    },
+                let details = self.subject_details(session, &code).await?;
+                Ok(ExamAnswer::Subject(details.page))
+            }
+            ExamAction::UploadOptions {
+                subject_code,
+                request,
+            } => {
+                if request
+                    .as_ref()
+                    .is_some_and(|item| item.subject.code != subject_code || item.status != "open")
+                {
+                    return Err(ExamError::InvalidInput);
                 }
-                let answer: SubjectResponse = self.call(session, request).await?;
-                let page = match answer {
-                    SubjectResponse::Page(page) => page,
-                    SubjectResponse::Moved {
-                        moved_to: Some(code),
-                    } => {
-                        self.call(
-                            session,
-                            self.service(Method::GET, &["subjects", &code, "view"])?,
-                        )
-                        .await?
-                    }
-                    SubjectResponse::Moved { moved_to: None } => return Err(ExamError::NotFound),
+                let details = self.subject_details(session, &subject_code).await?;
+                let mut seen = std::collections::HashSet::new();
+                let teachers: Vec<_> = details
+                    .current_teachers
+                    .into_iter()
+                    .chain(details.past_teachers)
+                    .filter(|teacher| seen.insert(teacher.id.clone()))
+                    .collect();
+                let request = request.as_ref();
+                let role = request
+                    .and_then(|item| item.wanted_role.as_deref())
+                    .unwrap_or("question");
+                let draft = ExamUploadDraft {
+                    subject_codes: vec![details.page.subject.code],
+                    teacher_ids: request
+                        .into_iter()
+                        .flat_map(|item| &item.teachers)
+                        .filter(|teacher| seen.contains(&teacher.id))
+                        .map(|teacher| teacher.id.clone())
+                        .collect(),
+                    new_teachers: vec![],
+                    academic_year: request.and_then(|item| item.academic_year),
+                    occasion: request
+                        .and_then(|item| item.occasion.clone())
+                        .unwrap_or_else(|| "unknown".into()),
+                    occasion_number: 0,
+                    variant: String::new(),
+                    role: role.into(),
+                    provenance: "original".into(),
+                    answer_source: (role == "answer").then(|| "unknown".into()),
+                    note: String::new(),
+                    request_id: request.map(|item| item.id.clone()),
                 };
-                Ok(ExamAnswer::Subject(page))
+                Ok(ExamAnswer::UploadOptions(ExamUploadOptions {
+                    draft,
+                    teachers,
+                }))
             }
             ExamAction::Open { id, download } => self
                 .open(session, &id, download)
@@ -253,7 +326,11 @@ impl ExamShare {
             | ExamAction::Connect
             | ExamAction::CancelConnect
             | ExamAction::AcceptTerms
-            | ExamAction::Disconnect => Err(ExamError::InvalidInput),
+            | ExamAction::Disconnect
+            | ExamAction::Upload { .. }
+            | ExamAction::UploadStatus
+            | ExamAction::CancelUpload
+            | ExamAction::RecoverUpload => Err(ExamError::InvalidInput),
         }
     }
 
@@ -423,14 +500,7 @@ impl ExamShare {
 
     async fn fetch(&self, url: url::Url, path: &Path) -> Result<(), ExamError> {
         const LIMIT: usize = 25 * 1024 * 1024;
-        if url.scheme() != "https"
-            || url.port().is_some()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || !url
-                .host_str()
-                .is_some_and(|host| host.ends_with(".r2.cloudflarestorage.com"))
-        {
+        if !client::is_file_url(&url) {
             return Err(ExamError::Response);
         }
         let mut response = self

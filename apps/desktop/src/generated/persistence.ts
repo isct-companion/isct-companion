@@ -823,6 +823,44 @@ export type ExamAccount = { status: ExamAccountStatus; email: string | null };
 export type ExamReportReason =
   "copyright" | "inappropriate" | "wrongAnswer" | "brokenFile" | "other";
 
+export type ExamUploadFile = { path: string; name: string };
+
+export type ExamNewTeacher = { familyName: string; givenName: string };
+
+export type ExamUploadDraft = {
+  subjectCodes: Array<string>;
+  teacherIds: Array<string>;
+  newTeachers: Array<ExamNewTeacher>;
+  academicYear: number | null;
+  occasion: string;
+  occasionNumber: number;
+  variant: string;
+  role: string;
+  provenance: string;
+  answerSource: string | null;
+  note: string;
+  requestId: string | null;
+};
+
+export type ExamUploadOptions = {
+  draft: ExamUploadDraft;
+  teachers: Array<ExamTeacher>;
+};
+
+export type ExamUploadPhase =
+  | "idle"
+  | "preparing"
+  | "transferring"
+  | "registering"
+  | "pending"
+  | "cleaning";
+
+export type ExamUploadStatus = {
+  phase: ExamUploadPhase;
+  sent: number;
+  total: number;
+};
+
 export type ExamAction =
   | { kind: "account" }
   | { kind: "accountSnapshot" }
@@ -841,7 +879,12 @@ export type ExamAction =
   | { kind: "requests"; mine: boolean; cursor: ExamRequestCursor | null }
   | { kind: "createRequest"; draft: ExamRequestDraft }
   | { kind: "setRequestOpen"; id: string; open: boolean }
-  | { kind: "deleteRequest"; id: string };
+  | { kind: "deleteRequest"; id: string }
+  | { kind: "uploadOptions"; subjectCode: string; request: ExamRequest | null }
+  | { kind: "upload"; files: Array<ExamUploadFile>; draft: ExamUploadDraft }
+  | { kind: "uploadStatus" }
+  | { kind: "cancelUpload" }
+  | { kind: "recoverUpload" };
 
 export type ExamAnswer =
   | { kind: "account"; value: ExamAccount }
@@ -851,6 +894,9 @@ export type ExamAnswer =
   | { kind: "library"; value: ExamLibrary }
   | { kind: "saved"; value: boolean }
   | { kind: "requests"; value: ExamRequestPage }
+  | { kind: "uploadOptions"; value: ExamUploadOptions }
+  | { kind: "uploadStatus"; value: ExamUploadStatus }
+  | { kind: "uploaded"; value: string }
   | { kind: "done" };
 
 export type TeachingPeriod = {
@@ -2228,7 +2274,12 @@ export type ErrorCode =
   | "exam-share-busy"
   | "exam-share-already-reported"
   | "exam-share-quota"
-  | "exam-share-invalid-input";
+  | "exam-share-invalid-input"
+  | "exam-share-upload-file"
+  | "exam-share-upload-size"
+  | "exam-share-upload-duplicate"
+  | "exam-share-upload-quota"
+  | "exam-share-upload-pending";
 
 export type CoreFailure = {
   code: ErrorCode;
