@@ -78,7 +78,10 @@ impl CoreRuntime {
         &self.scheduler
     }
 
-    pub(crate) fn scheduler_services(&self, store: &crate::data::DataStore) -> Option<SchedulerServices> {
+    pub(crate) fn scheduler_services(
+        &self,
+        store: &crate::data::DataStore,
+    ) -> Option<SchedulerServices> {
         let exporter = self.exporter.lock().ok()?.clone()?;
         Some(SchedulerServices {
             store: store.clone(),
@@ -104,7 +107,10 @@ impl CoreRuntime {
     /// Work Core owns past its caller (an LMS write, a print job):
     /// shutdown waits for it to end.
     #[cfg_attr(
-        not(any(feature = "agent", all(feature = "campus-printer", windows))),
+        not(any(
+            feature = "agent",
+            all(feature = "campus-printer", any(windows, target_os = "android"))
+        )),
         allow(dead_code)
     )]
     pub(crate) fn tasks(&self) -> &RuntimeTasks {

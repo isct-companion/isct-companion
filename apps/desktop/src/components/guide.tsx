@@ -1,3 +1,4 @@
+import { nativeOs } from "../platform/desktop-bridge";
 import { Button, Group, Modal, Popover, Stack, Text } from "./ui";
 import { useLocalStorage } from "usehooks-ts";
 import { t, type MessageKey } from "../i18n";
@@ -153,6 +154,11 @@ export function WelcomeSheet({
             onChange={(language) => set("contentLanguage", language)}
           />
         </div>
+        {nativeOs() === "macos" && (
+          <Text size="xs" c="dimmed">
+            {t("widget.addOnMac")}
+          </Text>
+        )}
         <button
           type="button"
           className="welcomeLink"

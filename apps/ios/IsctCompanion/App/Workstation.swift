@@ -104,6 +104,7 @@ private struct BenchRoot: View {
         case let route as AssignmentRoute: AssignmentScreen(assignmentId: route.id).id(route.id)
         case let page as WebRouter.PushedPage: WebPageScreen(page: page)
         case let route as SettingsRoute: SettingsDestination(route: route)
+        case is AssignmentListRoute: AssignmentListScreen()
         case is AssignmentRecordRoute: RecordScreen()
         default:
             // Pages pushed before the window widened, without what they were

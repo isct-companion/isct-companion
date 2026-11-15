@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -64,12 +65,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -82,9 +85,11 @@ import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.MatrixCameraSession
 import app.isctcompanion.core.MatrixConfidence
+import app.isctcompanion.core.MatrixOrder
 import app.isctcompanion.core.OtpImportAccount
 import app.isctcompanion.core.OtpImportException
 import app.isctcompanion.core.importOtp
+import app.isctcompanion.core.parseMatrixText
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -161,9 +166,14 @@ private fun copySensitive(context: Context, text: String) {
  * codes fill themselves in; otherwise a choice between an authenticator's
  * export QR (Google's code scanner, or a screenshot on this phone) and a
  * pasted setup. The app never registers an authenticator with the school;
- * it imports one already registered. */
+ * it can also import one already registered. */
 @Composable
-fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
+fun OtpImportField(
+    saved: Boolean,
+    setup: String,
+    openManual: () -> Unit,
+    onSetup: (String) -> Unit,
+) {
     val context = LocalContext.current
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
@@ -171,8 +181,10 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     var path by remember { mutableStateOf("export") }
     var copied by remember { mutableStateOf(false) }
     var choices by remember { mutableStateOf<List<OtpImportAccount>>(emptyList()) }
+    // What was read: the account's name, or "" for a bare secret.
     var label by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf(false) }
 
     fun choose(account: OtpImportAccount) {
         onSetup(account.setup)
@@ -180,22 +192,19 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         label = name(account)
     }
 
-    fun read(payload: String) {
+    // `pasted` text is a setup link or secret, not a QR code, so a payload
+    // Core cannot read is worded for what the person gave.
+    fun read(payload: String, pasted: Boolean = false) {
         error = null
-        val text = payload.trim()
-        // A bare secret is pasted as is; Core validates it on save.
-        if (!text.contains("://")) {
-            onSetup(text)
-            return
-        }
         try {
-            val accounts = importOtp(text)
+            val accounts = importOtp(payload)
             if (accounts.size == 1) choose(accounts.first()) else choices = accounts
         } catch (failure: OtpImportException) {
             error = when (failure) {
-                is OtpImportException.MultiplePages -> t("settings.credentialImport.exportOnlyYourSchoolAccount")
-                is OtpImportException.Unsupported -> t("settings.credentialImport.thisAccountUsesACode")
-                is OtpImportException.Invalid -> t("settings.credentialImport.thisIsNotAQR")
+                is OtpImportException.MultiplePages -> t("error.otp-import-multiple")
+                is OtpImportException.Unsupported -> t("error.otp-import-unsupported")
+                is OtpImportException.Invalid ->
+                    t(if (pasted) "settings.credentialImport.notASetupLinkOrSecret" else "error.otp-import-invalid")
             }
         }
     }
@@ -249,6 +258,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
+    TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
     Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
     if (path == "export") {
         ChipRow {
@@ -264,25 +274,40 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                 photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
         }
-        Hint(t("settings.credentialImport.googleAuthenticatorTransferAccountsExport"))
+        Hint(t("settings.credentialImport.exportFromGoogleAuthenticator"))
+        OtpGuideButton(OtpGuide.Google)
     } else {
         OutlinedTextField(
-            setup, { onSetup(it); label = null }, singleLine = true,
+            setup, { onSetup(it); label = null; error = null }, singleLine = true,
             label = { Text(t("settings.credentialImport.otpauthOrSecretKey")) },
             // Masked like a password, but not typed as one: Autofill must not offer
             // the school login here.
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
+                imeAction = ImeAction.Done,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            // A finished entry is read at once, like a paste; saving is only
+            // for whether the school accepts it.
+            keyboardActions = KeyboardActions(onDone = { if (setup.isNotBlank() && label == null && error == null) read(setup, pasted = true) }),
+            modifier = Modifier.fillMaxWidth().onFocusChanged { focus ->
+                if (editing && !focus.isFocused && setup.isNotBlank() && label == null && error == null) read(setup, pasted = true)
+                editing = focus.isFocused
+            },
         )
         SourceChip(t("settings.credentialImport.paste"), Icons.Rounded.ContentPaste) {
-            clipboardText(context)?.let(::read) ?: run { error = t("settings.credentialImport.theClipboardIsEmpty") }
+            clipboardText(context)?.let { read(it, pasted = true) } ?: run { error = t("settings.credentialImport.theClipboardIsEmpty") }
         }
-        Hint(t("settings.credentialImport.notTheSixDigitCode"))
+        Hint(t("settings.credentialImport.pasteFromTitechApp"))
+        OtpGuideButton(OtpGuide.TitechApp)
     }
-    label?.let { Text(t("settings.credentialImport.readLabelSaveToUse", "label" to it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
+    Hint(t("settings.credentialImport.readOnThisDevice"))
+    label?.let {
+        Text(
+            t("settings.credentialImport.readAccountReadyOnceConnected", "account" to it.ifEmpty { t("settings.credentialImport.otpSecret") }),
+            style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok,
+        )
+    }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
     if (saved && setup.isEmpty()) {
         TextButton(onClick = { changing = false }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
@@ -358,6 +383,22 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     val canScan = model.canScanMatrix
 
     fun publish() = onMatrix(cells.joinToString(""))
+
+    // Core reads letters along rows, or titech-app's export (down columns).
+    fun paste(text: String) {
+        runCatching { parseMatrixText(text) }
+            .onSuccess { pasted ->
+                error = null
+                pasted.cells.forEachIndexed { index, c ->
+                    cells[index] = c.toString()
+                    confidence[index] = null
+                }
+                note = if (pasted.order == MatrixOrder.COLUMNS) t("settings.credentialImport.matrixImportedFromTitechApp") else null
+                publish()
+                editing = true
+            }
+            .onFailure { error = t("settings.credentialImport.pasteExactly70LettersIn") }
+    }
 
     fun scan(uri: Uri) {
         scope.launch {
@@ -467,19 +508,10 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 return@SourceChip
             }
             val text = clipboardText(context)
-            val letters = text.orEmpty().uppercase().filterNot { it.isWhitespace() }
             if (text == null) {
                 error = t("settings.credentialImport.theClipboardHasNoImage")
-            } else if (letters.length != 70 || !letters.all { it in 'A'..'Z' }) {
-                error = t("settings.credentialImport.pasteExactly70LettersIn")
             } else {
-                error = null
-                letters.forEachIndexed { index, c ->
-                    cells[index] = c.toString()
-                    confidence[index] = null
-                }
-                publish()
-                editing = true
+                paste(text)
             }
         }
         if (!editing) SourceChip(t("settings.credentialImport.enterManually"), Icons.Rounded.Keyboard) { editing = true }

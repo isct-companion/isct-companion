@@ -31,7 +31,6 @@ import {
 } from "../platform/core-query";
 import { useFinder } from "../pages/courses/useFinder";
 import type { FinderRowView } from "../platform/finder-query";
-import { contentLanguage } from "../lib/model";
 import { Notifications } from "./notifications";
 import {
   createHashRouter,
@@ -62,7 +61,7 @@ import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
-import { vpnNoticeText } from "../pages/tools/CampusVpn";
+import { saveVpnOnDemand, vpnNoticeText } from "../pages/tools/CampusVpn";
 import { About } from "../pages/about/AboutPage";
 import { Tools } from "../pages/tools/ToolsPage";
 import { PastExams } from "../pages/past-exams/PastExamsPage";
@@ -84,6 +83,7 @@ import type {
   SchoolAuthProfile,
   SchoolProfileSession,
 } from "../platform/desktop-bridge";
+import { onWidgetRoute } from "../platform/widget-links";
 import { sessionDetails, sessionText } from "./sync-text";
 
 import { performAction } from "../platform/actions";
@@ -248,6 +248,45 @@ export function WorkspaceApp() {
   const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useAnimatedNavigate();
+  const widgetNavigate = useRef(navigate);
+  useEffect(() => {
+    widgetNavigate.current = navigate;
+  }, [navigate]);
+  useEffect(() => {
+    if (!storeReady) return;
+    return onWidgetRoute((route) => {
+      switch (route.kind) {
+        case "course":
+          void widgetNavigate.current(paths.lectures(route.courseId));
+          break;
+        case "exam":
+          void widgetNavigate.current(paths.exam(route.key, route.term));
+          break;
+        case "assignment":
+          if (route.courseId) {
+            void widgetNavigate.current(
+              paths.lectures(route.courseId, route.id),
+            );
+            break;
+          }
+          setAssignmentsRequest(Date.now());
+          void widgetNavigate.current(paths.lectures());
+          break;
+        case "assignments":
+        case "unavailableAssignment":
+          setAssignmentsRequest(Date.now());
+          void widgetNavigate.current(paths.lectures());
+          break;
+        case "sync":
+          void widgetNavigate.current(paths.settings("accounts"));
+          break;
+        case "unavailableCourse":
+        case "timetable":
+          void widgetNavigate.current(paths.timetable());
+          break;
+      }
+    });
+  }, [storeReady]);
   const location = useLocation();
   const params = useParams();
   const timetableMatch = useMatch(routePatterns.timetable);
@@ -309,6 +348,8 @@ export function WorkspaceApp() {
       desktopBridge?.onVpnNotice?.((notice) => {
         const [title, body] = vpnNoticeText(notice);
         void desktopBridge?.notify(title, body).catch(() => undefined);
+        // Retrying cannot fix it; the next launch must not try again.
+        if (notice.kind === "demandStopped") void saveVpnOnDemand(false);
       }),
     [],
   );
@@ -1037,7 +1078,6 @@ export function WorkspaceApp() {
             year={Number(courseTerm.slice(0, 4))}
             term={courseTerm}
             summary={`${finderTermCourses.length} ${t("course.status.onTimetable")} · ${termCredits} ${t("common.creditsUnit")}`}
-            language={contentLanguage(data.settings)}
             finder={finder}
             openCourse={(row) => {
               setPanelCourseId(null);
@@ -1063,7 +1103,6 @@ export function WorkspaceApp() {
             <OfferingPanel
               key={offeringPanel.course.id}
               course={offeringPanel.course}
-              language={contentLanguage(data.settings)}
               placed={finder.placedCodes.has(offeringPanel.course.code)}
               replaces={(
                 finder.rows.find(
@@ -1244,9 +1283,19 @@ export function WorkspaceApp() {
       showLoginPage={(profile, options) => {
         const site = profile === "science" ? "science-portal" : "tokyo-portal";
         sessionStorage.setItem("isct-companion-active-school-site", site);
-        // The Web page opens the start page without a sign-in once.
-        if (options?.unsigned)
-          sessionStorage.setItem("isct-companion-unsigned-school-site", site);
+        // An explicit entry is consumed on the next opening of this site.
+        if (options) {
+          const entry =
+            "otpUsername" in options
+              ? { kind: "otpSetup", username: options.otpUsername }
+              : { kind: "unsigned" };
+          sessionStorage.setItem(
+            "isct-companion-school-entry",
+            JSON.stringify(entry),
+          );
+        } else {
+          sessionStorage.removeItem("isct-companion-school-entry");
+        }
         void navigate(paths.web());
       }}
     />

@@ -34,9 +34,12 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "activeSchoolSite": settings.get("activeSchoolSite"),
         "schoolWebZoom": settings.get("schoolWebZoom"),
         "showGrades": settings.get("showGrades"),
+        "campusVpnOnDemand": settings.get("campusVpnOnDemand"),
+        "campusVpnPublishers": settings.get("campusVpnPublishers"),
         "siteConsents": settings.get("siteConsents"),
         "locale": settings.get("locale"),
         "contentLanguage": settings.get("contentLanguage"),
+        "mapsApp": settings.get("mapsApp"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
         // A per-device acknowledgement; it does not sync.
         "dataNoticeAcknowledgedAt": settings.get("dataNoticeAcknowledgedAt"),
@@ -68,6 +71,7 @@ const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
     ("/locale", &["en", "ja", "zh"]),
     ("/closeWindow", &["ask", "quit", "background"]),
     ("/contentLanguage", &["auto", "ja", "en"]),
+    ("/mapsApp", &["apple", "google"]),
     (
         "/notifications/localPermission",
         &["default", "denied", "granted"],

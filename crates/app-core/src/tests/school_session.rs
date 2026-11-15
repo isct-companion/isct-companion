@@ -1,6 +1,7 @@
 //! The session rules that need no school: the jar, the identity snapshot,
 //! the account barrier and the web cookie queue. Sign-ins, verification and
-//! reads are not simulated (`approach/school-sign-in-verification`): they
+//! reads are not simulated beyond a bare HTTP status
+//! (`approach/school-sign-in-verification`): they
 //! run against the real schools (`school_session__login.rs`, ignored by
 //! default), in the dev app, and in `docs/verification/manual-checks.yaml`.
 use super::*;
@@ -376,14 +377,18 @@ async fn a_session_too_long_for_one_vault_item_comes_back_after_a_relaunch() {
     relaunched.0.restore(profile).await;
     let (snapshot, _) = relaunched.0.account(profile).identity.snapshot().unwrap();
     assert_eq!(snapshot.cookies[0].set_cookie, long);
-    assert_eq!(relaunched.fresh(profile), None, "unverified after a relaunch");
+    assert_eq!(
+        relaunched.fresh(profile),
+        None,
+        "unverified after a relaunch"
+    );
 
     assert_eq!(relaunched.sign_out(profile).await, Ok(true));
     assert_eq!(vault.parts(), 0);
     assert_eq!(
         crate::ports::SecretVault::load(&vault, "school-session-science"),
         Ok(None)
-);
+    );
 }
 
 // A revision always carries the view it was numbered with: shells keep the
@@ -565,4 +570,148 @@ async fn a_retry_the_vault_refuses_says_why() {
     assert!(session.retry_at.is_some());
     assert_eq!(sessions.0.account(profile).identity.sign_ins_started(), 1);
     assert!(sessions.0.account(profile).identity.configured());
+}
+
+// An account that counts as saved while the vault holds no credentials for
+// it signs in once, finds none, and is not configured from then on: the next
+// background read starts no sign-in. Each sign-in moves the credential facts,
+// so one that kept the account configured would wake sync to sign in again,
+// forever.
+#[tokio::test]
+async fn an_account_whose_credentials_are_gone_is_signed_in_once() {
+    let profile = SchoolAuthProfile::TokyoTech;
+    let auth = Arc::new(SchoolAuthService::new(HeldVault::default()));
+    let sessions = SchoolSessions::new(None, auth);
+    sessions.assume_configured(profile);
+    let identity = &sessions.0.account(profile).identity;
+
+    for _ in 0..2 {
+        let seen = identity.generation();
+        let ended = sessions
+            .0
+            .sign_in(profile, seen, identity::How::Background)
+            .await;
+        assert!(matches!(ended, Err(identity::Ended::NotConfigured)));
+    }
+    assert_eq!(identity.sign_ins_started(), 1);
+    assert!(!identity.configured());
+}
+
+// A background sign-in the school stops before any secret went out (here
+// its first page answers HTTP 403, a bare status) says nothing about the
+// credentials, so no refusal is kept; it pauses instead, and sync holds the
+// account's reads by that pause. Without it nothing sync holds on changes
+// while every sign-in moves the credential facts: the account's keys would
+// sign in again at once, forever.
+#[tokio::test]
+async fn a_sign_in_stopped_before_sending_anything_pauses() {
+    let profile = SchoolAuthProfile::Science;
+    let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
+    auth.promote(profile, &saved_credentials()).unwrap();
+    let sessions = SchoolSessions::with_transport(
+        Arc::new(crate::net::one_answer::OneAnswer {
+            status: 403,
+            content_type: "text/html; charset=utf-8",
+            body: "",
+        }),
+        auth,
+    );
+    sessions.assume_configured(profile);
+    let identity = &sessions.0.account(profile).identity;
+
+    for _ in 0..2 {
+        let seen = identity.generation();
+        let ended = sessions
+            .0
+            .sign_in(profile, seen, identity::How::Background)
+            .await;
+        assert!(
+            matches!(ended, Err(identity::Ended::Unavailable(_))),
+            "{ended:?}"
+        );
+    }
+    assert_eq!(identity.sign_ins_started(), 1);
+    assert!(sessions.0.auth.refusal(profile).is_none());
+    assert!(matches!(
+        sessions.account_facts(profile).sign_in,
+        identity::SignInAdmission::Paused { .. }
+    ));
+}
+
+/// A vault that refuses writes of the saved credentials past
+/// `credential_writes` (unlimited when `None`), as a declined Keychain
+/// consent refuses them.
+#[derive(Clone, Default)]
+struct RefusingVault {
+    items: MemoryVault,
+    credential_writes: Arc<Mutex<Option<usize>>>,
+}
+
+impl crate::ports::SecretVault for RefusingVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+        if account == "school-accounts" {
+            if let Some(left) = self.credential_writes.lock().unwrap().as_mut() {
+                if *left == 0 {
+                    return Err(crate::ports::SecretError::Access("denied".into()));
+                }
+                *left -= 1;
+            }
+        }
+        self.items.store(account, secret)
+    }
+    fn load(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+        self.items.load(account)
+    }
+    fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+        self.items.delete(account)
+    }
+}
+
+// A reset deletes both accounts' credentials last, one after the other. When
+// the second delete is refused, the first account is done: it is not left
+// waiting for a sign-out it already finished, after a relaunch neither, and
+// signing the second out again finishes it.
+#[tokio::test]
+async fn a_reset_finishes_each_account_whose_credentials_went() {
+    let (science, tokyo) = (SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech);
+    let dir = std::env::temp_dir().join(format!("school-sign-out-{}", uuid::Uuid::new_v4()));
+    let status = dir.join("school-credential-status.json");
+    let vault = RefusingVault::default();
+    let auth = || {
+        Arc::new(SchoolAuthService::with_status_cache(
+            vault.clone(),
+            status.clone(),
+        ))
+    };
+    let first = auth();
+    first.promote(science, &saved_credentials()).unwrap();
+    let matrix = crate::school_auth::SchoolCredentials {
+        matrix: "A".repeat(70),
+        otp_secret: String::new(),
+        ..saved_credentials()
+    };
+    first.promote(tokyo, &matrix).unwrap();
+    let sessions = SchoolSessions::new(None, first);
+
+    *vault.credential_writes.lock().unwrap() = Some(1);
+    assert!(matches!(
+        sessions.reset(true, true).await,
+        Err(SchoolAuthError::SignOutIncomplete(_))
+    ));
+    assert!(!sessions.sign_out_pending(science));
+    assert!(!sessions.0.auth.configured(science));
+    assert!(sessions.sign_out_pending(tokyo));
+    assert!(sessions.0.auth.configured(tokyo), "credentials go last");
+    let relaunched = SchoolSessions::new(None, auth());
+    assert!(!relaunched.sign_out_pending(science) && relaunched.sign_out_pending(tokyo));
+
+    *vault.credential_writes.lock().unwrap() = None;
+    assert_eq!(sessions.sign_out(tokyo).await, Ok(true));
+    assert!(!sessions.sign_out_pending(tokyo));
+    assert!(!sessions.0.auth.configured(tokyo));
+    let relaunched = SchoolSessions::new(None, auth());
+    assert!(PROFILES
+        .iter()
+        .all(|profile| !relaunched.sign_out_pending(*profile)));
+    std::fs::remove_dir_all(dir).unwrap();
 }

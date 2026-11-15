@@ -176,11 +176,100 @@ personas:
     language: zh
     device: windows-x64
 
+  - id: mobile-commuter
+    label: Mobile commuter checking class and assignment widgets
+    identity: undergraduate
+    context: |
+      Has a real class schedule and LMS cache on an iPhone and an Android
+      phone. Checks the next room while walking between classrooms.
+    behaviour: |
+      Checks the lock screen or Home Screen first. Leaves the app in the
+      background and sometimes turns on battery saver.
+    language: ja
+    device: iOS and Android arm64
+
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
 
 checks:
+  - id: WIDGET-MAC-DISTRIBUTION
+    area: desktop
+    title: Signed Mac widgets survive installation and an in-app update
+    persona: international-student
+    preconditions: |
+      A clean macOS 15 or later user account, an Intel or Apple silicon Mac,
+      two successive Developer ID signed and notarized builds reachable
+      through the updater, and a real course cache.
+    steps:
+      - action: Install the older DMG, open the app, and add Classes from Edit Widgets.
+        reason: Launch Services must discover the extension and the shared container must open without a data access prompt.
+      - action: Sync a change to a visible course and look again at the widget.
+        reason: The main app's refresh request must cause WidgetKit to read the newly signed app group's snapshot.
+      - action: Install the newer version through the in-app updater and reopen Edit Widgets.
+        reason: Replacing the application bundle can break extension discovery or access to the previously created container.
+    observe: The macOS widget gallery, desktop widget, system prompts and the app's Diagnostics log.
+    expected: The extension is available before and after the update, reads the local class cache, and shows the changed course after WidgetKit refreshes.
+    why_manual: |
+      Requires notarization, Gatekeeper, a fresh macOS user's privacy
+      controls, WidgetKit and an actual updater installation.
+    covers:
+      - apps/apple-widgets/**
+      - apps/desktop/src-tauri/src/widgets_macos.rs
+      - apps/desktop/src-tauri/Entitlements.plist
+      - bindings/apple-widgets/**
+      - scripts/desktop/macos-widgets.mjs
+      - scripts/desktop/tauri.mjs
+      - .github/workflows/desktop-release.yml
+    verified: null
+
+  - id: WIDGET-IOS-LOCKED
+    area: native
+    title: Lock Screen widget follows data protection and the system privacy setting
+    persona: mobile-commuter
+    preconditions: A signed iPhone build with the course Lock Screen widget and a real school cache.
+    steps:
+      - action: Lock the device after first unlock and observe the widget around a scheduled class transition.
+        reason: The extension must still be able to read the protected publication during an ordinary lock.
+      - action: Change the system setting for sensitive Lock Screen content and relock.
+        reason: Class title and room must follow WidgetKit's redaction policy.
+      - action: Restart the phone and observe the same widget before the first unlock.
+        reason: The operating system must withhold the protected snapshot after reboot.
+      - action: Unlock, background or force-quit the app, and check again around a later class transition.
+        reason: Entries carried by the system timeline should advance through class changes without the main app running.
+    observe: The rectangular Lock Screen widget before unlock, after unlock and during the next class transition.
+    expected: Sensitive content follows the system preference, initial locked boot shows a placeholder, and the published timeline can advance without the app.
+    why_manual: File protection and WidgetKit's real refresh and privacy policies require a signed build on a physical device.
+    covers:
+      - apps/apple-widgets/Extension/**
+      - apps/ios/IsctCompanion/Core/WidgetStorage.swift
+      - apps/ios/project.yml
+      - bindings/apple-widgets/**
+      - crates/app-core/src/schedule/widgets.rs
+    verified: null
+
+  - id: WIDGET-ANDROID-BACKGROUND
+    area: native
+    title: Glance reads cached data during Android background restrictions
+    persona: mobile-commuter
+    preconditions: An Android 14 or later arm64 phone with Classes and Assignments widgets and a real school cache.
+    steps:
+      - action: Background the app, disconnect the network, and note the course widget before and after a published class boundary.
+        reason: WorkManager must be allowed to request a redraw from local data without an online school read.
+      - action: Repeat with battery saver and record the delay from the displayed class time to the observed update.
+        reason: The OS can defer background work, so the displayed absolute times must remain useful while the entry is old.
+      - action: Restart the phone, unlock, and check the launcher without opening the app.
+        reason: After boot, the existing recovery worker must be able to schedule future updates and publish from the cache.
+    observe: The launcher widgets, class boundary time, update time and device logs for the local wake.
+    expected: The launcher can draw existing data independently; local background opportunities advance the widgets even when offline.
+    why_manual: Real launcher behaviour, Doze, battery saver and boot delivery depend on the device and its WorkManager scheduler.
+    covers:
+      - apps/android/app/src/main/AndroidManifest.xml
+      - apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt
+      - apps/android/app/src/main/java/app/isctcompanion/widgets/**
+      - crates/app-core/src/widgets.rs
+    verified: null
+
   - id: SCHOOL-SIGNIN-SCIENCE
     area: school
     title: Core signs in to Science Tokyo over HTTP and the LMS page opens signed in
@@ -1069,6 +1158,80 @@ checks:
         committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
+  - id: ANDROID-CAMPUS-MAP-SYSTEM
+    area: native
+    title: Android campus map against the system's memory pressure and TalkBack
+    persona: undergraduate-first-term
+    preconditions: |
+      A CI-built APK on an arm64 Android phone with the campus map downloaded
+      (今日 shows its map button), and TalkBack available in the system
+      settings.
+    steps:
+      - action: |
+          With a room selected and its floor shown, send the app to the
+          background, open several heavy apps, and return. Then open the map,
+          leave it with the close button and open it again a few times.
+        reason: |
+          The map view is handed each lifecycle step and the system's memory
+          warnings by this shell. A missed step shows as a black map, a crash
+          on return or memory that grows with every open, only on a device.
+      - action: |
+          Turn TalkBack on and open the map on a course's room. Move through
+          the map: each room label, amenity and entrance in view is read by
+          name, and activating a room or an entrance opens its card. Pan the
+          map and repeat.
+        reason: |
+          The marks are painted into one surface with no accessibility of its
+          own; the spoken boxes are placed from the map's projection when the
+          camera rests. Only TalkBack on a device shows whether they sit on
+          the marks and act.
+    observe: |
+      The map page on the phone and what TalkBack reads.
+    expected: |
+      The map survives backgrounding and reopening; TalkBack reads and
+      activates the marks in view.
+    why_manual: |
+      Memory pressure from other apps and TalkBack exist only on a real
+      device; the page's rules are Core's and are tested there.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/map/FloorMapView.kt
+  - id: SCHOOL-MATRIX-TITECH-APP-IMPORT
+    area: school
+    title: A Matrix exported from titech-app pastes in the card's own order
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build from this source, a TestFlight build on an iPhone and a
+      CI-built APK on an Android phone; the Tokyo Tech Matrix card, and its
+      Matrix exported from titech-app (a JSON array listing A1…A7, B1…B7, …).
+    steps:
+      - action: |
+          On the desktop, open Settings → school accounts → Tokyo Tech and
+          paste the export into any Matrix cell. Compare column A and row 1 of
+          the grid with the card, and read the message that appears.
+        reason: |
+          The export lists cells down columns while our own copy runs along
+          rows; only a person holding the card can tell the grid matches it,
+          and the message says it was read as titech-app's export.
+      - action: |
+          Repeat on the iPhone and on the Android phone (Settings → school
+          account → Matrix card → Paste).
+        reason: |
+          Each phone reads its own clipboard and shows its own note; only the
+          native shells show that the paste reaches Core and fills the grid.
+    observe: The Matrix grid beside the physical card on each device.
+    expected: |
+      Every cell matches the card on all three devices, and each shows that
+      the Matrix was imported from titech-app.
+    why_manual: |
+      Needs the real card and a real export; whether the grid matches the
+      card is a glance in the real app. Core's reading of both shapes is
+      tested in crates/app-core/src/tests/school_auth.rs.
+    covers:
+      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+      - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+    verified: null
+
   - id: OCR-CAMERA-GEOMETRY
     area: ocr
     title: Camera outline follows the card on the frame it was fitted on
@@ -1818,39 +1981,32 @@ checks:
           ScienceTokyo Wi-Fi; 印刷できます must appear only after that join,
           which no local listener proves.
       - action: |
-          Read the student ID on the card, then press システムプリンタを追加 and cancel the
-          administrator prompt.
+          Read the student ID on the card, then press システムプリンタを追加
+          and cancel the administrator prompt.
         reason: |
           The card must show the Tokyo Tech account's own student ID in
           capitals, and the prompt must be the system's, with the app's
-          text. Cancelling must say キャンセルしました and leave no
-          InstitutePrinter queue.
+          text. Cancelling must say キャンセルしました. If InstitutePrinter
+          already exists, its device URI must stay the same.
       - action: |
-          Press it again and authenticate, read the card, then open System
-          Settings → Printers & Scanners.
+          Press it again and authenticate, read the card, then run
+          `lpstat -v InstitutePrinter` and `lpstat -l -p InstitutePrinter`
+          in Terminal.
         reason: |
-          One root step installs the titech-lpd backend and the queue, and the
-          card must say it was added: macOS's CUPS refuses `cupsenable` to root,
-          which used to report a working queue as failed. The
-          queue's device URI must carry the student ID
-          (`titech-lpd://172.20.83.212/kyocera?student=24M…`), owned by root;
-          `lpstat -l -p InstitutePrinter` must allow only this login and the
-          queue must not be shared.
+          One root `lpadmin` step creates the queue, and the card must say it
+          was added: `-E` already enables it, and macOS's CUPS refuses
+          `cupsenable` to root, which would report a working queue as failed.
+          The device URI must be `lpd://24M…@172.20.83.212/kyocera`, since the
+          system lpd backend bills the user it names; the queue must allow
+          only this login and must not be shared.
       - action: |
           Print the PDF from Preview to InstitutePrinter,
           two copies, two-sided, black and white, then check the billing page.
         reason: |
-          Only the real printer shows that a non-B student ID is accepted and
-          billed, and that the PPD's duplex and color options reach it
-          through the stock CUPS filters.
-      - action: |
-          From Preview's print dialog, print a one-page PDF to
-          InstitutePrinter with 部数 2, then count the sheets.
-        reason: |
-          CUPS's filters already copy a job that reaches the backend on
-          stdin, and the lpd backend then sends it once. Exactly 2 sheets
-          shows the backend leaves the copy count alone; 4 would mean the
-          copies were applied twice, as InstitutePrinter's backend did.
+          Only the real printer shows that the job is billed to the student
+          ID from the device URI (a non-B ID included), not to the login, and
+          that the PPD's duplex and color options reach it through the stock
+          CUPS filters.
       - action: |
           Pause the queue, print once, press 追加 again, resume the queue,
           then print from another login on the same computer.
@@ -1869,91 +2025,120 @@ checks:
     expected: |
       The page reports the network correctly, the admin prompt cancels
       cleanly, the queue bills the master's student ID, prints two
-      two-sided black-and-white copies (a 2-copy one-page job is exactly 2
-      sheets), keeps a waiting job through a
+      two-sided black-and-white copies, keeps a waiting job through a
       reinstall, refuses the other login, and the system settings remove it.
     why_manual: |
       Needs root, the system's admin prompt, the campus network and the real
       printer's billing; the student-ID, device URI, PPD and probe logic is
-      in crates/adpt-cups/src/tests, crates/adpt-printer/src/tests and
-      crates/app-core/src/tests.
+      in crates/adpt-printer/src/tests and crates/app-core/src/tests.
     covers:
-      - crates/adpt-cups/src/install.rs
-      - crates/adpt-cups/src/backend.rs
-      - crates/adpt-cups/build.rs
+      - crates/adpt-printer/src/cups.rs
+      - crates/app-core/src/campus_printer.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
     verified: null
 
-  - id: DESKTOP-CAMPUS-PRINTER-WINDOWS
+  - id: DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE
     area: desktop
-    title: Windows PDF right-click entry prints with the chosen options
-    persona: windows-snap-user
+    title: The Windows system printer sends any app's print to the campus printer
+    persona: masters-student
     preconditions: |
-      The Windows build of this commit, the person's Tokyo Tech Portal
-      account saved, ScienceTokyo Wi-Fi, a short multi-page PDF, and the print
-      billing page.
+      A Windows 11 desktop build of this commit (then a Windows 10 22H2 one),
+      the Tokyo Tech Portal account of a master's student saved in
+      学校アカウント, administrator approval, a Word or PowerPoint file and a
+      photo, ScienceTokyo Wi-Fi, and access to the print release or billing
+      page. WSL or Docker installed on one of the two machines.
     steps:
       - action: |
-          Open a File Explorer window on the PDF's folder, then open 工具 →
-          校内打印机 and press 添加 PDF 右键菜单.
+          Open ツール → 学内プリンタ, press システムプリンタを追加 and approve
+          the administrator prompt. In Printers & scanners, open
+          IsctCompanion Campus Printer and check its port and defaults.
         reason: |
-          The entry goes under HKCU without an administrator prompt; a UAC
-          prompt here means it was written somewhere it should not be. The
-          card says it was added only after the entry read back as written.
+          Windows queries the receiver during installation. The queue must
+          point to http://127.0.0.1:24761/ipp/print and default to black and
+          white with long-edge duplex.
       - action: |
-          In the Explorer window that was already open, right-click the PDF
-          (on Windows 11 under 显示更多选项): the entry must be there. Then
-          quit the app and choose 用校内打印机打印.
+          Print the Word file (two copies, collate unchecked, two-sided,
+          colour) and the photo from Photos, then watch the Windows print
+          list and check the billing page.
         reason: |
-          The app tells Explorer the associations changed, so a window open
-          before the entry existed offers it without restarting Explorer. A
-          cold start must open the print window for that file, in the UI
-          language, not just the main window, and the window's printing
-          commands must answer under its own permission grant.
+          Windows renders each app's output to PDF only through its own class
+          driver. The uncollated request must still print, and both must be
+          billed to the student and wait for release.
       - action: |
-          Close it, keep the app running, and use the entry again.
+          Print a large document (a 150-page PDF of scans, 30–60 MB) and watch
+          its row in the Windows print list until it leaves; then check the
+          release panel.
         reason: |
-          A running app gets the second launch's arguments from the
-          single-instance plugin; without them only the main window comes
-          forward and the file is lost.
+          The receiver answers Print-Job only once Core's send has ended, so
+          Windows waits for that answer with the job shown as printing. Only
+          Windows' own IPP client shows whether it waits that long: if it
+          gave up, the row would turn to an error and Windows would send the
+          document again, leaving a second held copy at the printer.
       - action: |
-          Print 2 copies, long edge, black and white, then once in color
-          one-sided; check the pages and the billing page.
+          Quit IsctCompanion, print a document, and restart the app.
         reason: |
-          Only the real printer shows that the PJL header sets duplex,
-          binding and render mode, that each copy is one job, and that the
-          jobs bill the account's student ID.
+          The native spooler keeps a job the receiver could not take and
+          sends it once the app serves the queue again.
       - action: |
-          Start a 5-copy print and press 关闭 while it is sending, then read
-          the application log and the printed pages.
+          Sign into a different non-administrator Windows account and try to
+          print to the queue. Then return to the installing account and print.
         reason: |
-          Closing only closes the window. The send runs to its end in the
-          background and logs `[campus-printer] print`. The pages show
-          whether all five arrived; a log line without them means the send
-          was dropped with the window.
+          The queue must reject another user's job while allowing the owning
+          user and Windows' IPP components to submit a real document.
       - action: |
-          Double-click the PDF and open its Open with list.
+          Leave ScienceTokyo Wi-Fi, print once more, and read the job's row
+          in the print list and the app's notification.
         reason: |
-          The entry is one extra verb; the default PDF app and Open with
-          must stay as they were.
+          A send that fails ends the job as an error in Windows, and the
+          notification names the reason in the app's language; a job shown
+          as printed here would be lost without a word.
+      - action: |
+          Change a queue default in Windows, then press システムプリンタを追加
+          again and approve the administrator prompt. Check the same named
+          queue and its defaults in Printers & scanners.
+        reason: |
+          Installation must replace the existing queue and restore the
+          black-and-white and long-edge defaults.
+      - action: |
+          Reboot the machine with WSL or Docker, start the app, and print.
+        reason: |
+          Hyper-V reserves port ranges at boot. The fixed port must still
+          bind so the installed queue can print after the reboot.
+      - action: |
+          Quit the app and hold port 24761 open in PowerShell with
+          `$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 24761); $listener.Start()`.
+          Restart the app, try adding the printer, and read the error.
+          Release the port with `$listener.Stop()` and restart the app.
+        reason: |
+          A port collision must appear in the startup log and the add
+          command must report port 24761 before asking for elevation.
     observe: |
-      The registry under HKCU\Software\Classes\SystemFileAssociations\.pdf\shell,
-      the print window, the printed pages and the billing page.
+      The 学内プリンタ page, Printers & scanners and its print list, the
+      application log, the system notifications, and the billing page.
     expected: |
-      No admin prompt, the window opens both from a cold start and with the
-      app running, the options reach the paper, jobs bill the student ID,
-      and the default PDF handling is unchanged.
+      The owner can print and the other account cannot. Real IPP jobs are
+      billed to the owner's student account and await release. A large
+      document leaves the print list once, without an error, and is held at
+      the printer once. A job printed while the app was closed is sent when
+      it starts. Failures show as errors with a notification giving the
+      reason. Adding again replaces the queue and restores the defaults.
+      Printing works after a reboot with WSL or Docker. An occupied port
+      reports the bind error without showing UAC.
     why_manual: |
-      Needs Windows Explorer, the registry, the campus network and the real
-      printer; the LPD client, PJL header and copy uploads are tested in
-      crates/adpt-printer/src/tests.
+      Needs administrator approval, separate Windows accounts, the native
+      spooler and IPP class driver, real print dialogs, the campus network,
+      and the printer's billing page.
     covers:
-      - apps/desktop/src-tauri/src/plugins/campus_printer/windows.rs
-      - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
-      - apps/desktop/src/features/campus-print/CampusPrintWindow.tsx
-      - apps/desktop/src-tauri/capabilities/campus-print.json
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs
+      - apps/desktop/src/pages/tools/CampusPrinter.tsx
+      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/ipp.rs
+      - crates/app-core/src/campus_printer/ipp/attributes.rs
+    verified: null
+
   - id: DESKTOP-ABOUT-PAGE
     area: desktop
     title: About is its own page under Settings, with its links, license and sponsor entry
@@ -2046,10 +2231,10 @@ checks:
           Windows would offer a sign-in that build does not have. Buttons stay
           at the bottom of a card and no text overflows when they wrap.
       - action: |
-          Connect the VPN and look at its card, then disconnect.
+          Turn the VPN card's 用到时自动连接 switch on and off.
         reason: |
-          Only the VPN card grows when connected, with the auto-continue choice
-          inside it; a card that pushes its button off the page breaks that.
+          The switch sits inside the VPN card; a card that grows and pushes its
+          button off the page breaks the grid.
       - action: |
           Open Settings, read its sidebar and search it for "VPN" and "printer".
         reason: |
@@ -2131,22 +2316,12 @@ checks:
           The reminder and the ended notice come from the minute check, not
           from the Settings page; neither may reconnect.
       - action: |
-          While connected, choose a time under Auto-continue, then switch to
-          another network so the tunnel ends. Wait for the row to come back.
-        reason: |
-          Inside the chosen time the app signs in again by itself, which only a
-          real session ending can exercise.
-      - action: |
-          During that switch, run `route -n get 131.112.12.180` and `scutil --dns`.
+          While connected, switch to another network so the tunnel ends, and
+          run `route -n get 131.112.12.180` and `scutil --dns`.
         reason: |
           The APM's pin must follow the new network's gateway and the campus
           resolvers must be gone until the tunnel is back; otherwise neither
           openconnect nor a new sign-in can reach the APM.
-      - action: |
-          Let the chosen time run out (2 hours is the shortest).
-        reason: |
-          Auto-continue must end: the reminder comes ten minutes ahead, the
-          tunnel disconnects at the time shown, and nothing reconnects after.
       - action: |
           Disconnect, then check the routes and the scoped DNS resolver.
         reason: |
@@ -2184,6 +2359,106 @@ checks:
       - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
       - apps/desktop/src/pages/tools/CampusVpn.tsx
       - scripts/desktop/bundle-vpn.mjs
+    verified: null
+
+  - id: DESKTOP-CAMPUS-VPN-ON-DEMAND
+    area: desktop
+    title: Campus VPN connects when needed, ends when idle, and leaves no routes
+    persona: undergraduate-first-term
+    preconditions: |
+      Off campus, a working school login, the helper of this build installed.
+      Run once on macOS and once on Windows.
+    steps:
+      - action: |
+          In 工具 → 校园 VPN turn on 用到时自动连接 (必要なときに自動接続) and
+          check that 131.112.133.61 routes to the standby interface while
+          131.112.12.180 (the APM) keeps the physical one (macOS
+          `route -n get`, Windows `Find-NetRoute -RemoteIPAddress`).
+        reason: |
+          A sign-in host caught by standby waits on the tunnel its own sign-in
+          starts; a campus host left out is never connected for.
+      - action: |
+          With no tunnel up, run `ssh login.t4.gsic.titech.ac.jp` and open
+          https://portal.t4.gsic.titech.ac.jp/ in a browser.
+        reason: |
+          The first packets carry the standby address, not the one F5 assigns;
+          only the held connection being dialled again through the tunnel lets
+          them succeed without a retry.
+      - action: |
+          Leave the tunnel unused for more than 5 minutes, then use ssh again.
+          Once, with on-demand off, press Connect and leave it unused too.
+        reason: |
+          The school asks for disconnecting as soon as possible: the helper
+          must end any unused tunnel, a demanded one without a notice, and
+          standby must take the routes back so the next use reconnects.
+      - action: |
+          Keep an ssh session open at its prompt for more than 5 minutes, once
+          with ServerAliveInterval 30 for more than 30 minutes, without typing.
+        reason: |
+          An open connection must keep the tunnel past the idle time, or an
+          SSH dies mid-session; but keepalives alone must not hold one of the
+          school's few VPN ports past half an hour, which ends with a notice.
+          The connection check reads the system's TCP table, which only a
+          real tunnel address fills.
+      - action: |
+          On ScienceTokyo or ScienceTokyoX with automatic management on, open
+          the card, check the routes, and reach a campus host; then press
+          Connect with automatic management off.
+        reason: |
+          On campus the school's network reaches campus hosts already: standby
+          must let the routes go and sign in for nothing, and a press must ask
+          before taking one of the few VPN ports. Leaving the campus network
+          must bring standby back within seconds.
+      - action: |
+          Off campus, with automatic management on and no tunnel up, open
+          https://www.sciencedirect.com/ and a paper the library subscribes
+          to; then add nature.com from the card's pencil and open a Nature
+          article. On macOS check `route -n get www.sciencedirect.com` (the
+          tunnel's utun) and `route -n get -inet6 www.sciencedirect.com`
+          (reject) while it is up.
+        reason: |
+          Publishers grant papers by the campus address a request comes from:
+          only a real APM tunnel shows that their IPv4 addresses go through it,
+          that reaching one wakes standby, and that their IPv6 addresses are
+          refused so a browser on an IPv6 network falls back to the tunnel.
+          Windows leaves IPv6 alone, so there an IPv6 network may still go
+          around the tunnel.
+      - action: |
+          Save a wrong password in the school account, then reach a campus host.
+        reason: |
+          A refused password must turn on-demand off with one notice, not post
+          the password again on every connection.
+      - action: |
+          Quit the app (and once, force-quit it), then check the routes again.
+        reason: |
+          Standby lives only on the app's connection to the helper; a route
+          left behind sends campus traffic into an interface nobody serves.
+    observe: |
+      The VPN card's state, the system notifications, the ssh and browser
+      results, `netstat -rn -f inet` or `route print`, and the helper log.
+    expected: |
+      First use connects within the sign-in time and succeeds, an idle tunnel
+      ends after 5 minutes (quietly when it was demanded), an open ssh keeps
+      it until 30 minutes without real traffic and then ends with the unused
+      notice, a subscribed paper opens in full through the tunnel and an added
+      publisher works too, on campus the card says no VPN is needed with campus routes on
+      the physical interface and a press asks first, a refused password
+      stops it once, and no standby route or
+      interface remains after the app quits.
+    why_manual: |
+      Needs root or a service to own the standby interface and routes, the
+      school's F5 login and a real tunnel; none is reachable from the suites.
+    covers:
+      - crates/vpn-helper/src/ondemand.rs
+      - crates/vpn-helper/src/unix.rs
+      - crates/vpn-helper/src/windows.rs
+      - crates/vpn-helper/src/windows_net.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs
+      - apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs
+      - crates/app-core/src/campus_network.rs
+      - crates/vpn-helper/src/publisher_routes.rs
+      - apps/desktop/src/pages/tools/VpnPublishers.tsx
+      - apps/desktop/src/pages/tools/CampusVpn.tsx
     verified: null
 
   - id: DESKTOP-CAMPUS-VPN-WINDOWS
@@ -4039,7 +4314,7 @@ checks:
     preconditions: A packaged desktop app, a physical camera, a disposable test TOTP QR on another display, and an authenticator export that holds the Science Tokyo account.
     steps:
       - action: With an OTP saved, press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Confirm the account card shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect.
-        reason: Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The app no longer registers OTP at the school; the setup comes from the person's authenticator, and the two paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
+        reason: Only a real phone camera and authenticator show that the rendered QR is scannable and labelled and that its codes agree with the school's. The import uses the person's existing authenticator, and the two import paths (scan or paste) must read as one choice. Offline tests cover parsing the export, not the camera or the live account.
       - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -5397,6 +5672,69 @@ checks:
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+    verified: null
+
+  - id: ANDROID-CAMPUS-PRINT
+    area: native
+    title: Android's print dialog sends any app's print to the campus printer
+    persona: masters-student
+    preconditions: |
+      An arm64 Android phone with a build of this commit; two Tokyo Tech Portal
+      student accounts, initially with no account saved in the app;
+      ScienceTokyo Wi-Fi; a multi-page PDF and a photo; and access to the
+      print release or billing page.
+    steps:
+      - action: Print the PDF from Files or Drive, then read the system's print notification.
+        reason: |
+          No Tokyo Tech account is saved, so Core must send nothing and the
+          job must fail with the text that asks to save the account first.
+      - action: |
+          Save the Tokyo Tech Portal account in the app, leave the app, and
+          print pages 2-3 of the PDF: two copies, two-sided, black and white.
+          Then print the photo from Photos in colour, and check the billing
+          page and the sheets.
+        reason: |
+          The system renders each app's output to PDF with the page range
+          applied, and the service starts the session with no activity in
+          front. Only the real printer shows that an upload from a source
+          port above 1023 (an app cannot bind a lower one) is accepted, that
+          each job is billed to the student's ID and waits for release, that
+          one upload per copy gives exactly two copies, and that the PJL
+          duplex and colour settings are honoured.
+      - action: |
+          Switch to mobile data (or ScienceTokyoX), print once more, read the
+          notification, rejoin ScienceTokyo Wi-Fi and tap its retry.
+        reason: |
+          Off the printer's network the job must fail naming
+          ScienceTokyo Wi-Fi, and the system's own retry must send it once
+          the network is back.
+      - action: |
+          Print the PDF with five copies and, at once, the photo; cancel the
+          photo from the print notification while the PDF is still sending.
+          Then print the PDF again and cancel it while it is sending.
+        reason: |
+          Jobs run one after another, so the photo waits; cancelled before
+          its send starts, it must end cancelled with nothing at the printer.
+          A job already sending is not stopped part-way: it finishes, and
+          the release panel shows all five copies.
+    observe: |
+      The system print dialog and its printer list, the print notifications,
+      the printer's release panel and the billing page.
+    expected: |
+      With a saved account, prints from a document app and from Photos are billed to the
+      student and print with the chosen copies, sides and colour; without an
+      account or off the campus Wi-Fi the job fails with the reason and can
+      be retried. A waiting job cancels cleanly; a sending one finishes.
+    why_manual: |
+      Needs the system print spooler and real apps' print dialogs on a
+      device, the campus network and the printer's billing. The LPD and PJL
+      bytes are tested in crates/adpt-printer/src/tests.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
+      - crates/app-ffi/src/campus_print.rs
+      - crates/app-core/src/campus_printer.rs
+      - crates/adpt-printer/src/document.rs
+      - crates/adpt-printer/src/lpd.rs
     verified: null
 
   - id: IOS-SETTINGS-PAGES
@@ -8397,69 +8735,62 @@ checks:
 
   - id: SCHOOL-APP-OTP-ENTRY
     area: school
-    title: A first Connect without an OTP reaches the school's own answer, and the App OTP explanation with a portal button
+    title: Visible Extic App Authentication enrollment preserves the active account and saves the working seed
     persona: undergraduate-first-term
     preconditions: |
-      A desktop build, an iPhone build and an Android build from this
-      commit, each freshly installed (or reset with everything), so no
-      Science Tokyo credentials and no OTP setup are saved, and a Science
-      Tokyo account that still uses the emailed one-time password (no App
-      OTP registered).
+      Desktop builds for macOS and Windows. Use disposable
+      school accounts authorized for changes: one with only emailed codes,
+      one with existing App Authentication, and a different account to
+      exercise the owner check. Keep working email access for resetting.
     steps:
       - action: |
-          Open Settings › Science Tokyo, enter the student id and password,
-          leave the OTP field empty, and press Connect.
+          With no saved Science Tokyo credentials, press Connect with the
+          account ID and password and a blank OTP field. Check the emailed-code
+          verdict in Settings. Open Set it up myself, then return to Settings.
         reason: |
-          The app must not refuse the empty OTP itself: the password goes to
-          the school, and the school asks for the emailed code, which the app
-          cannot answer. The form then explains that the app signs in by
-          itself only with App OTP and offers one button, "Open the Science
-          Tokyo portal". A local "OTP setup is required" error means the
-          first Connect never reached the school. Nothing is saved and the
-          card stays Not connected.
+          A blank OTP must reach Extic and report its real requirement. The
+          manual portal must let the person sign in and leave their settings
+          alone.
       - action: |
-          Press the button.
+          Start Help me set up and continue. Sign in on the visible school
+          page. With the account that has only emailed codes, wait for the
+          App Authentication verdict and the saved notice. Open School
+          Accounts, export to an authenticator and verify a code against Extic.
+          Relaunch and check the saved OTP still appears. Then Connect with
+          the password and a blank OTP field.
         reason: |
-          The portal uses the web view's existing cookies. It may show a
-          signed-in page from a previous visit. Opening it must not start
-          an app sign-in or fill in credentials.
+          Detects changes to Extic's forms, a false success, or failure to
+          save the seed before Connect. A confirmed seed must be usable both
+          in another authenticator and in the later Connect.
       - action: |
-          Sign in there by hand (with the emailed code) and register App OTP.
-          Back in Settings, press Connect again with the OTP field still
-          empty.
+          Repeat Help me set up using the account with an existing
+          authenticator. At the reset choice, keep the existing setup and
+          confirm its code still works. Start again, confirm the reset
+          explicitly and verify the newly exported setup on the school page.
         reason: |
-          Now the school asks for the App one-time password: the form says
-          the school asks for it and to enter its setup link or secret, and
-          nothing is saved. A "not accepted" message would blame a code the
-          person never entered.
+          Detects deletion before reset consent or a successful-looking
+          rotation with the previous seed still saved.
       - action: |
-          Paste the App OTP setup link or secret into the OTP field and press
-          Connect.
+          Enter one account ID in Settings and sign in to the school page
+          as the other account. Check the account mismatch notice and both
+          accounts' App Authentication settings.
         reason: |
-          With App OTP the app signs in by itself and the account is saved.
-    observe: |
-      The Science Tokyo form, the Web page showing the portal, and the card.
+          The live portal can already hold an unrelated signed-in cookie.
+          A mismatched page must never receive a reset or registration.
+    observe: The visible Extic page, its App Authentication status, and the School Accounts OTP field.
     expected: |
-      The first Connect shows the emailed-code reason, the App OTP
-      explanation and one portal button, and saves nothing; the portal opens
-      with the existing web session; a Connect without the OTP after App OTP is registered asks
-      for it and saves nothing; the last Connect ends Connected.
+      Only the authorized account is enrolled. Keeping an existing setup
+      preserves its working authenticator. Confirmed rotation saves the new
+      seed on the device before Connect.
     why_manual: |
-      Needs a live account still on the emailed code, the real Extic pages
-      and the real portal in each platform's web view. That an empty OTP
-      reaches the school and ends on its page is in the session suite, and
-      that the unsigned entry starts no web operation in the school browser
-      suite.
+      The live authenticated Extic form, its native web view sign-in and
+      confirmation dialogs, and a working code require a real school account.
+      Offline tests cover only vault and authority checks.
     covers:
-      - crates/app-core/src/school_auth.rs
-      - crates/app-core/src/school_session/login.rs
-      - crates/app-core/src/school_browser/engine.rs
-      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
-      - apps/desktop/src/pages/web/WebPage.tsx
-      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
-      - apps/ios/IsctCompanion/Core/WebRouter.swift
-      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
-      - apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt
+      - crates/adpt-isct/assets/otp-enrollment.js
+      - crates/app-core/src/school_browser/engine/otp.rs
+      - crates/app-core/src/school_auth/otp_enrollment.rs
+      - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
 
   - id: SCHOOL-ACCOUNT-STATES
@@ -8847,4 +9178,32 @@ checks:
       Core's data-root suite.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
+    verified: null
+  - id: SCHOOL-PORTAL-GMAIL-SYSTEM-BROWSER
+    area: school
+    title: The portal's Gmail tile opens in the system browser
+    persona: undergraduate-first-term
+    preconditions: |
+      A signed-in Science Tokyo account, on any shell, and a system browser
+      already signed in to the school Google account.
+    steps:
+      - action: |
+          Open the Science Tokyo portal (isct.ex-tic.com/idm/user/portal/) in
+          the app and choose the Gmail tile.
+        reason: |
+          A school view holds no Google session, so Gmail kept in the app
+          lands on Google's "enter your email" page; only the real portal
+          link shows whether it reaches Google through a host the rule sends
+          out.
+    observe: |
+      Which window shows Gmail.
+    expected: |
+      The system browser opens the school mailbox without asking for an
+      email; the app's view stays on the portal.
+    why_manual: |
+      Needs real school and Google accounts and the shells' hand-off to the
+      system browser; a person sees where the click lands at a glance. The
+      rule itself is covered by Core's school-browser suite.
+    covers:
+      - crates/app-core/src/school_browser/policy.rs
     verified: null

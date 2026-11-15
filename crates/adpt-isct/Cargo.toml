@@ -6,6 +6,7 @@ rust-version = "1.90"
 description = "Institute of Science Tokyo specifics for IsctCompanion Core: page parsers, school scripts and URLs"
 
 [features]
+otp-enrollment = []
 default = []
 ts = ["dep:ts-rs"]
 

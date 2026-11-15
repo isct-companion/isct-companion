@@ -72,10 +72,9 @@ button:disabled {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.uiButton:is(
-    [data-variant="default"],
-    [data-variant="light"]
-  ):not(:disabled):hover {
+.uiButton:is([data-variant="default"], [data-variant="light"]):not(
+    :disabled
+  ):hover {
   background: color-mix(in srgb, var(--accent) 10%, var(--accent-soft));
 }
 .uiButton[data-variant="subtle"] {
@@ -310,7 +309,12 @@ button.uiTag:not(:disabled):hover {
   cursor: default;
 }
 /* WebKit lays a date field's value at the top of a fixed-height box. */
-.uiInput:is([type="date"], [type="time"], [type="datetime-local"], [type="month"]) {
+.uiInput:is(
+  [type="date"],
+  [type="time"],
+  [type="datetime-local"],
+  [type="month"]
+) {
   display: flex;
   align-items: center;
 }
@@ -566,6 +570,25 @@ textarea.uiInput {
 .uiPopoverArrow {
   fill: var(--surface);
 }
+.uiInfoTip {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: help;
+}
+.uiInfoTip:hover {
+  color: var(--ink);
+}
+.uiInfoTipContent {
+  max-width: min(300px, calc(100vw - 24px));
+  font-size: calc(var(--type-block-size) * var(--text));
+  line-height: 1.5;
+  white-space: pre-line;
+}
 .uiProgress {
   overflow: hidden;
   height: 8px;
@@ -576,7 +599,8 @@ textarea.uiInput {
   width: 100%;
   height: 100%;
   background: var(--accent);
-  transition: transform var(--motion-duration-base) var(--motion-easing-standard);
+  transition: transform var(--motion-duration-base)
+    var(--motion-easing-standard);
 }
 .uiProgress[data-color="red"] .uiProgressIndicator {
   background: var(--danger);

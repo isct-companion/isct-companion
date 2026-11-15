@@ -69,9 +69,9 @@ pub(crate) async fn open_school_site(
     if css.len() > 256 * 1024 || js.len() > 256 * 1024 {
         return Err("school customization exceeds the safe size".into());
     }
-    Ok(controller
+    controller
         .open(site, css, js, bounds, &surface, entry)
-        .await?)
+        .await
 }
 
 /// The page the person sees of `site`. A surface reads it once its
@@ -84,6 +84,20 @@ pub(crate) fn school_web_page(
 ) -> Result<SchoolWebPage, CommandError> {
     require_local_main(&webview)?;
     Ok(controller.engine.page(site))
+}
+
+#[tauri::command]
+pub(crate) fn school_otp_intent(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    id: u64,
+    intent: app_core::school_browser::SchoolOtpIntent,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    controller
+        .engine
+        .school_otp_intent(id, intent)
+        .map_err(coded)
 }
 
 #[tauri::command]

@@ -20,6 +20,7 @@ mod school;
 mod search;
 mod tasks;
 mod today;
+pub mod widgets;
 
 #[cfg(test)]
 #[path = "../tests/schedule.rs"]
@@ -43,7 +44,6 @@ pub use calendar::{
     CalendarDayView, QuarterRange, QuarterView, TeachingRange, TimetableQuarter, TimetableWeek,
     TimetableYear,
 };
-pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, japan_today, parse_civil_date, tokyo_date, Term};
 pub(crate) use colors::is_hex_color;
 pub use colors::{display_color, event_color, COURSE_PALETTE};
@@ -953,6 +953,12 @@ pub(super) fn not_deleted(row: &Value) -> bool {
 pub(crate) fn visible(value: &Value) -> bool {
     value.get("deletedAt").is_none_or(Value::is_null)
         && value.get("missingSince").is_none_or(Value::is_null)
+}
+
+pub(crate) fn visible_by_id<'a>(workspace: &'a Value, table: &str, id: &str) -> Option<&'a Value> {
+    array(workspace, table)
+        .iter()
+        .find(|row| visible(row) && text(row, "id") == Some(id))
 }
 
 #[cfg(feature = "ts")]

@@ -355,7 +355,25 @@ export type SchoolWebPage = {
   /** The page in front is a sign-in page Core is not signing in now, and the
    * saved account could: the manual way out, through Reload. */
   signIn: boolean;
+  otp: SchoolOtpEnrollment | null;
 };
+
+export type SchoolOtpEnrollment = {
+  id: number;
+  owner: string | null;
+  stage:
+    | "sign-in"
+    | "checking"
+    | "confirm-reset"
+    | "setting-up"
+    | "saving"
+    | "complete"
+    | "account-mismatch"
+    | "incomplete"
+    | "unknown"
+    | "save-failed";
+};
+export type SchoolOtpIntent = "reset" | "stop" | "retry-save";
 
 /** How a surface brings a site's view on screen. Core resumes, goes to the
  * URL, or (for "return") resumes only when this surface showed it last. */
@@ -365,7 +383,8 @@ export type SchoolWebEntry =
   | { kind: "return"; url: string }
   /** The site's start page as it is: Core writes no identity and signs in
    * nowhere, so the person signs in on the page by hand. */
-  | { kind: "unsigned" };
+  | { kind: "unsigned" }
+  | { kind: "otpSetup"; username: string };
 
 export type SchoolWebBounds = {
   x: number;
@@ -393,8 +412,8 @@ export type CampusWifiStatus =
 export type VpnNotice =
   | { kind: "ending"; minutes: number }
   | { kind: "ended" }
-  | { kind: "keepEnded" }
-  | { kind: "keepStopped"; code: string };
+  | { kind: "unused" }
+  | { kind: "demandStopped"; code: string };
 /** Campus VPN as the helper reports it; `error` is a code the UI keys on. */
 export type VpnStatus = {
   /** `unavailable`: this build has no VPN payload (Intel Macs). */
@@ -402,8 +421,15 @@ export type VpnStatus = {
   address?: string | null;
   /** When the campus session ends (RFC 3339), for the countdown. */
   expiresAt?: string | null;
-  /** When auto-continue ends and disconnects (RFC 3339), while it is on. */
-  keepUntil?: string | null;
+  /** Whether on-demand connecting is on now. */
+  onDemand?: boolean;
+  /** While on-demand has signed in its hourly most, when it resumes. */
+  demandPausedUntil?: string | null;
+  /** On the campus network, where the VPN is not needed. */
+  onCampus?: boolean;
+  /** Publisher sites the tunnel carries, and whether that is the default list. */
+  publishers?: string[];
+  publishersDefault?: boolean;
   error?: string | null;
   detail?: string | null;
 };
@@ -432,27 +458,6 @@ export type CampusPrinterSetup =
   | { kind: "cancelled" }
   | { kind: "account"; account: PrinterAccount }
   | { kind: "failed" };
-export type CampusPrintOptions = {
-  copies: number;
-  duplex: "off" | "long-edge" | "short-edge" | null;
-  color: "color" | "mono" | null;
-};
-/** The Windows print window's file and this device's look. */
-export type CampusPrintRequest = {
-  fileName: string;
-  locale: string | null;
-  appearance: string | null;
-  theme: string | null;
-};
-export type CampusPrintOutcome =
-  | { kind: "printed"; copies: number }
-  | { kind: "account"; account: PrinterAccount }
-  | { kind: "not-printable" }
-  | { kind: "invalid-copies" }
-  | { kind: "unreadable" }
-  | { kind: "unreachable"; printed: number }
-  | { kind: "not-printed"; printed: number }
-  | { kind: "uncertain"; printed: number };
 /** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {
@@ -627,6 +632,7 @@ export interface DesktopBridge {
   /** Hide every embedded school webview (when leaving the Web page). */
   hideSchoolWeb?(): Promise<boolean>;
   reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
+  schoolOtpIntent?(id: number, intent: SchoolOtpIntent): Promise<boolean>;
   /** "Cancel, I'll sign in myself" while Core signs the view in. */
   cancelSchoolWebSignIn?(site: SchoolSite): Promise<boolean>;
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
@@ -655,8 +661,10 @@ export interface DesktopBridge {
   /** Signs in to the campus VPN with the saved Tokyo Tech account and connects. */
   vpnConnect?(): Promise<VpnStatus>;
   vpnDisconnect?(): Promise<VpnStatus>;
-  /** Auto-continue for `hours`, which it always needs, or off with `null`. */
-  vpnKeep?(hours: number | null): Promise<VpnStatus>;
+  /** On-demand connecting on or off for now; the page stores the choice. */
+  vpnOnDemand?(enabled: boolean): Promise<VpnStatus>;
+  /** The publisher list, or `null` for the default; the page stores it. */
+  vpnPublishers?(list: string[] | null): Promise<VpnStatus>;
   /** The state after each check while a tunnel is up (every minute). */
   onVpnStatus?(callback: (status: VpnStatus) => void): () => void;
   /** The session ends in a few minutes, or ended on its own. */
@@ -672,15 +680,9 @@ export interface DesktopBridge {
   ): Promise<CampusWifiOutcome>;
   /** The verified student ID and whether the printer answers, found once. */
   campusPrinterStatus?(): Promise<CampusPrinterStatus>;
-  /** macOS: adds the InstitutePrinter queue behind the system's administrator
-   * prompt, which shows `prompt`. */
+  /** Adds or replaces the system printer behind the system's administrator
+   * prompt, which shows `prompt` on macOS. */
   installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
-  /** Windows: adds `label` to File Explorer's PDF right-click menu. */
-  addCampusPrintMenu?(label: string): Promise<CampusPrinterSetup>;
-  /** Windows print window: its file and this device's look. */
-  campusPrintRequest?(): Promise<CampusPrintRequest>;
-  /** Windows print window: sends its file to the printer. */
-  campusPrint?(options: CampusPrintOptions): Promise<CampusPrintOutcome>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
@@ -729,6 +731,7 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
   if (!value || typeof value !== "object") return false;
   const page = value as Record<string, unknown>;
   const notice = page.notice as Record<string, unknown> | null | undefined;
+  const otp = page.otp as Record<string, unknown> | null | undefined;
   const access = page.access as Record<string, unknown> | null | undefined;
   return (
     typeof page.site === "string" &&
@@ -738,6 +741,22 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
     schoolWebSteps.includes(page.back) &&
     schoolWebSteps.includes(page.forward) &&
     typeof page.signIn === "boolean" &&
+    (otp === null ||
+      (typeof otp === "object" &&
+        Number.isSafeInteger(otp.id) &&
+        (otp.owner === null || typeof otp.owner === "string") &&
+        [
+          "sign-in",
+          "checking",
+          "confirm-reset",
+          "setting-up",
+          "saving",
+          "complete",
+          "account-mismatch",
+          "incomplete",
+          "unknown",
+          "save-failed",
+        ].includes(String(otp.stage)))) &&
     (notice === null ||
       (typeof notice === "object" &&
         (notice.url === null || typeof notice.url === "string") &&
@@ -916,17 +935,15 @@ export function createTauriDesktopBridge(
     campusPrinterStatus: () => result("plugin:campus-printer|status"),
     installCampusPrinter: (prompt) =>
       result("plugin:campus-printer|install", { prompt }),
-    addCampusPrintMenu: (label) =>
-      result("plugin:campus-printer|add_menu", { label }),
-    campusPrintRequest: () => result("plugin:campus-printer|print_request"),
-    campusPrint: (options) =>
-      result("plugin:campus-printer|print", { options }),
     campusWifiStatus: () => invokeCommand("plugin:campus-wifi|status"),
     vpnStatus: () => invokeCommand("plugin:campus-vpn|status"),
     vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
     vpnConnect: () => invokeCommand("plugin:campus-vpn|connect"),
     vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
-    vpnKeep: (hours) => invokeCommand("plugin:campus-vpn|keep", { hours }),
+    vpnOnDemand: (enabled) =>
+      invokeCommand("plugin:campus-vpn|on_demand", { enabled }),
+    vpnPublishers: (list) =>
+      invokeCommand("plugin:campus-vpn|publishers", { list }),
     onVpnStatus: (callback) =>
       subscribe<VpnStatus>(
         "vpn-status",
@@ -938,8 +955,7 @@ export function createTauriDesktopBridge(
         "vpn-notice",
         (payload) =>
           payload?.kind === "ended" ||
-          payload?.kind === "keepEnded" ||
-          (payload?.kind === "keepStopped" &&
+          (payload?.kind === "demandStopped" &&
             typeof payload.code === "string") ||
           (payload?.kind === "ending" && typeof payload.minutes === "number"),
         callback,
@@ -1013,6 +1029,8 @@ export function createTauriDesktopBridge(
     setSchoolWebBounds: (bounds) =>
       booleanCommand("set_school_web_bounds", { bounds }),
     hideSchoolWeb: () => booleanCommand("hide_school_web"),
+    schoolOtpIntent: (id, intent) =>
+      booleanCommand("school_otp_intent", { id, intent }),
     reloadSchoolWeb: (site) => booleanCommand("reload_school_web", { site }),
     cancelSchoolWebSignIn: (site) =>
       booleanCommand("cancel_school_web_sign_in", { site }),
@@ -1193,9 +1211,6 @@ declare global {
     __ISCT_COMPANION_TOOLS__?: readonly DesktopTool[];
     /** Set by the same bootstrap: the material the native window draws. */
     __ISCT_COMPANION_WINDOW_MATERIAL__?: "mica" | "";
-    /** Set by a window that shows one view instead of the app: the
-     * Windows campus print window. */
-    __ISCT_COMPANION_VIEW__?: "campus-print";
   }
 }
 

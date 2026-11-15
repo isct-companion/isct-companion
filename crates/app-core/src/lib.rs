@@ -17,6 +17,7 @@ pub mod app_updates;
 pub mod backup;
 #[cfg(feature = "campus-map")]
 pub mod campus_map;
+pub mod campus_network;
 #[cfg(feature = "campus-printer")]
 pub mod campus_printer;
 pub mod catalog;
@@ -39,6 +40,7 @@ pub mod kyomu_guide;
 pub mod kyomu_ingest;
 pub mod lifecycle;
 pub mod lms_ingest;
+pub mod locale;
 pub mod matrix_scan;
 pub mod net;
 pub mod notes;
@@ -65,6 +67,7 @@ pub mod submissions;
 pub mod subscriptions;
 pub mod sync_gc;
 pub mod sync_state;
+pub mod widgets;
 pub mod workspace;
 pub mod workspace_changes;
 

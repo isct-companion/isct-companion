@@ -239,6 +239,27 @@ private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AssignmentListScreen() {
+    val model = LocalModel.current
+    val navigator = LocalNavigator.current
+    val now = rememberNow(60)
+    LaunchedEffect(Unit) { model.open(SyncView.Assignments) }
+    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
+        TopAppBar(
+            title = { Text(t("widget.assignments")) },
+            navigationIcon = {
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
+        )
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+            todayAssignments(model.board, now, navigator::openRecord)
+        }
+    }
+}
+
 /** Every assignment of the quarter whatever its state (`AssignmentBoard.record`);
  * older past work stays folded, hidden work comes back from here. */
 @OptIn(ExperimentalMaterial3Api::class)

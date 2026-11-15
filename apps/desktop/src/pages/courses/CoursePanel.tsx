@@ -4,13 +4,7 @@ import { openExternalUrl } from "../../components/ExternalLink";
 import { examWhen } from "../../components/exams/ExamCards";
 import { dayShort } from "../../components/timetable/timetable";
 import { t } from "../../i18n";
-import {
-  pickLocalized,
-  type ClassGroupChoice,
-  type Course,
-  type Lang,
-  type Workspace,
-} from "../../lib/model";
+import type { ClassGroupChoice, Course, Workspace } from "../../lib/model";
 import { tokyoDate } from "../../lib/civil-date";
 import { DAYS, type FinderCourse } from "../../lib/course-query";
 import type { CourseConflict } from "../../generated/persistence";
@@ -289,7 +283,6 @@ function CoursePanelBody({
 /** A syllabus search result, with Add at the bottom. */
 export function OfferingPanel({
   course,
-  language,
   placed,
   replaces = [],
   readOnly,
@@ -297,7 +290,6 @@ export function OfferingPanel({
   add,
 }: {
   course: FinderCourse;
-  language: Lang;
   placed: boolean;
   /** Timetable courses that Add would replace (same periods). */
   replaces?: string[];
@@ -308,13 +300,13 @@ export function OfferingPanel({
   const times = course.schedule
     .map((entry) =>
       entry.kind === "weekly" && entry.day && entry.periods
-        ? `${DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickLocalized(entry.room, language)}` : ""}`
+        ? `${DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${entry.room}` : ""}`
         : t("timetable.intensiveUnscheduled"),
     )
     .join(" / ");
   return (
     <PlanningPanel
-      title={pickLocalized(course.title, language)}
+      title={course.title}
       subtitle={`${course.code} · ${course.quarters.join(" ")}`}
       close={close}
       foot={
@@ -344,11 +336,7 @@ export function OfferingPanel({
         <dt>{t("common.schedule")}</dt>
         <dd>{times || "—"}</dd>
         <dt>{t("courses.instructor")}</dt>
-        <dd>
-          {course.instructors
-            .map((name) => pickLocalized(name, language))
-            .join(" / ") || "—"}
-        </dd>
+        <dd>{course.instructors.join(" / ") || "—"}</dd>
         <dt>{t("courses.credits")}</dt>
         <dd>
           {`${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}

@@ -9,8 +9,6 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { UiButton, EmptyState, Skeleton, useReveal } from "../../components/ui";
 import {
-  contentLanguage,
-  pickLocalized,
   type Assignment,
   type PersonalEvent,
   type TermId,
@@ -224,15 +222,9 @@ export function TodayBody({
           : t("assignments.countMore", { count: hidden })}
       </UiButton>
     ) : null;
-  const rawStateLabel = teachingState?.label;
   const stateLabel =
-    typeof rawStateLabel === "string"
-      ? rawStateLabel
-      : rawStateLabel
-        ? (rawStateLabel[contentLanguage(data.settings)] ??
-          rawStateLabel.ja ??
-          rawStateLabel.en)
-        : t(effectiveDay > 5 ? "today.weekend" : "today.teachingDay");
+    teachingState?.label ||
+    t(effectiveDay > 5 ? "today.weekend" : "today.teachingDay");
 
   return (
     <div
@@ -320,13 +312,7 @@ export function TodayBody({
           >
             {importantDates.map((item) => (
               <span key={item.id}>
-                <b>
-                  {pickLocalized(
-                    item.label,
-                    contentLanguage(data.settings),
-                    t("today.importantDate"),
-                  )}
-                </b>
+                <b>{item.label || t("today.importantDate")}</b>
                 {item.startDate !== item.endDate && (
                   <small>
                     {item.startDate}–{item.endDate}

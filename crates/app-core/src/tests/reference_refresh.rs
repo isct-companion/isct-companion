@@ -645,8 +645,11 @@ impl ReferenceTransport for CancellingTransport {
 #[tokio::test]
 async fn cancellation_before_applying_writes_no_data_or_metadata() {
     let store = store("cancel");
-    let lease = Lease::detached(&store, reference_key("calendar", FileScope::AcademicYear(2026)))
-        .with_locator(INDEX);
+    let lease = Lease::detached(
+        &store,
+        reference_key("calendar", FileScope::AcademicYear(2026)),
+    )
+    .with_locator(INDEX);
     let reader = reader(Arc::new(CancellingTransport {
         cancel: lease.cancel.clone(),
     }));

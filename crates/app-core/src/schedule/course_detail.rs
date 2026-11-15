@@ -1,5 +1,6 @@
 use super::{array, text, ExamView, SchoolReads};
 use crate::course_materials::CourseKey;
+use crate::locale::ContentLanguage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -26,6 +27,10 @@ pub struct CourseDetail {
     pub syllabus_url: Option<String>,
     /// Where the course's downloaded files live, for opening its materials.
     pub files: Option<CourseKey>,
+    /// The content language, which LMS text published in both languages is
+    /// filtered to when the person asks for one language.
+    #[cfg_attr(feature = "ts", ts(type = "\"ja\" | \"en\""))]
+    pub content_language: String,
 }
 
 const LMS_HOST: &str = "lms.s.isct.ac.jp";
@@ -83,15 +88,16 @@ fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Opti
     text(course, "offeringId")
         .map(str::to_owned)
         .or_else(linked)
-        .map(|id| crate::catalog::syllabus_url(&id, super::content_language(workspace)))
+        .map(|id| crate::catalog::syllabus_url(&id, ContentLanguage::of(workspace).code()))
 }
 
 pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -> CourseDetail {
-    let Some(course) = array(workspace, "courses")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(course_id))
-    else {
-        return CourseDetail::default();
+    let content_language = ContentLanguage::of(workspace).code().to_owned();
+    let Some(course) = super::visible_by_id(workspace, "courses", course_id) else {
+        return CourseDetail {
+            content_language,
+            ..CourseDetail::default()
+        };
     };
     let mut materials: Vec<_> = array(workspace, "materials")
         .iter()
@@ -146,6 +152,7 @@ pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -
             .and_then(|id| school.offering(id))
             .map(|offering| offering.format.clone()),
         lms_url,
+        content_language,
         lms_course_id: lms_course_id(workspace, course),
         syllabus_url,
         files: files_of(course),
@@ -200,9 +207,7 @@ pub struct AssignmentAttachment {
 /// The rules the desktop assignment card applied in the shell
 /// (`LmsWorkspace.tsx`): its text is the LMS module row with the same cmid.
 pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<AssignmentDetail> {
-    let assignment = array(workspace, "assignments")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(assignment_id))?;
+    let assignment = super::visible_by_id(workspace, "assignments", assignment_id)?;
     let course_id = text(assignment, "courseId").unwrap_or_default();
     let cmid = assignment.get("lmsCmid").and_then(Value::as_u64);
     let source = cmid.and_then(|cmid| {
@@ -213,9 +218,7 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
     let raw = source
         .and_then(|row| text(row, "bodyHtml"))
         .unwrap_or_default();
-    let course = array(workspace, "courses")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(course_id));
+    let course = super::visible_by_id(workspace, "courses", course_id);
     let owned = |key: &str| text(assignment, key).map(str::to_owned);
     Some(AssignmentDetail {
         assignment_id: assignment_id.into(),

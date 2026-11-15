@@ -23,7 +23,7 @@ export const iosDeploymentTarget = "17.0";
 // Lower it only after the complete AAR, JNA and OCR runtime pass on that API level.
 export const androidMinSdk = 34;
 export const androidCompileSdk = 34;
-// `campusMap`: the campus map's reads, built into the iOS SDK only for now.
+// `campusMap`: the campus map's reads, built into the iOS and Android SDKs.
 export function sdkFeatureArgs({
   bindgen = false,
   ocr = false,

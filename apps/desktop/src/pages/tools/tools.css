@@ -45,6 +45,10 @@
   font-size: calc(var(--type-row-size) * var(--text));
   overflow-wrap: anywhere;
 }
+/* A setting beside the card's press, pushed to the left edge. */
+.toolCardOption {
+  margin-right: auto;
+}
 .toolCardNote {
   margin: 0;
   color: var(--muted);
@@ -56,6 +60,7 @@
 .toolCardActions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: auto;
@@ -75,4 +80,106 @@
 }
 .toolProgress {
   margin-top: 6px;
+}
+
+/* The state in a word, at the end of the card's header. */
+.toolCardBadge {
+  margin-left: auto;
+}
+/* Facts as icon-led rows: what a tool covers, how long it has left. */
+.toolCardFacts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+}
+.toolCardFacts > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toolCardFacts dt {
+  display: inline-grid;
+  flex: none;
+}
+.toolCardFacts dd {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+}
+.toolCardDetail {
+  margin: 0;
+  color: var(--muted);
+}
+.toolCardEdit {
+  display: inline-grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.toolCardEdit:hover {
+  background: var(--accent-soft);
+}
+.vpnPublishers {
+  display: grid;
+  gap: 8px;
+}
+.vpnPublishers h4 {
+  margin: 0;
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.vpnPublishers p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+}
+.vpnPublishers ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 160px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.vpnPublishers li button {
+  display: inline-grid;
+  place-items: center;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.vpnPublishers form {
+  display: flex;
+  gap: 6px;
+}
+.vpnPublishers form > :first-child {
+  flex: 1;
+}
+.vpnPublishers .vpnPublishersError {
+  color: var(--danger);
+}
+.vpnPublishersReset {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: calc(var(--type-block-size) * var(--text));
+  cursor: pointer;
 }

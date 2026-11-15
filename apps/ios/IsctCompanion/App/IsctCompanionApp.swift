@@ -34,6 +34,9 @@ struct IsctCompanionApp: App {
                 .environment(model.web)
                 .environment(inbox)
                 .task { await model.start() }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+                    model.refreshWidgets()
+                }
         }
         .onChange(of: scenePhase) { _, phase in model.scenePhase(phase) }
         .backgroundTask(.appRefresh(AppModel.backgroundRefresh)) { [model] in
@@ -106,6 +109,7 @@ struct CourseRoute: Hashable {
 
 /// Every assignment of the quarter, pushed from 課題.
 struct AssignmentRecordRoute: Hashable {}
+struct AssignmentListRoute: Hashable {}
 
 /// The one owner of what each page has pushed. Every push goes through a
 /// page's path: a view pushed outside it (a destination-closure
@@ -126,6 +130,7 @@ final class Navigator {
     var lectureMode = LectureMode.courses
     /// The quarter 時間割 shows, for its tab's calendar export.
     var timetableTerm: String?
+    var timetableDate: String?
     /// The workstation is up: 今日 opens what its column points at beside
     /// itself, as desktop's TodayWorkbench, instead of pushing it.
     private(set) var workbench = false
@@ -198,15 +203,29 @@ struct RootView: View {
     @State private var sitePress = SitePickerPress()
     @State private var exportPress = TabItemPress<CalendarExportPick>()
     @State private var calendarFile: QuarterCalendarFile?
+    @State private var campusMapRequest: CampusMapRequest?
     @State private var exportError: String?
+    @State private var widgetURL: URL?
     @Environment(\.openURL) private var openURL
     @Namespace private var zoom
 
     var body: some View {
-        // System controls (date pickers, number formats) follow the app's
-        // language rather than the phone's.
-        content.environment(\.locale, Localizer.shared.locale)
+        content
+            .environment(\.openCampusMap) { campusMapRequest = CampusMapRequest(room: $0) }
+            // Keep the cover independent of list rows and the current window layout.
+            .fullScreenCover(item: $campusMapRequest, onDismiss: model.campusMapClose) { request in
+                CampusMapScreen(request: request)
+            }
+            // System controls follow the app's language.
+            .environment(\.locale, Localizer.shared.locale)
             .environment(\.isctTheme, model.records.settings.text("theme") ?? "warm")
+            .onOpenURL { url in
+                if url.isFileURL {
+                    inbox.receive(url)
+                } else if url.scheme == "isctcompanion", url.host == "widget" {
+                    widgetURL = url
+                }
+            }
             .quickLookPreview(Binding(get: { web.downloads.first }, set: { value in
                 if value == nil { web.dismissDownload() }
             }))
@@ -236,10 +255,19 @@ struct RootView: View {
                 .task(id: scenePhase) {
                     if scenePhase == .active { await inbox.refresh(model) }
                 }
-                // "Open in IsctCompanion" from another app joins the corner
-                // stack; the share sheet's "open the app" link only brings it
-                // forward, where the refresh above reads the inbox.
-                .onOpenURL { url in if url.isFileURL { inbox.receive(url) } }
+                .task(id: widgetURL) {
+                    guard let url = widgetURL else { return }
+                    defer { if widgetURL == url { widgetURL = nil } }
+                    do {
+                        if let route = try await model.widgetRoute(url) {
+                            try Task.checkCancellation()
+                            openWidget(route)
+                        }
+                    } catch is CancellationError {
+                    } catch {
+                        NSLog("Widget link: %@", String(describing: error))
+                    }
+                }
                 .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
                     InboxSheet()
                 }
@@ -328,6 +356,35 @@ struct RootView: View {
     /// A site picked from the ウェブ tab's panel or the rail row's menu
     /// shows on the ウェブ page; the site already shown there stays on its
     /// page instead of going home.
+    private func openWidget(_ route: WidgetRoute) {
+        switch route {
+        case .course(let id):
+            navigator.tab = .today
+            navigator.paths[.today] = NavigationPath()
+            navigator.closeBench()
+            navigator.open(CourseRoute(id: id))
+        case .assignment(let id, _):
+            navigator.tab = .today
+            navigator.paths[.today] = NavigationPath()
+            navigator.closeBench()
+            navigator.open(AssignmentRoute(id: id))
+        case .exam(_, _, let date):
+            navigator.timetableDate = date
+            navigator.tab = .timetable
+        case .timetable, .unavailableCourse:
+            navigator.tab = .timetable
+        case .assignments, .unavailableAssignment:
+            navigator.tab = .today
+            navigator.paths[.today] = NavigationPath()
+            navigator.closeBench()
+            navigator.open(AssignmentListRoute())
+        case .sync:
+            navigator.tab = .settings
+            navigator.paths[.settings] = NavigationPath()
+            navigator.push(SettingsRoute.account(.science))
+        }
+    }
+
     private func pickSite(_ choice: SitePick) {
         if case let .site(site) = choice, navigator.tab != .web {
             navigator.tab = .web
@@ -423,6 +480,7 @@ extension View {
             CourseDetailScreen(courseId: route.id).courseZoomDestination(route.zoom)
         }
         .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
+        .navigationDestination(for: AssignmentListRoute.self) { _ in AssignmentListScreen() }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
         .navigationDestination(for: PastExamsRoute.self) { _ in PastExamsScreen() }

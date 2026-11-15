@@ -225,3 +225,84 @@ fn a_requirement_table_naming_no_measure_is_refused() {
         "A requirement table has no recognized rows."
     );
 }
+
+/// A student menu as 教務Web renders it for one programme: the panel with
+/// each link's own id and address, relative to the student top.
+fn student_menu(links: &[(&str, &str)]) -> String {
+    let items: String = links
+        .iter()
+        .map(|(id, href)| format!(r#"<li><a id="ctl00_sideMenu1_{id}" href="{href}">x</a></li>"#))
+        .collect();
+    format!(
+        r#"<html><body><div id="ctl00_tdSide"><div id="ctl00_sideMenu1_pnlStudent"><ul>{items}</ul></div></div>
+        <div id="ctl00_ContentPlaceHolder1"><a href="%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx">outside the menu</a></div></body></html>"#
+    )
+}
+
+/// Issue #64: a 修士 account's 科目から and 成績一覧 are `PID1_2` and
+/// `PID2_2`, and 教務Web sends it away from the 学士 copies. The menu's
+/// addresses decide, never its ids, which differ between programmes
+/// (成績一覧 is `HyperLink39` for 学士, `HyperLink8` for 修士).
+#[test]
+fn the_student_menu_picks_each_programmes_own_page() {
+    const S: &str = "%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A";
+    const G: &str = "%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7";
+    let bachelor = student_menu(&[
+        ("HyperLink37", &format!("{S}/PID1_0.aspx")),
+        ("lnkKamokuKbn", &format!("{S}/PID1_1.aspx")),
+        ("HyperLink39", &format!("{G}/PID2_0.aspx")),
+        ("lnkGPA", &format!("{G}/PID2_7.aspx")),
+        ("lnkYouken", &format!("{G}/PID2_6.aspx")),
+    ]);
+    let master = student_menu(&[
+        ("HyperLink37", &format!("{S}/PID1_0.aspx")),
+        ("lnkKamokuKbn", &format!("{S}/PID1_2.aspx")),
+        // The page's own links use lower-case escapes and `../Student/`.
+        (
+            "HyperLink8",
+            "../Student/%e6%88%90%e7%b8%be%e9%96%b2%e8%a6%a7/PID2_2.aspx",
+        ),
+        ("HyperLink160", &format!("{G}/PID2_7.aspx")),
+        ("lnkYouken", &format!("{G}/PID2_6.aspx")),
+    ]);
+    let file = |menu: &str, kind: &str| {
+        let url = Menu::read(STUDENT_TOP, menu).unwrap().url(kind).unwrap();
+        assert_eq!(expected_kind(Url::parse(&url).unwrap().path()), Some(kind));
+        url.rsplit('/').next().unwrap().to_string()
+    };
+    for (kind, bachelors, masters) in [
+        ("registrations", "PID1_0.aspx", "PID1_0.aspx"),
+        ("declared", "PID1_1.aspx", "PID1_2.aspx"),
+        ("grades", "PID2_0.aspx", "PID2_2.aspx"),
+        ("gpa", "PID2_7.aspx", "PID2_7.aspx"),
+        ("requirements", "PID2_6.aspx", "PID2_6.aspx"),
+        // Not in the menu: one page for every programme.
+        ("profile", "PID4_2.aspx", "PID4_2.aspx"),
+    ] {
+        assert_eq!(file(&bachelor, kind), bachelors, "{kind}");
+        assert_eq!(file(&master, kind), masters, "{kind}");
+    }
+
+    // A programme with an address of its own is not guessed: the error
+    // names the menu's unknown link in that directory.
+    let doctor = student_menu(&[("HyperLink9", &format!("{G}/PID2_5.aspx"))]);
+    let error = Menu::read(STUDENT_TOP, &doctor)
+        .unwrap()
+        .url("grades")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("grades") && error.contains("PID2_5.aspx"),
+        "{error}"
+    );
+    // A page without the student menu (a sign-in form, changed markup).
+    assert!(Menu::read(STUDENT_TOP, "<html><body><form></form></body></html>").is_err());
+    // A 修士 grades payload from its own page passes the trust boundary.
+    let master_grades = GRADES.replace("PID2_0", "PID2_2");
+    let (stage, _) = parse(json!({
+        "status":"ok","sourceUrl":master_grades,"kind":"grades",
+        "data":{"complete":true,"shape":"undergraduate-grouped","empty":true,"groups":[]}
+    }))
+    .unwrap();
+    assert_eq!(stage, KyomuStage::Ready);
+}

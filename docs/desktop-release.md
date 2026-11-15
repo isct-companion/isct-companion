@@ -101,6 +101,14 @@ The build validates the profile and embeds it as
 `Contents/embedded.provisionprofile`; this is required for CloudKit and
 synchronizable Keychain access in the distributed desktop app.
 
+macOS bundles require Xcode and XcodeGen for the WidgetKit extension.
+The extension is signed before Tauri places it in `Contents/PlugIns`.
+For a local widget build with a personal Apple Development identity, set
+`ISCT_MACOS_WIDGET_DEVELOPMENT_IDENTITY` and
+`ISCT_MACOS_WIDGET_DEVELOPMENT_TEAM`, then run
+`yarn desktop:build --debug --bundles app`. The development team gets its
+own widget App Group and the project team's CloudKit entitlement is absent.
+
 Select `sign_macos` when dispatching a new build. For automatic signed tag
 releases, also set the repository Actions variable `MACOS_SIGNING_ENABLED`
 to `true`. A signed build fails if any required secret is missing; it never

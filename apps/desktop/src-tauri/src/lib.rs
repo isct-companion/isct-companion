@@ -32,6 +32,7 @@ use app_core::lifecycle;
 mod lms_files;
 mod lms_protocol;
 mod native_dialog;
+mod native_text;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
 mod plugins;
@@ -47,6 +48,8 @@ mod school_webkit;
 #[cfg(windows)]
 mod school_windows;
 mod secrets;
+#[cfg(target_os = "macos")]
+mod widgets_macos;
 mod window_close;
 #[cfg(target_os = "macos")]
 mod window_close_macos;
@@ -213,16 +216,19 @@ pub fn run() {
     let _ = app_core::diagnostics::initialize();
     let builder = tauri::Builder::default();
     // Registered first, so a second launch hands over before anything starts.
-    // A running app gets a second launch's arguments here: the PDF
-    // right-click entry's file to print, or nothing, which shows the window.
     #[cfg(target_os = "windows")]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
-        #[cfg(tool = "campus-printer")]
-        if plugins::campus_printer::handles_launch(app, args) {
-            return;
-        }
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         window_close::show_main(app);
     }));
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            window_close::show_main(app);
+            for url in args.iter().filter_map(|arg| tauri::Url::parse(arg).ok()) {
+                widgets_macos::opened(app, &url);
+            }
+        }))
+        .manage(widgets_macos::WidgetLinks::default());
     let builder = builder
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
             log::info!(
@@ -277,6 +283,8 @@ pub fn run() {
     });
     builder
         .invoke_handler(tauri::generate_handler![
+            #[cfg(target_os = "macos")]
+            widgets_macos::widget_frontend_ready,
             commands::platform::check_app_update,
             commands::platform::app_update_state,
             commands::platform::install_app_update,
@@ -315,6 +323,7 @@ pub fn run() {
             commands::school::configure_school_web_policy,
             commands::school::open_school_site,
             commands::school::school_web_page,
+            commands::school::school_otp_intent,
             commands::school::set_school_web_bounds,
             commands::school::hide_school_web,
             commands::school::reload_school_web,
@@ -336,6 +345,7 @@ pub fn run() {
             commands::school_auth::copy_school_otp,
             commands::school_auth::school_otp_qr,
             commands::school_auth::import_school_otp,
+            commands::school_auth::parse_school_matrix,
             commands::school_auth::school_session_snapshot,
             commands::notifications::request_notification_permission,
             commands::notifications::notification_permission,
@@ -387,9 +397,7 @@ pub fn run() {
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,
-                app.path()
-                    .app_data_dir()?
-                    .join("school-credential-status.json"),
+                app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
             )));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),
@@ -429,6 +437,8 @@ pub fn run() {
                 agent_server::AgentAccess::new(app.handle().clone())
                     .map_err(std::io::Error::other)?,
             );
+            #[cfg(all(windows, tool = "campus-printer"))]
+            plugins::campus_printer::queue::start(app.handle());
             {
                 let main_url = app_url();
                 // File drops belong to WebKit's page/file inputs, including
@@ -480,6 +490,8 @@ pub fn run() {
                     api.prevent_exit();
                     if runtime.begin_exit() {
                         app.state::<DesktopCloudService<OsSecretVault>>().shutdown();
+                        #[cfg(all(windows, tool = "campus-printer"))]
+                        plugins::campus_printer::queue::stop(app);
                         // Draining owned work can take up to EXIT_TIMEOUT. A
                         // window left on screen meanwhile reads as a frozen
                         // app, most visibly after "Install and quit".
@@ -513,6 +525,12 @@ pub fn run() {
                             app.exit(code);
                         });
                     }
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    widgets_macos::opened(app, url);
                 }
             }
             // The Dock icon brings back a window closed to the background.

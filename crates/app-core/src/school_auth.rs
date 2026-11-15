@@ -1,3 +1,7 @@
+#[cfg(feature = "desktop-otp-enrollment")]
+mod otp_enrollment;
+#[cfg(feature = "desktop-otp-enrollment")]
+pub(crate) use otp_enrollment::EnrollmentError;
 mod otp_import;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
 
@@ -453,6 +457,13 @@ impl SchoolAuthService {
             SchoolAuthProfile::Science => status.science.clone(),
             SchoolAuthProfile::TokyoTech => status.tokyo_tech.clone(),
         };
+        let preserve_previous = availability == CredentialAvailability::AccessDenied;
+        #[cfg(feature = "desktop-otp-enrollment")]
+        let preserve_previous = preserve_previous
+            || (profile == SchoolAuthProfile::Science
+                && availability == CredentialAvailability::NotConfigured
+                && previous.has_otp
+                && !previous.saved);
         let summary = credentials
             .map(|c| CredentialSummary {
                 availability,
@@ -462,7 +473,7 @@ impl SchoolAuthService {
                 has_matrix: !c.matrix.is_empty(),
             })
             .unwrap_or_else(|| {
-                if availability == CredentialAvailability::AccessDenied {
+                if preserve_previous {
                     CredentialSummary {
                         availability,
                         ..previous
@@ -782,6 +793,10 @@ impl SchoolAuthService {
             self.adopt(&mut accounts, Some(payload))?;
         }
         self.accepted(&mut accounts, profile)?;
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if profile == SchoolAuthProfile::Science {
+            let _ = self.delete_enrollment();
+        }
         self.record_summary(
             profile,
             Some(credentials),
@@ -936,6 +951,17 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if profile == SchoolAuthProfile::Science && credentials.otp_secret.trim().is_empty() {
+            if let Some((owner, secret)) = self.enrolled_otp()? {
+                if credentials.username.trim().is_empty() {
+                    credentials.username.clone_from(&owner);
+                }
+                if credentials.username.trim() == owner {
+                    credentials.otp_secret = secret;
+                }
+            }
+        }
         credentials.validate_input(profile)?;
         Ok(credentials)
     }
@@ -977,6 +1003,16 @@ impl SchoolAuthService {
         self.unlock_accounts(&mut accounts)?;
         let mut verified = accounts.verified.clone();
         verified.remove(&profile);
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if profile == SchoolAuthProfile::Science {
+            self.delete_enrollment()?;
+            if let Some(mut status) = self.cached_status() {
+                if !status.science.saved {
+                    status.science = CredentialSummary::default();
+                    self.write_status(&status);
+                }
+            }
+        }
         let payload = self.write_accounts(&verified)?;
         // Drops the profile's refusal with its credentials.
         self.adopt(&mut accounts, Some(payload))?;
@@ -1100,8 +1136,16 @@ impl SchoolAuthService {
             },
             None => CredentialSummary::default(),
         };
+        let science = summary(self.load(SchoolAuthProfile::Science)?);
+        #[cfg(feature = "desktop-otp-enrollment")]
+        let science = match science {
+            summary if summary.saved => summary,
+            summary => self
+                .enrolled_otp()?
+                .map_or(summary, |(owner, _)| Self::enrollment_summary(owner)),
+        };
         let mut status = SchoolCredentialStatus {
-            science: summary(self.load(SchoolAuthProfile::Science)?),
+            science,
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
             ..Default::default()
         };
@@ -1127,15 +1171,24 @@ impl SchoolAuthService {
             )
     }
 
+    fn saved_otp(&self) -> Result<Option<(String, String)>, SchoolAuthError> {
+        let saved = self
+            .load(SchoolAuthProfile::Science)?
+            .map(|credentials| (credentials.username, credentials.otp_secret));
+        #[cfg(feature = "desktop-otp-enrollment")]
+        if saved.is_none() {
+            return self.enrolled_otp();
+        }
+        Ok(saved)
+    }
+
     /// Explicit export only. Native shells write the result directly to the
     /// clipboard instead of returning a saved secret to their WebView.
     pub fn otp_setup_text(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
         let text = if let Some(value) = draft.filter(|value| !value.trim().is_empty()) {
             value.trim().replace(' ', "")
         } else {
-            self.load(SchoolAuthProfile::Science)?
-                .map(|credentials| credentials.otp_secret)
-                .unwrap_or_default()
+            self.saved_otp()?.map(|(_, otp)| otp).unwrap_or_default()
         };
         if text.is_empty() {
             return Err(SchoolAuthError::invalid(
@@ -1154,10 +1207,13 @@ impl SchoolAuthService {
     /// name as its label. Mobile shells hand it to the OS to open one.
     pub fn otp_setup_link(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
         let text = self.otp_setup_text(draft)?;
-        let account = self
-            .load(SchoolAuthProfile::Science)?
-            .map(|credentials| credentials.username)
-            .unwrap_or_default();
+        let account = if draft.is_some_and(|value| !value.trim().is_empty()) {
+            self.status()?.science.username
+        } else {
+            self.saved_otp()?
+                .map(|(owner, _)| owner)
+                .unwrap_or_default()
+        };
         Ok(otp_setup_uri(&text, &account))
     }
 
@@ -1196,6 +1252,73 @@ fn matrix_plain_text(matrix: &str) -> Result<String, SchoolAuthError> {
         .map(|row| row.iter().collect::<String>())
         .collect::<Vec<_>>()
         .join("\n"))
+}
+
+/// The order a pasted Matrix lists its cells in. Ours (and the copy above)
+/// goes along each row, A1…J1, A2…; titech-app's export goes down
+/// each column, A1…A7, B1….
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MatrixOrder {
+    Rows,
+    Columns,
+}
+
+/// A pasted Matrix: the 70 cells in row order, and the order the paste
+/// listed them in (`Columns` means it was titech-app's export).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPaste {
+    pub cells: String,
+    pub order: MatrixOrder,
+}
+
+/// Reads pasted Matrix text into the 70 cells in row order (A1…J1, A2…).
+///
+/// Two shapes are accepted: letters along rows with any whitespace between
+/// them (our own copy), or titech-app's export, a JSON array of 70
+/// one-letter strings listed down columns. Anything else is rejected rather
+/// than silently shifted or truncated.
+pub fn parse_matrix_text(text: &str) -> Result<MatrixPaste, SchoolAuthError> {
+    let invalid = || {
+        SchoolAuthError::invalid("Paste exactly 70 letters; spaces and line breaks are ignored.")
+    };
+    let (letters, order): (Vec<char>, MatrixOrder) =
+        match serde_json::from_str::<Vec<String>>(text.trim()) {
+            Ok(entries) => (
+                entries
+                    .iter()
+                    .map(|entry| {
+                        let mut characters = entry.trim().chars();
+                        match (characters.next(), characters.next()) {
+                            (Some(letter), None) => Ok(letter),
+                            _ => Err(invalid()),
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+                MatrixOrder::Columns,
+            ),
+            Err(_) => (
+                text.chars().filter(|c| !c.is_whitespace()).collect(),
+                MatrixOrder::Rows,
+            ),
+        };
+    let letters: Vec<char> = letters.iter().map(char::to_ascii_uppercase).collect();
+    if letters.len() != MATRIX_ROWS * MATRIX_COLUMNS
+        || !letters.iter().all(char::is_ascii_uppercase)
+    {
+        return Err(invalid());
+    }
+    let cells = match order {
+        MatrixOrder::Rows => letters.into_iter().collect(),
+        MatrixOrder::Columns => (0..MATRIX_ROWS * MATRIX_COLUMNS)
+            .map(|cell| {
+                let (row, column) = (cell / MATRIX_COLUMNS, cell % MATRIX_COLUMNS);
+                letters[column * MATRIX_ROWS + row]
+            })
+            .collect(),
+    };
+    Ok(MatrixPaste { cells, order })
 }
 
 struct OtpConfig {

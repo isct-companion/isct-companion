@@ -27,7 +27,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { contentLanguage } from "../../lib/model";
 import type { Assignment, Course, Material, Workspace } from "../../lib/model";
 import type { LessonContent, LessonItem } from "../../generated/persistence";
 import { t } from "../../i18n";
@@ -232,10 +231,6 @@ export function LmsWorkspaceBody({
     opened,
     lesson: focusLesson,
   };
-  const language =
-    data.settings.lmsBilingualFilter && !original
-      ? contentLanguage(data.settings)
-      : undefined;
   // The course's records by id: what a row shows of its material (file
   // type, folder files, announcements) and the document it opens.
   const materials = useMemo(
@@ -252,6 +247,10 @@ export function LmsWorkspaceBody({
     courseId: course.id,
   }).value;
   const syllabus = courseDetail?.syllabusUrl;
+  const language =
+    data.settings.lmsBilingualFilter && !original
+      ? courseDetail?.contentLanguage
+      : undefined;
   const assignments = useMemo(
     () =>
       data.assignments.filter(

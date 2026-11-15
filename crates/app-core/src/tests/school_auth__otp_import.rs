@@ -39,6 +39,9 @@ fn standard_and_google_imports_preserve_accounts_and_real_totp_parameters() {
         super::super::otp_at(&imported[0].setup, 59).unwrap(),
         "287082"
     );
+    // A bare secret (TitechApp's export), grouped as some apps display it.
+    let bare = import_otp(" GEZD GNBV GY3T QOJQ GEZD GNBV GY3T QOJQ\n").unwrap();
+    assert_eq!(super::super::otp_at(&bare[0].setup, 59).unwrap(), "287082");
     let mut second = school();
     second.name = "Other:student".into();
     second.issuer = "Other".into();

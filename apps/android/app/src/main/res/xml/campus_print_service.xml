@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The campus printer's print service (CampusPrintService.kt). It has no
+     settings or add-printer screen: the one printer is always listed. -->
+<print-service xmlns:android="http://schemas.android.com/apk/res/android" />

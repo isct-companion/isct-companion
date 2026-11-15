@@ -1,6 +1,7 @@
-//! Shell contracts for finder projections; catalog rows keep their stored shape.
+//! Shell contracts for finder projections; catalog rows read in the content
+//! language.
 use super::{Condition, Recommendation, Value};
-use crate::contracts::{ClassFormat, CreditSplit, Localized, Quarter};
+use crate::contracts::{ClassFormat, CreditSplit, Quarter};
 use crate::study_profile::CourseEligibility;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -29,8 +30,8 @@ pub struct FinderCourse {
     pub code: String,
     pub year: i32,
     pub quarters: Vec<Quarter>,
-    pub title: Localized,
-    pub instructors: Vec<Localized>,
+    pub title: String,
+    pub instructors: Vec<String>,
     pub credits: CreditSplit,
     pub instruction_language: String,
     pub format: ClassFormat,
@@ -52,7 +53,7 @@ pub struct FinderSchedule {
     pub periods: Option<(u8, u8)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
-    pub room: Option<Localized>,
+    pub room: Option<String>,
 }
 /// One search result with what its row shows: whether it is on the
 /// timetable or clashes with it, what it would replace, its credits, its

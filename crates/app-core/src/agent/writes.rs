@@ -107,7 +107,7 @@ impl Tool for PlanAdd {
                 &offering,
                 &canonical,
                 term,
-                crate::workspace::workspace_content_locale(latest_workspace),
+                crate::locale::ContentLanguage::of(latest_workspace),
                 &crate::schedule::teaching_periods(latest_workspace)
                     .map_err(|error| DataError::InvalidInput(error.to_string()))?,
             )?;

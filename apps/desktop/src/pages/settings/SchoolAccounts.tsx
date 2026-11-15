@@ -22,6 +22,7 @@ import { confirmAction } from "../../components/confirm";
 import i18n, { t, type MessageKey } from "../../i18n";
 
 import { desktopBridge } from "../../app/native";
+import { NativeError } from "../../platform/native-error";
 import {
   MATRIX_COLUMNS,
   MATRIX_ROWS,
@@ -151,7 +152,9 @@ function MatrixEditor({
   }, [cameraOpen, recognizing]);
   const resetScanInput = useRef<(() => void) | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
-  const [confidence, setConfidence] = useState<Array<MatrixConfidence | undefined>>([]);
+  const [confidence, setConfidence] = useState<
+    Array<MatrixConfidence | undefined>
+  >([]);
   useEffect(() => {
     if (masked || value.every((cell) => !cell)) setConfidence([]);
   }, [masked, value]);
@@ -175,13 +178,17 @@ function MatrixEditor({
     onChange(next);
     inputs.current[Math.min(MATRIX_SIZE - 1, start + letters.length)]?.focus();
   };
-  const load = (text: string) => {
+  const load = async (text: string) => {
     try {
-      const cells = parseMatrixText(text);
+      const { cells, fromTitechApp } = await parseMatrixText(text);
       onBeginEdit();
       onChange(cells);
       setConfidence([]);
-      notify(t("settings.schoolAccounts.matrixPastedVerifyItAgainst"));
+      notify(
+        fromTitechApp
+          ? t("settings.credentialImport.matrixImportedFromTitechApp")
+          : t("settings.schoolAccounts.matrixPastedVerifyItAgainst"),
+      );
     } catch (error) {
       appNotify.error(error);
     }
@@ -349,7 +356,7 @@ function MatrixEditor({
                     // A complete Matrix always replaces the grid from A1;
                     // shorter snippets continue from the focused cell.
                     if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
-                      load(text);
+                      void load(text);
                     else write(index, text);
                   }}
                   onKeyDown={(event) => {
@@ -414,7 +421,7 @@ function Account({
   notify: (message: string) => void;
   showLoginPage: (
     profile: SchoolAuthProfile,
-    options?: { unsigned: true },
+    options?: { unsigned: true } | { otpUsername: string },
   ) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -511,13 +518,16 @@ function Account({
       appNotify.error(error);
     }
   };
-  const forget = async () => {
+  // Finishing an unfinished sign-out asks nothing: the person already
+  // chose to sign out.
+  const forget = async (confirm = true) => {
     if (
       !desktopBridge ||
-      !(await confirmAction(
-        t("settings.schoolAccounts.forgetSavedTitleCredentialsOn", { title }),
-        t("settings.schoolAccounts.forget"),
-      ))
+      (confirm &&
+        !(await confirmAction(
+          t("settings.schoolAccounts.forgetSavedTitleCredentialsOn", { title }),
+          t("settings.schoolAccounts.forget"),
+        )))
     )
       return;
     setBusy(true);
@@ -530,9 +540,13 @@ function Account({
       await refresh();
       notify(t("settings.schoolAccounts.accountForgotten", { account: title }));
     } catch (reason) {
-      // Signing out did not finish: the account stays saved, with Forget,
-      // and pressing it again redoes every step.
-      setError(errorText(reason) ?? t("error.sign-out-incomplete"));
+      // Signing out did not finish: Core marks the account, and its row
+      // says so and offers to forget again (every step is redone). Any
+      // other failure shows here.
+      if (!(
+        reason instanceof NativeError && reason.code === "sign-out-incomplete"
+      ))
+        setError(errorText(reason) ?? t("common.unknownError"));
       await refresh().catch(() => undefined);
     } finally {
       setBusy(false);
@@ -551,7 +565,9 @@ function Account({
         <Text fw={700}>{title}</Text>
         {session && (
           <Badge
-            color={SESSION_BADGE[session.state]}
+            color={
+              session.signOutPending ? "orange" : SESSION_BADGE[session.state]
+            }
             title={session.problem?.message}
           >
             {sessionText(session, i18n.language)}
@@ -585,6 +601,20 @@ function Account({
               {t("common.retry")}
             </Button>
           )}
+        </div>
+      )}
+      {session?.signOutPending && (
+        <div className="schoolConnection" data-state="sign-out-pending">
+          <span>{t("settings.schoolAccounts.signOutUnfinished")}</span>
+          <Button
+            variant="subtle"
+            size="compact-xs"
+            color="red"
+            disabled={busy || scanning}
+            onClick={() => void forget(false)}
+          >
+            {t("settings.schoolAccounts.finishSignOut")}
+          </Button>
         </div>
       )}
       {session?.state === "refused" && (
@@ -628,8 +658,14 @@ function Account({
           <OtpSetupInput
             value={draft.otpSecret}
             saved={summary.hasOtp}
+            otpOnly={!summary.saved}
             disabled={busy}
             onScanState={setScanning}
+            openSetup={() => {
+              edit({ ...draft, otpSecret: "" });
+              showLoginPage(profile, { otpUsername: draft.username });
+            }}
+            openManual={() => showLoginPage(profile, { unsigned: true })}
             onChange={(otpSecret) => edit({ ...draft, otpSecret })}
           />
         )}
@@ -654,7 +690,7 @@ function Account({
         >
           {t("tools.campusWifi.connect")}
         </Button>
-        {(summary.saved || summary.hasOtp || session?.signOutPending) && (
+        {(summary.saved || summary.hasOtp) && !session?.signOutPending && (
           <Button
             variant="subtle"
             color="red"
@@ -670,22 +706,6 @@ function Account({
           {connectOutcomeText(outcome)}
         </Text>
       )}
-      {/* The app signs in to the portal by itself only with App OTP: the
-          person sets it up on the portal, signed in by hand there. */}
-      {profile === "science" &&
-        outcome?.kind === "needs-web" &&
-        outcome.reason === "email-otp" && (
-          <div className="schoolConnection">
-            <span>{t("schoolSession.appOtp.explain")}</span>
-            <Button
-              variant="subtle"
-              size="compact-xs"
-              onClick={() => showLoginPage(profile, { unsigned: true })}
-            >
-              {t("schoolSession.appOtp.openPortal")}
-            </Button>
-          </div>
-        )}
     </Paper>
   );
 }
@@ -700,7 +720,7 @@ export function SchoolAccounts({
   notify: (message: string) => void;
   showLoginPage: (
     profile: SchoolAuthProfile,
-    options?: { unsigned: true },
+    options?: { unsigned: true } | { otpUsername: string },
   ) => void;
 }) {
   const [status, setStatus] = useState(emptyStatus);
@@ -720,7 +740,9 @@ export function SchoolAccounts({
     }));
   };
   useEffect(() => {
-    void refresh().catch((error) => appNotify.error(error));
+    const read = () => void refresh().catch((error) => appNotify.error(error));
+    read();
+    return schoolSessions.subscribe(read);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!desktopBridge)

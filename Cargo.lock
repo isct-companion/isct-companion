@@ -9,13 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "adpt-cups"
-version = "1.0.0-rc.1"
-dependencies = [
- "adpt-printer",
-]
-
-[[package]]
 name = "adpt-isct"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -35,8 +28,6 @@ dependencies = [
 name = "adpt-printer"
 version = "1.0.0-rc.1"
 dependencies = [
- "serde",
- "serde_json",
  "socket2",
 ]
 
@@ -49,6 +40,18 @@ dependencies = [
  "cipher",
  "cpubits",
  "cpufeatures 0.3.1",
+]
+
+[[package]]
+name = "ahash"
+version = "0.8.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
+dependencies = [
+ "cfg-if",
+ "once_cell",
+ "version_check",
+ "zerocopy",
 ]
 
 [[package]]
@@ -100,7 +103,6 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "app-core"
 version = "1.0.0-rc.1"
 dependencies = [
- "adpt-cups",
  "adpt-isct",
  "adpt-printer",
  "base64 0.23.1",
@@ -114,6 +116,8 @@ dependencies = [
  "futures-util",
  "httparse",
  "jsonwebtoken",
+ "ipnet",
+ "ipp",
  "log",
  "md-5",
  "percent-encoding",
@@ -228,6 +232,12 @@ dependencies = [
  "wl-clipboard-rs",
  "x11rb",
 ]
+
+[[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "askama"
@@ -1634,6 +1644,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
+name = "enum-as-inner"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0359ee92f81184d7985519e474bda2a5738476334edd3746c9b1265c067afe70"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "enum-primitive-derive"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba7795da175654fe16979af73f81f26a8ea27638d8d9823d317016888a63dc4c"
+dependencies = [
+ "num-traits",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "enumflags2"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1686,6 +1719,15 @@ name = "error-code"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b5343afd4a8365a643ac588dab4cf234a190c7f6c88c9f6dd6ffe00837661b7"
+
+[[package]]
+name = "etherparse"
+version = "0.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeebdb565da33451794551a771bd0b4e6f416d3182adc3ed2837f614d6168f9a"
+dependencies = [
+ "arrayvec",
+]
 
 [[package]]
 name = "event-listener"
@@ -2890,6 +2932,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipp"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b845ac766857ac8a0746a488c40e1727b99c21ab5707ae83856630ba698cf7e"
+dependencies = [
+ "bytes",
+ "enum-as-inner",
+ "enum-primitive-derive",
+ "http",
+ "num-traits",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ipstack"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e889a45c1ce3e97268ad2249951528563ec1d02a120fecbd4db690beac34f7fd"
+dependencies = [
+ "ahash",
+ "etherparse",
+ "log",
+ "rand",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "is-docker"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2921,7 +2992,6 @@ dependencies = [
  "chrono",
  "hickory-resolver",
  "if-addrs",
- "ipnet",
  "keyring 4.2.0",
  "libc",
  "log",
@@ -2957,7 +3027,6 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-collections",
- "windows-registry",
  "windows-version",
 ]
 
@@ -6652,6 +6721,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "tun"
+version = "0.8.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bb55e468c585e02ef89ba7a1a9848871ac942dfc64547ad4d1166b0f61a98be"
+dependencies = [
+ "bytes",
+ "cfg-if",
+ "futures",
+ "futures-core",
+ "ipnet",
+ "libc",
+ "log",
+ "nix",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "windows-sys 0.61.2",
+ "wintun-bindings",
+]
+
+[[package]]
 name = "typed-path"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6942,8 +7033,12 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vpn-helper"
 version = "0.1.0"
 dependencies = [
+ "ipstack",
  "libc",
  "serde_json",
+ "socket2",
+ "tokio",
+ "tun",
  "vpn-protocol",
  "windows",
  "windows-registry",
@@ -7771,6 +7866,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "wintun-bindings"
+version = "0.7.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4316764300a7eb4aecf4770c81ae629ff1161b54905d48721a6832fd296ce5f"
+dependencies = [
+ "blocking",
+ "futures",
+ "libloading 0.9.0",
+ "log",
+ "thiserror 2.0.21",
  "windows-sys 0.61.2",
 ]
 

@@ -240,4 +240,3 @@ async fn the_apm_refusing_its_policy_is_a_denial() {
         CampusVpnError::Denied
     );
 }
-

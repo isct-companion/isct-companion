@@ -399,7 +399,7 @@ struct Watch {
 pub(crate) fn kyomu_keys() -> Vec<Key> {
     adpt_isct::kyomu::PAGES
         .iter()
-        .map(|(_, page)| Key::new(Dataset::KyomuPage, *page))
+        .map(|page| Key::new(Dataset::KyomuPage, page.kind))
         .collect()
 }
 
@@ -414,21 +414,19 @@ const SHARED_PREFIXES: [&str; 3] = ["LA", "ENT", "X"];
 pub(crate) fn department_prefixes() -> &'static [String] {
     static PREFIXES: OnceLock<Vec<String>> = OnceLock::new();
     PREFIXES.get_or_init(|| {
-        serde_json::from_str::<Vec<crate::course_query::FinderDepartment>>(include_str!(
-            "../course_query/departments.json"
-        ))
-        .map(|departments| {
-            let mut prefixes: Vec<String> = departments
-                .into_iter()
-                .map(|department| department.code_prefix)
-                .filter(|prefix| !prefix.is_empty())
-                .chain(SHARED_PREFIXES.iter().map(|prefix| prefix.to_string()))
-                .collect();
-            prefixes.sort();
-            prefixes.dedup();
-            prefixes
-        })
-        .unwrap_or_default()
+        crate::course_query::SyllabusDepartment::all()
+            .map(|departments| {
+                let mut prefixes: Vec<String> = departments
+                    .into_iter()
+                    .map(|department| department.code_prefix)
+                    .filter(|prefix| !prefix.is_empty())
+                    .chain(SHARED_PREFIXES.iter().map(|prefix| prefix.to_string()))
+                    .collect();
+                prefixes.sort();
+                prefixes.dedup();
+                prefixes
+            })
+            .unwrap_or_default()
     })
 }
 
@@ -463,7 +461,7 @@ pub(crate) fn prerequisite(key: &Key) -> Option<Key> {
     match key.dataset {
         // A course's outline lands on the course row the enrolment list
         // writes.
-        Dataset::LmsCourse => Some(Key::new(Dataset::LmsEnrolment, "all")),
+        Dataset::LmsCourse => Some(Key::lms_enrolment()),
         // A course's assignment states land on the rows its outline creates.
         Dataset::LmsAssign => Some(Key::new(Dataset::LmsCourse, key.key.clone())),
         // English names merge into rows the Japanese page stored.
@@ -498,16 +496,13 @@ fn catalog_keys(year: u16, english: bool) -> Vec<(Key, Option<String>)> {
 }
 
 fn lms_all() -> [Key; 2] {
-    [
-        Key::new(Dataset::LmsEnrolment, "all"),
-        Key::new(Dataset::LmsDeadlines, "all"),
-    ]
+    [Key::lms_enrolment(), Key::lms_deadlines()]
 }
 
 /// The timetable grid: LMS quarter grids and 教務 registrations.
 fn timetable_keys() -> Vec<Key> {
     vec![
-        Key::new(Dataset::LmsEnrolment, "all"),
+        Key::lms_enrolment(),
         Key::new(Dataset::KyomuPage, "registrations"),
     ]
 }
@@ -515,7 +510,7 @@ fn timetable_keys() -> Vec<Key> {
 fn course_keys(id: u64) -> [Key; 2] {
     [
         Key::new(Dataset::LmsCourse, id.to_string()),
-        Key::new(Dataset::LmsAssign, id.to_string()),
+        Key::lms_assignments(id),
     ]
 }
 
@@ -595,7 +590,7 @@ fn view_keys(
     match view {
         View::Today => (unscoped(lms_all().to_vec()), Priority::Visible, Rule::Open),
         View::Assignments => {
-            let mut keys = vec![Key::new(Dataset::LmsDeadlines, "all")];
+            let mut keys = vec![Key::lms_deadlines()];
             keys.extend(
                 current_course_keys(inputs, now)
                     .into_iter()
@@ -669,7 +664,7 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
                 // The stored enrolment list lacks it: not (or no longer) the
                 // person's course, so the ingest would refuse its rows. It is
                 // wanted again once a list that holds it lands.
-                None if read(&Key::new(Dataset::LmsEnrolment, "all"), inputs) => {
+                None if read(&Key::lms_enrolment(), inputs) => {
                     return None;
                 }
                 None => {}
@@ -930,16 +925,8 @@ pub(crate) fn plan(
             } else {
                 Depth::Light
             };
-            let held = hold(
-                &key,
-                watch.priority,
-                depth,
-                inputs,
-                facts,
-                credentials,
-                now,
-            )
-            .or(backoff);
+            let held =
+                hold(&key, watch.priority, depth, inputs, facts, credentials, now).or(backoff);
             let group = Group {
                 dataset: key.dataset,
                 scope: watch.scope.clone(),

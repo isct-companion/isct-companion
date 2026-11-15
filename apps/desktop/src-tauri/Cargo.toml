@@ -12,11 +12,12 @@ name = "isct_companion_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+serde_json = "1"
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 log = "0.4"
-app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives", "agent", "campus-printer"] }
+app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives", "agent", "campus-printer", "desktop-otp-enrollment"] }
 app-ocr = { path = "../../../crates/app-ocr" }
 tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net"] }
 serde = { version = "1", features = ["derive"] }
@@ -48,6 +49,13 @@ subtle = "2"
 tokio-util = { version = "0.7", features = ["rt"] }
 # Native v2 EXE and macOS tar.gz updates; legacy v1 ZIP installers are unused.
 tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
+# This device's addresses, for Core to tell the campus network apart
+# (campus Wi-Fi and the campus VPN).
+if-addrs = "0.15"
+
+# A second launch shows the running app's hidden window instead of starting
+# another copy against the same data. It injects no script into webviews.
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The login name the campus printer queue is restricted to (campus_printer_cups.rs).
@@ -55,10 +63,8 @@ libc = "0.2"
 security-framework = { version = "3.7", features = ["OSX_10_15"] }
 block2 = "0.6"
 objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
-# Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface, its address, and DNS bound to it.
+# Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface and DNS bound to it.
 objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["std", "CWWiFiClient", "CWInterface"] }
-if-addrs = "0.15"
-ipnet = "2"
 hickory-resolver = { version = "0.26", default-features = false, features = ["tokio"] }
 # NSPasteboard and NSSharingService: copy and share a course file (file_share_macos.rs).
 # NSAlert sheets, the print panel and the file picker: school pages'
@@ -88,6 +94,8 @@ windows = { version = "0.62", features = [
     "Storage",
     "Storage_Streams",
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",
@@ -99,17 +107,10 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-collections = "0.3"
-# The PDF right-click entry for the campus printer (campus_printer_windows.rs),
-# under HKCU; the version the windows crate above pairs with.
-windows-registry = "0.6"
 # WebView2's cookie manager: the identity cookies Core writes into the school
 # store (school_cookies.rs). The version wry already uses.
 webview2-com = "0.39"
 # The tray icon that keeps a closed window's app running (window_close_windows.rs).
 tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
-# A second launch shows the running app's hidden window instead of starting
-# another copy against the same data. It injects no script into webviews.
-tauri-plugin-single-instance = "2"
-
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }

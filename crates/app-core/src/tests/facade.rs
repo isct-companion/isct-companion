@@ -272,13 +272,13 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
         SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
         SchoolSessionState,
     };
-    use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
+    use crate::sync_state::{self, Commit, Key, Outcome};
     let store = store("sync-sources");
     store
         .write(None, |transaction| {
             sync_state::commit(
                 transaction,
-                &Key::new(Dataset::LmsDeadlines, "all"),
+                &Key::lms_deadlines(),
                 Commit {
                     validator: None,
                     outcome: Outcome::Complete,
@@ -593,7 +593,7 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
 /// names feed every field the commits changed.
 #[test]
 fn background_commits_reach_shells_merged_with_the_records_they_changed() {
-    use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
+    use crate::sync_state::{self, Commit, Key, Outcome};
     use WorkspaceChangeSource::SchoolPull;
     let store = store("background-writes");
     let events = Arc::new(WorkspaceEvents::default());
@@ -619,7 +619,7 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
     let renew = |transaction: &rusqlite::Transaction<'_>, at: &str| {
         sync_state::commit(
             transaction,
-            &Key::new(Dataset::LmsDeadlines, "all"),
+            &Key::lms_deadlines(),
             Commit {
                 validator: None,
                 outcome: Outcome::Complete,
@@ -705,7 +705,8 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
-    let cloud = CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap();
+    let cloud =
+        CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap();
     core.runtime.attach_cloud(cloud.clone()).unwrap();
     assert_eq!(cloud.next_due(), None, "no ports, nothing due");
     cloud.attach(crate::cloud_sync::CloudServices {

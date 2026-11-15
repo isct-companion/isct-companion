@@ -82,7 +82,7 @@ import app.isctcompanion.core.NotificationScheduler
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolSite
-import app.isctcompanion.core.TlsVerifier
+import app.isctcompanion.core.WidgetRoute
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.features.handin.InboxTray
 import app.isctcompanion.design.Guide
@@ -93,11 +93,13 @@ import app.isctcompanion.design.courseZoomDestination
 import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.t
 import app.isctcompanion.design.Theme
+import app.isctcompanion.features.assignments.AssignmentListScreen
 import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.lectures.LecturesScreen
 import app.isctcompanion.features.pastexams.PastExamsScreen
+import app.isctcompanion.features.map.CampusMapScreen
 import app.isctcompanion.features.settings.SettingsScreen
 import app.isctcompanion.features.settings.UpdatePrompt
 import app.isctcompanion.features.settings.WelcomeSheet
@@ -117,9 +119,6 @@ class IsctApplication : Application() {
         super.onCreate()
         Localizer.attach(this)
         Guide.attach(this)
-        // Before the session opens: Core's HTTPS verifies through Android.
-        TlsVerifier.install(this)
-        scope.launch { model.start() }
         // The periodic wake of earlier releases; Core's directive schedules
         // one-time work now (`BackgroundWake.schedule`).
         androidx.work.WorkManager.getInstance(this).cancelUniqueWork("core-background-wake")
@@ -131,19 +130,25 @@ class IsctApplication : Application() {
 }
 
 class MainActivity : ComponentActivity() {
+    private var widgetLink by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         holdPhonesUpright()
         enableEdgeToEdge()
-        val model = (application as IsctApplication).model
+        val app = application as IsctApplication
+        val model = app.model
         model.browser.attachParking(this)
         model.drive.attach(this)
         receiveShared(intent)
+        widgetLink = savedInstanceState?.getString("widgetLink")
+        if (savedInstanceState == null) receiveWidget(intent)
+        app.scope.launch { model.start() }
         setContent {
             // The synced background theme; a change recomposes at once.
             IsctTheme(model.records.settings.optString("theme").ifEmpty { "warm" }) {
                 val reduced = remember { reducedMotion(this) }
-                CompositionLocalProvider(LocalModel provides model, LocalReducedMotion provides reduced) { RootView() }
+                CompositionLocalProvider(LocalModel provides model, LocalReducedMotion provides reduced) { RootView(widgetLink) { widgetLink = null } }
             }
         }
     }
@@ -176,6 +181,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         receiveShared(intent)
+        receiveWidget(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("widgetLink", widgetLink)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun receiveWidget(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (intent.action == Intent.ACTION_VIEW && uri.scheme == "isctcompanion" && uri.host == "widget") {
+            widgetLink = uri.toString()
+        }
     }
 
     /** Copies what another app shared into the inbox while its grant lasts. */
@@ -206,8 +224,15 @@ class Navigator(private val controller: NavHostController) {
         "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}",
     )
 
+    var timetableDate by mutableStateOf<String?>(null)
+
+    fun openAssignments() = controller.navigate("assignments")
+
     fun openRecord() = controller.navigate("record")
     fun openPastExams() = controller.navigate(PAST_EXAMS_DETAIL) { launchSingleTop = true }
+
+    /** Opens the campus map full screen, on a room string or on none to browse. */
+    fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
 
     /** The account page 設定 should open on, taken (and cleared) by it. */
     var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
@@ -255,7 +280,7 @@ private fun Context.largeScreen(): Boolean {
 }
 
 @Composable
-private fun RootView() {
+private fun RootView(widgetLink: String?, consumed: () -> Unit) {
     val model = LocalModel.current
     NotificationPermissionAsk()
     when (val status = model.status) {
@@ -271,7 +296,7 @@ private fun RootView() {
             Text(t("common.couldNotStart"), style = MaterialTheme.typography.titleLarge)
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
         }
-        AppModel.Status.Ready -> Tabs()
+        AppModel.Status.Ready -> Tabs(widgetLink, consumed)
     }
 }
 
@@ -299,7 +324,7 @@ private fun NotificationPermissionAsk() {
 }
 
 @Composable
-private fun Tabs() {
+private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     val controller = rememberNavController()
     val navigator = remember(controller) { Navigator(controller) }
     val entry by controller.currentBackStackEntryAsState()
@@ -325,11 +350,37 @@ private fun Tabs() {
             navigator.openPastExams()
         }
     }
-    // A pushed school page fills the screen, like a browser tab.
-    val showsBar = destination?.route?.startsWith("page/") != true
+    // A pushed school page fills the screen, like a browser tab; so does the
+    // campus map.
+    val showsBar = destination?.route?.let { it.startsWith("page/") || it.startsWith("map?") } != true
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    LaunchedEffect(widgetLink, destination != null) {
+        if (widgetLink == null || destination == null) return@LaunchedEffect
+        when (val route = model.widgetRoute(widgetLink)) {
+            is WidgetRoute.Course -> {
+                navigator.openTab(AppTab.Today.route)
+                navigator.openCourse(route.courseId)
+            }
+            is WidgetRoute.Assignment -> {
+                navigator.openTab(AppTab.Today.route)
+                navigator.openAssignment(route.id)
+            }
+            is WidgetRoute.Exam -> {
+                navigator.timetableDate = route.date
+                navigator.openTab(AppTab.Timetable.route)
+            }
+            WidgetRoute.Timetable, WidgetRoute.UnavailableCourse -> navigator.openTab(AppTab.Timetable.route)
+            WidgetRoute.Assignments, WidgetRoute.UnavailableAssignment -> {
+                navigator.openTab(AppTab.Today.route)
+                navigator.openAssignments()
+            }
+            WidgetRoute.Sync -> navigator.openSettings(SchoolAuthProfile.SCIENCE)
+            null -> Unit
+        }
+        consumed()
+    }
     // Hiding offers its undo in the platform snackbar, above the navigation bar.
     LaunchedEffect(model.undo) {
         val undo = model.undo ?: return@LaunchedEffect
@@ -397,7 +448,11 @@ private fun Tabs() {
                 destination("assignment/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
                     AssignmentScreen(it.arguments?.getString("id").orEmpty())
                 }
+                destination("assignments") { AssignmentListScreen() }
                 destination("record") { RecordScreen() }
+                destination("map?room={room}", listOf(navArgument("room") { type = NavType.StringType; defaultValue = "" })) {
+                    CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
+                }
                 destination(
                     "page/{site}?target={target}&title={title}",
                     listOf(

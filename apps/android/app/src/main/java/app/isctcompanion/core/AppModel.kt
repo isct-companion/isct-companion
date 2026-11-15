@@ -12,6 +12,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.PowerManager
 import android.util.Log
+import app.isctcompanion.widgets.WidgetStorage
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -25,6 +26,8 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -130,24 +133,27 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     // Lifecycle
 
-    /** Opens the session once; the application and a background wake both
-     * call this, and the later caller waits for the first. */
+    /** Opens the session once for the activity, background work or printing.
+     * Other system entry points can run without loading the SDK. */
     suspend fun start() = opening.withLock {
         if (session != null) return@withLock
         try {
+            TlsVerifier.install(context)
             val data = File(context.filesDir, "core").apply { mkdirs() }
             val files = File(context.filesDir, "files").apply { mkdirs() }
             // Google Drive is Android's provider; Core reads whether it was
             // connected and owns every Drive request.
+            val inFront = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             val config = SessionConfig(
                 dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
                 appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
-                initialNetwork = SyncNetwork.UNKNOWN, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
+                initialNetwork = SyncNetwork.UNKNOWN, startSuspended = !inFront, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
                 config, KeystoreVault(context), browser, null, null, WebCookieSeed(), ExamBrowserAuth(context), null, drive,
             )
+            session.attachWidgets(WidgetStorage(context))
             this.session = session
             val stream = session.subscribe()
             scope.launch { listen(stream) }
@@ -164,9 +170,22 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
             runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
-            if (!foreground) runCatching { session.suspend() }
+            if (foreground && !inFront) runCatching { session.resume() }
+            if (!foreground && inFront) runCatching { session.suspend() }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
+        }
+    }
+
+    suspend fun widgetRoute(url: String): WidgetRoute? {
+        val session = session ?: return null
+        return try {
+            (session.widgetRoute(url).value() as? OperationResult.WidgetRoute)?.route
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("isct", "widget link", error)
+            null
         }
     }
 
@@ -189,14 +208,26 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     }
 
+    /** One job from the system's print dialog (`CampusPrintService`): Core
+     * verifies the student ID it is billed to, sends the PDF and words how
+     * it ended. The print service can start the process with no activity,
+     * so the session opens here if it has not. `null` when there is no
+     * session to print with. */
+    suspend fun campusPrint(document: ByteArray, job: CampusPrintJob): CampusPrintReport? {
+        start()
+        val session = session ?: return null
+        return (withContext(Dispatchers.IO) { session.campusPrint(document, job) }.value() as? OperationResult.CampusPrint)?.report
+    }
+
     /** One WorkManager opportunity out of front: Core reads what is due when
      * [network] allows (LMS deadlines and assignment states over the token,
      * reference files) and runs its local work, within [budgetSeconds], then
      * suspends again unless the app came to the front. A stopped worker ends
      * it early. */
-    suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt) {
+    suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt, systemChange: Boolean) {
         start()
         val session = session ?: return
+        if (systemChange) runCatching { session.refreshWidgets() }
         val id = java.util.UUID.randomUUID().toString()
         val operation = runCatching { session.beginBackgroundOpportunity(id, budgetSeconds, network) }
             .getOrNull() ?: return
@@ -331,6 +362,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     else -> scheduleRefresh()
                 }
                 is StreamUpdate.SnapshotRequired -> {
+                    runCatching { session?.refreshWidgets() }
                     scheduleRefresh()
                     session?.let { runCatching { it.wakeDirective() }.onSuccess(::applyDirective) }
                     web.refreshPages()
@@ -524,6 +556,74 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** One assignment with its LMS text and files, for the in-app page. */
     suspend fun assignmentDetail(id: String): AssignmentDetail? =
         (query(WorkspaceQuery.AssignmentDetail(id)) as? WorkspaceQueryResult.AssignmentDetail)?.v1
+
+    // Campus map
+
+    /** Whether Core's map knows a room string, or with null whether a map is
+     * stored at all; false (also before Core has the map's file) means no
+     * map button. A failure also hides the button, but is logged. */
+    suspend fun campusMapHas(room: String?): Boolean {
+        val session = session ?: return false
+        if (room?.isEmpty() == true) return false
+        return try {
+            (session.campusMapHas(room).value() as? OperationResult.Flag)?.value == true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: SdkException.Unavailable) {
+            false
+        } catch (error: Exception) {
+            Log.w("isct", "campus map has", error)
+            false
+        }
+    }
+
+    /** Opens Core's map page on a room string, or on none to browse. */
+    suspend fun campusMapOpen(room: String?): CampusMapOpening {
+        val session = session ?: return CampusMapOpening.Failed(t("error.internal"))
+        return try {
+            val scene = (session.campusMapOpen(room).value() as? OperationResult.CampusMapScene)?.scene
+            if (scene != null) CampusMapOpening.Ready(scene) else CampusMapOpening.Failed(t("error.internal"))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: SdkException.Unavailable) {
+            CampusMapOpening.Missing
+        } catch (error: Exception) {
+            CampusMapOpening.Failed(describe(error))
+        }
+    }
+
+    /** One intent on an open map page; null when nothing drawn changed or
+     * the page is gone. A failure is logged: the page keeps its last scene. */
+    suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
+        val session = session ?: return null
+        return try {
+            (session.campusMapSend(page, intent).value() as? OperationResult.CampusMapScene)?.scene
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("isct", "campus map send", error)
+            null
+        }
+    }
+
+    /** What a map search's text names; Core echoes the text so the page can
+     * drop answers to text since changed. A failure carries the text to show. */
+    suspend fun campusMapSearch(query: String): Result<CampusMapSearch> {
+        val session = session ?: return Result.failure(IllegalStateException(t("error.internal")))
+        return try {
+            val search = (session.campusMapSearch(query).value() as? OperationResult.CampusMapSearch)?.search
+            if (search != null) Result.success(search) else Result.failure(IllegalStateException(t("error.internal")))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(IllegalStateException(describe(error)))
+        }
+    }
+
+    /** Drops Core's map page, and its open if it is still loading. */
+    fun campusMapClose() {
+        session?.campusMapClose()
+    }
 
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
@@ -1073,3 +1173,13 @@ data class UndoAction(val title: String, val assignmentId: String)
 
 /** Weeks read on either side of the one asked for. */
 private const val WEEK_REACH = 4L
+
+/** What opening Core's campus map page answered. */
+sealed interface CampusMapOpening {
+    data class Ready(val scene: CampusMapScene) : CampusMapOpening
+
+    /** No map file is stored yet: it comes with the data updates. */
+    data object Missing : CampusMapOpening
+
+    data class Failed(val message: String) : CampusMapOpening
+}

@@ -287,6 +287,18 @@ fn user_action(kind: NavigationKind, gesture: bool) -> bool {
         )
 }
 
+/// Google's own sign-in and Gmail. A school view has no Google session, so
+/// the portal's Gmail tile lands on Google's "enter your email" page there;
+/// the system browser is where the person is already signed in to Google.
+/// Frames stay in place (an embedded Form or Doc), only pages move out.
+fn google_account_page(url: &url::Url) -> bool {
+    url.scheme() == "https"
+        && matches!(
+            url.host_str(),
+            Some("accounts.google.com" | "mail.google.com")
+        )
+}
+
 /// The rule table for a frame navigation. Every school view is the
 /// person's: Core never drives one on its own.
 pub(crate) fn navigation_rule(request: &NavigationRequest) -> Verdict {
@@ -296,6 +308,9 @@ pub(crate) fn navigation_rule(request: &NavigationRequest) -> Verdict {
             (true, false) => Verdict::ReloadAsGet,
             (false, _) => Verdict::Deny(DenyReason::Resubmission),
         };
+    }
+    if request.main_frame && google_account_page(&request.url) {
+        return Verdict::External;
     }
     match target(&request.url) {
         Target::Local { data: true } if request.main_frame => Verdict::Deny(DenyReason::Scheme),
@@ -314,6 +329,9 @@ pub(crate) fn navigation_rule(request: &NavigationRequest) -> Verdict {
 
 /// The rule table for a window a page opens (`window.open`, `target=_blank`).
 pub(crate) fn new_window_rule(request: &NewWindowRequest) -> Verdict {
+    if google_account_page(&request.url) {
+        return Verdict::External;
+    }
     match target(&request.url) {
         Target::Local { data: true } => Verdict::Deny(DenyReason::Scheme),
         Target::Local { .. } | Target::Https => Verdict::Popup,

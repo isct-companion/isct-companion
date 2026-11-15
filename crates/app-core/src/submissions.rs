@@ -41,7 +41,7 @@ use crate::{
     plan::{Credential, Held, Lane, PlanHints, ReadRefused, ReadRequest},
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
-    sync_state::{Dataset, Key},
+    sync_state::Key,
     workspaces::{AssignmentWorkspaces, HandInError, SubmitFile, WorkspaceError},
 };
 use ledger::{Claim, Ledger, Refresh};
@@ -588,10 +588,9 @@ impl Operation {
         match &remote.content {
             Some(content) => {
                 let same = content.len() == self.files.len()
-                    && content
-                        .iter()
-                        .zip(&self.files)
-                        .all(|(remote, local)| remote.name == local.name && remote.sha256 == local.sha256);
+                    && content.iter().zip(&self.files).all(|(remote, local)| {
+                        remote.name == local.name && remote.sha256 == local.sha256
+                    });
                 if same {
                     Verdict::Applied
                 } else {
@@ -607,7 +606,7 @@ impl Operation {
     fn resource(&self) -> Option<(u64, Key)> {
         self.module
             .course
-            .map(|course| (course, Key::new(Dataset::LmsAssign, course.to_string())))
+            .map(|course| (course, Key::lms_assignments(course)))
     }
 }
 
@@ -954,7 +953,7 @@ impl SubmissionService {
             }
         }
         for refresh in self.ledger.refreshes_due(now)? {
-            let key = Key::new(Dataset::LmsAssign, refresh.lms_course_id.to_string());
+            let key = Key::lms_assignments(refresh.lms_course_id);
             let Some(plan) = self.plan.engine() else {
                 return Ok(());
             };
@@ -1011,7 +1010,10 @@ impl SubmissionService {
             SubmissionAction::Save => Some(self.capture(assignment).await?),
             SubmissionAction::Remove => None,
         };
-        let files = capture.as_ref().map(snapshots::Capture::files).unwrap_or_default();
+        let files = capture
+            .as_ref()
+            .map(snapshots::Capture::files)
+            .unwrap_or_default();
         if action == SubmissionAction::Save {
             within_limits(&files, &remote.rules)?;
         }
@@ -1117,7 +1119,8 @@ impl SubmissionService {
     /// An unknown write has a check queued.
     fn ensure_checked(&self, operation: &Operation) -> Result<(), SubmissionError> {
         if operation.state == OperationState::OutcomeUnknown {
-            self.ledger.schedule_check(&operation.id, self.now(), true)?;
+            self.ledger
+                .schedule_check(&operation.id, self.now(), true)?;
             self.plan.duties_changed();
         }
         Ok(())
@@ -1166,7 +1169,11 @@ impl SubmissionService {
         let read = plan
             .read(
                 ReadRequest {
-                    key: format!("submission:{}:{}:{fence}", module.cmid, module.course.unwrap_or(0)),
+                    key: format!(
+                        "submission:{}:{}:{fence}",
+                        module.cmid,
+                        module.course.unwrap_or(0)
+                    ),
                     lane: Lane::Moodle,
                     account: Some((SchoolAuthProfile::Science, TOKEN_PATH)),
                     deadline: READ_DEADLINE,
@@ -1384,7 +1391,11 @@ impl SubmissionService {
     /// Reads the LMS for a write that was answered or whose outcome is
     /// unknown, with the content of what it holds, and concludes it if the
     /// read can tell. A read that cannot leaves it unknown.
-    async fn verify(&self, mut operation: Operation, check: u32) -> Result<Operation, SubmissionError> {
+    async fn verify(
+        &self,
+        mut operation: Operation,
+        check: u32,
+    ) -> Result<Operation, SubmissionError> {
         let read = match self.transport.permit() {
             Ok(permit) => {
                 self.read(

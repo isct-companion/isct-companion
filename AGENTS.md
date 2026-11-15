@@ -164,3 +164,18 @@ do not keep project state in agent memory (Claude's auto memory, Codex
 memories). Hand work over with the task's `handoff`; record what you would
 otherwise remember with `record` or `task`. `STATUS.md` is generated from
 `.project/events.jsonl`; never edit either by hand.
+
+## 8. Preserve human authorship when squashing
+
+Every squash merge must preserve attribution for all human contributors
+in the squashed commits: collect their commit authors and existing human
+`Co-authored-by` trailers, deduplicate them, and include everyone other than
+the final commit's author as `Co-authored-by: Name <email>` trailers in the
+final commit message. Preserve their recorded identities; use an email
+associated with their GitHub account (including their GitHub no-reply
+address), and never invent an email. Verify the final message before merging
+or pushing; do not rely on the squash interface to preserve attribution.
+
+Use the repository's configured git author as is. Never add a
+`Co-authored-by` trailer for an AI (Claude, Codex, …) or any other AI
+attribution line to commit messages or PR descriptions.
