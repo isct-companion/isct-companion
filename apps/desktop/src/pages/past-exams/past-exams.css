@@ -69,11 +69,11 @@
   gap: 8px;
 }
 
-/* The ScienceTokyoExam credit stays in the page's bottom-right corner while
-   the page scrolls, tinted like secondary text and never taking clicks. */
+/* The ScienceTokyoExam credit closes the page at its bottom-right, as the
+   mobile lists end with it: in the corner while the page is short, after the
+   last row once it scrolls, so it never covers a row. Tinted like secondary
+   text and never taking clicks. */
 .examShareCredit {
-  position: sticky;
-  inset-block-end: 12px;
   align-self: flex-end;
   flex: none;
   margin-block-start: auto;

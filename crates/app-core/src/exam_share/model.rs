@@ -58,6 +58,9 @@ pub struct ExamSubjectPage {
     pub exams: Vec<ExamDocument>,
     /// Every teacher the materials name, for filtering, the class's first.
     pub teachers: Vec<ExamTeacher>,
+    /// The local course's class when one of `rows` lists it. Reopening the
+    /// subject passes it back so the order survives a refresh.
+    pub class_id: Option<u32>,
     /// This subject on the ScienceTokyoExam website.
     pub web_url: String,
 }
@@ -251,6 +254,8 @@ pub enum ExamAction {
     },
     Subject {
         code: String,
+        /// A page's `class_id`, when refreshing it.
+        class_id: Option<u32>,
     },
     CourseSubject {
         course_id: String,

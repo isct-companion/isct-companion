@@ -778,6 +778,11 @@ export type ExamSubjectPage = {
    */
   teachers: Array<ExamTeacher>;
   /**
+   * The local course's class when one of `rows` lists it. Reopening the
+   * subject passes it back so the order survives a refresh.
+   */
+  classId: number | null;
+  /**
    * This subject on the ScienceTokyoExam website.
    */
   webUrl: string;
@@ -881,7 +886,14 @@ export type ExamAction =
   | { kind: "acceptTerms" }
   | { kind: "disconnect" }
   | { kind: "search"; query: string }
-  | { kind: "subject"; code: string }
+  | {
+      kind: "subject";
+      code: string;
+      /**
+       * A page's `class_id`, when refreshing it.
+       */
+      classId: number | null;
+    }
   | { kind: "courseSubject"; courseId: string }
   | { kind: "open"; id: string; download: boolean }
   | { kind: "library" }

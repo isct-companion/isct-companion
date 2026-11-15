@@ -30,6 +30,7 @@ impl RemotePage {
     /// class is matched by its exact ID in this subject's latest-year rows;
     /// teachers are matched by ID, since a name does not establish identity.
     fn present(self, class_id: Option<u32>) -> Result<ExamSubjectPage, ExamError> {
+        let class_id = class_id.filter(|id| has_class(&self.rows, Some(*id)));
         let ours: HashSet<String> = self
             .rows
             .iter()
@@ -58,6 +59,7 @@ impl RemotePage {
             rows: self.rows,
             exams,
             teachers,
+            class_id,
             web_url,
         })
     }
@@ -319,7 +321,9 @@ impl ExamShare {
                     matches.into_iter().map(|hit| hit.subject).collect(),
                 ))
             }
-            ExamAction::Subject { code } => self.resolve_subjects(session, vec![code], None).await,
+            ExamAction::Subject { code, class_id } => {
+                self.resolve_subjects(session, vec![code], class_id).await
+            }
             ExamAction::UploadOptions {
                 subject_code,
                 request,

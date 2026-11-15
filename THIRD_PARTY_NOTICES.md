@@ -557,3 +557,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Work Sans (outlined lettering)
+
+The ScienceTokyoExam credit on the past-exams page
+(`resources/design/sciencetokyoexam-credit.svg` and its iOS and Android
+copies) is lettering set in Work Sans and converted to outlines; no font file
+is included. Work Sans is Copyright 2019 The Work Sans Project Authors
+(<https://github.com/weiweihuanghuang/Work-Sans>) and is licensed under the
+SIL Open Font License, Version 1.1 (<https://openfontlicense.org>).

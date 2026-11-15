@@ -295,6 +295,7 @@ export function PastExams({
           const updated = await call({
             kind: "subject",
             code: subject.subject.code,
+            classId: subject.classId,
           });
           if (updated?.kind === "subject") setSubject(updated.value);
         }
@@ -708,6 +709,7 @@ export function PastExams({
                           void loadSubject({
                             kind: "subject",
                             code: entry.code,
+                            classId: null,
                           })
                         }
                       >

@@ -226,8 +226,8 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
         requests = null
         library = null
         if (tab == Tab.Browse) {
-            subject?.subject?.code?.let { code ->
-                (call(ExamAction.Subject(code)) as? ExamAnswer.Subject)?.v1?.let { subject = it }
+            subject?.let { open ->
+                (call(ExamAction.Subject(open.subject.code, open.classId)) as? ExamAnswer.Subject)?.v1?.let { subject = it }
             }
         } else {
             reload()
@@ -369,7 +369,7 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                         if (subjects?.isEmpty() == true) item { Text(t("examShare.noItems")) }
                         items(subjects.orEmpty(), key = { it.code }) { hit ->
                             TextButton(enabled = !busy, onClick = {
-                                scope.launch { showSubject(ExamAction.Subject(hit.code)) }
+                                scope.launch { showSubject(ExamAction.Subject(hit.code, null)) }
                             }) { Text("${hit.name} · ${hit.code}") }
                         }
                         item {

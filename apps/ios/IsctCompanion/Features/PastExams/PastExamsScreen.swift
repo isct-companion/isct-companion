@@ -26,6 +26,9 @@ struct PastExamsScreen: View {
     @State private var busy = false
     @State private var problem: String?
     @State private var notice: String?
+    @State private var courses: ExamCourseList?
+    @State private var coursesFailed = false
+    @State private var coursesRetry = 0
     @State private var showsRequest = false
     @State private var showsReport = false
     @State private var uploadEntry: ExamUploadEntry?
@@ -42,6 +45,10 @@ struct PastExamsScreen: View {
     }
 
     private enum Tab: String, CaseIterable { case browse, requests, library }
+    private struct CoursesRead: Equatable {
+        let revision: String
+        let retry: Int
+    }
     private struct Confirmation {
         let key: String
         let work: () async -> Void
@@ -107,6 +114,13 @@ struct PastExamsScreen: View {
             }
         }
         .disabled(busy)
+        .task(id: CoursesRead(revision: model.contentRevision, retry: coursesRetry)) {
+            coursesFailed = false
+            let answer = await model.examCourses()
+            guard !Task.isCancelled else { return }
+            courses = answer
+            coursesFailed = answer == nil
+        }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             await accountAction(.account)
@@ -208,7 +222,7 @@ struct PastExamsScreen: View {
                         if subjects.isEmpty { Text(t("examShare.noItems")) }
                         ForEach(subjects, id: \.code) { result in
                             Button {
-                                Task { await loadSubject(.subject(code: result.code)) }
+                                Task { await loadSubject(.subject(code: result.code, classId: nil)) }
                             } label: {
                                 VStack(alignment: .leading) {
                                     Text(subjectName(result))
@@ -218,7 +232,7 @@ struct PastExamsScreen: View {
                         }
                     }
                 }
-                CurrentCoursesSection { id in
+                CurrentCoursesSection(list: courses, failed: coursesFailed, retry: { coursesRetry += 1 }) { id in
                     Task { await loadSubject(.courseSubject(courseId: id)) }
                 }
             }
@@ -423,8 +437,8 @@ struct PastExamsScreen: View {
                 return
             }
             guard refresh else { return }
-            if let code = subject?.subject.code {
-                await loadSubject(.subject(code: code), resetFilters: false)
+            if let subject {
+                await loadSubject(.subject(code: subject.subject.code, classId: subject.classId), resetFilters: false)
             } else if subjects != nil {
                 if let courseId, query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     await loadSubject(.courseSubject(courseId: courseId))

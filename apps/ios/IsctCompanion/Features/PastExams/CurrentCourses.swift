@@ -2,18 +2,13 @@ import IsctCore
 import SwiftUI
 
 /// This quarter's enrolled courses, read from the device. A course opens its
-/// subject only when tapped.
+/// subject only when tapped. The screen loads `list`; a `Section` inside a
+/// `List` would run a `.task` for each of its rows.
 struct CurrentCoursesSection: View {
+    let list: ExamCourseList?
+    let failed: Bool
+    let retry: () -> Void
     let open: (String) -> Void
-    @Environment(AppModel.self) private var model
-    @State private var list: ExamCourseList?
-    @State private var failed = false
-    @State private var retry = 0
-
-    private struct Read: Equatable {
-        let revision: String
-        let retry: Int
-    }
 
     var body: some View {
         Section(t("examShare.currentCourses")) {
@@ -37,17 +32,10 @@ struct CurrentCoursesSection: View {
                     .disabled(course.subjectCodes.isEmpty)
                 }
             } else if failed {
-                Button(t("common.retry")) { retry += 1 }
+                Button(t("common.retry"), action: retry)
             } else {
                 ProgressView().frame(maxWidth: .infinity)
             }
-        }
-        .task(id: Read(revision: model.contentRevision, retry: retry)) {
-            failed = false
-            let answer = await model.examCourses()
-            guard !Task.isCancelled else { return }
-            list = answer
-            failed = answer == nil
         }
     }
 }
