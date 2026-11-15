@@ -501,23 +501,22 @@ impl DataStore {
                 }
             }
         }
-        let language = crate::schedule::content_language(&workspace).to_string();
+        // Courses read in the content language; `names` and `roomNames`
+        // keep both for the next switch.
+        let language = crate::locale::ContentLanguage::of(&workspace);
+        let shown = |names: Option<&Value>, stored: &Value| {
+            crate::locale::pick(names, language)
+                .or_else(|| stored.as_str())
+                .unwrap_or_default()
+                .to_owned()
+        };
         for course in workspace["courses"].as_array_mut().into_iter().flatten() {
             for field in ["title", "instructor"] {
-                course[field] = adpt_isct::lms::decode_entities(&crate::schedule::localized(
-                    course.pointer(&format!("/names/{field}")),
-                    &language,
-                    course[field].as_str().unwrap_or(""),
-                ))
-                .into();
+                let text = shown(course.pointer(&format!("/names/{field}")), &course[field]);
+                course[field] = adpt_isct::lms::decode_entities(&text).into();
             }
             for meeting in course["meetings"].as_array_mut().into_iter().flatten() {
-                meeting["room"] = crate::schedule::localized(
-                    meeting.get("roomNames"),
-                    &language,
-                    meeting["room"].as_str().unwrap_or(""),
-                )
-                .into();
+                meeting["room"] = shown(meeting.get("roomNames"), &meeting["room"]).into();
             }
         }
         let today_jst = crate::schedule::japan_today(Utc::now());

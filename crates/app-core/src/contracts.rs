@@ -1,3 +1,4 @@
+use crate::locale::Localized;
 use crate::schedule::ClassGroup;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]
@@ -38,11 +39,6 @@ pub enum InstructionLanguage {
     JaEn,
     Other,
 }
-
-contract!(Localized {
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub ja: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub en: Option<String>,
-});
 
 contract!(SyncMeta {
     pub id: String,

@@ -800,37 +800,6 @@ fn apply_intent(
     }
 }
 
-fn localized(value: Option<&Value>, locale: &str) -> String {
-    value
-        .and_then(|value| {
-            value
-                .get(locale)
-                .or_else(|| value.get("en"))
-                .or_else(|| value.get("ja"))
-        })
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-pub(crate) fn workspace_content_locale(workspace: &Value) -> &'static str {
-    match workspace
-        .pointer("/settings/contentLanguage")
-        .and_then(Value::as_str)
-    {
-        Some("ja") => "ja",
-        Some("en") => "en",
-        _ if workspace
-            .pointer("/settings/locale")
-            .and_then(Value::as_str)
-            == Some("ja") =>
-        {
-            "ja"
-        }
-        _ => "en",
-    }
-}
-
 fn normalize_language(value: Option<&str>) -> &'static str {
     match value.unwrap_or_default().to_ascii_lowercase().as_str() {
         "ja" | "japanese" | "日本語" => "ja",

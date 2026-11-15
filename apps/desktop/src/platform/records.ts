@@ -1,8 +1,6 @@
 import { createElement, type ComponentType } from "react";
 import { EMPTY_WORKSPACE } from "../generated/persistence";
 import type { Workspace } from "../lib/model";
-import { contentLanguage, pickLocalized } from "../lib/model";
-import { decodeEntities } from "../lib/text";
 import type { SchoolRecords } from "./desktop-bridge";
 import {
   scheduleAnswers,
@@ -72,20 +70,14 @@ export function useRecords(
   if (!answer) return undefined;
   const records = complete(answer);
   if (!fields.includes("courses")) return records;
-  const language = contentLanguage(records.settings);
+  // Core reads a course's title and instructor in the content language.
   return {
     ...records,
     courses: records.courses.map((course) => ({
       ...course,
       color: overview?.colors[course.id] ?? course.color,
-      title:
-        course.overrides?.title ??
-        decodeEntities(
-          pickLocalized(course.names?.title, language, course.title),
-        ),
-      instructor:
-        course.overrides?.instructor ??
-        pickLocalized(course.names?.instructor, language, course.instructor),
+      title: course.overrides?.title ?? course.title,
+      instructor: course.overrides?.instructor ?? course.instructor,
     })),
   };
 }

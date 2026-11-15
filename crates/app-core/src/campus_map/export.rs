@@ -2,6 +2,7 @@
 //! object. Only this format is read; any other `formatVersion` is refused
 //! before its fields are looked at.
 use super::{CampusMapError, FORMAT_VERSION, MAX_JSON_BYTES};
+use crate::locale::Localized;
 use serde::Deserialize;
 use std::{collections::BTreeMap, io::Read};
 
@@ -101,29 +102,12 @@ pub(super) struct Export {
     pub aliases: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Name {
-    pub ja: String,
-    #[serde(default)]
-    pub en: Option<String>,
-}
-
-impl Name {
-    pub(super) fn pick(&self, english: bool) -> &str {
-        match (&self.en, english) {
-            (Some(en), true) if !en.trim().is_empty() => en,
-            _ => &self.ja,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Building {
     pub id: String,
     pub campus: String,
-    pub name: Name,
+    pub name: Localized,
     pub codes: Vec<String>,
     pub center: Position,
     /// MultiPolygon coordinates.
@@ -150,7 +134,7 @@ pub(super) struct Entrance {
     pub id: String,
     pub point: Position,
     #[serde(default)]
-    pub name: Option<Name>,
+    pub name: Option<Localized>,
     #[serde(default)]
     pub level_id: Option<String>,
 }

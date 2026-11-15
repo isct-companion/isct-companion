@@ -414,21 +414,19 @@ const SHARED_PREFIXES: [&str; 3] = ["LA", "ENT", "X"];
 pub(crate) fn department_prefixes() -> &'static [String] {
     static PREFIXES: OnceLock<Vec<String>> = OnceLock::new();
     PREFIXES.get_or_init(|| {
-        serde_json::from_str::<Vec<crate::course_query::FinderDepartment>>(include_str!(
-            "../course_query/departments.json"
-        ))
-        .map(|departments| {
-            let mut prefixes: Vec<String> = departments
-                .into_iter()
-                .map(|department| department.code_prefix)
-                .filter(|prefix| !prefix.is_empty())
-                .chain(SHARED_PREFIXES.iter().map(|prefix| prefix.to_string()))
-                .collect();
-            prefixes.sort();
-            prefixes.dedup();
-            prefixes
-        })
-        .unwrap_or_default()
+        crate::course_query::SyllabusDepartment::all()
+            .map(|departments| {
+                let mut prefixes: Vec<String> = departments
+                    .into_iter()
+                    .map(|department| department.code_prefix)
+                    .filter(|prefix| !prefix.is_empty())
+                    .chain(SHARED_PREFIXES.iter().map(|prefix| prefix.to_string()))
+                    .collect();
+                prefixes.sort();
+                prefixes.dedup();
+                prefixes
+            })
+            .unwrap_or_default()
     })
 }
 

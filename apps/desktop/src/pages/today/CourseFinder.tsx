@@ -1,11 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Popover, UiInput } from "../../components/ui";
-import {
-  contentLanguage,
-  pickLocalized,
-  type TermId,
-  type Workspace,
-} from "../../lib/model";
+import type { TermId, Workspace } from "../../lib/model";
 import { t } from "../../i18n";
 import { useScheduleQuery } from "../../platform/core-query";
 import type { LectureSearch } from "../../generated/persistence";
@@ -38,16 +33,11 @@ export function CourseFinder({
     >();
     for (const course of data.courses) {
       if (course.deletedAt) continue;
-      const title = pickLocalized(
-        course.names?.title,
-        contentLanguage(data.settings),
-        course.title,
-      );
       if (needle && !matches?.courseIds.includes(course.id)) continue;
       const list = byTerm.get(course.termId) ?? [];
       list.push({
         id: course.id,
-        title,
+        title: course.title,
         code: course.code,
         color: course.color,
       });
@@ -62,14 +52,7 @@ export function CourseFinder({
         label: id === term ? `This term · ${termLabel(id)}` : termLabel(id),
         courses: courses.sort((a, b) => a.title.localeCompare(b.title)),
       }));
-  }, [
-    data.courses,
-    data.settings.locale,
-    data.settings.contentLanguage,
-    matches,
-    query,
-    term,
-  ]);
+  }, [data.courses, data.settings.locale, matches, query, term]);
   const flat = groups.flatMap((group) => group.courses);
   const choose = (id: string) => {
     open(id);

@@ -1,4 +1,5 @@
 use crate::data::{offering_course_id, versioned::content_hash, DataError};
+use crate::locale::Localized;
 use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
 use reqwest::{Client, Url};
 use rusqlite::{OptionalExtension, Transaction};
@@ -53,6 +54,11 @@ impl From<reqwest::Error> for SubscriptionError {
     }
 }
 
+/// Isct-Data names every school text in Japanese.
+fn blank(ja: Option<&str>) -> bool {
+    ja.is_none_or(|ja| ja.trim().is_empty())
+}
+
 const MAX_INDEX_BYTES: usize = 128 * 1024;
 const MAX_DATA_BYTES: usize = 4 * 1024 * 1024;
 
@@ -61,14 +67,6 @@ const MAX_DATA_BYTES: usize = 4 * 1024 * 1024;
 pub struct SourceLink {
     pub title: String,
     pub url: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Localized {
-    pub ja: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub en: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -533,7 +531,7 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, Subscri
             }
             _ => {}
         }
-        if day.label.ja.trim().is_empty() {
+        if blank(day.label.ja.as_deref()) {
             return Err("calendar day Japanese label is empty".into());
         }
     }
@@ -576,7 +574,7 @@ pub fn validate_departments(raw: &str) -> Result<Departments, SubscriptionError>
         {
             return Err("department id is invalid or duplicated".into());
         }
-        if department.name.ja.trim().is_empty()
+        if blank(department.name.ja.as_deref())
             || department.name.en.as_deref().is_none_or(str::is_empty)
         {
             return Err("department names require ja and en".into());
@@ -596,7 +594,7 @@ pub fn validate_departments(raw: &str) -> Result<Departments, SubscriptionError>
         }
         let mut courses = HashSet::new();
         for course in &department.recommended {
-            if course.title.ja.trim().is_empty() || course.category.ja.trim().is_empty() {
+            if blank(course.title.ja.as_deref()) || blank(course.category.ja.as_deref()) {
                 return Err("recommended course title and category require Japanese text".into());
             }
             if !(100..=900).contains(&course.level) || course.code.trim().is_empty() {
@@ -693,7 +691,7 @@ pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, 
             || start > end
             || !date_in_academic_year(start, year)
             || !date_in_academic_year(end, year)
-            || entry.label.ja.trim().is_empty()
+            || blank(entry.label.ja.as_deref())
             || !matches!(
                 entry.category.as_str(),
                 "campus-festival" | "ceremony" | "academic" | "other"
@@ -730,6 +728,10 @@ pub fn validate_class_schedules(raw: &str, year: i32) -> Result<ClassSchedules, 
         if !ids.insert(entry.id.as_str())
             || entry.id.trim().is_empty()
             || entry.course_code.trim().is_empty()
+            || entry
+                .class_label
+                .as_ref()
+                .is_some_and(|label| blank(label.ja.as_deref()))
             || entry.offering_ids.is_empty()
             || entry
                 .offering_ids
@@ -802,7 +804,12 @@ pub fn validate_exam_feed(
             || (kind == ExamFeedKind::ExamWeekClasses && !periods)
             || entry.quarter.to_ascii_lowercase() != quarter
             || entry.course_code.trim().is_empty()
-            || entry.label.ja.trim().is_empty()
+            || blank(entry.label.ja.as_deref())
+            || [&entry.room, &entry.class_label, &entry.notes]
+                .into_iter()
+                .flatten()
+                .chain(&entry.rooms)
+                .any(|text| blank(text.ja.as_deref()))
             || !date_in_academic_year(exam_date, year)
             || !matches!(entry.status.as_str(), "scheduled" | "cancelled")
             || (!periods && !exact)

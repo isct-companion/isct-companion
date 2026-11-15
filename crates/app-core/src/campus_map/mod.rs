@@ -20,6 +20,7 @@ mod page;
 mod search;
 
 use crate::data::{DataError, DataStore};
+use crate::locale::ContentLanguage;
 use map::Map;
 use page::Page;
 use serde::{Deserialize, Serialize};
@@ -429,12 +430,12 @@ impl CampusMapService {
         Ok(Some(map))
     }
 
-    /// Names in English when the content language is English, and the maps
-    /// app the card's links open in.
+    /// The content language names read in, and the maps app the card's
+    /// links open in.
     fn preferences(&self) -> Result<page::Preferences, CampusMapError> {
         let workspace = self.store.load_fields(&[])?;
         Ok(page::Preferences {
-            english: crate::schedule::content_language(&workspace) == "en",
+            language: ContentLanguage::of(&workspace),
             maps: map::MapsApp::from_setting(
                 workspace
                     .pointer("/settings/mapsApp")
@@ -448,7 +449,7 @@ impl CampusMapService {
     /// file is stored; shells show a map button only for `true`.
     pub fn has(&self, room: Option<&str>) -> Result<bool, CampusMapError> {
         Ok(self.map()?.is_some_and(|map| match room {
-            Some(room) => !map.locate(room, false).is_empty(),
+            Some(room) => !map.locate(room, ContentLanguage::Ja).is_empty(),
             None => true,
         }))
     }
@@ -456,10 +457,10 @@ impl CampusMapService {
     /// The places a search box's text names, best first.
     pub fn search(&self, query: &str) -> Result<CampusMapSearch, CampusMapError> {
         let map = self.map()?.ok_or(CampusMapError::Unavailable)?;
-        let english = self.preferences()?.english;
+        let language = self.preferences()?.language;
         Ok(CampusMapSearch {
             query: query.to_owned(),
-            results: page::search(&map, english, query),
+            results: page::search(&map, language, query),
         })
     }
 

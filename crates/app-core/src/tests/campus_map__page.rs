@@ -4,6 +4,7 @@
 //! `campus-map.json.gz`, the pinned one the `campus-map` workflow fetches, so
 //! these run only with `--ignored`.
 use super::*;
+use crate::locale::ContentLanguage;
 use crate::campus_map::{
     export,
     geometry::Rect,
@@ -17,7 +18,7 @@ const SPORTS_CENTER: &str = "3a605ae0-88df-4574-aadf-56da13339a23";
 /// Inside W9's footprint, 6 m from the sports center's.
 const BY_THE_SPORTS_CENTER: [f64; 2] = [139.6821654, 35.6057532];
 const PREFERENCES: Preferences = Preferences {
-    english: false,
+    language: ContentLanguage::Ja,
     maps: MapsApp::Apple,
 };
 
@@ -159,7 +160,7 @@ fn the_building_holding_a_point_wins_over_a_smaller_one_nearby() {
     let w9 = map.buildings[W9];
     assert_eq!(
         tapped.card.and_then(|card| card.title),
-        Some(map.name(w9, false))
+        Some(map.name(w9, ContentLanguage::Ja))
     );
     let focused = look(&mut page, &view_at(&map, W9, point, 0.8));
     assert_eq!(building_of(&map, focused.level_id.as_deref()), Some(w9));
@@ -170,7 +171,7 @@ fn the_building_holding_a_point_wins_over_a_smaller_one_nearby() {
 fn search_finds_buildings_by_the_codes_in_the_data() {
     let map = map();
     let first = |query: &str| {
-        search(&map, false, query)
+        search(&map, ContentLanguage::Ja, query)
             .into_iter()
             .next()
             .map(|result| result.place)
@@ -188,7 +189,7 @@ fn search_finds_buildings_by_the_codes_in_the_data() {
         );
     }
     assert_eq!(first("w9-202"), Some(room(&map, "W9-202")));
-    assert!(!map.locate("MI1", false).is_empty());
+    assert!(!map.locate("MI1", ContentLanguage::Ja).is_empty());
 }
 
 #[test]
@@ -244,7 +245,7 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
         })
         .expect("an unnamed part of W9's footprint");
     let tapped = tap(&mut page, at, room_floor.clone(), 0.1);
-    assert_eq!(title(&tapped), Some(map.name(w9, false)));
+    assert_eq!(title(&tapped), Some(map.name(w9, ContentLanguage::Ja)));
     assert_eq!(tapped.level_id, room_floor);
     assert!(lit(&tapped));
     // Search picks the same place the same way, and frames it again though
@@ -264,7 +265,7 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
         building_of(&map, sports.level_id.as_deref()),
         Some(sports_center)
     );
-    assert_eq!(title(&sports), Some(map.name(sports_center, false)));
+    assert_eq!(title(&sports), Some(map.name(sports_center, ContentLanguage::Ja)));
     // The selected building is named by its card, the others on the map,
     // without the campus name the Japanese names start with.
     assert_eq!(named(&sports, SPORTS_CENTER), None);

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { english } from "@app/i18n";
 import { submissionLabel } from "@app/lib/academic";
 import { COURSE_FILE_POLICY } from "@app/lib/course-file-policy";
-import { SYLLABUS_DEPARTMENTS, departmentById } from "@app/lib/departments";
+import { departmentById } from "@app/lib/departments";
 import type { Assignment } from "@app/lib/model";
 import { readRepoFile } from "@tests/harness";
 
@@ -63,6 +63,16 @@ const bundled2026 = repositoryJson<{ departments: BundledDepartment[] }>(
   DEPARTMENTS_PATH,
 );
 
+/** The syllabus departments Core lists in the finder and study profile. */
+const SYLLABUS_DEPARTMENTS = repositoryJson<
+  {
+    id: string;
+    name: { ja?: string; en?: string };
+    unitCode: string;
+    scope: string;
+  }[]
+>("crates/app-core/src/course_query/departments.json");
+
 describe("the bundled undergraduate departments", () => {
   it("matches the bundled 2026 departments and their official fields", () => {
     const shipped = SYLLABUS_DEPARTMENTS.map((department) => department.id);
@@ -99,23 +109,29 @@ describe("resolving the department stored in settings", () => {
   const cs = SYLLABUS_DEPARTMENTS.find((department) => department.id === "cs")!;
 
   it("resolves a subscription-scoped id by the part after the colon", () => {
-    expect(departmentById("2026:cs")).toBe(cs);
-    expect(departmentById("undergraduate:cs")).toBe(cs);
+    expect(departmentById(SYLLABUS_DEPARTMENTS, "2026:cs")).toBe(cs);
+    expect(departmentById(SYLLABUS_DEPARTMENTS, "undergraduate:cs")).toBe(cs);
   });
 
   it("resolves every id the settings picker offers", () => {
     for (const department of SYLLABUS_DEPARTMENTS)
-      expect(departmentById(department.id), department.id).toBe(department);
+      expect(
+        departmentById(SYLLABUS_DEPARTMENTS, department.id),
+        department.id,
+      ).toBe(department);
   });
 
   it("returns nothing when no department is selected", () => {
-    expect(departmentById(undefined)).toBeUndefined();
-    expect(departmentById("")).toBeUndefined();
+    expect(departmentById(SYLLABUS_DEPARTMENTS, undefined)).toBeUndefined();
+    expect(departmentById(SYLLABUS_DEPARTMENTS, "")).toBeUndefined();
   });
 
   it("returns nothing for an id that names no department", () => {
     for (const value of ["astrophysics", "2026:csx", "xcs", "2026:"])
-      expect(departmentById(value), value).toBeUndefined();
+      expect(
+        departmentById(SYLLABUS_DEPARTMENTS, value),
+        value,
+      ).toBeUndefined();
   });
 
   it("resolves the department a hand-transcribed guide table names", () => {
@@ -123,7 +139,10 @@ describe("resolving the department stored in settings", () => {
       departmentId: string;
       source: { title: string; url: string }[];
     }>(CS_RECOMMENDED_PATH);
-    const resolved = departmentById(transcript.departmentId);
+    const resolved = departmentById(
+      SYLLABUS_DEPARTMENTS,
+      transcript.departmentId,
+    );
     expect(resolved).toBe(cs);
     expect(resolved!.scope).toBe(cs.scope);
     const bundledCs = bundled2026.departments.find(

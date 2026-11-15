@@ -9,6 +9,7 @@ use super::{
     search::{Found, Index},
     CampusMapBounds, CampusMapError, CampusMapLevel, CampusMapPoint, CampusMapPolygon,
 };
+use crate::locale::ContentLanguage;
 use std::collections::{HashMap, HashSet};
 
 /// A building comes into focus once it spans this share of the viewport
@@ -175,6 +176,14 @@ impl Map {
             if buildings.insert(building.id.clone(), index).is_some() {
                 return Err(invalid(format!("building {} is listed twice", building.id)));
             }
+            if building
+                .name
+                .ja
+                .as_deref()
+                .is_none_or(|ja| ja.trim().is_empty())
+            {
+                return Err(invalid(format!("building {} has no Japanese name", building.id)));
+            }
             // Every building with floors names its street floor, one of its own.
             let street_known = match &building.street_level_id {
                 None => building.levels.is_empty(),
@@ -286,7 +295,9 @@ impl Map {
             for code in &building.codes {
                 search.add_code(code, Found::Building(index));
             }
-            search.add_alias(&building.name.ja, Found::Building(index));
+            if let Some(ja) = &building.name.ja {
+                search.add_alias(ja, Found::Building(index));
+            }
             if let Some(en) = &building.name.en {
                 search.add_alias(en, Found::Building(index));
             }
@@ -363,9 +374,9 @@ impl Map {
 
     /// A building's name on the map: in Japanese without the campus name
     /// some names start with (大岡山西9号館 is 西9号館 on the campus map).
-    pub(super) fn map_label(&self, building: usize, english: bool) -> String {
+    pub(super) fn map_label(&self, building: usize, language: ContentLanguage) -> String {
         let record = &self.export.buildings[building];
-        let name = record.name.pick(english);
+        let name = record.name.pick(language).unwrap_or_default();
         CAMPUS_NAMES
             .iter()
             .find(|(campus, _)| *campus == record.campus)
@@ -375,10 +386,12 @@ impl Map {
             .to_owned()
     }
 
-    pub(super) fn name(&self, building: usize, english: bool) -> String {
+    /// Every building has a Japanese name ([`Map::new`] checks it).
+    pub(super) fn name(&self, building: usize, language: ContentLanguage) -> String {
         self.export.buildings[building]
             .name
-            .pick(english)
+            .pick(language)
+            .unwrap_or_default()
             .to_owned()
     }
 
@@ -527,8 +540,8 @@ impl Map {
     }
 
     /// A room as a target, as if a room string named it alone.
-    pub(super) fn room_target(&self, room: usize, english: bool) -> Option<Target> {
-        self.target(Place::Room { room, level: None }, english)
+    pub(super) fn room_target(&self, room: usize, language: ContentLanguage) -> Option<Target> {
+        self.target(Place::Room { room, level: None }, language)
     }
 
     /// A building's footprint box, else its centre.
@@ -604,7 +617,11 @@ impl Map {
         }
         let words = alias_key(&mention.text);
         for (index, candidate) in self.export.buildings.iter().enumerate() {
-            let named = std::iter::once(candidate.name.ja.as_str())
+            let named = candidate
+                .name
+                .ja
+                .as_deref()
+                .into_iter()
                 .chain(candidate.name.en.as_deref())
                 .map(alias_key)
                 .any(|name| name.chars().count() >= 2 && words.contains(&name));
@@ -617,7 +634,7 @@ impl Map {
     /// What a room string points at, in the string's order. A spelling the
     /// alias table knows whole wins; otherwise each mention the parser finds.
     /// A building already shown for a room gets no building-only row.
-    pub(super) fn locate(&self, raw: &str, english: bool) -> Vec<Target> {
+    pub(super) fn locate(&self, raw: &str, language: ContentLanguage) -> Vec<Target> {
         let mut places = Vec::new();
         match self.alias(raw) {
             Some(rooms) => places.extend(
@@ -648,7 +665,7 @@ impl Map {
         });
         places
             .into_iter()
-            .filter_map(|place| self.target(place, english))
+            .filter_map(|place| self.target(place, language))
             .collect()
     }
 
@@ -661,7 +678,7 @@ impl Map {
             .position(|level| level.name == name)
     }
 
-    fn target(&self, place: Place, english: bool) -> Option<Target> {
+    fn target(&self, place: Place, language: ContentLanguage) -> Option<Target> {
         let (building, label, units, hint) = match place {
             Place::Room { room, level } => {
                 let room = &self.export.rooms[room];
@@ -721,7 +738,7 @@ impl Map {
                 Match::Room
             },
             building,
-            building_name: self.name(building, english),
+            building_name: self.name(building, language),
             level,
             units: highlighted,
             focus: rect_bounds(focus),

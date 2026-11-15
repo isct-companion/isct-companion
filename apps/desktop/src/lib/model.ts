@@ -1,39 +1,9 @@
 import { EMPTY_WORKSPACE } from "../generated/persistence";
-import type {
-  Localized,
-  Quarter,
-  Settings,
-  Workspace,
-} from "../generated/persistence";
+import type { Quarter, Workspace } from "../generated/persistence";
 
 export type * from "../generated/persistence";
 
-export type Lang = "ja" | "en";
 export type TermId = `${number}-${Quarter}`;
-
-/** Language for school text; independent of the UI language unless left on auto. */
-export function contentLanguage(
-  settings: Pick<Settings, "locale" | "contentLanguage">,
-): Lang {
-  const chosen = settings.contentLanguage;
-  if (chosen === "ja" || chosen === "en") return chosen;
-  return settings.locale === "en" ? "en" : "ja";
-}
-
-/** Pick stored school text without synthesizing a translation. */
-export function pickLocalized(
-  value: Localized | undefined,
-  locale: Settings["locale"] | string,
-  fallback = "",
-): string {
-  const order: Lang[] =
-    locale === "ja" || locale === "zh" ? ["ja", "en"] : ["en", "ja"];
-  for (const lang of order) {
-    const candidate = value?.[lang]?.trim();
-    if (candidate) return candidate;
-  }
-  return fallback;
-}
 
 function newDeviceId() {
   return (

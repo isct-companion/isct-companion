@@ -5,6 +5,7 @@
 //! What is selected (the card) and what floor is shown are kept apart: the
 //! camera, a floor picked or the card folded change the floor at most, never
 //! the selection. Only another selection, or closing the card, replaces it.
+use crate::locale::ContentLanguage;
 use super::{
     export::{LineTone, UnitCategory},
     geometry::{self, Viewport},
@@ -24,7 +25,7 @@ const HOME_CAMPUS: &str = "ookayama";
 /// What a page reads from the settings when it opens.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Preferences {
-    pub(super) english: bool,
+    pub(super) language: ContentLanguage,
     pub(super) maps: MapsApp,
 }
 
@@ -81,7 +82,7 @@ impl Page {
     /// A page on a room string, its first target chosen; on none, or one
     /// the map knows nothing of, nothing selected over the main campus.
     pub(super) fn open(map: Arc<Map>, preferences: Preferences, room: Option<&str>) -> Self {
-        let targets = room.map_or_else(Vec::new, |room| map.locate(room, preferences.english));
+        let targets = room.map_or_else(Vec::new, |room| map.locate(room, preferences.language));
         let mut page = Self {
             map,
             preferences,
@@ -216,7 +217,7 @@ impl Page {
                 let Some(target) = map
                     .rooms
                     .get(id)
-                    .and_then(|room| map.room_target(*room, self.preferences.english))
+                    .and_then(|room| map.room_target(*room, self.preferences.language))
                 else {
                     return;
                 };
@@ -550,7 +551,7 @@ impl Page {
                     point: point(record.center),
                     kind: CampusMapMarkKind::Building {
                         building_id: record.id.clone(),
-                        label: map.map_label(building, self.preferences.english),
+                        label: map.map_label(building, self.preferences.language),
                     },
                 }
             });
@@ -608,7 +609,8 @@ impl Page {
                         name: entrance
                             .name
                             .as_ref()
-                            .map(|name| name.pick(self.preferences.english).to_owned()),
+                            .and_then(|name| name.pick(self.preferences.language))
+                            .map(str::to_owned),
                         selected: self.selection
                             == Selection::Entrance {
                                 building,
@@ -638,14 +640,15 @@ impl Page {
     fn card(&self) -> Option<CampusMapCard> {
         let building = self.selected_building()?;
         let map = &self.map;
-        let english = self.preferences.english;
+        let language = self.preferences.language;
         let record = &map.export.buildings[building];
-        let place = map.name(building, english);
+        let place = map.name(building, language);
         let entrance_name = |index: usize| {
             record.entrances[index]
                 .name
                 .as_ref()
-                .map(|name| name.pick(english).to_owned())
+                .and_then(|name| name.pick(language))
+                .map(str::to_owned)
         };
         let (title, building_name, level_name) = match &self.selection {
             Selection::None => return None,
@@ -733,13 +736,13 @@ impl Page {
 
 /// A search box's answers: each place's title, building, campus and floor,
 /// and whether the plans show it.
-pub(super) fn search(map: &Map, english: bool, query: &str) -> Vec<CampusMapSearchResult> {
+pub(super) fn search(map: &Map, language: ContentLanguage, query: &str) -> Vec<CampusMapSearchResult> {
     map.search(query)
         .into_iter()
         .map(|found| match found {
             Found::Building(building) => {
                 let record = &map.export.buildings[building];
-                let name = map.name(building, english);
+                let name = map.name(building, language);
                 CampusMapSearchResult {
                     place: CampusMapPlace::Building {
                         id: record.id.clone(),
@@ -761,7 +764,7 @@ pub(super) fn search(map: &Map, english: bool, query: &str) -> Vec<CampusMapSear
                     },
                     title: record.code.clone(),
                     building_name: building
-                        .map(|index| map.name(index, english))
+                        .map(|index| map.name(index, language))
                         .unwrap_or_default(),
                     campus: building
                         .map(|index| map.export.buildings[index].campus.clone())

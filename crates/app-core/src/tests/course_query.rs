@@ -245,15 +245,33 @@ fn partial_offerings_have_stable_finder_defaults() {
 fn matches_original_typescript_finder_traces() {
     let fixture: Value =
         serde_json::from_str(include_str!("../course_query/fixtures.json")).unwrap();
-    let ctx: FinderContext = serde_json::from_value(fixture["context"].clone()).unwrap();
+    let mut context = fixture["context"].clone();
+    let departments: Vec<SyllabusDepartment> =
+        serde_json::from_value(context["departments"].take()).unwrap();
+    let mut ctx: FinderContext = serde_json::from_value(context).unwrap();
+    ctx.departments = departments
+        .into_iter()
+        .map(|department| department.shown(crate::locale::ContentLanguage::En))
+        .collect();
     let indexed: Vec<_> = fixture["courses"]
         .as_array()
         .unwrap()
         .iter()
         .cloned()
-        .map(IndexedCourse::new)
+        .map(|course| IndexedCourse::new(course, crate::locale::ContentLanguage::En))
         .collect();
     let courses: Vec<_> = indexed.iter().collect();
+    // Rows read in the content language; the traces predate that and name
+    // each row's course by its id here.
+    let by_id = |rows: Value| {
+        let mut rows = rows;
+        for row in rows.as_array_mut().into_iter().flatten() {
+            if row["course"].is_object() {
+                row["course"] = row["course"]["id"].clone();
+            }
+        }
+        rows
+    };
     // The traces predate row views: a course suggestion was the course itself.
     let row = |c: &IndexedCourse| FinderRowView {
         course: c.course.clone(),
@@ -300,7 +318,11 @@ fn matches_original_typescript_finder_traces() {
             "live" => json!(live_text(text(input, "input"), &ctx)),
             other => panic!("unknown trace {other}"),
         };
-        assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
+        let (actual, expected) = match text(case, "kind") {
+            "run" | "suggest" => (by_id(actual), by_id(case["expected"].clone())),
+            _ => (actual, case["expected"].clone()),
+        };
+        assert_eq!(actual, expected, "case {index}: {}", case["input"]);
     }
 }
 
@@ -322,13 +344,19 @@ fn teacher_room_and_overlap_filters_run_on_the_stored_catalog() {
         course("wrong-time", "Tanaka", "W9-324", [5, 6]),
         course("wrong-teacher", "Suzuki", "W9-324", [3, 4]),
     ];
-    let courses = courses.map(IndexedCourse::new);
+    let courses =
+        courses.map(|course| IndexedCourse::new(course, crate::locale::ContentLanguage::En));
     let rows = run(&courses.iter().collect::<Vec<_>>(), &factors, &context, "");
     let rows: Vec<_> = rows.iter().map(|m| &m.course.course).collect();
     assert_eq!(
         rows.iter().map(|row| text(row, "id")).collect::<Vec<_>>(),
         vec!["match"]
     );
+    // The filters matched either language; the row the shell shows reads in
+    // the content language, the Japanese-only title and room included.
+    assert_eq!(rows[0]["title"], "match");
+    assert_eq!(rows[0]["instructors"], json!(["TANAKA"]));
+    assert_eq!(rows[0]["schedule"][0]["room"], "W9-324");
 }
 
 #[test]

@@ -1101,6 +1101,11 @@ export type CourseDetail = {
    * Where the course's downloaded files live, for opening its materials.
    */
   files: CourseKey | null;
+  /**
+   * The content language, which LMS text published in both languages is
+   * filtered to when the person asks for one language.
+   */
+  contentLanguage: "ja" | "en";
 };
 
 export type AssignmentDetail = {
@@ -1761,8 +1766,8 @@ export type FinderCourse = {
   code: string;
   year: number;
   quarters: Array<Quarter>;
-  title: Localized;
-  instructors: Array<Localized>;
+  title: string;
+  instructors: Array<string>;
   credits: CreditSplit;
   instructionLanguage: string;
   format: ClassFormat;
@@ -1775,7 +1780,7 @@ export type FinderSchedule = {
   kind: string;
   day?: number;
   periods?: [number, number];
-  room?: Localized;
+  room?: string;
 };
 
 export type FinderRowView = {
@@ -1828,7 +1833,10 @@ export type Recommendation = { group: string; mark?: string | null };
 
 export type FinderDepartment = {
   id: string;
-  name: { [key in string]: string };
+  /**
+   * Its name in the content language.
+   */
+  name: string;
   unitCode: string;
   codePrefix: string;
   scope: string | null;
