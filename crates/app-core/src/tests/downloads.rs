@@ -24,9 +24,10 @@ impl crate::ports::SecretVault for NoVault {
 /// A downloader over `transport` whose site sessions are already ready.
 fn downloader(transport: Arc<FakeTransport>) -> Downloader {
     let downloader = Downloader::with_transport(transport);
-    downloader.attach_sessions(SchoolSessions::ready(None, Arc::new(
-        crate::school_auth::SchoolAuthService::new(NoVault),
-    )));
+    downloader.attach_sessions(SchoolSessions::ready(
+        None,
+        Arc::new(crate::school_auth::SchoolAuthService::new(NoVault)),
+    ));
     downloader
 }
 

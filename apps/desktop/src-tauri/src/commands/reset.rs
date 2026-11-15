@@ -4,8 +4,8 @@
 use crate::{cloud_sync, core_ports, require_local_main};
 use crate::{coded, CommandError};
 use app_core::{
-    reset::ResetDevice,
     plan::{ResetReport, ResetScope},
+    reset::ResetDevice,
 };
 use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Manager};
