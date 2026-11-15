@@ -104,6 +104,13 @@ struct SettingsScreen: View {
                             SettingsIcon(symbol: "lightbulb", tint: Theme.muted)
                         }
                     }
+                    if let feedback = URL(string: feedbackFormUrl(version: Self.version, device: Self.device)) {
+                        Link(destination: feedback) {
+                            Label { Text(t("about.feedback")) } icon: {
+                                SettingsIcon(symbol: "bubble.left.and.text.bubble.right", tint: Theme.muted)
+                            }
+                        }
+                    }
                     if let policy = URL(string: "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md") {
                         Link(destination: policy) {
                             Label { Text(t("settings.main.privacyPolicy")) } icon: {
@@ -199,11 +206,16 @@ struct SettingsScreen: View {
         Date().formatted(.iso8601.year().month().day())
     }
 
-    /// Core formats and redacts the log; the shell only names its build.
-    /// `systemName` tells iOS from iPadOS, which share this binary.
-    private static func logText() throws -> String {
+    /// The system this build runs on, as the log and the feedback form name
+    /// it. `systemName` tells iOS from iPadOS, which share this binary.
+    private static var device: String {
         let device = UIDevice.current
-        return try exportApplicationLogs(about: "IsctCompanion \(version) · \(device.systemName) \(device.systemVersion) · \(device.model)")
+        return "\(device.systemName) \(device.systemVersion) · \(device.model)"
+    }
+
+    /// Core formats and redacts the log; the shell only names its build.
+    private static func logText() throws -> String {
+        try exportApplicationLogs(about: "IsctCompanion \(version) · \(device)")
     }
 
     private func saveLogs() {

@@ -290,6 +290,7 @@ pub fn run() {
             commands::platform::runtime_capabilities,
             commands::platform::application_logs,
             commands::platform::export_application_logs,
+            commands::platform::open_feedback_form,
             commands::platform::copy_application_logs,
             commands::platform::application_error,
             lms_files::course_storage_info,

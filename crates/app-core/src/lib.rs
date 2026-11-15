@@ -34,6 +34,7 @@ pub mod diagnostics;
 pub mod downloads;
 pub mod error_code;
 pub mod events;
+pub mod feedback;
 pub mod html_text;
 pub mod kyomu_guide;
 pub mod kyomu_ingest;
