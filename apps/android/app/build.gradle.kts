@@ -148,6 +148,10 @@ dependencies {
     implementation("com.google.ai.edge.litert:litert:2.3.2") {
         exclude(group = "com.google.ai.edge.litert", module = "litert-api")
     }
+    // The campus map's drawing surface (features/map): MapLibre over
+    // OpenFreeMap's tiles, which need no key and no Google Play services.
+    // 11.x is the API the map view is written against.
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
     // Google Drive: the authorization API hands Core drive.appdata tokens.
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")

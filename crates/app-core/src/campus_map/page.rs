@@ -1,25 +1,44 @@
 //! One open map page: what the person chose and tapped, which building and
 //! floor the camera shows, and the scene drawn from them. Shells keep none of
 //! it; they forward intents and draw each scene by role.
+//!
+//! What is selected (the card) and what floor is shown are kept apart: the
+//! camera, a floor picked or the card folded change the floor at most, never
+//! the selection. Only another selection, or closing the card, replaces it.
 use super::{
     export::{LineTone, UnitCategory},
-    geometry,
-    map::{maps_url, point, polygon, rect_bounds, Map, Match, Target},
+    geometry::{self, Viewport},
+    map::{maps_url, point, polygon, rect_bounds, Map, MapsApp, Match, Target, TAP_SLOP_POINTS},
+    search::Found,
     CampusMapCamera, CampusMapCandidate, CampusMapCard, CampusMapFraming, CampusMapIntent,
     CampusMapLayer, CampusMapLayerRole, CampusMapLink, CampusMapMark, CampusMapMarkKind,
-    CampusMapPoint, CampusMapScene,
+    CampusMapPlace, CampusMapPoint, CampusMapScene, CampusMapSearchResult,
 };
 use std::sync::Arc;
 
 /// However far in, a framed room keeps some of its surroundings in view.
 const LEAST_FRAMED_SIDE_M: f64 = 60.0;
+/// A page opened on no room string starts over this campus.
+const HOME_CAMPUS: &str = "ookayama";
 
-/// What the card describes. A tapped room or entrance keeps the building
-/// (and floor) it was tapped on, wherever the camera goes after.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// What a page reads from the settings when it opens.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Preferences {
+    pub(super) english: bool,
+    pub(super) maps: MapsApp,
+}
+
+/// What the card describes. Each keeps the building (and floor) it was
+/// picked on, wherever the camera goes after.
+#[derive(Clone, Debug, PartialEq)]
 enum Selection {
-    /// The room string's chosen target.
-    Target,
+    None,
+    /// One of the room string's targets, by index.
+    Target(usize),
+    /// A room picked by search.
+    Room(Target),
+    /// A building tapped or picked by search.
+    Building(usize),
     /// A unit tapped on the floor shown then.
     Unit {
         unit: usize,
@@ -27,71 +46,109 @@ enum Selection {
         level: usize,
     },
     /// An entrance tapped on the map.
-    Entrance { building: usize, entrance: usize },
+    Entrance {
+        building: usize,
+        entrance: usize,
+    },
 }
 
 /// Everything a scene is drawn from: an unchanged one draws the same scene.
 #[derive(Clone, Debug, PartialEq)]
 struct Shown {
-    chosen: usize,
     floor: Option<(usize, usize)>,
     selection: Selection,
-    highlighted: Vec<usize>,
     framing: u64,
 }
 
 pub(super) struct Page {
     map: Arc<Map>,
-    english: bool,
+    preferences: Preferences,
     targets: Vec<Target>,
-    chosen: usize,
     /// The building whose floor is shown, and that floor.
     floor: Option<(usize, usize)>,
     selection: Selection,
-    /// Units drawn highlighted, on whichever floor they are.
-    highlighted: Vec<usize>,
+    /// The last room selected, from the room string or a search: it stays
+    /// lit while the person looks at another building or entrance, so the
+    /// way back to it shows it still. Another room, a unit or closing the
+    /// card replaces it.
+    room: Option<Target>,
     framing: Option<CampusMapFraming>,
     revision: u64,
     shown: Option<Shown>,
 }
 
 impl Page {
-    /// A page on a room string, its first target chosen.
-    pub(super) fn open(map: Arc<Map>, english: bool, room: &str) -> Self {
-        let targets = map.locate(room, english);
+    /// A page on a room string, its first target chosen; on none, or one
+    /// the map knows nothing of, nothing selected over the main campus.
+    pub(super) fn open(map: Arc<Map>, preferences: Preferences, room: Option<&str>) -> Self {
+        let targets = room.map_or_else(Vec::new, |room| map.locate(room, preferences.english));
         let mut page = Self {
             map,
-            english,
+            preferences,
             targets,
-            chosen: 0,
             floor: None,
-            selection: Selection::Target,
-            highlighted: Vec::new(),
+            selection: Selection::None,
+            room: None,
             framing: None,
             revision: 0,
             shown: None,
         };
-        page.choose(0);
+        if page.targets.is_empty() {
+            if let Some(campus) = page.map.campus_bounds(HOME_CAMPUS) {
+                page.frame(campus, None);
+            }
+        } else {
+            page.choose(0);
+            page.keep_room();
+        }
         page
     }
 
     pub(super) fn apply(&mut self, intent: CampusMapIntent) {
         match intent {
             CampusMapIntent::Choose { index } => self.choose(index as usize),
-            CampusMapIntent::Camera { camera, framing } => self.camera(&camera, framing),
+            CampusMapIntent::Camera { camera } => self.camera(&camera),
             CampusMapIntent::Level { id } => self.pick_level(&id),
-            CampusMapIntent::Tap { point, level_id } => self.tap(point, level_id.as_deref()),
-            CampusMapIntent::Entrance { id } => self.tap_entrance(&id),
+            CampusMapIntent::Tap {
+                point,
+                level_id,
+                metres_per_point,
+            } => self.tap(point, level_id.as_deref(), metres_per_point),
+            CampusMapIntent::Select { place } => self.select(&place),
+            CampusMapIntent::Clear => self.selection = Selection::None,
         }
+        self.keep_room();
+    }
+
+    /// Remembers the room selected; a building or an entrance picked since
+    /// keeps the one before.
+    fn keep_room(&mut self) {
+        match &self.selection {
+            Selection::Target(_) | Selection::Room(_) => {
+                self.room = self
+                    .selected_target()
+                    .filter(|target| target.matched == Match::Room)
+                    .cloned();
+            }
+            Selection::None | Selection::Unit { .. } => self.room = None,
+            Selection::Building(_) | Selection::Entrance { .. } => {}
+        }
+    }
+
+    /// The room lit: the one selected, else the one kept from before.
+    fn kept_room(&self) -> Option<&Target> {
+        match &self.selection {
+            Selection::Target(_) | Selection::Room(_) => self.selected_target(),
+            _ => self.room.as_ref(),
+        }
+        .filter(|target| target.matched == Match::Room)
     }
 
     /// The scene, when anything drawn changed since the last one.
     pub(super) fn scene(&mut self, page: u64) -> Option<CampusMapScene> {
         let shown = Shown {
-            chosen: self.chosen,
             floor: self.floor,
-            selection: self.selection,
-            highlighted: self.highlighted.clone(),
+            selection: self.selection.clone(),
             framing: self.framing.as_ref().map_or(0, |framing| framing.key),
         };
         if self.shown.as_ref() == Some(&shown) {
@@ -104,57 +161,105 @@ impl Page {
 
     // MARK: Intents
 
-    fn target(&self) -> Option<&Target> {
-        self.targets.get(self.chosen)
-    }
-
-    fn target_building(&self) -> Option<usize> {
-        self.target().map(|target| target.building)
-    }
-
-    /// Opens on a target: its building and the floor it opens on, framed on
-    /// the room. The camera move that follows is the app's, so it re-picks
-    /// nothing.
-    fn choose(&mut self, index: usize) {
-        let Some(target) = self.targets.get(index) else {
-            return;
-        };
-        self.chosen = index;
-        self.floor = target.level.map(|level| (target.building, level));
-        let bounds = geometry::at_least(
-            [
-                target.focus.west,
-                target.focus.south,
-                target.focus.east,
-                target.focus.north,
-            ],
-            LEAST_FRAMED_SIDE_M,
-        );
+    /// Asks the shell to bring `rect` into view and shows `floor` at once
+    /// (`None` shows none): the shell never reports the move back.
+    fn frame(&mut self, rect: geometry::Rect, floor: Option<(usize, usize)>) {
         let key = self.framing.as_ref().map_or(0, |framing| framing.key) + 1;
         self.framing = Some(CampusMapFraming {
             key,
-            bounds: rect_bounds(bounds),
+            bounds: rect_bounds(geometry::at_least(rect, LEAST_FRAMED_SIDE_M)),
         });
-        self.show_target();
+        self.floor = floor;
     }
 
-    /// The card back on the chosen target, its rooms highlighted; the camera
-    /// stays where it is.
-    fn show_target(&mut self) {
-        self.selection = Selection::Target;
-        self.highlighted = self
-            .target()
-            .map_or_else(Vec::new, |target| target.units.clone());
+    fn frame_target(&mut self, target: &Target) {
+        let focus = [
+            target.focus.west,
+            target.focus.south,
+            target.focus.east,
+            target.focus.north,
+        ];
+        self.frame(focus, target.level.map(|level| (target.building, level)));
     }
 
-    /// A camera report from before the latest framing (the shell had not
-    /// moved the camera yet) changes nothing: it would pull the floor back
-    /// to where the camera was.
-    fn camera(&mut self, camera: &CampusMapCamera, framing: u64) {
-        if framing < self.framing.as_ref().map_or(0, |latest| latest.key) {
+    /// Selects a target of the room string and frames its room.
+    fn choose(&mut self, index: usize) {
+        let Some(target) = self.targets.get(index).cloned() else {
             return;
+        };
+        self.selection = Selection::Target(index);
+        self.frame_target(&target);
+    }
+
+    /// Every explicit building pick frames its bounds once, including a tap
+    /// on the building already in focus.
+    fn pick_building(&mut self, building: usize) {
+        self.selection = Selection::Building(building);
+        // Back at the kept room's building, its floor.
+        let floor = self
+            .room_floor(building)
+            .or_else(|| self.map.arrival_level(self.floor, building))
+            .map(|level| (building, level));
+        self.frame(self.map.building_bounds(building), floor);
+    }
+
+    /// One way in for every pick: a search result, a mark, a building.
+    fn select(&mut self, place: &CampusMapPlace) {
+        let map = self.map.clone();
+        match place {
+            CampusMapPlace::Building { id } => {
+                if let Some(building) = map.buildings.get(id).copied() {
+                    self.pick_building(building);
+                }
+            }
+            CampusMapPlace::Room { id } => {
+                let Some(target) = map
+                    .rooms
+                    .get(id)
+                    .and_then(|room| map.room_target(*room, self.preferences.english))
+                else {
+                    return;
+                };
+                self.frame_target(&target);
+                self.selection = Selection::Room(target);
+            }
+            CampusMapPlace::Unit { id } => {
+                // A unit mark is drawn only on the floor shown; one from a
+                // floor since left changes nothing.
+                let Some(unit) = map.units.get(id).copied() else {
+                    return;
+                };
+                let floor = map.levels.get(&map.export.units[unit].level_id).copied();
+                if floor.is_some() && floor == self.floor {
+                    if let Some((building, level)) = floor {
+                        self.selection = Selection::Unit {
+                            unit,
+                            building,
+                            level,
+                        };
+                    }
+                }
+            }
+            CampusMapPlace::Entrance { id } => {
+                if let Some((building, entrance)) = map.entrances.get(id).copied() {
+                    self.selection = Selection::Entrance { building, entrance };
+                }
+            }
         }
-        self.floor = self.map.focus(camera, self.floor);
+    }
+
+    /// The person moved the camera: the building and floor follow the
+    /// focus rule over what they now see.
+    fn camera(&mut self, camera: &CampusMapCamera) {
+        let corner = |at: &CampusMapPoint| [at.longitude, at.latitude];
+        if let Some(view) = Viewport::new([
+            corner(&camera.top_left),
+            corner(&camera.top_right),
+            corner(&camera.bottom_right),
+            corner(&camera.bottom_left),
+        ]) {
+            self.floor = self.map.focus(&view, self.floor);
+        }
     }
 
     /// A floor of the building shown; a stale pick of another building's
@@ -168,92 +273,96 @@ impl Page {
         }
     }
 
-    /// A tap on a named unit of the floor shown selects it, with that floor
-    /// and its building; its highlight stays while the camera is elsewhere.
-    /// A tap that hits nothing, or with no floor shown, goes back to the
-    /// target. `level_id` is the floor the shell drew under the finger: a
-    /// tap on a floor the page has since left changes nothing.
-    fn tap(&mut self, at: CampusMapPoint, level_id: Option<&str>) {
+    /// A tap on a named unit of the floor shown selects it. Elsewhere, a
+    /// tap on a building's footprint (or within [`TAP_SLOP_POINTS`] of one,
+    /// in metres at the map's scale there) selects the building. A tap on
+    /// nothing changes nothing. `level_id` is the floor the shell drew under
+    /// the finger: a tap on a floor the page has since left changes nothing.
+    fn tap(&mut self, at: CampusMapPoint, level_id: Option<&str>, metres_per_point: f64) {
         let tapped = level_id.and_then(|id| self.map.levels.get(id).copied());
         if tapped != self.floor {
             return;
         }
-        let hit = self.floor.and_then(|(building, level)| {
-            let unit = self.map.unit_at(building, level, at)?;
-            Some((unit, building, level))
-        });
-        let Some((unit, building, level)) = hit else {
-            self.show_target();
-            return;
-        };
-        self.highlighted = vec![unit];
-        self.selection = Selection::Unit {
-            unit,
-            building,
-            level,
-        };
+        if let Some((building, level)) = self.floor {
+            if let Some(unit) = self.map.unit_at(building, level, at) {
+                let id = self.map.export.units[unit].id.clone();
+                self.select(&CampusMapPlace::Unit { id });
+                return;
+            }
+        }
+        let slop = TAP_SLOP_POINTS * metres_per_point;
+        if let Some(building) = self.map.building_tapped([at.longitude, at.latitude], slop) {
+            let id = self.map.export.buildings[building].id.clone();
+            self.select(&CampusMapPlace::Building { id });
+        }
     }
 
-    /// An entrance of the building whose entrances are drawn.
-    fn tap_entrance(&mut self, id: &str) {
-        let Some(building) = self.entrance_building() else {
-            return;
-        };
-        let shown = self
-            .floor
-            .map(|(shown, level)| self.map.export.buildings[shown].levels[level].id.as_str());
-        // Drawn: on the floor shown, or every one without a floor.
-        let found = self.map.export.buildings[building]
-            .entrances
-            .iter()
-            .position(|entrance| {
-                entrance.id == id && (shown.is_none() || entrance.level_id.as_deref() == shown)
-            });
-        if let Some(entrance) = found {
-            self.selection = Selection::Entrance { building, entrance };
+    /// The floor of `building` the selected room is on, if the selection is
+    /// a room there.
+    fn room_floor(&self, building: usize) -> Option<usize> {
+        match &self.selection {
+            Selection::Unit {
+                building: owner,
+                level,
+                ..
+            } if *owner == building => Some(*level),
+            _ => self
+                .kept_room()
+                .filter(|target| target.building == building)
+                .and_then(|target| target.level),
         }
     }
 
     // MARK: Scene
 
-    /// The building whose entrances are drawn: the one in focus, or the
-    /// target's when it has no floor plans to focus on.
-    fn entrance_building(&self) -> Option<usize> {
-        self.floor.map(|(building, _)| building).or_else(|| {
-            self.target()
-                .filter(|target| target.level.is_none())
-                .map(|target| target.building)
-        })
+    /// The room string's target or the searched room the card shows.
+    fn selected_target(&self) -> Option<&Target> {
+        match &self.selection {
+            Selection::Target(index) => self.targets.get(*index),
+            Selection::Room(target) => Some(target),
+            _ => None,
+        }
     }
 
-    /// The building the card describes: the target's, or the one a room or
-    /// entrance was tapped on.
+    /// The building the card describes, never the camera's.
     fn selected_building(&self) -> Option<usize> {
-        match self.selection {
-            Selection::Target => self.target_building(),
-            Selection::Unit { building, .. } | Selection::Entrance { building, .. } => {
-                Some(building)
+        match &self.selection {
+            Selection::None => None,
+            Selection::Target(_) | Selection::Room(_) => {
+                self.selected_target().map(|target| target.building)
             }
+            Selection::Building(building)
+            | Selection::Unit { building, .. }
+            | Selection::Entrance { building, .. } => Some(*building),
         }
+    }
+
+    /// Units drawn highlighted, on whichever floor they are.
+    fn highlighted(&self) -> Vec<usize> {
+        match &self.selection {
+            Selection::Unit { unit, .. } => vec![*unit],
+            Selection::Target(_) | Selection::Room(_) => self
+                .selected_target()
+                .map_or_else(Vec::new, |target| target.units.clone()),
+            _ => self
+                .kept_room()
+                .map_or_else(Vec::new, |target| target.units.clone()),
+        }
+    }
+
+    /// The building whose entrances are drawn: the one in focus, else the
+    /// selection's.
+    fn entrance_building(&self) -> Option<usize> {
+        self.floor
+            .map(|(building, _)| building)
+            .or_else(|| self.selected_building())
     }
 
     /// The floor the selected room is on, while the picker lists its
     /// building.
     fn marked_level(&self) -> Option<usize> {
         let (shown, _) = self.floor?;
-        match self.selection {
-            Selection::Target => {
-                let target = self.target()?;
-                if target.matched != Match::Room || target.building != shown {
-                    return None;
-                }
-                target.level
-            }
-            Selection::Unit {
-                building, level, ..
-            } => (building == shown).then_some(level),
-            Selection::Entrance { .. } => None,
-        }
+        self.room_floor(shown)
     }
 
     pub(super) fn render(&self, page: u64) -> CampusMapScene {
@@ -295,15 +404,12 @@ impl Page {
         }
     }
 
-    /// Every footprint; the building in focus, else the target's, stands out.
+    /// Every footprint; the building in focus, else the selection's,
+    /// stands out.
     fn footprints(&self) -> Vec<CampusMapLayer> {
-        let emphasized = self
-            .floor
-            .map(|(building, _)| building)
-            .or_else(|| self.target_building());
-        let focus_id = emphasized.map_or("none", |index| {
-            self.map.export.buildings[index].id.as_str()
-        });
+        let emphasized = self.entrance_building();
+        let focus_id =
+            emphasized.map_or("none", |index| self.map.export.buildings[index].id.as_str());
         let mut plain = Self::layer(
             format!("footprints/{focus_id}"),
             CampusMapLayerRole::Footprint,
@@ -335,6 +441,7 @@ impl Page {
             return Vec::new();
         };
         let map = &self.map;
+        let lit = self.highlighted();
         let level = &map.export.buildings[building].levels[level];
         let on_level = |index: &std::collections::HashMap<String, Vec<usize>>| {
             index.get(&level.id).cloned().unwrap_or_default()
@@ -347,15 +454,14 @@ impl Page {
         outline.polygons = level.outline.iter().map(polygon).collect();
         let highlighted_id = units
             .iter()
-            .filter(|unit| self.highlighted.contains(unit))
+            .filter(|unit| lit.contains(unit))
             .map(usize::to_string)
             .collect::<Vec<_>>()
             .join(",");
         let hidden_classrooms_id = units
             .iter()
             .filter(|unit| {
-                self.highlighted.contains(unit)
-                    && map.export.units[**unit].category == UnitCategory::Classroom
+                lit.contains(unit) && map.export.units[**unit].category == UnitCategory::Classroom
             })
             .map(usize::to_string)
             .collect::<Vec<_>>()
@@ -370,7 +476,7 @@ impl Page {
         );
         for unit in &units {
             let shape = polygon(&map.export.units[*unit].polygon);
-            if self.highlighted.contains(unit) {
+            if lit.contains(unit) {
                 highlight.polygons.push(shape);
             } else if map.export.units[*unit].category == UnitCategory::Classroom {
                 classrooms.polygons.push(shape);
@@ -390,8 +496,7 @@ impl Page {
                 }
                 let width = source.width_m;
                 let existing = line_layers.iter().position(|layer| {
-                    layer.role == role
-                        && layer.width_m.to_bits() == width.to_bits()
+                    layer.role == role && layer.width_m.to_bits() == width.to_bits()
                 });
                 let layer = match existing {
                     Some(index) => &mut line_layers[index],
@@ -430,13 +535,29 @@ impl Page {
             .collect()
     }
 
-    /// Room labels and amenities on the floor shown, then the entrances: on
-    /// the floor shown, or all of them for a building without plans.
+    /// Building names under everything, then room labels and amenities on
+    /// the floor shown, then the entrances: on the floor shown, or all of
+    /// them for a building without plans.
     fn marks(&self) -> Vec<CampusMapMark> {
         let map = &self.map;
+        let named_elsewhere = [self.selected_building(), self.floor.map(|(building, _)| building)];
+        let buildings = (0..map.export.buildings.len())
+            .filter(|building| !named_elsewhere.contains(&Some(*building)))
+            .map(|building| {
+                let record = &map.export.buildings[building];
+                CampusMapMark {
+                    id: format!("building/{}", record.id),
+                    point: point(record.center),
+                    kind: CampusMapMarkKind::Building {
+                        building_id: record.id.clone(),
+                        label: map.map_label(building, self.preferences.english),
+                    },
+                }
+            });
         let mut plain = Vec::new();
         let mut amenities = Vec::new();
         let mut highlighted = Vec::new();
+        let selected = self.highlighted();
         let level_id = self
             .floor
             .map(|(building, level)| map.export.buildings[building].levels[level].id.as_str());
@@ -446,11 +567,12 @@ impl Page {
                 let Some(label) = &unit.label else {
                     continue;
                 };
-                let lit = self.highlighted.contains(index);
+                let lit = selected.contains(index);
                 let mark = CampusMapMark {
                     id: format!("unit/{}", unit.id),
                     point: point(unit.center),
                     kind: CampusMapMarkKind::Room {
+                        unit_id: unit.id.clone(),
                         label: label.clone(),
                         highlighted: lit,
                     },
@@ -486,7 +608,7 @@ impl Page {
                         name: entrance
                             .name
                             .as_ref()
-                            .map(|name| name.pick(self.english).to_owned()),
+                            .map(|name| name.pick(self.preferences.english).to_owned()),
                         selected: self.selection
                             == Selection::Entrance {
                                 building,
@@ -496,8 +618,8 @@ impl Page {
                 });
             }
         }
-        plain
-            .into_iter()
+        buildings
+            .chain(plain)
             .chain(amenities)
             .chain(highlighted)
             .chain(entrances)
@@ -514,37 +636,42 @@ impl Page {
     }
 
     fn card(&self) -> Option<CampusMapCard> {
-        let target = self.target()?;
         let building = self.selected_building()?;
         let map = &self.map;
+        let english = self.preferences.english;
         let record = &map.export.buildings[building];
-        let place = map.name(building, self.english);
+        let place = map.name(building, english);
         let entrance_name = |index: usize| {
             record.entrances[index]
                 .name
                 .as_ref()
-                .map(|name| name.pick(self.english).to_owned())
+                .map(|name| name.pick(english).to_owned())
         };
-        let (title, building_name, level_name) = match self.selection {
-            Selection::Target => (
-                Some(target.label.clone()),
-                target.building_name.clone(),
-                target.level.map(|level| record.levels[level].name.clone()),
-            ),
+        let (title, building_name, level_name) = match &self.selection {
+            Selection::None => return None,
+            Selection::Target(_) | Selection::Room(_) => {
+                let target = self.selected_target()?;
+                (
+                    Some(target.label.clone()),
+                    target.building_name.clone(),
+                    target.level.map(|level| record.levels[level].name.clone()),
+                )
+            }
+            Selection::Building(_) => (Some(place.clone()), place.clone(), None),
             Selection::Unit { unit, level, .. } => (
                 Some(
-                    map.export.units[unit]
+                    map.export.units[*unit]
                         .label
                         .clone()
                         .unwrap_or_else(|| place.clone()),
                 ),
                 place.clone(),
-                Some(record.levels[level].name.clone()),
+                Some(record.levels[*level].name.clone()),
             ),
             Selection::Entrance { entrance, .. } => (
-                entrance_name(entrance),
+                entrance_name(*entrance),
                 place.clone(),
-                self.level_name(building, record.entrances[entrance].level_id.as_deref()),
+                self.level_name(building, record.entrances[*entrance].level_id.as_deref()),
             ),
         };
         let tapped = match self.selection {
@@ -553,6 +680,7 @@ impl Page {
         };
         let mut order: Vec<usize> = (0..record.entrances.len()).collect();
         order.sort_by_key(|index| Some(*index) != tapped);
+        let maps = self.preferences.maps;
         let mut links: Vec<CampusMapLink> = order
             .into_iter()
             .map(|index| {
@@ -563,7 +691,7 @@ impl Page {
                 };
                 CampusMapLink {
                     entrance: true,
-                    url: maps_url(record.entrances[index].point, &label),
+                    url: maps_url(maps, record.entrances[index].point, &label),
                     name,
                 }
             })
@@ -572,7 +700,7 @@ impl Page {
             links.push(CampusMapLink {
                 entrance: false,
                 name: None,
-                url: maps_url(record.center, &place),
+                url: maps_url(maps, record.center, &place),
             });
         }
         let candidates = if self.targets.len() > 1 {
@@ -582,7 +710,7 @@ impl Page {
                 .map(|(index, candidate)| CampusMapCandidate {
                     label: candidate.label.clone(),
                     building_name: candidate.building_name.clone(),
-                    chosen: index == self.chosen,
+                    chosen: self.selection == Selection::Target(index),
                 })
                 .collect()
         } else {
@@ -591,10 +719,63 @@ impl Page {
         Some(CampusMapCard {
             title,
             building_name,
+            campus: record.campus.clone(),
             level_name,
-            building_only: self.selection == Selection::Target && target.matched == Match::Building,
+            building_only: self
+                .selected_target()
+                .is_some_and(|target| target.matched == Match::Building),
+            no_floor_plans: record.levels.is_empty(),
             links,
             candidates,
         })
     }
 }
+
+/// A search box's answers: each place's title, building, campus and floor,
+/// and whether the plans show it.
+pub(super) fn search(map: &Map, english: bool, query: &str) -> Vec<CampusMapSearchResult> {
+    map.search(query)
+        .into_iter()
+        .map(|found| match found {
+            Found::Building(building) => {
+                let record = &map.export.buildings[building];
+                let name = map.name(building, english);
+                CampusMapSearchResult {
+                    place: CampusMapPlace::Building {
+                        id: record.id.clone(),
+                    },
+                    title: name.clone(),
+                    building_name: name,
+                    campus: record.campus.clone(),
+                    level_name: None,
+                    no_floor_plan: record.levels.is_empty(),
+                }
+            }
+            Found::Room(room) => {
+                let record = &map.export.rooms[room];
+                let building = map.room_building(room);
+                let floor = map.room_level(room);
+                CampusMapSearchResult {
+                    place: CampusMapPlace::Room {
+                        id: record.id.clone(),
+                    },
+                    title: record.code.clone(),
+                    building_name: building
+                        .map(|index| map.name(index, english))
+                        .unwrap_or_default(),
+                    campus: building
+                        .map(|index| map.export.buildings[index].campus.clone())
+                        .unwrap_or_default(),
+                    level_name: floor.map(|(building, level)| {
+                        map.export.buildings[building].levels[level].name.clone()
+                    }),
+                    no_floor_plan: floor.is_none(),
+                }
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "../tests/campus_map__page.rs"]
+mod tests;

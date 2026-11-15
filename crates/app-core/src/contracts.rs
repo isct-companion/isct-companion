@@ -507,6 +507,9 @@ contract!(Settings {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub site_consents: Option<SiteConsents>,
     #[cfg_attr(feature = "ts", ts(type = "\"en\" | \"ja\" | \"zh\""))] pub locale: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"auto\" | \"ja\" | \"en\""))] pub content_language: Option<String>,
+    /// Which maps app the campus map's "Open in Maps" links open in; absent
+    /// reads as `apple`. Per device: what is installed differs.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"apple\" | \"google\""))] pub maps_app: Option<String>,
     pub notifications: Notifications, pub cloud: CloudSettings,
     pub subscription_refresh: SubscriptionRefreshSettings,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub customization: Option<Customization>,

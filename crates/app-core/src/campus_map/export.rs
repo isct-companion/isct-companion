@@ -1,4 +1,4 @@
-//! The Isct-Data campus map export, format 1, as published: gzip of one JSON
+//! The Isct-Data campus map export, format 2, as published: gzip of one JSON
 //! object. Only this format is read; any other `formatVersion` is refused
 //! before its fields are looked at.
 use super::{CampusMapError, FORMAT_VERSION, MAX_JSON_BYTES};
@@ -129,6 +129,9 @@ pub(super) struct Building {
     /// MultiPolygon coordinates.
     pub footprint: Vec<Rings>,
     pub levels: Vec<Level>,
+    /// The floor the main entrance is on, one of `levels`; null only for a
+    /// building with no floors.
+    pub street_level_id: Option<String>,
     pub entrances: Vec<Entrance>,
 }
 
@@ -196,14 +199,14 @@ pub(super) struct Room {
 }
 
 /// Only the version, read before the strict parse so a later format is
-/// refused as a format, not as malformed v1.
+/// refused as a format, not as malformed v2.
 #[derive(Deserialize)]
 struct Version {
     #[serde(rename = "formatVersion")]
     format_version: Option<serde_json::Value>,
 }
 
-/// Unpacks the file (at most [`MAX_JSON_BYTES`]) and parses format 1.
+/// Unpacks the file (at most [`MAX_JSON_BYTES`]) and parses format 2.
 pub(super) fn read(gz: &[u8]) -> Result<Export, CampusMapError> {
     let mut json = Vec::new();
     flate2::read::GzDecoder::new(gz)
@@ -218,7 +221,7 @@ pub(super) fn read(gz: &[u8]) -> Result<Export, CampusMapError> {
     parse(&json)
 }
 
-/// Parses the unpacked JSON of format 1.
+/// Parses the unpacked JSON of format 2.
 fn parse(json: &[u8]) -> Result<Export, CampusMapError> {
     let version: Version = serde_json::from_slice(json)
         .map_err(|error| CampusMapError::Invalid(error.to_string()))?;

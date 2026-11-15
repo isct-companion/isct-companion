@@ -19,7 +19,7 @@ ts = ["dep:ts-rs", "adpt-isct/ts"]
 # (app-ffi turns it on for that target only). iOS never prints to it.
 campus-printer = ["dep:adpt-printer", "dep:ipp", "tokio/net"]
 # The campus map: its Isct-Data file, room matching and floor read models;
-# only the iOS bindings switch it on for now.
+# the iOS and Android bindings switch it on, desktop does not.
 campus-map = ["dep:flate2"]
 
 [dependencies]

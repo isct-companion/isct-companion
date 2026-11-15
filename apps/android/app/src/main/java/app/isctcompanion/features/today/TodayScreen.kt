@@ -46,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -100,6 +101,7 @@ import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.FirstLoadCard
 import app.isctcompanion.design.SyncProblemBanner
 import app.isctcompanion.design.SyncRingButton
+import app.isctcompanion.features.map.RoomMapButton
 import app.isctcompanion.design.activeRuns
 import app.isctcompanion.design.problem
 import app.isctcompanion.design.Tag
@@ -141,7 +143,15 @@ fun TodayScreen() {
     LaunchedEffect(model.contentRevision, model.today?.date) { exams = model.upcomingExams() }
     TabPage(
         t("common.today"),
-        actions = { SyncRingButton() },
+        actions = {
+            // The whole campus, to look a building or room up.
+            RoomMapButton(null, Modifier.clip(CircleShape)) {
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Map, null, tint = Theme.colors.accent)
+                }
+            }
+            SyncRingButton()
+        },
         onRefresh = { model.refreshFromSchool() },
     ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
@@ -391,7 +401,11 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
                     )
                 }
             }
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The map button sits over the card here, beside the room.
+            Row(
+                Modifier.padding(end = 44.dp),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text(
                     item.occurrence.startTime, fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink, maxLines = 1,
@@ -406,6 +420,21 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
                 item.occurrence.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
+        }
+        // Over the card, not inside it: a button cannot sit inside the
+        // button that opens the course. Only the front card's is live, and
+        // nothing shows until Core can place the room.
+        if (enabled) {
+            RoomMapButton(
+                item.occurrence.room,
+                Modifier.align(Alignment.CenterEnd).padding(end = 6.dp).size(44.dp).clip(CircleShape),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(Theme.colors.surface), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Map, null, tint = Theme.colors.accent, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
         }
     }
 }

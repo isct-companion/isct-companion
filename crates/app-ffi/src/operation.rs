@@ -82,6 +82,11 @@ pub enum OperationResult {
     WidgetRoute {
         route: crate::WidgetRoute,
     },
+    /// A map search's answers.
+    #[cfg(feature = "campus-map")]
+    CampusMapSearch {
+        search: CampusMapSearch,
+    },
     Document {
         value: JsonValue,
     },

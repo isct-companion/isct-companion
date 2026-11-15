@@ -1069,9 +1069,9 @@ impl SubscriptionClient {
         })
     }
 
-    /// The campus map of format 1: its `.gz` bytes, checked against the
+    /// The campus map of format 2: its `.gz` bytes, checked against the
     /// index hash (which covers those bytes) and unpacked and parsed before
-    /// anything is stored. An index without format 1, a bad hash or a file
+    /// anything is stored. An index without format 2, a bad hash or a file
     /// of another format fails the read and keeps the stored copy.
     #[cfg(feature = "campus-map")]
     pub async fn fetch_campus_map(
@@ -1084,7 +1084,7 @@ impl SubscriptionClient {
         let source = index
             .campus_map
             .get(crate::campus_map::FORMAT_KEY)
-            .ok_or("the campus map of format 1 is not published in this index")?;
+            .ok_or("the campus map of format 2 is not published in this index")?;
         let url = source_url(&base, source)?;
         if known_hash == Some(source.hash.as_str()) {
             return Ok(ReferenceFetch {
