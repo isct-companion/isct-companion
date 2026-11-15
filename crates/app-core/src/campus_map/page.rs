@@ -5,7 +5,6 @@
 //! What is selected (the card) and what floor is shown are kept apart: the
 //! camera, a floor picked or the card folded change the floor at most, never
 //! the selection. Only another selection, or closing the card, replaces it.
-use crate::locale::ContentLanguage;
 use super::{
     export::{LineTone, UnitCategory},
     geometry::{self, Viewport},
@@ -15,6 +14,7 @@ use super::{
     CampusMapLayer, CampusMapLayerRole, CampusMapLink, CampusMapMark, CampusMapMarkKind,
     CampusMapPlace, CampusMapPoint, CampusMapScene, CampusMapSearchResult,
 };
+use crate::locale::ContentLanguage;
 use std::sync::Arc;
 
 /// However far in, a framed room keeps some of its surroundings in view.
@@ -541,7 +541,10 @@ impl Page {
     /// them for a building without plans.
     fn marks(&self) -> Vec<CampusMapMark> {
         let map = &self.map;
-        let named_elsewhere = [self.selected_building(), self.floor.map(|(building, _)| building)];
+        let named_elsewhere = [
+            self.selected_building(),
+            self.floor.map(|(building, _)| building),
+        ];
         let buildings = (0..map.export.buildings.len())
             .filter(|building| !named_elsewhere.contains(&Some(*building)))
             .map(|building| {
@@ -736,7 +739,11 @@ impl Page {
 
 /// A search box's answers: each place's title, building, campus and floor,
 /// and whether the plans show it.
-pub(super) fn search(map: &Map, language: ContentLanguage, query: &str) -> Vec<CampusMapSearchResult> {
+pub(super) fn search(
+    map: &Map,
+    language: ContentLanguage,
+    query: &str,
+) -> Vec<CampusMapSearchResult> {
     map.search(query)
         .into_iter()
         .map(|found| match found {

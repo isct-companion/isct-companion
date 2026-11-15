@@ -538,7 +538,8 @@ pub(crate) async fn fresh_otp(secret: &str) -> Result<(OtpWindow, u64), SchoolAu
         _ => 30,
     };
     let now = unix_now();
-    let window = windows.into_iter()
+    let window = windows
+        .into_iter()
         .find(|window| window.from + period >= now + OTP_MARGIN.as_secs())
         .ok_or_else(|| SchoolAuthError::Storage("No usable one-time password window.".into()))?;
     if window.from > now {

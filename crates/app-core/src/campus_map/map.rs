@@ -182,7 +182,10 @@ impl Map {
                 .as_deref()
                 .is_none_or(|ja| ja.trim().is_empty())
             {
-                return Err(invalid(format!("building {} has no Japanese name", building.id)));
+                return Err(invalid(format!(
+                    "building {} has no Japanese name",
+                    building.id
+                )));
             }
             // Every building with floors names its street floor, one of its own.
             let street_known = match &building.street_level_id {

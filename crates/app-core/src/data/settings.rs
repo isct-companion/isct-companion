@@ -34,6 +34,8 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "activeSchoolSite": settings.get("activeSchoolSite"),
         "schoolWebZoom": settings.get("schoolWebZoom"),
         "showGrades": settings.get("showGrades"),
+        "campusVpnOnDemand": settings.get("campusVpnOnDemand"),
+        "campusVpnPublishers": settings.get("campusVpnPublishers"),
         "siteConsents": settings.get("siteConsents"),
         "locale": settings.get("locale"),
         "contentLanguage": settings.get("contentLanguage"),

@@ -4,12 +4,12 @@
 //! `campus-map.json.gz`, the pinned one the `campus-map` workflow fetches, so
 //! these run only with `--ignored`.
 use super::*;
-use crate::locale::ContentLanguage;
 use crate::campus_map::{
     export,
     geometry::Rect,
     map::{FOCUS_ENTER_SHARE, FOCUS_EXIT_SHARE},
 };
+use crate::locale::ContentLanguage;
 
 /// 大岡山西9号館.
 const W9: &str = "a10026fc-4e59-55a7-9d89-0193f1749620";
@@ -265,7 +265,10 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
         building_of(&map, sports.level_id.as_deref()),
         Some(sports_center)
     );
-    assert_eq!(title(&sports), Some(map.name(sports_center, ContentLanguage::Ja)));
+    assert_eq!(
+        title(&sports),
+        Some(map.name(sports_center, ContentLanguage::Ja))
+    );
     // The selected building is named by its card, the others on the map,
     // without the campus name the Japanese names start with.
     assert_eq!(named(&sports, SPORTS_CENTER), None);

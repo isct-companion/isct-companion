@@ -803,7 +803,9 @@ async fn initialize(
     if start_suspended {
         inner.core.prepare_background_start();
     }
-    inner.core.sync_hint(app_core::plan::Hint::Network { network: initial_network });
+    inner.core.sync_hint(app_core::plan::Hint::Network {
+        network: initial_network,
+    });
     inner.core.start(&Handle::current())?;
     Ok(inner)
 }

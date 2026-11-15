@@ -14,12 +14,12 @@ mod school_projection;
 mod settings;
 mod views;
 
+#[cfg(feature = "campus-map")]
+pub(crate) use campus_map_store::{campus_map_units, put_campus_map};
 pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
 pub(crate) use records::{lms_course_code, offering_course_id, resolve_course_id};
-#[cfg(feature = "campus-map")]
-pub(crate) use campus_map_store::{campus_map_units, put_campus_map};
 use settings::*;
 
 pub mod cloud_merge;

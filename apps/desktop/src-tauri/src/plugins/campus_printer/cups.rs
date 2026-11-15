@@ -60,11 +60,10 @@ pub(super) async fn install(
             return Ok(CampusPrinterSetup::Failed);
         }
     };
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
-        run(&cache, &dir, &ppd, &install, &prompt)
-    })
-    .await
-    .map_err(shell)?;
+    let outcome =
+        tauri::async_runtime::spawn_blocking(move || run(&cache, &dir, &ppd, &install, &prompt))
+            .await
+            .map_err(shell)?;
     log::info!("[campus-printer] install {outcome:?}");
     Ok(outcome)
 }

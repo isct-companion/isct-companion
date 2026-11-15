@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleHelp,
 } from "lucide-react";
 import {
   Checkbox as Check,
@@ -13,6 +14,7 @@ import {
   Progress as ProgressPrimitive,
   Select as SelectPrimitive,
   Popover as PopoverPrimitive,
+  Tooltip as TooltipPrimitive,
 } from "radix-ui";
 import { Command } from "cmdk";
 import {
@@ -313,6 +315,40 @@ export function Switch({
     </div>
   ) : (
     control
+  );
+}
+/**
+ * A small "?" that explains something on hover or keyboard focus, so the
+ * explanation stays out of the way of those who do not need it.
+ */
+export function InfoTip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  const layer = usePageLayer();
+  return (
+    <TooltipPrimitive.Provider delayDuration={150}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>
+          <button type="button" className="uiInfoTip" aria-label={label}>
+            <CircleHelp size={15} strokeWidth={1.75} aria-hidden />
+          </button>
+        </TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal container={layer}>
+          <TooltipPrimitive.Content
+            className="uiPopover uiInfoTipContent"
+            sideOffset={6}
+            collisionPadding={12}
+          >
+            {children}
+            <TooltipPrimitive.Arrow className="uiPopoverArrow" />
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
   );
 }
 export const Radio = Object.assign(

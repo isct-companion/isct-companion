@@ -8,12 +8,13 @@ pub mod f5;
 use crate::school_session::CampusVpnError;
 use chrono::Duration;
 use chrono::{DateTime, Utc};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, MutexGuard,
 };
 use thiserror::Error;
-use vpn_protocol::{HelperState, SessionCookie, HELPER_REVISION};
+use vpn_protocol::{Ending, HelperState, SessionCookie, HELPER_REVISION};
 
 /// Failures the person can act on. `code` is the stable name the UI keys its
 /// guidance on, e.g. "helper_not_installed" leads to the install step.
@@ -73,31 +74,28 @@ pub struct HelperReport {
     pub expires_at: Option<DateTime<Utc>>,
     /// The answering helper's revision; `None` from the first helpers.
     pub revision: Option<u32>,
+    /// Why the helper ended the last tunnel itself.
+    pub ended: Option<Ending>,
 }
 
-/// What the person is told without asking: once before the session's or the
-/// auto-continue's end, once when the tunnel ends without a disconnect, and
-/// when auto-continue finishes or gives up.
+/// What the person is told without asking: once before the session's end,
+/// once when the tunnel ends without a disconnect, when the helper ended one
+/// left unused with connections still open, and when on-demand connecting
+/// gives up.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VpnNotice {
     EndingSoon {
         minutes: i64,
     },
     Ended,
-    /// Its time is up; the tunnel is being disconnected.
-    KeepEnded,
-    /// Reconnecting cannot help; `code` is `VpnError::code`.
-    KeepStopped {
+    /// Half an hour without use, ended though connections (a forgotten SSH)
+    /// were still open through it. Told even with on-demand on: those
+    /// connections are cut.
+    Unused,
+    /// Signing in again cannot help; `code` is `VpnError::code`.
+    DemandStopped {
         code: &'static str,
     },
-}
-
-/// What a check asks the shell to do.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum VpnAction {
-    /// Sign in again and connect (`begin_login`, `connect`, then `reconnected`).
-    Reconnect,
-    Disconnect,
 }
 
 /// One periodic check's outcome.
@@ -105,37 +103,36 @@ pub enum VpnAction {
 pub struct VpnCheck {
     pub state: VpnState,
     pub notice: Option<VpnNotice>,
-    pub action: Option<VpnAction>,
 }
 
-/// Auto-continue always ends: it needs a duration of at most this long.
-pub const KEEP_MAX_HOURS: u32 = 24;
-/// A tunnel up this long proves the reconnecting works; the counts restart.
-const KEEP_STABLE_MINUTES: i64 = 5;
+/// A tunnel up this long proves the sign-in works; the counts restart. It
+/// must stay shorter than the helper's idle disconnect (5 minutes), or every
+/// tunnel ended for being unused would count as one that did not last.
+const STABLE_MINUTES: i64 = 3;
 /// Logins the school accepted whose tunnel did not last, in a row, before
-/// auto-continue gives up rather than keep posting the password.
-const KEEP_MAX_SPENT: u32 = 6;
+/// on-demand connecting gives up rather than keep posting the password.
+const MAX_SPENT: u32 = 6;
+/// Sign-ins on-demand connecting starts by itself within an hour, at most.
+/// Something that touches the campus network every few minutes would
+/// otherwise sign in each time the idle tunnel ends, which the school would
+/// see as a login storm. A press is never held back.
+const HOURLY_LOGINS: usize = 6;
 
-#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-pub enum VpnKeepError {
-    #[error("auto-continue needs a duration of 1 to {KEEP_MAX_HOURS} hours")]
-    InvalidDuration,
-    #[error("auto-continue starts from a connected tunnel")]
-    NotConnected,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Keep {
-    until: DateTime<Utc>,
+/// The sign-ins on-demand connecting made on its own,
+/// which must not keep posting a password that cannot work.
+#[derive(Clone, Debug, Default)]
+struct Attempts {
     /// Failed or short-lived reconnects in a row, for the wait between them.
     failures: u32,
     /// Of those, the ones that posted the password and got a session.
     spent: u32,
     retry_at: Option<DateTime<Utc>>,
     up_since: Option<DateTime<Utc>>,
+    /// When the sign-ins of the last hour started.
+    logins: Vec<DateTime<Utc>>,
 }
 
-impl Keep {
+impl Attempts {
     /// The next attempt waits longer the more have failed: 1, 2, then 5 min.
     fn back_off(&mut self, now: DateTime<Utc>) {
         self.failures += 1;
@@ -145,6 +142,57 @@ impl Keep {
             _ => 5,
         };
         self.retry_at = Some(now + Duration::minutes(minutes));
+    }
+
+    fn due(&self, now: DateTime<Utc>) -> bool {
+        self.retry_at.is_none_or(|at| now >= at) && self.paused_until(now).is_none()
+    }
+
+    /// While the hour's sign-ins are spent, when the next one may start.
+    fn paused_until(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let hour = Duration::hours(1);
+        let recent: Vec<_> = self.logins.iter().filter(|at| now - **at < hour).collect();
+        (recent.len() >= HOURLY_LOGINS).then(|| *recent[recent.len() - HOURLY_LOGINS] + hour)
+    }
+
+    fn login(&mut self, now: DateTime<Utc>) {
+        self.logins.retain(|at| now - *at < Duration::hours(1));
+        self.logins.push(now);
+    }
+
+    /// A tunnel seen up at `now`: one up this long proves the sign-in works.
+    fn up(&mut self, now: DateTime<Utc>) {
+        let since = *self.up_since.get_or_insert(now);
+        if now - since >= Duration::minutes(STABLE_MINUTES) {
+            *self = Self {
+                up_since: Some(since),
+                logins: std::mem::take(&mut self.logins),
+                ..Self::default()
+            };
+        }
+    }
+
+    /// A sign-in of its own finished as `state`. A tunnel that came up still
+    /// counts until it lasts: one that dies at once must not loop on the
+    /// password. `Err` is the code to stop with.
+    fn finished(&mut self, state: &VpnState, now: DateTime<Utc>) -> Result<(), &'static str> {
+        match state {
+            VpnState::Error(error) if hopeless(error) => return Err(error.code()),
+            VpnState::Connected { .. } | VpnState::Error(VpnError::Tunnel(_)) => {
+                self.spent += 1;
+                if self.spent >= MAX_SPENT {
+                    return Err(VpnError::Tunnel(String::new()).code());
+                }
+            }
+            // Offline or the school not answering: no password was accepted,
+            // so this only waits.
+            _ => {}
+        }
+        if matches!(state, VpnState::Connected { .. }) {
+            self.up_since = Some(now);
+        }
+        self.back_off(now);
+        Ok(())
     }
 }
 
@@ -176,6 +224,58 @@ impl Drop for LoginGuard {
     }
 }
 
+/// Publisher sites that serve the library's subscribed papers, sent through
+/// the tunnel as well: they grant access by the campus address a request
+/// comes from. Each is the host that serves full text; a person can change
+/// the list on the card.
+pub const DEFAULT_PUBLISHERS: &[&str] = &[
+    "www.sciencedirect.com",
+    "link.springer.com",
+    "www.nature.com",
+    "onlinelibrary.wiley.com",
+    "ieeexplore.ieee.org",
+    "pubs.acs.org",
+    "journals.aps.org",
+    "pubs.aip.org",
+    "iopscience.iop.org",
+    "www.tandfonline.com",
+    "academic.oup.com",
+    "www.science.org",
+    "www.cambridge.org",
+    "dl.acm.org",
+    "pubs.rsc.org",
+    "www.jstor.org",
+];
+
+/// A publisher as the person typed it, as the host name to route: a pasted
+/// address loses its scheme, path and port, and case. `None` for what cannot
+/// be a host name.
+pub fn normalize_publisher(input: &str) -> Option<String> {
+    let text = input.trim();
+    let host = text
+        .split_once("://")
+        .map_or(text, |(_, rest)| rest)
+        .split(['/', '?', '#'])
+        .next()?
+        .rsplit('@')
+        .next()?;
+    let host = host
+        .split(':')
+        .next()?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let valid = host.contains('.')
+        && host.len() <= 253
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        });
+    valid.then_some(host)
+}
+
 /// How long before the session's end the reminder comes.
 pub const ENDING_NOTICE_MINUTES: i64 = 10;
 
@@ -185,6 +285,8 @@ pub trait VpnPort: Send + Sync {
     fn status(&self) -> Result<HelperReport, VpnError>;
     fn start(&self, cookie: &SessionCookie) -> Result<HelperReport, VpnError>;
     fn stop(&self) -> Result<HelperReport, VpnError>;
+    /// Hands the helper the publisher sites' addresses (`Request::Routes`).
+    fn routes(&self, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> Result<HelperReport, VpnError>;
 }
 
 /// The state a helper report means to the person. The helper keeps the last
@@ -217,8 +319,14 @@ pub struct VpnService {
     state: Mutex<VpnState>,
     /// The end the ending reminder was given for, so it comes once.
     warned: Mutex<Option<DateTime<Utc>>>,
-    keep: Mutex<Option<Keep>>,
+    /// On while on-demand connecting is: a standby demand may sign in.
+    on_demand: Mutex<Option<Attempts>>,
     logging_in: Arc<AtomicBool>,
+    /// On the campus network, as `network` last read it: the VPN is not
+    /// needed there.
+    on_campus: AtomicBool,
+    /// The publisher sites the person chose; `None` is the default list.
+    publishers: Mutex<Option<Vec<String>>>,
 }
 
 impl VpnService {
@@ -227,47 +335,16 @@ impl VpnService {
             port,
             state: Mutex::new(VpnState::Disconnected),
             warned: Mutex::new(None),
-            keep: Mutex::new(None),
+            on_demand: Mutex::new(None),
             logging_in: Arc::new(AtomicBool::new(false)),
+            on_campus: AtomicBool::new(false),
+            publishers: Mutex::new(None),
         }
     }
 
     /// The one sign-in in progress, or `None` when another holds it.
     pub fn begin_login(&self) -> Option<LoginGuard> {
         (!self.logging_in.swap(true, Ordering::SeqCst)).then(|| LoginGuard(self.logging_in.clone()))
-    }
-
-    /// Reconnects whenever the tunnel ends, for `hours` from `now`, then
-    /// disconnects. There is no open-ended form. `None` turns it off and
-    /// leaves the tunnel up.
-    pub fn set_keep(
-        &self,
-        hours: Option<u32>,
-        now: DateTime<Utc>,
-    ) -> Result<Option<DateTime<Utc>>, VpnKeepError> {
-        let Some(hours) = hours else {
-            *lock(&self.keep) = None;
-            return Ok(None);
-        };
-        if hours == 0 || hours > KEEP_MAX_HOURS {
-            return Err(VpnKeepError::InvalidDuration);
-        }
-        if self.needs_login() {
-            return Err(VpnKeepError::NotConnected);
-        }
-        let until = now + Duration::hours(i64::from(hours));
-        *lock(&self.keep) = Some(Keep {
-            until,
-            failures: 0,
-            spent: 0,
-            retry_at: None,
-            up_since: Some(now),
-        });
-        Ok(Some(until))
-    }
-
-    pub fn keep_until(&self) -> Option<DateTime<Utc>> {
-        lock(&self.keep).map(|keep| keep.until)
     }
 
     pub fn state(&self) -> VpnState {
@@ -286,7 +363,8 @@ impl VpnService {
         !matches!(self.state(), VpnState::Connected { .. })
     }
 
-    /// Connect with a fresh session cookie.
+    /// Connect with a fresh session cookie. The helper ends any tunnel, this
+    /// one included, once it carries nothing for a while.
     pub fn connect(&self, cookie: &SessionCookie) -> VpnState {
         if !self.needs_login() {
             return self.state();
@@ -296,105 +374,181 @@ impl VpnService {
         self.store(next)
     }
 
-    /// The periodic check while a tunnel is up or auto-continue is on: the
-    /// helper's state, the reminder due at `now`, and what to do about it.
+    /// Turns on-demand connecting on or off. While on, the shell keeps the
+    /// helper's standby open and passes its demands to `demanded`.
+    pub fn set_on_demand(&self, on: bool) {
+        let mut current = lock(&self.on_demand);
+        match (on, current.is_some()) {
+            (true, false) => *current = Some(Attempts::default()),
+            (false, _) => *current = None,
+            (true, true) => {}
+        }
+    }
+
+    pub fn on_demand(&self) -> bool {
+        lock(&self.on_demand).is_some()
+    }
+
+    /// The device's addresses now; whether it is on the campus network.
+    /// While a sign-in runs or a tunnel is up the last answer stands: the
+    /// tunnel's own campus address appears before Core knows it, and would
+    /// read as the campus network and tear standby down mid-sign-in.
+    pub fn network(&self, addresses: impl IntoIterator<Item = IpAddr>) -> bool {
+        if self.logging_in.load(Ordering::SeqCst)
+            || matches!(
+                self.state(),
+                VpnState::Connected { .. } | VpnState::Connecting
+            )
+        {
+            return self.on_campus();
+        }
+        let on = crate::campus_network::on_campus(addresses, None);
+        self.on_campus.store(on, Ordering::SeqCst);
+        on
+    }
+
+    pub fn on_campus(&self) -> bool {
+        self.on_campus.load(Ordering::SeqCst)
+    }
+
+    /// Whether the helper's standby should hold the campus routes: on-demand
+    /// is on and campus hosts are not reached directly anyway.
+    pub fn wants_standby(&self) -> bool {
+        self.on_demand() && !self.on_campus()
+    }
+
+    /// Whether a standby demand at `now` should sign in: standby is wanted,
+    /// no tunnel is up, the wait after a failed attempt is over, and the
+    /// hour's sign-ins are not spent. A yes counts as one of them.
+    pub fn demanded(&self, now: DateTime<Utc>) -> bool {
+        if !self.needs_login() || self.on_campus() {
+            return false;
+        }
+        let mut current = lock(&self.on_demand);
+        let Some(attempts) = current.as_mut().filter(|attempts| attempts.due(now)) else {
+            return false;
+        };
+        attempts.login(now);
+        true
+    }
+
+    /// While on-demand connecting has spent the hour's sign-ins, when it may
+    /// sign in again; the card says so.
+    pub fn demand_paused_until(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        lock(&self.on_demand).as_ref()?.paused_until(now)
+    }
+
+    /// A demand's sign-in finished as `state`. What signing in again cannot
+    /// fix turns on-demand off.
+    pub fn demand_finished(&self, state: &VpnState, now: DateTime<Utc>) -> Option<VpnNotice> {
+        let mut current = lock(&self.on_demand);
+        let code = current.as_mut()?.finished(state, now).err()?;
+        *current = None;
+        Some(VpnNotice::DemandStopped { code })
+    }
+
+    /// The person's publisher list as stored; `None` restores the default.
+    /// Entries are normalized and deduplicated, and ones that cannot be host
+    /// names are dropped.
+    pub fn set_publishers(&self, list: Option<Vec<String>>) {
+        *lock(&self.publishers) = list.map(|list| {
+            let mut hosts: Vec<String> = Vec::new();
+            for host in list.iter().filter_map(|entry| normalize_publisher(entry)) {
+                if !hosts.contains(&host) {
+                    hosts.push(host);
+                }
+            }
+            hosts
+        });
+    }
+
+    /// The publisher sites sent through the tunnel now.
+    pub fn publishers(&self) -> Vec<String> {
+        lock(&self.publishers).clone().unwrap_or_else(|| {
+            DEFAULT_PUBLISHERS
+                .iter()
+                .map(|host| host.to_string())
+                .collect()
+        })
+    }
+
+    /// Whether the list is the default one, so the card offers no reset.
+    pub fn publishers_are_default(&self) -> bool {
+        lock(&self.publishers).is_none()
+    }
+
+    /// The names a publisher is reached by: a bare domain (`nature.com`) is
+    /// usually served from its `www.` host too.
+    pub fn publisher_names(host: &str) -> Vec<String> {
+        let mut names = vec![host.to_owned()];
+        if host.matches('.').count() == 1 {
+            names.push(format!("www.{host}"));
+        }
+        names
+    }
+
+    /// Hands the helper the publisher sites' addresses now, as `resolve` (the
+    /// shell's DNS) finds each name: before a connect and when standby
+    /// starts, so a publisher's changing CDN addresses are followed, and when
+    /// the list changes. An address the campus network covers already, or a
+    /// name that does not resolve, is left out.
+    pub fn send_publisher_routes(
+        &self,
+        resolve: impl Fn(&str) -> Vec<IpAddr>,
+    ) -> Result<(), VpnError> {
+        let mut v4: Vec<Ipv4Addr> = Vec::new();
+        let mut v6: Vec<Ipv6Addr> = Vec::new();
+        for host in self.publishers() {
+            for name in Self::publisher_names(&host) {
+                for ip in resolve(&name) {
+                    match ip {
+                        IpAddr::V4(ip) if !crate::campus_network::on_campus([ip.into()], None) => {
+                            v4.push(ip)
+                        }
+                        IpAddr::V6(ip) => v6.push(ip),
+                        IpAddr::V4(_) => {}
+                    }
+                }
+            }
+        }
+        v4.sort();
+        v4.dedup();
+        v6.sort();
+        v6.dedup();
+        self.port.routes(&v4, &v6).map(|_| ())
+    }
+
+    /// Campus hosts standby must leave to the physical network: the hosts
+    /// Core itself signs in to and reads, so neither the sign-in a demand
+    /// starts nor the app's own refreshes wait on a tunnel.
+    pub fn standby_bypass_hosts() -> impl Iterator<Item = &'static str> {
+        crate::net::Host::ALL
+            .into_iter()
+            .map(crate::net::Host::name)
+    }
+
+    /// The periodic check while a tunnel is up: the helper's state and the
+    /// reminder due at `now`.
     pub fn watch(&self, now: DateTime<Utc>) -> VpnCheck {
         let before = self.state();
-        let state = self.refresh();
-        let keep = *lock(&self.keep);
-        let (notice, action) = match keep {
-            Some(keep) => self.keeping(keep, &state, now),
-            None => (self.notice(&before, &state, now), None),
-        };
-        VpnCheck {
-            state,
-            notice,
-            action,
-        }
-    }
-
-    /// Auto-continue's decision. Its own end replaces the session's: a session
-    /// ending before it just reconnects, so only its end is announced.
-    fn keeping(
-        &self,
-        mut keep: Keep,
-        state: &VpnState,
-        now: DateTime<Utc>,
-    ) -> (Option<VpnNotice>, Option<VpnAction>) {
-        let up = matches!(state, VpnState::Connected { .. });
-        if now >= keep.until {
-            *lock(&self.keep) = None;
-            return (
-                Some(VpnNotice::KeepEnded),
-                up.then_some(VpnAction::Disconnect),
-            );
-        }
-        let mut decision = (None, None);
-        match state {
-            VpnState::Connected { .. } => {
-                let since = *keep.up_since.get_or_insert(now);
-                if now - since >= Duration::minutes(KEEP_STABLE_MINUTES) {
-                    keep.failures = 0;
-                    keep.spent = 0;
-                    keep.retry_at = None;
-                }
-                decision.0 = self.ending(keep.until, now);
-            }
-            VpnState::Disconnected | VpnState::Error(VpnError::Tunnel(_)) => {
-                keep.up_since = None;
-                if keep.retry_at.is_none_or(|at| now >= at) {
-                    decision.1 = Some(VpnAction::Reconnect);
-                }
-            }
-            VpnState::Error(error) if hopeless(error) => {
-                *lock(&self.keep) = None;
-                return (Some(VpnNotice::KeepStopped { code: error.code() }), None);
-            }
-            // A helper not answering says nothing about the tunnel.
-            VpnState::Connecting | VpnState::Error(_) => {}
-        }
-        let mut current = lock(&self.keep);
-        if current.is_some() {
-            *current = Some(keep);
-        }
-        decision
-    }
-
-    /// Whether a reconnect's sign-in may still go on to start a tunnel: a
-    /// disconnect meanwhile turned auto-continue off.
-    pub fn keeps(&self) -> bool {
-        lock(&self.keep).is_some()
-    }
-
-    /// A reconnect finished as `state`. A tunnel that came up still counts
-    /// until it lasts: one that dies at once must not loop on the password.
-    pub fn reconnected(&self, state: &VpnState, now: DateTime<Utc>) -> Option<VpnNotice> {
-        let mut current = lock(&self.keep);
-        let keep = current.as_mut()?;
-        match state {
-            VpnState::Error(error) if hopeless(error) => {
-                let code = error.code();
-                *current = None;
-                return Some(VpnNotice::KeepStopped { code });
-            }
-            VpnState::Connected { .. } | VpnState::Error(VpnError::Tunnel(_)) => {
-                keep.spent += 1;
-                if keep.spent >= KEEP_MAX_SPENT {
-                    *current = None;
-                    return Some(VpnNotice::KeepStopped {
-                        code: VpnError::Tunnel(String::new()).code(),
-                    });
-                }
-            }
-            // Offline or the school not answering: no password was accepted,
-            // so this only waits, until the duration ends.
-            _ => {}
-        }
+        let report = self.port.status();
+        let ended = report.as_ref().ok().and_then(|report| report.ended);
+        let state = self.store(Self::settle(report));
         if matches!(state, VpnState::Connected { .. }) {
-            keep.up_since = Some(now);
+            if let Some(attempts) = lock(&self.on_demand).as_mut() {
+                attempts.up(now);
+            }
         }
-        keep.back_off(now);
-        None
+        // With on-demand on, an ending is not news: the next use brings the
+        // tunnel back, and an unused one is ended on purpose.
+        let notice = self
+            .notice(&before, &state, now)
+            .map(|notice| match (notice, ended) {
+                (VpnNotice::Ended, Some(Ending::Unused)) => VpnNotice::Unused,
+                (notice, _) => notice,
+            })
+            .filter(|notice| *notice != VpnNotice::Ended || !self.on_demand());
+        VpnCheck { state, notice }
     }
 
     /// A tunnel that was up and now is not, without a disconnect (which
@@ -436,9 +590,8 @@ impl VpnService {
         self.store(VpnState::Error(error))
     }
 
-    /// The person's disconnect, or auto-continue's end: nothing reconnects.
+    /// The person's disconnect.
     pub fn disconnect(&self) -> VpnState {
-        *lock(&self.keep) = None;
         let next = Self::settle(self.port.stop());
         self.store(next)
     }
