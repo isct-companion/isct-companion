@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,12 +37,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.isctcompanion.LocalModel
+import app.isctcompanion.R
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.ExamAccount
 import app.isctcompanion.core.ExamAccountStatus
@@ -430,6 +436,17 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                         }
                     }
                 }
+            }
+            // English only by design: it names the service and its operator.
+            item {
+                Image(
+                    painterResource(R.drawable.past_exams_credit),
+                    "Supported by ScienceTokyoExam · teduryu",
+                    Modifier.fillMaxWidth().padding(top = 12.dp).height(11.dp),
+                    alignment = Alignment.CenterEnd,
+                    contentScale = ContentScale.Fit,
+                    colorFilter = ColorFilter.tint(Theme.colors.muted),
+                )
             }
         }
     }

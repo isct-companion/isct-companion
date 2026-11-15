@@ -868,6 +868,12 @@ export function PastExams({
             </>
           )
         ))}
+      {/* English only by design: it names the service and its operator. */}
+      <div
+        className="examShareCredit"
+        role="img"
+        aria-label="Supported by ScienceTokyoExam · teduryu"
+      />
     </section>
   );
 }

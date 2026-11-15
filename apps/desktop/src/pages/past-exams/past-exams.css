@@ -68,3 +68,20 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* The ScienceTokyoExam credit stays in the page's bottom-right corner while
+   the page scrolls, tinted like secondary text and never taking clicks. */
+.examShareCredit {
+  position: sticky;
+  inset-block-end: 12px;
+  align-self: flex-end;
+  flex: none;
+  margin-block-start: auto;
+  block-size: 11px;
+  aspect-ratio: 271.48 / 12.29;
+  background-color: var(--muted);
+  opacity: 0.7;
+  mask: url("../../../../../resources/design/sciencetokyoexam-credit.svg")
+    center / contain no-repeat;
+  pointer-events: none;
+}

@@ -95,6 +95,7 @@ struct PastExamsScreen: View {
                         if account?.status == .connected { librarySections }
                     }
                 }
+                Section {} footer: { credit }
             }
         }
         .themedRows()
@@ -267,6 +268,19 @@ struct PastExamsScreen: View {
                 Button(t("examShare.more")) { Task { await loadRequests(cursor) } }
             }
         }
+    }
+
+    /// The ScienceTokyoExam credit, English only by design: it names the
+    /// service and its operator.
+    private var credit: some View {
+        Image("PastExams/credit")
+            .resizable()
+            .renderingMode(.template)
+            .scaledToFit()
+            .frame(height: 11)
+            .foregroundStyle(Theme.muted)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityLabel(Text(verbatim: "Supported by ScienceTokyoExam · teduryu"))
     }
 
     @ViewBuilder private var librarySections: some View {
