@@ -58,6 +58,19 @@ fn apple_keychain_sync(account: &str) -> bool {
         && vault_item(account).is_ok_and(|item| item.synchronized)
 }
 
+/// The school credentials' status metadata, in the data folder. It says
+/// which accounts this build's credentials item holds, and a macOS debug
+/// build's is not the release build's (`apple_keychain_sync`) while both share
+/// the data folder: with one status, each build would take the other's saved
+/// accounts for its own, find none, and mark them gone for both. The markers
+/// beside it stay shared, as the device-local items they guard (refusals,
+/// sessions, the LMS token) are.
+pub const SCHOOL_STATUS_FILE: &str = if cfg!(all(target_os = "macos", debug_assertions)) {
+    "school-credential-status-debug.json"
+} else {
+    "school-credential-status.json"
+};
+
 impl SecretVault for OsSecretVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
         validate_secret(secret)?;

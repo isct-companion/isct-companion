@@ -828,7 +828,14 @@ impl Inner {
         match end {
             login::LoginEnd::SignedIn(snapshot) => End::SignedIn(snapshot),
             // Only a verdict on a secret the school was sent is about these
-            // credentials.
+            // credentials. A page that stopped a sign-in on Core's own before
+            // it sent any is no verdict: it pauses, or sync would sign in
+            // again at once, forever, since nothing it holds on would change.
+            login::LoginEnd::Rejected(kind, message) | login::LoginEnd::NeedsWeb(kind, message)
+                if matches!(how, How::Background) && !submitted.load(Ordering::SeqCst) =>
+            {
+                End::Unavailable(problem(kind, message))
+            }
             login::LoginEnd::Rejected(kind, message) | login::LoginEnd::NeedsWeb(kind, message) => {
                 End::Refused {
                     problem: problem(kind, message),
@@ -948,6 +955,13 @@ impl Inner {
                         log::error!(target: "app_core::school_session", "refusal held but not saved profile={profile:?}: {error}");
                     }
                 }
+            }
+            // The account counted as saved, but the vault holds no credentials
+            // for it: it is not configured until they are saved again, or sync
+            // would admit it and sign in again at once, forever.
+            (Err(Ended::NotConfigured), _) => {
+                log::info!(target: "app_core::school_session", "sign-in found no saved credentials profile={profile:?}");
+                identity.set_configured(self.auth.configured(profile));
             }
             (Err(ended), _) => {
                 log::info!(target: "app_core::school_session", "sign-in ended profile={profile:?}: {ended:?}");
