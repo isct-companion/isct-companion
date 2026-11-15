@@ -394,9 +394,7 @@ pub fn run() {
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,
-                app.path()
-                    .app_data_dir()?
-                    .join(secrets::SCHOOL_STATUS_FILE),
+                app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
             )));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),

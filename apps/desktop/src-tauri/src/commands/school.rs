@@ -94,7 +94,10 @@ pub(crate) fn school_otp_intent(
     intent: app_core::school_browser::SchoolOtpIntent,
 ) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.engine.school_otp_intent(id, intent).map_err(coded)
+    controller
+        .engine
+        .school_otp_intent(id, intent)
+        .map_err(coded)
 }
 
 #[tauri::command]

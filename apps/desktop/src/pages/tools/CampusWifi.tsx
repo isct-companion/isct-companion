@@ -9,7 +9,7 @@ import {
   type CampusWifiStatus,
   type CampusWifiStep,
 } from "../../platform/desktop-bridge";
-import { UiButton } from "../../components/ui";
+import { InfoTip, UiButton } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
 import { errorText } from "../../app/shared";
@@ -115,35 +115,45 @@ export function CampusWifi({ notify }: { notify: (message: string) => void }) {
     </>
   ) : (
     (result ??
-    (connected
-      ? t("tools.campusWifi.signedInToScienceTokyo")
-      : status === "science-tokyo-x"
-        ? t("tools.campusWifi.connectedToScienceTokyoX")
-        : undefined))
+    (checking
+      ? t("settings.academicCalendar.checking")
+      : connected
+        ? t("tools.campusWifi.signedInToScienceTokyo")
+        : status === "science-tokyo-x"
+          ? t("tools.campusWifi.scienceTokyoXNoSignIn")
+          : status === "sign-in-required"
+            ? t("tools.campusWifi.signInRequired")
+            : status === "other"
+              ? t("tools.campusWifi.notOnCampusWifi")
+              : undefined))
   );
 
   return (
     <ToolCard
       icon={<Wifi aria-hidden strokeWidth={1.75} />}
       title="tools.campusWifi.campusWiFi"
+      info={
+        <InfoTip label={t("tools.campusWifi.wifiRulesLabel")}>
+          {t("tools.campusWifi.wifiRules")}
+        </InfoTip>
+      }
       status={hint}
-      note="tools.campusWifi.runsOnlyWhenYouClick"
+      note="tools.campusWifi.wifiHint"
       actions={
-        <UiButton
-          className={`button small${connected ? " toolConnected" : ""}`}
-          disabled={checking || connecting || connected}
-          onClick={() => void start()}
-        >
-          {t(
-            connected
-              ? "settings.main.connected"
-              : connecting
+        // Signed in, there is nothing to press until the sign-in expires.
+        !connected && (
+          <UiButton
+            className="button small"
+            disabled={checking || connecting}
+            onClick={() => void start()}
+          >
+            {t(
+              connecting
                 ? "tools.campusWifi.connecting"
-                : checking
-                  ? "settings.academicCalendar.checking"
-                  : "tools.campusWifi.connect",
-          )}
-        </UiButton>
+                : "tools.campusWifi.connect",
+            )}
+          </UiButton>
+        )
       }
     />
   );

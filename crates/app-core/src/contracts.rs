@@ -500,6 +500,13 @@ contract!(Settings {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub active_school_site: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub school_web_zoom: Option<f64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub show_grades: Option<bool>,
+    /// Whether this device connects the campus VPN when something uses the
+    /// campus network (desktop only); absent reads as off.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub campus_vpn_on_demand: Option<bool>,
+    /// Publisher sites this device sends through the campus VPN, for the
+    /// papers the library subscribes to (desktop only); absent reads as
+    /// `vpn::DEFAULT_PUBLISHERS`.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub campus_vpn_publishers: Option<Vec<String>>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub site_consents: Option<SiteConsents>,
     #[cfg_attr(feature = "ts", ts(type = "\"en\" | \"ja\" | \"zh\""))] pub locale: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"auto\" | \"ja\" | \"en\""))] pub content_language: Option<String>,

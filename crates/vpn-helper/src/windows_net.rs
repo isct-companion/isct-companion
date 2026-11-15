@@ -12,16 +12,19 @@ use std::fs;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::process::Command;
-use windows::Win32::Foundation::{ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR, WIN32_ERROR};
+use windows::Win32::Foundation::{
+    ERROR_INSUFFICIENT_BUFFER, ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR, WIN32_ERROR,
+};
 use windows::Win32::NetworkManagement::IpHelper::{
     CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteIpForwardEntry2, FreeMibTable,
-    GetBestRoute2, GetIpForwardTable2, GetIpInterfaceEntry, InitializeIpForwardEntry,
-    InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, SetIpInterfaceEntry,
-    MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
+    GetBestRoute2, GetIfEntry2, GetIpForwardTable2, GetIpInterfaceEntry, GetTcpTable,
+    InitializeIpForwardEntry, InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry,
+    SetIpInterfaceEntry, MIB_IF_ROW2, MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2,
+    MIB_IPINTERFACE_ROW, MIB_TCPTABLE, MIB_TCP_STATE_ESTAB, MIB_UNICASTIPADDRESS_ROW,
 };
 use windows::Win32::Networking::WinSock::{
-    IpDadStatePreferred, IpPrefixOriginManual, IpSuffixOriginManual, AF_INET, IN_ADDR, IN_ADDR_0,
-    MIB_IPPROTO_NETMGMT, SOCKADDR_IN, SOCKADDR_INET,
+    setsockopt, IpDadStatePreferred, IpPrefixOriginManual, IpSuffixOriginManual, AF_INET, IN_ADDR,
+    IN_ADDR_0, IPPROTO_IP, IP_UNICAST_IF, MIB_IPPROTO_NETMGMT, SOCKADDR_IN, SOCKADDR_INET, SOCKET,
 };
 
 const CAMPUS: Ipv4Addr = Ipv4Addr::new(131, 112, 0, 0);
@@ -124,8 +127,8 @@ pub(crate) fn clean_up(data: &Path, tunnel: Option<u32>) {
             continue;
         };
         let pinned_host = length == 32 && hosts.contains(&destination);
-        let campus = Some(row.InterfaceIndex) == tunnel
-            && (destination, length) == (CAMPUS, CAMPUS_PREFIX);
+        let campus =
+            Some(row.InterfaceIndex) == tunnel && (destination, length) == (CAMPUS, CAMPUS_PREFIX);
         if pinned_host || campus {
             let _ = unsafe { DeleteIpForwardEntry2(&row) };
         }
@@ -136,18 +139,17 @@ pub(crate) fn clean_up(data: &Path, tunnel: Option<u32>) {
 
 /// Whether 131.112.0.0/16 goes through interface `index`.
 pub(crate) fn campus_route_on(index: u32) -> bool {
-    routes().iter().any(|row| {
-        row.InterfaceIndex == index && prefix(row) == Some((CAMPUS, CAMPUS_PREFIX))
-    })
+    routes()
+        .iter()
+        .any(|row| row.InterfaceIndex == index && prefix(row) == Some((CAMPUS, CAMPUS_PREFIX)))
 }
 
 fn pin(host: Ipv4Addr, tunnel: u32, data: &Path) -> Result<(), String> {
     let mut best = MIB_IPFORWARD_ROW2::default();
     let mut source = SOCKADDR_INET::default();
-    check(
-        "find the server's route",
-        unsafe { GetBestRoute2(None, 0, None, &sockaddr(host), 0, &mut best, &mut source) },
-    )?;
+    check("find the server's route", unsafe {
+        GetBestRoute2(None, 0, None, &sockaddr(host), 0, &mut best, &mut source)
+    })?;
     if best.InterfaceIndex == tunnel {
         return Ok(());
     }
@@ -166,7 +168,9 @@ fn add_address(index: u32, address: Ipv4Addr) -> Result<(), String> {
     row.PrefixOrigin = IpPrefixOriginManual;
     row.SuffixOrigin = IpSuffixOriginManual;
     row.DadState = IpDadStatePreferred;
-    check("set the tunnel address", unsafe { CreateUnicastIpAddressEntry(&row) })
+    check("set the tunnel address", unsafe {
+        CreateUnicastIpAddressEntry(&row)
+    })
 }
 
 fn set_mtu(index: u32, mtu: u32) -> Result<(), String> {
@@ -174,14 +178,23 @@ fn set_mtu(index: u32, mtu: u32) -> Result<(), String> {
     unsafe { InitializeIpInterfaceEntry(&mut row) };
     row.Family = AF_INET;
     row.InterfaceIndex = index;
-    check("read the tunnel interface", unsafe { GetIpInterfaceEntry(&mut row) })?;
+    check("read the tunnel interface", unsafe {
+        GetIpInterfaceEntry(&mut row)
+    })?;
     row.NlMtu = mtu;
     // SetIpInterfaceEntry refuses an IPv4 row that carries a site prefix.
     row.SitePrefixLength = 0;
-    check("set the tunnel MTU", unsafe { SetIpInterfaceEntry(&mut row) })
+    check("set the tunnel MTU", unsafe {
+        SetIpInterfaceEntry(&mut row)
+    })
 }
 
-fn add_route(destination: Ipv4Addr, length: u8, index: u32, next_hop: Ipv4Addr) -> Result<(), String> {
+pub(crate) fn add_route(
+    destination: Ipv4Addr,
+    length: u8,
+    index: u32,
+    next_hop: Ipv4Addr,
+) -> Result<(), String> {
     let mut row = MIB_IPFORWARD_ROW2::default();
     unsafe { InitializeIpForwardEntry(&mut row) };
     row.InterfaceIndex = index;
@@ -196,8 +209,81 @@ fn add_route(destination: Ipv4Addr, length: u8, index: u32, next_hop: Ipv4Addr) 
     )
 }
 
+/// Removes the route to `destination`/`length` on interface `index`, if any.
+pub(crate) fn delete_route(destination: Ipv4Addr, length: u8, index: u32) -> Result<(), String> {
+    for row in routes() {
+        if row.InterfaceIndex == index && prefix(&row) == Some((destination, length)) {
+            check(
+                &format!("remove the route to {destination}/{length}"),
+                unsafe { DeleteIpForwardEntry2(&row) },
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Packets in and out of interface `index` so far.
+pub(crate) fn traffic(index: u32) -> Option<u64> {
+    let mut row = MIB_IF_ROW2 {
+        InterfaceIndex: index,
+        ..Default::default()
+    };
+    (unsafe { GetIfEntry2(&mut row) } == NO_ERROR).then(|| row.InOctets.wrapping_add(row.OutOctets))
+}
+
+/// Whether an established TCP connection has `address`, the tunnel's own,
+/// as its local end: one going through the tunnel, such as an open SSH.
+pub(crate) fn has_connections(address: Ipv4Addr) -> bool {
+    let mut size = 0u32;
+    unsafe { GetTcpTable(None, &mut size, false) };
+    // The table may grow between asking its size and reading it.
+    for _ in 0..3 {
+        // u32 cells keep the table's alignment.
+        let mut buffer = vec![0u32; (size as usize).div_ceil(4).max(1)];
+        let table = buffer.as_mut_ptr().cast::<MIB_TCPTABLE>();
+        let result = unsafe { GetTcpTable(Some(table), &mut size, false) };
+        if result == ERROR_INSUFFICIENT_BUFFER.0 {
+            continue;
+        }
+        if result != NO_ERROR.0 {
+            return false;
+        }
+        let rows = unsafe {
+            std::slice::from_raw_parts((*table).table.as_ptr(), (*table).dwNumEntries as usize)
+        };
+        return rows.iter().any(|row| {
+            let state = unsafe { row.Anonymous.State };
+            state == MIB_TCP_STATE_ESTAB
+                // The address is in network byte order.
+                && Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()) == address
+        });
+    }
+    false
+}
+
+/// `IP_UNICAST_IF`: the socket's packets leave through `index` only. For
+/// IPv4 the index goes in network byte order.
+pub(crate) fn bind_to_interface(socket: &socket2::Socket, index: u32) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawSocket;
+    let value = index.to_be().to_ne_bytes();
+    let result = unsafe {
+        setsockopt(
+            SOCKET(socket.as_raw_socket() as usize),
+            IPPROTO_IP.0,
+            IP_UNICAST_IF,
+            Some(&value),
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 fn set_resolvers() -> Result<(), String> {
-    let text = |error: windows_registry::Result<()>| error.map_err(|error| format!("NRPT rule: {error}"));
+    let text =
+        |error: windows_registry::Result<()>| error.map_err(|error| format!("NRPT rule: {error}"));
     let key = windows_registry::LOCAL_MACHINE
         .create(NRPT_KEY)
         .map_err(|error| format!("NRPT rule: {error}"))?;
@@ -264,7 +350,10 @@ fn ipv4(address: &SOCKADDR_INET) -> Option<Ipv4Addr> {
 fn check(what: &str, result: WIN32_ERROR) -> Result<(), String> {
     match result {
         NO_ERROR | ERROR_OBJECT_ALREADY_EXISTS => Ok(()),
-        error => Err(format!("{what}: {}", windows::core::Error::from(error.to_hresult()))),
+        error => Err(format!(
+            "{what}: {}",
+            windows::core::Error::from(error.to_hresult())
+        )),
     }
 }
 
