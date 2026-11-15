@@ -57,6 +57,9 @@ fn build_widget_bridge() {
     println!("cargo::rustc-link-search=native={}", out.display());
     println!("cargo::rustc-link-lib=static=isct_widget_bridge");
     println!("cargo::rustc-link-lib=framework=WidgetKit");
+    // The bridge loads the Swift runtime as @rpath/libswiftCore.dylib; macOS
+    // keeps it in /usr/lib/swift, which no rpath of the binary names otherwise.
+    println!("cargo::rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 }
 
 // Native controls and the Windows print queue use the shared UI catalogs

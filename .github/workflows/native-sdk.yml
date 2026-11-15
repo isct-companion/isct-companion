@@ -7,11 +7,17 @@ on:
     paths:
       - apps/android/**
       - apps/ios/**
+      - apps/apple-widgets/Extension/**
+      - apps/apple-widgets/Privacy/**
       - crates/**
       - bindings/**
       - scripts/bindings/**
+      - resources/locales/**
+      - resources/otp-guide/**
       - Cargo.toml
       - Cargo.lock
+      - rust-toolchain.toml
+      - package.json
       - .github/workflows/native-sdk.yml
   # Only main saves the SDK caches (see platform-checks.yml), and pull
   # requests never run on main: this weekly run saves them, an hour after
@@ -30,8 +36,47 @@ env:
   ISCT_SDK_PROFILE: dev
 
 jobs:
+  route:
+    name: Route native SDK checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ios: ${{ steps.route.outputs.ios }}
+      android: ${{ steps.route.outputs.android }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: route
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            printf '%s\n' ios=true android=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The first parent is the base of the same merge commit the SDK jobs build.
+          git diff --name-only --no-renames -z HEAD^1 HEAD | {
+            ios=false
+            android=false
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                apps/android/*) android=true ;;
+                apps/ios/*|apps/apple-widgets/Extension/*|apps/apple-widgets/Privacy/*) ios=true ;;
+                crates/*|bindings/*|scripts/bindings/*|resources/locales/*|resources/otp-guide/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|package.json|.github/workflows/native-sdk.yml)
+                  ios=true
+                  android=true
+                  ;;
+              esac
+            done
+            printf '%s\n' "ios=$ios" "android=$android"
+          } >> "$GITHUB_OUTPUT"
+
   ios:
     name: Swift SDK and iOS Simulator
+    needs: route
+    if: needs.route.outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 50
     steps:
@@ -93,6 +138,8 @@ jobs:
 
   android:
     name: Android AAR and emulator
+    needs: route
+    if: needs.route.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
