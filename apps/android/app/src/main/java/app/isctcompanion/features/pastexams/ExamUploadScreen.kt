@@ -97,16 +97,16 @@ internal suspend fun AppModel.examUploadStatus(): ExamUploadStatus? = try {
 @Composable
 internal fun ExamUploadProgress(status: ExamUploadStatus?, sending: Boolean) {
     val phase = status?.phase
-    val key = when (phase) {
-        ExamUploadPhase.PREPARING -> "preparing"
-        ExamUploadPhase.TRANSFERRING -> "transferring"
-        ExamUploadPhase.REGISTERING -> "registering"
-        ExamUploadPhase.CLEANING -> "cleaning"
-        ExamUploadPhase.PENDING -> "pending"
-        else -> if (sending) "preparing" else return
+    val label = when (phase) {
+        ExamUploadPhase.PREPARING -> t("examShare.upload.preparing")
+        ExamUploadPhase.TRANSFERRING -> t("examShare.upload.transferring")
+        ExamUploadPhase.REGISTERING -> t("examShare.upload.registering")
+        ExamUploadPhase.CLEANING -> t("examShare.upload.cleaning")
+        ExamUploadPhase.PENDING -> t("examShare.upload.pending")
+        else -> if (sending) t("examShare.upload.preparing") else return
     }
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(t("examShare.upload.$key"), color = Theme.colors.muted)
+        Text(label, color = Theme.colors.muted)
         if (sending) {
             if (phase == ExamUploadPhase.TRANSFERRING && status != null && status.total > 0u) {
                 val progress = (status.sent.toFloat() / status.total.toFloat()).coerceIn(0f, 1f)
@@ -344,8 +344,8 @@ internal fun ExamUploadScreen(
                 }
                 if (draft.newTeachers.size < 40) item {
                     SectionLabel(t("examShare.upload.newTeacher"))
-                    UploadField("familyName", familyName, canEdit, 100) { familyName = it }
-                    UploadField("givenName", givenName, canEdit, 100) { givenName = it }
+                    UploadField("examShare.upload.familyName", familyName, canEdit, 100) { familyName = it }
+                    UploadField("examShare.upload.givenName", givenName, canEdit, 100) { givenName = it }
                     TextButton(enabled = canEdit && familyName.isNotBlank(), onClick = {
                         draft = draft.copy(newTeachers = draft.newTeachers + ExamNewTeacher(familyName.trim(), givenName.trim()))
                         familyName = ""
@@ -353,7 +353,7 @@ internal fun ExamUploadScreen(
                     }) { Text(t("common.add")) }
                 }
                 item {
-                    UploadChoice("examShare.upload.role", draft.role, uploadRoles, "examShare.role", canEdit) { role ->
+                    UploadChoice("examShare.upload.role", draft.role, uploadRoles.map { it to t("examShare.role.$it") }, canEdit) { role ->
                         val kind = when {
                             role == "notes" || role == "other" -> "none"
                             draft.occasion == "none" -> "unknown"
@@ -367,7 +367,7 @@ internal fun ExamUploadScreen(
                         enabled = canEdit, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
                         label = { Text(t("examShare.year")) }, modifier = Modifier.fillMaxWidth())
                     if (!nonExam) {
-                        UploadChoice("examShare.occasion", draft.occasion, uploadOccasions, "examShare.occasion", canEdit) {
+                        UploadChoice("examShare.occasion", draft.occasion, uploadOccasions.map { it to t("examShare.occasion.$it") }, canEdit) {
                             draft = draft.copy(occasion = it)
                             if (it !in numberedOccasions) number = "0"
                         }
@@ -375,14 +375,21 @@ internal fun ExamUploadScreen(
                     if (numbered) OutlinedTextField(number, { number = it.filter { digit -> digit in '0'..'9' }.take(2) },
                         enabled = canEdit, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
                         label = { Text(t("examShare.upload.occasionNumber")) }, modifier = Modifier.fillMaxWidth())
-                    UploadChoice("examShare.upload.provenance", draft.provenance, listOf("original", "reconstructed"), "examShare.upload", canEdit) {
+                    UploadChoice("examShare.upload.provenance", draft.provenance, listOf(
+                        "original" to t("examShare.upload.original"),
+                        "reconstructed" to t("examShare.upload.reconstructed"),
+                    ), canEdit) {
                         draft = draft.copy(provenance = it)
                     }
-                    if (hasAnswers) UploadChoice("examShare.upload.answerSource", draft.answerSource ?: "unknown", listOf("official", "student", "unknown"), "examShare.upload", canEdit) {
+                    if (hasAnswers) UploadChoice("examShare.upload.answerSource", draft.answerSource ?: "unknown", listOf(
+                        "official" to t("examShare.upload.official"),
+                        "student" to t("examShare.upload.student"),
+                        "unknown" to t("examShare.upload.unknown"),
+                    ), canEdit) {
                         draft = draft.copy(answerSource = it)
                     }
-                    UploadField("variant", draft.variant, canEdit, 100) { draft = draft.copy(variant = it) }
-                    UploadField("note", draft.note, canEdit, 40) { draft = draft.copy(note = it) }
+                    UploadField("examShare.upload.variant", draft.variant, canEdit, 100) { draft = draft.copy(variant = it) }
+                    UploadField("examShare.upload.note", draft.note, canEdit, 40) { draft = draft.copy(note = it) }
                 }
             }
             Column(
@@ -430,19 +437,19 @@ internal fun ExamUploadScreen(
 @Composable
 private fun UploadField(field: String, value: String, enabled: Boolean, limit: Int, update: (String) -> Unit) {
     OutlinedTextField(value, { update(it.take(limit)) }, enabled = enabled, singleLine = true,
-        label = { Text(t("examShare.upload.$field")) }, modifier = Modifier.fillMaxWidth())
+        label = { Text(t(field)) }, modifier = Modifier.fillMaxWidth())
 }
 
 @Composable
-private fun UploadChoice(label: String, value: String, choices: List<String>, prefix: String, enabled: Boolean, pick: (String) -> Unit) {
+private fun UploadChoice(label: String, value: String, choices: List<Pair<String, String>>, enabled: Boolean, pick: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
         Text(t(label))
         Box {
-            TextButton(enabled = enabled, onClick = { menu = true }) { Text(t("$prefix.$value")) }
+            TextButton(enabled = enabled, onClick = { menu = true }) { Text(choices.firstOrNull { it.first == value }?.second ?: value) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                choices.forEach { choice ->
-                    DropdownMenuItem(text = { Text(t("$prefix.$choice")) }, onClick = { menu = false; pick(choice) })
+                choices.forEach { (choice, text) ->
+                    DropdownMenuItem(text = { Text(text) }, onClick = { menu = false; pick(choice) })
                 }
             }
         }
