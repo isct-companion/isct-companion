@@ -517,13 +517,13 @@ fn project_lms_timetable(
                 offering,
                 &id,
                 first_term,
-                crate::workspace::workspace_content_locale(workspace),
+                crate::locale::ContentLanguage::of(workspace),
                 teaching,
             )?
         } else {
             json!({"id":id,"kind":"course","termId":first_term,
                 "code":lms_course_code(text(lms,"shortname")),
-                "title":crate::schedule::localized(Some(&lms["title"]), "ja", ""),
+                "title":crate::locale::pick(Some(&lms["title"]), crate::locale::ContentLanguage::Ja).unwrap_or_default(),
                 "names":{"title":lms["title"],"instructor":{}},"instructor":"",
                 "credits":0,"creditSplit":{"lecture":0,"exercise":0,"lab":0},
                 "instructionLanguage":"other","color":"#526e91","meetings":[],"url":lms["url"]})
@@ -567,7 +567,7 @@ fn project_lms_timetable(
                                 offering,
                                 &id,
                                 term,
-                                crate::workspace::workspace_content_locale(workspace),
+                                crate::locale::ContentLanguage::of(workspace),
                                 teaching,
                             )
                         })

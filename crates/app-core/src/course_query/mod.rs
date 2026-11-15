@@ -4,6 +4,7 @@
 mod contracts;
 pub use contracts::*;
 
+use crate::locale::{pick, ContentLanguage, Localized};
 use crate::workspace_changes::WorkspaceChange;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -80,12 +81,47 @@ pub struct Recommendation {
 #[serde(rename_all = "camelCase")]
 pub struct FinderDepartment {
     pub id: String,
-    pub name: BTreeMap<String, String>,
+    /// Its name in the content language.
+    pub name: String,
     pub unit_code: String,
     #[serde(default)]
     pub code_prefix: String,
     #[serde(default)]
     pub scope: Option<String>,
+    /// Both names, either of which a typed word may name.
+    #[serde(skip)]
+    pub(crate) names: Localized,
+}
+/// One department as the syllabus lists it (`departments.json`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SyllabusDepartment {
+    pub id: String,
+    pub name: Localized,
+    pub unit_code: String,
+    #[serde(default)]
+    pub code_prefix: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+impl SyllabusDepartment {
+    pub(crate) fn all() -> Result<Vec<Self>, serde_json::Error> {
+        serde_json::from_str(include_str!("departments.json"))
+    }
+    fn shown(self, language: ContentLanguage) -> FinderDepartment {
+        let name = self
+            .name
+            .pick(language)
+            .map_or_else(|| self.id.clone(), str::to_owned);
+        FinderDepartment {
+            id: self.id,
+            name,
+            unit_code: self.unit_code,
+            code_prefix: self.code_prefix,
+            scope: self.scope,
+            names: self.name,
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -415,15 +451,12 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
     }
     if let Some(d) = ctx.departments.iter().find(|d| {
         std::iter::once(&d.id)
-            .chain(d.name.values())
+            .chain(&d.names.ja)
+            .chain(&d.names.en)
             .any(|v| lower(v) == lw)
     }) {
-        let key = d.name.get("ja").unwrap_or(&d.id);
-        let label = d
-            .name
-            .get("ja")
-            .or_else(|| d.name.get("en"))
-            .unwrap_or(&d.id);
+        let key = d.names.ja.as_ref().unwrap_or(&d.id);
+        let label = d.names.ja.as_ref().or(d.names.en.as_ref()).unwrap_or(&d.id);
         return make("dept", key, label, json!(d.unit_code));
     }
     make("text", w, w, json!(lw))
@@ -541,18 +574,56 @@ pub fn clashing_courses(course: &Value, placed: &[Value]) -> Vec<Value> {
         .cloned()
         .collect()
 }
-/// A catalog row with the lowercase text a typed word is looked up in,
+/// A catalog row as the finder lists it, its names in the content language,
+/// with the lowercase text of both languages a typed word is looked up in,
 /// built once per catalog rather than per search.
 pub struct IndexedCourse {
     pub course: Arc<Value>,
     haystack: String,
+    teachers: Vec<String>,
+    rooms: Vec<String>,
 }
 impl IndexedCourse {
-    pub fn new(course: Value) -> Self {
+    pub fn new(mut course: Value, language: ContentLanguage) -> Self {
         let haystack = searchable(&course);
+        let both = |names: &[&Value]| {
+            names
+                .iter()
+                .flat_map(|name| ["ja", "en"].map(|lang| lower(text(name, lang))))
+                .filter(|name| !name.is_empty())
+                .collect::<Vec<String>>()
+        };
+        let teachers = both(&array(&course, "instructors").iter().collect::<Vec<_>>());
+        let rooms = both(
+            &array(&course, "schedule")
+                .iter()
+                .filter_map(|slot| slot.get("room"))
+                .collect::<Vec<_>>(),
+        );
+        let title = pick(course.get("title"), language)
+            .unwrap_or_default()
+            .to_owned();
+        course["title"] = title.into();
+        let instructors: Vec<Value> = array(&course, "instructors")
+            .iter()
+            .filter_map(|name| pick(Some(name), language))
+            .map(Value::from)
+            .collect();
+        course["instructors"] = instructors.into();
+        for slot in course["schedule"].as_array_mut().into_iter().flatten() {
+            let room = pick(slot.get("room"), language).map(str::to_owned);
+            if let Some(slot) = slot.as_object_mut() {
+                match room {
+                    Some(room) => slot.insert("room".into(), room.into()),
+                    None => slot.remove("room"),
+                };
+            }
+        }
         Self {
             course: Arc::new(course),
             haystack,
+            teachers,
+            rooms,
         }
     }
 }
@@ -600,26 +671,12 @@ fn hit(indexed: &IndexedCourse, c: &Condition, ctx: &FinderContext) -> bool {
             });
     }
     c.values.iter().any(|v| match c.r#type.as_str() {
-        "teacher" => v.as_str().is_some_and(|needle| {
-            array(course, "instructors").iter().any(|name| {
-                ["ja", "en"]
-                    .iter()
-                    .any(|lang| lower(text(name, lang)).contains(needle))
-            })
-        }),
-        "room" => v.as_str().is_some_and(|needle| {
-            array(course, "schedule").iter().any(|slot| {
-                ["ja", "en"].iter().any(|lang| {
-                    lower(
-                        slot.get("room")
-                            .and_then(|r| r.get(*lang))
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                    )
-                    .contains(needle)
-                })
-            })
-        }),
+        "teacher" => v
+            .as_str()
+            .is_some_and(|needle| indexed.teachers.iter().any(|name| name.contains(needle))),
+        "room" => v
+            .as_str()
+            .is_some_and(|needle| indexed.rooms.iter().any(|room| room.contains(needle))),
         "quarter" => array(course, "quarters").contains(&json!(format!("{}Q", v))),
         "time" => weekly(course).any(|s| {
             (v.get("day").is_none() || v.get("day") == s.get("day"))
@@ -858,14 +915,12 @@ fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
     ));
     for d in &ctx.departments {
         out.push((
-            d.name.get("ja").unwrap_or(&d.id).clone(),
-            std::iter::once(d.id.clone())
-                .chain(
-                    ["ja", "en"]
-                        .iter()
-                        .filter_map(|key| d.name.get(*key).cloned()),
-                )
+            d.names.ja.as_ref().unwrap_or(&d.id).clone(),
+            std::iter::once(&d.id)
+                .chain(&d.names.ja)
+                .chain(&d.names.en)
                 .filter(|v| !v.is_empty())
+                .cloned()
                 .collect(),
         ));
     }
@@ -1178,12 +1233,10 @@ pub enum FinderError {
 }
 
 pub fn department_name_ja(id: &str) -> Result<Option<String>, serde_json::Error> {
-    let departments: Vec<FinderDepartment> =
-        serde_json::from_str(include_str!("departments.json"))?;
-    Ok(departments
+    Ok(SyllabusDepartment::all()?
         .into_iter()
         .find(|department| department.id == id || id.ends_with(&format!(":{}", department.id)))
-        .and_then(|department| department.name.get("ja").cloned()))
+        .and_then(|department| department.name.ja))
 }
 
 /// One year's stored catalog prepared for the finder: the rows it can list,
@@ -1192,6 +1245,7 @@ pub fn department_name_ja(id: &str) -> Result<Option<String>, serde_json::Error>
 pub struct FinderCatalog {
     courses: Vec<IndexedCourse>,
     guide: Vec<GuideRow>,
+    language: ContentLanguage,
 }
 struct GuideRow {
     year: Option<u64>,
@@ -1200,7 +1254,7 @@ struct GuideRow {
     mark: Option<String>,
 }
 impl FinderCatalog {
-    pub fn new(offerings: Vec<Value>, language: &str) -> Self {
+    pub fn new(offerings: Vec<Value>, language: ContentLanguage) -> Self {
         let guide = offerings
             .iter()
             .filter_map(|r| {
@@ -1224,12 +1278,16 @@ impl FinderCatalog {
             .into_iter()
             .filter_map(normalize_offering)
             .map(|mut course| {
-                let url = crate::catalog::syllabus_url(text(&course, "id"), language);
+                let url = crate::catalog::syllabus_url(text(&course, "id"), language.code());
                 course["syllabusUrl"] = url.into();
-                IndexedCourse::new(course)
+                IndexedCourse::new(course, language)
             })
             .collect();
-        Self { courses, guide }
+        Self {
+            courses,
+            guide,
+            language,
+        }
     }
 }
 
@@ -1396,7 +1454,7 @@ pub struct FinderCache {
     catalog: Mutex<Option<CatalogEntry>>,
     personal: Mutex<Option<PersonalEntry>>,
 }
-type CatalogEntry = ((u16, u64, String), Arc<FinderCatalog>);
+type CatalogEntry = ((u16, u64, ContentLanguage), Arc<FinderCatalog>);
 type PersonalEntry = (Arc<FinderCatalog>, (String, String), Arc<FinderPersonal>);
 impl FinderCache {
     pub fn page(
@@ -1431,11 +1489,7 @@ impl FinderCache {
         // rows: a commit in between moves it again, so newer rows are never
         // kept under an older version.
         let version = store.catalog_version();
-        let key = (
-            year,
-            version,
-            crate::schedule::content_language(workspace).to_string(),
-        );
+        let key = (year, version, ContentLanguage::of(workspace));
         if let Some((_, catalog)) = entry.as_ref().filter(|(k, _)| *k == key) {
             return Ok((version, catalog.clone()));
         }
@@ -1446,7 +1500,7 @@ impl FinderCache {
                 FinderError::InvalidInput(message)
             }
         })?;
-        let catalog = Arc::new(FinderCatalog::new(offerings, &key.2));
+        let catalog = Arc::new(FinderCatalog::new(offerings, key.2));
         *entry = Some((key, catalog.clone()));
         Ok((version, catalog))
     }
@@ -1517,7 +1571,7 @@ pub fn finder_page(
     request: FinderRequest,
 ) -> Result<FinderPage, FinderError> {
     validate(&request)?;
-    let catalog = FinderCatalog::new(offerings, crate::schedule::content_language(workspace));
+    let catalog = FinderCatalog::new(offerings, ContentLanguage::of(workspace));
     let personal = FinderPersonal::new(workspace, &catalog, request.year, &request.term)?;
     let options = parse_options(workspace.get("kyomuSearchOptions"))?;
     page(&catalog, &personal, options, request, (0, ""))
@@ -1530,8 +1584,10 @@ fn page(
     request: FinderRequest,
     (catalog_version, content_revision): (u64, &str),
 ) -> Result<FinderPage, FinderError> {
-    let departments: Vec<FinderDepartment> =
-        serde_json::from_str(include_str!("departments.json"))?;
+    let departments = SyllabusDepartment::all()?
+        .into_iter()
+        .map(|department| department.shown(catalog.language))
+        .collect();
     let ctx = FinderContext {
         current_quarter: personal.current_quarter,
         recommended: personal.recommended.clone(),

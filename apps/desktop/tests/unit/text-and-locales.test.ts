@@ -7,17 +7,14 @@ import { EMPTY_WORKSPACE } from "@app/generated/persistence";
 import {
   LMS_BACKGROUND_REFRESH_TASK_ID,
   REFERENCE_REFRESH_TASK_ID,
-  contentLanguage,
-  pickLocalized,
   seedWorkspace,
 } from "@app/lib/model";
 import { decodeEntities } from "@app/lib/text";
 import { readRepoFile, repositoryRoot } from "@tests/harness";
 
 /**
- * School text arrives escaped, is published in a Japanese/English pair that the
- * UI language does not always decide, and the workspace starts from Core's
- * defaults plus launch-local identity. The Chinese catalogue is checked against
+ * School text arrives escaped (Core picks its language), and the workspace
+ * starts from Core's defaults plus launch-local identity. The Chinese catalogue is checked against
  * the Japanese one because it is a translation of it, not a second source.
  */
 
@@ -217,67 +214,6 @@ describe("HTML entities in school text", () => {
 
   it("leaves numeric references outside the Unicode range untouched", () => {
     expect(decodeEntities("&#0; &#x110000;")).toBe("&#0; &#x110000;");
-  });
-});
-
-describe("localized school text selection", () => {
-  it("returns the published text for the selected UI language", () => {
-    const both = { ja: "日本語", en: "English" };
-    expect(pickLocalized(both, "ja")).toBe("日本語");
-    expect(pickLocalized(both, "en")).toBe("English");
-  });
-
-  it("treats a Chinese UI as Japanese-first for school text", () => {
-    expect(pickLocalized({ ja: "日本語", en: "English" }, "zh")).toBe("日本語");
-  });
-
-  it("prefers English for a UI language that is neither Japanese nor Chinese", () => {
-    expect(pickLocalized({ ja: "日本語", en: "English" }, "fr")).toBe(
-      "English",
-    );
-  });
-
-  it("falls back to the other published language rather than inventing a translation", () => {
-    expect(pickLocalized({ ja: "日本語" }, "en")).toBe("日本語");
-    expect(pickLocalized({ en: "English" }, "zh")).toBe("English");
-  });
-
-  it("returns the caller's fallback when nothing is published", () => {
-    expect(pickLocalized({}, "en", "Fallback")).toBe("Fallback");
-    expect(pickLocalized(undefined, "en", "Fallback")).toBe("Fallback");
-    expect(pickLocalized(undefined, "en")).toBe("");
-  });
-
-  it("skips blank published strings and trims the text it returns", () => {
-    expect(pickLocalized({ ja: "   ", en: "English" }, "ja")).toBe("English");
-    expect(pickLocalized({ ja: " 日本語 " }, "ja")).toBe("日本語");
-  });
-});
-
-describe("school content language", () => {
-  it("follows the UI language when no explicit preference is stored", () => {
-    expect(contentLanguage({ locale: "ja" })).toBe("ja");
-    expect(contentLanguage({ locale: "en" })).toBe("en");
-    expect(contentLanguage({ locale: "zh" })).toBe("ja");
-  });
-
-  it("honours an explicit preference over the UI language", () => {
-    expect(contentLanguage({ locale: "zh", contentLanguage: "en" })).toBe("en");
-    expect(contentLanguage({ locale: "zh", contentLanguage: "ja" })).toBe("ja");
-    expect(contentLanguage({ locale: "en", contentLanguage: "ja" })).toBe("ja");
-    expect(contentLanguage({ locale: "ja", contentLanguage: "en" })).toBe("en");
-  });
-
-  it("treats an explicit auto as the UI-derived default", () => {
-    expect(contentLanguage({ locale: "zh", contentLanguage: "auto" })).toBe(
-      "ja",
-    );
-    expect(contentLanguage({ locale: "en", contentLanguage: "auto" })).toBe(
-      "en",
-    );
-    expect(contentLanguage({ locale: "ja", contentLanguage: "auto" })).toBe(
-      "ja",
-    );
   });
 });
 

@@ -2222,7 +2222,8 @@ fn load_inputs(
         .pointer("/settings/subscriptionRefresh/allowCellular")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let english = crate::schedule::content_language(&workspace) == "en";
+    let english =
+        crate::locale::ContentLanguage::of(&workspace) == crate::locale::ContentLanguage::En;
     let year = crate::reference_refresh::academic_year(&workspace)
         .and_then(|year| u16::try_from(year).ok());
     let science_configured = auth.configured(SchoolAuthProfile::Science);

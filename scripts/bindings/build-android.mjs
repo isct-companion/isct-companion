@@ -49,8 +49,10 @@ const assemble = process.argv.includes("--assemble-debug");
 const emulator = process.argv.includes("--with-emulator");
 const profile = process.env.ISCT_SDK_PROFILE ?? "release";
 const ocr = !process.argv.includes("--no-ocr");
-const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr });
-const targetFeatures = sdkFeatureArgs({ ocr });
+// The bindings are generated from the same features the library has, so the
+// campus map's records and calls are in the Kotlin SDK.
+const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr, campusMap: true });
+const targetFeatures = sdkFeatureArgs({ ocr, campusMap: true });
 run("cargo", [
   "build",
   "-p",

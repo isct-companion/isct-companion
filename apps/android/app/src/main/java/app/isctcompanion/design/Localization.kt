@@ -75,18 +75,6 @@ object Localizer {
     fun lookup(key: String, values: Array<out Pair<String, Any>>): String? = catalog?.lookup(key, values)
     fun string(key: String, values: Array<out Pair<String, Any>>): String = lookup(key, values) ?: key
     val locale: Locale get() = catalog?.locale ?: Locale.UK
-
-    /** School text in the content language: `settings.contentLanguage`, or on
-     * automatic the UI language (`zh` reads Japanese), as the desktop's
-     * `contentLanguage` and `pickLocalized`. The other language fills a gap. */
-    fun pick(value: Map<String, String>, settings: JSONObject): String? {
-        val chosen = settings.optString("contentLanguage")
-        val first = chosen.takeIf { it == "ja" || it == "en" } ?: if (language == "en") "en" else "ja"
-        val order = if (first == "en") listOf("en", "ja") else listOf("ja", "en")
-        return order.firstNotNullOfOrNull { value[it]?.ifEmpty { null } }
-    }
-
-
 }
 
 /** The UI string for a catalog key, with `{{name}}` placeholders filled. */

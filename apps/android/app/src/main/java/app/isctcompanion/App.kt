@@ -97,6 +97,7 @@ import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.lectures.LecturesScreen
+import app.isctcompanion.features.map.CampusMapScreen
 import app.isctcompanion.features.settings.SettingsScreen
 import app.isctcompanion.features.settings.UpdatePrompt
 import app.isctcompanion.features.settings.WelcomeSheet
@@ -227,6 +228,9 @@ class Navigator(private val controller: NavHostController) {
 
     fun openRecord() = controller.navigate("record")
 
+    /** Opens the campus map full screen, on a room string or on none to browse. */
+    fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
+
     /** The account page 設定 should open on, taken (and cleared) by it. */
     var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
 
@@ -337,8 +341,9 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
         // Folded while on 授業, which the phone's bar has no tab for.
         if (!wide && current == AppTab.Lectures) navigator.openTab(AppTab.Today.route)
     }
-    // A pushed school page fills the screen, like a browser tab.
-    val showsBar = destination?.route?.startsWith("page/") != true
+    // A pushed school page fills the screen, like a browser tab; so does the
+    // campus map.
+    val showsBar = destination?.route?.let { it.startsWith("page/") || it.startsWith("map?") } != true
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
@@ -432,6 +437,9 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 }
                 destination("assignments") { AssignmentListScreen() }
                 destination("record") { RecordScreen() }
+                destination("map?room={room}", listOf(navArgument("room") { type = NavType.StringType; defaultValue = "" })) {
+                    CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
+                }
                 destination(
                     "page/{site}?target={target}&title={title}",
                     listOf(

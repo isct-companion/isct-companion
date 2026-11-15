@@ -139,6 +139,11 @@ dependencies {
     // (the bundled ML Kit adds about 5 MB of native code per ABI).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
+    constraints {
+        implementation("com.google.firebase:firebase-components:18.0.1") {
+            because("This release keeps the registrar constructors that ML Kit calls by reflection")
+        }
+    }
     // The Matrix letter model's runtime. Core opens its native library through
     // the TFLite C API (crates/app-ocr/src/engine/letters/litert.rs); bundled,
     // not the Play services build, so phones without Google services read the
@@ -148,6 +153,10 @@ dependencies {
     implementation("com.google.ai.edge.litert:litert:2.3.2") {
         exclude(group = "com.google.ai.edge.litert", module = "litert-api")
     }
+    // The campus map's drawing surface (features/map): MapLibre over
+    // OpenFreeMap's tiles, which need no key and no Google Play services.
+    // 11.x is the API the map view is written against.
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
     // Google Drive: the authorization API hands Core drive.appdata tokens.
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")

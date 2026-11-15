@@ -16,10 +16,11 @@ use super::calendar::{quarter_range, teaching_week};
 use super::reminders::reminder_term;
 use super::tasks::{countdown_tone, task_view, AssignmentGroups};
 use super::{
-    array, assignment_submitted, calendar_between, content_language, display_color,
-    parse_civil_date, teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind,
-    ScheduleError, TeachingPeriod,
+    array, assignment_submitted, calendar_between, display_color, parse_civil_date,
+    teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind, ScheduleError,
+    TeachingPeriod,
 };
+use crate::locale::ContentLanguage;
 
 /// Classes the Today stack previews: the next one and two after it.
 const UPCOMING_CLASSES: usize = 3;
@@ -297,9 +298,9 @@ fn material_item(workspace: &Value, row: &Value, date: &str) -> Option<MaterialI
                 .get("sectionNumber")
                 .and_then(Value::as_i64)
                 .or_else(|| row.get("session").and_then(Value::as_i64))?;
-            Some(match content_language(workspace) {
-                "ja" => format!("第{number}回"),
-                _ => format!("Lesson {number}"),
+            Some(match ContentLanguage::of(workspace) {
+                ContentLanguage::Ja => format!("第{number}回"),
+                ContentLanguage::En => format!("Lesson {number}"),
             })
         }),
         url: text(row, "resourceUrl")

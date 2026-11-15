@@ -4,7 +4,7 @@
 use super::{
     array,
     calendar::academic_year_of,
-    calendar_between, content_language, parse_civil_date, parse_timestamp,
+    calendar_between, parse_civil_date, parse_timestamp,
     tasks::assignment_boundaries,
     teaching_periods,
     today::{at, class_moment, open_assignment_groups, timed_classes, LOOKAHEAD_DAYS},
@@ -475,7 +475,7 @@ pub(crate) fn project(
             .and_then(Value::as_str)
             .unwrap_or("en")
             .into(),
-        content_language: content_language(workspace).into(),
+        content_language: crate::locale::ContentLanguage::of(workspace).code().into(),
         school_time_zone: SCHOOL_TIME_ZONE,
         coverage_start: start.to_utc(),
         coverage_end: end.to_utc(),

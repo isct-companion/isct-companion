@@ -6,12 +6,7 @@ import { runsFor } from "../../platform/sync";
 import { notify as appNotify } from "../../app/notify";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { t, type MessageKey } from "../../i18n";
-import {
-  contentLanguage,
-  pickLocalized,
-  type CalendarException,
-  type Workspace,
-} from "../../lib/model";
+import type { CalendarException, Workspace } from "../../lib/model";
 import {
   useScheduleQuery,
   type AcademicYearIndex,
@@ -489,13 +484,7 @@ export function AcademicCalendarSettings({
                     ` – ${formatDay(row.endDate, locale)}`}
                 </time>
                 <span>
-                  <b>
-                    {pickLocalized(
-                      row.label,
-                      contentLanguage(data.settings),
-                      row.category,
-                    )}
-                  </b>
+                  <b>{row.label || row.category}</b>
                 </span>
               </div>
             ))

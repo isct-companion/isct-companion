@@ -6,9 +6,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::SchoolReads;
 use super::{
-    array, clock_for_periods, content_language, display_color, localized, teaching_periods,
-    term_courses, text, visible, OccurrenceKind, ScheduleError, TeachingPeriod,
+    array, clock_for_periods, display_color, teaching_periods, term_courses, text, visible,
+    OccurrenceKind, ScheduleError, TeachingPeriod,
 };
+use crate::locale::{pick, ContentLanguage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 #[cfg(feature = "ts")]
@@ -437,14 +438,15 @@ pub(crate) fn published_exam_views(
     school: &SchoolReads,
     term: &str,
 ) -> Vec<ExamView> {
-    let locale = content_language(workspace);
+    let language = ContentLanguage::of(workspace);
     let teaching = teaching_periods(workspace).unwrap_or_default();
     let courses = term_courses(workspace, term);
     let codes = course_code_keys(&courses);
     let orphans = Orphans::read(workspace, school);
     let mut result = Vec::new();
     for exam in school.exams.of(term) {
-        let mut view = source_view_with(workspace, exam, term, locale, &teaching, &courses, &codes);
+        let mut view =
+            source_view_with(workspace, exam, term, language, &teaching, &courses, &codes);
         let change = existing_override(workspace, &view.key)
             .or_else(|| orphans.adopted_by(workspace, school, exam, term));
         if let Some(change) = change {
@@ -756,7 +758,7 @@ fn source_view(workspace: &Value, exam: &Value, term: &str) -> ExamView {
         workspace,
         exam,
         term,
-        content_language(workspace),
+        ContentLanguage::of(workspace),
         &teaching,
         &courses,
         &course_code_keys(&courses),
@@ -779,7 +781,7 @@ fn source_view_with(
     workspace: &Value,
     exam: &Value,
     term: &str,
-    locale: &str,
+    language: ContentLanguage,
     teaching: &[TeachingPeriod],
     courses: &[&Value],
     codes: &[String],
@@ -805,7 +807,7 @@ fn source_view_with(
         date: text(exam, "date").unwrap_or_default().into(),
         start_time,
         end_time,
-        room: localized(exam.get("room"), locale, ""),
+        room: pick(exam.get("room"), language).unwrap_or_default().into(),
     };
     ExamView {
         id: id.into(),
@@ -821,23 +823,16 @@ fn source_view_with(
         course_id: course.and_then(|row| text(row, "id")).map(str::to_owned),
         auto_linked: course.is_some(),
         code: super::search::course_code_key(text(exam, "courseCode").unwrap_or_default()),
-        title: localized(
-            exam.get("label"),
-            locale,
-            course
-                .and_then(|row| text(row, "title"))
-                .unwrap_or_default(),
-        ),
+        title: pick(exam.get("label"), language)
+            .or_else(|| course.and_then(|row| text(row, "title")))
+            .unwrap_or_default()
+            .into(),
         date: source.date.clone(),
         start_time: source.start_time.clone(),
         end_time: source.end_time.clone(),
         periods,
         room: source.room.clone(),
-        notes: exam
-            .get("notes")
-            .filter(|value| !value.is_null())
-            .map(|value| localized(Some(value), locale, ""))
-            .filter(|value| !value.is_empty()),
+        notes: pick(exam.get("notes"), language).map(str::to_owned),
         color: course
             .map(display_color)
             .unwrap_or_else(|| "#c98245".into()),

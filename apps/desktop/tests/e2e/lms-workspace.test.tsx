@@ -639,11 +639,14 @@ describe("the LMS reading workspace", () => {
   it("filters bilingual school text by the content language, and shows the original on request", async () => {
     const f = lectureFixture();
     f.workspace.settings.locale = "en";
-    f.workspace.settings.contentLanguage = "ja";
     f.workspace.settings.lmsBilingualFilter = true;
     f.record.sections![0].bodyHtml =
       '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
-    const { host } = await openWorkspace(f, { entry: { request: 700 } });
+    // Core reads the content language from settings and names it here.
+    const { host } = await openWorkspace(f, {
+      entry: { request: 700 },
+      detail: { contentLanguage: "ja" },
+    });
 
     const body = () => host.querySelector(".lmsSectionBody")?.textContent ?? "";
     expect(body()).toContain("日本語の概要");
@@ -670,10 +673,12 @@ describe("the LMS reading workspace", () => {
     const english = async (bodyHtml: string) => {
       const f = lectureFixture();
       f.workspace.settings.locale = "en";
-      f.workspace.settings.contentLanguage = "en";
       f.workspace.settings.lmsBilingualFilter = true;
       f.record.sections![0].bodyHtml = bodyHtml;
-      const { host } = await openWorkspace(f, { entry: { request: 701 } });
+      const { host } = await openWorkspace(f, {
+        entry: { request: 701 },
+        detail: { contentLanguage: "en" },
+      });
       return host.querySelector(".lmsSectionBody")?.textContent ?? "";
     };
 
@@ -693,10 +698,12 @@ describe("the LMS reading workspace", () => {
     const only = async (bodyHtml: string, contentLanguage: "ja" | "en") => {
       const f = lectureFixture();
       f.workspace.settings.locale = "en";
-      f.workspace.settings.contentLanguage = contentLanguage;
       f.workspace.settings.lmsBilingualFilter = true;
       f.record.sections![0].bodyHtml = bodyHtml;
-      const { host } = await openWorkspace(f, { entry: { request: 702 } });
+      const { host } = await openWorkspace(f, {
+        entry: { request: 702 },
+        detail: { contentLanguage },
+      });
       return host.querySelector(".lmsSectionBody")?.textContent ?? "";
     };
 

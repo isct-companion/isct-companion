@@ -89,11 +89,61 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
         friday.calendar_notice.as_deref(),
         Some("No classes due to Campus Festival")
     );
+    // The day's calendar row reaches the shell with its label already read.
+    assert_eq!(
+        friday.calendar_state.as_ref().unwrap()["label"],
+        "No classes due to Campus Festival"
+    );
     assert!(
         occurrences_on_date(&data, "2026-3Q", "2026-10-09", AgendaOptions::default())
             .unwrap()
             .is_empty()
     );
+}
+
+/// `approach/content-language-in-core`: one rule picks every school text.
+#[test]
+fn school_text_reads_in_the_content_language_and_falls_back_to_the_other() {
+    use crate::locale::{pick, ContentLanguage};
+    // The setting decides; on automatic a Japanese or Chinese UI reads
+    // Japanese and any other UI English.
+    for (settings, expected) in [
+        (
+            json!({"contentLanguage":"en","locale":"ja"}),
+            ContentLanguage::En,
+        ),
+        (
+            json!({"contentLanguage":"ja","locale":"en"}),
+            ContentLanguage::Ja,
+        ),
+        (
+            json!({"contentLanguage":"auto","locale":"zh"}),
+            ContentLanguage::Ja,
+        ),
+        (json!({"locale":"ja"}), ContentLanguage::Ja),
+        (json!({"locale":"en"}), ContentLanguage::En),
+        (json!({}), ContentLanguage::En),
+    ] {
+        let workspace = json!({ "settings": settings });
+        assert_eq!(ContentLanguage::of(&workspace), expected, "{settings}");
+    }
+    let both = json!({"ja":"日本語","en":"English"});
+    assert_eq!(pick(Some(&both), ContentLanguage::Ja), Some("日本語"));
+    assert_eq!(pick(Some(&both), ContentLanguage::En), Some("English"));
+    // The other language fills a gap; blank text counts as missing, so it
+    // never hides the other language.
+    let japanese = json!({"ja":"日本語"});
+    assert_eq!(pick(Some(&japanese), ContentLanguage::En), Some("日本語"));
+    let blank = json!({"ja":"  ","en":"English"});
+    assert_eq!(pick(Some(&blank), ContentLanguage::Ja), Some("English"));
+    assert_eq!(pick(Some(&json!({"ja":""})), ContentLanguage::Ja), None);
+    assert_eq!(pick(None, ContentLanguage::Ja), None);
+    // A plain string is one language's text and reads as it is.
+    assert_eq!(
+        pick(Some(&json!("Lab trip")), ContentLanguage::Ja),
+        Some("Lab trip")
+    );
+    assert_eq!(pick(Some(&json!("")), ContentLanguage::Ja), None);
 }
 
 #[test]

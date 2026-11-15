@@ -43,7 +43,6 @@ pub use calendar::{
     CalendarDayView, QuarterRange, QuarterView, TeachingRange, TimetableQuarter, TimetableWeek,
     TimetableYear,
 };
-pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, japan_today, parse_civil_date, tokyo_date, Term};
 pub(crate) use colors::is_hex_color;
 pub use colors::{display_color, event_color, COURSE_PALETTE};

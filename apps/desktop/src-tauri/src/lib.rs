@@ -395,7 +395,7 @@ pub fn run() {
                 vault,
                 app.path()
                     .app_data_dir()?
-                    .join("school-credential-status.json"),
+                    .join(secrets::SCHOOL_STATUS_FILE),
             )));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),

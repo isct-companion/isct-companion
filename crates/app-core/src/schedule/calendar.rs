@@ -8,6 +8,7 @@ use ts_rs::TS;
 use chrono::{Datelike, Duration, NaiveDate};
 
 use super::{add_days, array, parse_civil_date, text, visible, ScheduleError, Term};
+use crate::locale::{pick, ContentLanguage};
 
 const QUARTERS: [&str; 4] = ["1Q", "2Q", "3Q", "4Q"];
 const DAY_TYPES: [&str; 4] = ["holiday", "no-class", "replacement", "break"];
@@ -187,8 +188,10 @@ pub fn timetable_year(workspace: &Value, year: i32) -> Result<TimetableYear, Sch
     })
 }
 
+/// The exception or official calendar row for `date`, its label in the
+/// content language.
 pub fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
-    array(workspace, "exceptions")
+    let row = array(workspace, "exceptions")
         .iter()
         .find(|row| visible(row) && text(row, "date") == Some(date))
         .or_else(|| {
@@ -197,8 +200,19 @@ pub fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
                     && text(row, "date") == Some(date)
                     && text(row, "type").is_some_and(|kind| DAY_TYPES.contains(&kind))
             })
-        })
-        .cloned()
+        })?;
+    Some(shown_label(row, ContentLanguage::of(workspace)))
+}
+
+/// A calendar row as a read model shows it: `label` in `language`, empty
+/// when the row has none.
+pub(super) fn shown_label(row: &Value, language: ContentLanguage) -> Value {
+    let mut row = row.clone();
+    let label = pick(row.get("label"), language)
+        .unwrap_or_default()
+        .to_owned();
+    row["label"] = label.into();
+    row
 }
 
 pub(crate) fn quarter_range(
@@ -313,7 +327,7 @@ pub fn academic_year_calendar(
     if !(1900..=9999).contains(&year) {
         return Err(ScheduleError::InvalidInput("Invalid academic year.".into()));
     }
-    let locale = content_language(workspace);
+    let language = ContentLanguage::of(workspace);
     let official_rows: Vec<_> = array(workspace, "academicCalendar")
         .iter()
         .filter(|row| {
@@ -336,7 +350,7 @@ pub fn academic_year_calendar(
                 json!({
                     "type": text(row, "type")?,
                     "replacementDay": row.get("replacementDay").cloned().unwrap_or(Value::Null),
-                    "label": localized(row.get("label"), locale, date),
+                    "label": pick(row.get("label"), language).unwrap_or(date),
                 }),
             ))
         })
@@ -417,7 +431,7 @@ pub fn academic_year_calendar(
         .filter(|row| {
             visible(row) && row.get("academicYear").and_then(Value::as_i64) == Some(i64::from(year))
         })
-        .cloned()
+        .map(|row| shown_label(row, language))
         .collect();
     important_dates.sort_by(|a, b| text(a, "startDate").cmp(&text(b, "startDate")));
     Ok(AcademicYearCalendar {
@@ -456,42 +470,4 @@ pub fn academic_term_for_date(
 
 fn in_year(date: &str, year: i32) -> bool {
     date >= format!("{year}-04-01").as_str() && date <= format!("{}-03-31", year + 1).as_str()
-}
-
-pub(crate) fn content_language(workspace: &Value) -> &str {
-    match workspace
-        .pointer("/settings/contentLanguage")
-        .and_then(Value::as_str)
-    {
-        Some("ja") => "ja",
-        Some("en") => "en",
-        _ if workspace
-            .pointer("/settings/locale")
-            .and_then(Value::as_str)
-            .is_some_and(|locale| matches!(locale, "ja" | "zh")) =>
-        {
-            "ja"
-        }
-        _ => "en",
-    }
-}
-
-pub(crate) fn localized(value: Option<&Value>, locale: &str, fallback: &str) -> String {
-    let Some(value) = value else {
-        return fallback.into();
-    };
-    if let Some(text) = value.as_str() {
-        return text.into();
-    }
-    let language = if locale == "ja" { "ja" } else { "en" };
-    value
-        .get(language)
-        .and_then(Value::as_str)
-        .or_else(|| {
-            value
-                .get(if language == "ja" { "en" } else { "ja" })
-                .and_then(Value::as_str)
-        })
-        .unwrap_or(fallback)
-        .into()
 }

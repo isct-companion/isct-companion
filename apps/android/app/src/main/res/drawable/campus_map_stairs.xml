@@ -1,0 +1,10 @@
+<!-- Converted from apps/ios/IsctCompanion/Resources/Assets.xcassets/CampusMap/stairs.imageset/stairs.svg; tinted where drawn. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2.500 21.500V17h4.700v-4.500h4.700V8h4.700V3.500h4.900a.5.5 0 0 1 .5.5v17a.5.5 0 0 1-.5.5Z" />
+</vector>
