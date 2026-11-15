@@ -170,6 +170,9 @@ pub(crate) fn popup_command(window: &WebviewWindow, command: BrowserAction) -> R
         BrowserAction::GoBack => window.eval("history.back()"),
         BrowserAction::GoForward => window.eval("history.forward()"),
         BrowserAction::Eval(script) => window.eval(script),
+        BrowserAction::EvalOtp { .. } => {
+            return Err("OTP evaluation belongs to the main view.".into())
+        }
     }
     .map_err(|error| error.to_string())
 }

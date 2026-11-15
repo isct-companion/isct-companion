@@ -1424,15 +1424,12 @@ impl Duty for Once {
 #[tokio::test]
 async fn a_suspended_engine_runs_only_what_its_opportunity_allows() {
     let (engine, _store) = engine("duties");
-    engine.hint(Hint::Network {
-        network: Network::Offline,
-    });
-    engine.hint(Hint::Background);
-    engine.hint(Hint::Suspend);
+    engine.prepare_background_start();
     let local = Once::new(BackgroundWork::Local);
     let network = Once::new(BackgroundWork::Network);
     engine.register(local.clone());
     engine.register(network.clone());
+    engine.start(&tokio::runtime::Handle::current()).unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert_eq!((local.runs(), network.runs()), (0, 0));
 

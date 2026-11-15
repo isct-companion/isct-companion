@@ -406,6 +406,8 @@ button.calendarDay.open {
 .diagnosticLogRow[data-level="ERROR"] > :last-child { color: var(--danger); }
 .agentSetup {
   display: grid;
+  /* A grid track defaults to min-content, so one long line widened the pane. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin-top: 12px;
 }
@@ -427,7 +429,10 @@ button.calendarDay.open {
   flex: 1;
   min-width: 0;
   margin: 0;
-  overflow-x: auto;
+  /* Wrap rather than scroll: the one-line Claude Code command stays readable
+     in full, and Copy still takes the unwrapped text. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.5;
 }

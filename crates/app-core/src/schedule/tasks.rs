@@ -84,6 +84,24 @@ const TODAY_MISSED_DAYS: i64 = 7;
 /// The current quarter's record shows the last two weeks of past work.
 const RECORD_RECENT_DAYS: i64 = 14;
 
+/// Instants at which Today can move or remove an open assignment.
+pub(super) fn assignment_boundaries(
+    workspace: &Value,
+) -> impl Iterator<Item = DateTime<FixedOffset>> + '_ {
+    array(workspace, "assignments")
+        .iter()
+        .filter(|row| visible(row))
+        .filter_map(|row| {
+            let due = parse_timestamp(text(row, "dueAt")?).ok()?;
+            // The task view uses strict comparisons for overdue and missed work.
+            Some([
+                due + Duration::milliseconds(1),
+                due + Duration::days(TODAY_MISSED_DAYS) + Duration::milliseconds(1),
+            ])
+        })
+        .flatten()
+}
+
 pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskView, ScheduleError> {
     let mut parsed = BTreeMap::new();
     let mut deadlines = BTreeMap::new();

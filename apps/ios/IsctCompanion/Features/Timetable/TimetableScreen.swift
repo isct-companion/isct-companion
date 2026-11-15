@@ -50,6 +50,12 @@ struct TimetableScreen: View {
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: shownTerm, initial: true) { _, term in navigator.timetableTerm = term }
+        .onChange(of: navigator.timetableDate, initial: true) { _, date in
+            if let date, let day = AppModel.date(date + "T00:00:00+09:00") {
+                monday = Self.monday(of: day)
+                navigator.timetableDate = nil
+            }
+        }
         .onAppear {
             model.syncHint(.open(view: .timetable))
             if axis == nil { axis = model.lastTimetableAxis }

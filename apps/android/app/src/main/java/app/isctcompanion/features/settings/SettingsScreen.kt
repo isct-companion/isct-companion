@@ -601,6 +601,7 @@ private fun SessionStatus(
 @Composable
 private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val model = LocalModel.current
+    val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
     val summary = if (profile == SchoolAuthProfile.SCIENCE) model.credentials?.science else model.credentials?.tokyoTech
     var username by remember { mutableStateOf(summary?.username.orEmpty()) }
@@ -648,13 +649,20 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
         key(entries) {
             if (profile == SchoolAuthProfile.SCIENCE) {
                 SectionLabel(t("settings.main.oneTimePassword"))
-                OtpImportField(summary?.hasOtp == true, otpSecret) { otpSecret = it }
+                OtpImportField(
+                    saved = summary?.hasOtp == true,
+                    setup = otpSecret,
+                    openManual = {
+                        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
+                        navigator.openTab("tab/web")
+                    },
+                ) { otpSecret = it }
             } else {
                 SectionLabel(t("settings.main.matrixCard"))
                 MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
             }
         }
-        outcome?.let { ConnectOutcome(profile, it) }
+        outcome?.let { ConnectOutcome(it) }
         error?.let { Footer(it, Theme.colors.danger) }
         Button(
             onClick = {
@@ -714,15 +722,9 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     }
 }
 
-/** What a Connect ended with, under the form. Every outcome but Connected
- * saved nothing, and says so. When the Science Tokyo account asks for an
- * emailed code, the app can sign in by itself only with App OTP: the portal
- * opens in the ウェブ tab as it is, the person sets App OTP up there, enters it
- * in the OTP field and presses Connect again. */
+/** What a Connect ended with, under the form. */
 @Composable
-private fun ConnectOutcome(profile: SchoolAuthProfile, outcome: SchoolConnectOutcome) {
-    val model = LocalModel.current
-    val navigator = LocalNavigator.current
+private fun ConnectOutcome(outcome: SchoolConnectOutcome) {
     val notSaved = t("schoolSession.connect.notSaved")
     val (text, color) = when (outcome) {
         is SchoolConnectOutcome.Connected -> t("schoolSession.connect.connected") to Theme.colors.ok
@@ -733,20 +735,7 @@ private fun ConnectOutcome(profile: SchoolAuthProfile, outcome: SchoolConnectOut
         is SchoolConnectOutcome.Stopped -> t("schoolSession.connect.stopped") to Theme.colors.muted
     }
     Footer(text, color)
-    if (profile == SchoolAuthProfile.SCIENCE && outcome is SchoolConnectOutcome.NeedsWeb &&
-        outcome.reason == SchoolSignInProblemKind.EMAIL_OTP
-    ) {
-        Footer(t("schoolSession.appOtp.explain"))
-        OutlinedButton(
-            onClick = {
-                model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
-                navigator.openTab("tab/web")
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(t("schoolSession.appOtp.openPortal"))
-        }
-    }
+
 }
 
 @Composable

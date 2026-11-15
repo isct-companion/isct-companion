@@ -1,4 +1,5 @@
 import Foundation
+import IsctWidgets
 import Observation
 
 /// The UI language, read from `settings.locale` like the desktop's.
@@ -19,49 +20,26 @@ final class Localizer: @unchecked Sendable {
     static let shared = Localizer()
 
     /// `en`, `ja` or `zh`.
-    private(set) var language = "en"
-    @ObservationIgnored private var catalog: [String: String]
-    @ObservationIgnored private let english: [String: String]
-    @ObservationIgnored private var loaded: String
+    private var catalog = MessageCatalog(language: MessageCatalog.systemLanguage, bundle: .main)
+    var language: String { catalog.language }
 
-    /// `settings.locale` lives in the session, and a session that fails to
-    /// open never delivers it: the system's language speaks until then, as on
-    /// Android, so the failure screen is never left without a catalog.
-    private init() {
-        english = Self.load("en")
-        catalog = english
-        loaded = "en"
-        use(Locale.preferredLanguages.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier })
-    }
+    private init() {}
 
-    /// Switches to a stored `settings.locale`; anything unknown reads English.
     func use(_ stored: String?) {
-        let next = stored.flatMap { ["ja", "zh"].contains($0) ? $0 : nil } ?? "en"
-        guard next != loaded else { return }
-        catalog = Self.load(next)
-        loaded = next
-        if next != language { language = next }
+        let next = MessageCatalog.language(stored)
+        guard next != language else { return }
+        catalog = MessageCatalog(language: next, bundle: .main)
     }
 
-    /// The text for a key, `{{name}}` placeholders filled; `nil` when no
-    /// catalog has the key (a key another component owns, such as Core's).
     func lookup(_ key: String, _ values: [String: Any]) -> String? {
-        _ = language
-        guard var text = catalog[key] ?? english[key] else { return nil }
-        for (name, value) in values {
-            text = text.replacingOccurrences(of: "{{\(name)}}", with: "\(value)")
-        }
-        return text
+        catalog.lookup(key, values)
     }
 
     func string(_ key: String, _ values: [String: Any]) -> String {
-        lookup(key, values) ?? key
+        catalog.string(key, values)
     }
 
-    /// The locale dates and numbers are written in, as the desktop's `intlLocale`.
-    var locale: Locale {
-        Locale(identifier: ["ja": "ja_JP", "zh": "zh_Hans_CN"][language] ?? "en_GB")
-    }
+    var locale: Locale { catalog.locale }
 
     /// School text in the content language: `settings.contentLanguage`, or on
     /// automatic the UI language (`zh` reads Japanese), as the desktop's
@@ -73,13 +51,6 @@ final class Localizer: @unchecked Sendable {
         return order.lazy.compactMap { value[$0].flatMap { $0.isEmpty ? nil : $0 } }.first
     }
 
-    private static func load(_ language: String) -> [String: String] {
-        guard let url = Bundle.main.url(forResource: language, withExtension: "json"),
-            let data = try? Data(contentsOf: url),
-            let catalog = try? JSONDecoder().decode([String: String].self, from: data)
-        else { return [:] }
-        return catalog
-    }
 }
 
 /// The UI string for a catalog key, with `{{name}}` placeholders filled.

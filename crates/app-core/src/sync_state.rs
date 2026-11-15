@@ -108,6 +108,18 @@ impl Key {
             key: key.into(),
         }
     }
+
+    pub(crate) fn lms_enrolment() -> Self {
+        Self::new(Dataset::LmsEnrolment, "all")
+    }
+
+    pub(crate) fn lms_deadlines() -> Self {
+        Self::new(Dataset::LmsDeadlines, "all")
+    }
+
+    pub(crate) fn lms_assignments(course_id: u64) -> Self {
+        Self::new(Dataset::LmsAssign, course_id.to_string())
+    }
 }
 
 impl std::fmt::Display for Key {
@@ -182,10 +194,15 @@ pub fn due(state: Option<&KeyState>, ttl: Option<Duration>, now: DateTime<Utc>) 
     let Some(fetched) = state.fetched_at else {
         return Due::Missing;
     };
-    match ttl {
-        Some(ttl) if now >= fetched + ttl => Due::Stale,
-        _ => Due::Fresh,
+    if expires_at(fetched, ttl).is_some_and(|at| now >= at) {
+        Due::Stale
+    } else {
+        Due::Fresh
     }
+}
+
+pub(crate) fn expires_at(fetched: DateTime<Utc>, ttl: Option<Duration>) -> Option<DateTime<Utc>> {
+    ttl.map(|ttl| fetched + ttl)
 }
 
 /// Retry delay after `failures` consecutive failures: 5 min, ×3 each time,

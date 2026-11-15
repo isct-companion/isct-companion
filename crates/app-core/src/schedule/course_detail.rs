@@ -87,10 +87,7 @@ fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Opti
 }
 
 pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -> CourseDetail {
-    let Some(course) = array(workspace, "courses")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(course_id))
-    else {
+    let Some(course) = super::visible_by_id(workspace, "courses", course_id) else {
         return CourseDetail::default();
     };
     let mut materials: Vec<_> = array(workspace, "materials")
@@ -200,9 +197,7 @@ pub struct AssignmentAttachment {
 /// The rules the desktop assignment card applied in the shell
 /// (`LmsWorkspace.tsx`): its text is the LMS module row with the same cmid.
 pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<AssignmentDetail> {
-    let assignment = array(workspace, "assignments")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(assignment_id))?;
+    let assignment = super::visible_by_id(workspace, "assignments", assignment_id)?;
     let course_id = text(assignment, "courseId").unwrap_or_default();
     let cmid = assignment.get("lmsCmid").and_then(Value::as_u64);
     let source = cmid.and_then(|cmid| {
@@ -213,9 +208,7 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
     let raw = source
         .and_then(|row| text(row, "bodyHtml"))
         .unwrap_or_default();
-    let course = array(workspace, "courses")
-        .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(course_id));
+    let course = super::visible_by_id(workspace, "courses", course_id);
     let owned = |key: &str| text(assignment, key).map(str::to_owned);
     Some(AssignmentDetail {
         assignment_id: assignment_id.into(),

@@ -44,6 +44,8 @@ mod web;
 
 pub(crate) use identity::{Ended, SignInAdmission};
 pub(crate) use owner::Permit;
+#[cfg(feature = "desktop-otp-enrollment")]
+pub(crate) use login::fresh_otp;
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
 pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
@@ -794,6 +796,66 @@ impl SchoolSessions {
         self.snapshot()
     }
 
+    /// Run enrollment vault I/O for the same account generation as the
+    /// visible operation, ordered with Connect's credential commits.
+    #[cfg(feature = "desktop-otp-enrollment")]
+    pub(crate) async fn otp_vault<T: Send + 'static>(
+        &self,
+        generation: u64,
+        work: impl FnOnce(&SchoolAuthService) -> Result<T, crate::school_auth::EnrollmentError>
+            + Send
+            + 'static,
+    ) -> Result<T, crate::school_auth::EnrollmentError> {
+        use crate::school_auth::EnrollmentError;
+        let account = self.0.account(SchoolAuthProfile::Science);
+        let _commit = account.commit.lock().await;
+        let permit = account
+            .owner
+            .permit_of(generation)
+            .ok_or(EnrollmentError::Stopped)?;
+        let auth = self.0.auth.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            work(&auth)
+        })
+        .await
+        .map_err(|_| EnrollmentError::Storage)?
+    }
+
+    #[cfg(feature = "desktop-otp-enrollment")]
+    pub(crate) async fn confirm_otp(
+        &self,
+        generation: u64,
+        id: String,
+    ) -> Result<(), crate::school_auth::EnrollmentError> {
+        use crate::school_auth::EnrollmentError;
+        let account = self.0.account(SchoolAuthProfile::Science);
+        let commit = account.commit.lock().await;
+        let permit = account
+            .owner
+            .permit_of(generation)
+            .ok_or(EnrollmentError::Stopped)?;
+        // A Connect started with the previous seed may not overwrite the
+        // new seed after the registration verdict has been saved.
+        let turn = account.identity.begin_connect();
+        self.0.publish();
+        let auth = self.0.auth.clone();
+        let saved = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            auth.confirm_enrollment(&id)
+        })
+        .await
+        .map_err(|_| EnrollmentError::Storage)?;
+        if let Ok(configured) = saved {
+            account.identity.set_configured_for(turn.intent, configured);
+        }
+        drop(turn);
+        drop(commit);
+        self.0.changed();
+        self.0.publish();
+        saved.map(|_| ())
+    }
+
     /// Capture before fetching the remote backup, without holding up a sign-out.
     pub(crate) fn credential_generations(&self) -> [u64; 2] {
         PROFILES.map(|profile| self.account_generation(profile))
@@ -1401,24 +1463,29 @@ impl Inner {
         if !unfinished.is_empty() {
             return Err(SchoolAuthError::SignOutIncomplete(unfinished.join(", ")));
         }
+        // Each account is done once its own credentials went: one whose
+        // delete went through is not left pending because the next failed.
         let auth = self.auth.clone();
         let batch = profiles.to_vec();
-        tokio::task::spawn_blocking(move || {
-            for profile in &batch {
-                auth.delete(*profile)?;
-            }
+        let (done, result) = tokio::task::spawn_blocking(move || {
+            let mut done = Vec::new();
             for profile in batch {
-                auth.mark_sign_out(profile, false)?;
+                if let Err(error) = auth
+                    .delete(profile)
+                    .and_then(|_| auth.mark_sign_out(profile, false))
+                {
+                    return (done, Err(error));
+                }
+                done.push(profile);
             }
-            Ok::<_, SchoolAuthError>(())
+            (done, Ok(()))
         })
         .await
-        .map_err(|_| SchoolAuthError::SignOutIncomplete("the saved credentials".into()))?
-        .map_err(|error| SchoolAuthError::SignOutIncomplete(error.to_string()))?;
-        for profile in profiles {
-            self.account(*profile).owner.set_sign_out_pending(false);
+        .map_err(|_| SchoolAuthError::SignOutIncomplete("the saved credentials".into()))?;
+        for profile in done {
+            self.account(profile).owner.set_sign_out_pending(false);
         }
-        Ok(())
+        result.map_err(|error| SchoolAuthError::SignOutIncomplete(error.to_string()))
     }
 
     /// Clears every school website from the web view, both accounts', in

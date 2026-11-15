@@ -19,6 +19,7 @@ mod school;
 mod search;
 mod tasks;
 mod today;
+pub mod widgets;
 
 #[cfg(test)]
 #[path = "../tests/schedule.rs"]
@@ -940,6 +941,12 @@ pub(super) fn not_deleted(row: &Value) -> bool {
 pub(crate) fn visible(value: &Value) -> bool {
     value.get("deletedAt").is_none_or(Value::is_null)
         && value.get("missingSince").is_none_or(Value::is_null)
+}
+
+pub(crate) fn visible_by_id<'a>(workspace: &'a Value, table: &str, id: &str) -> Option<&'a Value> {
+    array(workspace, table)
+        .iter()
+        .find(|row| visible(row) && text(row, "id") == Some(id))
 }
 
 #[cfg(feature = "ts")]

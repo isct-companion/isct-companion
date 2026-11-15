@@ -63,6 +63,7 @@ pub mod submissions;
 pub mod subscriptions;
 pub mod sync_gc;
 pub mod sync_state;
+pub mod widgets;
 pub mod workspace;
 pub mod workspace_changes;
 

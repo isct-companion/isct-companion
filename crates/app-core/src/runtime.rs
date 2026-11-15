@@ -104,7 +104,10 @@ impl CoreRuntime {
     /// Work Core owns past its caller (an LMS write, a print job):
     /// shutdown waits for it to end.
     #[cfg_attr(
-        not(any(feature = "agent", all(feature = "campus-printer", windows))),
+        not(any(
+            feature = "agent",
+            all(feature = "campus-printer", any(windows, target_os = "android"))
+        )),
         allow(dead_code)
     )]
     pub(crate) fn tasks(&self) -> &RuntimeTasks {

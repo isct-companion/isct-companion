@@ -32,8 +32,11 @@ to `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, which opens the session without
 iCloud backup. That entitlements file also drops the App Group
 `group.app.isctcompanion`, which belongs to team `FB7AL944GK`: the share
 extension then cannot save to the inbox and its assignment list stays empty.
-Test sharing into the app with a build signed by that team. OCR is
-unavailable on the Intel simulator.
+Use a build signed by that team to try shared inbox and widget data on a
+device. The release workflow uses the App Store profile in
+`IOS_WIDGETS_MOBILE_PROVISION` for the `app.isctcompanion.widgets` extension.
+It must grant `group.app.isctcompanion`, the same App Group as the host.
+OCR is unavailable on the Intel simulator.
 
 ## Layout
 
@@ -51,7 +54,7 @@ unavailable on the Intel simulator.
 
 ## Not yet
 
-Open items are the slotledger task `ios-open-items` (widgets among them).
+Open items are in the slotledger task `ios-open-items`.
 
 UI strings are keyed by namespaced message keys (`settings.reset.caches.title`)
 and read at runtime from the desktop's `resources/locales` catalogs

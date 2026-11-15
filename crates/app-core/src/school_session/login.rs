@@ -22,7 +22,7 @@ use super::{
 };
 use crate::{
     net::{Host, NetError},
-    school_auth::{upcoming_otps, SchoolCredentials},
+    school_auth::{upcoming_otps, OtpWindow, SchoolAuthError, SchoolCredentials},
     school_session::SchoolSignInProblemKind as Kind,
 };
 use adpt_isct::login::{self, Form, SciencePage, TokyoPage};
@@ -218,10 +218,12 @@ async fn science_flow(
                     ));
                 }
                 let action = extic_action(&form)?;
-                let code = one_time_password(&credentials.otp_secret).await?;
+                let (window, _) = fresh_otp(&credentials.otp_secret).await.map_err(|_| {
+                    Fail::Rejected(Kind::InvalidOtp, "the saved OTP setup is not usable")
+                })?;
                 otp_sent = true;
                 log::info!(target: "app_core::school_session", "step: Extic one-time password");
-                form.set("totp", &code);
+                form.set("totp", &window.code);
                 // Extic answers a refused code with 401: the verdict.
                 submitted.store(true, Ordering::SeqCst);
                 let step = match walk.post(&action, form.fields(), &page.url, true).await {
@@ -529,24 +531,22 @@ fn unix_now() -> u64 {
 
 /// The code to send now: never one of a window with less than `OTP_MARGIN`
 /// left (Extic's clock runs a little ahead); waits for the next window then.
-async fn one_time_password(secret: &str) -> Result<String, Fail> {
-    let unusable = || Fail::Rejected(Kind::InvalidOtp, "the saved OTP setup is not usable");
-    let windows = upcoming_otps(secret).map_err(|_| unusable())?;
+pub(crate) async fn fresh_otp(secret: &str) -> Result<(OtpWindow, u64), SchoolAuthError> {
+    let windows = upcoming_otps(secret)?;
     let period = match windows.as_slice() {
         [first, second, ..] => second.from.saturating_sub(first.from),
         _ => 30,
     };
     let now = unix_now();
-    let usable = |window: &&crate::school_auth::OtpWindow| {
-        window.from + period >= now + OTP_MARGIN.as_secs()
-    };
-    let window = windows.iter().find(usable).ok_or_else(unusable)?;
+    let window = windows.into_iter()
+        .find(|window| window.from + period >= now + OTP_MARGIN.as_secs())
+        .ok_or_else(|| SchoolAuthError::Storage("No usable one-time password window.".into()))?;
     if window.from > now {
         let wait = window.from - now + 1;
         log::info!(target: "app_core::school_session", "waiting {wait}s for a fresh one-time password window");
         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
     }
-    Ok(window.code.clone())
+    Ok((window, period))
 }
 
 #[cfg(test)]

@@ -13,12 +13,17 @@
 uniffi::setup_scaffolding!();
 #[cfg(target_os = "android")]
 mod android_tls;
+mod campus_print;
 mod diagnostics;
 mod error;
 mod json;
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/contracts.rs"));
 }
+pub use campus_print::{
+    campus_printer_capabilities, CampusPrintColor, CampusPrintJob, CampusPrintMedia,
+    CampusPrintMessage, CampusPrintReport, CampusPrintSides, CampusPrinterCapabilities,
+};
 pub use diagnostics::export_application_logs;
 pub use error::SdkError;
 pub use json::JsonValue;
@@ -35,9 +40,14 @@ pub use matrix::{
     MatrixConfidence, MatrixPoint,
 };
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};
-pub use session::{decode_sync_snapshot, Capabilities, Session, SessionConfig};
+pub use session::{
+    decode_school_web_page, decode_sync_snapshot, Capabilities, Session, SessionConfig,
+};
 mod services;
 
 #[cfg(test)]
 #[path = "tests/crate.rs"]
 mod tests;
+
+mod widgets;
+pub use widgets::{NativeWidgets, WidgetRoute};

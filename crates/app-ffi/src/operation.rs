@@ -71,10 +71,16 @@ pub enum OperationResult {
     Recognitions {
         cells: Vec<crate::MatrixCell>,
     },
+    CampusPrint {
+        report: crate::CampusPrintReport,
+    },
     /// A map page's scene; `None` when the intent changed nothing drawn.
     #[cfg(feature = "campus-map")]
     CampusMapScene {
         scene: Option<CampusMapScene>,
+    },
+    WidgetRoute {
+        route: crate::WidgetRoute,
     },
     Document {
         value: JsonValue,

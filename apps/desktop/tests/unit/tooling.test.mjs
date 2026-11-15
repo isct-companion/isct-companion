@@ -229,10 +229,12 @@ describe("manual acceptance table", () => {
 
   it("builds a run sheet that states the persona and why each step exists", () => {
     const doc = load();
-    const sheet = runSheet(doc, "SCHOOL-SIGNIN-SCIENCE");
-    expect(sheet).toContain(doc.personas[0].label);
+    const check = doc.checks.find(({ id }) => id === "SCHOOL-SIGNIN-SCIENCE");
+    const persona = doc.personas.find(({ id }) => id === check.persona);
+    const sheet = runSheet(doc, check.id);
+    expect(sheet).toContain(persona.label);
     expect(sheet).toContain("Adopt this persona completely");
-    for (const step of doc.checks[0].steps) {
+    for (const step of check.steps) {
       expect(sheet).toContain(step.reason.trim());
     }
     expect(sheet).toContain("--result <pass|fail|unreached>");

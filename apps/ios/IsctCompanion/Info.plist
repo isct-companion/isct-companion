@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>app.isctcompanion.refresh</string>
+		<string>app.isctcompanion.maintenance</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
@@ -59,6 +60,8 @@
 	<false/>
 	<key>IsctGoogleClientID</key>
 	<string>$(ISCT_GOOGLE_IOS_CLIENT_ID)</string>
+	<key>IsctWidgetGroup</key>
+	<string>group.app.isctcompanion</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
@@ -75,6 +78,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
+		<string>processing</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
