@@ -1,0 +1,41 @@
+name: Android build tools
+description: Install the pinned Java, Android SDK and host Kotlin tools
+inputs:
+  emulator:
+    description: Also install the Android 34 SDK platform for the CI smoke test
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: 17
+    - uses: android-actions/setup-android@v4
+      with:
+        packages: platform-tools
+    - name: Install build SDKs and host Kotlin compiler
+      shell: bash
+      env:
+        WITH_EMULATOR: ${{ inputs.emulator }}
+        NDK_VERSION: 28.2.13676358
+        ANDROID_BUILD_TOOLS: 36.0.0
+        KOTLIN_VERSION: 2.2.21
+      run: |
+        packages=("platforms;android-37.0" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION")
+        if [[ "$WITH_EMULATOR" == true ]]; then
+          packages+=("platforms;android-34")
+        fi
+        # Retry because the SDK mirror sometimes serves a truncated NDK archive.
+        for attempt in 1 2 3; do
+          if sdkmanager "${packages[@]}" && test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"; then
+            break
+          fi
+          if [[ "$attempt" == 3 ]]; then exit 1; fi
+          echo "SDK install failed (attempt $attempt); retrying"
+          sleep $((attempt * 15))
+        done
+        echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+        curl -fL --retry 3 --retry-all-errors "https://github.com/JetBrains/kotlin/releases/download/v$KOTLIN_VERSION/kotlin-compiler-$KOTLIN_VERSION.zip" -o "$RUNNER_TEMP/kotlin.zip"
+        unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/android-build-tools"
+        echo "$RUNNER_TEMP/android-build-tools/kotlinc/bin" >> "$GITHUB_PATH"

@@ -2,81 +2,26 @@ name: Native Core SDK
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - apps/android/**
-      - apps/ios/**
-      - apps/apple-widgets/Extension/**
-      - apps/apple-widgets/Privacy/**
-      - crates/**
-      - bindings/**
-      - scripts/bindings/**
-      - resources/locales/**
-      - resources/otp-guide/**
-      - Cargo.toml
-      - Cargo.lock
-      - rust-toolchain.toml
-      - package.json
-      - .github/workflows/native-sdk.yml
-  # Only main saves the SDK caches (see platform-checks.yml), and pull
-  # requests never run on main: this weekly run saves them, an hour after
-  # the platform checks warm theirs. It gates nothing.
-  schedule:
-    - cron: '0 19 * * 0' # Monday 04:00 in Japan
+  workflow_call:
+    inputs:
+      ios:
+        required: true
+        type: boolean
+      android:
+        required: true
+        type: boolean
 
 permissions:
   contents: read
-
-concurrency:
-  group: native-sdk-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   ISCT_SDK_PROFILE: dev
 
 jobs:
-  route:
-    name: Route native SDK checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      ios: ${{ steps.route.outputs.ios }}
-      android: ${{ steps.route.outputs.android }}
-    steps:
-      - uses: actions/checkout@v7
-        if: github.event_name == 'pull_request'
-        with:
-          fetch-depth: 2
-      - id: route
-        shell: bash
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
-            printf '%s\n' ios=true android=true >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # The first parent is the base of the same merge commit the SDK jobs build.
-          git diff --name-only --no-renames -z HEAD^1 HEAD | {
-            ios=false
-            android=false
-            while IFS= read -r -d '' path; do
-              case "$path" in
-                apps/android/*) android=true ;;
-                apps/ios/*|apps/apple-widgets/Extension/*|apps/apple-widgets/Privacy/*) ios=true ;;
-                crates/*|bindings/*|scripts/bindings/*|resources/locales/*|resources/otp-guide/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|package.json|.github/workflows/native-sdk.yml)
-                  ios=true
-                  android=true
-                  ;;
-              esac
-            done
-            printf '%s\n' "ios=$ios" "android=$android"
-          } >> "$GITHUB_OUTPUT"
-
   ios:
     name: Swift SDK and iOS Simulator
-    needs: route
-    if: needs.route.outputs.ios == 'true'
+    # A direct dispatch runs both platforms. The caller also dispatches both.
+    if: github.event_name == 'workflow_dispatch' || inputs.ios
     runs-on: macos-15
     timeout-minutes: 50
     steps:
@@ -93,7 +38,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-ios
-          # Platform checks' caches from main nearly fill the repository's 10 GB.
+          # Platform checks warms the shared caches on main.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install host Kotlin compiler
         run: |
@@ -138,44 +83,18 @@ jobs:
 
   android:
     name: Android AAR and emulator
-    needs: route
-    if: needs.route.outputs.android == 'true'
+    if: github.event_name == 'workflow_dispatch' || inputs.android
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    env:
-      NDK_VERSION: 28.2.13676358
-      ANDROID_BUILD_TOOLS: 36.0.0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           package-manager-cache: false
-      - uses: actions/setup-java@v6
+      - uses: ./.github/actions/android-build-tools
         with:
-          distribution: temurin
-          java-version: 17
-      - uses: android-actions/setup-android@v4
-        with:
-          packages: platform-tools
-      - name: Install build SDKs and host Kotlin compiler
-        run: |
-          # Google's mirror sometimes serves a truncated NDK archive ("Error on
-          # ZipFile unknown archive"); retry instead of failing the job.
-          for attempt in 1 2 3; do
-            # 34 is what the emulator runs; the app compiles against 37.
-            sdkmanager "platforms;android-34" "platforms;android-37.0" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
-              test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" && break
-            test "$attempt" = 3 && exit 1
-            echo "SDK install failed (attempt $attempt); retrying"
-            sleep $((attempt * 15))
-          done
-          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-          if ! command -v kotlinc >/dev/null; then
-            curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
-            unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
-            echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
-          fi
+          emulator: 'true'
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-linux-android,x86_64-linux-android
@@ -183,7 +102,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-android
-          # Platform checks' caches from main nearly fill the repository's 10 GB.
+          # Platform checks warms the shared caches on main.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install JavaScript build dependencies
         run: |
