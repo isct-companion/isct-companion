@@ -25,7 +25,7 @@ pub use campus_print::{
     campus_printer_capabilities, CampusPrintColor, CampusPrintJob, CampusPrintMedia,
     CampusPrintMessage, CampusPrintReport, CampusPrintSides, CampusPrinterCapabilities,
 };
-pub use diagnostics::export_application_logs;
+pub use diagnostics::{export_application_logs, feedback_form_url};
 pub use error::SdkError;
 pub use json::JsonValue;
 

@@ -1,4 +1,11 @@
-import { GitBranch, Globe, Heart, Scale, type LucideIcon } from "lucide-react";
+import {
+  GitBranch,
+  Globe,
+  Heart,
+  MessageSquareText,
+  Scale,
+  type LucideIcon,
+} from "lucide-react";
 import { Switch, UiButton } from "../../components/ui";
 import { useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../app/native";
@@ -14,26 +21,29 @@ const REPOSITORY = "https://github.com/isct-companion/isct-companion";
 const LICENSE = `${REPOSITORY}/blob/main/LICENSE`;
 const SPONSOR = "https://isctcomp.app/sponsor/";
 
-/** A chip that opens `url` in the system browser. */
+/** Opens `url` in the system browser. */
+const browse = (url: string) => () => void desktopBridge?.openExternal(url);
+
+/** A chip that opens a page in the system browser. */
 function LinkChip({
   id,
   label,
   title,
   icon: Icon,
-  url,
+  open,
 }: {
   id: string;
   label: string;
   title?: string;
   icon: LucideIcon;
-  url: string;
+  open: () => void;
 }) {
   return (
     <UiButton
       className="aboutLink"
       data-setting={id}
       title={title}
-      onClick={() => void desktopBridge?.openExternal(url)}
+      onClick={open}
     >
       <Icon aria-hidden strokeWidth={1.9} />
       <span>{label}</span>
@@ -211,26 +221,32 @@ export function About({
                 id="website"
                 label={t("about.website")}
                 icon={Globe}
-                url={WEBSITE}
+                open={browse(WEBSITE)}
               />
               <LinkChip
                 id="github"
                 label="GitHub"
                 icon={GitBranch}
-                url={REPOSITORY}
+                open={browse(REPOSITORY)}
               />
               <LinkChip
                 id="license"
                 label="GPL-3.0"
                 title={t("about.license")}
                 icon={Scale}
-                url={LICENSE}
+                open={browse(LICENSE)}
               />
               <LinkChip
                 id="sponsor"
                 label={t("about.sponsor")}
                 icon={Heart}
-                url={SPONSOR}
+                open={browse(SPONSOR)}
+              />
+              <LinkChip
+                id="feedback"
+                label={t("about.feedback")}
+                icon={MessageSquareText}
+                open={() => void desktopBridge?.openFeedbackForm()}
               />
             </nav>
           </section>
