@@ -240,79 +240,68 @@ struct RootView: View {
         case let .failed(message):
             ContentUnavailableView(t("common.couldNotStart"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
-            GeometryReader { proxy in
-                let stacked = Layout.isStacked(proxy.size)
-                Group {
-                    if stacked {
-                        tabs(Layout.tabs(width: proxy.size.width))
-                    } else {
-                        workstation
-                    }
-                }
-                .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
-                // What was shared into the app waits in the corner, above the
-                // tab bar or the status bar.
-                .overlay { InboxTray(bottom: stacked ? 64 : 60) }
-                .task(id: scenePhase) {
-                    if scenePhase == .active { await inbox.refresh(model) }
-                }
-                .task(id: widgetURL) {
-                    guard let url = widgetURL else { return }
-                    defer { if widgetURL == url { widgetURL = nil } }
-                    do {
-                        if let route = try await model.widgetRoute(url) {
-                            try Task.checkCancellation()
-                            openWidget(route)
-                        }
-                    } catch is CancellationError {
-                    } catch {
-                        NSLog("Widget link: %@", String(describing: error))
-                    }
-                }
-                .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
-                    InboxSheet()
-                }
-                // A share-sheet pick was handed in: show that assignment.
-                .onChange(of: inbox.handedTo) { _, assignment in
-                    guard let assignment else { return }
-                    navigator.tab = .today
-                    navigator.open(AssignmentRoute(id: assignment))
-                    inbox.handedTo = nil
-                }
-                .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
-                    Button("OK", role: .cancel) {}
-                }
-                .environment(navigator)
-                .environment(\.push, PushAction { navigator.push($0) })
-                .environment(\.courseZoom, zoom)
-                .welcomeSheet {
-                    navigator.tab = .today
-                    navigator.open(SettingsRoute.account(.science))
-                }
-                .sheet(item: $calendarFile) { file in
-                    ShareSheet(url: file.url).presentationDetents([.medium, .large])
-                }
-                .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-                    Button("OK", role: .cancel) {}
-                }
-                // A newer release a check of its own found: the App Store
-                // installs it, or the person skips this version for good.
-                // Turning the checks off is in Settings › About.
-                .alert(
-                    model.updateOffer.map { t("appUpdate.prompt.available", ["version": $0.version]) } ?? "",
-                    isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
-                    presenting: model.updateOffer
-                ) { release in
-                    Button(t("common.later"), role: .cancel) {}
-                    Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
-                    if let url = URL(string: release.url) {
-                        // The preferred action: bold, and Return picks it.
-                        Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
-                            .keyboardShortcut(.defaultAction)
-                    }
-                }
+            GeometryReader { proxy in ready(proxy) }
+        }
+    }
+
+    /// The app once the session is open; its own function so the compiler
+    /// checks this chain apart from `content`'s switch.
+    private func ready(_ proxy: GeometryProxy) -> some View {
+        let stacked = Layout.isStacked(proxy.size)
+        return Group {
+            if stacked {
+                tabs(Layout.tabs(width: proxy.size.width))
+            } else {
+                workstation
             }
         }
+        .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
+        // What was shared into the app waits in the corner, above the
+        // tab bar or the status bar.
+        .overlay { InboxTray(bottom: stacked ? 64 : 60) }
+        .task(id: scenePhase) {
+            if scenePhase == .active { await inbox.refresh(model) }
+        }
+        .task(id: widgetURL) {
+            guard let url = widgetURL else { return }
+            defer { if widgetURL == url { widgetURL = nil } }
+            do {
+                if let route = try await model.widgetRoute(url) {
+                    try Task.checkCancellation()
+                    openWidget(route)
+                }
+            } catch is CancellationError {
+            } catch {
+                NSLog("Widget link: %@", String(describing: error))
+            }
+        }
+        .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
+            InboxSheet()
+        }
+        // A share-sheet pick was handed in: show that assignment.
+        .onChange(of: inbox.handedTo) { _, assignment in
+            guard let assignment else { return }
+            navigator.tab = .today
+            navigator.open(AssignmentRoute(id: assignment))
+            inbox.handedTo = nil
+        }
+        .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+        .environment(navigator)
+        .environment(\.push, PushAction { navigator.push($0) })
+        .environment(\.courseZoom, zoom)
+        .welcomeSheet {
+            navigator.tab = .today
+            navigator.open(SettingsRoute.account(.science))
+        }
+        .sheet(item: $calendarFile) { file in
+            ShareSheet(url: file.url).presentationDetents([.medium, .large])
+        }
+        .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+        .modifier(UpdateOffer(model: model))
     }
 
     private func tabs(_ tabs: [AppTab]) -> some View {
@@ -492,5 +481,28 @@ extension View {
         .navigationDestination(for: ExamDocumentRoute.self) { ExamDocumentScreen(route: $0) }
         .navigationDestination(for: ExamRequestRoute.self) { ExamRequestScreen(route: $0) }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
+    }
+}
+
+/// A newer release a check of its own found: the App Store installs it, or
+/// the person skips this version for good. Turning the checks off is in
+/// Settings › About.
+private struct UpdateOffer: ViewModifier {
+    let model: AppModel
+
+    func body(content: Content) -> some View {
+        content.alert(
+            model.updateOffer.map { t("appUpdate.prompt.available", ["version": $0.version]) } ?? "",
+            isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
+            presenting: model.updateOffer
+        ) { release in
+            Button(t("common.later"), role: .cancel) {}
+            Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
+            if let url = URL(string: release.url) {
+                // The preferred action: bold, and Return picks it.
+                Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
     }
 }
