@@ -301,9 +301,8 @@ impl Page {
             .floor
             .map(|(building, _)| building)
             .or_else(|| self.target_building());
-        let focus_id = emphasized.map_or("none", |index| {
-            self.map.export.buildings[index].id.as_str()
-        });
+        let focus_id =
+            emphasized.map_or("none", |index| self.map.export.buildings[index].id.as_str());
         let mut plain = Self::layer(
             format!("footprints/{focus_id}"),
             CampusMapLayerRole::Footprint,
@@ -390,8 +389,7 @@ impl Page {
                 }
                 let width = source.width_m;
                 let existing = line_layers.iter().position(|layer| {
-                    layer.role == role
-                        && layer.width_m.to_bits() == width.to_bits()
+                    layer.role == role && layer.width_m.to_bits() == width.to_bits()
                 });
                 let layer = match existing {
                     Some(index) => &mut line_layers[index],

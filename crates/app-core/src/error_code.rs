@@ -125,6 +125,8 @@ codes! {
     ExamShareAlreadyReported => "exam-share-already-reported",
     ExamShareQuota => "exam-share-quota",
     ExamShareInvalidInput => "exam-share-invalid-input",
+    ExamShareDuplicate => "exam-share-duplicate",
+    ExamShareTooLarge => "exam-share-too-large",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -257,6 +259,8 @@ coded!(crate::exam_share::ExamError, |e| {
         E::AlreadyReported => C::ExamShareAlreadyReported,
         E::Quota => C::ExamShareQuota,
         E::InvalidInput => C::ExamShareInvalidInput,
+        E::Duplicate => C::ExamShareDuplicate,
+        E::TooLarge => C::ExamShareTooLarge,
     }
 });
 

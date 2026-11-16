@@ -753,6 +753,31 @@ export type ExamSubjectPage = {
   subject: ExamSubject;
   rows: Array<ExamClass>;
   exams: Array<ExamDocument>;
+  /**
+   * IDs of the subject's teachers who teach the person's own timetable
+   * course; empty when the page was not opened from the timetable.
+   */
+  myTeachers: Array<string>;
+  /**
+   * `exams` grouped by sitting, newest first (Core's `sets::arrange`).
+   */
+  sets: Array<ExamSet>;
+};
+
+export type ExamSet = {
+  academicYear: number | null;
+  occasion: string | null;
+  occasionNumber: number;
+  variant: string;
+  teachers: Array<ExamTeacher>;
+  /**
+   * Taught by one of `my_teachers`.
+   */
+  mine: boolean;
+  /**
+   * Question first, then answer, then the rest.
+   */
+  documents: Array<ExamDocument>;
 };
 
 export type ExamRequest = {
@@ -769,6 +794,28 @@ export type ExamRequest = {
 };
 
 export type ExamRequestCursor = { createdAt: number; id: string };
+
+export type ExamUploadDraft = {
+  /**
+   * Local files the person picked; several must all be photos, which
+   * become one PDF.
+   */
+  files: Array<string>;
+  subjectCodes: Array<string>;
+  teacherIds: Array<string>;
+  academicYear: number | null;
+  occasion: string | null;
+  occasionNumber: number;
+  variant: string;
+  role: string;
+  provenance: string | null;
+  answerSource: string | null;
+  note: string;
+  /**
+   * The request this upload answers.
+   */
+  requestId: string | null;
+};
 
 export type ExamRequestPage = {
   items: Array<ExamRequest>;
@@ -815,7 +862,15 @@ export type ExamAction =
   | { kind: "acceptTerms" }
   | { kind: "disconnect" }
   | { kind: "search"; query: string }
-  | { kind: "subject"; code: string }
+  | {
+      kind: "subject";
+      code: string;
+      /**
+       * The timetable course's instructor text, when opened from the
+       * timetable; Core matches it to the subject's teachers.
+       */
+      instructor: string | null;
+    }
   | { kind: "open"; id: string; download: boolean }
   | { kind: "library" }
   | { kind: "save"; id: string; saved: boolean }
@@ -825,7 +880,8 @@ export type ExamAction =
   | { kind: "requests"; mine: boolean; cursor: ExamRequestCursor | null }
   | { kind: "createRequest"; draft: ExamRequestDraft }
   | { kind: "setRequestOpen"; id: string; open: boolean }
-  | { kind: "deleteRequest"; id: string };
+  | { kind: "deleteRequest"; id: string }
+  | { kind: "upload"; draft: ExamUploadDraft };
 
 export type ExamAnswer =
   | { kind: "account"; value: ExamAccount }
@@ -835,6 +891,7 @@ export type ExamAnswer =
   | { kind: "library"; value: ExamLibrary }
   | { kind: "saved"; value: boolean }
   | { kind: "requests"; value: ExamRequestPage }
+  | { kind: "uploaded"; value: string }
   | { kind: "done" };
 
 export type TeachingPeriod = {
@@ -2203,7 +2260,9 @@ export type ErrorCode =
   | "exam-share-busy"
   | "exam-share-already-reported"
   | "exam-share-quota"
-  | "exam-share-invalid-input";
+  | "exam-share-invalid-input"
+  | "exam-share-duplicate"
+  | "exam-share-too-large";
 
 export type CoreFailure = {
   code: ErrorCode;

@@ -2,17 +2,17 @@
 //! executor that reads one leased reference key: `{kind}/{year}` for a file
 //! chosen by a year, `campus-map/v1` for the campus map.
 
+#[cfg(feature = "campus-map")]
+use crate::campus_map::CampusMapFile;
 use crate::{
     data::{DataError, WorkspaceChangeSource},
+    plan::{Gated, KeyEnd, Lease},
     subscriptions::{
         self, AcademicCalendar, ClassSchedules, Departments, ImportantDates, PublishedExamFeed,
         ReferenceFetch, SubscriptionClient, SubscriptionError,
     },
-    plan::{Gated, KeyEnd, Lease},
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, Term},
 };
-#[cfg(feature = "campus-map")]
-use crate::campus_map::CampusMapFile;
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, Transaction};
 use serde_json::{json, Value};
@@ -510,7 +510,10 @@ impl ReferenceReader {
                     .await
             }
             #[cfg(feature = "campus-map")]
-            FileScope::Campus => self.read_public(lease, &kind, scope, &index_url, probes).await,
+            FileScope::Campus => {
+                self.read_public(lease, &kind, scope, &index_url, probes)
+                    .await
+            }
         };
         match read {
             Ok(Read::Current(value)) => KeyEnd::Done {
@@ -875,10 +878,7 @@ impl StoredFile {
 }
 
 pub(crate) fn reference_key(kind: &str, scope: FileScope) -> Key {
-    Key::new(
-        Dataset::Reference,
-        format!("{kind}/{}", scope.segment()),
-    )
+    Key::new(Dataset::Reference, format!("{kind}/{}", scope.segment()))
 }
 
 /// Live rows one reference file published; the campus map counts its units.

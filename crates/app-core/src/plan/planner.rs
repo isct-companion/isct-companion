@@ -930,16 +930,8 @@ pub(crate) fn plan(
             } else {
                 Depth::Light
             };
-            let held = hold(
-                &key,
-                watch.priority,
-                depth,
-                inputs,
-                facts,
-                credentials,
-                now,
-            )
-            .or(backoff);
+            let held =
+                hold(&key, watch.priority, depth, inputs, facts, credentials, now).or(backoff);
             let group = Group {
                 dataset: key.dataset,
                 scope: watch.scope.clone(),

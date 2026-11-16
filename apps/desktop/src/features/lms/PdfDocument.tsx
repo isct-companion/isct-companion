@@ -1,288 +1,235 @@
 import { UiSelect } from "../../components/ui";
 import { ReaderTools } from "./ReaderPane";
-import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  getDocument,
-  GlobalWorkerOptions,
-  TextLayer,
-  type PDFDocumentProxy,
-} from "pdfjs-dist/legacy/build/pdf.mjs";
-import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
-import "pdfjs-dist/web/pdf_viewer.css";
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { desktopBridge } from "../../app/native";
+import { nativeOs } from "../../platform/desktop-bridge";
+import type {
+  PdfPlan,
+  PdfSearchHit,
+  PdfTextRun,
+  PdfViewport,
+} from "../../platform/desktop-bridge";
 import { t } from "../../i18n";
 import { LmsIcon } from "./LmsIcon";
-GlobalWorkerOptions.workerSrc = workerUrl;
-// Copied beside the bundle by vite.config.ts. Without CMaps, text in
-// non-embedded Japanese fonts (common in LMS handouts) silently disappears.
-const pdfjsData = (folder: string) =>
-  new URL(`pdfjs/${folder}/`, document.baseURI).href;
-const pdfjsAssets = {
-  cMapUrl: pdfjsData("cmaps"),
-  cMapPacked: true,
-  standardFontDataUrl: pdfjsData("standard_fonts"),
-  wasmUrl: pdfjsData("wasm"),
-  iccUrl: pdfjsData("iccs"),
-};
-// Canvas budget per page: sharp on Retina without unbounded memory.
-const MAX_DPR = 2;
-const MAX_PIXELS = 4_000_000;
-function PdfPage({
-  pdf,
-  number,
-  width,
-  ratio,
-}: {
-  pdf: PDFDocumentProxy;
-  number: number;
-  width: number;
-  ratio: number;
-}) {
-  const host = useRef<HTMLDivElement>(null);
-  const paper = useRef<HTMLDivElement>(null);
-  const text = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(number === 1);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => setVisible(entries[0].isIntersecting),
-      { rootMargin: "200px" },
-    );
-    if (host.current) observer.observe(host.current);
-    return () => observer.disconnect();
-  }, []);
-  // Leaving the viewport releases the decoded bitmap.
-  useEffect(() => {
-    if (visible) return;
-    paper.current?.querySelectorAll("canvas").forEach((canvas) => {
-      canvas.width = 0;
-      canvas.height = 0;
-    });
-    paper.current?.replaceChildren();
-    text.current?.replaceChildren();
-  }, [visible]);
-  useEffect(() => {
-    if (!visible) return;
-    let disposed = false;
-    let render:
-      | ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["render"]>
-      | undefined;
-    let layer: TextLayer | undefined;
-    // Draw off-screen and swap in when done, so resizing never flashes blank.
-    const canvas = document.createElement("canvas");
-    canvas.setAttribute("role", "img");
-    canvas.setAttribute("aria-label", `Page ${number}`);
-    void pdf
-      .getPage(number)
-      .then(async (sheet) => {
-        if (disposed) return;
-        const initial = sheet.getViewport({ scale: 1 });
-        const scale = Math.min(
-          (width * Math.min(window.devicePixelRatio || 1, MAX_DPR)) /
-            initial.width,
-          Math.sqrt(MAX_PIXELS / (initial.width * initial.height)),
-        );
-        canvas.width = Math.floor(initial.width * scale);
-        canvas.height = Math.floor(initial.height * scale);
-        render = sheet.render({
-          canvas,
-          viewport: sheet.getViewport({ scale }),
-        });
-        try {
-          await render.promise;
-          if (disposed || !paper.current) return;
-          paper.current.querySelectorAll("canvas").forEach((old) => {
-            old.width = 0;
-            old.height = 0;
-          });
-          paper.current.replaceChildren(canvas);
-          if (text.current) {
-            const textScale = width / initial.width;
-            const next = document.createElement("div");
-            text.current.style.setProperty(
-              "--total-scale-factor",
-              String(textScale),
-            );
-            layer = new TextLayer({
-              textContentSource: sheet.streamTextContent(),
-              container: next,
-              viewport: sheet.getViewport({ scale: textScale }),
-            });
-            await layer.render();
-            if (!disposed) text.current.replaceChildren(...next.childNodes);
-          }
-        } finally {
-          sheet.cleanup();
-        }
-      })
-      .catch((e) => {
-        if (!disposed && e?.name !== "RenderingCancelledException")
-          setError(String(e));
-      });
-    return () => {
-      disposed = true;
-      render?.cancel();
-      layer?.cancel();
-      if (!canvas.isConnected) {
-        canvas.width = 0;
-        canvas.height = 0;
-      }
-    };
-  }, [pdf, number, width, visible]);
+
+// The shell renders tiles with PDFium (slotledger aqchay, crates/pdf-view):
+// this view asks for a plan per viewport and draws the tiles it names, so a
+// 35-megapixel scan costs the same to scroll as a slide deck.
+const tileOrigin =
+  nativeOs() === "windows" ? "http://pdftile.localhost" : "pdftile://localhost";
+const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+const clampZoom = (value: number) => Math.max(0.5, Math.min(3, value));
+
+/** Text runs of a page as transparent spans, stretched to their boxes so a
+ * selection lines up with the printed words. */
+function TextLayer({ runs, scale }: { runs: PdfTextRun[]; scale: number }) {
+  const [measure] = useState(() =>
+    document.createElement("canvas").getContext("2d"),
+  );
   return (
-    <div
-      className="lmsPdfPage"
-      ref={host}
-      style={{ aspectRatio: `${1 / ratio}` }}
-      data-pdf-page={number}
-    >
-      {error ? (
-        <p role="alert">{error}</p>
-      ) : (
-        <>
-          <div ref={paper} className="lmsPdfPaper" />
-          <div ref={text} className="textLayer" />
-        </>
-      )}
+    <div className="lmsPdfTextLayer">
+      {runs.map((run, index) => {
+        const size = Math.max(1, run.rect.height * scale);
+        let stretch = 1;
+        if (measure) {
+          measure.font = `${size}px sans-serif`;
+          const natural = measure.measureText(run.text).width;
+          if (natural > 0) stretch = (run.rect.width * scale) / natural;
+        }
+        return (
+          <span
+            key={index}
+            style={{
+              left: run.rect.left * scale,
+              top: run.rect.top * scale,
+              fontSize: size,
+              transform: `scaleX(${stretch})`,
+            }}
+          >
+            {run.text}
+          </span>
+        );
+      })}
     </div>
   );
 }
-/** Continuous reading; only pages near the viewport own decoded canvases. */
+
+/** Continuous reading over PDFium tiles; only pages near the viewport have
+ * any, and the shell renders the ones nearest the middle first. */
 export function PdfDocument({
-  src,
+  path,
   title,
   fileToolbar,
 }: {
-  src: string;
+  /** A file the shell already lets this page read. */
+  path: string;
   title: string;
   fileToolbar?: ReactNode;
 }) {
+  const pdf = desktopBridge?.pdf;
   const host = useRef<HTMLDivElement>(null);
-  const [pdf, setPdf] = useState<PDFDocumentProxy>();
-  const [width, setWidth] = useState(600);
-  // Height/width of each page; mixed portrait/landscape decks are common.
-  const [ratios, setRatios] = useState<number[]>([]);
+  const pages = useRef<HTMLDivElement>(null);
+  const [doc, setDoc] = useState<{ id: number; pageCount: number }>();
+  const [plan, setPlan] = useState<PdfPlan>();
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
-  const [page, setPage] = useState(1);
-  const [pageInput, setPageInput] = useState("1");
-  const [search, setSearch] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const zoomValue = useRef(1);
   zoomValue.current = zoom;
+  const [pageInput, setPageInput] = useState("1");
+  const [texts, setTexts] = useState<Record<number, PdfTextRun[]>>({});
+  const asked = useRef(new Set<number>());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [hits, setHits] = useState<{ query: string; items: PdfSearchHit[] }>();
+  const [hitIndex, setHitIndex] = useState(0);
   const [finding, setFinding] = useState(false);
-  const [searchStatus, setSearchStatus] = useState("");
-  const searchTask = useRef(0);
-  useEffect(
-    () => () => {
-      searchTask.current++;
-    },
-    [src],
-  );
+  // Where the middle of the viewport was, as a share of the content, so a
+  // zoom keeps the same place in view.
+  const anchor = useRef<number | undefined>(undefined);
+  const planSeq = useRef(0);
+  const frame = useRef(0);
+
   useEffect(() => {
+    if (!pdf) return setError(t("lms.searchUnavailable"));
     let disposed = false;
-    const task = getDocument({
-      url: src,
-      disableAutoFetch: true,
-      ...pdfjsAssets,
-    });
-    void task.promise
-      .then(async (doc) => {
-        const ratioOf = async (number: number) => {
-          const size = (await doc.getPage(number)).getViewport({ scale: 1 });
-          return size.height / size.width;
-        };
-        const first = await ratioOf(1);
-        if (disposed) return;
-        const known = Array<number>(doc.numPages).fill(first);
-        setRatios(known);
-        setPdf(doc);
-        // Page sizes only need each page's dictionary, not its content.
-        for (let number = 2; number <= doc.numPages && !disposed; number++) {
-          known[number - 1] = await ratioOf(number);
-          if (number % 20 === 0 || number === doc.numPages)
-            if (!disposed) setRatios([...known]);
-        }
-      })
-      .catch((e) => {
-        if (!disposed) setError(String(e));
-      });
+    let opened: number | undefined;
+    setDoc(undefined);
+    setPlan(undefined);
+    setTexts({});
+    asked.current = new Set();
+    setHits(undefined);
+    pdf.open(path).then(
+      (value) => {
+        if (disposed) return void pdf.close(value.id);
+        opened = value.id;
+        setDoc(value);
+      },
+      (e) => !disposed && setError(String(e)),
+    );
     return () => {
+      // Also when a kept page hides the reader: its tiles go with it.
       disposed = true;
-      void task.destroy();
+      setDoc(undefined);
+      setPlan(undefined);
+      if (opened !== undefined) void pdf.close(opened);
     };
-  }, [src]);
-  useEffect(() => {
-    // First size applies at once; later ones settle before pages re-render.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let measured = false;
-    const observer = new ResizeObserver((entries) => {
-      const next = Math.max(200, Math.round(entries[0].contentRect.width));
-      clearTimeout(timer);
-      if (!measured) {
-        measured = true;
-        setWidth(next);
-      } else timer = setTimeout(() => setWidth(next), 150);
-    });
-    if (host.current) observer.observe(host.current);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
+  }, [pdf, path]);
+
+  const viewport = useCallback((): PdfViewport | undefined => {
+    const element = host.current;
+    if (!element) return undefined;
+    return {
+      width: element.clientWidth,
+      height: element.clientHeight,
+      scrollTop: element.scrollTop,
+      zoom: zoomValue.current,
+      devicePixelRatio: window.devicePixelRatio || 1,
     };
   }, []);
+
+  const replan = useCallback(() => {
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      const current = viewport();
+      if (!pdf || !doc || !current) return;
+      const seq = ++planSeq.current;
+      pdf.plan(doc.id, current).then(
+        (next) => {
+          if (seq !== planSeq.current) return;
+          const element = host.current;
+          if (element && anchor.current !== undefined) {
+            // A zoom changed the content height: put the anchor back in the
+            // middle, then plan again for where that lands.
+            element.scrollTop =
+              anchor.current * next.contentHeight - element.clientHeight / 2;
+            anchor.current = undefined;
+            return replan();
+          }
+          setPlan(next);
+          setPageInput(String(next.currentPage + 1));
+        },
+        (e) => setError(String(e)),
+      );
+    });
+  }, [pdf, doc, viewport]);
+
   useEffect(() => {
-    if (!pdf || !host.current || typeof IntersectionObserver === "undefined")
-      return;
-    const shown = new Map<number, number>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const number = Number((entry.target as HTMLElement).dataset.pdfPage);
-          if (entry.isIntersecting) shown.set(number, entry.intersectionRatio);
-          else shown.delete(number);
-        }
-        const best = [...shown].sort((a, b) => b[1] - a[1])[0];
-        if (best) {
-          setPage(best[0]);
-          setPageInput(String(best[0]));
-        }
-      },
-      { threshold: [0, 0.25, 0.5, 0.75, 1] },
-    );
-    host.current
-      .querySelectorAll("[data-pdf-page]")
-      .forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
-  }, [pdf]);
+    replan();
+    const element = host.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => replan());
+    observer.observe(element);
+    element.addEventListener("scroll", replan, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame.current);
+      observer.disconnect();
+      element.removeEventListener("scroll", replan);
+    };
+  }, [replan]);
+
+  const changeZoom = useCallback(
+    (value: number) => {
+      const element = host.current;
+      const next = clampZoom(value);
+      if (element && plan && next !== zoomValue.current)
+        anchor.current =
+          (element.scrollTop + element.clientHeight / 2) / plan.contentHeight;
+      zoomValue.current = next;
+      setZoom(next);
+      replan();
+    },
+    [plan, replan],
+  );
+
+  // Text for the pages in the plan, fetched once each.
   useEffect(() => {
-    const viewport = host.current;
-    if (!viewport) return;
+    if (!pdf || !doc || !plan) return;
+    for (const page of plan.pages) {
+      if (asked.current.has(page.index)) continue;
+      asked.current.add(page.index);
+      pdf.text(doc.id, page.index).then(
+        (runs) => setTexts((all) => ({ ...all, [page.index]: runs })),
+        () => undefined,
+      );
+    }
+  }, [pdf, doc, plan]);
+
+  // Pinch, Ctrl-wheel and two-finger zoom preview as a CSS scale around the
+  // pointer, then commit one zoom when the gesture settles.
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (!element) return;
     let base = zoomValue.current,
       pending = base,
-      gesturing = false;
+      gesturing = false,
+      touchDistance = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let touchDistance = 0;
-    const pages = () => viewport.querySelector<HTMLElement>(".lmsPdfPages");
     const commit = () => {
       clearTimeout(timer);
-      const surface = pages();
+      const surface = pages.current;
       if (surface) {
         surface.style.transform = "";
         surface.style.transformOrigin = "";
       }
-      zoomValue.current = pending;
-      setZoom(pending);
       base = pending;
+      changeZoom(pending);
     };
     const preview = (value: number, x: number, y: number) => {
-      pending = Math.max(0.5, Math.min(3, value));
-      const surface = pages();
+      pending = clampZoom(value);
+      const surface = pages.current;
       if (surface) {
         if (!surface.style.transform) {
           const bounds = surface.getBoundingClientRect();
           surface.style.transformOrigin = `${x - bounds.left}px ${y - bounds.top}px`;
         }
-        surface.style.transform = `scale(${pending / base})`;
+        surface.style.transform = `scale(${pending / zoomValue.current})`;
       }
       clearTimeout(timer);
       timer = setTimeout(commit, 140);
@@ -301,7 +248,6 @@ export function PdfDocument({
         clientY: number;
       };
       preview(base * gesture.scale, gesture.clientX, gesture.clientY);
-      // Keep the original gesture scale until its end; no canvas redraw per frame.
       clearTimeout(timer);
     };
     const end = (event: Event) => {
@@ -345,87 +291,72 @@ export function PdfDocument({
         commit();
       }
     };
-    viewport.addEventListener("gesturestart", start, { passive: false });
-    viewport.addEventListener("gesturechange", change, { passive: false });
-    viewport.addEventListener("gestureend", end, { passive: false });
-    viewport.addEventListener("wheel", wheel, { passive: false });
-    viewport.addEventListener("touchstart", touchStart, { passive: true });
-    viewport.addEventListener("touchmove", touchMove, { passive: false });
-    viewport.addEventListener("touchend", touchEnd);
-    viewport.addEventListener("touchcancel", touchEnd);
+    element.addEventListener("gesturestart", start, { passive: false });
+    element.addEventListener("gesturechange", change, { passive: false });
+    element.addEventListener("gestureend", end, { passive: false });
+    element.addEventListener("wheel", wheel, { passive: false });
+    element.addEventListener("touchstart", touchStart, { passive: true });
+    element.addEventListener("touchmove", touchMove, { passive: false });
+    element.addEventListener("touchend", touchEnd);
+    element.addEventListener("touchcancel", touchEnd);
     return () => {
       clearTimeout(timer);
-      viewport.removeEventListener("gesturestart", start);
-      viewport.removeEventListener("gesturechange", change);
-      viewport.removeEventListener("gestureend", end);
-      viewport.removeEventListener("wheel", wheel);
-      viewport.removeEventListener("touchstart", touchStart);
-      viewport.removeEventListener("touchmove", touchMove);
-      viewport.removeEventListener("touchend", touchEnd);
-      viewport.removeEventListener("touchcancel", touchEnd);
+      element.removeEventListener("gesturestart", start);
+      element.removeEventListener("gesturechange", change);
+      element.removeEventListener("gestureend", end);
+      element.removeEventListener("wheel", wheel);
+      element.removeEventListener("touchstart", touchStart);
+      element.removeEventListener("touchmove", touchMove);
+      element.removeEventListener("touchend", touchEnd);
+      element.removeEventListener("touchcancel", touchEnd);
     };
-  }, [zoom]);
-  function goToPage() {
-    const number = Math.max(
-      1,
-      Math.min(pdf?.numPages || 1, Number(pageInput) || page),
-    );
-    host.current
-      ?.querySelector(`[data-pdf-page="${number}"]`)
-      ?.scrollIntoView({ block: "start" });
-    setPage(number);
+  }, [changeZoom]);
+
+  const scrollToPage = async (page: number, offset = 0) => {
+    const current = viewport();
+    if (!pdf || !doc || !current || !host.current) return;
+    const top = await pdf.pageTop(doc.id, current, page);
+    host.current.scrollTop = top + offset;
+  };
+  const goToPage = () => {
+    if (!doc) return;
+    const number = Math.max(1, Math.min(doc.pageCount, Number(pageInput) || 1));
     setPageInput(String(number));
-  }
-  async function findNext() {
-    const term = search.trim().toLocaleLowerCase();
-    if (!term || !pdf) return;
-    const task = ++searchTask.current;
-    setFinding(true);
-    setSearchStatus("");
-    try {
-      for (let offset = 0; offset < pdf.numPages; offset++) {
-        const number =
-          ((page - 1 + offset + (searchStatus ? 1 : 0)) % pdf.numPages) + 1;
-        const sheet = await pdf.getPage(number);
-        // WKWebView supports stream readers but not ReadableStream async iteration.
-        const reader = sheet.streamTextContent().getReader();
-        const words: string[] = [];
-        try {
-          for (;;) {
-            const chunk = await reader.read();
-            if (task !== searchTask.current) {
-              await reader.cancel();
-              return;
-            }
-            if (chunk.done) break;
-            words.push(
-              ...chunk.value.items.map(
-                (item: { str?: string }) => item.str || "",
-              ),
-            );
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        const text = words.join(" ").toLocaleLowerCase();
-        if (text.includes(term)) {
-          host.current
-            ?.querySelector(`[data-pdf-page="${number}"]`)
-            ?.scrollIntoView({ block: "start" });
-          setPage(number);
-          setPageInput(String(number));
-          setSearchStatus(`${t("lms.page")} ${number}`);
-          return;
-        }
-      }
-      setSearchStatus(t("lms.noMatches"));
-    } catch (error) {
-      if (task === searchTask.current)
-        setSearchStatus(`${t("lms.searchUnavailable")} · ${String(error)}`);
-    } finally {
-      if (task === searchTask.current) setFinding(false);
+    void scrollToPage(number - 1);
+  };
+  const showHit = (items: PdfSearchHit[], index: number) => {
+    const hit = items[index];
+    if (!hit || !plan) return;
+    setHitIndex(index);
+    const first = hit.rects[0];
+    // A little above the match, so it is not under the header.
+    void scrollToPage(hit.page, first ? first.top * plan.scale - 80 : 0);
+  };
+  const findNext = async () => {
+    const query = search.trim();
+    if (!pdf || !doc || !query) return;
+    if (hits?.query === query) {
+      if (hits.items.length)
+        showHit(hits.items, (hitIndex + 1) % hits.items.length);
+      return;
     }
-  }
+    setFinding(true);
+    try {
+      const items = await pdf.search(doc.id, query);
+      setHits({ query, items });
+      showHit(items, 0);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setFinding(false);
+    }
+  };
+  const searchStatus = !hits
+    ? ""
+    : hits.items.length
+      ? `${hitIndex + 1} / ${hits.items.length}`
+      : t("lms.noMatches");
+
   return (
     <div className="lmsPdfReader">
       <ReaderTools>
@@ -440,7 +371,7 @@ export function PdfDocument({
                 aria-label={t("lms.page")}
                 type="number"
                 min="1"
-                max={pdf?.numPages || 1}
+                max={doc?.pageCount || 1}
                 value={pageInput}
                 onChange={(e) => setPageInput(e.target.value)}
                 onBlur={goToPage}
@@ -448,22 +379,22 @@ export function PdfDocument({
                   if (e.key === "Enter") goToPage();
                 }}
               />
-              <span>/ {pdf?.numPages || "—"}</span>
+              <span>/ {doc?.pageCount || "—"}</span>
             </div>
             <div className="lmsPdfZoom">
               <button
                 aria-label={t("common.zoomOut")}
                 title={t("common.zoomOut")}
                 disabled={zoom <= 0.5}
-                onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
+                onClick={() => changeZoom(zoom - 0.25)}
               >
                 <LmsIcon name="minus" size={14} />
               </button>
               <UiSelect
                 aria-label={t("lms.zoom")}
-                value={zoom}
-                onChange={(value) => setZoom(Number(value))}
-                data={[...new Set([0.5, 0.75, 1, 1.25, 1.5, 2, 3, zoom])]
+                value={String(zoom)}
+                onChange={(value) => changeZoom(Number(value))}
+                data={[...new Set([...ZOOMS, zoom])]
                   .sort((a, b) => a - b)
                   .map((value) => ({
                     value: String(value),
@@ -477,7 +408,7 @@ export function PdfDocument({
                 aria-label={t("common.zoomIn")}
                 title={t("common.zoomIn")}
                 disabled={zoom >= 3}
-                onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
+                onClick={() => changeZoom(zoom + 0.25)}
               >
                 <LmsIcon name="plus" size={14} />
               </button>
@@ -508,44 +439,92 @@ export function PdfDocument({
             aria-label={t("lms.findInDocument")}
             placeholder={t("lms.findInDocument")}
             value={search}
-            onChange={(e) => {
-              searchTask.current++;
-              setFinding(false);
-              setSearch(e.target.value);
-              setSearchStatus("");
-            }}
+            onChange={(e) => setSearch(e.target.value)}
           />
           <span role="status">{searchStatus}</span>
-          <button disabled={finding || !pdf || !search.trim()}>
+          <button disabled={finding || !doc || !search.trim()}>
             {t(finding ? "lms.searching" : "lms.findNext")}
           </button>
           <button
             type="button"
             aria-label={t("lms.closeSearch")}
-            onClick={() => setSearchOpen(false)}
+            onClick={() => {
+              setSearchOpen(false);
+              setHits(undefined);
+            }}
           >
             ×
           </button>
         </form>
       )}
       <div className="lmsPdfDocument" ref={host} aria-label={title}>
-        <div className="lmsPdfPages" style={{ width: `${zoom * 100}%` }}>
-          {error ? (
-            <p role="alert">{error}</p>
-          ) : pdf ? (
-            Array.from({ length: pdf.numPages }, (_, i) => (
-              <PdfPage
-                key={i}
-                pdf={pdf}
-                number={i + 1}
-                width={width * zoom}
-                ratio={ratios[i] ?? ratios[0]}
-              />
-            ))
-          ) : (
-            <p role="status">{t("lms.loadingPDF")}</p>
-          )}
-        </div>
+        {error ? (
+          <p role="alert">{error}</p>
+        ) : !plan || !doc ? (
+          <p role="status">{t("lms.loadingPDF")}</p>
+        ) : (
+          <div
+            className="lmsPdfPages"
+            ref={pages}
+            style={{ width: plan.contentWidth, height: plan.contentHeight }}
+          >
+            {plan.pages.map((page) => (
+              <div
+                key={page.index}
+                className="lmsPdfSheet"
+                data-pdf-page={page.index + 1}
+                style={{
+                  left: page.rect.left,
+                  top: page.rect.top,
+                  width: page.rect.width,
+                  height: page.rect.height,
+                }}
+              >
+                {page.tiles.map((tile) => (
+                  <img
+                    key={`${tile.key.level}/${tile.key.col}/${tile.key.row}`}
+                    className="lmsPdfTile"
+                    data-preview={tile.preview || undefined}
+                    alt=""
+                    draggable={false}
+                    decoding="async"
+                    src={`${tileOrigin}/${doc.id}/${tile.key.page}/${tile.key.level}/${tile.key.col}/${tile.key.row}`}
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = "hidden";
+                    }}
+                    style={{
+                      left: tile.rect.left,
+                      top: tile.rect.top,
+                      width: tile.rect.width,
+                      height: tile.rect.height,
+                    }}
+                  />
+                ))}
+                {hits?.items
+                  .map((hit, index) => ({ hit, index }))
+                  .filter(({ hit }) => hit.page === page.index)
+                  .flatMap(({ hit, index }) =>
+                    hit.rects.map((rect, part) => (
+                      <i
+                        key={`${index}/${part}`}
+                        className="lmsPdfHit"
+                        data-current={index === hitIndex || undefined}
+                        style={{
+                          left: rect.left * plan.scale,
+                          top: rect.top * plan.scale,
+                          width: rect.width * plan.scale,
+                          height: rect.height * plan.scale,
+                        }}
+                      />
+                    )),
+                  )}
+                {texts[page.index] && (
+                  <TextLayer runs={texts[page.index]} scale={plan.scale} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

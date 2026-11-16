@@ -56,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -119,6 +121,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val minimumRow = 30.dp
+/** Space between two weeks while they pass: past the page's side margin, so
+ * a neighbour never peeks in at rest. */
+private val weekGap = 24.dp
 /** Weekday letters and date circles above the columns, plus their gap. */
 private val dayHeaderHeight = 54.dp
 private val periodWidth = 26.dp
@@ -158,26 +163,35 @@ fun TimetableScreen() {
     }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
     var width by remember { mutableFloatStateOf(1f) }
-    // The shown week slides out towards the side it leaves by and the new one
-    // comes in from the other; a release that falls short settles back.
+    // The week and its blocks change together. Set apart (the blocks a frame
+    // later, from the effect above), the grid slid in empty and its cards
+    // popped in where they stand.
+    fun show(to: LocalDate) {
+        monday = to
+        model.cachedWeek(to)?.let { week = it }
+    }
+    val gap = with(LocalDensity.current) { weekGap.toPx() }
+    // The weeks lie side by side and follow the finger; a swipe glides the
+    // strip on to the neighbouring week, which then becomes the middle one
+    // without anything moving. A jump further (the picker, 今日) fades.
     fun go(to: LocalDate, slow: Boolean) = scope.launch {
         if (to == monday) {
             shift.animateTo(0f, Motion.slowSpring())
             return@launch
         }
-        if (reduced) {
-            shift.snapTo(0f)
+        val adjacent = to == monday.plusWeeks(1) || to == monday.minusWeeks(1)
+        if (reduced || !adjacent) {
+            shift.animateTo(0f, Motion.fast())
             fade.animateTo(0f, Motion.fast())
-            monday = to
+            show(to)
             fade.animateTo(1f, Motion.fast())
             return@launch
         }
         val direction = if (to.isAfter(monday)) -1f else 1f
         val spec = if (slow) Motion.slow<Float>() else Motion.base<Float>()
-        shift.animateTo(direction * width, spec)
-        monday = to
-        shift.snapTo(-direction * width)
-        shift.animateTo(0f, spec)
+        shift.animateTo(direction * (width + gap), spec)
+        show(to)
+        shift.snapTo(0f)
     }
     // The shown week's quarter, or this quarter between quarters.
     val term = year?.weeks?.firstOrNull { it.monday == Format.civil(monday) }?.term ?: week?.term ?: model.today?.term
@@ -185,6 +199,9 @@ fun TimetableScreen() {
     Column(
         Modifier
             .fillMaxSize()
+            // Passing weeks reach the page's edge but never draw over the
+            // rail beside it on a tablet.
+            .clipToBounds()
             .background(Theme.colors.bg)
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(horizontal = 12.dp)
@@ -196,18 +213,11 @@ fun TimetableScreen() {
         // Period rows share the height the screen leaves, so the week fits
         // without scrolling; past the floor (a tablet on its side, split
         // screen) the grid scrolls instead of cutting off the last periods.
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val length = axis?.length ?: 12.5
-            val rowHeight = maxOf(minimumRow, floor(((maxHeight - dayHeaderHeight).value / length)).dp)
-            val columns = constraints.maxWidth.toFloat()
-            SideEffect { width = columns }
-            Grid(
-                monday, week, axis, rowHeight,
-                Modifier
-                    .offset { IntOffset(shift.value.roundToInt(), 0) }
-                    .graphicsLayer { alpha = fade.value }
-                    .verticalScroll(rememberScrollState())
-                    .pointerInput(Unit) {
+        // The swipe sits on the frame around the weeks, so the blocks inside
+        // still take taps and long presses.
+        BoxWithConstraints(
+            Modifier.weight(1f).fillMaxWidth()
+                .pointerInput(Unit) {
                         val tracker = VelocityTracker()
                         var total = 0f
                         detectHorizontalDragGestures(
@@ -235,7 +245,26 @@ fun TimetableScreen() {
                             if (!reduced) scope.launch { shift.snapTo(total) }
                         }
                     },
-            )
+        ) {
+            val length = axis?.length ?: 12.5
+            val rowHeight = maxOf(minimumRow, floor(((maxHeight - dayHeaderHeight).value / length)).dp)
+            val columns = constraints.maxWidth.toFloat()
+            SideEffect { width = columns }
+            // The previous, shown and next weeks, one page apart. The
+            // neighbours draw from the weeks already read around this one (a
+            // skeleton otherwise), so a swipe shows the next week coming in.
+            for (slot in -1..1) {
+                val start = monday.plusWeeks(slot.toLong())
+                key(slot) {
+                    Grid(
+                        start, if (slot == 0) week else model.cachedWeek(start), axis, rowHeight,
+                        Modifier
+                            .offset { IntOffset((slot * (width + gap) + shift.value).roundToInt(), 0) }
+                            .graphicsLayer { alpha = fade.value }
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            }
         }
     }
     if (picker) {

@@ -2,6 +2,9 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "../../i18n";
 import { LmsIcon } from "./LmsIcon";
+// The reader frame and the PDF controls it hosts are styled here; pages
+// other than the LMS workspace open the reader too.
+import "./lms.css";
 
 const ToolsHost = createContext<HTMLElement | null>(null);
 

@@ -23,14 +23,8 @@ import {
   type MountedApp,
 } from "@tests/harness";
 import type { Assignment, Course, Material, Workspace } from "@app/lib/model";
-import type {
-  LmsCourseRecord,
-  LmsSection,
-} from "@app/platform/desktop-bridge";
-import type {
-  CourseContent,
-  LessonItemKind,
-} from "@app/generated/persistence";
+import type { LmsCourseRecord, LmsSection } from "@app/platform/desktop-bridge";
+import type { CourseContent, LessonItemKind } from "@app/generated/persistence";
 import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
 
 /**
@@ -43,31 +37,83 @@ import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
  * move to another lecture, and the Today workbench's retained readers — mount
  * the real shell or the real workbench.
  *
- * `pdfjs-dist` has no headless mode (it needs a worker and a canvas) and the
- * Milkdown/Crepe editor is driven through its real ProseMirror transactions, so
- * only `pdfjs-dist` is mocked; `PdfDocument` itself stays real.
+ * PDFs render in the shell with PDFium (crates/pdf-view), which has no
+ * headless mode here, so the `pdf_*` commands are scripted with `pdfHost`;
+ * `PdfDocument` itself stays real. The Milkdown/Crepe editor is driven through
+ * its real ProseMirror transactions.
  */
 
-const pdfjs = vi.hoisted(() => ({
-  load: vi.fn(),
-  destroy: vi.fn(),
-  cancel: vi.fn(),
-  render: vi.fn(),
-}));
-
-vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
-  GlobalWorkerOptions: {},
-  getDocument: pdfjs.load,
-  TextLayer: class {
-    render() {
-      return Promise.resolve();
+/**
+ * Scripts the shell's PDF commands: `pageSizes` in CSS pixels at zoom 1, one
+ * preview tile per page, the plan scaled by the zoom it is asked for. What
+ * the plan contains is crates/pdf-view's to decide and tested there.
+ */
+function pdfHost(
+  pageSizes: [number, number][],
+  {
+    text = {},
+    hits = [],
+  }: {
+    text?: Record<number, { text: string; rect: PdfRect }[]>;
+    hits?: { page: number; rects: PdfRect[] }[];
+  } = {},
+) {
+  let opened = 0;
+  return (command: string, args: Record<string, unknown>) => {
+    const zoom = Number(
+      (args.viewport as { zoom?: number } | undefined)?.zoom ?? 1,
+    );
+    const tops: number[] = [];
+    let top = 12;
+    for (const [, height] of pageSizes) {
+      tops.push(top);
+      top += height * zoom + 12;
     }
-    cancel() {}
-  },
-}));
-vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({
-  default: "worker.mjs",
-}));
+    switch (command) {
+      case "pdf_open":
+        return { id: ++opened, pageCount: pageSizes.length };
+      case "pdf_plan":
+        return {
+          contentWidth: 640 * zoom,
+          contentHeight: top,
+          scale: zoom,
+          currentPage: 0,
+          pages: pageSizes.map(([width, height], index) => ({
+            index,
+            rect: {
+              left: 12,
+              top: tops[index],
+              width: width * zoom,
+              height: height * zoom,
+            },
+            tiles: [
+              {
+                key: { page: index, level: -1, col: 0, row: 0 },
+                rect: {
+                  left: 0,
+                  top: 0,
+                  width: width * zoom,
+                  height: height * zoom,
+                },
+                preview: true,
+              },
+            ],
+          })),
+        };
+      case "pdf_page_top":
+        return tops[Number(args.page)] - 12;
+      case "pdf_text":
+        return text[Number(args.page)] ?? [];
+      case "pdf_search":
+        return hits;
+      case "pdf_close":
+        return null;
+      default:
+        return undefined;
+    }
+  };
+}
+type PdfRect = { left: number; top: number; width: number; height: number };
 
 const LIMIT = 20 * 1024 * 1024;
 const CONTEXT = { term: "2026-3Q", course: "TEST", section: "section-91" };
@@ -94,7 +140,6 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
-
 
 /**
  * Installs the scripted host, then loads the real module. `app/native` captures
@@ -243,7 +288,10 @@ const KINDS: Record<string, LessonItemKind> = {
  * `course_content_follows_the_desktop_lecture_desk`; this suite checks what
  * the workspace renders of the answer.
  */
-function contentFor(f: LectureFixture, imageOnly: string[] = []): CourseContent {
+function contentFor(
+  f: LectureFixture,
+  imageOnly: string[] = [],
+): CourseContent {
   const materials = f.workspace.materials.filter(
     (m) => m.courseId === f.course.id,
   );
@@ -1242,29 +1290,7 @@ describe("the LMS reading workspace", () => {
 
   it("replaces the current document, pins PDF tools above it, and releases hidden readers", async () => {
     const f = lectureFixture();
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 1,
-        getPage: vi.fn(async () => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: 600 * scale,
-            height: 800 * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({}),
-        })),
-      }),
-      destroy: pdfjs.destroy,
-    });
+    const pdf = pdfHost([[600, 800]]);
     f.workspace.materials = Array.from({ length: 6 }, (_, index) =>
       material({
         id: `file-${index}`,
@@ -1288,13 +1314,13 @@ describe("the LMS reading workspace", () => {
                 cached: true,
               },
             }
-          : undefined,
+          : pdf(command, args),
     });
 
     for (let index = 0; index < 6; index += 1) {
       await click(itemRow(host, `File ${index}`));
       await waitFor(() =>
-        expect(host.querySelectorAll("canvas")).toHaveLength(1),
+        expect(host.querySelectorAll(".lmsPdfTile")).toHaveLength(1),
       );
     }
     expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
@@ -1311,16 +1337,16 @@ describe("the LMS reading workspace", () => {
 
     await render({ active: false });
     await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(0),
+      expect(host.querySelectorAll(".lmsPdfTile")).toHaveLength(0),
     );
     await render({ active: true });
     await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(1),
+      expect(host.querySelectorAll(".lmsPdfTile")).toHaveLength(1),
     );
 
     await click(host.querySelector(".lmsViewerClose"));
     await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(0),
+      expect(host.querySelectorAll(".lmsPdfTile")).toHaveLength(0),
     );
     expect(host.querySelector(".lmsViewer")).toBeNull();
 
@@ -2020,140 +2046,116 @@ describe("the note editor", () => {
 });
 
 describe("the PDF viewer", () => {
-  async function openPdf() {
-    const { real } = await scriptedHost(
-      { workspace: workspaceFixture() },
+  async function openPdf(handle: ReturnType<typeof pdfHost>) {
+    const { core, real } = await scriptedHost(
+      { workspace: workspaceFixture(), handle },
       () => import("@app/features/lms/PdfDocument"),
     );
     const view = await mount(
-      <>
-        <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
-      </>,
+      <real.PdfDocument path="/exams/a.pdf" title="Lecture" />,
     );
     views.push(view);
-    return { view, host: view.host };
+    return { view, host: view.host, core };
   }
 
-  it("releases the document worker and cancels its active page when the viewer leaves", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    const sheet = {
-      getViewport: ({ scale }: { scale: number }) => ({
-        width: 600 * scale,
-        height: 800 * scale,
-      }),
-      render: pdfjs.render,
-      cleanup: vi.fn(),
-    };
-    pdfjs.render.mockReturnValue({
-      promise: new Promise(() => {}),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 20,
-        getPage: vi.fn().mockResolvedValue(sheet),
-      }),
-      destroy: pdfjs.destroy,
-    });
-
-    const { view, host } = await openPdf();
-    // Only the first page renders, off-screen until it is complete.
-    await waitFor(() => expect(pdfjs.render).toHaveBeenCalled());
-    expect(host.querySelectorAll("canvas")).toHaveLength(0);
+  it("draws the planned tiles and closes the document when the viewer leaves", async () => {
+    const { view, host, core } = await openPdf(
+      pdfHost([
+        [600, 800],
+        [800, 450],
+      ]),
+    );
+    await waitFor(() =>
+      expect(host.querySelectorAll(".lmsPdfTile")).toHaveLength(2),
+    );
+    expect(core.commands("pdf_open")[0].args.path).toBe("/exams/a.pdf");
+    expect(
+      host.querySelector<HTMLImageElement>(".lmsPdfTile")!.getAttribute("src"),
+    ).toMatch(/\/1\/0\/-1\/0\/0$/);
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Page"]')!.max,
+    ).toBe("2");
 
     await release(view);
-    expect(pdfjs.cancel).toHaveBeenCalledTimes(1);
-    expect(pdfjs.destroy).toHaveBeenCalledTimes(1);
+    expect(core.commands("pdf_close").map((call) => call.args.id)).toEqual([1]);
   }, 30_000);
 
-  it("finds text in a later page and zooms without mounting every canvas", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 3,
-        getPage: vi.fn(async (number: number) => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: 600 * scale,
-            height: 800 * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({
-            getReader: () => {
-              let done = false;
-              return {
-                read: async () =>
-                  done
-                    ? { done: true }
-                    : ((done = true),
-                      {
-                        done: false,
-                        value: {
-                          items: [
-                            {
-                              str:
-                                number === 3
-                                  ? "Java object inheritance"
-                                  : "Introduction",
-                            },
-                          ],
-                        },
-                      }),
-                releaseLock() {},
-                cancel: async () => {},
-              };
-            },
-          }),
-        })),
-      }),
-      destroy: pdfjs.destroy,
-    });
-    const scroll = vi
-      .spyOn(HTMLElement.prototype, "scrollIntoView")
-      .mockImplementation(() => {});
-
-    const { view, host } = await openPdf();
+  it("finds text on a later page, steps through the hits and zooms", async () => {
+    const { view, host, core } = await openPdf(
+      pdfHost(
+        [
+          [600, 800],
+          [600, 800],
+          [600, 800],
+        ],
+        {
+          hits: [
+            { page: 2, rects: [{ left: 10, top: 40, width: 80, height: 12 }] },
+            { page: 2, rects: [{ left: 10, top: 90, width: 80, height: 12 }] },
+          ],
+          text: {
+            0: [
+              {
+                text: "Introduction",
+                rect: { left: 10, top: 10, width: 90, height: 12 },
+              },
+            ],
+          },
+        },
+      ),
+    );
+    await waitFor(() =>
+      expect(host.querySelectorAll(".lmsPdfTile")).toHaveLength(3),
+    );
+    // Page text becomes the selectable layer.
+    await waitFor(() =>
+      expect(host.querySelector(".lmsPdfTextLayer")?.textContent).toBe(
+        "Introduction",
+      ),
+    );
     expect(host.querySelector("form")).toBeNull();
     await click(host.querySelector<HTMLButtonElement>(".lmsPdfFindToggle"));
-
-    const search = host.querySelector<HTMLInputElement>(
-      'input[aria-label="Find in document"]',
-    )!;
-    await typeInto(search, "inheritance");
-    await act(async () => {
-      host
-        .querySelector("form")!
-        .dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
-    await waitFor(() =>
-      expect(
-        host.querySelector<HTMLInputElement>('input[aria-label="Page"]')!.value,
-      ).toBe("3"),
+    await typeInto(
+      host.querySelector<HTMLInputElement>(
+        'input[aria-label="Find in document"]',
+      )!,
+      "inheritance",
     );
-    expect(scroll).toHaveBeenCalled();
-    expect(host.querySelectorAll("canvas")).toHaveLength(1);
+    const submit = async () =>
+      act(async () => {
+        host
+          .querySelector("form")!
+          .dispatchEvent(
+            new Event("submit", { bubbles: true, cancelable: true }),
+          );
+      });
+    await submit();
+    await waitFor(() =>
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("1 / 2"),
+    );
+    expect(core.commands("pdf_search").at(-1)?.args.query).toBe("inheritance");
+    expect(core.commands("pdf_page_top").at(-1)?.args.page).toBe(2);
+    expect(host.querySelectorAll(".lmsPdfHit")).toHaveLength(2);
+    expect(host.querySelector(".lmsPdfHit[data-current]")).not.toBeNull();
+    // The same query steps to the next hit without searching again.
+    await submit();
+    await waitFor(() =>
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("2 / 2"),
+    );
+    expect(core.commands("pdf_search")).toHaveLength(1);
 
     const zoom = host.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Zoom"]',
     )!;
     await chooseOption(zoom, "1.5");
-    expect(
-      (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,
-    ).toBe("150%");
-    expect(host.querySelectorAll("canvas")).toHaveLength(1);
+    await waitFor(() =>
+      expect(
+        (core.commands("pdf_plan").at(-1)?.args.viewport as { zoom: number })
+          .zoom,
+      ).toBe(1.5),
+    );
 
+    // Ctrl-wheel previews the zoom as a CSS scale, then commits one zoom.
     vi.useFakeTimers();
     const viewport = host.querySelector(".lmsPdfDocument")!;
     const gesture = new WheelEvent("wheel", {
@@ -2172,60 +2174,16 @@ describe("the PDF viewer", () => {
     await act(async () => {
       vi.advanceTimersByTime(150);
     });
-    expect(
-      parseFloat(
-        (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,
-      ),
-    ).toBeGreaterThan(150);
+    vi.useRealTimers();
     expect(
       (host.querySelector(".lmsPdfPages") as HTMLElement).style.transform,
     ).toBe("");
-
-    await release(view);
-  }, 30_000);
-
-  it("sizes every page from its own viewport in a mixed portrait and landscape deck", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: pdfjs.cancel,
-    });
-    const sizes = [
-      [600, 800],
-      [800, 450],
-      [600, 800],
-    ];
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 3,
-        getPage: vi.fn(async (number: number) => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: sizes[number - 1][0] * scale,
-            height: sizes[number - 1][1] * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({}),
-        })),
-      }),
-      destroy: pdfjs.destroy,
-    });
-
-    const { view, host } = await openPdf();
-    // jsdom does not expose `aspectRatio` on CSSStyleDeclaration; read the
-    // serialized style the way a person would inspect the page.
-    const aspects = () =>
-      [...host.querySelectorAll<HTMLElement>("[data-pdf-page]")].map((page) =>
-        Number(
-          page.getAttribute("style")?.match(/aspect-ratio:\s*([\d.]+)/)?.[1],
-        ).toFixed(3),
-      );
-    await waitFor(() => expect(aspects()).toEqual(["0.750", "1.778", "0.750"]));
-    // The rendered first page has been swapped in.
-    expect(host.querySelectorAll("canvas")).toHaveLength(1);
+    await waitFor(() =>
+      expect(
+        (core.commands("pdf_plan").at(-1)?.args.viewport as { zoom: number })
+          .zoom,
+      ).toBeGreaterThan(1.5),
+    );
 
     await release(view);
   }, 30_000);

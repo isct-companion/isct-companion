@@ -100,6 +100,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::SubmissionUnsupported => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::ExamShareInvalidInput
+        | C::ExamShareDuplicate
+        | C::ExamShareTooLarge
         | C::TooLarge
         | C::NoteTooLarge
         | C::StudyAdmissionTerm

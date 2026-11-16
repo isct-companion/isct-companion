@@ -437,8 +437,12 @@ fn a_refusal_outlives_an_old_acceptance_marker_it_could_not_remove() {
         otp_secret: String::new(),
         matrix: (0..70u8).map(|i| (b'A' + i % 26) as char).collect(),
     };
-    service.promote(SchoolAuthProfile::Science, &science).unwrap();
-    service.promote(SchoolAuthProfile::TokyoTech, &tokyo).unwrap();
+    service
+        .promote(SchoolAuthProfile::Science, &science)
+        .unwrap();
+    service
+        .promote(SchoolAuthProfile::TokyoTech, &tokyo)
+        .unwrap();
     vault
         .items
         .store(SchoolAuthProfile::Science.acceptance_key(), "1")
@@ -466,12 +470,17 @@ fn a_refusal_outlives_an_old_acceptance_marker_it_could_not_remove() {
         relaunched.refusal(SchoolAuthProfile::Science).is_none()
     );
 
-    relaunched.clear_refusal(SchoolAuthProfile::Science, &science).unwrap();
+    relaunched
+        .clear_refusal(SchoolAuthProfile::Science, &science)
+        .unwrap();
     assert_eq!(relaunched.refusal(SchoolAuthProfile::Science), None);
     let again = SchoolAuthService::new(vault);
     again.load_refusals().unwrap();
     assert_eq!(again.refusal(SchoolAuthProfile::Science), None);
-    assert_eq!(again.refusal(SchoolAuthProfile::TokyoTech), Some(problem("tokyo")));
+    assert_eq!(
+        again.refusal(SchoolAuthProfile::TokyoTech),
+        Some(problem("tokyo"))
+    );
 }
 
 // Keychain is the source of truth: another device replacing the synchronized

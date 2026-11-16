@@ -164,7 +164,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
             runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
-            if (!foreground) runCatching { session.suspend() }
+            // The launch's first foreground came before the session opened, so
+            // its update check never ran.
+            if (foreground) scope.launch { updater.check(session, launch = true) }
+            else runCatching { session.suspend() }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }

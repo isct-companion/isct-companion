@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["apps/desktop/src-tauri", "crates/adpt-cups", "crates/adpt-isct", "crates/adpt-printer", "crates/app-core", "crates/app-ocr", "crates/app-ffi", "crates/vpn-helper", "crates/vpn-protocol"]
+members = ["apps/desktop/src-tauri", "crates/adpt-cups", "crates/adpt-isct", "crates/adpt-printer", "crates/app-core", "crates/app-ocr", "crates/app-ffi", "crates/pdf-view", "crates/vpn-helper", "crates/vpn-protocol"]
 default-members = ["apps/desktop/src-tauri"]
 
 [profile.release]
@@ -27,6 +27,19 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.zune-jpeg]
+opt-level = 3
+
+# PDF tiles are encoded on every render; keep scrolling a dev build smooth.
+[profile.dev.package.pdf-view]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.crc32fast]
 opt-level = 3
 
 [profile.test]

@@ -40,6 +40,8 @@ const KEYS_BUILT_AT_RUNTIME = [
   "examShare.requestStatus.",
   "examShare.role.",
   "examShare.reason.",
+  "examShare.provenance.",
+  "examShare.answerSource.",
 ];
 
 /** Dotted strings in the sources that look like keys but are not: Core's

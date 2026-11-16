@@ -22,8 +22,13 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -37,6 +42,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -207,7 +214,6 @@ class Navigator(private val controller: NavHostController) {
     )
 
     fun openRecord() = controller.navigate("record")
-    fun openPastExams() = controller.navigate(PAST_EXAMS_DETAIL) { launchSingleTop = true }
 
     /** The account page 設定 should open on, taken (and cleared) by it. */
     var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
@@ -228,9 +234,8 @@ class Navigator(private val controller: NavHostController) {
     fun back() = controller.popBackStack()
 }
 
-private const val PAST_EXAMS_DETAIL = "past-exams/detail"
-
-/** On phones, past exams have a tab. On tablets they open from 授業. */
+/** Phones have five tabs; tablets add 授業 and show all six in a side rail,
+ * as the iPad and the desktop do. */
 private enum class AppTab(
     val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
 ) {
@@ -317,19 +322,24 @@ private fun Tabs() {
     val context = LocalContext.current
     val wide = remember(configuration) { context.largeScreen() }
     LaunchedEffect(wide, current) {
-        if (!wide && current == AppTab.Lectures) {
-            val tab = if (destination?.route == PAST_EXAMS_DETAIL) AppTab.PastExams else AppTab.Today
-            navigator.openTab(tab.route)
-        } else if (wide && current == AppTab.PastExams) {
-            navigator.openTab(AppTab.Lectures.route)
-            navigator.openPastExams()
-        }
+        if (!wide && current == AppTab.Lectures) navigator.openTab(AppTab.Today.route)
     }
+    val tabs = AppTab.entries.filter { wide || !it.wideOnly }
     // A pushed school page fills the screen, like a browser tab.
     val showsBar = destination?.route?.startsWith("page/") != true
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    // Tapping the current tab returns it to its root; for ウェブ, to the
+    // shown site's start page.
+    fun select(tab: AppTab) {
+        if (tab == current) {
+            controller.popBackStack(tab.start, inclusive = false)
+            if (tab == AppTab.Web) model.web.goHome(model.web.tabSite)
+        } else {
+            navigator.openTab(tab.route)
+        }
+    }
     // Hiding offers its undo in the platform snackbar, above the navigation bar.
     LaunchedEffect(model.undo) {
         val undo = model.undo ?: return@LaunchedEffect
@@ -345,23 +355,13 @@ private fun Tabs() {
             containerColor = Theme.colors.bg,
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
-                if (showsBar) {
+                // Six entries crowd a bottom bar: a tablet's sit in the side rail.
+                if (showsBar && !wide) {
                     NavigationBar {
-                        for (tab in AppTab.entries.filter {
-                            if (wide) it != AppTab.PastExams else !it.wideOnly
-                        }) {
+                        for (tab in tabs) {
                             NavigationBarItem(
                                 selected = tab == current,
-                                onClick = {
-                                    if (tab == current) {
-                                        // Tapping the current tab returns it to its root;
-                                        // for ウェブ, to the shown site's start page.
-                                        controller.popBackStack(tab.start, inclusive = false)
-                                        if (tab == AppTab.Web) model.web.goHome(model.web.tabSite)
-                                    } else {
-                                        navigator.openTab(tab.route)
-                                    }
-                                },
+                                onClick = { select(tab) },
                                 icon = { Icon(tab.icon, null) },
                                 label = { Text(t(tab.label)) },
                             )
@@ -370,6 +370,23 @@ private fun Tabs() {
                 }
             },
         ) { padding ->
+            Row(Modifier.fillMaxSize()) {
+            if (showsBar && wide) {
+                NavigationRail(
+                    containerColor = Theme.colors.bg,
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                ) {
+                    for (tab in tabs) {
+                        NavigationRailItem(
+                            selected = tab == current,
+                            onClick = { select(tab) },
+                            icon = { Icon(tab.icon, null) },
+                            label = { Text(t(tab.label)) },
+                        )
+                    }
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxHeight()) {
             // Shared bounds let a course grow out of what was tapped (`design/Motion.kt`).
             SharedTransitionLayout {
             CompositionLocalProvider(LocalSharedTransition provides this) {
@@ -381,7 +398,6 @@ private fun Tabs() {
                 tab(AppTab.Web) { WebTabScreen() }
                 tab(AppTab.PastExams) { PastExamsScreen() }
                 tab(AppTab.Settings) { SettingsScreen() }
-                destination(PAST_EXAMS_DETAIL) { PastExamsScreen(onBack = { navigator.back() }) }
                 destination(
                     "course/{id}?zoom={zoom}",
                     listOf(
@@ -420,6 +436,8 @@ private fun Tabs() {
                 Modifier.align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
             )
+            }
+            }
             }
             }
             }

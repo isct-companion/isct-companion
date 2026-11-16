@@ -543,8 +543,58 @@ export type ApplicationLogSnapshot = {
   dropped: boolean;
 };
 
+/** The PDF reader's shapes, from crates/pdf-view (CSS pixels unless noted). */
+/** A file picked for a ScienceTokyoExam upload. */
+export type ExamPickedFile = { path: string; name: string; size: number };
+
+export type PdfViewport = {
+  width: number;
+  height: number;
+  scrollTop: number;
+  zoom: number;
+  devicePixelRatio: number;
+};
+export type PdfRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+export type PdfTileKey = {
+  page: number;
+  level: number;
+  col: number;
+  row: number;
+};
+export type PdfPlan = {
+  contentWidth: number;
+  contentHeight: number;
+  /** CSS pixels per PDF point. */
+  scale: number;
+  currentPage: number;
+  pages: {
+    index: number;
+    rect: PdfRect;
+    tiles: { key: PdfTileKey; rect: PdfRect; preview: boolean }[];
+  }[];
+};
+/** Points from the page's top-left corner. */
+export type PdfTextRun = { text: string; rect: PdfRect };
+export type PdfSearchHit = { page: number; rects: PdfRect[] };
+
 export interface DesktopBridge {
+  /** PDF previews rendered by PDFium (slotledger aqchay). */
+  pdf?: {
+    open(path: string): Promise<{ id: number; pageCount: number }>;
+    plan(id: number, viewport: PdfViewport): Promise<PdfPlan>;
+    pageTop(id: number, viewport: PdfViewport, page: number): Promise<number>;
+    text(id: number, page: number): Promise<PdfTextRun[]>;
+    search(id: number, query: string): Promise<PdfSearchHit[]>;
+    close(id: number): Promise<void>;
+  };
   examShare?(action: ExamAction): Promise<ExamAnswer>;
+  /** Native picker for files to share; only these may go into an upload. */
+  examPickUpload?(): Promise<ExamPickedFile[]>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -789,6 +839,11 @@ const requireString = (command: string, value: unknown) => {
     throw new Error(`${command} returned an invalid result.`);
   return value;
 };
+const requireList = <T>(command: string, value: unknown): T[] => {
+  if (!Array.isArray(value))
+    throw new Error(`${command} returned an invalid result.`);
+  return value as T[];
+};
 const requireObject = <T>(command: string, value: unknown): T => {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${command} returned an invalid result.`);
@@ -841,6 +896,21 @@ export function createTauriDesktopBridge(
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     examShare: (action) => result("exam_share", { action }),
+    examPickUpload: async () =>
+      requireList<ExamPickedFile>(
+        "exam_pick_upload",
+        await invokeCommand("exam_pick_upload"),
+      ),
+    pdf: {
+      open: (path) => result("pdf_open", { path }),
+      plan: (id, viewport) => result("pdf_plan", { id, viewport }),
+      pageTop: (id, viewport, page) =>
+        invokeCommand<number>("pdf_page_top", { id, viewport, page }),
+      text: (id, page) => invokeCommand<PdfTextRun[]>("pdf_text", { id, page }),
+      search: (id, query) =>
+        invokeCommand<PdfSearchHit[]>("pdf_search", { id, query }),
+      close: (id) => invokeCommand<void>("pdf_close", { id }),
+    },
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url, site) =>

@@ -123,13 +123,21 @@ impl Gate {
         *revision
     }
 
-    fn enter(self: &Arc<Self>, generation: u64, resource: Option<&(Key, u64)>) -> Option<GateGuard> {
+    fn enter(
+        self: &Arc<Self>,
+        generation: u64,
+        resource: Option<&(Key, u64)>,
+    ) -> Option<GateGuard> {
         let mut state = guard(&self.state);
         if state.generation != generation {
             return None;
         }
         if let Some((key, revision)) = resource {
-            if state.resources.get(key).is_some_and(|current| current > revision) {
+            if state
+                .resources
+                .get(key)
+                .is_some_and(|current| current > revision)
+            {
                 return None;
             }
         }
@@ -225,7 +233,10 @@ pub(crate) struct Lease {
 impl Lease {
     /// The key's resource revision the lease was taken at.
     fn revision(&self) -> u64 {
-        self.writer.resource.as_ref().map_or(0, |(_, revision)| *revision)
+        self.writer
+            .resource
+            .as_ref()
+            .map_or(0, |(_, revision)| *revision)
     }
 }
 
@@ -597,7 +608,6 @@ struct Waiter {
     revision: u64,
     reply: oneshot::Sender<Result<(), ReadRefused>>,
 }
-
 
 struct State {
     facts: Facts,
@@ -1767,7 +1777,9 @@ impl PlanEngine {
             }
         }
         self.publish_directive();
-        self.0.version.send_modify(|version| *version = version.wrapping_add(1));
+        self.0
+            .version
+            .send_modify(|version| *version = version.wrapping_add(1));
     }
 
     /// The earliest deadline of the plan and every duty, and what an OS
@@ -1828,11 +1840,17 @@ impl PlanEngine {
         };
         let network = network.map(second);
         let local = local.map(second);
-        let at = [network, local, failures.map(second)].into_iter().flatten().min();
+        let at = [network, local, failures.map(second)]
+            .into_iter()
+            .flatten()
+            .min();
         let background = [
             (
                 BackgroundWork::Network,
-                network.into_iter().chain(waiting.then(|| second(now))).min(),
+                network
+                    .into_iter()
+                    .chain(waiting.then(|| second(now)))
+                    .min(),
             ),
             (BackgroundWork::Local, local),
         ]
@@ -1853,11 +1871,10 @@ impl PlanEngine {
                 (current, at) => current == at,
             };
             let same_background = current.background.len() == background.len()
-                && current
-                    .background
-                    .iter()
-                    .zip(&background)
-                    .all(|(a, b)| a.work == b.work && (a.earliest == b.earliest || (a.earliest <= now && b.earliest <= now)));
+                && current.background.iter().zip(&background).all(|(a, b)| {
+                    a.work == b.work
+                        && (a.earliest == b.earliest || (a.earliest <= now && b.earliest <= now))
+                });
             if same_at && same_background {
                 return false;
             }
@@ -2043,7 +2060,10 @@ fn settle(
         };
         let mut left = Vec::new();
         // A waiter that stopped waiting wants no read.
-        for waiter in waiters.into_iter().filter(|waiter| !waiter.reply.is_closed()) {
+        for waiter in waiters
+            .into_iter()
+            .filter(|waiter| !waiter.reply.is_closed())
+        {
             match &answer {
                 Some(answer) if lease.revision() >= waiter.revision => {
                     let _ = waiter.reply.send(answer.clone());
@@ -2195,7 +2215,11 @@ fn update_batches(state: &mut State, instant: Instant, now: DateTime<Utc>) {
         if batch.failed.is_empty() {
             return false;
         }
-        let retry = batch.failed.values().filter_map(|failed| failed.retry).min();
+        let retry = batch
+            .failed
+            .values()
+            .filter_map(|failed| failed.retry)
+            .min();
         match retry {
             Some(retry) => retry > now,
             None => batch

@@ -9,6 +9,8 @@
 // - Models: the bundled OCR model and runtime notices.
 // - Campus VPN: openconnect and the libraries bundled with it, as
 //   `bundle-vpn.mjs` recorded them (macOS builds that include the payload).
+// - PDF previews: PDFium and the libraries built into it, from the licences
+//   the desktop build staged beside the library (crates/pdf-view).
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -123,6 +125,46 @@ function modelComponents() {
   ];
 }
 
+/** The licence of each project built into PDFium (its licenses/ folder). */
+const PDFIUM_LICENSES = {
+  pdfium: "BSD-3-Clause",
+  abseil: "Apache-2.0",
+  agg23: "BSD-3-Clause",
+  dragonbox: "Apache-2.0 WITH LLVM-exception OR BSL-1.0",
+  fast_float: "Apache-2.0 OR MIT OR BSL-1.0",
+  freetype: "FTL",
+  harfbuzz: "MIT-Modern-Variant",
+  highway: "Apache-2.0 OR BSD-3-Clause",
+  icu: "Unicode-3.0",
+  lcms: "MIT",
+  libjpeg_turbo: "IJG AND BSD-3-Clause AND Zlib",
+  libopenjpeg: "BSD-2-Clause",
+  libpng: "libpng-2.0",
+  "llvm-libc": "Apache-2.0 WITH LLVM-exception",
+  simdutf: "Apache-2.0 OR MIT",
+  zlib: "Zlib",
+};
+
+function pdfiumComponents() {
+  const dir = path.join(root, "apps/desktop/src-tauri/vendor/pdfium/licenses");
+  if (!existsSync(dir)) return [];
+  // One file per project; the file name is the project (libjpeg-turbo ships
+  // two texts, its .md and its IJG licence, under one name).
+  const projects = new Map();
+  for (const file of readdirSync(dir).sort()) {
+    const name = file.replace(/\.[^.]+$/, "").replace(/-(Boost|Apache2-LLVM)$/, "");
+    const text = readFileSync(path.join(dir, file), "utf8").trim();
+    if (text) projects.set(name, [...(projects.get(name) ?? []), text]);
+  }
+  return [...projects].map(([name, texts]) => ({
+    group: "pdf",
+    name: name === "pdfium" ? "PDFium" : name,
+    license: PDFIUM_LICENSES[name] ?? "see the licence text",
+    url: name === "pdfium" ? "https://pdfium.googlesource.com/pdfium/" : undefined,
+    texts,
+  }));
+}
+
 function vpnComponents() {
   const dir = path.join(root, "apps/desktop/src-tauri/resources/vpn/openconnect");
   const list = path.join(dir, "components.json");
@@ -147,6 +189,7 @@ export function buildNotices({ moduleIds, native }) {
     ...npmComponents(moduleIds),
     ...(native ? crateComponents(native) : []),
     ...modelComponents(),
+    ...(native ? pdfiumComponents() : []),
     ...vpnComponents(),
   ].sort(
     (a, b) =>
@@ -195,6 +238,7 @@ const GROUP_TITLES = {
   native: "Native app (Rust crates)",
   models: "OCR model and runtime",
   vpn: "Campus VPN (openconnect and its libraries)",
+  pdf: "PDF previews (PDFium and its libraries)",
 };
 
 /** Plain-text notices: one section per component, shared texts inlined. */

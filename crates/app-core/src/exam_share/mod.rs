@@ -3,6 +3,8 @@ mod client;
 mod identity;
 mod library;
 mod model;
+mod sets;
+mod upload;
 pub use model::*;
 
 use crate::{
@@ -61,6 +63,10 @@ pub enum ExamError {
     Quota,
     #[error("The ScienceTokyoExam input is invalid")]
     InvalidInput,
+    #[error("This file is already in ScienceTokyoExam")]
+    Duplicate,
+    #[error("The file is larger than ScienceTokyoExam accepts")]
+    TooLarge,
 }
 
 impl ExamError {
@@ -510,8 +516,10 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamClass::decl(cfg),
         ExamDocument::decl(cfg),
         ExamSubjectPage::decl(cfg),
+        ExamSet::decl(cfg),
         ExamRequest::decl(cfg),
         ExamRequestCursor::decl(cfg),
+        ExamUploadDraft::decl(cfg),
         ExamRequestPage::decl(cfg),
         ExamRequestDraft::decl(cfg),
         ExamLocalDocument::decl(cfg),

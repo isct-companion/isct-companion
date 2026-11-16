@@ -59,7 +59,9 @@ impl Client {
             *last = Some(Instant::now());
         }
         let response = request.send().await.map_err(network)?;
+        let path = response.url().path().to_owned();
         if response.headers().contains_key("X-Vercel-Mitigated") {
+            log::warn!("[exam-share] {path}: challenged by the Vercel firewall");
             return Err(ExamError::Unavailable);
         }
         let status = response.status();
@@ -68,6 +70,7 @@ impl Client {
         }
         let body: Result<ServiceError, _> = read(response).await;
         let code = body.ok().and_then(|body| body.code);
+        log::warn!("[exam-share] {path}: {status} {code:?}");
         match (status, code.as_deref()) {
             (StatusCode::UNAUTHORIZED, _) => Err(ExamError::Expired),
             (_, Some("auth.not_allowed")) => Err(ExamError::Denied),
@@ -101,7 +104,9 @@ impl Client {
             return read(response).await;
         }
         let body: Result<FirebaseError, _> = read(response).await;
-        match body.ok().map(|error| error.error.message).as_deref() {
+        let message = body.ok().map(|error| error.error.message);
+        log::warn!("[exam-share] identity: {status} {message:?}");
+        match message.as_deref() {
             Some(
                 "TOKEN_EXPIRED" | "USER_DISABLED" | "USER_NOT_FOUND" | "INVALID_REFRESH_TOKEN",
             ) => Err(ExamError::Expired),

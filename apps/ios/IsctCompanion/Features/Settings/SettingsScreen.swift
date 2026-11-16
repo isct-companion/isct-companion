@@ -163,23 +163,33 @@ struct SettingsScreen: View {
     /// now, and whether this device checks on its own (Core reads
     /// `appUpdateChecks`; absent is on).
     @ViewBuilder private var updateRows: some View {
-        Button {
-            if let release = model.availableUpdate, let url = URL(string: release.url) {
-                UIApplication.shared.open(url)
-            } else {
+        if let release = model.availableUpdate {
+            HStack {
+                Label {
+                    Text(t("appUpdate.prompt.available", ["version": release.version])).foregroundStyle(Theme.ink)
+                } icon: {
+                    SettingsIcon(symbol: "arrow.down.app", tint: Theme.accent)
+                }
+                Spacer()
+                if let url = URL(string: release.url) {
+                    Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
+            }
+        } else {
+            Button {
                 Task { await model.checkForUpdate(manual: true) }
+            } label: {
+                Label {
+                    Text(model.upToDate ? t("appUpdate.upToDate") : t("settings.about.checkForUpdates"))
+                        .foregroundStyle(Theme.ink)
+                } icon: {
+                    SettingsIcon(symbol: "arrow.down.app", tint: Theme.muted)
+                }
             }
-        } label: {
-            Label {
-                Text(
-                    model.availableUpdate.map { t("appUpdate.prompt.available", ["version": $0.version]) }
-                        ?? (model.upToDate ? t("appUpdate.upToDate") : t("settings.about.checkForUpdates"))
-                ).foregroundStyle(Theme.ink)
-            } icon: {
-                SettingsIcon(symbol: "arrow.down.app", tint: Theme.muted)
-            }
+            .disabled(model.checkingUpdate)
         }
-        .disabled(model.checkingUpdate)
         Toggle(isOn: Binding(
             get: { model.records.settings["appUpdateChecks"] as? Bool ?? true },
             set: { on in Task { await model.updateSettings { $0["appUpdateChecks"] = on } } }

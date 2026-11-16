@@ -54,6 +54,29 @@ pub struct ExamSubjectPage {
     pub subject: ExamSubject,
     pub rows: Vec<ExamClass>,
     pub exams: Vec<ExamDocument>,
+    /// IDs of the subject's teachers who teach the person's own timetable
+    /// course; empty when the page was not opened from the timetable.
+    #[serde(default)]
+    pub my_teachers: Vec<String>,
+    /// `exams` grouped by sitting, newest first (Core's `sets::arrange`).
+    #[serde(default)]
+    pub sets: Vec<ExamSet>,
+}
+
+/// Documents of one sitting: a question and its answer share a set.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamSet {
+    pub academic_year: Option<u32>,
+    pub occasion: Option<String>,
+    pub occasion_number: u32,
+    pub variant: String,
+    pub teachers: Vec<ExamTeacher>,
+    /// Taught by one of `my_teachers`.
+    pub mine: bool,
+    /// Question first, then answer, then the rest.
+    pub documents: Vec<ExamDocument>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -99,6 +122,30 @@ pub struct ExamRequestDraft {
     pub occasion: Option<String>,
     pub wanted_role: Option<String>,
     pub description: String,
+}
+
+/// A past exam to share. `role`, `occasion`, `provenance` and
+/// `answer_source` take the site's codes; Core applies the site's rules
+/// (`upload::fields`) before anything is sent.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamUploadDraft {
+    /// Local files the person picked; several must all be photos, which
+    /// become one PDF.
+    pub files: Vec<String>,
+    pub subject_codes: Vec<String>,
+    pub teacher_ids: Vec<String>,
+    pub academic_year: Option<u32>,
+    pub occasion: Option<String>,
+    pub occasion_number: u32,
+    pub variant: String,
+    pub role: String,
+    pub provenance: Option<String>,
+    pub answer_source: Option<String>,
+    pub note: String,
+    /// The request this upload answers.
+    pub request_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -182,6 +229,9 @@ pub enum ExamAction {
     },
     Subject {
         code: String,
+        /// The timetable course's instructor text, when opened from the
+        /// timetable; Core matches it to the subject's teachers.
+        instructor: Option<String>,
     },
     Open {
         id: String,
@@ -217,6 +267,9 @@ pub enum ExamAction {
     DeleteRequest {
         id: String,
     },
+    Upload {
+        draft: ExamUploadDraft,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -230,5 +283,7 @@ pub enum ExamAnswer {
     Library(ExamLibrary),
     Saved(bool),
     Requests(ExamRequestPage),
+    /// The ID of the exam just shared.
+    Uploaded(String),
     Done,
 }

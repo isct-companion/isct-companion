@@ -940,6 +940,19 @@ const snapshot = (generation: number, done: number): SyncSnapshot => ({
 });
 
 describe("Tauri bridge contract", () => {
+  it("hands back the files picked for an upload, which arrive as a list", async () => {
+    const picked = [{ path: "/tmp/exam.jpg", name: "exam.jpg", size: 1024 }];
+    let answer: unknown = picked;
+    const { invoke } = invokeSeam(() => answer);
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
+
+    await expect(bridge.examPickUpload!()).resolves.toEqual(picked);
+    answer = { path: "/tmp/exam.jpg" };
+    await expect(bridge.examPickUpload!()).rejects.toThrow(
+      "exam_pick_upload returned an invalid result.",
+    );
+  });
+
   it("sends hints under the `hint` argument the native command reads", async () => {
     const { invoke, calls } = invokeSeam(() => null);
     const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
@@ -1014,7 +1027,11 @@ describe("Tauri bridge contract", () => {
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
         case "connect_school":
-          return { kind: "refused", reason: "invalid-otp", refusalUnsaved: false };
+          return {
+            kind: "refused",
+            reason: "invalid-otp",
+            refusalUnsaved: false,
+          };
         case "navigate_school_web":
         case "set_school_web_zoom":
         case "school_web_forward":

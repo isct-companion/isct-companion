@@ -66,8 +66,9 @@ Two rules decide almost everything:
    - module needs data → builders in `harness/fixtures.ts`
    - component needs a DOM → `mount` from `harness/render.tsx`
 
-   Mock only what the test cannot otherwise own: a third-party renderer with no
-   headless mode (`pdfjs-dist`), or a canvas/WebGL surface.
+   Mock only what the test cannot otherwise own: a native renderer with no
+   headless mode (the shell's PDFium `pdf_*` commands, scripted by `pdfHost`),
+   or a canvas/WebGL surface.
 
 Keep a failing case alongside the passing one. A test that only proves the happy
 path usually misses the bug it was written for.

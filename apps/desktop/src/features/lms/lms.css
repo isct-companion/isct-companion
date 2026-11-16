@@ -226,7 +226,7 @@
 .lmsFileAddress { display: flex; flex: 1; align-items: center; min-width: 100px; }
 .lmsFileAddress > span { flex: 1; overflow: hidden; color: var(--ink); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .lmsFileAddress small { display: none; }
-.lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
+.lmsAttachmentPreview { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .lmsLoading { padding: 40px 20px; text-align: center; }
 .lmsFileToolbar > small { color: var(--muted); white-space: nowrap; }
 
@@ -264,16 +264,24 @@
 .lmsFileActions[data-layout="menu"] .lmsToolLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lmsFileActions[data-layout="menu"] svg { flex: 0 0 auto; }
 .lmsFileToolbar button, .lmsFileToolbar a { gap: 5px; }
-.lmsImageStage.actual { display: block; overflow: auto; }
-.lmsImagePreview { background: white; cursor: zoom-in; }
-.lmsImageStage.actual .lmsImagePreview { max-width: none; max-height: none; cursor: zoom-out; }
-.lmsImagePreview, .lmsMediaPreview { display: block; max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; border-radius: var(--lms-radius-sm); box-shadow: 0 1px 2px #0000000d, 0 8px 24px #00000014; }
+/* Image reader (ImageView.tsx): the stage scrolls; margin:auto centres a
+   small image without clipping a large one. */
+.lmsImageViewer { position: relative; display: flex; flex: 1; min-height: 0; background: var(--surface-2); }
+.lmsImageStage { display: flex; flex: 1; min-width: 0; min-height: 0; padding: 12px; overflow: auto; cursor: grab; user-select: none; }
+.lmsImageStage[data-dragging] { cursor: grabbing; }
+.lmsImagePreview { flex: none; margin: auto; max-width: none; background: white; }
+.lmsImagePreview, .lmsMediaPreview { display: block; border-radius: var(--lms-radius-sm); box-shadow: 0 1px 2px #0000000d, 0 8px 24px #00000014; }
+.lmsMediaPreview { max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; }
+.lmsImageZoom { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 4px 14px #00000014; }
+.lmsImageZoom button { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsImageZoom button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.lmsImageZoom button:disabled { opacity: .3; }
 .lmsMediaPreview { width: 100%; background: black; }
 .lmsAudioStage { padding: 32px 24px; }
 .lmsAudioStage audio { width: 100%; }
 
 /* ---------- PDF ---------- */
-.lmsPdfReader { background: var(--surface-2); }
+.lmsPdfReader { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; background: var(--surface-2); }
 .lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .lmsPdfHeader > .lmsFileToolbar { position: static; flex: 1 1 240px; flex-wrap: wrap; gap: 5px; min-width: 0; padding: 0; border: 0; }
 .lmsPdfHeader .lmsFileAddress { min-width: 60px; padding: 4px 0; }
@@ -298,12 +306,18 @@
 .lmsPdfSearch button { padding: 5px 8px; border-radius: 6px; font-size: calc(var(--type-block-size) * var(--text)); white-space: nowrap; }
 .lmsPdfSearch button:disabled { color: var(--muted); opacity: .6; cursor: default; }
 .lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
-.lmsPdfDocument { width: 100%; padding: 20px; overflow-x: auto; touch-action: pan-x pan-y; }
-.lmsPdfPages { min-width: 200px; margin: 0 auto; }
-.lmsPdfPage { position: relative; width: 100%; margin: 0 0 20px; background: white; box-shadow: 0 1px 2px #0000000d, 0 4px 14px #00000012; contain: layout paint; scroll-margin-top: 65px; }
-.lmsPdfPaper { position: absolute; inset: 0; }
-.lmsPdfPage canvas { display: block; width: 100%; height: 100%; object-fit: contain; background: white; }
-.lmsPdfPage .textLayer { inset: 0; --scale-round-x: 1px; --scale-round-y: 1px; }
+.lmsPdfDocument { flex: 1; min-height: 0; overflow: auto; touch-action: pan-x pan-y; }
+/* The content at its full height; pages and tiles sit at the positions the
+   shell's plan gives (crates/pdf-view), only those near the viewport exist. */
+.lmsPdfPages { position: relative; }
+.lmsPdfSheet { position: absolute; background: white; box-shadow: 0 1px 2px #0000000d, 0 4px 14px #00000012; contain: strict; overflow: hidden; }
+.lmsPdfTile { position: absolute; display: block; max-width: none; user-select: none; pointer-events: none; }
+.lmsPdfTile:not([data-preview]) { z-index: 1; }
+.lmsPdfHit { position: absolute; z-index: 2; background: color-mix(in srgb, var(--warn) 35%, transparent); border-radius: 2px; pointer-events: none; }
+.lmsPdfHit[data-current] { background: color-mix(in srgb, var(--accent) 40%, transparent); outline: 2px solid var(--accent); }
+.lmsPdfTextLayer { position: absolute; inset: 0; z-index: 3; line-height: 1; }
+.lmsPdfTextLayer span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; font-family: sans-serif; cursor: text; }
+.lmsPdfTextLayer span::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 
 /* ---------- Text, Markdown, notes ---------- */
 .lmsTextDocument { overflow: hidden; background: var(--surface); }

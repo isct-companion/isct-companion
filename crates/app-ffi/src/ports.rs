@@ -612,7 +612,9 @@ impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
         _: app_core::oauth::BrowserCallback,
     ) -> app_core::net::BoxFuture<'a, Result<(), app_core::oauth::OAuthError>> {
         Box::pin(async move {
-            self.0.authenticate(url.to_string(), None).await
+            self.0
+                .authenticate(url.to_string(), None)
+                .await
                 .map(|_| ())
                 .map_err(|error| match error {
                     SdkError::Cancelled => app_core::oauth::OAuthError::Cancelled,

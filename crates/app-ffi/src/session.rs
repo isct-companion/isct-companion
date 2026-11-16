@@ -114,7 +114,9 @@ impl Inner {
         *self.gate.lock().map_err(|_| SdkError::Closed)? = true;
         self.tasks.close();
         self.closed.cancel();
-        if let Some(exam_share) = &self.exam_share { exam_share.cancel(); }
+        if let Some(exam_share) = &self.exam_share {
+            exam_share.cancel();
+        }
         if let Ok(operations) = self.operations.lock() {
             for op in operations.values().filter_map(Weak::upgrade) {
                 if op.cancellable {
@@ -683,7 +685,13 @@ async fn initialize(
     let data = PathBuf::from(&config.data_directory);
     let files = PathBuf::from(&config.files_directory);
     let backup_directory = data.join("backups");
-    let exam_share = crate::exam_share::service(vault.clone(), browser_auth.clone(), ios_google_client_id.clone(), &data, config.app_version);
+    let exam_share = crate::exam_share::service(
+        vault.clone(),
+        browser_auth.clone(),
+        ios_google_client_id.clone(),
+        &data,
+        config.app_version,
+    );
     let drive = DriveAuth::new(
         vault.clone(),
         browser_auth,

@@ -93,7 +93,10 @@ pub enum CampusMapIntent {
     /// The camera settled, after a gesture or a framing. `framing` is the
     /// key of the last framing the shell applied: a report from before the
     /// latest framing Core asked for changes nothing.
-    Camera { camera: CampusMapCamera, framing: u64 },
+    Camera {
+        camera: CampusMapCamera,
+        framing: u64,
+    },
     /// Picked a floor in the level picker.
     Level { id: String },
     /// Tapped the map anywhere but an entrance mark, on the floor drawn

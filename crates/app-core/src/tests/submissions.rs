@@ -423,7 +423,6 @@ impl Drop for Fixture {
     }
 }
 
-
 // The snapshot is what the person confirmed. Once `submit/` changes, the
 // confirmed files are no longer what they want handed in, and a damaged
 // snapshot is no longer what they confirmed: nothing is sent until they
@@ -517,9 +516,13 @@ async fn maintenance_collects_only_what_nothing_names() {
     assert!(matches!(
         service
             .ledger
-            .claim(&prepared.id, now, "earlier-run", |_| Ok(()), |preparation| {
-                Operation::new(preparation, now)
-            })
+            .claim(
+                &prepared.id,
+                now,
+                "earlier-run",
+                |_| Ok(()),
+                |preparation| { Operation::new(preparation, now) }
+            )
             .unwrap(),
         Claim::Claimed(..)
     ));
@@ -885,9 +888,13 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
         service.ledger.publish_preparation(&prepared, now).unwrap();
         let Claim::Claimed(_, operation) = service
             .ledger
-            .claim(&prepared.id, now, "earlier-run", |_| Ok(()), |preparation| {
-                Operation::new(preparation, now)
-            })
+            .claim(
+                &prepared.id,
+                now,
+                "earlier-run",
+                |_| Ok(()),
+                |preparation| Operation::new(preparation, now),
+            )
             .unwrap()
         else {
             panic!("claimed");
@@ -898,7 +905,13 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
         operation.sent_at = sent.then_some(now);
         assert!(service
             .ledger
-            .transition(&operation, OperationState::Prepared, "earlier-run", None, now)
+            .transition(
+                &operation,
+                OperationState::Prepared,
+                "earlier-run",
+                None,
+                now
+            )
             .unwrap());
         operation
     };

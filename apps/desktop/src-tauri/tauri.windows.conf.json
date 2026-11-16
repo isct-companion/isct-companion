@@ -9,7 +9,8 @@
       "../../../LICENSE": "_up_/_up_/_up_/LICENSE",
       "../../../docs/legal/NOTICE.md": "_up_/_up_/_up_/docs/legal/NOTICE.md",
       "../../../docs/legal/NOTICE.ja.md": "_up_/_up_/_up_/docs/legal/NOTICE.ja.md",
-      "vendor/litert/libLiteRt.dll": "libLiteRt.dll"
+      "vendor/litert/libLiteRt.dll": "libLiteRt.dll",
+      "vendor/pdfium/pdfium.dll": "pdfium.dll"
     }
   }
 }

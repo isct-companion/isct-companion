@@ -16,6 +16,8 @@ struct LecturesScreen: View {
 
     var body: some View {
         @Bindable var navigator = navigator
+        VStack(spacing: 0) {
+        PageHeader(t("common.courses"))
         List(selection: selection) {
             Section {
                 TermPicker(term: term, terms: overview?.allTerms ?? []) { navigator.lectureTerm = $0 }
@@ -46,16 +48,7 @@ struct LecturesScreen: View {
                 }
             }
         }
-        .navigationTitle(t("common.courses"))
-        .toolbar {
-            if Layout.isPad && !selects {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: PastExamsRoute()) {
-                        Label(t("examShare.title"), systemImage: "doc.on.doc")
-                    }
-                }
-            }
-        }
+        .pageListMargins()
         .overlay {
             if isEmpty {
                 ContentUnavailableView(
@@ -63,6 +56,8 @@ struct LecturesScreen: View {
                     systemImage: navigator.lectureMode == .courses ? "books.vertical" : "checklist")
             }
         }
+        }
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: "\(term ?? "")-\(model.contentRevision)") {
             guard let term else { return }
             async let courses = model.overview(term)

@@ -12,9 +12,9 @@ use secrets::OsSecretVault;
 
 mod agent_server;
 mod cloud;
-mod exam_share;
 mod cloud_sync;
 mod command_error;
+mod exam_share;
 pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
 mod desktop_updates;
@@ -34,6 +34,7 @@ mod lms_protocol;
 mod native_dialog;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
+mod pdf_view;
 mod plugins;
 use app_ocr as matrix_ocr;
 mod core_ports;
@@ -246,6 +247,18 @@ pub fn run() {
                 responder.respond(lms_protocol::handle(app, request).await);
             });
         })
+        .register_asynchronous_uri_scheme_protocol("pdftile", |context, request, responder| {
+            if context.webview_label() != "main" {
+                responder.respond(
+                    tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::BAD_REQUEST)
+                        .body(Vec::new())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                );
+                return;
+            }
+            pdf_view::tile(context.app_handle(), request, responder);
+        })
         // Tauri runs every plugin's page script in every webview, school
         // pages included, and school pages must run none: a plugin added here
         // must not inject one. This one's link script is turned off (it sent
@@ -285,6 +298,12 @@ pub fn run() {
             commands::platform::export_application_logs,
             commands::platform::copy_application_logs,
             commands::platform::application_error,
+            pdf_view::pdf_open,
+            pdf_view::pdf_plan,
+            pdf_view::pdf_page_top,
+            pdf_view::pdf_text,
+            pdf_view::pdf_search,
+            pdf_view::pdf_close,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,
             lms_files::save_course_note,
@@ -343,6 +362,7 @@ pub fn run() {
             commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
             exam_share::exam_share,
+            exam_share::exam_pick_upload,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,
@@ -382,8 +402,16 @@ pub fn run() {
                 }
             };
             app.manage(data_store);
+            app.manage(pdf_view::PdfViews::start(
+                app.path().app_cache_dir()?.join("pdf-tiles"),
+            ));
             let vault = OsSecretVault::new(app.handle().clone());
-            app.manage(exam_share::service(app.handle().clone(), vault.clone(), app_data_dir.join("exam-share")));
+            app.manage(exam_share::PickedUploads::default());
+            app.manage(exam_share::service(
+                app.handle().clone(),
+                vault.clone(),
+                app_data_dir.join("exam-share"),
+            ));
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,

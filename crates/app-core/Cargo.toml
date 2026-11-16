@@ -64,6 +64,10 @@ futures-util = "0.3"
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 schemars = { version = "1.2", optional = true, features = ["chrono04"] }
 semver = "1"
+# Several exam photos become one PDF before upload (`exam_share::upload`),
+# as ScienceTokyoExam's own uploader does.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+lopdf = { version = "0.47", default-features = false }
 # Settings shows the OTP setup as a QR code for other authenticators.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 

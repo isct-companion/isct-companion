@@ -125,7 +125,7 @@ impl ExamShare {
                     .await?;
                 Ok(ExamAnswer::Subjects(answer.subjects))
             }
-            ExamAction::Subject { code } => {
+            ExamAction::Subject { code, instructor } => {
                 let request = self.service(get, &["subjects", &code, "view"])?;
                 #[derive(Deserialize)]
                 #[serde(untagged)]
@@ -150,6 +150,8 @@ impl ExamShare {
                     }
                     SubjectResponse::Moved { moved_to: None } => return Err(ExamError::NotFound),
                 };
+                let mut page = page;
+                super::sets::arrange(&mut page, instructor.as_deref());
                 Ok(ExamAnswer::Subject(page))
             }
             ExamAction::Open { id, download } => self
@@ -247,6 +249,9 @@ impl ExamShare {
                     .call(session, self.service(post, &["requests", &id, "delete"])?)
                     .await?;
                 Ok(ExamAnswer::Done)
+            }
+            ExamAction::Upload { draft } => {
+                self.upload(session, draft).await.map(ExamAnswer::Uploaded)
             }
             ExamAction::Account
             | ExamAction::AccountSnapshot
@@ -444,6 +449,7 @@ impl ExamShare {
             return Err(ExamError::NotFound);
         }
         if !response.status().is_success() {
+            log::warn!("[exam-share] file download: {}", response.status());
             return Err(ExamError::Unavailable);
         }
         if response

@@ -1,0 +1,22 @@
+[package]
+name = "pdf-view"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+description = "Tiled, virtual PDF rendering for the IsctCompanion desktop app"
+license = "GPL-3.0-only"
+# build.rs hands dependents the PDFium library it fetched (DEP_PDFIUM_LIB).
+links = "pdfium"
+
+[dependencies]
+pdfium-render = { version = "0.9.5", default-features = false, features = ["pdfium_8125", "thread_safe"] }
+png = "0.18"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+# Fetch and check the pinned PDFium build.
+flate2 = "1"
+sha2 = "0.11"
+tar = "0.4"
+ureq = { version = "3", default-features = false, features = ["rustls"] }

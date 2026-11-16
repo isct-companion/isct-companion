@@ -52,11 +52,15 @@ class AppUpdater(private val context: Context) {
         if (version != null && url != null && version != running) available = AppRelease(version, url)
     }
 
-    /** Asks Core when a check is due; `manual` checks now. */
-    suspend fun check(session: Session, manual: Boolean = false) {
+    /** Asks Core when a check is due; `manual` checks now. A `launch` always
+     * looks: foregrounding within 12 hours of the last check does not, but a
+     * cold start is rare enough that a release dismissed earlier is offered
+     * again. */
+    suspend fun check(session: Session, manual: Boolean = false, launch: Boolean = false) {
         checking = true
+        val last = if (launch) null else prefs.getString("lastChecked", null)
         val result = runCatching {
-            session.checkAppUpdate(running, prefs.getString("lastChecked", null), manual).value()
+            session.checkAppUpdate(running, last, manual).value()
         }.getOrNull() as? OperationResult.AppUpdate
         checking = false
         if (result == null || !result.checked) return

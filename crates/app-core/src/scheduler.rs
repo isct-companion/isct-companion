@@ -133,7 +133,9 @@ fn next_occurrence(
         .ok_or_else(|| SchedulerError::InvalidTask("scheduled task has no schedule".into()))?;
     let last = timestamp(task.get("lastOccurrenceAt").and_then(Value::as_str));
     if schedule == "launch" {
-        return Ok(last.is_none_or(|last| last < started_at).then_some(started_at));
+        return Ok(last
+            .is_none_or(|last| last < started_at)
+            .then_some(started_at));
     }
     reject_subhour_schedule(schedule)?;
     let updated = timestamp(task.get("updatedAt").and_then(Value::as_str)).ok_or_else(|| {

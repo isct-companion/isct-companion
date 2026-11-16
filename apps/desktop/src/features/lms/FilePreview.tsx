@@ -1,3 +1,4 @@
+import { ImageView } from "./ImageView";
 import { ReaderTools } from "./ReaderPane";
 import {
   lazy,
@@ -68,6 +69,8 @@ type View =
   | {
       state: "ready";
       src: string;
+      /** The stored file, for readers that open it natively (PDF). */
+      path?: string;
       kind?: ReturnType<typeof previewKind>;
       text?: string;
     }
@@ -138,6 +141,7 @@ function useCourseFile(
         setView({
           state: "ready",
           src: localFileUrl(material.file.path),
+          path: material.file.path,
           kind: previewKind(material.file.name || url),
           text: material.file.text ?? undefined,
         });
@@ -210,6 +214,7 @@ export function FilePreview({
   const ready = view.state === "ready" ? view : undefined;
   const kind = ready?.kind ?? expected;
   const src = ready?.src;
+  const path = ready?.path;
   const textTooLarge =
     (kind === "text" || kind === "markdown") && ready && ready.text == null;
   const actions = <FileActions course={course} openInApp={openInApp} />;
@@ -286,7 +291,9 @@ export function FilePreview({
       </div>
     );
   }
-  if (!kind || !src || textTooLarge) {
+  // PDFs open from the stored file; a PDF linked outside the LMS is not
+  // stored, so it shows as a card that opens in the browser.
+  if (!kind || !src || textTooLarge || (kind === "pdf" && !path)) {
     return (
       <div className="lmsFileCardStage">
         <FileCard
@@ -311,7 +318,7 @@ export function FilePreview({
           <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
         }
       >
-        <PdfDocument src={src} title={title} fileToolbar={toolbar} />
+        <PdfDocument path={path!} title={title} fileToolbar={toolbar} />
       </Suspense>
     );
   return (
@@ -645,33 +652,6 @@ function useReleaseSource<T extends HTMLImageElement | HTMLMediaElement>() {
     };
   }, []);
   return element;
-}
-
-/** Fit to the pane; click toggles actual size for large scans. */
-function ImageView({
-  src,
-  title,
-  onBroken,
-}: {
-  src: string;
-  title: string;
-  onBroken: () => void;
-}) {
-  const [actual, setActual] = useState(false);
-  const image = useReleaseSource<HTMLImageElement>();
-  return (
-    <div className={`lmsImageStage${actual ? " actual" : ""}`}>
-      <img
-        ref={image}
-        className="lmsImagePreview"
-        src={src}
-        alt={title}
-        title={t(actual ? "lms.fitToWindow" : "lms.actualSize")}
-        onClick={() => setActual((value) => !value)}
-        onError={onBroken}
-      />
-    </div>
-  );
 }
 
 function MediaView({ kind, src }: { kind: "video" | "audio"; src: string }) {

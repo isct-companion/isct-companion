@@ -134,13 +134,19 @@ impl Map {
         let mut entrances = HashSet::new();
         for (index, building) in export.buildings.iter().enumerate() {
             if !matches!(building.campus.as_str(), "ookayama" | "suzukakedai") {
-                return Err(invalid(format!("building {} has campus {}", building.id, building.campus)));
+                return Err(invalid(format!(
+                    "building {} has campus {}",
+                    building.id, building.campus
+                )));
             }
             if buildings.insert(building.id.clone(), index).is_some() {
                 return Err(invalid(format!("building {} is listed twice", building.id)));
             }
             for (level_index, level) in building.levels.iter().enumerate() {
-                if levels.insert(level.id.clone(), (index, level_index)).is_some() {
+                if levels
+                    .insert(level.id.clone(), (index, level_index))
+                    .is_some()
+                {
                     return Err(invalid(format!("level {} is listed twice", level.id)));
                 }
             }
@@ -180,7 +186,10 @@ impl Map {
                     .as_ref()
                     .is_some_and(|room| !rooms.contains_key(room))
             {
-                return Err(invalid(format!("unit {} has a dangling reference", unit.id)));
+                return Err(invalid(format!(
+                    "unit {} has a dangling reference",
+                    unit.id
+                )));
             }
             units_by_level
                 .entry(unit.level_id.clone())
@@ -205,7 +214,10 @@ impl Map {
         let mut linework_by_level: HashMap<String, Vec<usize>> = HashMap::new();
         for (index, lines) in export.linework.iter().enumerate() {
             if !levels.contains_key(&lines.level_id) {
-                return Err(invalid(format!("linework of level {} is invalid", lines.level_id)));
+                return Err(invalid(format!(
+                    "linework of level {} is invalid",
+                    lines.level_id
+                )));
             }
             linework_by_level
                 .entry(lines.level_id.clone())
@@ -280,7 +292,12 @@ impl Map {
 
     /// The smallest unit with a name under `at` on a building's floor: a
     /// room inside a corridor polygon wins over the corridor.
-    pub(super) fn unit_at(&self, building: usize, level: usize, at: CampusMapPoint) -> Option<usize> {
+    pub(super) fn unit_at(
+        &self,
+        building: usize,
+        level: usize,
+        at: CampusMapPoint,
+    ) -> Option<usize> {
         let level_id = &self.export.buildings[building].levels[level].id;
         let at = [at.longitude, at.latitude];
         self.units_by_level
@@ -292,7 +309,12 @@ impl Map {
                 (unit.label.is_some() || unit.room_id.is_some())
                     && geometry::polygon_contains(&unit.polygon, at)
             })
-            .map(|index| (index, geometry::polygon_area(&self.export.units[index].polygon)))
+            .map(|index| {
+                (
+                    index,
+                    geometry::polygon_area(&self.export.units[index].polygon),
+                )
+            })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(index, _)| index)
     }
@@ -324,9 +346,8 @@ impl Map {
         camera: &CampusMapCamera,
         current: Option<(usize, usize)>,
     ) -> Option<(usize, usize)> {
-        let current = current.filter(|(building, level)| {
-            *level < self.export.buildings[*building].levels.len()
-        });
+        let current = current
+            .filter(|(building, level)| *level < self.export.buildings[*building].levels.len());
         let center = [camera.center.longitude, camera.center.latitude];
         let view = [
             camera.bounds.west,
@@ -348,7 +369,8 @@ impl Map {
         if let Some((shown, level)) = current.filter(|(shown, _)| *shown == building) {
             return Some((shown, level));
         }
-        let ordinal = current.map(|(from, level)| self.export.buildings[from].levels[level].ordinal);
+        let ordinal =
+            current.map(|(from, level)| self.export.buildings[from].levels[level].ordinal);
         ordinal
             .and_then(|ordinal| {
                 self.export.buildings[building]
@@ -426,7 +448,11 @@ impl Map {
     pub(super) fn locate(&self, raw: &str, english: bool) -> Vec<Target> {
         let mut places = Vec::new();
         match self.alias(raw) {
-            Some(rooms) => places.extend(rooms.into_iter().map(|room| Place::Room { room, level: None })),
+            Some(rooms) => places.extend(
+                rooms
+                    .into_iter()
+                    .map(|room| Place::Room { room, level: None }),
+            ),
             None => {
                 for mention in self.patterns.mentions(raw) {
                     self.resolve(&mention, &mut places);
@@ -481,7 +507,11 @@ impl Map {
                 level,
             } => (building, label, Vec::new(), level),
         };
-        let level_of = |unit: usize| self.levels.get(&self.export.units[unit].level_id).map(|(_, level)| *level);
+        let level_of = |unit: usize| {
+            self.levels
+                .get(&self.export.units[unit].level_id)
+                .map(|(_, level)| *level)
+        };
         let hinted = self.named_level(building, hint.as_deref());
         // A floor the string names narrows a room spread over several.
         let on_hint: Vec<usize> = units
@@ -494,7 +524,11 @@ impl Map {
         let level = self
             .level_order(building)
             .into_iter()
-            .find(|level| highlighted.iter().any(|unit| level_of(*unit) == Some(*level)))
+            .find(|level| {
+                highlighted
+                    .iter()
+                    .any(|unit| level_of(*unit) == Some(*level))
+            })
             .or(hinted)
             .or_else(|| self.ground_level(building));
         let shown: Vec<&Rings> = highlighted

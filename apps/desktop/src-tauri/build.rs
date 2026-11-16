@@ -77,6 +77,31 @@ fn main() {
             std::fs::copy(dll, staged.join("libLiteRt.dll")).expect("Staging libLiteRt.dll failed");
         }
     }
+    // PDF previews render with PDFium; pdf-view's build fetched the pinned
+    // library. Stage it where the configs bundle it: macOS frameworks
+    // (Tauri also copies it beside `cargo run` and sets the rpath), Windows
+    // beside the executable.
+    if let Some(library) = std::env::var_os("DEP_PDFIUM_LIB") {
+        let library = std::path::PathBuf::from(library);
+        let staged = std::path::Path::new("vendor/pdfium");
+        std::fs::create_dir_all(staged).expect("Creating vendor/pdfium failed");
+        let name = library.file_name().expect("PDFium file name");
+        std::fs::copy(&library, staged.join(name)).expect("Staging PDFium failed");
+        println!("cargo::rerun-if-changed={}", library.display());
+        // Its licences, for the third-party notices (third-party-notices.mjs).
+        if let Some(licenses) = std::env::var_os("DEP_PDFIUM_LICENSES") {
+            let target = staged.join("licenses");
+            let _ = std::fs::remove_dir_all(&target);
+            std::fs::create_dir_all(&target).expect("Creating PDFium licences failed");
+            for entry in std::fs::read_dir(licenses)
+                .expect("PDFium licences")
+                .flatten()
+            {
+                std::fs::copy(entry.path(), target.join(entry.file_name()))
+                    .expect("Staging PDFium licences failed");
+            }
+        }
+    }
     let attributes =
         tauri_build::Attributes::new().plugins(tools.iter().map(|tool| (*tool, plugin(tool, &os))));
     if let Err(error) = tauri_build::try_build(attributes) {

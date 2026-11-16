@@ -193,7 +193,14 @@ function SchoolStatusAccount({
   );
 }
 
-const pages: Page[] = ["home", "timetable", "lectures", "web", "tools", "pastExams"];
+const pages: Page[] = [
+  "home",
+  "timetable",
+  "lectures",
+  "web",
+  "tools",
+  "pastExams",
+];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
   timetable: <CalendarDays aria-hidden strokeWidth={1.75} />,
@@ -1440,7 +1447,7 @@ export function WorkspaceApp() {
         </div>
       </aside>
       <main
-        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : page === "about" ? " aboutMain" : ""}`}
+        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : page === "about" ? " aboutMain" : page === "pastExams" ? " pastExamsMain" : ""}`}
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}

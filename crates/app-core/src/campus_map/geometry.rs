@@ -40,7 +40,9 @@ fn ring_contains(ring: &[Position], point: Position) -> bool {
 /// Inside the outer ring and outside every hole.
 pub(super) fn polygon_contains(rings: &Rings, point: Position) -> bool {
     let mut rings = rings.iter();
-    rings.next().is_some_and(|outer| ring_contains(outer, point))
+    rings
+        .next()
+        .is_some_and(|outer| ring_contains(outer, point))
         && rings.all(|hole| !ring_contains(hole, point))
 }
 

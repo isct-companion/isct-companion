@@ -34,14 +34,48 @@ pub(crate) async fn save_file(
     .await
 }
 
-/// AppKit dialogs are created on the main thread; the pending dialog is
-/// awaited here.
+/// Files the person picks, offered under one filter; empty when they cancel.
+pub(crate) async fn pick_files(
+    window: &Window,
+    title: &'static str,
+    filter: &'static str,
+    extensions: &'static [&'static str],
+) -> Result<Vec<PathBuf>, CommandError> {
+    let files = run(window, move |dialog| {
+        dialog
+            .set_title(title)
+            .add_filter(filter, extensions)
+            .pick_files()
+    })
+    .await?;
+    Ok(files
+        .unwrap_or_default()
+        .iter()
+        .map(|file| file.path().to_path_buf())
+        .collect())
+}
+
 async fn show<F>(
     window: &Window,
     open: impl FnOnce(AsyncFileDialog) -> F + Send + 'static,
 ) -> Result<Option<PathBuf>, CommandError>
 where
     F: Future<Output = Option<FileHandle>> + Send + 'static,
+{
+    Ok(run(window, open)
+        .await?
+        .map(|file| file.path().to_path_buf()))
+}
+
+/// AppKit dialogs are created on the main thread; the pending dialog is
+/// awaited here.
+async fn run<T, F>(
+    window: &Window,
+    open: impl FnOnce(AsyncFileDialog) -> F + Send + 'static,
+) -> Result<T, CommandError>
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
 {
     let (send, receive) = tokio::sync::oneshot::channel();
     let parent = window.clone();
@@ -54,7 +88,7 @@ where
         })
         .map_err(shell)?;
     let pending = receive.await.map_err(shell)?;
-    Ok(pending.await.map(|file| file.path().to_path_buf()))
+    Ok(pending.await)
 }
 
 /// A blocking error message before any window exists, for a start that

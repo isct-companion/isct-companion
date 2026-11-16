@@ -220,8 +220,8 @@ pub(super) fn read(gz: &[u8]) -> Result<Export, CampusMapError> {
 
 /// Parses the unpacked JSON of format 1.
 fn parse(json: &[u8]) -> Result<Export, CampusMapError> {
-    let version: Version = serde_json::from_slice(json)
-        .map_err(|error| CampusMapError::Invalid(error.to_string()))?;
+    let version: Version =
+        serde_json::from_slice(json).map_err(|error| CampusMapError::Invalid(error.to_string()))?;
     match version.format_version {
         Some(serde_json::Value::Number(number))
             if number.as_u64() == Some(u64::from(FORMAT_VERSION)) => {}

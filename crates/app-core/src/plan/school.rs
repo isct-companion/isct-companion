@@ -173,10 +173,9 @@ impl Operation for LmsKey<'_> {
                     .enrolment(&attempt, via, self.lease.depth == Depth::Full)
                     .await
                     .map(LmsRead::Enrolment),
-                Dataset::LmsDeadlines => open
-                    .deadlines(&attempt, via)
-                    .await
-                    .map(LmsRead::Deadlines),
+                Dataset::LmsDeadlines => {
+                    open.deadlines(&attempt, via).await.map(LmsRead::Deadlines)
+                }
                 Dataset::LmsCourse => {
                     let id = lms_course_key(key).ok_or_else(invalid_key)?;
                     open.course(&attempt, via, id, self.stored)
