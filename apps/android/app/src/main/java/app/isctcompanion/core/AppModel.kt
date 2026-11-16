@@ -642,7 +642,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     suspend fun examShare(action: ExamAction): ExamAnswer {
         val session = session ?: throw SdkException.Closed()
-        val answer = (session.examShare(action).value() as OperationResult.ExamShare).answer
+        val answer = try {
+            (session.examShare(action).value() as OperationResult.ExamShare).answer
+        } finally {
+            // A connect's browser sign-in is over, whichever way it ended.
+            if (action is ExamAction.Connect) SignInService.stop(context)
+        }
         if (answer is ExamAnswer.Account) examAccount = answer.v1
         return answer
     }
