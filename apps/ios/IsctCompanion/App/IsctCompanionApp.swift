@@ -488,9 +488,9 @@ extension View {
         .navigationDestination(for: PastExamsRoute.self) { route in
             PastExamsScreen(courseId: route.courseId)
         }
-        .navigationDestination(for: ExamSubjectRoute.self) { ExamSubjectScreen(route: $0).examLinks() }
-        .navigationDestination(for: ExamDocumentRoute.self) { ExamDocumentScreen(route: $0).examLinks() }
-        .navigationDestination(for: ExamRequestRoute.self) { ExamRequestScreen(route: $0).examLinks() }
+        .navigationDestination(for: ExamSubjectRoute.self) { ExamSubjectScreen(route: $0) }
+        .navigationDestination(for: ExamDocumentRoute.self) { ExamDocumentScreen(route: $0) }
+        .navigationDestination(for: ExamRequestRoute.self) { ExamRequestScreen(route: $0) }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
     }
 }

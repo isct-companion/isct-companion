@@ -7,7 +7,6 @@ import SwiftUI
 /// the toolbar's menu.
 struct ExamDocumentScreen: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openExamLink) private var openExamLink
     @Environment(\.dismiss) private var dismiss
     let route: ExamDocumentRoute
     @State private var page = ExamPage()
@@ -73,7 +72,7 @@ struct ExamDocumentScreen: View {
                 Label(t("common.share"), systemImage: "square.and.arrow.up")
             }
             if let web = URL(string: file.webUrl) {
-                Button(t("examShare.openOnWeb"), systemImage: "safari") { openExamLink(web, false) }
+                Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
             }
             Button(t("examShare.report"), systemImage: "flag", role: .destructive) { showsReport = true }
                 .disabled(file.offline || page.choices == nil)
@@ -147,7 +146,6 @@ private struct QuickLookView: UIViewControllerRepresentable {
 /// it, see the shared one, or close, reopen or delete one's own.
 struct ExamRequestScreen: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openExamLink) private var openExamLink
     @Environment(\.dismiss) private var dismiss
     @Environment(\.push) private var push
     let route: ExamRequestRoute
@@ -195,7 +193,7 @@ struct ExamRequestScreen: View {
                     }
                 }
                 if let web = URL(string: webUrl ?? route.webUrl) {
-                    Button(t("examShare.openOnWeb"), systemImage: "safari") { openExamLink(web, false) }
+                    Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
                 }
             }
         }

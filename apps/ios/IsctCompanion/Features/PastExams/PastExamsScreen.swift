@@ -239,7 +239,6 @@ struct PastExamsScreen: View {
         .frame(maxHeight: .infinity)
         .background(Theme.bg)
         .modifier(PastExamsTitle(root: courseId == nil, web: account?.status == .connected ? webUrl : nil))
-        .examLinks()
         .task(id: CoursesRead(revision: model.contentRevision, retry: coursesRetry)) {
             guard courseId == nil else { return }
             coursesFailed = false

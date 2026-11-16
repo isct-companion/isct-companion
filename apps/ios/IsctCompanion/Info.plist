@@ -62,13 +62,6 @@
 	<string>$(ISCT_GOOGLE_IOS_CLIENT_ID)</string>
 	<key>IsctWidgetGroup</key>
 	<string>group.app.isctcompanion</string>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>googlechromes</string>
-		<string>microsoft-edge-https</string>
-		<string>firefox</string>
-		<string>brave</string>
-	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>

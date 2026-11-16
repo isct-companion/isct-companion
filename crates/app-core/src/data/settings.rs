@@ -40,8 +40,6 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "locale": settings.get("locale"),
         "contentLanguage": settings.get("contentLanguage"),
         "mapsApp": settings.get("mapsApp"),
-        "examLinkTarget": settings.get("examLinkTarget"),
-        "examLinkBrowser": settings.get("examLinkBrowser"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
         // A per-device acknowledgement; it does not sync.
         "dataNoticeAcknowledgedAt": settings.get("dataNoticeAcknowledgedAt"),
@@ -74,7 +72,6 @@ const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
     ("/closeWindow", &["ask", "quit", "background"]),
     ("/contentLanguage", &["auto", "ja", "en"]),
     ("/mapsApp", &["apple", "google"]),
-    ("/examLinkTarget", &["app", "browser"]),
     (
         "/notifications/localPermission",
         &["default", "denied", "granted"],
