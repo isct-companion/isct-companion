@@ -1,6 +1,15 @@
-//! The macOS daemon: launchd keeps it running, the GUI reaches it on a
-//! root:staff 0660 Unix socket, and the route hook is `assets/vpnc-script`,
-//! whose `route add` line marks the tunnel as up.
+//! The macOS daemon: registered from inside the app bundle with
+//! SMAppService, so launchd runs it as root straight from
+//! `Contents/Resources/resources/vpn` and the person allows it once in System
+//! Settings. The GUI reaches it on a root:staff 0660 Unix socket, and the
+//! route hook is `assets/vpnc-script`, whose `route add` line marks the
+//! tunnel as up.
+//!
+//! The bundle belongs to the person, so nothing in it runs as root without a
+//! check: the route hook is compiled into this binary and written to a
+//! root-owned folder, and a release build verifies openconnect's signature
+//! before each start (`prepare`). When an app update replaces this binary it
+//! exits after its reply, with no tunnel up, and launchd starts the new one.
 
 use super::ondemand::StandbyIf;
 use super::{handle, log, new_state, parse_args, Config, Inner};
@@ -8,8 +17,9 @@ use std::ffi::CString;
 use std::fs;
 use std::io::Write;
 use std::net::Ipv4Addr;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
@@ -22,6 +32,27 @@ const APM_PIN: &str = "131.112.12.180";
 
 /// The hook's scoped DNS entry for the campus domains.
 const DNS_KEY: &str = "State:/Network/Service/isct-campus-vpn/DNS";
+
+/// The root-owned copy of the route hook. openconnect runs `--script`
+/// through `/bin/sh -c` unquoted, so the path must hold no whitespace (an
+/// `Application Support` path ran `/Library/Application` and failed with 127).
+const ROUTE_HOOK_PATH: &str = "/Library/PrivilegedHelperTools/app.isctcompanion.vpn-script";
+const ROUTE_HOOK: &str = include_str!("../assets/vpnc-script");
+
+/// What the osascript installer of helper revisions 1–3 put under /Library.
+/// This daemon has its own label, so it can stop that one and remove it.
+const LEGACY_LABEL: &str = "app.isctcompanion.vpnhelper";
+const LEGACY_FILES: &[&str] = &[
+    "/Library/LaunchDaemons/app.isctcompanion.vpnhelper.plist",
+    "/Library/PrivilegedHelperTools/app.isctcompanion.vpnhelper",
+    "/Library/PrivilegedHelperTools/isct-vpn-script",
+];
+/// The earlier installer's openconnect copy.
+const LEGACY_SUPPORT_DIR: &str = "/Library/Application Support/IsctCompanion";
+
+/// The signer openconnect must carry, set by `bundle-vpn.mjs` when it signs
+/// with a Developer ID. A local ad hoc build has none and skips the check.
+const SIGNER_TEAM: Option<&str> = option_env!("ISCT_VPN_SIGNER_TEAM");
 
 /// Removes what the hook set up outside the tunnel. It does this itself when
 /// openconnect shuts down in order; a daemon restart or a killed openconnect
@@ -47,19 +78,99 @@ fn clear_leftovers() {
 }
 
 pub(crate) fn defaults() -> Config {
+    bundled(&own_dir())
+}
+
+/// The payload beside this binary in the app bundle: openconnect with its
+/// libraries as `bundle-vpn.mjs` lays them out.
+pub(crate) fn bundled(dir: &Path) -> Config {
     Config {
         socket: SOCKET_PATH.into(),
-        openconnect: "/usr/local/bin/openconnect".into(),
-        script: "/Library/Application Support/IsctCompanion/vpn/vpnc-script".into(),
+        openconnect: dir.join("openconnect/bin/openconnect"),
+        script: ROUTE_HOOK_PATH.into(),
         server: super::DEFAULT_SERVER.into(),
-        libdirs: Vec::new(),
+        libdirs: vec![dir.join("openconnect/lib")],
         log: LOG.into(),
+    }
+}
+
+fn own_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .unwrap_or_default()
+}
+
+/// The identity of this binary's file; an update puts another file there.
+fn exe_identity() -> Option<(u64, u64)> {
+    let meta = fs::metadata(std::env::current_exe().ok()?).ok()?;
+    Some((meta.dev(), meta.ino()))
+}
+
+/// Stops and removes the earlier osascript install. Each step is allowed to
+/// find nothing: a Mac that never had it, or one already cleaned.
+fn retire_legacy() {
+    let _ = Command::new("/bin/launchctl")
+        .args(["bootout", &format!("system/{LEGACY_LABEL}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    for file in LEGACY_FILES {
+        let _ = fs::remove_file(file);
+    }
+    let _ = fs::remove_dir_all(LEGACY_SUPPORT_DIR);
+}
+
+/// Writes the route hook root-owned and not writable by anyone else, through
+/// a temporary file so openconnect never runs half of it.
+fn write_route_hook(path: &Path) -> std::io::Result<()> {
+    let dir = path.parent().unwrap_or(Path::new("/"));
+    fs::create_dir_all(dir)?;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
+    let staged = dir.join(".vpnc-script.new");
+    fs::write(&staged, ROUTE_HOOK)?;
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))?;
+    fs::rename(&staged, path)
+}
+
+/// The code requirement openconnect is checked against, for a team.
+pub(crate) fn signer_requirement(team: &str) -> String {
+    format!(
+        "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and \
+         certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"{team}\""
+    )
+}
+
+fn verify_signer(binary: &Path) -> Result<(), String> {
+    let Some(team) = SIGNER_TEAM else {
+        return Ok(());
+    };
+    let status = Command::new("/usr/bin/codesign")
+        .args(["--verify", "--strict"])
+        .arg(format!("-R={}", signer_requirement(team)))
+        .arg(binary)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("codesign: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} is not signed by the app's developer",
+            binary.display()
+        ))
     }
 }
 
 pub(crate) fn main() {
     let cfg = parse_args(std::env::args().skip(1));
+    retire_legacy();
     clear_leftovers();
+    if let Err(e) = write_route_hook(&cfg.script) {
+        log(&cfg, &format!("route hook {}: {e}", cfg.script.display()));
+        std::process::exit(1);
+    }
     let _ = fs::remove_file(&cfg.socket);
     let listener = match UnixListener::bind(&cfg.socket) {
         Ok(l) => l,
@@ -78,6 +189,7 @@ pub(crate) fn main() {
 
     let state = new_state();
     super::ondemand::watch_idle(cfg.clone(), Arc::clone(&state));
+    let started_as = exe_identity();
     for conn in listener.incoming() {
         match conn {
             Ok(stream) => {
@@ -86,6 +198,12 @@ pub(crate) fn main() {
                 thread::spawn(move || {
                     if let Ok(writer) = stream.try_clone() {
                         handle(stream, writer, &cfg, &state);
+                    }
+                    // An update replaced this binary: hand over to the new
+                    // one once no tunnel depends on this process.
+                    if exe_identity() != started_as && state.lock().unwrap().child.is_none() {
+                        log(&cfg, "helper replaced; exiting for launchd to start it");
+                        std::process::exit(0);
                     }
                 });
             }
@@ -98,7 +216,8 @@ pub(crate) fn decode_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-pub(crate) fn prepare(cmd: &mut Command, cfg: &Config) {
+pub(crate) fn prepare(cmd: &mut Command, cfg: &Config) -> Result<(), String> {
+    verify_signer(&cfg.openconnect)?;
     cmd.arg("--pid-file").arg(PID_FILE);
     if !cfg.libdirs.is_empty() {
         let joined = cfg
@@ -109,6 +228,7 @@ pub(crate) fn prepare(cmd: &mut Command, cfg: &Config) {
             .join(":");
         cmd.env("DYLD_LIBRARY_PATH", joined);
     }
+    Ok(())
 }
 
 /// launchd owns the daemon's lifetime; openconnect needs no extra tie to it.
