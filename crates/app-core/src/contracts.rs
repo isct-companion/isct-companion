@@ -517,6 +517,9 @@ contract!(Settings {
     /// browser or the system's. Absent until the person first picks, which
     /// the link then asks. Per device.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"app\" | \"browser\""))] pub exam_link_target: Option<String>,
+    /// With `exam_link_target` `browser`: which installed browser, as the
+    /// shell names it (an iOS browser's name, an Android package). Per device.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exam_link_browser: Option<String>,
     pub notifications: Notifications, pub cloud: CloudSettings,
     pub subscription_refresh: SubscriptionRefreshSettings,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub customization: Option<Customization>,

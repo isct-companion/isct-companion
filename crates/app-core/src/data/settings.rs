@@ -41,6 +41,7 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "contentLanguage": settings.get("contentLanguage"),
         "mapsApp": settings.get("mapsApp"),
         "examLinkTarget": settings.get("examLinkTarget"),
+        "examLinkBrowser": settings.get("examLinkBrowser"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
         // A per-device acknowledgement; it does not sync.
         "dataNoticeAcknowledgedAt": settings.get("dataNoticeAcknowledgedAt"),

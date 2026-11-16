@@ -98,7 +98,8 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
                 s["departmentId"] = json!("cs");
                 s["textSize"] = json!("large");
                 s["dataNoticeAcknowledgedAt"] = json!("2026-10-18T10:00:00Z");
-                s["examLinkTarget"] = json!("app");
+                s["examLinkTarget"] = json!("browser");
+                s["examLinkBrowser"] = json!("com.android.chrome");
             }),
         },
     );
@@ -108,9 +109,10 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         chosen.workspace["settings"]["dataNoticeAcknowledgedAt"],
         "2026-10-18T10:00:00Z"
     );
-    assert_eq!(chosen.workspace["settings"]["examLinkTarget"], "app");
+    assert_eq!(chosen.workspace["settings"]["examLinkTarget"], "browser");
+    assert_eq!(chosen.workspace["settings"]["examLinkBrowser"], "com.android.chrome");
     // They are device preferences: cloud sync never carries them.
-    let mut synced = json!({"key":"userPreferences","value":{"dataNoticeAcknowledgedAt":"x","examLinkTarget":"app"}});
+    let mut synced = json!({"key":"userPreferences","value":{"dataNoticeAcknowledgedAt":"x","examLinkTarget":"app","examLinkBrowser":"chrome"}});
     crate::data::cloud_merge::sanitize_setting(&mut synced);
     assert_eq!(synced["value"], json!({}));
     // Warm the reader, then commit a background update. The table it wrote
