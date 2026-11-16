@@ -24,7 +24,7 @@ pub(super) fn prepare(
 ) -> Result<Prepared, ExamError> {
     let (name, content_type, bytes, hash) = match files {
         [] => return Err(ExamError::UploadFile),
-        [file] => single(file)?,
+        [file] => single(file, cancel)?,
         files => {
             let bytes = image_pdf(files, cancel)?;
             ("materials.pdf".into(), "application/pdf", bytes, None)
@@ -62,7 +62,7 @@ fn check_size(size: usize) -> Result<(), ExamError> {
 
 type SingleFile = (String, &'static str, Vec<u8>, Option<String>);
 
-fn single(file: &ExamUploadFile) -> Result<SingleFile, ExamError> {
+fn single(file: &ExamUploadFile, cancel: &CancellationToken) -> Result<SingleFile, ExamError> {
     let data = read(file)?;
     let name = file.name.trim();
     if name.is_empty() || name.encode_utf16().count() > 255 {
@@ -87,21 +87,21 @@ fn single(file: &ExamUploadFile) -> Result<SingleFile, ExamError> {
     {
         return Ok((name.into(), "text/plain", data, None));
     }
+    if photo_format(&data).is_none() {
+        return Err(ExamError::UploadFile);
+    }
+    // The site stores a photo only as WebP, which its own uploader encodes in
+    // the browser; a JPEG is refused. One photo goes up as a one-page PDF,
+    // keyed by the original file's hash as the site's uploader keys it.
     let hash = data_encoding::HEXLOWER.encode(&Sha256::digest(&data));
-    let image = decode(&data)?;
-    let image = if image.width().max(image.height()) > 4000 {
-        image.thumbnail(4000, 4000)
-    } else {
-        image
-    };
     let stem = Path::new(name)
         .file_stem()
         .and_then(|name| name.to_str())
         .ok_or(ExamError::UploadFile)?;
     Ok((
-        format!("{stem}.jpg"),
-        "image/jpeg",
-        jpeg(&image)?,
+        format!("{stem}.pdf"),
+        "application/pdf",
+        image_pdf(std::slice::from_ref(file), cancel)?,
         Some(hash),
     ))
 }
@@ -210,3 +210,7 @@ fn image_pdf(files: &[ExamUploadFile], cancel: &CancellationToken) -> Result<Vec
     pdf.pages(tree).count(pages.len() as i32).kids(pages);
     Ok(pdf.finish())
 }
+
+#[cfg(test)]
+#[path = "../tests/exam_share__upload_file.rs"]
+mod tests;

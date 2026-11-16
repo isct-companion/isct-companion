@@ -66,6 +66,25 @@ pub struct ExamSubjectPage {
     pub class_id: Option<u32>,
     /// This subject on the ScienceTokyoExam website.
     pub web_url: String,
+    /// `exams` by sitting, in `exams`' order: a question and its answer are
+    /// one row on every shell.
+    pub sets: Vec<ExamSet>,
+}
+
+/// The documents of one sitting: one year, occasion, round, variant and set
+/// of teachers. Documents run question, both, answer, notes, other.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamSet {
+    pub academic_year: Option<u32>,
+    pub occasion: Option<String>,
+    pub occasion_number: u32,
+    pub variant: String,
+    pub teachers: Vec<ExamTeacher>,
+    /// A teacher of the course's own class is among `teachers`.
+    pub mine: bool,
+    pub documents: Vec<ExamDocument>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -99,6 +118,8 @@ pub struct ExamRequestCursor {
 pub struct ExamRequestPage {
     pub items: Vec<ExamRequest>,
     pub cursor: Option<ExamRequestCursor>,
+    /// The requests board on the ScienceTokyoExam website.
+    pub web_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -122,6 +143,8 @@ pub struct ExamLocalDocument {
     pub downloaded: bool,
     pub saved: Option<bool>,
     pub offline: bool,
+    /// This document on the ScienceTokyoExam website.
+    pub web_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -132,6 +155,8 @@ pub struct ExamLibrary {
     pub saved: Vec<ExamDocument>,
     pub downloaded: Vec<ExamDocument>,
     pub submitted: Vec<ExamDocument>,
+    /// The person's library on the ScienceTokyoExam website.
+    pub web_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -485,8 +510,10 @@ pub enum ExamAnswer {
     Requests(ExamRequestPage),
     Choices(ExamChoices),
     UploadForm(ExamUploadForm),
-    /// The upload is published; the shell reads its view again.
-    Uploaded,
+    /// The upload is published; the shell reads its view again. Carries the
+    /// new document's id, so the shell can open it, unless the attempt that
+    /// registered it lost the answer.
+    Uploaded(Option<String>),
     Done,
 }
 

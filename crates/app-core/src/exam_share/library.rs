@@ -51,9 +51,11 @@ impl RemotePage {
         )
         .map_err(|_| ExamError::Response)?
         .into();
+        let sets = sets::group(&exams, &ours);
         Ok(ExamSubjectPage {
             subject: self.subject,
             rows: self.rows,
+            sets,
             exams,
             teachers,
             years,
@@ -485,6 +487,7 @@ impl ExamShare {
                 .map(|request| request.model(uid))
                 .collect(),
             cursor: answer.cursor,
+            web_url: client::site_page("request"),
         })
     }
 
@@ -555,6 +558,7 @@ impl ExamShare {
             saved,
             submitted,
             downloaded: downloads(&self.account_folder(uid)).await?,
+            web_url: client::site_page("library"),
         })
     }
 

@@ -6,6 +6,7 @@ mod google;
 mod identity;
 mod library;
 mod model;
+mod sets;
 mod upload;
 mod upload_file;
 pub use model::*;

@@ -24,6 +24,11 @@ pub(super) enum Endpoint {
     SecureToken,
 }
 
+/// A page of the ScienceTokyoExam website, for a shell's "open in browser".
+pub(super) fn site_page(path: &str) -> String {
+    format!("https://{}/{path}", Endpoint::Site.host())
+}
+
 impl Endpoint {
     pub const fn host(self) -> &'static str {
         match self {
