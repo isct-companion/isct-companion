@@ -1,14 +1,8 @@
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
-import { run, capture, root, output } from "./common.mjs";
-// CI supplies the runtime. No simulator download occurs on a developer's host.
-const devices = JSON.parse(
-  capture("xcrun", ["simctl", "list", "devices", "available", "--json"]),
-).devices;
-const device = Object.values(devices)
-  .flat()
-  .find((d) => d.name.startsWith("iPhone"));
-if (!device) throw new Error("No installed iPhone simulator runtime");
+import { run, capture, root, output, iphoneSimulator } from "./common.mjs";
+// CI boots the device early with boot-ios-simulator.mjs; this waits for it.
+const device = iphoneSimulator();
 if (device.state !== "Booted") run("xcrun", ["simctl", "boot", device.udid]);
 run("xcrun", ["simctl", "bootstatus", device.udid, "-b"]);
 const sdk = capture("xcrun", ["--sdk", "iphonesimulator", "--show-sdk-path"]);

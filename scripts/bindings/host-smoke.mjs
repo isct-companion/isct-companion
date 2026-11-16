@@ -10,11 +10,13 @@ import {
   sdkFeatureArgs,
 } from "./common.mjs";
 const ocr = process.argv.includes("--ocr");
+// The campus map is in both phone SDKs, so the host clients run against the
+// bindings that ship; with --ocr this is also build-ios.mjs's host build.
 run("cargo", [
   "build",
   "-p",
   "app-ffi",
-  ...sdkFeatureArgs({ bindgen: true, ocr }),
+  ...sdkFeatureArgs({ bindgen: true, ocr, campusMap: true }),
   "--locked",
   "-j",
   "2",
