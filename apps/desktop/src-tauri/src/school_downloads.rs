@@ -115,6 +115,16 @@ impl SchoolDownloads {
             emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
             return;
         };
+        // The viewer hands the bytes over at once; the write is still a save
+        // the person started, announced like any other.
+        emit_download(
+            app,
+            site,
+            SchoolDownloadState::Started,
+            name.clone(),
+            None,
+            None,
+        );
         let app = app.clone();
         let failed_app = app.clone();
         let downloads = self.clone();
@@ -233,6 +243,8 @@ impl SchoolDownloads {
                 if let Ok(mut state) = self.0.state.lock() {
                     state.saved.insert(path.clone());
                 }
+                #[cfg(target_os = "macos")]
+                bounce_downloads_stack(&path);
                 emit_download(
                     app,
                     site,
@@ -270,6 +282,19 @@ fn emit_download(
             path: path.and_then(Path::to_str).map(str::to_string),
         },
     ));
+}
+
+/// The system's own sign that a download finished: the Downloads stack in
+/// the Dock bounces, as it does for Safari and other browsers.
+#[cfg(target_os = "macos")]
+fn bounce_downloads_stack(path: &Path) {
+    use objc2_foundation::{NSDistributedNotificationCenter, NSString};
+    let name = NSString::from_str("com.apple.DownloadFileFinished");
+    let file = NSString::from_str(&path.to_string_lossy());
+    unsafe {
+        NSDistributedNotificationCenter::defaultCenter()
+            .postNotificationName_object(&name, Some(&file));
+    }
 }
 
 fn safe_file_name(name: &str) -> bool {

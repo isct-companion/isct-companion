@@ -3,11 +3,7 @@ import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
-import {
-  nativeOs,
-  type SchoolSite,
-  type SchoolWebEntry,
-} from "../../platform/desktop-bridge";
+import type { SchoolSite, SchoolWebEntry } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import {
   boundsOf,
@@ -78,10 +74,6 @@ function WebBody({
   });
   const initialUrl = requestedUrl ?? official[site].url;
   const [status, setStatus] = useState("");
-  /** The last file a school page saved, offered for Reveal for a while. */
-  const [savedFile, setSavedFile] = useState<{ name: string; path: string }>();
-  const notifyRef = useRef(notify);
-  notifyRef.current = notify;
   /** The address outside the embedded view (preview, separate window). */
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
@@ -135,37 +127,6 @@ function WebBody({
     if (!editingAddress.current && addressInput.current)
       addressInput.current.scrollLeft = 0;
   }, [address]);
-
-  useEffect(() => {
-    let hide: number | undefined;
-    const dispose = desktopBridge?.onSchoolDownload?.((event) => {
-      window.clearTimeout(hide);
-      setSavedFile(undefined);
-      if (event.state === "started")
-        setStatus(t("web.downloadingName", { name: event.name }));
-      else if (event.state === "done") {
-        setStatus("");
-        notifyRef.current(`Saved ${event.name}`);
-        if (event.path) {
-          setSavedFile({ name: event.name, path: event.path });
-          hide = window.setTimeout(() => setSavedFile(undefined), 30_000);
-        }
-      } else setStatus(t("web.downloadFailedName", { name: event.name }));
-    });
-    return () => {
-      dispose?.();
-      window.clearTimeout(hide);
-    };
-  }, []);
-
-  const revealSaved = async (path: string) => {
-    try {
-      const shown = await desktopBridge?.revealSchoolDownload?.(path);
-      if (!shown) setStatus(t("web.thatFileCanNoLonger"));
-    } catch (error) {
-      setStatus(errorText(error) ?? t("web.unavailable"));
-    }
-  };
 
   useEffect(() => {
     if (!embedded || !desktopBridge || !active) return;
@@ -418,19 +379,6 @@ function WebBody({
                 <span className="webStatus" role="status">
                   {status}
                 </span>
-                {savedFile && desktopBridge?.revealSchoolDownload && (
-                  <UiButton
-                    type="button"
-                    title={savedFile.name}
-                    onClick={() => void revealSaved(savedFile.path)}
-                  >
-                    {t(
-                      nativeOs() === "macos"
-                        ? "web.showInFinder"
-                        : "web.showInFolder",
-                    )}
-                  </UiButton>
-                )}
                 {embedded && (
                   <SchoolWebNavigation
                     site={site}

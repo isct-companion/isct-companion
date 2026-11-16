@@ -1535,6 +1535,7 @@
   "web.reopenThisPage": "このページを開き直す",
   "web.reopenedThisPageWithoutSending": "フォームを再送信せずにこのページを開き直しました。",
   "web.resetZoom": "拡大率をリセット",
+  "web.savedNameToDownloads": "{{name}}を「ダウンロード」に保存しました",
   "web.schoolNavigationNeedsTheInstalled": "学内サイトの閲覧にはインストール版のアプリが必要です。",
   "web.schoolPagesNeedTheDesktop": "学内ページの表示にはデスクトップアプリが必要です。",
   "web.schoolServices": "学内サービス",

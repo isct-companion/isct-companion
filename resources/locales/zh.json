@@ -1535,6 +1535,7 @@
   "web.reopenThisPage": "重新打开此页",
   "web.reopenedThisPageWithoutSending": "已重新打开此页，没有重复提交表单。",
   "web.resetZoom": "重置缩放",
+  "web.savedNameToDownloads": "已将 {{name}} 保存到“下载”文件夹",
   "web.schoolNavigationNeedsTheInstalled": "浏览学校网站需要安装版应用。",
   "web.schoolPagesNeedTheDesktop": "学校页面需要桌面端应用。",
   "web.schoolServices": "校内服务",

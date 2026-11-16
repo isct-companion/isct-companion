@@ -1535,6 +1535,7 @@
   "web.reopenThisPage": "Reopen this page",
   "web.reopenedThisPageWithoutSending": "Reopened this page without sending the form again.",
   "web.resetZoom": "Reset zoom",
+  "web.savedNameToDownloads": "Saved {{name}} to Downloads",
   "web.schoolNavigationNeedsTheInstalled": "School navigation needs the installed app.",
   "web.schoolPagesNeedTheDesktop": "School pages need the desktop app.",
   "web.schoolServices": "School services",
