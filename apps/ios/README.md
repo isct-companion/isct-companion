@@ -34,7 +34,7 @@ iCloud backup. That entitlements file also drops the App Group
 extension then cannot save to the inbox and its assignment list stays empty.
 Use a build signed by that team to try shared inbox and widget data on a
 device. The release workflow uses the App Store profile in
-`IOS_WIDGETS_MOBILE_PROVISION` for the `app.isctcompanion.widgets` extension.
+`IOS_WIDGETS_MOBILE_PROVISION` for the `app.isctcompanion.widgetkit` extension.
 It must grant `group.app.isctcompanion`, the same App Group as the host.
 OCR is unavailable on the Intel simulator.
 

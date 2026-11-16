@@ -789,6 +789,24 @@ export type ExamSubjectPage = {
    * This subject on the ScienceTokyoExam website.
    */
   webUrl: string;
+  /**
+   * `exams` by sitting, in `exams`' order: a question and its answer are
+   * one row on every shell.
+   */
+  sets: Array<ExamSet>;
+};
+
+export type ExamSet = {
+  academicYear: number | null;
+  occasion: string | null;
+  occasionNumber: number;
+  variant: string;
+  teachers: Array<ExamTeacher>;
+  /**
+   * A teacher of the course's own class is among `teachers`.
+   */
+  mine: boolean;
+  documents: Array<ExamDocument>;
 };
 
 export type ExamRequest = {
@@ -809,6 +827,10 @@ export type ExamRequestCursor = { createdAt: number; id: string };
 export type ExamRequestPage = {
   items: Array<ExamRequest>;
   cursor: ExamRequestCursor | null;
+  /**
+   * The requests board on the ScienceTokyoExam website.
+   */
+  webUrl: string;
 };
 
 export type ExamRequestDraft = {
@@ -826,6 +848,10 @@ export type ExamLocalDocument = {
   downloaded: boolean;
   saved: boolean | null;
   offline: boolean;
+  /**
+   * This document on the ScienceTokyoExam website.
+   */
+  webUrl: string;
 };
 
 export type ExamLibrary = {
@@ -833,6 +859,10 @@ export type ExamLibrary = {
   saved: Array<ExamDocument>;
   downloaded: Array<ExamDocument>;
   submitted: Array<ExamDocument>;
+  /**
+   * The person's library on the ScienceTokyoExam website.
+   */
+  webUrl: string;
 };
 
 export type ExamAccountStatus =
@@ -1025,7 +1055,7 @@ export type ExamAnswer =
   | { kind: "requests"; value: ExamRequestPage }
   | { kind: "choices"; value: ExamChoices }
   | { kind: "uploadForm"; value: ExamUploadForm }
-  | { kind: "uploaded" }
+  | { kind: "uploaded"; value: string | null }
   | { kind: "done" };
 
 export type TeachingPeriod = {

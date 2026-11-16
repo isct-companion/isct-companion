@@ -62,14 +62,7 @@ fun LecturesScreen() {
     var overview by remember { mutableStateOf<WorkspaceOverview?>(null) }
     val term = model.today?.term
     LaunchedEffect(term, model.contentRevision) { term?.let { overview = model.overview(it) } }
-    TabPage(
-        t("common.courses"),
-        actions = {
-            IconButton(onClick = navigator::openPastExams) {
-                Icon(Icons.Rounded.FileCopy, t("examShare.title"))
-            }
-        },
-    ) {
+    TabPage(t("common.courses")) {
         val ids = overview?.termCourseIds.orEmpty()
         Loading(
             overview != null,
