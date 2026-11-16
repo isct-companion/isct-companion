@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The campus VPN helper as an SMAppService daemon. tauri.mjs places this in
+     Contents/Library/LaunchDaemons; launchd runs the helper from the bundle's
+     resources, which bundle-vpn.mjs fills. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>app.isctcompanion.vpn</string>
+  <key>BundleProgram</key>
+  <string>Contents/Resources/resources/vpn/isct-vpn-helper</string>
+  <key>AssociatedBundleIdentifiers</key>
+  <array>
+    <string>app.isctcompanion</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Without it the daemon is background work: its idle check wakes minutes
+       late and the tunnels it relays get throttled CPU. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>/var/log/app.isctcompanion.vpn.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/app.isctcompanion.vpn.err.log</string>
+</dict>
+</plist>

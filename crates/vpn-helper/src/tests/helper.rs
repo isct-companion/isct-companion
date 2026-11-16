@@ -238,3 +238,62 @@ fn a_disconnect_removes_the_pin_the_route_and_the_resolvers() {
     );
     assert!(calls.contains("remove State:/Network"), "{calls}");
 }
+
+/// The daemon runs as root from inside the app bundle: it must start the
+/// openconnect beside it, never a Homebrew one, and the route hook it hands
+/// openconnect must be the root-owned copy, not the bundle's, which the
+/// person can edit, at a path the shell does not split.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_bundled_daemon_runs_its_own_openconnect_and_a_root_owned_hook() {
+    let dir =
+        std::path::Path::new("/Applications/Isct Companion.app/Contents/Resources/resources/vpn");
+    let cfg = platform::bundled(dir);
+    assert_eq!(cfg.openconnect, dir.join("openconnect/bin/openconnect"));
+    assert_eq!(cfg.libdirs, vec![dir.join("openconnect/lib")]);
+    assert!(cfg.script.starts_with("/Library/PrivilegedHelperTools"));
+    // openconnect hands the path to /bin/sh unquoted.
+    assert!(!cfg.script.to_string_lossy().contains(char::is_whitespace));
+}
+
+/// launchd must be able to parse the daemon's plist, run the helper where
+/// `bundle-vpn.mjs` puts it, and not as background work: its idle check then
+/// woke minutes late and an unused tunnel stayed up past the school's limit.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_daemon_plist_runs_the_bundled_helper_interactively() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/app.isctcompanion.vpn.plist"
+    );
+    let lint = Command::new("/usr/bin/plutil")
+        .arg("-lint")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        lint.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lint.stdout)
+    );
+    let plist = std::fs::read_to_string(path).unwrap();
+    assert!(plist.contains("<string>Contents/Resources/resources/vpn/isct-vpn-helper</string>"));
+    assert!(plist.contains("<key>ProcessType</key>\n  <string>Interactive</string>"));
+    assert!(!plist.contains("/opt/homebrew"));
+}
+
+/// A requirement with a typo would refuse every start; `csreq` compiles it the
+/// way `codesign -R` does.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_signer_requirement_compiles() {
+    let out = std::env::temp_dir().join(format!("isct-req-{}", std::process::id()));
+    let status = Command::new("/usr/bin/csreq")
+        .arg(format!("-r={}", platform::signer_requirement("FB7AL944GK")))
+        .arg("-b")
+        .arg(&out)
+        .status()
+        .unwrap();
+    let _ = std::fs::remove_file(&out);
+    assert!(status.success());
+}

@@ -11,9 +11,9 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// The helper this app bundles. An installed helper that reports less (or
 /// nothing, as the first ones did) is replaced before the next connect.
-pub const HELPER_REVISION: u32 = 7;
+pub const HELPER_REVISION: u32 = 8;
 
-/// Socket the daemon listens on; the installer creates it as root:staff 0660.
+/// Socket the daemon listens on; the daemon creates it as root:staff 0660.
 #[cfg(unix)]
 pub const SOCKET_PATH: &str = "/var/run/app.isctcompanion.vpnhelper.sock";
 

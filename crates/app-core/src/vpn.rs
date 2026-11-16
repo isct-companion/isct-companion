@@ -22,6 +22,10 @@ use vpn_protocol::{Ending, HelperState, SessionCookie, HELPER_REVISION};
 pub enum VpnError {
     #[error("the campus VPN helper is not installed")]
     HelperNotInstalled,
+    /// The helper is registered but waits for the person to allow it in the
+    /// system's own settings (macOS Login Items).
+    #[error("the campus VPN helper waits to be allowed in System Settings")]
+    HelperNeedsApproval,
     /// The installed helper is older than the one this app bundles.
     #[error("the campus VPN helper needs an update")]
     HelperOutdated,
@@ -42,6 +46,7 @@ impl VpnError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::HelperNotInstalled => "helper_not_installed",
+            Self::HelperNeedsApproval => "helper_needs_approval",
             Self::HelperOutdated => "helper_outdated",
             Self::HelperUnreachable(_) => "helper_unreachable",
             Self::Timeout => "helper_timeout",
@@ -202,6 +207,7 @@ fn hopeless(error: &VpnError) -> bool {
     matches!(
         error,
         VpnError::HelperNotInstalled
+            | VpnError::HelperNeedsApproval
             | VpnError::HelperOutdated
             | VpnError::Login(
                 CampusVpnError::NeedsAccount

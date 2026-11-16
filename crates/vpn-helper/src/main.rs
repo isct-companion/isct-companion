@@ -259,7 +259,9 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
         .arg("--non-inter")
         .arg("--script")
         .arg(&cfg.script);
-    platform::prepare(&mut cmd, cfg);
+    if let Err(e) = platform::prepare(&mut cmd, cfg) {
+        return Reply::error(e);
+    }
     cmd.arg(&cfg.server)
         // Its session-expiry line then names UTC, which `utc_seconds` reads.
         .env("TZ", "UTC")

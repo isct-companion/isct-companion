@@ -111,8 +111,23 @@ const withVpn = (resources) =>
   Array.isArray(resources)
     ? [...resources, "resources/vpn/"]
     : { ...resources, "resources/vpn/": "resources/vpn/" };
+// On macOS the helper is an SMAppService daemon, whose plist must sit in
+// Contents/Library/LaunchDaemons; it runs the helper from resources/vpn.
+const vpnDaemon =
+  process.platform === "darwin"
+    ? {
+        macOS: {
+          ...macConfig?.bundle?.macOS,
+          files: {
+            ...macConfig?.bundle?.macOS?.files,
+            "Library/LaunchDaemons/app.isctcompanion.vpn.plist":
+              "../../../crates/vpn-helper/assets/app.isctcompanion.vpn.plist",
+          },
+        },
+      }
+    : undefined;
 const vpnBundle = vpnPayload
-  ? { resources: withVpn(platformResources()) }
+  ? { resources: withVpn(platformResources()), ...vpnDaemon }
   : undefined;
 if (vpnPayload) console.log("Campus VPN payload: included.");
 const tauriCommand = [...process.argv.slice(2)];

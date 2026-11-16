@@ -1,7 +1,7 @@
-// Campus VPN payload for the macOS app: the root helper, the route script and
-// a self-contained openconnect, written to apps/desktop/src-tauri/resources/vpn
-// where `tauri.mjs` picks it up. The app's installer copies it to
-// /Library on the person's first connect. On Windows the payload is built by
+// Campus VPN payload for the macOS app: the root helper (with the route hook
+// compiled in) and a self-contained openconnect, written to
+// apps/desktop/src-tauri/resources/vpn where `tauri.mjs` picks it up. launchd
+// runs the helper from there as an SMAppService daemon. On Windows the payload is built by
 // `bundle-vpn-windows.mjs` instead; the command line is the same.
 //
 // openconnect comes from a Homebrew keg (`--openconnect <keg>`, default
@@ -230,14 +230,24 @@ function bundleOpenconnect(keg, out) {
   return { libraries: copied.size, components };
 }
 
+/**
+ * The team of a Developer ID identity such as `Developer ID Application:
+ * Name (TEAMID)`. The macOS helper refuses an openconnect another team signed.
+ */
+const signerTeam = (identity) => identity?.match(/\(([A-Z0-9]{10})\)\s*$/)?.[1];
+
 /** The helper built for release, copied into the payload. */
 function buildHelper(binary) {
+  const team = signerTeam(process.env.APPLE_SIGNING_IDENTITY);
+  if (process.env.APPLE_SIGNING_IDENTITY && !team)
+    throw new Error("APPLE_SIGNING_IDENTITY names no team (…(TEAMID))");
   execFileSync(
     "cargo",
     ["build", "--release", "--locked", "-p", "vpn-helper"],
     {
       cwd: root,
       stdio: "inherit",
+      env: team ? { ...process.env, ISCT_VPN_SIGNER_TEAM: team } : process.env,
     },
   );
   const helper = path.join(VPN_RESOURCES, binary);
@@ -283,9 +293,6 @@ function main() {
   const helper = buildHelper("isct-vpn-helper");
   chmodSync(helper, 0o755);
   signMacho(helper);
-  const script = path.join(VPN_RESOURCES, "vpnc-script");
-  copyFileSync(path.join(root, "crates/vpn-helper/assets/vpnc-script"), script);
-  chmodSync(script, 0o755);
 
   const { libraries, components } = bundleOpenconnect(
     keg,
@@ -296,7 +303,7 @@ function main() {
     path.join(VPN_RESOURCES, "openconnect/bin/openconnect"),
   ]);
   console.log(
-    `Campus VPN payload: helper, route script, openconnect (${arch}) with ${libraries} libraries from ${components.length} formulae.`,
+    `Campus VPN payload: helper, openconnect (${arch}) with ${libraries} libraries from ${components.length} formulae.`,
   );
 }
 

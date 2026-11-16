@@ -63,6 +63,8 @@ tauri-plugin-single-instance = "2"
 libc = "0.2"
 security-framework = { version = "3.7", features = ["OSX_10_15"] }
 block2 = "0.6"
+# The campus VPN helper as a launchd daemon inside the app (campus_vpn/macos.rs).
+objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService", "SMErrors"] }
 objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
 # Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface and DNS bound to it.
 objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["std", "CWWiFiClient", "CWInterface"] }

@@ -222,6 +222,7 @@ async fn connect(
         before,
         VpnState::Error(
             VpnError::HelperNotInstalled
+                | VpnError::HelperNeedsApproval
                 | VpnError::HelperOutdated
                 | VpnError::HelperUnreachable(_)
         )
@@ -293,8 +294,9 @@ async fn disconnect(
     settled(service(&app), VpnService::disconnect).await
 }
 
-/// One administrator prompt installs or updates the helper and its
-/// openconnect. A cancelled prompt returns the unchanged status.
+/// Installs or updates the helper: the system's own prompt on Windows (UAC),
+/// and on macOS a daemon inside the app that the person allows once in
+/// System Settings. A declined prompt returns the unchanged status.
 #[tauri::command]
 async fn install(
     webview: tauri::Webview,
@@ -309,21 +311,34 @@ async fn install(
         .parent()
         .ok_or("this build does not include the campus VPN helper")?
         .to_path_buf();
-    let installed = blocking(move || helper::run_install(&resources))
+    let outcome = blocking(move || helper::run_install(&resources))
         .await?
         .map_err(CommandError::from)?;
     let service = service(&app);
-    if !installed {
-        return settled(service, VpnService::refresh).await;
+    match outcome {
+        #[cfg(target_os = "windows")]
+        helper::Install::Declined => return settled(service, VpnService::refresh).await,
+        // An earlier helper may still answer until the new one is allowed.
+        #[cfg(target_os = "macos")]
+        helper::Install::NeedsApproval => {
+            let state = service.failed(VpnError::HelperNeedsApproval);
+            return Ok(report(&service, state));
+        }
+        helper::Install::Ready => {}
     }
-    // launchd and the service manager start the helper asynchronously; give
-    // it a moment to listen.
-    for _ in 0..10 {
+    // launchd and the service manager start the helper asynchronously, and
+    // an updated one replaces the running one after its next reply; give it
+    // a moment to listen.
+    for _ in 0..20 {
         let reading = service.clone();
         let state = blocking(move || reading.refresh()).await?;
         if !matches!(
             state,
-            VpnState::Error(VpnError::HelperNotInstalled | VpnError::HelperUnreachable(_))
+            VpnState::Error(
+                VpnError::HelperNotInstalled
+                    | VpnError::HelperOutdated
+                    | VpnError::HelperUnreachable(_)
+            )
         ) {
             return Ok(report(&service, state));
         }
