@@ -18,11 +18,6 @@ pub(crate) const HELPER: &str = "isct-vpn-helper";
 /// crates/vpn-helper/assets; `tauri.mjs` puts it there with the payload.
 const DAEMON_PLIST: &str = "app.isctcompanion.vpn.plist";
 
-/// SMAppService's `kSMErrorAlreadyRegistered` and `kSMErrorLaunchDeniedByUser`:
-/// neither is a failure, the status that follows says where it stands.
-const ALREADY_REGISTERED: isize = 12;
-const DENIED_BY_USER: isize = 11;
-
 pub(crate) struct HelperSocket {
     path: PathBuf,
 }
@@ -83,22 +78,22 @@ fn connect_error(error: std::io::Error) -> VpnError {
 /// plist, so `_resources` is only the shared signature.
 pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     let service = daemon();
+    // A daemon that still needs approval in Login Items is registered all
+    // the same, yet register fails with EPERM ("Operation not permitted");
+    // an already registered one fails too. The status says where it stands.
     let registered = unsafe { service.registerAndReturnError() };
-    if let Err(error) = &registered {
-        let code = error.code();
-        if code != ALREADY_REGISTERED && code != DENIED_BY_USER {
-            return Err(format!(
-                "the campus VPN helper could not be registered: {}",
-                error.localizedDescription()
-            ));
-        }
-    }
     match unsafe { service.status() } {
         SMAppServiceStatus::Enabled => Ok(Install::Ready),
         SMAppServiceStatus::RequiresApproval => {
             unsafe { SMAppService::openSystemSettingsLoginItems() };
             Ok(Install::NeedsApproval)
         }
-        _ => Err("the campus VPN helper could not be registered".into()),
+        _ => Err(match registered {
+            Err(error) => format!(
+                "the campus VPN helper could not be registered: {}",
+                error.localizedDescription()
+            ),
+            Ok(()) => "the campus VPN helper could not be registered".into(),
+        }),
     }
 }
