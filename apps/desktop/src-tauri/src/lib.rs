@@ -12,6 +12,7 @@ use secrets::OsSecretVault;
 
 mod agent_server;
 mod cloud;
+mod exam_share;
 mod cloud_sync;
 mod command_error;
 pub(crate) use command_error::{coded, shell, CommandError};
@@ -266,6 +267,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
+        .manage(exam_share::UploadSelection::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
     let builder = plugins::register(builder);
@@ -290,6 +292,7 @@ pub fn run() {
             commands::platform::runtime_capabilities,
             commands::platform::application_logs,
             commands::platform::export_application_logs,
+            commands::platform::open_feedback_form,
             commands::platform::copy_application_logs,
             commands::platform::application_error,
             lms_files::course_storage_info,
@@ -351,6 +354,9 @@ pub fn run() {
             commands::notifications::open_notification_settings,
             commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
+            exam_share::exam_share,
+            exam_share::exam_upload_pick_files,
+            exam_share::exam_upload_clear_files,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,
@@ -393,7 +399,7 @@ pub fn run() {
             let vault = OsSecretVault::new(app.handle().clone());
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
-                vault,
+                vault.clone(),
                 app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
             )));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
@@ -403,6 +409,7 @@ pub fn run() {
                     .clone(),
                 std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
+            exam_share::open(app.handle(), vault);
             core_ports::core(app.handle()).attach_web_cookies(std::sync::Arc::new(
                 school_cookies::DesktopWebCookies::new(app.handle().clone()),
             ));
@@ -486,6 +493,7 @@ pub fn run() {
                 if !runtime.stopped() {
                     api.prevent_exit();
                     if runtime.begin_exit() {
+                        app.state::<DesktopCloudService<OsSecretVault>>().shutdown();
                         #[cfg(all(windows, tool = "campus-printer"))]
                         plugins::campus_printer::queue::stop(app);
                         // Draining owned work can take up to EXIT_TIMEOUT. A

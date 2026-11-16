@@ -102,6 +102,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
     var cloud: SyncState? by mutableStateOf(null)
         private set
+    /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
+     * events and `Account` answers report it; null until the page reads it. */
+    var examAccount: ExamAccount? by mutableStateOf(null)
+        private set
     /** Bumped whenever Core reports new content, so open screens re-query. */
     var contentRevision: String by mutableStateOf("")
         private set
@@ -146,11 +150,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val inFront = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             val config = SessionConfig(
                 dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
+                appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
                 initialNetwork = SyncNetwork.UNKNOWN, startSuspended = !inFront, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, drive,
+                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
             )
             session.attachWidgets(WidgetStorage(context))
             this.session = session
@@ -346,6 +351,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "cloud-sync-state" -> refreshCloud()
                     "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
                         .onSuccess(::applyDirective)
+                    "exam-account" -> runCatching { decodeExamAccount(update.event.payload) }
+                        .onSuccess { examAccount = it }
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
                     "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
@@ -367,6 +374,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     web.refreshPages()
                     refreshAccounts()
                     readSync()
+                    // Only once the past-exams page read it; events carry it after.
+                    if (examAccount != null) scope.launch { runCatching { examShare(ExamAction.Account) } }
                 }
             }
         }
@@ -627,6 +636,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
         (query(WorkspaceQuery.WorkspaceOverview(term)) as? WorkspaceQueryResult.WorkspaceOverview)?.v1
+
+    suspend fun examShare(action: ExamAction): ExamAnswer {
+        val session = session ?: throw SdkException.Closed()
+        val answer = (session.examShare(action).value() as OperationResult.ExamShare).answer
+        if (answer is ExamAnswer.Account) examAccount = answer.v1
+        return answer
+    }
+
+    suspend fun examCourses(): ExamCourseList? =
+        (query(WorkspaceQuery.ExamCourses) as? WorkspaceQueryResult.ExamCourses)?.v1
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */
@@ -1069,11 +1088,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 t("schoolSession.state.unavailable")
         }
 
+        /** The school sent its emailed-code page: the account has no school
+         * OTP, so the next step is setting one up on the portal. */
+        fun otpNotSetUp(state: SchoolSessionState, problem: SchoolSignInProblem?): Boolean =
+            state == SchoolSessionState.NEEDS_WEB && problem?.kind == SchoolSignInProblemKind.EMAIL_OTP
+
         /** One line for an account's session state, as the account row and a
          * read waiting on it say it; `problem` and `retryAt` add what Core
          * knows. */
         fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
-            when (state) {
+            if (otpNotSetUp(state, problem)) t("schoolSession.state.otpNotSetUp") else when (state) {
                 SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
                 SchoolSessionState.NORMAL -> t("schoolSession.state.normal")
                 SchoolSessionState.SIGNING_IN -> t("common.signingIn")

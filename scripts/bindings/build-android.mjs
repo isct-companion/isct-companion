@@ -1,3 +1,4 @@
+import { nativeOAuthEnv } from "../lib/oauth-config.mjs";
 import { join, delimiter } from "node:path";
 import {
   mkdirSync,
@@ -93,6 +94,7 @@ const abis = [
 for (const [triple, abi, clang] of abis) {
   const env = {
     ...process.env,
+    ...nativeOAuthEnv(),
     CARGO_TARGET_DIR: target,
     [`CARGO_TARGET_${triple.replaceAll("-", "_").toUpperCase()}_LINKER`]: join(
       toolchain,

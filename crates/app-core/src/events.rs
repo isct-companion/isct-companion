@@ -85,6 +85,9 @@ pub enum CoreEvent {
     /// When Core next has work; read `Core::wake_directive` for the current
     /// value. The shell's one timer follows it.
     WakeDirective(WakeDirective),
+    /// The ScienceTokyoExam account or its upload changed; the `Account`
+    /// action reads the current value.
+    ExamAccount(crate::exam_share::ExamAccount),
 }
 
 impl CoreEvent {
@@ -102,6 +105,7 @@ impl CoreEvent {
             Self::SyncSnapshot(_) => "sync-snapshot",
             Self::CloudSyncState(_) => "cloud-sync-state",
             Self::WakeDirective(_) => "wake-directive",
+            Self::ExamAccount(_) => "exam-account",
         }
     }
 
@@ -144,6 +148,7 @@ impl CoreEvent {
             Self::SyncSnapshot(snapshot) => json!(snapshot),
             Self::CloudSyncState(state) => json!(state),
             Self::WakeDirective(directive) => json!(directive),
+            Self::ExamAccount(account) => json!(account),
         }
     }
 }

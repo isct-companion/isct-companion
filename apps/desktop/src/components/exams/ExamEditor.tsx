@@ -242,10 +242,6 @@ export function ExamEditor({
           defaultValue={exam.room}
           description={sourceHint(exam.room !== source.room, source.room)}
         />
-        {(error || association.error) && (
-          <p role="alert">{error || association.error}</p>
-        )}
-        {saved && <p role="status">{t("exam.examSaved")}</p>}
         <div className="examEditorActions">
           {(!published || exam.courseId) && (
             <Button
@@ -266,6 +262,11 @@ export function ExamEditor({
             {t("common.save")}
           </Button>
         </div>
+        {/* Under the buttons, so a retried Save stays where it was. */}
+        {(error || association.error) && (
+          <p role="alert">{error || association.error}</p>
+        )}
+        {saved && <p role="status">{t("exam.examSaved")}</p>}
       </form>
     </div>
   );

@@ -60,9 +60,17 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::Compatibility | C::CloudFormat | C::CloudVersionMissing => {
             SdkError::Compatibility { detail }
         }
-        C::SignInRequired => SdkError::Authentication { detail },
+        C::SignInRequired
+        | C::ExamShareSignedOut
+        | C::ExamShareExpired
+        | C::ExamShareDenied
+        | C::ExamShareConsent
+        | C::ExamShareAdministrator
+        | C::ExamShareIdentity => SdkError::Authentication { detail },
         C::SchoolMaintenance => SdkError::Maintenance { detail },
-        C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
+        C::Network | C::Offline | C::HostPaused => {
+            SdkError::Network { detail }
+        }
         C::Timeout | C::CloudRetrying => SdkError::Timeout { detail },
         C::Busy
         | C::ResetBusy
@@ -74,6 +82,14 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::Callback => SdkError::Callback { detail },
         C::Internal => SdkError::Internal { detail },
         C::Unavailable
+        | C::ExamShareUnsupported
+        | C::ExamShareNotFound
+        | C::ExamShareRejected
+        | C::ExamShareAlreadyReported
+        | C::ExamShareQuota
+        | C::ExamShareUploadDuplicate
+        | C::ExamShareUploadQuota
+        | C::ExamShareUploadPending
         | C::Platform
         | C::LogsUnavailable
         | C::SchoolSiteChanged
@@ -83,6 +99,9 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::LmsWritesDisabled
         | C::SubmissionUnsupported => SdkError::Unavailable { detail },
         C::InvalidInput
+        | C::ExamShareUploadFile
+        | C::ExamShareUploadMixed
+        | C::ExamShareUploadSize
         | C::TooLarge
         | C::NoteTooLarge
         | C::StudyAdmissionTerm
@@ -123,6 +142,7 @@ macro_rules! from_coded {
 }
 
 from_coded!(
+    app_core::exam_share::ExamError,
     app_core::schedule::ReminderError,
     app_core::schedule::ScheduleError,
     app_core::facade::CredentialMutationError,

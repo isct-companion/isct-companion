@@ -1,3 +1,9 @@
+import type {
+  ExamAccount,
+  ExamAction,
+  ExamAnswer,
+  ExamUploadFile,
+} from "../generated/persistence";
 import type { MessageKey } from "../i18n";
 import type {
   CoreWorkspaceCommit,
@@ -548,6 +554,11 @@ export type ApplicationLogSnapshot = {
 };
 
 export interface DesktopBridge {
+  examShare?(action: ExamAction): Promise<ExamAnswer>;
+  /** Every `exam-account` event: the account and its upload progress. */
+  onExamAccount?(callback: (account: ExamAccount) => void): () => void;
+  examUploadPickFiles?(title: string): Promise<ExamUploadFile[] | null>;
+  examUploadClearFiles?(): Promise<void>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -581,6 +592,8 @@ export interface DesktopBridge {
     site: SchoolSite,
   ): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
+  /** Opens the feedback form in the system browser, this build filled in. */
+  openFeedbackForm(): Promise<void>;
   bootstrapReminders(fired: unknown): Promise<boolean>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
@@ -857,12 +870,33 @@ export function createTauriDesktopBridge(
     },
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
+    examShare: (action) => result("exam_share", { action }),
+    onExamAccount: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<ExamAccount>("exam-account", (payload) => {
+        if (!disposed && payload && typeof payload.status === "string")
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    examUploadPickFiles: (title) => result("exam_upload_pick_files", { title }),
+    examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url, site) =>
       result("resolve_school_url", { url, site }),
     openExternal: async (url) => {
       await invokeCommand("open_external", { url });
+    },
+    openFeedbackForm: async () => {
+      await invokeCommand("open_feedback_form");
     },
     bootstrapReminders: (fired) =>
       booleanCommand("bootstrap_reminders", { fired }),

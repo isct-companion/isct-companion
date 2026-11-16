@@ -133,8 +133,15 @@ enum SchoolSessionText {
         }
     }
 
+    /// The school sent its emailed-code page: the account has no school OTP,
+    /// so the next step is setting one up on the portal.
+    static func otpNotSetUp(_ state: SchoolSessionState, problem: SchoolSignInProblem?) -> Bool {
+        state == .needsWeb && problem?.kind == .emailOtp
+    }
+
     /// The state with why, and when Core tries again (`retryAt`).
     static func line(_ state: SchoolSessionState, problem: SchoolSignInProblem?, retryAt: String?) -> String {
+        if otpNotSetUp(state, problem: problem) { return t("schoolSession.state.otpNotSetUp") }
         switch (state, problem.flatMap { reason($0.kind) }) {
         case let (.refused, reason?): return reason
         case let (.needsWeb, reason?): return "\(reason) · \(Self.state(state))"

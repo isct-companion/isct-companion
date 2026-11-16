@@ -101,10 +101,24 @@ struct OtpImportField: View {
             if let error {
                 Text(error).font(.footnote).foregroundStyle(Theme.danger)
             }
+        } else if let read, read.setup == setup, !setup.isEmpty, !changing {
+            // A good read folds the chooser into one line, like a saved
+            // setup; Change opens it again to fix a wrong image or link.
+            HStack {
+                Label(readText(read.name), systemImage: "checkmark.circle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(Theme.ok, Theme.ink)
+                Spacer()
+                Button(t("settings.credentialImport.change")) { changing = true }
+            }
         } else {
             Button(t("otpEnrollment.manual"), action: openManual)
             importing
         }
+    }
+
+    private func readText(_ name: String) -> String {
+        t("settings.credentialImport.readAccountReadyOnceConnected", ["account": name.isEmpty ? t("settings.credentialImport.otpSecret") : name])
     }
 
     /// The camera, photo and account pickers, attached to one row only: in a
@@ -181,25 +195,35 @@ struct OtpImportField: View {
             .font(.footnote)
             .foregroundStyle(Theme.muted)
         if let read, read.setup == setup {
-            Text(t("settings.credentialImport.readAccountReadyOnceConnected", ["account": read.name.isEmpty ? t("settings.credentialImport.otpSecret") : read.name]))
+            Text(readText(read.name))
                 .font(.footnote)
                 .foregroundStyle(Theme.ok)
         }
         if let error {
             Text(error).font(.footnote).foregroundStyle(Theme.danger)
         }
-        if saved && setup.isEmpty {
-            Button(t("settings.credentialImport.keepTheSavedSetup")) { changing = false }
+        // Opened with Change: fold back to the setup just read, or drop a
+        // wrong entry and keep the saved one.
+        if changing, let read, read.setup == setup, !setup.isEmpty {
+            Button(t("settings.credentialImport.collapse")) { changing = false }
+        }
+        if saved {
+            Button(t("settings.credentialImport.keepTheSavedSetup")) {
+                setup = ""
+                read = nil
+                error = nil
+                changing = false
+            }
         }
     }
 
     /// `pasted` text is a setup link or secret, not a QR code, so a payload
     /// Core cannot read is worded for what the person gave.
-    private func load(_ payload: String, pasted: Bool = false) {
+    private func load(_ payload: String, pasted: Bool = false, fold: Bool = true) {
         error = nil
         do {
             let accounts = try importOtp(payload: payload)
-            if accounts.count == 1 { choose(accounts[0]) } else { choices = accounts }
+            if accounts.count == 1 { choose(accounts[0], fold: fold) } else { choices = accounts }
         } catch OtpImportError.MultiplePages {
             error = t("error.otp-import-multiple")
         } catch OtpImportError.Unsupported {
@@ -211,7 +235,7 @@ struct OtpImportField: View {
 
     private func checkTyped() {
         guard !setup.isEmpty, read?.setup != setup, error == nil else { return }
-        load(setup, pasted: true)
+        load(setup, pasted: true, fold: false)
     }
 
     private func readPhoto(_ item: PhotosPickerItem) async {
@@ -258,10 +282,16 @@ struct OtpImportField: View {
         }
     }
 
-    private func choose(_ account: OtpImportAccount) {
+    /// A good read from a scan, a photo or a paste folds the chooser into one
+    /// line. A typed entry read as the field loses focus stays open: that is
+    /// often the tap on Save and Connect, which must not move under the finger.
+    private func choose(_ account: OtpImportAccount, fold: Bool = true) {
         setup = account.setup
         choices = []
         read = (account.setup, Self.name(account))
+        // What was read shows in the paste field when Change opens it again.
+        path = .paste
+        changing = !fold
     }
 
     private static func name(_ account: OtpImportAccount) -> String {

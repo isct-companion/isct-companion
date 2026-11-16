@@ -68,6 +68,10 @@ jobs:
         with:
           workspaces: . -> target
           key: android-release
+      - name: Install JavaScript build dependencies
+        run: |
+          corepack enable
+          yarn install --immutable
       - name: Build the Core AAR (release profile)
         run: node scripts/bindings/build-android.mjs
       - name: Read the version

@@ -735,6 +735,299 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
+export type ExamSubject = { code: string; name: string; nameEn: string | null };
+
+export type ExamTeacher = { id: string; name: string };
+
+export type ExamClass = {
+  classIds: Array<number>;
+  labels: Array<string>;
+  taughtIn: string;
+  teachers: Array<ExamTeacher>;
+};
+
+export type ExamDocument = {
+  id: string;
+  subjects: Array<ExamSubject>;
+  teachers: Array<ExamTeacher>;
+  academicYear: number | null;
+  occasion: string | null;
+  occasionNumber: number;
+  variant: string;
+  role: string | null;
+  note: string | null;
+  fileName: string;
+  fileType: string;
+};
+
+export type ExamSubjectPage = {
+  subject: ExamSubject;
+  rows: Array<ExamClass>;
+  /**
+   * When the page was opened from a local course whose class is one of
+   * `rows`, materials naming that class's teachers come first.
+   */
+  exams: Array<ExamDocument>;
+  /**
+   * Every teacher the materials name, for filtering, the class's first.
+   */
+  teachers: Array<ExamTeacher>;
+  /**
+   * The years the materials are from, newest first, for filtering.
+   */
+  years: Array<number>;
+  /**
+   * The occasions the materials name, in `ExamChoices` order.
+   */
+  occasions: Array<string>;
+  /**
+   * The local course's class when one of `rows` lists it. Reopening the
+   * subject passes it back so the order survives a refresh.
+   */
+  classId: number | null;
+  /**
+   * This subject on the ScienceTokyoExam website.
+   */
+  webUrl: string;
+};
+
+export type ExamRequest = {
+  id: string;
+  subject: ExamSubject;
+  teachers: Array<ExamTeacher>;
+  academicYear: number | null;
+  occasion: string | null;
+  wantedRole: string | null;
+  description: string;
+  status: string;
+  answerExamId: string | null;
+  mine: boolean;
+};
+
+export type ExamRequestCursor = { createdAt: number; id: string };
+
+export type ExamRequestPage = {
+  items: Array<ExamRequest>;
+  cursor: ExamRequestCursor | null;
+};
+
+export type ExamRequestDraft = {
+  subjectCode: string;
+  classId: number | null;
+  academicYear: number | null;
+  occasion: ExamOccasion | null;
+  wantedRole: ExamRole | null;
+  description: string;
+};
+
+export type ExamLocalDocument = {
+  document: ExamDocument;
+  path: string;
+  downloaded: boolean;
+  saved: boolean | null;
+  offline: boolean;
+};
+
+export type ExamLibrary = {
+  offline: boolean;
+  saved: Array<ExamDocument>;
+  downloaded: Array<ExamDocument>;
+  submitted: Array<ExamDocument>;
+};
+
+export type ExamAccountStatus =
+  "disconnected" | "needsConsent" | "connected" | "unsupported";
+
+export type ExamAccount = {
+  status: ExamAccountStatus;
+  email: string | null;
+  upload: ExamUploadStatus;
+};
+
+export type ExamReportReason =
+  "copyright" | "inappropriate" | "wrongAnswer" | "brokenFile" | "other";
+
+export type ExamUploadFile = { path: string; name: string };
+
+export type ExamNewTeacher = { familyName: string; givenName: string };
+
+export type ExamUploadDraft = {
+  subjectCodes: Array<string>;
+  teacherIds: Array<string>;
+  newTeachers: Array<ExamNewTeacher>;
+  academicYear: number | null;
+  occasion: ExamOccasion;
+  occasionNumber: number;
+  variant: string;
+  role: ExamRole;
+  provenance: ExamProvenance;
+  answerSource: ExamAnswerSource | null;
+  note: string;
+  requestId: string | null;
+};
+
+export type ExamRole = "question" | "answer" | "both" | "notes" | "other";
+
+export type ExamOccasion =
+  | "unknown"
+  | "final"
+  | "midterm"
+  | "makeup"
+  | "quiz"
+  | "check"
+  | "report"
+  | "exercise"
+  | "textbook"
+  | "mock"
+  | "none";
+
+export type ExamProvenance = "original" | "reconstructed";
+
+export type ExamAnswerSource = "unknown" | "official" | "student";
+
+export type ExamRoleChoice = {
+  role: ExamRole;
+  occasions: Array<ExamOccasion>;
+  /**
+   * Empty when the role has no answer.
+   */
+  answerSources: Array<ExamAnswerSource>;
+};
+
+export type ExamChoices = {
+  roles: Array<ExamRoleChoice>;
+  /**
+   * Occasions that take a number, such as the third quiz.
+   */
+  numbered: Array<ExamOccasion>;
+  provenances: Array<ExamProvenance>;
+  requestRoles: Array<ExamRole>;
+  requestOccasions: Array<ExamOccasion>;
+  reportReasons: Array<ExamReportReason>;
+  limits: ExamLimits;
+};
+
+export type ExamLimits = {
+  /**
+   * Subjects one upload may list.
+   */
+  subjects: number;
+  /**
+   * Listed teachers one upload may name, and as many new ones.
+   */
+  teachers: number;
+  occasionNumber: number;
+  variant: number;
+  note: number;
+  requestDescription: number;
+  reportDetail: number;
+  query: number;
+  /**
+   * A new teacher's family and given name, each.
+   */
+  teacherName: number;
+  /**
+   * The academic years an upload or a request may name.
+   */
+  earliestYear: number;
+  latestYear: number;
+};
+
+export type ExamUploadSubject = {
+  subject: ExamSubject;
+  teachers: Array<ExamTeacher>;
+  /**
+   * Whether `RemoveSubject` accepts it: not the last one, nor the
+   * subject of the request the upload answers.
+   */
+  removable: boolean;
+};
+
+export type ExamUploadForm = {
+  draft: ExamUploadDraft;
+  subjects: Array<ExamUploadSubject>;
+  /**
+   * Every teacher of `subjects`, once: the form's teacher choices.
+   */
+  teachers: Array<ExamTeacher>;
+  /**
+   * The open request this upload answers.
+   */
+  request: ExamRequest | null;
+};
+
+export type ExamUploadStart =
+  { kind: "subject"; code: string } | { kind: "request"; request: ExamRequest };
+
+export type ExamUploadEdit =
+  | { kind: "addSubject"; code: string }
+  | { kind: "removeSubject"; code: string }
+  | { kind: "role"; role: ExamRole };
+
+export type ExamUploadPhase =
+  | "idle"
+  | "preparing"
+  | "transferring"
+  | "registering"
+  | "pending"
+  | "cleaning";
+
+export type ExamUploadStatus = {
+  phase: ExamUploadPhase;
+  sent: number;
+  total: number;
+  /**
+   * Whether `CancelUpload` would stop it now.
+   */
+  cancellable: boolean;
+};
+
+export type ExamAction =
+  | { kind: "account" }
+  | { kind: "choices" }
+  | { kind: "connect" }
+  | { kind: "cancelConnect" }
+  | { kind: "acceptTerms" }
+  | { kind: "disconnect" }
+  | { kind: "search"; query: string }
+  | {
+      kind: "subject";
+      code: string;
+      /**
+       * A page's `class_id`, when refreshing it.
+       */
+      classId: number | null;
+    }
+  | { kind: "courseSubject"; courseId: string }
+  | { kind: "open"; id: string; download: boolean }
+  | { kind: "library" }
+  | { kind: "save"; id: string; saved: boolean }
+  | { kind: "removeDownload"; id: string }
+  | { kind: "deleteSubmission"; id: string }
+  | { kind: "report"; id: string; reason: ExamReportReason; detail: string }
+  | { kind: "requests"; mine: boolean; cursor: ExamRequestCursor | null }
+  | { kind: "createRequest"; draft: ExamRequestDraft }
+  | { kind: "setRequestOpen"; id: string; open: boolean; mine: boolean }
+  | { kind: "deleteRequest"; id: string; mine: boolean }
+  | { kind: "uploadForm"; start: ExamUploadStart }
+  | { kind: "editUpload"; form: ExamUploadForm; edit: ExamUploadEdit }
+  | { kind: "upload"; files: Array<ExamUploadFile>; draft: ExamUploadDraft }
+  | { kind: "cancelUpload" }
+  | { kind: "recoverUpload" };
+
+export type ExamAnswer =
+  | { kind: "account"; value: ExamAccount }
+  | { kind: "subjects"; value: Array<ExamSubject> }
+  | { kind: "subject"; value: ExamSubjectPage }
+  | { kind: "document"; value: ExamLocalDocument }
+  | { kind: "library"; value: ExamLibrary }
+  | { kind: "saved"; value: boolean }
+  | { kind: "requests"; value: ExamRequestPage }
+  | { kind: "choices"; value: ExamChoices }
+  | { kind: "uploadForm"; value: ExamUploadForm }
+  | { kind: "uploaded" }
+  | { kind: "done" };
+
 export type TeachingPeriod = {
   periods: [number, number];
   startTime: string;
@@ -1530,6 +1823,19 @@ export type WorkspaceOverview = {
   defaultFinderKeys: Array<string>;
 };
 
+export type ExamCourse = {
+  courseId: string;
+  title: string;
+  instructor: string;
+  /**
+   * The codes its subject is looked up by; empty when it has none, and
+   * then it cannot be opened.
+   */
+  subjectCodes: Array<string>;
+};
+
+export type ExamCourseList = { courses: Array<ExamCourse> };
+
 export type ScheduleView = {
   term: string;
   range: QuarterRange | null;
@@ -1584,6 +1890,7 @@ export type WorkspaceQuery =
   | { kind: "calendarState"; date: string }
   | { kind: "quarterRange"; term: string }
   | { kind: "scheduledCourses"; term: string }
+  | { kind: "examCourses" }
   | { kind: "academicYear"; year: number }
   | { kind: "timetableYear"; year: number }
   | {
@@ -1632,6 +1939,7 @@ export type WorkspaceQueryResult =
   | { kind: "calendarState"; value: unknown | null }
   | { kind: "quarterRange"; value: QuarterRange | null }
   | { kind: "scheduledCourses"; value: unknown[] }
+  | { kind: "examCourses"; value: ExamCourseList }
   | { kind: "academicYear"; value: AcademicYearCalendar }
   | { kind: "timetableYear"; value: TimetableYear }
   | { kind: "quarterIcs"; value: string }
@@ -2072,7 +2380,24 @@ export type ErrorCode =
   | "submission-mismatch"
   | "lms-writes-disabled"
   | "data-folder-in-use"
-  | "submission-identity-changed";
+  | "submission-identity-changed"
+  | "exam-share-unsupported"
+  | "exam-share-signed-out"
+  | "exam-share-expired"
+  | "exam-share-denied"
+  | "exam-share-consent"
+  | "exam-share-administrator"
+  | "exam-share-not-found"
+  | "exam-share-rejected"
+  | "exam-share-identity"
+  | "exam-share-already-reported"
+  | "exam-share-quota"
+  | "exam-share-upload-file"
+  | "exam-share-upload-mixed"
+  | "exam-share-upload-size"
+  | "exam-share-upload-duplicate"
+  | "exam-share-upload-quota"
+  | "exam-share-upload-pending";
 
 export type CoreFailure = {
   code: ErrorCode;

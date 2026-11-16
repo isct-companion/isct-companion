@@ -1,0 +1,87 @@
+.examImportList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.examImportList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--line);
+}
+.examImportList li div {
+  display: grid;
+  gap: 2px;
+}
+.examImportList small {
+  color: var(--muted);
+}
+
+.examShareActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.examDocument {
+  height: min(76vh, 1040px);
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+.examDocumentImage {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  align-self: center;
+}
+.examDocumentText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.examUpload,
+.examUploadFields {
+  display: grid;
+  gap: 12px;
+}
+.examUploadFields {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  min-inline-size: 0;
+}
+.examUploadList li > span:first-child {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.examUploadMetadata,
+.examUploadTeacherList {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 208px), 1fr));
+}
+.examUploadFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* The ScienceTokyoExam credit closes the page at its bottom-right, as the
+   mobile lists end with it: in the corner while the page is short, after the
+   last row once it scrolls, so it never covers a row. Tinted like secondary
+   text and never taking clicks. */
+.examShareCredit {
+  align-self: flex-end;
+  flex: none;
+  margin-block-start: auto;
+  block-size: 11px;
+  aspect-ratio: 271.48 / 12.29;
+  background-color: var(--muted);
+  opacity: 0.7;
+  mask: url("../../../../../resources/design/sciencetokyoexam-credit.svg")
+    center / contain no-repeat;
+  pointer-events: none;
+}

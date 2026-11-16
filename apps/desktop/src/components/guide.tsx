@@ -116,7 +116,8 @@ export function WelcomeSheet({
       opened={guide.welcome !== true && !held}
       onClose={close}
       title={t("common.welcomeToIsctCompanion")}
-      centered
+      // Top-anchored: the language rows rewrap when the language changes,
+      // and a centred sheet would slide them under the pointer.
       size="md"
       classNames={{ body: "welcomeSheet" }}
     >
@@ -171,11 +172,19 @@ export function WelcomeSheet({
           <span>{t("guide.connectAnAIAssistantOver")} →</span>
         </button>
         <Group justify="flex-end" gap="xs">
-          <Button variant="subtle" color="gray" onClick={close}>
+          {/* Focus starts on the main button, not the close box, so Return
+              and Space never dismiss the sheet for good by accident. */}
+          <Button
+            variant="subtle"
+            color="gray"
+            autoFocus={connected}
+            onClick={close}
+          >
             {t(connected ? "common.done" : "common.later")}
           </Button>
           {!connected && (
             <Button
+              autoFocus
               onClick={() => {
                 close();
                 openAccounts();

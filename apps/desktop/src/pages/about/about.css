@@ -88,14 +88,22 @@
 .aboutUpdate {
   margin-top: clamp(16px, 4.5cqh, 36px);
 }
+/* The status sits beside the button in a box of fixed height: the column is
+   centred on the page, so a longer status (a native error) must not grow it
+   and slide the button away from a second click. */
 .aboutUpdateLine {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 14px;
+  gap: 14px;
+  /* In the line's (larger) font, so it always holds the status at its tallest. */
+  min-height: 4.2em;
+}
+.aboutUpdateLine > button {
+  flex: none;
 }
 /* A native error can be long; it stays readable here and the page stays put. */
 .aboutStatus {
+  flex: 1;
   min-width: 0;
   max-height: 4.2em;
   overflow-y: auto;
