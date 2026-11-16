@@ -176,6 +176,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
             if (foreground && !inFront) runCatching { session.resume() }
             if (!foreground && inFront) runCatching { session.suspend() }
+            // The launch's first foreground came before the session opened, so
+            // its update check never ran.
+            if (foreground) scope.launch { updater.check(session, launch = true) }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
@@ -639,7 +642,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     suspend fun examShare(action: ExamAction): ExamAnswer {
         val session = session ?: throw SdkException.Closed()
-        val answer = (session.examShare(action).value() as OperationResult.ExamShare).answer
+        val answer = try {
+            (session.examShare(action).value() as OperationResult.ExamShare).answer
+        } finally {
+            // A connect's browser sign-in is over, whichever way it ended.
+            if (action is ExamAction.Connect) SignInService.stop(context)
+        }
         if (answer is ExamAnswer.Account) examAccount = answer.v1
         return answer
     }

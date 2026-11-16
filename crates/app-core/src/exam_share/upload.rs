@@ -377,9 +377,13 @@ impl ExamShare {
             ),
         )
         .await;
-        match answer {
+        let exam_id = match answer {
             // Registered by this attempt, or by one whose answer was lost.
-            Ok(_) | Err(ExamError::UploadRegistered) => {}
+            Ok(created) => created
+                .get("examId")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            Err(ExamError::UploadRegistered) => None,
             Err(
                 error @ (ExamError::UploadDuplicate
                 | ExamError::UploadQuota
@@ -404,11 +408,11 @@ impl ExamShare {
                 return Err(ExamError::UploadPending);
             }
             Err(error) => return Err(error),
-        }
+        };
         tokio::fs::remove_file(path)
             .await
             .map_err(|_| ExamError::Storage)?;
-        Ok(ExamAnswer::Uploaded)
+        Ok(ExamAnswer::Uploaded(exam_id))
     }
 
     async fn rollback_upload(

@@ -35,13 +35,12 @@ struct TimetableScreen: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             TipView(TimetableMarkTip())
-            grid
+            pager
                 .frame(maxHeight: .infinity, alignment: .top)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                     gridHeight = size.height
                     gridWidth = size.width
                 }
-                .offset(x: dragOffset)
                 // Alongside taps, so a block answers the moment it is touched.
                 .simultaneousGesture(swipe)
         }
@@ -86,7 +85,7 @@ struct TimetableScreen: View {
         }
         .sheet(isPresented: $showsPicker) {
             WeekPicker(year: year, monday: monday) { picked in
-                withAnimation(Motion.base(reduceMotion)) { monday = picked }
+                withAnimation(Motion.base(reduceMotion)) { show(picked) }
                 showsPicker = false
             }
             .presentationDetents([.medium, .large])
@@ -162,7 +161,7 @@ struct TimetableScreen: View {
         let thisWeek = TimetableScreen.monday(of: Date())
         let atThisWeek = monday == thisWeek
         return Button {
-            withAnimation(Motion.base(reduceMotion)) { monday = thisWeek }
+            withAnimation(Motion.base(reduceMotion)) { show(thisWeek) }
         } label: {
             Text(t("common.today"))
                 .font(.subheadline.weight(.semibold))
@@ -176,11 +175,19 @@ struct TimetableScreen: View {
     }
 
     private func shift(_ weeks: Int) {
-        monday = Calendar.tokyo.date(byAdding: .day, value: 7 * weeks, to: monday) ?? monday
+        show(Calendar.tokyo.date(byAdding: .day, value: 7 * weeks, to: monday) ?? monday)
     }
 
-    /// The grid follows the finger; past the threshold the week slides out
-    /// and the next one slides in from the other side, otherwise it settles
+    /// The week and its blocks change in the same update. Set apart (the
+    /// blocks a frame later, from `onChange`), the grid slid in empty and its
+    /// cards popped in where they stand.
+    private func show(_ next: Date) {
+        monday = next
+        if let cached = model.weeks[AppModel.civil(next)] { week = cached }
+    }
+
+    /// The weeks lie side by side and follow the finger; past the threshold
+    /// the strip glides on to the neighbouring week, otherwise it settles
     /// back (slotledger `approach/motion-week-swipe`). With Reduce Motion the
     /// grid stays put and the week cross-fades.
     private var swipe: some Gesture {
@@ -206,25 +213,56 @@ struct TimetableScreen: View {
             withAnimation(Motion.fast(true)) { shift(step) }
             return
         }
-        let out = -CGFloat(step) * gridWidth
-        withAnimation(.smooth(duration: Theme.motionFast)) { dragOffset = out } completion: {
-            shift(step)
-            dragOffset = -out
-            withAnimation(.smooth(duration: Theme.motionSlow)) { dragOffset = 0 }
+        // The strip of weeks carries on to the neighbour; once it rests there,
+        // the neighbour becomes the middle week without anything moving.
+        let page = gridWidth + Self.weekGap
+        withAnimation(.smooth(duration: Theme.motionSlow)) { dragOffset = -CGFloat(step) * page } completion: {
+            var settle = Transaction()
+            settle.disablesAnimations = true
+            withTransaction(settle) {
+                shift(step)
+                dragOffset = 0
+            }
         }
     }
 
     // MARK: Grid
 
-    private var days: [Date] {
-        (0..<5).compactMap { Calendar.tokyo.date(byAdding: .day, value: $0, to: monday) }
+    private func days(from start: Date) -> [Date] {
+        (0..<5).compactMap { Calendar.tokyo.date(byAdding: .day, value: $0, to: start) }
+    }
+
+    /// Space between two weeks while they pass: past the gutter, so a
+    /// neighbour never peeks in at rest.
+    private static let weekGap: CGFloat = 2 * Theme.gutter
+
+    /// The previous, shown and next weeks in a row, one page apart. The
+    /// neighbours draw from the weeks already read around this one (a
+    /// skeleton otherwise), so a swipe shows the next week as it comes in.
+    private var pager: some View {
+        let page = gridWidth + Self.weekGap
+        return ZStack(alignment: .topLeading) {
+            ForEach([-1, 0, 1], id: \.self) { slot in
+                let start = Calendar.tokyo.date(byAdding: .day, value: 7 * slot, to: monday) ?? monday
+                grid(start, week: slot == 0 ? week : model.weeks[AppModel.civil(start)])
+                    .offset(x: CGFloat(slot) * page + dragOffset)
+                    .allowsHitTesting(slot == 0)
+                    .accessibilityHidden(slot != 0)
+            }
+        }
+        // Clipped at the screen's edge, not the grid's, so a passing week
+        // shows all the way out and never draws over the rail beside the page.
+        .padding(.horizontal, Theme.gutter)
+        .clipped()
+        .padding(.horizontal, -Theme.gutter)
     }
 
     private static let columnSpacing: CGFloat = 3
     private static let periodWidth: CGFloat = 26
 
-    private var grid: some View {
+    private func grid(_ start: Date, week: ScheduleView?) -> some View {
         let height = rowHeight * CGFloat(axis?.length ?? 12.5)
+        let days = days(from: start)
         return VStack(spacing: 6) {
             HStack(spacing: Self.columnSpacing) {
                 Color.clear.frame(width: Self.periodWidth, height: 1)
@@ -233,7 +271,7 @@ struct TimetableScreen: View {
             HStack(alignment: .top, spacing: Self.columnSpacing) {
                 periodColumn.frame(width: Self.periodWidth, height: height, alignment: .top)
                 ForEach(days, id: \.self) { day in
-                    dayColumn(day).frame(maxWidth: .infinity).frame(height: height)
+                    dayColumn(day, week: week).frame(maxWidth: .infinity).frame(height: height)
                 }
             }
         }
@@ -284,13 +322,13 @@ struct TimetableScreen: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func agenda(_ day: Date) -> DatedAgenda? {
+    private func agenda(_ day: Date, in week: ScheduleView?) -> DatedAgenda? {
         let civil = AppModel.civil(day)
         return week?.agendas.first { $0.date == civil }
     }
 
-    private func dayColumn(_ day: Date) -> some View {
-        let agenda = agenda(day)
+    private func dayColumn(_ day: Date, week: ScheduleView?) -> some View {
+        let agenda = agenda(day, in: week)
         let today = Calendar.tokyo.isDateInToday(day)
         let blocks = (agenda?.occurrences ?? []).filter { [.course, .exam].contains($0.kind) }
         let holiday = agenda?.noClasses == true

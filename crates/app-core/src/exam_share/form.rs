@@ -177,21 +177,13 @@ pub(super) fn distinct_teachers<'a>(
         .collect()
 }
 
-/// The occasions among `named`, in the order the forms offer them; a word
-/// the forms do not know comes last.
-pub(super) fn occasions_in<'a>(named: impl Iterator<Item = &'a str>) -> Vec<String> {
-    let mut present: Vec<String> = named.map(str::to_owned).collect();
-    present.sort();
-    present.dedup();
-    let rank = |value: &String| {
-        EXAM_OCCASIONS
-            .iter()
-            .position(|occasion| {
-                serde_json::to_value(occasion).ok().as_ref().and_then(|v| v.as_str())
-                    == Some(value.as_str())
-            })
-            .unwrap_or(EXAM_OCCASIONS.len())
-    };
-    present.sort_by_key(rank);
-    present
+/// Where an occasion comes in the order the forms offer them; a word the
+/// forms do not know comes last.
+pub(super) fn occasion_rank(value: &str) -> usize {
+    EXAM_OCCASIONS
+        .iter()
+        .position(|occasion| {
+            serde_json::to_value(occasion).ok().as_ref().and_then(|v| v.as_str()) == Some(value)
+        })
+        .unwrap_or(EXAM_OCCASIONS.len())
 }

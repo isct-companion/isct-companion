@@ -74,7 +74,7 @@ impl Loopback {
             .flatten()
             .filter(|url| pending.is_answered_by(url));
             let response = if callback.is_some() {
-                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\nAuthorization ended. You may close this window.".as_slice()
+                ANSWERED
             } else {
                 b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
             };
@@ -85,6 +85,16 @@ impl Loopback {
         }
     }
 }
+
+/// What the browser shows once the callback arrives. On Android the browser
+/// is a tab beside the app, so it is sent back to the app
+/// (`isctcompanion://signed-in`, which the app's manifest takes); elsewhere
+/// the page says the window may close.
+#[cfg(target_os = "android")]
+const ANSWERED: &[u8] =
+    b"HTTP/1.1 302 Found\r\nLocation: isctcompanion://signed-in\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+#[cfg(not(target_os = "android"))]
+const ANSWERED: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\nAuthorization ended. You may close this window.";
 
 async fn read_callback(stream: &mut TcpStream, redirect: &Url) -> Option<Url> {
     let mut bytes = [0; MAX_REQUEST];

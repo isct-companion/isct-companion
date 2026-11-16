@@ -51,7 +51,7 @@ final class AppModel {
     private(set) var cloud: SyncState?
     /// A newer release on the App Store, shown in Settings.
     private(set) var availableUpdate: AppRelease?
-    /// The release Core offers in the update prompt, until it is answered.
+    /// A release a check of its own found, offered once over the page.
     var updateOffer: AppRelease?
     /// The ScienceTokyoExam account and its upload: an `Account` answer, then
     /// Core's `exam-account` events.
@@ -172,6 +172,9 @@ final class AppModel {
             if let directive = try? session.wakeDirective() { apply(directive) }
             if foreground && !inFront { _ = try? session.resume() }
             if !foreground && inFront { _ = try? session.suspend() }
+            // The launch's first `.active` came before the session opened,
+            // so its update check never ran.
+            if foreground { Task { await checkForUpdate(launch: true) } }
         } catch {
             status = .failed(Self.describe(error))
         }
@@ -835,10 +838,14 @@ final class AppModel {
     }
 
     /// Asks Core for a newer App Store release when a check is due (the
-    /// device's `appUpdateChecks`), or now (`manual`). Core decides whether
-    /// it is offered in the update prompt, skipping the skipped version; when
-    /// the last check ran is this device's wake bookkeeping, as on the desktop.
-    func checkForUpdate(manual: Bool = false) async {
+    /// device's `appUpdateChecks`), or now (`manual`). Core decides whether a
+    /// check of its own offers the release over the page; either way it shows
+    /// in Settings › About with the App Store beside it. When the last check
+    /// ran is this device's wake bookkeeping, as on the desktop.
+    /// A launch always looks: each foregrounding within 12 hours of the last
+    /// check does not, but a cold start is rare enough on a phone that a
+    /// release dismissed earlier is offered again.
+    func checkForUpdate(manual: Bool = false, launch: Bool = false) async {
         guard let session, !checkingUpdate else { return }
         checkingUpdate = true
         defer { checkingUpdate = false }
@@ -846,7 +853,7 @@ final class AppModel {
         let running = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         guard
             case let .appUpdate(checked, release, prompt) = try? await session.checkAppUpdate(
-                running: running, lastChecked: defaults.string(forKey: Self.lastUpdateCheck), manual: manual
+                running: running, lastChecked: launch ? nil : defaults.string(forKey: Self.lastUpdateCheck), manual: manual
             ).value(),
             checked
         else { return }
@@ -856,14 +863,10 @@ final class AppModel {
         if prompt { updateOffer = release }
     }
 
-    /// Skipping the version or turning the checks off: this device's settings.
-    func answerUpdate(skip version: String? = nil, turnOff: Bool = false) async {
+    /// This device stops offering `version`; Core skips it in later checks.
+    func skipUpdate(_ version: String) async {
         updateOffer = nil
-        guard version != nil || turnOff else { return }
-        await updateSettings { settings in
-            if let version { settings["skippedAppVersion"] = version }
-            if turnOff { settings["appUpdateChecks"] = false }
-        }
+        await updateSettings { $0["skippedAppVersion"] = version }
     }
 
     private static let lastUpdateCheck = "lastAppUpdateCheck"
