@@ -12,12 +12,9 @@ enum PageStep {
 /// a release past that third (or a flick faster than 300 pt/s) turns the
 /// page. With no page in that direction there is only the rubber band.
 ///
-/// Drags that start at the leading screen edge are left to the system back
-/// gesture, and a drag counts only when it is more horizontal than vertical,
-/// so vertical scrolling and taps on the content keep working.
-///
-/// The course page uses it for lessons. TimetableScreen still has its own
-/// `swipe` (weeks) and should move to this modifier in a follow-up.
+/// The drag is `PagePan`, so edge starts, vertical drags and taps behave as
+/// it describes. The course page uses it for lessons; the timetable drives
+/// `PagePan` itself for its own week motion.
 struct HorizontalPager: ViewModifier {
     let canGoPrevious: Bool
     let canGoNext: Bool
@@ -68,13 +65,17 @@ extension View {
     }
 }
 
-/// The pager's drag, as a UIKit pan. A SwiftUI `DragGesture` cannot hold off
-/// the system's own horizontal pans (iOS 26's back swipe from anywhere on the
-/// content, the zoom transition's interactive dismiss), which would pop the
-/// page on every right swipe. This pan makes those wait for it, and declines
-/// edge starts and vertical drags so they go to the back gesture and the
-/// scroll view as usual.
-private struct PagePan: UIGestureRecognizerRepresentable {
+/// A horizontal page drag, as a UIKit pan. A SwiftUI `DragGesture` cannot
+/// hold off the system's own horizontal pans (iOS 26's back swipe from
+/// anywhere on the content, the zoom transition's interactive dismiss), which
+/// would pop the page on every right swipe, and as a simultaneous gesture it
+/// leaves a button under the finger to fire on release. This pan makes the
+/// system pans wait for it, and declines edge starts and vertical drags so
+/// they go to the back gesture and the scroll view as usual. Once it begins,
+/// taps, presses and long presses under the finger are cancelled, as a
+/// scroll view cancels its content's touches; a tap that never moves far
+/// enough to start it fires on release with no delay.
+struct PagePan: UIGestureRecognizerRepresentable {
     /// Drags starting this close to the leading screen edge belong to the
     /// navigation back swipe.
     static let edgeInset: CGFloat = 24
@@ -108,12 +109,14 @@ private struct PagePan: UIGestureRecognizerRepresentable {
             return start > PagePan.edgeInset && abs(translation.x) > abs(translation.y)
         }
 
-        /// Scrolling and taps run alongside the pager.
+        /// Only a scroll view's own pan runs alongside the pager; anything
+        /// else still waiting (a button's tap, a context menu's long press)
+        /// fails when the pager begins.
         func gestureRecognizer(
             _ recognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
-            !Self.isSystemPan(other)
+            other.view is UIScrollView
         }
 
         /// The system's content-wide pans wait until the pager has declined.
