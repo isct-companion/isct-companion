@@ -176,6 +176,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
             if (foreground && !inFront) runCatching { session.resume() }
             if (!foreground && inFront) runCatching { session.suspend() }
+            // The launch's first foreground came before the session opened, so
+            // its update check never ran.
+            if (foreground) scope.launch { updater.check(session, launch = true) }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }

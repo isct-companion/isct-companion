@@ -87,8 +87,13 @@ enum Layout {
     /// Assignments live on 今日, and 設定 is the last tab.
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
-    static var tabs: [AppTab] {
-        isPad ? [.today, .timetable, .lectures, .web, .settings] : [.today, .timetable, .web, .pastExams, .settings]
+    /// The iPad's tab bar holds every page, as its rail does, so turning it
+    /// moves nothing. In a narrow Split View the bar sits at the bottom,
+    /// where a sixth item would fold into "More": there it is the iPhone's.
+    static func tabs(width: CGFloat) -> [AppTab] {
+        isPad && width > 600
+            ? [.today, .timetable, .lectures, .web, .pastExams, .settings]
+            : [.today, .timetable, .web, .pastExams, .settings]
     }
 
     /// The workstation's rail, as desktop's; 設定 sits apart at its foot.
@@ -169,10 +174,6 @@ final class Navigator {
     func setWorkbench(_ wide: Bool) {
         guard wide != workbench else { return }
         workbench = wide
-        if !wide && Layout.isPad && tab == .pastExams {
-            tab = .lectures
-            push(PastExamsRoute())
-        }
         if !wide, let bench {
             var path = NavigationPath()
             path.append(bench)
@@ -243,7 +244,7 @@ struct RootView: View {
                 let stacked = Layout.isStacked(proxy.size)
                 Group {
                     if stacked {
-                        tabs
+                        tabs(Layout.tabs(width: proxy.size.width))
                     } else {
                         workstation
                     }
@@ -294,31 +295,30 @@ struct RootView: View {
                 .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
                     Button("OK", role: .cancel) {}
                 }
-                // The update prompt, as on the desktop and Android: the App
-                // Store installs it; skipping and turning the checks off are
-                // this device's settings, which Settings › About turns back on.
+                // A newer release a check of its own found: the App Store
+                // installs it, or the person skips this version for good.
+                // Turning the checks off is in Settings › About.
                 .alert(
-                    t("appUpdate.prompt.title"),
+                    model.updateOffer.map { t("appUpdate.prompt.available", ["version": $0.version]) } ?? "",
                     isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
                     presenting: model.updateOffer
                 ) { release in
-                    Button(t("appUpdate.prompt.update")) {
-                        model.updateOffer = nil
-                        if let url = URL(string: release.url) { openURL(url) }
+                    Button(t("common.later"), role: .cancel) {}
+                    Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
+                    if let url = URL(string: release.url) {
+                        // The preferred action: bold, and Return picks it.
+                        Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
+                            .keyboardShortcut(.defaultAction)
                     }
-                    Button(t("appUpdate.prompt.skip")) { Task { await model.answerUpdate(skip: release.version) } }
-                    Button(t("appUpdate.prompt.turnOff")) { Task { await model.answerUpdate(turnOff: true) } }
-                } message: { release in
-                    Text(t("appUpdate.prompt.available", ["version": release.version]))
                 }
             }
         }
     }
 
-    private var tabs: some View {
+    private func tabs(_ tabs: [AppTab]) -> some View {
         ZStack {
             TabView(selection: selection) {
-                ForEach(Layout.tabs, id: \.self) { tab in
+                ForEach(tabs, id: \.self) { tab in
                     page(tab)
                         .tabItem { Label(tab.title, systemImage: tab.symbol) }
                         .tag(tab)
@@ -327,14 +327,14 @@ struct RootView: View {
             // Long-pressing the ウェブ item raises the site picker over it. The
             // probe sits beside the TabView, so it works before ウェブ is opened.
             .background {
-                TabBarLongPress(index: Layout.tabs.firstIndex(of: .web) ?? 0) { event in
+                TabBarLongPress(index: tabs.firstIndex(of: .web) ?? 0) { event in
                     if let choice = sitePress.handle(event) { pickSite(choice) }
                 }
                 .frame(width: 0, height: 0)
             }
             // Long-pressing 時間割 offers the shown quarter as a calendar file.
             .background {
-                TabBarLongPress(index: Layout.tabs.firstIndex(of: .timetable) ?? 0) { event in
+                TabBarLongPress(index: tabs.firstIndex(of: .timetable) ?? 0) { event in
                     guard exportTerm != nil else { return }
                     if let choice = exportPress.handle(event) { export(choice) }
                 }
@@ -350,7 +350,9 @@ struct RootView: View {
             }
         }
         // A page the tab bar lacks falls back to 今日.
-        .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
+        .onChange(of: tabs, initial: true) { _, tabs in
+            if !tabs.contains(navigator.tab) { navigator.tab = .today }
+        }
     }
 
     /// A site picked from the ウェブ tab's panel or the rail row's menu

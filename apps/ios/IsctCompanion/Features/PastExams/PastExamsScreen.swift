@@ -116,12 +116,7 @@ struct PastExamsScreen: View {
         }
         .themedRows()
         .themedList()
-        .navigationTitle(t("examShare.title"))
-        .toolbar {
-            if busy {
-                ToolbarItem(placement: .topBarTrailing) { ProgressView().controlSize(.small) }
-            }
-        }
+        .modifier(PastExamsTitle(root: courseId == nil, busy: busy))
         .disabled(busy)
         .task(id: CoursesRead(revision: model.contentRevision, retry: coursesRetry)) {
             coursesFailed = false
@@ -651,6 +646,33 @@ extension ExamReportReason {
         case .wrongAnswer: t("examShare.reason.wrongAnswer")
         case .brokenFile: t("examShare.reason.brokenFile")
         case .other: t("examShare.reason.other")
+        }
+    }
+}
+
+/// The 過去問 tab's title sits at the content's gutter, as the other tabs'
+/// do; opened from a course it is a pushed page with the bar's title.
+private struct PastExamsTitle: ViewModifier {
+    let root: Bool
+    let busy: Bool
+
+    func body(content: Content) -> some View {
+        if root {
+            VStack(spacing: 0) {
+                PageHeader(title: t("examShare.title")) {
+                    if busy { ProgressView().controlSize(.small) }
+                }
+                content.pageListMargins()
+            }
+            .toolbar(.hidden, for: .navigationBar)
+        } else {
+            content
+                .navigationTitle(t("examShare.title"))
+                .toolbar {
+                    if busy {
+                        ToolbarItem(placement: .topBarTrailing) { ProgressView().controlSize(.small) }
+                    }
+                }
         }
     }
 }
