@@ -10,6 +10,8 @@ struct Fixture {
     root: PathBuf,
     store: DataStore,
     notes: crate::notes::NoteStore,
+    /// Core's real sessions, with no network and no saved account.
+    sessions: crate::school_session::SchoolSessions,
 }
 
 impl Fixture {
@@ -22,7 +24,18 @@ impl Fixture {
             .unwrap();
         let notes = crate::notes::NoteStore::default();
         notes.at(root.join("files"));
-        Self { root, store, notes }
+        let sessions = crate::school_session::SchoolSessions::new(
+            None,
+            Arc::new(crate::school_auth::SchoolAuthService::new(
+                crate::school_session::tests::NoVault,
+            )),
+        );
+        Self {
+            root,
+            store,
+            notes,
+            sessions,
+        }
     }
 
     fn service(&self) -> AgentService {
@@ -30,6 +43,7 @@ impl Fixture {
             self.store.clone(),
             self.workspaces(),
             Arc::new(Err(UNOPENED.into())),
+            self.sessions.clone(),
         )
     }
 
@@ -271,9 +285,11 @@ fn every_tool_declares_object_schemas_and_its_effect() {
         if tool.effect == Effect::Read {
             assert!(tool.idempotent && !tool.destructive, "{}", tool.name);
         }
-        // Whatever a client's approval mode, an LMS write asks the person.
+        // Whatever a client's approval mode, a call that can change the
+        // school (an LMS write, a dev build's school_send) asks the person.
         let asks = tool.meta.get("anthropic/requiresUserInteraction") == Some(&json!(true));
-        assert_eq!(asks, tool.effect == Effect::LmsWrite, "{}", tool.name);
+        let changes_school = !matches!(tool.effect, Effect::Read | Effect::LocalWrite);
+        assert_eq!(asks, changes_school, "{}", tool.name);
         if asks {
             assert!(
                 tool.destructive && tool.open_world && !tool.read_only,
@@ -312,6 +328,101 @@ fn lms_write_tools_need_their_own_switch() {
         .unwrap_err();
     assert_eq!(detached.code(), ErrorCode::Unavailable);
     assert!(detached.to_string().ends_with(UNOPENED), "{detached}");
+}
+
+// The dev school tools (`approach/mcp-dev-school-fetch`) reach only the
+// LMS and 教務Web, never set a credential header, keep sign-in, logout and
+// LMS token pages out of reach however the path is spelled (the LMS lives
+// under a yearly prefix), write files only into their own folder, split
+// reads from other methods, and never show a Location that carries an app
+// launch's token. All of it is refused before any request.
+#[cfg(debug_assertions)]
+#[test]
+fn school_tools_keep_credentials_and_sign_in_out_of_reach() {
+    use crate::error_code::{Coded, ErrorCode};
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let lms = |path: &str| format!("https://lms.s.isct.ac.jp{path}");
+    for (tool, args) in [
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": "https://isct.ex-tic.com/auth/session"}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "kyomu", "url": lms("/2025/my/")}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": "http://lms.s.isct.ac.jp/2025/my/"}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/my/"), "headers": {"Cookie": "MoodleSession=x"}}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/my/"), "headers": {"authorization": "Bearer x"}}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/user/managetoken.php")}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025//user/%6Danagetoken.php")}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/admin/tool/mobile/launch.php?service=moodle_mobile_app")}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/login/logout.php")}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "kyomu", "url": "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/my/"), "saveAs": "../escape"}),
+        ),
+        (
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/my/"), "method": "POST"}),
+        ),
+        (
+            "school_send",
+            json!({"site": "lms", "url": lms("/2025/my/"), "method": "GET"}),
+        ),
+    ] {
+        let refused = service.call(tool, args.clone()).unwrap_err();
+        assert_eq!(refused.code(), ErrorCode::InvalidInput, "{args}");
+    }
+    // A request that passes the checks goes to Core's sessions, which
+    // send nothing for an account never set up. Tools run on a blocking
+    // thread of the shell's runtime, as here.
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _entered = runtime.enter();
+    let unset = service
+        .call(
+            "school_fetch",
+            json!({"site": "lms", "url": lms("/2025/my/")}),
+        )
+        .unwrap_err();
+    assert_eq!(unset.code(), ErrorCode::Unavailable, "{unset}");
+    assert_eq!(
+        super::school::shown_location("moodlemobile://token=c2VjcmV0".into()),
+        "moodlemobile:(withheld)"
+    );
+    for kept in [
+        "https://lms.s.isct.ac.jp/2025/my/",
+        "/2025/login/index.php",
+        "view.php?id=1",
+    ] {
+        assert_eq!(super::school::shown_location(kept.into()), kept);
+    }
 }
 
 #[test]
@@ -590,6 +701,8 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
                 submissions: Err(UNOPENED),
                 view,
                 now: jst(monday_morning()).unwrap(),
+                #[cfg(debug_assertions)]
+                sessions: &fixture.sessions,
             };
             tool.run(&cx, args.clone()).unwrap()
         };

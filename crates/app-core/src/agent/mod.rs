@@ -8,6 +8,8 @@ mod assignments;
 mod dto;
 mod reads;
 mod registry;
+#[cfg(debug_assertions)]
+mod school;
 mod submissions;
 mod writes;
 
@@ -92,6 +94,9 @@ pub struct AgentService {
     submissions: Submissions,
     /// The moment a call answers for; tests fix it.
     now: fn() -> chrono::DateTime<chrono::Utc>,
+    /// The school sessions the dev-only school tools send with.
+    #[cfg(debug_assertions)]
+    sessions: crate::school_session::SchoolSessions,
 }
 
 impl AgentService {
@@ -99,12 +104,18 @@ impl AgentService {
         store: DataStore,
         workspaces: AssignmentWorkspaces,
         submissions: Submissions,
+        sessions: crate::school_session::SchoolSessions,
     ) -> Self {
+        // Only a dev build's school tools send with Core's sessions.
+        #[cfg(not(debug_assertions))]
+        drop(sessions);
         Self {
             store,
             workspaces,
             submissions,
             now: chrono::Utc::now,
+            #[cfg(debug_assertions)]
+            sessions,
         }
     }
 
@@ -134,6 +145,8 @@ impl AgentService {
                 submissions: self.submissions.as_ref().as_ref().map_err(String::as_str),
                 view: &view,
                 now: jst((self.now)())?,
+                #[cfg(debug_assertions)]
+                sessions: &self.sessions,
             },
             args,
         )
@@ -151,6 +164,8 @@ pub(crate) struct Context<'a> {
     view: &'a dyn Fn() -> Result<View, AgentError>,
     /// One moment for the whole call, in Japan time.
     now: chrono::DateTime<chrono::FixedOffset>,
+    #[cfg(debug_assertions)]
+    sessions: &'a crate::school_session::SchoolSessions,
 }
 
 impl Context<'_> {

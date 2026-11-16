@@ -1628,4 +1628,4 @@ impl Inner {
 
 #[cfg(test)]
 #[path = "../tests/school_session.rs"]
-mod tests;
+pub(crate) mod tests;
