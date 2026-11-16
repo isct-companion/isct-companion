@@ -84,7 +84,7 @@ import type {
   SchoolProfileSession,
 } from "../platform/desktop-bridge";
 import { onWidgetRoute } from "../platform/widget-links";
-import { sessionDetails, sessionText } from "./sync-text";
+import { otpNotSetUp, sessionDetails, sessionText } from "./sync-text";
 
 import { performAction } from "../platform/actions";
 
@@ -174,7 +174,8 @@ function SchoolStatusAccount({
         <b>{name}</b>
         <small>{label}</small>
       </span>
-      {(session?.state === "refused" || session?.state === "needs-web") && (
+      {(session?.state === "refused" ||
+        (session?.state === "needs-web" && !otpNotSetUp(session))) && (
         <UiButton
           type="button"
           className="textButton"

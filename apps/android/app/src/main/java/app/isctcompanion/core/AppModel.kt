@@ -1088,11 +1088,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 t("schoolSession.state.unavailable")
         }
 
+        /** The school sent its emailed-code page: the account has no school
+         * OTP, so the next step is setting one up on the portal. */
+        fun otpNotSetUp(state: SchoolSessionState, problem: SchoolSignInProblem?): Boolean =
+            state == SchoolSessionState.NEEDS_WEB && problem?.kind == SchoolSignInProblemKind.EMAIL_OTP
+
         /** One line for an account's session state, as the account row and a
          * read waiting on it say it; `problem` and `retryAt` add what Core
          * knows. */
         fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
-            when (state) {
+            if (otpNotSetUp(state, problem)) t("schoolSession.state.otpNotSetUp") else when (state) {
                 SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
                 SchoolSessionState.NORMAL -> t("schoolSession.state.normal")
                 SchoolSessionState.SIGNING_IN -> t("common.signingIn")

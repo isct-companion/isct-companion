@@ -198,9 +198,15 @@ const MAINTENANCE_SOURCES: Record<SchoolAuthProfile, MessageKey> = {
 export const signInProblemText = (kind: SchoolSignInProblemKind) =>
   SIGN_IN_PROBLEMS[kind] ? t(SIGN_IN_PROBLEMS[kind]) : undefined;
 
+/** The school sent its emailed-code page: the account has no school OTP, so
+ * the next step is setting one up on the portal, not signing in there. */
+export const otpNotSetUp = (session: SchoolProfileSession) =>
+  session.state === "needs-web" && session.problem?.kind === "email-otp";
+
 /** The state's label; `unavailable` adds when Core tries again. */
 export function sessionText(session: SchoolProfileSession, locale: string) {
   if (session.signOutPending) return t("schoolSession.state.signOutPending");
+  if (otpNotSetUp(session)) return t("schoolSession.state.otpNotSetUp");
   if (session.state === "unavailable" && session.retryAt)
     return t("schoolSession.state.unavailableRetry", {
       time: clock(session.retryAt, locale),
@@ -220,7 +226,7 @@ export function sessionDetails(
   const problem = session.problem;
   if (problem) lines.push(signInProblemText(problem.kind) ?? problem.message);
   if (session.refusalUnsaved) lines.push(t("schoolSession.refusalUnsaved"));
-  if (session.state === "needs-web")
+  if (session.state === "needs-web" && !otpNotSetUp(session))
     lines.push(t("schoolSession.needsWeb.signInYourself"));
   if (session.maintenance)
     lines.push(
