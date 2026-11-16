@@ -9,11 +9,16 @@ A pushed `v<version>` tag starts two workflows beside the Desktop release:
 
 Both build the Core SDK with the release profile from the tagged commit, take
 the version from `package.json`, and can be started by hand (workflow dispatch)
-to build without a tag.
+to build without a tag. The iOS workflow builds only the device SDK for its IPA.
 
-A manual iOS run signs, archives and exports the IPA without uploading it.
-Select `upload_testflight` to upload that run; version tags upload automatically
-when `IOS_TESTFLIGHT_ENABLED` is true.
+When `IOS_TESTFLIGHT_ENABLED` is true, a manual iOS run signs, archives and
+exports the IPA. Select `upload_testflight` to upload that run. Version tags
+upload automatically when this variable is enabled.
+
+If a mobile upload fails, rerun the failed upload job while its run artifact
+is still available (14 days). It downloads the existing APK or IPA. Android
+also downloads the R8 mapping for signed builds. The TestFlight and GitHub
+uploads can be retried independently.
 
 ## Android
 

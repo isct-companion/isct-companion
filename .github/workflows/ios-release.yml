@@ -16,8 +16,7 @@ on:
         default: false
 
 permissions:
-  # Attaching the IPA to the version's GitHub release.
-  contents: write
+  contents: read
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -25,9 +24,11 @@ concurrency:
 
 jobs:
   ipa:
-    name: Build and upload IPA
+    name: Build IPA
     runs-on: macos-15
     timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     env:
       UPLOAD: ${{ vars.IOS_TESTFLIGHT_ENABLED == 'true' }}
       TEAM_ID: FB7AL944GK
@@ -48,7 +49,7 @@ jobs:
           package-manager-cache: false
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
@@ -64,9 +65,6 @@ jobs:
       - name: Install and validate existing iOS signing materials
         if: env.UPLOAD == 'true'
         env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
@@ -76,11 +74,9 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          for name in APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION IOS_WIDGETS_MOBILE_PROVISION; do
+          for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION IOS_WIDGETS_MOBILE_PROVISION; do
             test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
           done
-          mkdir -p ~/.appstoreconnect/private_keys
-          printf '%s' "$APPLE_API_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_"$APPLE_API_KEY_ID".p8
           printf '%s' "$IOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
           for entry in $SIGNED_TARGETS; do
             IFS=: read -r target bundle secret <<< "$entry"
@@ -144,13 +140,15 @@ jobs:
             done
           done
       - name: Build the Core XCFramework (release profile)
-        run: node scripts/bindings/build-ios.mjs
+        run: node scripts/bindings/build-ios.mjs --device-only
       - name: Read the version
+        id: version
         run: |
           version=$(node -p "require('./package.json').version")
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             test "$GITHUB_REF" = "refs/tags/v$version" || { echo 'Tag must match package.json version'; exit 1; }
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           # App Store Connect needs a build number that only grows.
           echo "BUILD_NUMBER=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
@@ -229,44 +227,69 @@ jobs:
           path: ${{ runner.temp }}/ipa/*.ipa
           if-no-files-found: error
           retention-days: 14
-      - name: Upload to TestFlight
-        if: env.UPLOAD == 'true' && (github.event_name == 'push' || inputs.upload_testflight)
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          xcrun altool --upload-app -t ios -f "$RUNNER_TEMP"/ipa/*.ipa \
-            --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
-      - name: Attach the IPA to the GitHub release
-        # For sideloading (AltStore, Sideloadly), which re-signs it with the
-        # person's own account; TestFlight stays the regular way to install.
-        if: env.UPLOAD == 'true' && github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="$GITHUB_REF_NAME"
-          cp "$RUNNER_TEMP"/ipa/*.ipa "$RUNNER_TEMP/IsctCompanion_${VERSION}_ios.ipa"
-          # Desktop release opens the version's draft as soon as the tag is
-          # pushed and alone creates it, writes its notes and publishes it.
-          # Uploading into the draft (or the published release) keeps this
-          # workflow, and the App Store submission that follows its success,
-          # independent of the desktop builds.
-          for _ in $(seq 1 60); do
-            if gh release view "$tag" > /dev/null 2>&1; then
-              gh release upload "$tag" "$RUNNER_TEMP/IsctCompanion_${VERSION}_ios.ipa" --clobber
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "Desktop release opened no release for $tag within 20 minutes; rerun its draft job, then this job. The IPA is in this run's artifacts."
-          exit 1
       - name: Remove signing materials
         if: ${{ always() && env.UPLOAD == 'true' }}
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
-          rm -f ~/.appstoreconnect/private_keys/AuthKey_*.p8 "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/Isct*.plist
-          for uuid in "${PROFILE_UUID_ISCTCOMPANION:-}" "${PROFILE_UUID_ISCTSHARE:-}" "${PROFILE_UUID_ISCTOPEN:-}"; do
+          rm -f "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/Isct*.plist
+          for uuid in "${PROFILE_UUID_ISCTCOMPANION:-}" "${PROFILE_UUID_ISCTSHARE:-}" "${PROFILE_UUID_ISCTOPEN:-}" "${PROFILE_UUID_ISCTWIDGETSEXTENSION:-}"; do
             [[ -n "$uuid" ]] || continue
             rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$uuid.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
           done
+
+  testflight:
+    name: Upload IPA to TestFlight
+    needs: ipa
+    if: vars.IOS_TESTFLIGHT_ENABLED == 'true' && (github.event_name == 'push' || inputs.upload_testflight)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/ipa
+      - name: Upload to TestFlight
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY; do
+            test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
+          done
+          umask 077
+          mkdir -p ~/.appstoreconnect/private_keys
+          key="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key"
+          xcode=$(printf '%s\n' /Applications/Xcode_*.app | sort -V | tail -1)
+          export DEVELOPER_DIR="$xcode/Contents/Developer"
+          xcrun altool --upload-app -t ios -f "$RUNNER_TEMP"/ipa/*.ipa \
+            --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+
+  attach:
+    name: Attach IPA to GitHub release
+    needs: ipa
+    if: vars.IOS_TESTFLIGHT_ENABLED == 'true' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/ipa
+      - name: Attach the IPA for sideloading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.ipa.outputs.version }}
+        run: |
+          asset="$RUNNER_TEMP/IsctCompanion_${VERSION}_ios.ipa"
+          cp "$RUNNER_TEMP"/ipa/*.ipa "$asset"
+          bash scripts/release/attach-mobile-assets.sh "$GITHUB_REF_NAME" "$asset"

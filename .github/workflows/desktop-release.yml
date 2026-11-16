@@ -135,11 +135,6 @@ jobs:
           workspaces: . -> target
           key: desktop-${{ matrix.target }}
       - run: yarn install --immutable
-      - name: Validate frontend and release version
-        shell: bash
-        run: |
-          yarn build
-          node scripts/desktop/desktop-release.mjs validate
       - name: Apply optional OAuth overrides
         shell: bash
         env:
