@@ -21,7 +21,7 @@ fn context(name: &str) -> (DataStore, CourseFolder, CourseKey) {
 #[test]
 fn save_read_list_and_move_through_the_trash() {
     let notes = service("roundtrip");
-    let (data, context, folder) = context("roundtrip");
+    let (data, context, _) = context("roundtrip");
     let saved = notes
         .save(
             &data,
@@ -38,6 +38,7 @@ fn save_read_list_and_move_through_the_trash() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let folder = course_folder(&data, &context.course_id).unwrap();
         let path = notes.note_path(&folder, "section-91", &saved.id).unwrap();
         assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o600);
     }

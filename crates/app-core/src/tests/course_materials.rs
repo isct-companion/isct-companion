@@ -12,6 +12,7 @@ fn root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("course-materials-{name}-{}", Uuid::new_v4()))
 }
 
+#[cfg(unix)]
 fn course() -> CourseKey {
     CourseKey {
         term: "2026-3Q".into(),
