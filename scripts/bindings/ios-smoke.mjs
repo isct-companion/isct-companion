@@ -3,7 +3,9 @@ import { mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
 import { run, capture, root, output, iphoneSimulator } from "./common.mjs";
 // CI boots the device early with boot-ios-simulator.mjs; this waits for it.
 const device = iphoneSimulator();
-if (device.state !== "Booted") run("xcrun", ["simctl", "boot", device.udid]);
+// A boot the CI step began may still be under way; only a shut-down device
+// is booted here.
+if (device.state === "Shutdown") run("xcrun", ["simctl", "boot", device.udid]);
 run("xcrun", ["simctl", "bootstatus", device.udid, "-b"]);
 const sdk = capture("xcrun", ["--sdk", "iphonesimulator", "--show-sdk-path"]);
 const fixture = join(output, "ios-package");
