@@ -38,7 +38,7 @@ jobs:
         IsctCompanion:app.isctcompanion:IOS_MOBILE_PROVISION
         IsctShare:app.isctcompanion.share:IOS_SHARE_MOBILE_PROVISION
         IsctOpen:app.isctcompanion.open:IOS_OPEN_MOBILE_PROVISION
-        IsctWidgetsExtension:app.isctcompanion.widgets:IOS_WIDGETS_MOBILE_PROVISION
+        IsctWidgetsExtension:app.isctcompanion.widgetkit:IOS_WIDGETS_MOBILE_PROVISION
       APP_GROUP: group.app.isctcompanion
     steps:
       - uses: actions/checkout@v7
@@ -202,7 +202,7 @@ jobs:
               <key>app.isctcompanion</key><string>$PROFILE_UUID_ISCTCOMPANION</string>
               <key>app.isctcompanion.share</key><string>$PROFILE_UUID_ISCTSHARE</string>
               <key>app.isctcompanion.open</key><string>$PROFILE_UUID_ISCTOPEN</string>
-              <key>app.isctcompanion.widgets</key><string>$PROFILE_UUID_ISCTWIDGETSEXTENSION</string>
+              <key>app.isctcompanion.widgetkit</key><string>$PROFILE_UUID_ISCTWIDGETSEXTENSION</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>uploadSymbols</key><true/>

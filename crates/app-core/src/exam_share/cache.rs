@@ -52,6 +52,7 @@ pub(super) async fn local(
     })
     .await?;
     Ok(ExamLocalDocument {
+        web_url: super::client::site_page(&format!("view/{}", cached.document.id)),
         document: cached.document,
         path,
         offline,

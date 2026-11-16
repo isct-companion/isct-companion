@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- SignInService keeps a browser sign-in's callback reachable. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Updates from GitHub Releases: the APK goes to the system installer,
          where the person confirms (core/AppUpdater.kt). -->
@@ -44,6 +46,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="isctcompanion" android:host="widget" />
             </intent-filter>
+            <!-- A browser sign-in's callback page sends the browser here, back
+                 to the app (crates/app-core/src/oauth/loopback.rs). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="isctcompanion" android:host="signed-in" />
+            </intent-filter>
             <!-- Files shared from another app wait in the inbox to be handed in
                  (slotledger `approach/share-entry-points`). -->
             <intent-filter>
@@ -80,6 +90,10 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_assignments" />
         </receiver>
+        <service
+            android:name=".core.SignInService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <!-- The campus printer in every app's print dialog. Only the system
              may bind it; Android enables it on install. -->
         <service

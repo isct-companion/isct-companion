@@ -20,10 +20,10 @@ targets:
     settings:
       base:
         PRODUCT_NAME: IsctWidgetsExtension
-        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.widgetkit
         SWIFT_VERSION: "6.0"
         APPLICATION_EXTENSION_API_ONLY: YES
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: macOS/Info.plist
-        ISCT_WIDGET_GROUP: FB7AL944GK.app.isctcompanion.widgets
+        ISCT_WIDGET_GROUP: FB7AL944GK.app.isctcompanion.widgetkit
         CODE_SIGN_ENTITLEMENTS: macOS/Entitlements.plist

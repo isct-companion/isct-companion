@@ -126,6 +126,13 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.navigation:navigation-compose:2.10.2")
+    // Past exams: PDFs in the system's sandboxed renderer, with continuous
+    // scrolling, zoom and selection; PdfRenderer stays as the fallback.
+    implementation("androidx.pdf:pdf-compose:1.0.0-beta01")
+    implementation("androidx.pdf:pdf-document-service:1.0.0-beta01")
+    // Photographing a paper exam: edge finding and straightening, run by
+    // Google Play services (the button hides without them).
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     // Pull to refresh around the school WebView, which Compose's nested
     // scrolling cannot see into.

@@ -65,7 +65,7 @@ the app `app.isctcompanion` and its share, open and widget extensions, using the
 | `IOS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the app (`app.isctcompanion`) |
 | `IOS_SHARE_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the share extension (`app.isctcompanion.share`) |
 | `IOS_OPEN_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the "Open in" action extension (`app.isctcompanion.open`) |
-| `IOS_WIDGETS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the widget extension (`app.isctcompanion.widgets`) |
+| `IOS_WIDGETS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the widget extension (`app.isctcompanion.widgetkit`) |
 | `APPLE_API_KEY_ID` | App Store Connect API key ID |
 | `APPLE_API_ISSUER` | API issuer ID |
 | `APPLE_API_PRIVATE_KEY` | Raw `.p8` private key used to upload builds |

@@ -87,8 +87,13 @@ enum Layout {
     /// Assignments live on 今日, and 設定 is the last tab.
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
-    static var tabs: [AppTab] {
-        isPad ? [.today, .timetable, .lectures, .web, .settings] : [.today, .timetable, .web, .pastExams, .settings]
+    /// The iPad's tab bar holds every page, as its rail does, so turning it
+    /// moves nothing. In a narrow Split View the bar sits at the bottom,
+    /// where a sixth item would fold into "More": there it is the iPhone's.
+    static func tabs(width: CGFloat) -> [AppTab] {
+        isPad && width > 600
+            ? [.today, .timetable, .lectures, .web, .pastExams, .settings]
+            : [.today, .timetable, .web, .pastExams, .settings]
     }
 
     /// The workstation's rail, as desktop's; 設定 sits apart at its foot.
@@ -169,10 +174,6 @@ final class Navigator {
     func setWorkbench(_ wide: Bool) {
         guard wide != workbench else { return }
         workbench = wide
-        if !wide && Layout.isPad && tab == .pastExams {
-            tab = .lectures
-            push(PastExamsRoute())
-        }
         if !wide, let bench {
             var path = NavigationPath()
             path.append(bench)
@@ -239,86 +240,74 @@ struct RootView: View {
         case let .failed(message):
             ContentUnavailableView(t("common.couldNotStart"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
-            GeometryReader { proxy in
-                let stacked = Layout.isStacked(proxy.size)
-                Group {
-                    if stacked {
-                        tabs
-                    } else {
-                        workstation
-                    }
-                }
-                .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
-                // What was shared into the app waits in the corner, above the
-                // tab bar or the status bar.
-                .overlay { InboxTray(bottom: stacked ? 64 : 60) }
-                .task(id: scenePhase) {
-                    if scenePhase == .active { await inbox.refresh(model) }
-                }
-                .task(id: widgetURL) {
-                    guard let url = widgetURL else { return }
-                    defer { if widgetURL == url { widgetURL = nil } }
-                    do {
-                        if let route = try await model.widgetRoute(url) {
-                            try Task.checkCancellation()
-                            openWidget(route)
-                        }
-                    } catch is CancellationError {
-                    } catch {
-                        NSLog("Widget link: %@", String(describing: error))
-                    }
-                }
-                .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
-                    InboxSheet()
-                }
-                // A share-sheet pick was handed in: show that assignment.
-                .onChange(of: inbox.handedTo) { _, assignment in
-                    guard let assignment else { return }
-                    navigator.tab = .today
-                    navigator.open(AssignmentRoute(id: assignment))
-                    inbox.handedTo = nil
-                }
-                .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
-                    Button("OK", role: .cancel) {}
-                }
-                .environment(navigator)
-                .environment(\.push, PushAction { navigator.push($0) })
-                .environment(\.courseZoom, zoom)
-                .welcomeSheet {
-                    navigator.tab = .today
-                    navigator.open(SettingsRoute.account(.science))
-                }
-                .sheet(item: $calendarFile) { file in
-                    ShareSheet(url: file.url).presentationDetents([.medium, .large])
-                }
-                .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-                    Button("OK", role: .cancel) {}
-                }
-                // The update prompt, as on the desktop and Android: the App
-                // Store installs it; skipping and turning the checks off are
-                // this device's settings, which Settings › About turns back on.
-                .alert(
-                    t("appUpdate.prompt.title"),
-                    isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
-                    presenting: model.updateOffer
-                ) { release in
-                    Button(t("appUpdate.prompt.update")) {
-                        model.updateOffer = nil
-                        if let url = URL(string: release.url) { openURL(url) }
-                    }
-                    Button(t("appUpdate.prompt.skip")) { Task { await model.answerUpdate(skip: release.version) } }
-                    Button(t("appUpdate.prompt.turnOff")) { Task { await model.answerUpdate(turnOff: true) } }
-                } message: { release in
-                    Text(t("appUpdate.prompt.available", ["version": release.version]))
-                }
-            }
+            GeometryReader { proxy in ready(proxy) }
         }
     }
 
-    private var tabs: some View {
+    /// The app once the session is open; its own function so the compiler
+    /// checks this chain apart from `content`'s switch.
+    private func ready(_ proxy: GeometryProxy) -> some View {
+        let stacked = Layout.isStacked(proxy.size)
+        return Group {
+            if stacked {
+                tabs(Layout.tabs(width: proxy.size.width))
+            } else {
+                workstation
+            }
+        }
+        .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
+        // What was shared into the app waits in the corner, above the
+        // tab bar or the status bar.
+        .overlay { InboxTray(bottom: stacked ? 64 : 60) }
+        .task(id: scenePhase) {
+            if scenePhase == .active { await inbox.refresh(model) }
+        }
+        .task(id: widgetURL) {
+            guard let url = widgetURL else { return }
+            defer { if widgetURL == url { widgetURL = nil } }
+            do {
+                if let route = try await model.widgetRoute(url) {
+                    try Task.checkCancellation()
+                    openWidget(route)
+                }
+            } catch is CancellationError {
+            } catch {
+                NSLog("Widget link: %@", String(describing: error))
+            }
+        }
+        .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
+            InboxSheet()
+        }
+        // A share-sheet pick was handed in: show that assignment.
+        .onChange(of: inbox.handedTo) { _, assignment in
+            guard let assignment else { return }
+            navigator.tab = .today
+            navigator.open(AssignmentRoute(id: assignment))
+            inbox.handedTo = nil
+        }
+        .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+        .environment(navigator)
+        .environment(\.push, PushAction { navigator.push($0) })
+        .environment(\.courseZoom, zoom)
+        .welcomeSheet {
+            navigator.tab = .today
+            navigator.open(SettingsRoute.account(.science))
+        }
+        .sheet(item: $calendarFile) { file in
+            ShareSheet(url: file.url).presentationDetents([.medium, .large])
+        }
+        .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+        .modifier(UpdateOffer(model: model))
+    }
+
+    private func tabs(_ tabs: [AppTab]) -> some View {
         ZStack {
             TabView(selection: selection) {
-                ForEach(Layout.tabs, id: \.self) { tab in
+                ForEach(tabs, id: \.self) { tab in
                     page(tab)
                         .tabItem { Label(tab.title, systemImage: tab.symbol) }
                         .tag(tab)
@@ -327,14 +316,14 @@ struct RootView: View {
             // Long-pressing the ウェブ item raises the site picker over it. The
             // probe sits beside the TabView, so it works before ウェブ is opened.
             .background {
-                TabBarLongPress(index: Layout.tabs.firstIndex(of: .web) ?? 0) { event in
+                TabBarLongPress(index: tabs.firstIndex(of: .web) ?? 0) { event in
                     if let choice = sitePress.handle(event) { pickSite(choice) }
                 }
                 .frame(width: 0, height: 0)
             }
             // Long-pressing 時間割 offers the shown quarter as a calendar file.
             .background {
-                TabBarLongPress(index: Layout.tabs.firstIndex(of: .timetable) ?? 0) { event in
+                TabBarLongPress(index: tabs.firstIndex(of: .timetable) ?? 0) { event in
                     guard exportTerm != nil else { return }
                     if let choice = exportPress.handle(event) { export(choice) }
                 }
@@ -350,7 +339,9 @@ struct RootView: View {
             }
         }
         // A page the tab bar lacks falls back to 今日.
-        .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
+        .onChange(of: tabs, initial: true) { _, tabs in
+            if !tabs.contains(navigator.tab) { navigator.tab = .today }
+        }
     }
 
     /// A site picked from the ウェブ tab's panel or the rail row's menu
@@ -486,6 +477,32 @@ extension View {
         .navigationDestination(for: PastExamsRoute.self) { route in
             PastExamsScreen(courseId: route.courseId)
         }
+        .navigationDestination(for: ExamSubjectRoute.self) { ExamSubjectScreen(route: $0) }
+        .navigationDestination(for: ExamDocumentRoute.self) { ExamDocumentScreen(route: $0) }
+        .navigationDestination(for: ExamRequestRoute.self) { ExamRequestScreen(route: $0) }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
+    }
+}
+
+/// A newer release a check of its own found: the App Store installs it, or
+/// the person skips this version for good. Turning the checks off is in
+/// Settings › About.
+private struct UpdateOffer: ViewModifier {
+    let model: AppModel
+
+    func body(content: Content) -> some View {
+        content.alert(
+            model.updateOffer.map { t("appUpdate.prompt.available", ["version": $0.version]) } ?? "",
+            isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
+            presenting: model.updateOffer
+        ) { release in
+            Button(t("common.later"), role: .cancel) {}
+            Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
+            if let url = URL(string: release.url) {
+                // The preferred action: bold, and Return picks it.
+                Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
     }
 }

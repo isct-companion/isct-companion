@@ -3,7 +3,7 @@ import Foundation
 public enum WidgetPurpose: String, CaseIterable, Sendable {
     case courses, assignments
 
-    public var kind: String { "app.isctcompanion.widgets." + rawValue }
+    public var kind: String { "app.isctcompanion.widgetkit." + rawValue }
 }
 
 public enum WidgetDestination: Sendable, Decodable {

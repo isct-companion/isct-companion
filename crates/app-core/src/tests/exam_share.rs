@@ -271,9 +271,24 @@ async fn a_recovered_upload_is_registered_once_and_never_dropped() {
             _ => (500, "{}".into()),
         })
     }));
-    assert!(matches!(fixture.act(ExamAction::RecoverUpload).await, Ok(ExamAnswer::Uploaded)));
+    // An attempt whose answer was lost has no id to hand the shell.
+    assert!(matches!(fixture.act(ExamAction::RecoverUpload).await, Ok(ExamAnswer::Uploaded(None))));
     assert_eq!(journal_phase(&fixture), None);
     assert_eq!(fixture.last_event().upload.phase, ExamUploadPhase::Idle);
+
+    // One that registers it hands back the new document, to open.
+    journal(&fixture, "Register", 0);
+    api.answer(Box::new(|method, path| {
+        connected(method, path).unwrap_or_else(|| match (method, path) {
+            ("POST", "/api/exams") => (200, json!({"examId": "exam-new"}).to_string()),
+            _ => (500, "{}".into()),
+        })
+    }));
+    assert!(matches!(
+        fixture.act(ExamAction::RecoverUpload).await,
+        Ok(ExamAnswer::Uploaded(Some(id))) if id == "exam-new"
+    ));
+    assert_eq!(journal_phase(&fixture), None);
 
     journal(&fixture, "Transfer", 0);
     api.answer(Box::new(|method, path| {

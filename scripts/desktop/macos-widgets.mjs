@@ -39,7 +39,7 @@ export function macWidgets(root, args, macConfig, version) {
   }
   const personal = developmentIdentity && (!signed || signed === "-");
   const team = personal ? developmentTeam : projectTeam;
-  const group = `${team}.app.isctcompanion.widgets`;
+  const group = `${team}.app.isctcompanion.widgetkit`;
   const identity = personal ? developmentIdentity : (signed ?? "-");
   const run = (cmd, args) =>
     execFileSync(cmd, args, { cwd: widgets, stdio: "inherit" });
