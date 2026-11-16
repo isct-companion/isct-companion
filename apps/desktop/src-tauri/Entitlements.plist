@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>com.apple.security.application-groups</key>
-    <array><string>FB7AL944GK.app.isctcompanion.widgets</string></array>
+    <array><string>FB7AL944GK.app.isctcompanion.widgetkit</string></array>
 	<key>com.apple.security.device.camera</key>
 	<true/>
 	<key>com.apple.application-identifier</key>
