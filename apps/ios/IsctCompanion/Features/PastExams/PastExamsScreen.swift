@@ -68,6 +68,15 @@ struct ExamRequestRoute: Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(request.id) }
 }
 
+/// The site's pages Core has no answer for: the search before anything is
+/// read, and the terms shown before consent.
+enum ExamSite {
+    static let base = "https://sciencetokyoexam.com"
+    static let search = URL(string: "\(base)/search")
+    static let terms = URL(string: "\(base)/terms")
+    static let privacy = URL(string: "\(base)/privacy")
+}
+
 /// The one Core call path each past-exams page owns: whether a call is
 /// running, its failure or notice, a pending confirmation and the forms'
 /// choices.
@@ -79,18 +88,20 @@ final class ExamPage {
         let work: () async -> Void
     }
 
-    private(set) var busy = false
+    private var running = 0
     var problem: String?
     var notice: String?
     var confirmation: Confirmation?
     private(set) var choices: ExamChoices?
 
+    var busy: Bool { running > 0 }
+
+    /// Runs one action; a failure shows its message. Calls may overlap (a
+    /// search while a list loads), so `busy` counts them.
     func call(_ model: AppModel, _ action: ExamAction) async -> ExamAnswer? {
-        guard !busy else { return nil }
-        busy = true
+        running += 1
         problem = nil
-        notice = nil
-        defer { busy = false }
+        defer { running -= 1 }
         do { return try await model.examShare(action) }
         catch SdkError.Cancelled { return nil }
         catch is CancellationError { return nil }
@@ -112,21 +123,10 @@ final class ExamPage {
 }
 
 extension View {
-    /// A pushed past-exams page's failure or notice above the bottom edge,
-    /// its confirmations and its running call in the bar.
+    /// A past-exams page's failure or notice above the bottom edge, and its
+    /// confirmations.
     func examPageFeedback(_ page: ExamPage) -> some View {
         modifier(ExamPageFeedback(page: page))
-    }
-
-    func examConfirmations(_ page: ExamPage) -> some View {
-        confirmationDialog(
-            page.confirmation.map { t($0.key) } ?? "",
-            isPresented: Binding(get: { page.confirmation != nil }, set: { if !$0 { page.confirmation = nil } }),
-            titleVisibility: .visible,
-            presenting: page.confirmation
-        ) { confirmed in
-            Button(t("common.ok"), role: .destructive) { Task { await confirmed.work() } }
-        }
     }
 }
 
@@ -147,26 +147,28 @@ private struct ExamPageFeedback: ViewModifier {
                         .padding(.horizontal, Theme.gutter)
                         .padding(.bottom, 8)
                         .onTapGesture { page.problem = nil; page.notice = nil }
-                        // A notice goes by itself; a failure stays until tapped.
                         .task(id: message) {
-                            guard page.problem == nil else { return }
                             try? await Task.sleep(for: .seconds(4))
+                            guard !Task.isCancelled else { return }
+                            if page.problem == message { page.problem = nil }
                             if page.notice == message { page.notice = nil }
                         }
                 }
             }
-            .toolbar {
-                if page.busy {
-                    ToolbarItem(placement: .topBarTrailing) { ProgressView().controlSize(.small) }
-                }
+            .confirmationDialog(
+                page.confirmation.map { t($0.key) } ?? "",
+                isPresented: Binding(get: { page.confirmation != nil }, set: { if !$0 { page.confirmation = nil } }),
+                titleVisibility: .visible,
+                presenting: page.confirmation
+            ) { confirmed in
+                Button(t("common.ok"), role: .destructive) { Task { await confirmed.work() } }
             }
-            .examConfirmations(page)
     }
 }
 
-/// ScienceTokyoExam: the account, then search and this quarter's courses,
-/// requests and the person's library, each a list that pushes its subject,
-/// request or document. Opened from a course, it is that course's subject.
+/// ScienceTokyoExam: this quarter's courses (or a search), requests and the
+/// person's own documents, each a list that pushes its subject, request or
+/// document. Opened from a course, it is that course's subject.
 struct PastExamsScreen: View {
     let courseId: String?
     @Environment(AppModel.self) private var model
@@ -175,7 +177,7 @@ struct PastExamsScreen: View {
     @State private var page = ExamPage()
     @State private var tab: Tab = .browse
     @State private var query = ""
-    @State private var subjects: [ExamSubject]?
+    @State private var hits: (query: String, subjects: [ExamSubject])?
     @State private var library: ExamLibrary?
     @State private var requestPages: [Bool: ExamRequestPage] = [:]
     @State private var mine = false
@@ -212,58 +214,31 @@ struct PastExamsScreen: View {
         }
     }
 
+    /// The site's page for the tab on screen.
+    private var webUrl: URL? {
+        switch tab {
+        case .browse: ExamSite.search
+        case .requests: requestPages[mine].flatMap { URL(string: $0.webUrl) }
+        case .library: library.flatMap { URL(string: $0.webUrl) }
+        }
+    }
+
     private var root: some View {
-        List {
-            Section {
-                if let email = account?.email { Text(email).foregroundStyle(Theme.muted) }
-                if let problem = page.problem, account?.status != .unsupported { Text(problem).foregroundStyle(.red) }
-                if let notice = page.notice { Text(notice).foregroundStyle(Theme.muted) }
-                switch account?.status {
-                case .connected:
-                    if account?.upload.phase == .pending {
-                        Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") {
-                            uploadEntry = .recovery
-                        }
-                    }
-                    Button(t("examShare.disconnect"), role: .destructive) {
-                        page.confirm("examShare.disconnectHint") { await accountAction(.disconnect) }
-                    }
-                case .needsConsent:
-                    if let terms = URL(string: "https://sciencetokyoexam.com/terms") {
-                        Link(t("examShare.terms"), destination: terms)
-                    }
-                    if let privacy = URL(string: "https://sciencetokyoexam.com/privacy") {
-                        Link(t("examShare.privacy"), destination: privacy)
-                    }
-                    Button(t("examShare.accept")) { Task { await accountAction(.acceptTerms) } }
-                case .unsupported:
-                    Text(t("error.exam-share-unsupported"))
-                case .disconnected, .none:
-                    Button(t("examShare.connect")) { Task { await accountAction(.connect) } }
+        Group {
+            switch account?.status {
+            case .connected where courseId == nil:
+                connected
+            case nil where page.problem == nil:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            default:
+                ExamAccountGate(page: page, status: account?.status ?? .disconnected) { action in
+                    await accountAction(action)
                 }
-            }
-            // From a course, only the account shows until it connects.
-            if account?.status != .unsupported && courseId == nil {
-                Section {
-                    Picker(t("examShare.title"), selection: $tab) {
-                        ForEach(Tab.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                if account?.status == .connected {
-                    switch tab {
-                    case .browse: browse
-                    case .requests: requestBoard
-                    case .library: librarySections
-                    }
-                }
-                Section {} footer: { ExamCredit() }
             }
         }
-        .themedRows()
-        .themedList()
-        .modifier(PastExamsTitle(root: courseId == nil, busy: page.busy))
-        .disabled(page.busy)
+        .frame(maxHeight: .infinity)
+        .background(Theme.bg)
+        .modifier(PastExamsTitle(root: courseId == nil, web: account?.status == .connected ? webUrl : nil))
         .task(id: CoursesRead(revision: model.contentRevision, retry: coursesRetry)) {
             guard courseId == nil else { return }
             coursesFailed = false
@@ -277,7 +252,6 @@ struct PastExamsScreen: View {
             guard scenePhase == .active else { return }
             await refresh()
         }
-        .refreshable { await refresh() }
         // Back from a pushed page that may have changed the board or the
         // library: read the one on screen again.
         .onAppear { Task { await loadVisible(reload: true, onlyLoaded: true) } }
@@ -288,8 +262,8 @@ struct PastExamsScreen: View {
         }
         .onChange(of: account?.status) { _, status in
             guard status != .connected else { return }
-            // Nothing below the account section shows without a connection.
-            subjects = nil
+            // Nothing past the account shows without a connection.
+            hits = nil
             requestPages.removeAll()
             library = nil
             uploadEntry = nil
@@ -306,87 +280,180 @@ struct PastExamsScreen: View {
                 }
             }
         }
-        .examConfirmations(page)
+        .examPageFeedback(page)
     }
 
-    @ViewBuilder private var browse: some View {
-        Section {
-            TextField(t("examShare.search"), text: $query)
-                .submitLabel(.search)
-                .onSubmit { Task { await search() } }
-            Button(t("examShare.search")) { Task { await search() } }
-                .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        if let subjects {
-            ExamSubjectResults(subjects: subjects)
-        }
-        CurrentCoursesSection(list: courses, failed: coursesFailed, retry: { coursesRetry += 1 }) { course in
-            push(ExamSubjectRoute(source: .course(id: course.courseId), title: course.title))
-        }
-    }
-
-    @ViewBuilder private var requestBoard: some View {
-        let requests = requestPages[mine]
-        Section {
-            Picker(t("examShare.requests"), selection: $mine) {
-                Text(t("examShare.openRequests")).tag(false)
-                Text(t("examShare.myRequests")).tag(true)
+    private var connected: some View {
+        VStack(spacing: 0) {
+            Picker(t("examShare.title"), selection: $tab) {
+                ForEach(Tab.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            .onChange(of: mine) { Task { await loadVisible(reload: false) } }
-            Button(t("examShare.newRequest")) { tab = .browse }
-            if let web = requests.flatMap({ URL(string: $0.webUrl) }) {
-                Link(t("examShare.openOnWeb"), destination: web)
+            .padding(.horizontal, Theme.gutter)
+            .padding(.vertical, 8)
+            switch tab {
+            case .browse: browse
+            case .requests: requestBoard
+            case .library: librarySections
             }
-            if requests?.items.isEmpty == true { Text(t("examShare.noItems")) }
-            ForEach(requests?.items ?? [], id: \.id) { item in
-                NavigationLink(value: ExamRequestRoute(request: item, webUrl: requests?.webUrl ?? "")) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.subject.name).foregroundStyle(Theme.ink)
-                        Text(examRequestFacts(item)).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(2)
+        }
+    }
+
+    // MARK: Browse
+
+    private var browse: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return List {
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(Theme.muted)
+                    TextField(t("examShare.search"), text: $query)
+                        .submitLabel(.search)
+                        .autocorrectionDisabled()
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.muted)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(t("common.clear"))
                     }
                 }
             }
-            if let cursor = requests?.cursor {
-                Button(t("examShare.more")) { Task { await loadRequests(cursor) } }
-            }
-        }
-    }
-
-    @ViewBuilder private var librarySections: some View {
-        if let library {
-            if let web = URL(string: library.webUrl), !library.offline {
-                Section { Link(t("examShare.openOnWeb"), destination: web) }
-            }
-            if library.offline {
-                Section { Text(t("examShare.libraryUnavailable")).foregroundStyle(Theme.muted) }
+            if !trimmed.isEmpty {
+                if let hits, hits.query == trimmed {
+                    ExamSubjectResults(subjects: hits.subjects)
+                }
             } else {
-                Section(t("examShare.saved")) { documents(library.saved) }
+                CurrentCoursesSection(list: courses, failed: coursesFailed) { coursesRetry += 1 }
             }
-            Section(t("examShare.downloaded")) { documents(library.downloaded, removal: .download) }
-            if !library.offline {
-                Section(t("examShare.submitted")) { documents(library.submitted, removal: .submission) }
+            Section {} footer: { ExamCredit() }
+        }
+        .themedRows()
+        .themedList()
+        .pageListMargins()
+        .refreshable { await refresh() }
+        // Results follow the typing, a moment after it stops.
+        .task(id: trimmed) {
+            guard !trimmed.isEmpty else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            if case let .subjects(found)? = await page.call(model, .search(query: trimmed)), !Task.isCancelled {
+                hits = (trimmed, found)
             }
         }
     }
 
-    @ViewBuilder private func documents(_ items: [ExamDocument], removal: ExamRemoval? = nil) -> some View {
-        if items.isEmpty { Text(t("examShare.noItems")) }
-        ForEach(items, id: \.id) { item in
-            NavigationLink(examName(item), value: ExamDocumentRoute(id: item.id, removal: removal))
-                .swipeActions {
-                    if let removal {
-                        Button(t(removal.key), role: .destructive) {
-                            page.confirm(removal.key) {
-                                if case let .library(value)? = await page.call(model, removal.action(item.id)) {
-                                    library = value
+    // MARK: Requests
+
+    private var requestBoard: some View {
+        let requests = requestPages[mine]
+        return List {
+            Section {
+                Picker(t("examShare.requests"), selection: $mine) {
+                    Text(t("examShare.openRequests")).tag(false)
+                    Text(t("examShare.myRequests")).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                .onChange(of: mine) { Task { await loadVisible(reload: false) } }
+            }
+            if let requests {
+                Section {
+                    ForEach(requests.items, id: \.id) { item in
+                        NavigationLink(value: ExamRequestRoute(request: item, webUrl: requests.webUrl)) {
+                            ExamRequestRow(item: item)
+                        }
+                    }
+                    if let cursor = requests.cursor {
+                        Button(t("examShare.more")) { Task { await loadRequests(cursor) } }
+                    }
+                }
+                if requests.items.isEmpty {
+                    Text(t("examShare.noItems")).foregroundStyle(Theme.muted)
+                }
+            }
+        }
+        .themedRows()
+        .themedList()
+        .pageListMargins()
+        .overlay { if requests == nil && page.busy { ProgressView() } }
+        .refreshable { await refresh() }
+    }
+
+    // MARK: Library
+
+    private var librarySections: some View {
+        List {
+            if account?.upload.phase == .pending {
+                Section {
+                    Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") { uploadEntry = .recovery }
+                } footer: {
+                    Text(t("examShare.upload.pending"))
+                }
+            }
+            if let library {
+                if library.offline {
+                    Text(t("examShare.libraryUnavailable")).foregroundStyle(Theme.muted)
+                } else {
+                    documents("examShare.saved", library.saved)
+                }
+                documents("examShare.downloaded", library.downloaded, removal: .download)
+                if !library.offline {
+                    documents("examShare.submitted", library.submitted, removal: .submission)
+                }
+                if !library.offline && library.saved.isEmpty && library.downloaded.isEmpty && library.submitted.isEmpty {
+                    Text(t("examShare.noItems")).foregroundStyle(Theme.muted)
+                }
+            }
+            // The account sits with the person's own things, out of the way.
+            Section {
+                if let email = account?.email {
+                    LabeledContent(t("examShare.account"), value: email)
+                }
+                Button(t("examShare.disconnect"), role: .destructive) {
+                    page.confirm("examShare.disconnectHint") { await accountAction(.disconnect) }
+                }
+            } footer: {
+                ExamCredit()
+            }
+        }
+        .themedRows()
+        .themedList()
+        .pageListMargins()
+        .overlay { if library == nil && page.busy { ProgressView() } }
+        .refreshable { await refresh() }
+    }
+
+    @ViewBuilder
+    private func documents(_ title: String, _ items: [ExamDocument], removal: ExamRemoval? = nil) -> some View {
+        if !items.isEmpty {
+            Section(t(title)) {
+                ForEach(items, id: \.id) { item in
+                    NavigationLink(value: ExamDocumentRoute(id: item.id, removal: removal)) {
+                        ExamListRow(title: item.subjects.map(\.name).joined(separator: " / "), meta: [
+                            examSitting(year: item.academicYear, occasion: item.occasion,
+                                        number: item.occasionNumber, variant: item.variant),
+                            item.role.map { t("examShare.role.\($0)") },
+                        ])
+                    }
+                    .swipeActions {
+                        if let removal {
+                            Button(t(removal.key), role: .destructive) {
+                                page.confirm(removal.key) {
+                                    if case let .library(value)? = await page.call(model, removal.action(item.id)) {
+                                        library = value
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
         }
     }
+
+    // MARK: Loading
 
     private func accountAction(_ action: ExamAction) async {
         guard await page.call(model, action) != nil else { return }
@@ -419,15 +486,69 @@ struct PastExamsScreen: View {
         }
     }
 
-    private func search() async {
-        if case let .subjects(results)? = await page.call(model, .search(query: query)) { subjects = results }
-    }
-
     private func loadRequests(_ cursor: ExamRequestCursor? = nil) async {
         let mine = mine
         if case let .requests(value)? = await page.call(model, .requests(mine: mine, cursor: cursor)) {
             let previous = cursor == nil ? [] : requestPages[mine]?.items ?? []
             requestPages[mine] = ExamRequestPage(items: previous + value.items, cursor: value.cursor, webUrl: value.webUrl)
+        }
+    }
+}
+
+/// Before a usable session: sign in, the terms, or why not.
+private struct ExamAccountGate: View {
+    @Environment(AppModel.self) private var model
+    let page: ExamPage
+    let status: ExamAccountStatus
+    let act: (ExamAction) async -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(t("examShare.title"), systemImage: "doc.on.doc")
+        } description: {
+            switch status {
+            case .needsConsent: Text(t("error.exam-share-consent"))
+            case .unsupported: Text(t("error.exam-share-unsupported"))
+            case .disconnected, .connected:
+                Text(page.busy ? t("common.signingIn") : t("examShare.connectHint"))
+            }
+        } actions: {
+            switch status {
+            case .needsConsent:
+                Button(t("examShare.accept")) { Task { await act(.acceptTerms) } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(page.busy)
+                HStack(spacing: 16) {
+                    if let terms = ExamSite.terms { Link(t("examShare.terms"), destination: terms) }
+                    if let privacy = ExamSite.privacy { Link(t("examShare.privacy"), destination: privacy) }
+                }
+                .font(.subheadline)
+            case .unsupported:
+                EmptyView()
+            case .disconnected, .connected:
+                if page.busy {
+                    // Sign-in waits on the person in the browser; they may leave it.
+                    Button(t("common.cancel")) { Task { _ = try? await model.examShare(.cancelConnect) } }
+                } else {
+                    Button(t("examShare.connect")) { Task { await act(.connect) } }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            ExamCredit().frame(width: 220)
+        }
+    }
+}
+
+/// A list row: the title, then its facts in one muted line.
+struct ExamListRow: View {
+    let title: String
+    let meta: [String?]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).foregroundStyle(Theme.ink)
+            let detail = meta.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            if !detail.isEmpty { Text(detail).font(.footnote).foregroundStyle(Theme.muted) }
         }
     }
 }
@@ -438,16 +559,44 @@ struct ExamSubjectResults: View {
 
     var body: some View {
         Section {
-            if subjects.isEmpty { Text(t("examShare.noItems")) }
             ForEach(subjects, id: \.code) { result in
                 NavigationLink(value: ExamSubjectRoute(source: .subject(code: result.code, classId: nil), title: result.name)) {
-                    VStack(alignment: .leading) {
-                        Text(result.name)
-                        Text(result.code).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
-                    }
+                    ExamListRow(title: result.name, meta: [result.code])
                 }
             }
         }
+        if subjects.isEmpty { Text(t("examShare.noItems")).foregroundStyle(Theme.muted) }
+    }
+}
+
+struct ExamRequestRow: View {
+    let item: ExamRequest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(item.subject.name).foregroundStyle(Theme.ink)
+                if item.status != "open" { ExamStatusTag(status: item.status) }
+            }
+            let detail = [examRequestFacts(item), item.description].filter { !$0.isEmpty }.joined(separator: " · ")
+            if !detail.isEmpty {
+                Text(detail).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
+            }
+        }
+    }
+}
+
+struct ExamStatusTag: View {
+    let status: String
+
+    var body: some View {
+        let tint = status == "fulfilled" ? Theme.ok : status == "open" ? Theme.accent : Theme.muted
+        Text(t("examShare.requestStatus.\(status)"))
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.12), in: Capsule())
     }
 }
 
@@ -466,222 +615,61 @@ struct ExamCredit: View {
     }
 }
 
-/// "2024 · Open · details", a request's facts in one line.
+/// "2024 · Final · Answers", a request's facts in one line.
 func examRequestFacts(_ item: ExamRequest) -> String {
-    [item.academicYear.map(String.init), t("examShare.requestStatus.\(item.status)"), item.description]
-        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    [
+        item.academicYear.map(String.init),
+        item.occasion.map { t("examShare.occasion.\($0)") },
+        item.wantedRole.map { t("examShare.role.\($0)") },
+    ]
+    .compactMap { $0 }.joined(separator: " · ")
 }
 
-/// "2024 · Final 2 · B", a sitting's label.
+/// "2024 Final 2 B", a sitting's label.
 func examSitting(year: UInt32?, occasion: String?, number: UInt32, variant: String) -> String {
     let occasion = occasion.map { value in
         let label = t("examShare.occasion.\(value)")
         return number > 1 ? "\(label) \(number)" : label
     }
     return [year.map(String.init), occasion, variant]
-        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
 }
 
+/// "Subject · 2024 Final · Questions", a document's title.
 func examName(_ exam: ExamDocument) -> String {
-    let occasion = exam.occasion.map { value in
-        let label = t("examShare.occasion.\(value)")
-        return exam.occasionNumber > 1 ? "\(label) \(exam.occasionNumber)" : label
-    }
     let fields = [
         exam.subjects.map(\.name).joined(separator: " / "),
-        exam.academicYear.map(String.init),
-        occasion,
-        exam.variant,
+        examSitting(year: exam.academicYear, occasion: exam.occasion, number: exam.occasionNumber, variant: exam.variant),
         exam.role.map { t("examShare.role.\($0)") },
-        exam.teachers.map(\.name).joined(separator: " / "),
-        exam.note,
     ].compactMap { $0 }.filter { !$0.isEmpty }
     return fields.isEmpty ? exam.fileName : fields.joined(separator: " · ")
 }
 
-struct ExamRequestForm: View {
-    @Environment(AppModel.self) private var model
-    let subject: ExamSubjectPage
-    let choices: ExamChoices
-    let busy: Bool
-    let problem: String?
-    let submit: (ExamRequestDraft) async -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var classId: UInt32?
-    @State private var year = ""
-    @State private var occasion: ExamOccasion?
-    @State private var role: ExamRole?
-    @State private var description = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(subject.subject.name) {
-                    Picker(t("examShare.allClasses"), selection: $classId) {
-                        Text(t("examShare.allClasses")).tag(nil as UInt32?)
-                        ForEach(subject.rows, id: \.classIds) { row in
-                            if let id = row.classIds.first {
-                                Text((row.labels + row.teachers.map(\.name) + [row.taughtIn]).joined(separator: " · ")).tag(Optional(id))
-                            }
-                        }
-                    }
-                    TextField(t("examShare.year"), text: $year).keyboardType(.numberPad)
-                    Picker(t("examShare.occasion"), selection: $occasion) {
-                        Text(t("examShare.allOccasions")).tag(nil as ExamOccasion?)
-                        ForEach(choices.requestOccasions, id: \.self) { Text($0.label).tag(Optional($0)) }
-                    }
-                    Picker(t("examShare.wantedRole"), selection: $role) {
-                        Text(t("examShare.wantedRole")).tag(nil as ExamRole?)
-                        ForEach(choices.requestRoles, id: \.self) { Text($0.label).tag(Optional($0)) }
-                    }
-                    TextField(t("examShare.description"), text: $description, axis: .vertical)
-                    if let problem { Text(problem).foregroundStyle(.red) }
-                }
-            }
-            .navigationTitle(t("examShare.newRequest"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(t("examShare.newRequest")) {
-                        let draft = ExamRequestDraft(subjectCode: subject.subject.code, classId: classId,
-                            academicYear: UInt32(year), occasion: occasion, wantedRole: role, description: description)
-                        Task { await submit(draft) }
-                    }.disabled(busy || description.utf16.count > choices.limits.requestDescription
-                        || (!year.isEmpty && UInt32(year) == nil))
-                }
-            }
-        }
-    }
-}
-
-struct ExamReportForm: View {
-    let reasons: [ExamReportReason]
-    let maxDetail: UInt32
-    let busy: Bool
-    let problem: String?
-    let submit: (ExamReportReason, String) async -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var reason: ExamReportReason
-    @State private var detail = ""
-
-    init(reasons: [ExamReportReason], maxDetail: UInt32, busy: Bool, problem: String?,
-         submit: @escaping (ExamReportReason, String) async -> Void) {
-        self.reasons = reasons
-        self.maxDetail = maxDetail
-        self.busy = busy
-        self.problem = problem
-        self.submit = submit
-        _reason = State(initialValue: reasons[0])
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Picker(t("examShare.report"), selection: $reason) {
-                    ForEach(reasons, id: \.self) { Text($0.label).tag($0) }
-                }
-                TextField(t("examShare.description"), text: $detail, axis: .vertical)
-                if let problem { Text(problem).foregroundStyle(.red) }
-            }
-            .navigationTitle(t("examShare.report"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(t("examShare.report")) { Task { await submit(reason, detail) } }
-                        .disabled(busy || detail.utf16.count > maxDetail)
-                }
-            }
-        }
-    }
-}
-
-// Labels for the values Core's `ExamChoices` offers. Each case names its
-// key, so the locale checker sees every one.
-
-extension ExamRole {
-    var label: String {
-        switch self {
-        case .question: t("examShare.role.question")
-        case .answer: t("examShare.role.answer")
-        case .both: t("examShare.role.both")
-        case .notes: t("examShare.role.notes")
-        case .other: t("examShare.role.other")
-        }
-    }
-}
-
-extension ExamOccasion {
-    var label: String {
-        switch self {
-        case .unknown: t("examShare.occasion.unknown")
-        case .final: t("examShare.occasion.final")
-        case .midterm: t("examShare.occasion.midterm")
-        case .makeup: t("examShare.occasion.makeup")
-        case .quiz: t("examShare.occasion.quiz")
-        case .check: t("examShare.occasion.check")
-        case .report: t("examShare.occasion.report")
-        case .exercise: t("examShare.occasion.exercise")
-        case .textbook: t("examShare.occasion.textbook")
-        case .mock: t("examShare.occasion.mock")
-        case .notApplicable: t("examShare.occasion.none")
-        }
-    }
-}
-
-extension ExamProvenance {
-    var label: String {
-        switch self {
-        case .original: t("examShare.upload.original")
-        case .reconstructed: t("examShare.upload.reconstructed")
-        }
-    }
-}
-
-extension ExamAnswerSource {
-    var label: String {
-        switch self {
-        case .unknown: t("examShare.upload.unknown")
-        case .official: t("examShare.upload.official")
-        case .student: t("examShare.upload.student")
-        }
-    }
-}
-
-extension ExamReportReason {
-    var label: String {
-        switch self {
-        case .copyright: t("examShare.reason.copyright")
-        case .inappropriate: t("examShare.reason.inappropriate")
-        case .wrongAnswer: t("examShare.reason.wrongAnswer")
-        case .brokenFile: t("examShare.reason.brokenFile")
-        case .other: t("examShare.reason.other")
-        }
-    }
-}
-
 /// The 過去問 tab's title sits at the content's gutter, as the other tabs'
-/// do; opened from a course it is a pushed page with the bar's title.
+/// do, with the site's page beside it; opened from a course it is a pushed
+/// page with the bar's title.
 private struct PastExamsTitle: ViewModifier {
     let root: Bool
-    let busy: Bool
+    let web: URL?
 
     func body(content: Content) -> some View {
         if root {
             VStack(spacing: 0) {
                 PageHeader(title: t("examShare.title")) {
-                    if busy { ProgressView().controlSize(.small) }
+                    if let web {
+                        Link(destination: web) {
+                            Image(systemName: "safari").font(.title3)
+                        }
+                        .accessibilityLabel(t("examShare.openOnWeb"))
+                    }
                 }
-                content.pageListMargins()
+                content
             }
             .toolbar(.hidden, for: .navigationBar)
         } else {
             content
                 .navigationTitle(t("examShare.title"))
-                .toolbar {
-                    if busy {
-                        ToolbarItem(placement: .topBarTrailing) { ProgressView().controlSize(.small) }
-                    }
-                }
+                .navigationBarTitleDisplayMode(.inline)
         }
     }
 }

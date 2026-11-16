@@ -269,6 +269,17 @@
 .lmsImageStage.actual .lmsImagePreview { max-width: none; max-height: none; cursor: zoom-out; }
 .lmsImagePreview, .lmsMediaPreview { display: block; max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; border-radius: var(--lms-radius-sm); box-shadow: 0 1px 2px #0000000d, 0 8px 24px #00000014; }
 .lmsMediaPreview { width: 100%; background: black; }
+/* Zooming image reader (ImageView.tsx, used by past exams): the stage
+   scrolls; margin:auto centres a small image without clipping a large one.
+   Scoped to its own frame so the course-file preview above keeps its own. */
+.lmsImageViewer { position: relative; display: flex; flex: 1; min-height: 0; background: var(--surface-2); }
+.lmsImageViewer .lmsImageStage { display: flex; flex: 1; min-width: 0; min-height: 0; padding: 12px; overflow: auto; cursor: grab; user-select: none; }
+.lmsImageViewer .lmsImageStage[data-dragging] { cursor: grabbing; }
+.lmsImageViewer .lmsImagePreview { flex: none; margin: auto; max-width: none; max-height: none; cursor: inherit; }
+.lmsImageZoom { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 4px 14px #00000014; }
+.lmsImageZoom button { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsImageZoom button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.lmsImageZoom button:disabled { opacity: .3; }
 .lmsAudioStage { padding: 32px 24px; }
 .lmsAudioStage audio { width: 100%; }
 

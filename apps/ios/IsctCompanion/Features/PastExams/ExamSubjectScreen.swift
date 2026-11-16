@@ -1,10 +1,9 @@
 import IsctCore
 import SwiftUI
 
-/// One subject's materials by sitting, as Core groups them: a row per
-/// sitting, a pill per document (questions, answers) that opens it. The
-/// filters narrow the sittings; the toolbar uploads, requests or opens the
-/// site.
+/// One subject's sittings: the course's own teachers first, the others folded
+/// away, a pill per document (questions, answers) that opens it. The toolbar
+/// narrows the sittings, and uploads, requests or opens the site.
 struct ExamSubjectScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.push) private var push
@@ -15,38 +14,41 @@ struct ExamSubjectScreen: View {
     @State private var candidates: [ExamSubject]?
     @State private var failed = false
     @State private var opening: String?
+    @State private var othersOpen = false
     @State private var showsRequest = false
     @State private var uploadEntry: ExamUploadEntry?
     @State private var year: UInt32?
     @State private var teacher = ""
     @State private var occasion = ""
 
+    private var filtered: Bool { year != nil || !teacher.isEmpty || !occasion.isEmpty }
+
     var body: some View {
         List {
             if let subject {
-                Section {
-                    Picker(t("examShare.year"), selection: $year) {
-                        Text(t("examShare.allYears")).tag(nil as UInt32?)
-                        ForEach(subject.years, id: \.self) { Text(String($0)).tag(Optional($0)) }
-                    }
-                    Picker(t("examShare.teacher"), selection: $teacher) {
-                        Text(t("examShare.allTeachers")).tag("")
-                        ForEach(subject.teachers, id: \.id) { Text($0.name).tag($0.id) }
-                    }
-                    Picker(t("examShare.occasion"), selection: $occasion) {
-                        Text(t("examShare.allOccasions")).tag("")
-                        ForEach(subject.occasions, id: \.self) { Text(t("examShare.occasion.\($0)")).tag($0) }
-                    }
+                let sets = subject.sets.filter {
+                    (year == nil || $0.academicYear == year) &&
+                    (teacher.isEmpty || $0.teachers.contains { $0.id == teacher }) &&
+                    (occasion.isEmpty || $0.occasion == occasion)
                 }
-                Section {
-                    let sets = subject.sets.filter {
-                        (year == nil || $0.academicYear == year) &&
-                        (teacher.isEmpty || $0.teachers.contains { $0.id == teacher }) &&
-                        (occasion.isEmpty || $0.occasion == occasion)
+                // Only a course with its own teachers among the sittings splits them.
+                let grouped = subject.sets.contains(where: \.mine)
+                let mine = grouped ? sets.filter(\.mine) : sets
+                let others = grouped ? sets.filter { !$0.mine } : []
+                if sets.isEmpty {
+                    Text(t("examShare.noItems")).foregroundStyle(Theme.muted)
+                } else {
+                    if !mine.isEmpty {
+                        Section {
+                            ForEach(mine, id: \.self) { row($0, withTeachers: !$0.mine) }
+                        }
                     }
-                    if sets.isEmpty { Text(t("examShare.noItems")).foregroundStyle(Theme.muted) }
-                    ForEach(sets, id: \.self) { set in
-                        ExamSetRow(set: set, opening: opening) { id in Task { await open(id) } }
+                    if !others.isEmpty {
+                        Section {
+                            DisclosureGroup(t("examShare.otherTeachers", ["count": others.count]), isExpanded: $othersOpen) {
+                                ForEach(others, id: \.self) { row($0, withTeachers: true) }
+                            }
+                        }
                     }
                 }
                 Section {} footer: { ExamCredit() }
@@ -63,19 +65,23 @@ struct ExamSubjectScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let subject {
+                if subject.sets.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) { filters(subject) }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button(t("examShare.upload.title"), systemImage: "arrow.up.doc") {
+                        Button(t("examShare.upload.title"), systemImage: "square.and.arrow.up") {
                             uploadEntry = .subject(subject.subject)
                         }
+                        .disabled(page.choices == nil)
                         Button(t("examShare.newRequest"), systemImage: "text.bubble") { showsRequest = true }
+                            .disabled(page.choices == nil)
                         if let web = URL(string: subject.webUrl) {
                             Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
                         }
                     } label: {
                         Label(t("examShare.upload.title"), systemImage: "plus")
                     }
-                    .disabled(page.busy)
                 }
             }
         }
@@ -104,6 +110,41 @@ struct ExamSubjectScreen: View {
             }
         }
         .examPageFeedback(page)
+    }
+
+    private func row(_ set: ExamSet, withTeachers: Bool) -> some View {
+        ExamSetRow(set: set, withTeachers: withTeachers, opening: opening) { id in Task { await open(id) } }
+    }
+
+    /// Year, teacher and exam type, each one choice; the icon fills while any is set.
+    private func filters(_ subject: ExamSubjectPage) -> some View {
+        Menu {
+            Picker(t("examShare.year"), selection: $year) {
+                Text(t("examShare.allYears")).tag(nil as UInt32?)
+                ForEach(subject.years, id: \.self) { Text(verbatim: String($0)).tag(Optional($0)) }
+            }
+            .pickerStyle(.menu)
+            Picker(t("examShare.teacher"), selection: $teacher) {
+                Text(t("examShare.allTeachers")).tag("")
+                ForEach(subject.teachers, id: \.id) { Text($0.name).tag($0.id) }
+            }
+            .pickerStyle(.menu)
+            Picker(t("examShare.occasion"), selection: $occasion) {
+                Text(t("examShare.allOccasions")).tag("")
+                ForEach(subject.occasions, id: \.self) { Text(t("examShare.occasion.\($0)")).tag($0) }
+            }
+            .pickerStyle(.menu)
+            if filtered {
+                Button(t("common.clear"), systemImage: "xmark") {
+                    year = nil
+                    teacher = ""
+                    occasion = ""
+                }
+            }
+        } label: {
+            Label(t("common.filter"), systemImage: filtered
+                  ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
     }
 
     private func load(resetFilters: Bool = true) async {
@@ -137,21 +178,23 @@ struct ExamSubjectScreen: View {
     }
 }
 
-/// One sitting: its label, its teachers when they are not the course's own,
+/// One sitting: a label, its teachers when they are not the course's own,
 /// and a pill per document. The row itself does not open; each pill does.
 private struct ExamSetRow: View {
     let set: ExamSet
+    let withTeachers: Bool
     let opening: String?
     let open: (String) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
+            Image(systemName: "doc.text").foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 let label = examSitting(year: set.academicYear, occasion: set.occasion,
                                         number: set.occasionNumber, variant: set.variant)
                 Text(label.isEmpty ? t("examShare.occasion.unknown") : label).foregroundStyle(Theme.ink)
-                if !set.mine && !set.teachers.isEmpty {
-                    Text(set.teachers.map(\.name).joined(separator: " / "))
+                if withTeachers {
+                    Text(set.teachers.isEmpty ? t("examShare.unknownTeacher") : set.teachers.map(\.name).joined(separator: " / "))
                         .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }

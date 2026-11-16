@@ -63,7 +63,6 @@ struct ExamUploadSheet: View {
 
     @State private var form: ExamUploadForm?
     @State private var newTeachers: [TeacherEntry] = []
-    @State private var year = ""
     /// Every staging, each keeping its copies alive while the form shows.
     @State private var selections: [ExamUploadSelection] = []
     @State private var files: [ExamUploadSelection.File] = []
@@ -84,7 +83,6 @@ struct ExamUploadSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let problem { Section { Text(problem).foregroundStyle(.red) } }
                 if let stageLabel {
                     Section {
                         if let upload, upload.phase == .transferring, upload.total > 0 {
@@ -96,32 +94,49 @@ struct ExamUploadSheet: View {
                 }
                 if upload?.phase == .pending {
                     Section {
+                        Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") {
+                            Task { await perform(.recoverUpload) }
+                        }
+                        .disabled(running)
+                    } footer: {
                         Text(t("examShare.upload.pending"))
-                        Button(t("examShare.upload.recover")) { Task { await perform(.recoverUpload) } }
-                            .disabled(running)
                     }
                 }
                 if let form = Binding($form) {
-                    fileFields.disabled(formDisabled)
-                    classificationFields(form.draft).disabled(formDisabled)
-                    subjectFields(form.wrappedValue).disabled(formDisabled)
-                    teacherFields(form).disabled(formDisabled)
+                    Group {
+                        fileFields
+                        classificationFields(form.draft)
+                        subjectFields(form.wrappedValue)
+                        teacherFields(form)
+                        sourceFields(form.draft)
+                        noteField(form.draft)
+                    }
+                    .disabled(formDisabled)
+                }
+                if let problem {
+                    Section { Text(problem).foregroundStyle(Theme.danger) }
                 }
             }
+            .themedList()
             .navigationTitle(entry.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     if running {
+                        // Stops the transfer Core is running; the sheet stays to show how it ended.
                         Button(t("common.cancel")) { Task { await cancel() } }
                             .disabled(cancelling || upload?.cancellable != true)
                     } else {
-                        Button(t("common.close")) { dismiss() }.disabled(staging)
+                        Button(t("common.cancel")) { dismiss() }.disabled(staging)
                     }
                 }
                 if form != nil {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(t("common.submit")) { Task { await submit() } }.disabled(!canSubmit)
+                        if running {
+                            ProgressView()
+                        } else {
+                            Button(t("common.submit")) { Task { await submit() } }.disabled(!canSubmit)
+                        }
                     }
                 }
             }
@@ -165,8 +180,7 @@ struct ExamUploadSheet: View {
 
     private var canSubmit: Bool {
         guard let draft = form?.draft else { return false }
-        let trimmedYear = year.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !formDisabled && !files.isEmpty && (trimmedYear.isEmpty || UInt32(trimmedYear) != nil)
+        return !formDisabled && !files.isEmpty
             && newTeachers.allSatisfy { !$0.familyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             && draft.variant.utf16.count <= choices.limits.variant
             && draft.note.utf16.count <= choices.limits.note
@@ -185,6 +199,23 @@ struct ExamUploadSheet: View {
 
     private var fileFields: some View {
         Section {
+            ForEach(Array(files.enumerated()), id: \.element.url) { index, file in
+                HStack {
+                    Image(systemName: file.isImage ? "photo" : "doc").foregroundStyle(Theme.muted)
+                    Text(file.name).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if files.count > 1 {
+                        // Pages go into the PDF in this order.
+                        fileButton(t("examShare.upload.moveUp"), icon: "arrow.up") { moveFile(file.url, by: -1) }
+                            .disabled(index == 0)
+                        fileButton(t("examShare.upload.moveDown"), icon: "arrow.down") { moveFile(file.url, by: 1) }
+                            .disabled(index == files.count - 1)
+                    } else {
+                        Text(file.size).font(.footnote).foregroundStyle(Theme.muted)
+                    }
+                }
+            }
+            .onDelete { files.remove(atOffsets: $0) }
             // Paper is scanned with the camera, photos come from the library,
             // documents from Files, as in Mail. Each adds to the list.
             Menu {
@@ -196,20 +227,10 @@ struct ExamUploadSheet: View {
             } label: {
                 Label(t("examShare.upload.chooseFiles"), systemImage: "plus")
             }
-            if files.count > 1 { Text(t("examShare.upload.fileOrder")).foregroundStyle(Theme.muted) }
-            ForEach(Array(files.enumerated()), id: \.element.url) { index, file in
-                HStack {
-                    Text(file.name).lineLimit(2)
-                    Spacer()
-                    if files.count > 1 {
-                        fileButton(t("examShare.upload.moveUp"), icon: "arrow.up") { moveFile(file.url, by: -1) }
-                            .disabled(index == 0)
-                        fileButton(t("examShare.upload.moveDown"), icon: "arrow.down") { moveFile(file.url, by: 1) }
-                            .disabled(index == files.count - 1)
-                    }
-                    fileButton(t("common.remove"), icon: "minus.circle") { files.removeAll { $0.url == file.url } }
-                }
-            }
+        } header: {
+            Text(t(files.count > 1 ? "examShare.upload.fileOrder" : "examShare.uploadFiles"))
+        } footer: {
+            Text(t("examShare.upload.fileSelection"))
         }
     }
 
@@ -225,9 +246,7 @@ struct ExamUploadSheet: View {
     }
 
     private func classificationFields(_ draft: Binding<ExamUploadDraft>) -> some View {
-        let allowed = choices.roles.first { $0.role == draft.wrappedValue.role }
-        let occasions = allowed?.occasions ?? []
-        let sources = allowed?.answerSources ?? []
+        let occasions = choices.roles.first { $0.role == draft.wrappedValue.role }?.occasions ?? []
         return Section {
             Picker(t("examShare.upload.role"), selection: Binding(
                 get: { draft.wrappedValue.role },
@@ -235,7 +254,10 @@ struct ExamUploadSheet: View {
             )) {
                 ForEach(choices.roles, id: \.role) { Text($0.role.label).tag($0.role) }
             }
-            TextField(t("examShare.year"), text: $year).keyboardType(.numberPad)
+            Picker(t("examShare.year"), selection: draft.academicYear) {
+                ForEach(examYears(choices.limits), id: \.self) { Text(verbatim: String($0)).tag(Optional($0)) }
+                Text(t("examShare.unknownYear")).tag(nil as UInt32?)
+            }
             // A role with one occasion (notes, other) has nothing to choose.
             if occasions.count != 1 {
                 Picker(t("examShare.occasion"), selection: draft.occasion) {
@@ -244,19 +266,10 @@ struct ExamUploadSheet: View {
             }
             if choices.numbered.contains(draft.wrappedValue.occasion) {
                 Stepper(value: draft.occasionNumber, in: 0...choices.limits.occasionNumber) {
-                    Text("\(t("examShare.upload.occasionNumber")) · \(draft.wrappedValue.occasionNumber)")
+                    LabeledContent(t("examShare.upload.occasionNumber"), value: "\(draft.wrappedValue.occasionNumber)")
                 }
             }
             TextField(t("examShare.upload.variant"), text: draft.variant)
-            Picker(t("examShare.upload.provenance"), selection: draft.provenance) {
-                ForEach(choices.provenances, id: \.self) { Text($0.label).tag($0) }
-            }
-            if !sources.isEmpty {
-                Picker(t("examShare.upload.answerSource"), selection: draft.answerSource) {
-                    ForEach(sources, id: \.self) { Text($0.label).tag(Optional($0)) }
-                }
-            }
-            TextField(t("examShare.upload.note"), text: draft.note, axis: .vertical)
         }
     }
 
@@ -265,10 +278,7 @@ struct ExamUploadSheet: View {
             ForEach(form.subjects, id: \.subject.code) { entry in
                 let code = entry.subject.code
                 HStack {
-                    VStack(alignment: .leading) {
-                        Text(entry.subject.name)
-                        Text(code).font(.caption.monospaced()).foregroundStyle(Theme.muted)
-                    }
+                    ExamListRow(title: entry.subject.name, meta: [code])
                     Spacer()
                     if entry.removable {
                         fileButton(t("common.remove"), icon: "minus.circle") {
@@ -277,8 +287,9 @@ struct ExamUploadSheet: View {
                     }
                 }
             }
-            Button(t("examShare.upload.addSubject"), systemImage: "plus") { choosingSubject = true }
-                .disabled(form.subjects.count >= Int(choices.limits.subjects))
+            if form.subjects.count < Int(choices.limits.subjects) {
+                Button(t("examShare.upload.addSubject"), systemImage: "plus") { choosingSubject = true }
+            }
         }
     }
 
@@ -287,30 +298,58 @@ struct ExamUploadSheet: View {
         let limit = Int(choices.limits.teachers)
         return Section(t("examShare.teacher")) {
             ForEach(form.wrappedValue.teachers, id: \.id) { teacher in
-                Toggle(teacher.name, isOn: Binding(
-                    get: { teacherIds.wrappedValue.contains(teacher.id) },
-                    set: { selected in
-                        if selected {
-                            teacherIds.wrappedValue.append(teacher.id)
-                        } else {
-                            teacherIds.wrappedValue.removeAll { $0 == teacher.id }
-                        }
+                let selected = teacherIds.wrappedValue.contains(teacher.id)
+                Button {
+                    if selected {
+                        teacherIds.wrappedValue.removeAll { $0 == teacher.id }
+                    } else {
+                        teacherIds.wrappedValue.append(teacher.id)
                     }
-                ))
-                .disabled(teacherIds.wrappedValue.count >= limit && !teacherIds.wrappedValue.contains(teacher.id))
+                } label: {
+                    HStack {
+                        Text(teacher.name).foregroundStyle(Theme.ink)
+                        Spacer()
+                        if selected { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                    }
+                }
+                .disabled(!selected && teacherIds.wrappedValue.count >= limit)
             }
             ForEach($newTeachers) { $teacher in
-                VStack(alignment: .leading, spacing: 8) {
+                HStack {
                     TextField(t("examShare.upload.familyName"), text: $teacher.familyName)
                     TextField(t("examShare.upload.givenName"), text: $teacher.givenName)
-                    Button(t("common.remove"), role: .destructive) {
+                    fileButton(t("common.remove"), icon: "minus.circle") {
                         let id = teacher.id
                         newTeachers.removeAll { $0.id == id }
-                    }.buttonStyle(.borderless)
+                    }
                 }
             }
-            Button(t("examShare.upload.newTeacher"), systemImage: "plus") { newTeachers.append(TeacherEntry()) }
-                .disabled(newTeachers.count >= limit)
+            if newTeachers.count < limit {
+                Button(t("examShare.upload.newTeacher"), systemImage: "plus") { newTeachers.append(TeacherEntry()) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sourceFields(_ draft: Binding<ExamUploadDraft>) -> some View {
+        let sources = choices.roles.first { $0.role == draft.wrappedValue.role }?.answerSources ?? []
+        Section {
+            Picker(t("examShare.upload.provenance"), selection: draft.provenance) {
+                ForEach(choices.provenances, id: \.self) { Text($0.label).tag($0) }
+            }
+            if !sources.isEmpty {
+                Picker(t("examShare.upload.answerSource"), selection: draft.answerSource) {
+                    ForEach(sources, id: \.self) { Text($0.label).tag(Optional($0)) }
+                }
+            }
+        }
+    }
+
+    private func noteField(_ draft: Binding<ExamUploadDraft>) -> some View {
+        Section {
+            TextField(t("examShare.upload.note"), text: draft.note, axis: .vertical)
+        } footer: {
+            Text(t("examShare.uploadPublic"))
         }
     }
 
@@ -320,7 +359,6 @@ struct ExamUploadSheet: View {
         do {
             guard case let .uploadForm(value) = try await model.examShare(.uploadForm(start: start)) else { return }
             form = value
-            year = value.draft.academicYear.map(String.init) ?? ""
             newTeachers = value.draft.newTeachers.map { TeacherEntry(familyName: $0.familyName, givenName: $0.givenName) }
         } catch { problem = AppModel.describe(error) }
     }
@@ -401,7 +439,6 @@ struct ExamUploadSheet: View {
     private func submit() async {
         guard canSubmit, var draft = form?.draft else { return }
         let selections = selections
-        draft.academicYear = UInt32(year.trimmingCharacters(in: .whitespacesAndNewlines))
         draft.newTeachers = newTeachers.map {
             ExamNewTeacher(familyName: $0.familyName, givenName: $0.givenName)
         }
@@ -495,9 +532,9 @@ private struct ExamUploadSubjectPicker: View {
     var body: some View {
         NavigationStack {
             List {
-                if let problem { Text(problem).foregroundStyle(.red) }
-                if busy { ProgressView() }
-                if results?.isEmpty == true { Text(t("examShare.noItems")) }
+                if let problem { Text(problem).foregroundStyle(Theme.danger) }
+                if busy { ProgressView().frame(maxWidth: .infinity) }
+                if results?.isEmpty == true { Text(t("examShare.noItems")).foregroundStyle(Theme.muted) }
                 ForEach(results ?? [], id: \.code) { subject in
                     Button {
                         Task {
@@ -507,14 +544,13 @@ private struct ExamUploadSubjectPicker: View {
                             }
                         }
                     } label: {
-                        VStack(alignment: .leading) {
-                            Text(subject.name)
-                            Text(subject.code).font(.caption.monospaced()).foregroundStyle(Theme.muted)
-                        }
+                        ExamListRow(title: subject.name, meta: [subject.code])
                     }
                     .disabled(selected.contains(subject.code))
                 }
             }
+            .themedRows()
+            .themedList()
             .searchable(text: $query, prompt: t("examShare.search"))
             .onSubmit(of: .search) {
                 Task { await search() }
@@ -522,7 +558,7 @@ private struct ExamUploadSubjectPicker: View {
             .navigationTitle(t("examShare.upload.addSubject"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(t("common.close")) { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
             }
             .disabled(busy)
         }
@@ -548,6 +584,12 @@ private struct ExamUploadSelection: Sendable {
     struct File: Sendable {
         let url: URL
         let name: String
+
+        var isImage: Bool { UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true }
+        var size: String {
+            let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        }
     }
 
     // SwiftUI retains the directory while its staged selection is in the form.

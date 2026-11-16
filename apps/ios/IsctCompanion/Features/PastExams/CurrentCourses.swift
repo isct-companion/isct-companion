@@ -1,14 +1,13 @@
 import IsctCore
 import SwiftUI
 
-/// This quarter's enrolled courses, read from the device. A course opens its
-/// subject only when tapped. The screen loads `list`; a `Section` inside a
-/// `List` would run a `.task` for each of its rows.
+/// This quarter's enrolled courses, read from the device; each pushes its
+/// subject, which Core resolves only when opened. The screen loads `list`; a
+/// `Section` inside a `List` would run a `.task` for each of its rows.
 struct CurrentCoursesSection: View {
     let list: ExamCourseList?
     let failed: Bool
     let retry: () -> Void
-    let open: (ExamCourse) -> Void
 
     var body: some View {
         Section(t("examShare.currentCourses")) {
@@ -17,19 +16,16 @@ struct CurrentCoursesSection: View {
                     Text(t("examShare.noCurrentCourses")).foregroundStyle(Theme.muted)
                 }
                 ForEach(list.courses, id: \.courseId) { course in
-                    Button { open(course) } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(course.title).foregroundStyle(Theme.ink)
-                            if !course.instructor.isEmpty {
-                                Text(course.instructor).font(.subheadline).foregroundStyle(Theme.muted)
-                            }
-                            Text(course.subjectCodes.isEmpty
-                                 ? t("examShare.noSubjectCode") : course.subjectCodes.joined(separator: " / "))
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(Theme.muted)
+                    if course.subjectCodes.isEmpty {
+                        ExamListRow(title: course.title, meta: [t("examShare.noSubjectCode")])
+                            .opacity(0.6)
+                    } else {
+                        NavigationLink(value: ExamSubjectRoute(source: .course(id: course.courseId), title: course.title)) {
+                            ExamListRow(title: course.title, meta: [
+                                course.subjectCodes.joined(separator: " / "), course.instructor,
+                            ])
                         }
                     }
-                    .disabled(course.subjectCodes.isEmpty)
                 }
             } else if failed {
                 Button(t("common.retry"), action: retry)

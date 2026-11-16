@@ -2,8 +2,9 @@ import IsctCore
 import QuickLook
 import SwiftUI
 
-/// A past exam in Quick Look inside the page, which reads PDFs and photos
-/// with its own search; sharing and the document's actions sit in the bar.
+/// A past exam full screen in Quick Look inside the page, which reads PDFs
+/// and photos with its own copy and search; the document's actions sit in
+/// the toolbar's menu.
 struct ExamDocumentScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -19,7 +20,7 @@ struct ExamDocumentScreen: View {
                 QuickLookView(url: URL(fileURLWithPath: file.path)).ignoresSafeArea(edges: .bottom)
             } else if failed {
                 ContentUnavailableView {
-                    Label(t("examShare.title"), systemImage: "doc")
+                    Label(route.file.map { examName($0.document) } ?? t("examShare.title"), systemImage: "doc")
                 } actions: {
                     Button(t("common.retry")) { Task { await open() } }
                 }
@@ -32,12 +33,7 @@ struct ExamDocumentScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let file {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: URL(fileURLWithPath: file.path)) {
-                        Label(t("common.share"), systemImage: "square.and.arrow.up")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) { actions(file).disabled(page.busy) }
+                ToolbarItem(placement: .topBarTrailing) { actions(file) }
             }
         }
         .task {
@@ -72,10 +68,13 @@ struct ExamDocumentScreen: View {
                 }
                 .disabled(file.offline)
             }
+            ShareLink(item: URL(fileURLWithPath: file.path)) {
+                Label(t("common.share"), systemImage: "square.and.arrow.up")
+            }
             if let web = URL(string: file.webUrl) {
                 Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
             }
-            Button(t("examShare.report"), systemImage: "flag") { showsReport = true }
+            Button(t("examShare.report"), systemImage: "flag", role: .destructive) { showsReport = true }
                 .disabled(file.offline || page.choices == nil)
             if let removal {
                 Button(t(removal.key), systemImage: "trash", role: .destructive) {
@@ -87,6 +86,7 @@ struct ExamDocumentScreen: View {
         } label: {
             Label(t("examShare.more"), systemImage: "ellipsis.circle")
         }
+        .disabled(page.busy)
     }
 
     /// The library's removal, or removing the download of one opened elsewhere.
@@ -98,6 +98,7 @@ struct ExamDocumentScreen: View {
         failed = false
         if case let .document(value)? = await page.call(model, .open(id: route.id, download: download)) {
             file = value
+            if download { page.notice = t("examShare.downloadedNotice") }
         } else {
             failed = file == nil
         }
@@ -141,8 +142,8 @@ private struct QuickLookView: UIViewControllerRepresentable {
     }
 }
 
-/// One request in full, then what can be done with it: see its answer,
-/// answer it, or close, reopen or delete one's own.
+/// One request in full, then the one thing to do with it: share a file for
+/// it, see the shared one, or close, reopen or delete one's own.
 struct ExamRequestScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -158,16 +159,12 @@ struct ExamRequestScreen: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(item.subject.code).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
+                    Text(item.subject.code).font(.footnote).foregroundStyle(Theme.muted)
                     Text(item.subject.name).font(.title3.weight(.semibold)).foregroundStyle(Theme.ink)
+                    ExamStatusTag(status: item.status)
                 }
-                let facts = [
-                    item.academicYear.map(String.init),
-                    t("examShare.requestStatus.\(item.status)"),
-                    item.occasion.map { t("examShare.occasion.\($0)") },
-                    item.wantedRole.map { t("examShare.role.\($0)") },
-                ].compactMap { $0 }.joined(separator: " · ")
-                Text(facts).foregroundStyle(Theme.muted)
+                let facts = examRequestFacts(item)
+                if !facts.isEmpty { Text(facts).foregroundStyle(Theme.muted) }
                 if !item.teachers.isEmpty {
                     Text(item.teachers.map(\.name).joined(separator: " / ")).foregroundStyle(Theme.muted)
                 }
@@ -181,8 +178,8 @@ struct ExamRequestScreen: View {
                         Label(t("examShare.viewAnswer"), systemImage: "doc.text")
                     }
                 }
-                if item.status == "open" {
-                    Button(t("examShare.upload.answerRequest"), systemImage: "arrow.up.doc") { uploadEntry = .request(item) }
+                if !item.mine && item.status == "open" {
+                    Button(t("examShare.upload.answerRequest"), systemImage: "square.and.arrow.up") { uploadEntry = .request(item) }
                         .disabled(page.choices == nil)
                 }
                 if item.mine {
