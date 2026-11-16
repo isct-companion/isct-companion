@@ -213,6 +213,7 @@ export function PdfDocument({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const commit = () => {
       clearTimeout(timer);
+      timer = undefined;
       const surface = pages.current;
       if (surface) {
         surface.style.transform = "";
@@ -258,8 +259,11 @@ export function PdfDocument({
     const wheel = (event: WheelEvent) => {
       if (!event.ctrlKey || gesturing) return;
       event.preventDefault();
+      // A new wheel gesture starts from the zoom shown now, which the zoom
+      // menu may have changed since this effect ran.
+      const from = timer ? pending : zoomValue.current;
       preview(
-        pending * Math.exp(-event.deltaY * 0.01),
+        from * Math.exp(-event.deltaY * 0.01),
         event.clientX,
         event.clientY,
       );
