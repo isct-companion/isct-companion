@@ -6,6 +6,7 @@ import SwiftUI
 /// narrows the sittings, and uploads, requests or opens the site.
 struct ExamSubjectScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openExamLink) private var openExamLink
     @Environment(\.push) private var push
     let route: ExamSubjectRoute
     @State private var page = ExamPage()
@@ -65,7 +66,7 @@ struct ExamSubjectScreen: View {
                         Button(t("examShare.newRequest"), systemImage: "text.bubble") { showsRequest = true }
                             .disabled(page.choices == nil)
                         if let web = URL(string: subject.webUrl) {
-                            Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
+                            Button(t("examShare.openOnWeb"), systemImage: "safari") { openExamLink(web, false) }
                         }
                     } label: {
                         Label(t("examShare.upload.title"), systemImage: "plus")

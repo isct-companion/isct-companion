@@ -845,7 +845,7 @@ function SubjectSets({
   if (state?.failed)
     return (
       <ErrorBanner onRetry={retry}>
-        {t("error.exam-share-response")}
+        {t("examShare.loadFailed")}
       </ErrorBanner>
     );
   if (state?.subjects)
@@ -1234,7 +1234,7 @@ function RequestList({
         <div className="scroll">
           {failed ? (
             <ErrorBanner onRetry={() => void load(mine)}>
-              {t("error.exam-share-response")}
+              {t("examShare.loadFailed")}
             </ErrorBanner>
           ) : !items ? (
             <Skeleton count={5} />
@@ -1510,7 +1510,7 @@ function LibraryList({
         <div className="scroll">
           {failed && !library ? (
             <ErrorBanner onRetry={() => void load()}>
-              {t("error.exam-share-response")}
+              {t("examShare.loadFailed")}
             </ErrorBanner>
           ) : !library ? (
             <Skeleton count={6} />

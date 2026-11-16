@@ -230,6 +230,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val uri = LocalUriHandler.current
+    val links = rememberExamLinks()
     val scope = rememberCoroutineScope()
     val calls = rememberExamCalls()
     val choices by rememberExamChoices(calls)
@@ -254,15 +255,13 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                 if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
             },
             actions = {
-                IconButton(onClick = {
-                    uri.openUri(
-                        when (tab) {
-                            Tab.Browse -> null
-                            Tab.Requests -> ExamViews.requestBoardUrl
-                            Tab.Library -> ExamViews.libraryUrl
-                        } ?: (EXAM_SITE + tab.path),
-                    )
-                }) { Icon(Icons.Rounded.Public, t("examShare.openOnWeb")) }
+                ExamLinkButton(links) {
+                    when (tab) {
+                        Tab.Browse -> null
+                        Tab.Requests -> ExamViews.requestBoardUrl
+                        Tab.Library -> ExamViews.libraryUrl
+                    } ?: (EXAM_SITE + tab.path)
+                }
             },
         ) {
             when (account?.status) {

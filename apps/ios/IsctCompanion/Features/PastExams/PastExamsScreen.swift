@@ -239,6 +239,7 @@ struct PastExamsScreen: View {
         .frame(maxHeight: .infinity)
         .background(Theme.bg)
         .modifier(PastExamsTitle(root: courseId == nil, web: account?.status == .connected ? webUrl : nil))
+        .examLinks()
         .task(id: CoursesRead(revision: model.contentRevision, retry: coursesRetry)) {
             guard courseId == nil else { return }
             coursesFailed = false
@@ -657,7 +658,7 @@ private struct PastExamsTitle: ViewModifier {
             VStack(spacing: 0) {
                 PageHeader(title: t("examShare.title")) {
                     if let web {
-                        Link(destination: web) {
+                        ExamLinkButton(url: web) {
                             Image(systemName: "safari").font(.title3)
                         }
                         .accessibilityLabel(t("examShare.openOnWeb"))

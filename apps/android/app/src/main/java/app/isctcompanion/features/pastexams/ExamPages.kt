@@ -61,7 +61,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -114,7 +113,7 @@ private fun Loading() {
 fun ExamSubjectScreen(entry: ExamSubjectEntry) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    val uri = LocalUriHandler.current
+    val links = rememberExamLinks()
     val calls = rememberExamCalls()
     val choices by rememberExamChoices(calls)
     val account = model.examAccount
@@ -160,7 +159,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                             }
                         })
                         DropdownMenuItem({ Text(t("examShare.newRequest")) }, enabled = choices != null, onClick = { menu = false; requesting = true })
-                        DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, onClick = { menu = false; uri.openUri(current.webUrl) })
+                        DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, onClick = { menu = false; links.open(current.webUrl) })
                     }
                 }
             },
@@ -262,7 +261,7 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
 @Composable
 fun ExamDocumentScreen(id: String) {
     val scope = rememberCoroutineScope()
-    val uri = LocalUriHandler.current
+    val links = rememberExamLinks()
     val calls = rememberExamCalls()
     val choices by rememberExamChoices(calls)
     var file by remember(id) { mutableStateOf<ExamLocalDocument?>(null) }
@@ -305,7 +304,7 @@ fun ExamDocumentScreen(id: String) {
                                 enabled = !calls.busy && !current.offline,
                             )
                         }
-                        DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, { menu = false; uri.openUri(current.webUrl) })
+                        DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, { menu = false; links.open(current.webUrl) })
                         DropdownMenuItem(
                             { Text(t("examShare.report"), color = Theme.colors.danger) },
                             { menu = false; reporting = true },
@@ -477,7 +476,7 @@ private fun ImageView(path: String) {
 fun ExamRequestScreen(id: String, mine: Boolean) {
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
-    val uri = LocalUriHandler.current
+    val links = rememberExamLinks()
     val calls = rememberExamCalls()
     val choices by rememberExamChoices(calls)
     var request by remember(id) { mutableStateOf(ExamViews.requests[id]) }
@@ -542,7 +541,7 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
                         }
                     }
                     TextButton(
-                        onClick = { uri.openUri(ExamViews.requestBoardUrl ?: "$EXAM_SITE/request") },
+                        onClick = { links.open(ExamViews.requestBoardUrl ?: "$EXAM_SITE/request") },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(t("examShare.openOnWeb")) }
                 }
