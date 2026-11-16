@@ -85,6 +85,10 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
+      # A fresh runner's first simulator boot takes one to two minutes. It runs
+      # in the background while Rust builds; the smoke run waits for it.
+      - name: Start booting the iOS Simulator
+        run: node scripts/bindings/boot-ios-simulator.mjs > "$RUNNER_TEMP/simulator-boot.log" 2>&1 &
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
@@ -127,8 +131,9 @@ jobs:
           xcodebuild -version
           if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
           xcodegen generate
+          # No index store: nothing reads it, and indexing slows the compile.
           xcodebuild -project IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Debug \
-            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build
+            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO build
       - uses: actions/upload-artifact@v7
         with:
           name: app-core-swift-sdk-dev-ci
