@@ -769,18 +769,6 @@ export type ExamSubjectPage = {
    */
   exams: Array<ExamDocument>;
   /**
-   * Every teacher the materials name, for filtering, the class's first.
-   */
-  teachers: Array<ExamTeacher>;
-  /**
-   * The years the materials are from, newest first, for filtering.
-   */
-  years: Array<number>;
-  /**
-   * The occasions the materials name, in `ExamChoices` order.
-   */
-  occasions: Array<string>;
-  /**
    * The local course's class when one of `rows` lists it. Reopening the
    * subject passes it back so the order survives a refresh.
    */
@@ -790,8 +778,9 @@ export type ExamSubjectPage = {
    */
   webUrl: string;
   /**
-   * `exams` by sitting, in `exams`' order: a question and its answer are
-   * one row on every shell.
+   * `exams` by sitting: the class's own first, then newest first and in
+   * the forms' occasion order. A question and its answer are one row on
+   * every shell.
    */
   sets: Array<ExamSet>;
 };
