@@ -20,6 +20,7 @@ const BACKEND_EVENTS = [
   "school-download",
   "school-session",
   "cloud-sync-state",
+  "exam-account",
 ];
 const SECRET_KEY = /pass|secret|token|cookie|credential|otp|auth/i;
 const INTERACTIVE =

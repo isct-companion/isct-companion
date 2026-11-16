@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 169 checks must be re-run before the next release.**
+**5 of 170 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**164 checks have never been run or could not be run:**
+**165 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -147,6 +147,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-ICLOUD-BACKUP` — never verified
 - `DESKTOP-DEBUG-ICLOUD` — never verified
 - `CLOUD-PROVIDER-COMBINATIONS` — never verified
+- `IOS-EXAM-ACCOUNT-ISOLATION` — never verified
 - `IOS-DRIVE-SIGNIN` — never verified
 - `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-PRIVACY-POLICY` — never verified
@@ -321,7 +322,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
-| `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/GoogleSignIn.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
+| `IOS-EXAM-ACCOUNT-ISOLATION` | identity | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>crates/app-core/src/exam_share/mod.rs<br>crates/app-core/src/exam_share/library.rs |
+| `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
@@ -8210,6 +8212,58 @@ and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_ed
 
 **Last recorded** never run
 
+### The ScienceTokyoExam account and its downloads stay private on iPhone (`IOS-EXAM-ACCOUNT-ISOLATION`)
+
+**Area** identity · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone with the signed development build and an eligible school Google
+account. ScienceTokyoExam accepts the app's OAuth client.
+
+**Steps**
+
+1. Connect from 过去問 and cancel the school Google page. Connect again
+   with the eligible account, and review and accept the service terms
+   if the account is new.
+   - *Why:* Cancellation must release the browser session. A later sign-in must
+     return to the app and the account state must match the service.
+2. Download a published document, force-quit the app, then reopen it.
+   Find the downloaded item in My Library.
+   - *Why:* The downloaded document and the authorized session must survive
+     restart on the same installation.
+3. Disconnect ScienceTokyoExam, force-quit and reopen the app, then
+   reconnect and inspect the Downloads section.
+   - *Why:* The first restart must not resurrect the session. Reconnecting must
+     not reveal a download that belonged to the disconnected session.
+
+**Where to look**
+
+The system Google page and the account and Downloads sections in 过去問.
+
+**Expected**
+
+The app can sign in after cancellation. A connected restart retains the
+download. Disconnect removes the connection and its downloaded copy.
+
+**Why this is manual**
+
+This path depends on the registered OAuth redirect, the real school
+account, the signed application's Keychain access and the native
+file preview. CI has no signed iPhone session or service credentials.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/BrowserAuthentication.swift`
+- `apps/ios/IsctCompanion/Core/KeychainVault.swift`
+- `apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift`
+- `crates/app-core/src/exam_share/mod.rs`
+- `crates/app-core/src/exam_share/library.rs`
+
+**Last recorded** never run
+
 ### iPhone signs in to Google Drive and syncs with a desktop on Drive (`IOS-DRIVE-SIGNIN`)
 
 **Area** cloud · **Persona** Two devices, interrupted work · **Result** —
@@ -8256,12 +8310,12 @@ data arrives; a relaunch stays signed in; off then on asks again.
 
 ASWebAuthenticationSession and Google's consent page need a device and a
 real Google account. The PKCE checks and token storage are covered by
-`callback_answers_only_its_own_authorization` and
+`only_the_authorization_with_the_same_redirect_and_state_can_supply_a_code` and
 `saved_authorization_is_read_and_disconnect_removes_only_drive`.
 
 **Covers**
 
-- `apps/ios/IsctCompanion/Core/GoogleSignIn.swift`
+- `apps/ios/IsctCompanion/Core/BrowserAuthentication.swift`
 - `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
 - `apps/ios/project.yml`
 

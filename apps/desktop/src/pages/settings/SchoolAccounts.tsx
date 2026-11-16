@@ -1,6 +1,7 @@
 import { errorText } from "../../app/shared";
 import { notify as appNotify } from "../../app/notify";
 import {
+  otpNotSetUp,
   sessionDetails,
   sessionText,
   signInProblemText,
@@ -443,10 +444,11 @@ function Account({
     ? sessionDetails(profile, session, i18n.language)
     : [];
   // Retry re-reads the synced credentials and signs in once now; Core also
-  // tries an unavailable school again by itself.
+  // tries an unavailable school again by itself. Without school OTP the
+  // school only sends its emailed code again, so the portal is the way on.
   const retryOffered =
     session?.state === "refused" ||
-    session?.state === "needs-web" ||
+    (session?.state === "needs-web" && !otpNotSetUp(session)) ||
     session?.state === "unavailable";
   const credentials = (): SchoolCredentials => ({
     username: draft.username,
@@ -581,15 +583,24 @@ function Account({
           data-maintenance={session.maintenance ? "" : undefined}
         >
           <span>{details.join(" ")}</span>
-          {session.state === "needs-web" && (
-            <Button
-              variant="subtle"
-              size="compact-xs"
-              onClick={() => showLoginPage(profile)}
-            >
-              {t("settings.schoolAccounts.showPage")}
-            </Button>
-          )}
+          {session.state === "needs-web" &&
+            (otpNotSetUp(session) ? (
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                onClick={() => showLoginPage(profile, { unsigned: true })}
+              >
+                {t("schoolSession.openPortal")}
+              </Button>
+            ) : (
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                onClick={() => showLoginPage(profile)}
+              >
+                {t("settings.schoolAccounts.showPage")}
+              </Button>
+            ))}
           {retryOffered && !session.signOutPending && (
             <Button
               variant="subtle"

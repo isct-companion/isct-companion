@@ -7160,6 +7160,50 @@ checks:
       - crates/app-core/src/data/backup_store.rs
     verified: null
 
+  - id: IOS-EXAM-ACCOUNT-ISOLATION
+    area: identity
+    title: The ScienceTokyoExam account and its downloads stay private on iPhone
+    persona: careless-multidevice
+    preconditions: |
+      An iPhone with the signed development build and an eligible school Google
+      account. ScienceTokyoExam accepts the app's OAuth client.
+    steps:
+      - action: |
+          Connect from 过去問 and cancel the school Google page. Connect again
+          with the eligible account, and review and accept the service terms
+          if the account is new.
+        reason: |
+          Cancellation must release the browser session. A later sign-in must
+          return to the app and the account state must match the service.
+      - action: |
+          Download a published document, force-quit the app, then reopen it.
+          Find the downloaded item in My Library.
+        reason: |
+          The downloaded document and the authorized session must survive
+          restart on the same installation.
+      - action: |
+          Disconnect ScienceTokyoExam, force-quit and reopen the app, then
+          reconnect and inspect the Downloads section.
+        reason: |
+          The first restart must not resurrect the session. Reconnecting must
+          not reveal a download that belonged to the disconnected session.
+    observe: |
+      The system Google page and the account and Downloads sections in 过去問.
+    expected: |
+      The app can sign in after cancellation. A connected restart retains the
+      download. Disconnect removes the connection and its downloaded copy.
+    why_manual: |
+      This path depends on the registered OAuth redirect, the real school
+      account, the signed application's Keychain access and the native
+      file preview. CI has no signed iPhone session or service credentials.
+    covers:
+      - apps/ios/IsctCompanion/Core/BrowserAuthentication.swift
+      - apps/ios/IsctCompanion/Core/KeychainVault.swift
+      - apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift
+      - crates/app-core/src/exam_share/mod.rs
+      - crates/app-core/src/exam_share/library.rs
+    verified: null
+
   - id: IOS-DRIVE-SIGNIN
     area: cloud
     title: iPhone signs in to Google Drive and syncs with a desktop on Drive
@@ -7203,10 +7247,10 @@ checks:
     why_manual: |
       ASWebAuthenticationSession and Google's consent page need a device and a
       real Google account. The PKCE checks and token storage are covered by
-      `callback_answers_only_its_own_authorization` and
+      `only_the_authorization_with_the_same_redirect_and_state_can_supply_a_code` and
       `saved_authorization_is_read_and_disconnect_removes_only_drive`.
     covers:
-      - apps/ios/IsctCompanion/Core/GoogleSignIn.swift
+      - apps/ios/IsctCompanion/Core/BrowserAuthentication.swift
       - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
       - apps/ios/project.yml
     verified: null

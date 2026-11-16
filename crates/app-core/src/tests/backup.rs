@@ -160,6 +160,7 @@ fn daily_maintenance_keeps_an_importable_copy_of_the_user_tables() {
         .unwrap();
     crate::deadlines::Maintenance::new(
         fixture.store.clone(),
+        Default::default(),
         #[cfg(feature = "agent")]
         None,
     )

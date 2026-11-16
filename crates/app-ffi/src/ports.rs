@@ -7,12 +7,16 @@ use crate::{
 use app_core::cloud_sync::document::{
     BoxFuture, DocumentCloud, DocumentError, ObjectStore, Providers, StoredObject, TaggedWorkspace,
 };
-use app_core::cloud_sync::google_drive::{
-    DriveAuthorization, GoogleDrive, OAuthClient, Pkce, SCOPE, VAULT_ACCOUNT,
-};
+use app_core::cloud_sync::google_drive::{DriveAuthorization, GoogleDrive};
+#[cfg(not(target_os = "ios"))]
+use app_core::cloud_sync::google_drive::{SCOPE, VAULT_ACCOUNT};
 use app_core::cloud_sync::{CloudFuture, CloudSignIn, CloudSyncError};
+#[cfg(target_os = "ios")]
+use app_core::{cloud_sync::google_drive::Pkce, oauth::code_exchange::OAuthClient};
+use app_core::oauth::{BrowserCallback, OAuthError};
 use app_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 #[uniffi::export(rust, foreign)]
@@ -568,24 +572,66 @@ impl ObjectStore for Cloud {
             .map_err(cloud_error)
     }
 }
-/// The Google OAuth client an Apple shell signs in with: its registered iOS
-/// client and the redirect that client accepts.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct GoogleClient {
-    pub client_id: String,
-    pub redirect_uri: String,
-}
-/// Presents Google sign-in for Drive in a web authentication session (iOS).
-/// Core starts and checks the PKCE authorization and keeps the token in the
-/// vault; the shell only shows the page.
+/// iOS's web authentication session. It returns the URL the session ended
+/// at, whose scheme is `callback_scheme`; fail with `SdkError::Cancelled`
+/// when the person closed it.
 #[uniffi::export(rust, foreign)]
 #[async_trait::async_trait]
-pub trait NativeWebAuthentication: Send + Sync {
-    fn google_client(&self) -> GoogleClient;
-    /// Opens `url` and returns the URL the session ended at, whose scheme is
-    /// `callback_scheme`. Fail with `SdkError::Cancelled` if the user closed it.
+pub trait NativeWebAuthSession: Send + Sync {
     async fn authenticate(&self, url: String, callback_scheme: String) -> Result<String, SdkError>;
+    /// Closes the session Core gave up on.
+    async fn cancel(&self);
 }
+
+/// Android's browser: it only opens the page. Core's loopback listener
+/// receives the answer.
+#[uniffi::export(rust, foreign)]
+#[async_trait::async_trait]
+pub trait NativeBrowserOpener: Send + Sync {
+    async fn open_url(&self, url: String) -> Result<(), SdkError>;
+}
+
+fn browser_error(error: SdkError) -> OAuthError {
+    match error {
+        SdkError::Cancelled => OAuthError::Cancelled,
+        _ => OAuthError::Browser,
+    }
+}
+
+#[cfg(target_os = "ios")]
+pub(crate) struct BrowserAuth(pub Arc<dyn NativeWebAuthSession>);
+#[cfg(not(target_os = "ios"))]
+pub(crate) struct BrowserAuth(pub Arc<dyn NativeBrowserOpener>);
+
+#[cfg(target_os = "ios")]
+impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
+    fn authenticate<'a>(
+        &'a self,
+        url: &'a Url,
+        BrowserCallback::Scheme(scheme): BrowserCallback<'a>,
+    ) -> app_core::net::BoxFuture<'a, Result<String, OAuthError>> {
+        Box::pin(async move {
+            self.0
+                .authenticate(url.to_string(), scheme.into())
+                .await
+                .map_err(browser_error)
+        })
+    }
+    fn cancel(&self) -> app_core::net::BoxFuture<'_, ()> {
+        Box::pin(self.0.cancel())
+    }
+}
+#[cfg(not(target_os = "ios"))]
+impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
+    fn authenticate<'a>(
+        &'a self,
+        url: &'a Url,
+        _: BrowserCallback,
+    ) -> app_core::net::BoxFuture<'a, Result<(), OAuthError>> {
+        Box::pin(async move { self.0.open_url(url.to_string()).await.map_err(browser_error) })
+    }
+}
+
 /// Hands out Drive access tokens from the OS account system (Android's
 /// Google Identity authorization), which keeps the grant itself.
 #[uniffi::export(rust, foreign)]
@@ -599,134 +645,130 @@ pub trait NativeDriveTokens: Send + Sync {
     /// person's other devices out of Drive too.
     fn sign_out(&self) -> Result<(), SdkError>;
 }
-/// How this shell authorizes Drive; Core owns the REST calls either way.
+/// Drive's authorization mechanism is selected for the native build target:
+/// PKCE in a web authentication session on iOS, the OS account's tokens on
+/// Android (and on the hosts the bindings are generated and tested on).
 pub(crate) enum DriveAuth {
+    #[cfg(target_os = "ios")]
     Pkce {
         pkce: Pkce<Vault>,
-        web: Arc<dyn NativeWebAuthentication>,
+        browser: BrowserAuth,
     },
+    #[cfg(not(target_os = "ios"))]
     Tokens {
         tokens: Arc<dyn NativeDriveTokens>,
-        /// Records that the user connected, so a restart knows Drive is
-        /// authorized without asking the OS (which may show UI).
         vault: Vault,
     },
 }
+
+#[cfg(not(target_os = "ios"))]
 const DRIVE_CONNECTED: &str = "connected";
-fn drive_error(e: SdkError) -> DocumentError {
-    DocumentError::Transport(e.to_string())
-}
+
 impl DriveAuth {
+    #[cfg(target_os = "ios")]
     pub(crate) fn new(
         vault: Arc<dyn NativeVault>,
-        web: Option<Arc<dyn NativeWebAuthentication>>,
-        tokens: Option<Arc<dyn NativeDriveTokens>>,
+        session: Option<Arc<dyn NativeWebAuthSession>>,
+        client_id: Option<String>,
     ) -> Result<Option<Self>, SdkError> {
-        Ok(match (web, tokens) {
-            (Some(web), _) => {
-                let client = web.google_client();
-                Some(Self::Pkce {
-                    pkce: Pkce::new(
-                        Vault(vault),
-                        OAuthClient {
-                            id: client.client_id,
-                            secret: None,
-                        },
-                    )
-                    .map_err(|e| crate::error::coded(&e))?,
-                    web,
-                })
-            }
-            (None, Some(tokens)) => Some(Self::Tokens {
-                tokens,
-                vault: Vault(vault),
-            }),
-            (None, None) => None,
+        let (Some(session), Some(id)) = (session, client_id) else {
+            return Ok(None);
+        };
+        Ok(Some(Self::Pkce {
+            pkce: Pkce::new(Vault(vault), OAuthClient { id, secret: None })
+                .map_err(|e| crate::error::coded(&e))?,
+            browser: BrowserAuth(session),
+        }))
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    pub(crate) fn new(
+        vault: Arc<dyn NativeVault>,
+        tokens: Option<Arc<dyn NativeDriveTokens>>,
+    ) -> Option<Self> {
+        tokens.map(|tokens| Self::Tokens {
+            tokens,
+            vault: Vault(vault),
         })
     }
-    pub(crate) fn authorized(&self) -> Result<bool, SdkError> {
-        let saved = match self {
-            Self::Pkce { pkce, .. } => pkce.authorized(),
+
+    pub(crate) fn authorized(&self) -> Result<bool, CloudSyncError> {
+        match self {
+            #[cfg(target_os = "ios")]
+            Self::Pkce { pkce, .. } => pkce.authorized().map_err(drive_error),
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { vault, .. } => core::SecretVault::load(vault, VAULT_ACCOUNT)
                 .map(|saved| saved.as_deref() == Some(DRIVE_CONNECTED))
-                .map_err(|e| DocumentError::Transport(e.to_string())),
-        };
-        saved.map_err(|e| crate::error::coded(&e))
+                .map_err(drive_error),
+        }
     }
-    /// The interactive sign-in behind turning Drive on.
-    pub(crate) async fn connect(&self) -> Result<(), SdkError> {
+
+    async fn connect(&self, _cancel: &CancellationToken) -> Result<(), CloudSyncError> {
         match self {
-            Self::Pkce { pkce, web } => {
-                let client = web.google_client();
-                let pending = pkce
-                    .begin(&client.client_id, &client.redirect_uri)
-                    .map_err(|e| crate::error::coded(&e))?;
-                let scheme = Url::parse(&client.redirect_uri)
-                    .map_err(|e| SdkError::InvalidInput {
-                        detail: e.to_string(),
-                    })?
-                    .scheme()
-                    .to_owned();
-                let callback = web.authenticate(pending.url.clone(), scheme).await?;
-                pkce.finish(&client.client_id, &pending, &callback)
-                    .await
-                    .map_err(|e| crate::error::coded(&e))
-            }
+            #[cfg(target_os = "ios")]
+            Self::Pkce { pkce, browser } => pkce.connect(browser, _cancel).await,
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { tokens, vault } => {
-                tokens.access_token(SCOPE.into(), true).await?;
-                core::SecretVault::store(vault, VAULT_ACCOUNT, DRIVE_CONNECTED)
-                    .map_err(|e| crate::error::coded(&e))
+                tokens
+                    .access_token(SCOPE.into(), true)
+                    .await
+                    .map_err(sign_in_error)?;
+                core::SecretVault::store(vault, VAULT_ACCOUNT, DRIVE_CONNECTED).map_err(drive_error)
             }
         }
     }
 }
+
+fn drive_error(error: impl ToString) -> CloudSyncError {
+    CloudSyncError::Transport(error.to_string())
+}
+
+#[cfg(not(target_os = "ios"))]
+fn sign_in_error(e: SdkError) -> CloudSyncError {
+    match e {
+        SdkError::Cancelled => CloudSyncError::Cancelled,
+        other => drive_error(other),
+    }
+}
+
 impl DriveAuthorization for DriveAuth {
-    fn access_token<'a>(&'a self, refresh: bool) -> BoxFuture<'a, String> {
+    fn access_token<'a>(&'a self, _refresh: bool) -> BoxFuture<'a, String> {
         match self {
-            Self::Pkce { pkce, .. } => pkce.access_token(refresh),
+            #[cfg(target_os = "ios")]
+            Self::Pkce { pkce, .. } => pkce.access_token(_refresh),
             // The OS refreshes its own tokens; a background request never shows UI.
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { tokens, .. } => Box::pin(async move {
                 tokens
                     .access_token(SCOPE.into(), false)
                     .await
-                    .map_err(drive_error)
+                    .map_err(|error| DocumentError::Transport(error.to_string()))
             }),
         }
     }
     fn disconnect(&self) -> Result<(), DocumentError> {
         match self {
+            #[cfg(target_os = "ios")]
             Self::Pkce { pkce, .. } => pkce.disconnect(),
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { tokens, vault } => {
                 core::SecretVault::delete(vault, VAULT_ACCOUNT)
                     .map_err(|e| DocumentError::Transport(e.to_string()))?;
-                tokens.sign_out().map_err(drive_error)
+                tokens
+                    .sign_out()
+                    .map_err(|e| DocumentError::Transport(e.to_string()))
             }
         }
     }
 }
-/// The sign-in Core asks for before it turns Drive on.
-pub(crate) struct DriveSignIn<'a>(pub Option<&'a DriveAuth>);
-fn sign_in_error(e: SdkError) -> CloudSyncError {
-    match e {
-        SdkError::Cancelled => CloudSyncError::Cancelled,
-        other => CloudSyncError::Transport(other.to_string()),
-    }
-}
+
+pub(crate) struct DriveSignIn<'a>(pub Option<&'a DriveAuth>, pub &'a CancellationToken);
 impl CloudSignIn for DriveSignIn<'_> {
     fn signed_in(&self, _: app_core::cloud_sync::CloudProvider) -> Result<bool, CloudSyncError> {
-        self.0
-            .ok_or_else(no_drive)?
-            .authorized()
-            .map_err(sign_in_error)
+        self.0.ok_or_else(no_drive)?.authorized()
     }
     fn sign_in(&self, _: app_core::cloud_sync::CloudProvider) -> CloudFuture<'_, ()> {
-        Box::pin(async move {
-            self.0
-                .ok_or_else(no_drive)?
-                .connect()
-                .await
-                .map_err(sign_in_error)
-        })
+        Box::pin(async move { self.0.ok_or_else(no_drive)?.connect(self.1).await })
     }
 }
 fn no_drive() -> CloudSyncError {

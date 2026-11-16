@@ -47,6 +47,15 @@ struct LecturesScreen: View {
             }
         }
         .navigationTitle(t("common.courses"))
+        .toolbar {
+            if Layout.isPad && !selects {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: PastExamsRoute()) {
+                        Label(t("examShare.title"), systemImage: "doc.on.doc")
+                    }
+                }
+            }
+        }
         .overlay {
             if isEmpty {
                 ContentUnavailableView(

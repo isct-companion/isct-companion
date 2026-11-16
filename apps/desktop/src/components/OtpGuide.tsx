@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t, type MessageKey } from "../i18n";
 import guides from "../../../../resources/otp-guide/otp-guide.json";
@@ -41,6 +41,13 @@ export function OtpGuideButton({ guide }: { guide: OtpGuideId }) {
   const [index, setIndex] = useState<number | null>(null);
   const step = index === null ? null : steps[index];
   const last = index === steps.length - 1;
+  const next = useRef<HTMLButtonElement>(null);
+  const go = (to: number) => {
+    // Back disables itself on the first step; focus moves to Next rather
+    // than falling out of the dialog.
+    if (to === 0) next.current?.focus();
+    setIndex(to);
+  };
   return (
     <>
       <Button variant="subtle" size="xs" onClick={() => setIndex(0)}>
@@ -53,7 +60,18 @@ export function OtpGuideButton({ guide }: { guide: OtpGuideId }) {
           onClose={() => setIndex(null)}
           title={t(TITLES[guide])}
         >
-          <Stack gap="sm" align="center">
+          {/* The arrow keys page like the phone's swipe; Next holds focus, so
+              Space and Return step through without the pointer. */}
+          <Stack
+            gap="sm"
+            align="center"
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight" && !last) go(index + 1);
+              else if (event.key === "ArrowLeft" && index > 0) go(index - 1);
+              else return;
+              event.preventDefault();
+            }}
+          >
             <div className="otpGuideShot" data-action={step.action}>
               <img src={image(step.image)} alt="" />
               {step.action === "screenshot" && (
@@ -75,9 +93,20 @@ export function OtpGuideButton({ guide }: { guide: OtpGuideId }) {
                 />
               )}
             </div>
-            <Text size="sm" className="otpGuideCaption">
-              {t(step.caption as MessageKey)}
-            </Text>
+            {/* Every caption sits in one cell, so the tallest sets the height
+                and the buttons stay put from step to step. */}
+            <div className="otpGuideCaptions">
+              {steps.map((each, at) => (
+                <Text
+                  key={at}
+                  size="sm"
+                  aria-hidden={at !== index || undefined}
+                  data-current={at === index || undefined}
+                >
+                  {t(each.caption as MessageKey)}
+                </Text>
+              ))}
+            </div>
             <Group justify="space-between" style={{ width: "100%" }}>
               <Text size="xs" c="dimmed">
                 {t("otpGuide.stepOf", {
@@ -85,18 +114,20 @@ export function OtpGuideButton({ guide }: { guide: OtpGuideId }) {
                   total: String(steps.length),
                 })}
               </Text>
-              <Group gap={6}>
+              <Group gap={6} className="otpGuideNav">
                 <Button
                   variant="default"
                   size="xs"
                   disabled={index === 0}
-                  onClick={() => setIndex(index - 1)}
+                  onClick={() => go(index - 1)}
                 >
                   {t("common.back")}
                 </Button>
                 <Button
+                  ref={next}
                   size="xs"
-                  onClick={() => setIndex(last ? null : index + 1)}
+                  autoFocus
+                  onClick={() => (last ? setIndex(null) : go(index + 1))}
                 >
                   {t(last ? "common.done" : "common.next")}
                 </Button>

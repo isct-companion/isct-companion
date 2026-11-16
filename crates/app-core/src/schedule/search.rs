@@ -24,7 +24,47 @@ pub(super) fn course_code_key(code: &str) -> String {
     code.nfkc().collect::<String>().trim().to_uppercase()
 }
 
-fn course_code_aliases(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
+// A local course can carry two official codes and a shared class suffix.
+fn course_code_parts(code: &str) -> Option<regex::Captures<'_>> {
+    static PATTERN: std::sync::OnceLock<Result<regex::Regex, regex::Error>> =
+        std::sync::OnceLock::new();
+    PATTERN
+        .get_or_init(|| {
+            regex::Regex::new(
+                r"^([A-Z]{2,5}\.[A-Z]{1,2}[0-9]{3})(?:\(([A-Z]{2,5}\.[A-Z]{1,2}[0-9]{3})\))?(-[0-9]+)?$",
+            )
+        })
+        .as_ref()
+        .ok()?
+        .captures(code)
+}
+
+/// The ScienceTokyoExam subject codes to look a local course up by. A
+/// syllabus code written `PRIMARY(ALIAS)` names its primary code outside the
+/// brackets, and the site files the subject under that code, so the alias is
+/// never looked up: it may be another, older subject's own code. A lone code
+/// that another source of this course names as its alias is dropped for the
+/// same reason. A lone code of unknown standing stays; the site answers an
+/// alias with `course.not_found` and the lookup falls back to search.
+pub(crate) fn subject_codes(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
+    let codes = source_course_codes(workspace, school, course);
+    let parts: Vec<_> = codes.iter().filter_map(|code| course_code_parts(code)).collect();
+    let aliases: Vec<&str> = parts
+        .iter()
+        .filter_map(|parts| parts.get(2).map(|alias| alias.as_str()))
+        .collect();
+    let mut subjects: Vec<String> = parts
+        .iter()
+        .filter_map(|parts| parts.get(1).map(|primary| primary.as_str()))
+        .filter(|primary| !aliases.contains(primary))
+        .map(str::to_owned)
+        .collect();
+    subjects.sort_unstable();
+    subjects.dedup();
+    subjects
+}
+
+fn source_course_codes(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
     let mut codes: Vec<_> = text(course, "code")
         .into_iter()
         .map(course_code_key)
@@ -37,27 +77,30 @@ fn course_code_aliases(workspace: &Value, school: &SchoolReads, course: &Value) 
         .find(|lms| lms["lmsId"].is_number() && lms["lmsId"] == course["lmsCourseId"])
     {
         if let Some(shortname) = text(lms, "shortname") {
-            codes.push(crate::data::lms_course_code(shortname));
+            codes.push(course_code_key(&crate::data::lms_course_code(shortname)));
         }
     }
+    codes
+}
+
+fn course_code_aliases(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
+    let mut codes = source_course_codes(workspace, school, course);
     // LMS sometimes prints two official codes in one shortname, with a
     // shared class suffix: ENT.B101(LAS.F101)-02. Both remain searchable.
-    static COMPOUND: std::sync::OnceLock<Result<regex::Regex, regex::Error>> =
-        std::sync::OnceLock::new();
-    if let Ok(pattern) = COMPOUND.get_or_init(|| {
-        regex::Regex::new(r"^([A-Z]{3}\.[A-Z]\d{3})\(([A-Z]{3}\.[A-Z]\d{3})\)(-\d+)?$")
-    }) {
-        for code in codes.clone() {
-            if let Some(parts) = pattern.captures(&code) {
-                let suffix = parts.get(3).map(|part| part.as_str()).unwrap_or_default();
-                for index in [1, 2] {
-                    if let Some(part) = parts.get(index) {
-                        codes.push(format!("{}{suffix}", part.as_str()));
-                    }
-                }
-            }
-        }
-    }
+    let aliases: Vec<_> = codes
+        .iter()
+        .filter_map(|code| course_code_parts(code))
+        .filter(|parts| parts.get(2).is_some())
+        .flat_map(|parts| {
+            let suffix = parts.get(3).map_or("", |part| part.as_str());
+            (1..=2).filter_map(move |index| {
+                parts
+                    .get(index)
+                    .map(|part| format!("{}{suffix}", part.as_str()))
+            })
+        })
+        .collect();
+    codes.extend(aliases);
     codes.retain(|code| !code.is_empty());
     codes.sort();
     codes.dedup();

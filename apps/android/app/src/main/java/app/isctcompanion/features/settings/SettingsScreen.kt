@@ -12,6 +12,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Feedback
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Sync
@@ -26,6 +27,8 @@ import androidx.compose.material3.SegmentedButton
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -112,6 +115,7 @@ import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SyncState
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.exportApplicationLogs
+import app.isctcompanion.core.feedbackFormUrl
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Guide
@@ -299,13 +303,17 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             ) {
                 SettingsIcon(Icons.Rounded.Info, Theme.colors.muted)
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
-                val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-                Text(version.orEmpty(), color = Theme.colors.muted)
+                Text(appVersion(context), color = Theme.colors.muted)
             }
             RowDivider(inset = ICON_ROW_INSET)
             UpdateRows()
             RowDivider(inset = ICON_ROW_INSET)
             ActionRow(t("settings.main.showWelcomeAndTipsAgain"), Icons.Rounded.Lightbulb) { Guide.reset() }
+            RowDivider(inset = ICON_ROW_INSET)
+            ActionRow(t("about.feedback"), Icons.Rounded.Feedback) {
+                val url = feedbackFormUrl(appVersion(context), device())
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
             RowDivider(inset = ICON_ROW_INSET)
             LogsRow()
         }
@@ -396,12 +404,14 @@ private fun LogsRow() {
     }
 }
 
-private fun logText(context: Context): String {
-    val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-    return exportApplicationLogs(
-        "IsctCompanion ${version.orEmpty()} · Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}",
-    )
-}
+private fun appVersion(context: Context): String =
+    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
+
+/** The system this build runs on, as the log and the feedback form name it. */
+private fun device() = "Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}"
+
+private fun logText(context: Context): String =
+    exportApplicationLogs("IsctCompanion ${appVersion(context)} · ${device()}")
 
 /** The update check: what it found, or a check now, and whether this device
  * checks on its own (Core reads `appUpdateChecks`; absent is on). */
@@ -566,6 +576,7 @@ private fun SessionStatus(
     session: SchoolProfileSession,
     retrying: Boolean,
     enabled: Boolean,
+    openPortal: () -> Unit,
     retry: () -> Unit,
 ) {
     val state = session.state
@@ -575,7 +586,15 @@ private fun SessionStatus(
     if (!retryable && maintenance == null) return
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (retryable) {
+            if (AppModel.otpNotSetUp(state, session.problem)) {
+                // No school OTP: Retry would only get the emailed code again,
+                // so the way on is setting it up on the portal.
+                Text(AppModel.sessionText(state, session.problem), color = stateColor(state))
+                Text(t("schoolSession.problem.emailOtp"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
+                OutlinedButton(onClick = openPortal, modifier = Modifier.fillMaxWidth()) {
+                    Text(t("schoolSession.openPortal"))
+                }
+            } else if (retryable) {
                 // The kind says what the school page asks for; signing in there
                 // is the person's own and serves only that page.
                 val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let { AppModel.reason(it.kind) } else null
@@ -621,11 +640,17 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     val busy = saving || retrying || removing
     val saved = summary?.saved == true
     val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
+    // The portal's start page as it is, where the person signs in and sets up
+    // school OTP by hand.
+    val openPortal: () -> Unit = {
+        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
+        navigator.openTab("tab/web")
+    }
     Page {
         if (session?.signOutPending == true) {
             Footer(t("error.sign-out-incomplete"), Theme.colors.danger)
         } else if (saved && session != null) {
-            SessionStatus(profile, session, retrying, enabled = !busy) {
+            SessionStatus(profile, session, retrying, enabled = !busy, openPortal = openPortal) {
                 scope.launch {
                     retrying = true
                     error = null
@@ -654,10 +679,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 OtpImportField(
                     saved = summary?.hasOtp == true,
                     setup = otpSecret,
-                    openManual = {
-                        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
-                        navigator.openTab("tab/web")
-                    },
+                    openManual = openPortal,
                 ) { otpSecret = it }
             } else {
                 SectionLabel(t("settings.main.matrixCard"))

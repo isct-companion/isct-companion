@@ -100,14 +100,48 @@ pub(crate) fn application_logs(
     app_core::diagnostics::snapshot(after).map_err(coded)
 }
 
+#[cfg(target_os = "macos")]
+fn os_version() -> String {
+    let v = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
+    format!(
+        "macOS {}.{}.{}",
+        v.majorVersion, v.minorVersion, v.patchVersion
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn os_version() -> String {
+    let v = windows_version::OsVersion::current();
+    format!("Windows {}.{}.{}", v.major, v.minor, v.build)
+}
+
+/// The system this build runs on, as the log and the feedback form name it.
+fn device() -> String {
+    format!("{} · {}", os_version(), std::env::consts::ARCH)
+}
+
 fn application_logs_text(app: &tauri::AppHandle) -> Result<String, CommandError> {
     let about = format!(
-        "IsctCompanion {} · {} {}",
+        "IsctCompanion {} · {}",
         app.package_info().version,
-        std::env::consts::OS,
-        std::env::consts::ARCH
+        device()
     );
     app_core::diagnostics::export_text(&about).map_err(coded)
+}
+
+/// Opens the feedback form in the system browser, this build filled in.
+#[tauri::command]
+pub(crate) fn open_feedback_form(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<(), CommandError> {
+    use tauri_plugin_opener::OpenerExt;
+    require_local_main(&webview)?;
+    let url = app_core::feedback::form_url(&app.package_info().version.to_string(), &device());
+    Ok(app
+        .opener()
+        .open_url(url, None::<&str>)
+        .map_err(|_| "The feedback form could not be opened.".to_string())?)
 }
 
 /// The retained log as text, for the Save dialog.

@@ -141,20 +141,27 @@ export function OtpSetupInput({
     onScanState(camera || reading);
     return () => onScanState(false);
   }, [camera, reading, onScanState]);
-  const choose = (account: OtpImportAccount) => {
+  // A good read from a scan, an image or a paste folds the chooser into one
+  // line, like a saved setup. A typed entry read as the field loses focus
+  // stays open: that blur is often the press on Connect, which must not move
+  // away before the pointer comes up.
+  const choose = (account: OtpImportAccount, fold = true) => {
     onChange(account.setup);
-    // What was read lands in the paste field, so it can be checked or copied.
+    // What was read lands in the paste field, so Change shows it there.
     setPath("paste");
     setLabel(account.label || account.issuer);
     setAccounts([]);
     setError("");
+    setChanging(!fold);
   };
   // `pasted` text is a setup link or secret, not a QR code, so a payload Core
   // cannot read is worded for what the person gave.
-  const load = async (source: string | File, pasted = false) => {
+  const load = async (source: string | File, pasted = false, fold = true) => {
     const current = ++generation.current;
     setError("");
-    setReading(true);
+    // Only decoding an image takes long enough to hold Connect back; text
+    // is read at once, and Connect sends the field as it is anyway.
+    if (typeof source !== "string") setReading(true);
     try {
       let payload: string;
       try {
@@ -172,7 +179,7 @@ export function OtpSetupInput({
       try {
         const found = await importOtp(payload);
         if (current !== generation.current) return;
-        if (found.length === 1) choose(found[0]);
+        if (found.length === 1) choose(found[0], fold);
         else setAccounts(found);
       } catch (reason) {
         if (current !== generation.current) return;
@@ -188,8 +195,15 @@ export function OtpSetupInput({
       if (current === generation.current) setReading(false);
     }
   };
-  const choosing = !saved || changing || Boolean(value.trim());
+  // What the field holds was read and is waiting for Connect.
+  const read = label !== null && Boolean(value.trim());
+  // The chooser folds to one line once a setup is saved or read; Change
+  // opens it again, to fix a wrong image or link.
+  const choosing = changing || (value.trim() ? !read : !saved);
   const busy = disabled || reading || camera;
+  const readText = t("settings.credentialImport.readAccountReadyOnceConnected", {
+    account: label || t("settings.credentialImport.otpSecret"),
+  });
   const copyButton = (
     <Button
       variant="default"
@@ -221,7 +235,7 @@ export function OtpSetupInput({
   return (
     <Input.Wrapper
       className="otpSetupField"
-      label={t("settings.otp.automaticSchoolVerificationCodes")}
+      label={t("settings.main.oneTimePassword")}
       id="school-otp-setup"
     >
       {choosing && (
@@ -271,11 +285,13 @@ export function OtpSetupInput({
         <div className="otpSaved" role="status">
           <Check size={16} strokeWidth={1.75} aria-hidden />
           <Text size="sm">
-            {t(
-              otpOnly
-                ? "otpEnrollment.savedOnDevice"
-                : "settings.credentialImport.codesAreFilledInFor",
-            )}
+            {read
+              ? readText
+              : t(
+                  otpOnly
+                    ? "otpEnrollment.savedOnDevice"
+                    : "settings.credentialImport.codesAreFilledInFor",
+                )}
           </Text>
           {exportButtons}
           <Button
@@ -338,7 +354,7 @@ export function OtpSetupInput({
                 id="school-otp-setup"
                 type="password"
                 size="xs"
-                aria-label={t("settings.otp.automaticSchoolVerificationCodes")}
+                aria-label={t("settings.credentialImport.setupLinkOrSecret")}
                 value={value}
                 autoCapitalize="none"
                 autoComplete="off"
@@ -360,23 +376,43 @@ export function OtpSetupInput({
                 }}
                 onBlur={() => {
                   if (value.trim() && label === null && !error)
-                    void load(value, true);
+                    void load(value, true, false);
                 }}
               />
               {exportButtons}
             </div>
             <OtpGuideButton guide="titechApp" />
           </OtpPath>
-          {saved && changing && !value.trim() && (
-            <Button
-              variant="subtle"
-              size="xs"
-              color="gray"
-              className="otpKeep"
-              onClick={() => setChanging(false)}
-            >
-              {t("settings.credentialImport.keepTheSavedSetup")}
-            </Button>
+          {/* Opened with Change: fold back to the setup just read, or drop
+              a wrong entry and keep the saved one. */}
+          {changing && (read || saved) && (
+            <Group gap={6} className="otpKeep">
+              {read && (
+                <Button
+                  variant="subtle"
+                  size="xs"
+                  onClick={() => setChanging(false)}
+                >
+                  {t("settings.credentialImport.collapse")}
+                </Button>
+              )}
+              {saved && (
+                <Button
+                  variant="subtle"
+                  size="xs"
+                  color="gray"
+                  onClick={() => {
+                    generation.current += 1;
+                    onChange("");
+                    setLabel(null);
+                    setError("");
+                    setChanging(false);
+                  }}
+                >
+                  {t("settings.credentialImport.keepTheSavedSetup")}
+                </Button>
+              )}
+            </Group>
           )}
         </div>
       )}
@@ -385,11 +421,9 @@ export function OtpSetupInput({
           {t("settings.credentialImport.readOnThisDevice")}
         </Text>
       )}
-      {label !== null && (
-        <Text size="xs" c="dimmed">
-          {t("settings.credentialImport.readAccountReadyOnceConnected", {
-            account: label || t("settings.credentialImport.otpSecret"),
-          })}
+      {choosing && read && (
+        <Text size="xs" c="green">
+          {readText}
         </Text>
       )}
       {error && (

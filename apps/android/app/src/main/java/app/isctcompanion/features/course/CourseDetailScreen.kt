@@ -32,6 +32,7 @@ import app.isctcompanion.design.EmptyState
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.FileCopy
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material3.DropdownMenu
@@ -138,7 +139,7 @@ fun CourseDetailScreen(courseId: String) {
                     )
                     exam.conflict?.let { ExamConflictLabel(it) }
                 }
-                Links(detail, title)
+                Links(detail, title, courseId)
                 RoomLinks(course)
             }
             val lessons = content?.lessons.orEmpty()
@@ -368,15 +369,17 @@ private fun examLine(exam: ExamView): String {
 }
 
 @Composable
-private fun Links(detail: CourseDetail?, title: String) {
+private fun Links(detail: CourseDetail?, title: String, courseId: String) {
+    if (detail == null) return
     val navigator = LocalNavigator.current
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        detail?.lmsUrl?.let { url ->
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        detail.lmsUrl?.let { url ->
             LinkChip("LMS", Icons.Rounded.Language) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title)) }
         }
-        detail?.syllabusUrl?.let { url ->
+        detail.syllabusUrl?.let { url ->
             LinkChip(t("common.syllabus"), Icons.Rounded.Description) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, url, title)) }
         }
+        LinkChip(t("examShare.openCourse"), Icons.Rounded.FileCopy) { navigator.openPastExams(courseId) }
     }
 }
 

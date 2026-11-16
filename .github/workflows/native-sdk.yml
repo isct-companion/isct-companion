@@ -185,6 +185,10 @@ jobs:
           key: native-sdk-android
           # Platform checks' caches from main nearly fill the repository's 10 GB.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install JavaScript build dependencies
+        run: |
+          corepack enable
+          yarn install --immutable
       - name: Build AAR and both native ABIs
         # x86_64 only so the SDK can load on the runner's emulator; the app
         # packages arm64 alone.

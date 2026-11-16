@@ -5,7 +5,7 @@
 //! school pages skipped their confirmations
 //! (slotledger approach/desktop-no-plugin-scripts-in-school-views).
 use crate::{shell, CommandError};
-use rfd::{AsyncFileDialog, FileHandle};
+use rfd::AsyncFileDialog;
 use std::future::Future;
 use std::path::PathBuf;
 use tauri::Window;
@@ -15,7 +15,11 @@ pub(crate) async fn pick_folder(
     window: &Window,
     title: &'static str,
 ) -> Result<Option<PathBuf>, CommandError> {
-    show(window, move |dialog| dialog.set_title(title).pick_folder()).await
+    show(window, move |dialog| {
+        let pending = dialog.set_title(title).pick_folder();
+        async move { pending.await.map(|file| file.path().to_owned()) }
+    })
+    .await
 }
 
 /// Where to save `name`, offered with a filter for its extension; None when
@@ -29,19 +33,43 @@ pub(crate) async fn save_file(
             Some((_, extension)) => dialog.add_filter(extension.to_uppercase(), &[extension]),
             None => dialog,
         };
-        dialog.set_file_name(name).save_file()
+        let pending = dialog.set_file_name(name).save_file();
+        async move { pending.await.map(|file| file.path().to_owned()) }
+    })
+    .await
+}
+
+/// Files the person picks in one native dialog, in the order rfd returns them.
+pub(crate) async fn pick_files(
+    window: &Window,
+    title: String,
+    extensions: &'static [&'static str],
+) -> Result<Option<Vec<PathBuf>>, CommandError> {
+    show(window, move |dialog| {
+        let pending = dialog
+            .set_title(&title)
+            .add_filter(&title, extensions)
+            .pick_files();
+        async move {
+            pending.await.map(|files| {
+                files
+                    .into_iter()
+                    .map(|file| file.path().to_owned())
+                    .collect()
+            })
+        }
     })
     .await
 }
 
 /// AppKit dialogs are created on the main thread; the pending dialog is
 /// awaited here.
-async fn show<F>(
+async fn show<F, T>(
     window: &Window,
     open: impl FnOnce(AsyncFileDialog) -> F + Send + 'static,
-) -> Result<Option<PathBuf>, CommandError>
+) -> Result<T, CommandError>
 where
-    F: Future<Output = Option<FileHandle>> + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
 {
     let (send, receive) = tokio::sync::oneshot::channel();
     let parent = window.clone();
@@ -54,7 +82,7 @@ where
         })
         .map_err(shell)?;
     let pending = receive.await.map_err(shell)?;
-    Ok(pending.await.map(|file| file.path().to_path_buf()))
+    Ok(pending.await)
 }
 
 /// A blocking error message before any window exists, for a start that

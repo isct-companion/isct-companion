@@ -11,10 +11,25 @@
   display: block;
   height: min(56vh, 480px);
   width: auto;
+  /* The guide's screenshots are phone captures; the frame keeps that shape
+     before the image loads, so the first step does not jump. */
+  aspect-ratio: auto 720 / 1559;
 }
-.otpGuideCaption {
+.otpGuideCaptions {
+  display: grid;
   max-width: 360px;
   text-align: center;
+}
+.otpGuideCaptions > * {
+  grid-area: 1 / 1;
+}
+.otpGuideCaptions > :not([data-current]) {
+  visibility: hidden;
+}
+/* Next and Done keep one width, so the button does not slide under the
+   pointer on the last step. */
+.otpGuideNav > button {
+  min-width: 72px;
 }
 /* A ring that keeps pulsing out of a dot, like a touch indicator in a screen
    recording. White edges keep it visible on light and dark screenshots. */

@@ -5,8 +5,26 @@ use crate::{
 };
 use crate::{coded, CommandError};
 use app_core::cloud_sync::{CloudFuture, CloudSignIn, CloudSyncError};
+use app_core::oauth::{BrowserCallback, NativeBrowserAuth, OAuthError};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
+
+pub(crate) struct SystemBrowser(pub tauri::AppHandle);
+
+impl NativeBrowserAuth for SystemBrowser {
+    fn authenticate<'a>(
+        &'a self,
+        url: &'a url::Url,
+        _: BrowserCallback,
+    ) -> app_core::net::BoxFuture<'a, Result<(), OAuthError>> {
+        Box::pin(async move {
+            self.0
+                .opener()
+                .open_url(url.as_str(), None::<&str>)
+                .map_err(|_| OAuthError::Browser)
+        })
+    }
+}
 
 /// The Drive sign-in Core asks for before turning Drive on: the system
 /// browser, returning to a loopback redirect.
@@ -31,17 +49,9 @@ impl CloudSignIn for DesktopSignIn {
                 .pointer("/settings/cloud/clientId")
                 .and_then(serde_json::Value::as_str)
                 .filter(|s| !s.is_empty());
-            let configured = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
-            let client_id = override_id.or(configured).unwrap_or("").to_string();
-            let service = app.state::<DesktopCloudService<OsSecretVault>>();
-            service
-                .connect(&client_id, "http://127.0.0.1:42813/oauth/callback", |url| {
-                    app.opener()
-                        .open_url(url, None::<&str>)
-                        .map_err(|_| "system browser could not be opened".to_string())
-                })
+            app.state::<DesktopCloudService<OsSecretVault>>()
+                .connect(override_id, &SystemBrowser(app.clone()))
                 .await
-                .map_err(CloudSyncError::Transport)
         })
     }
 }

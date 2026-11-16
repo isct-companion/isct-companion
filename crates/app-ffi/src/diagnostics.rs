@@ -7,3 +7,9 @@ use crate::SdkError;
 pub fn export_application_logs(about: String) -> Result<String, SdkError> {
     app_core::diagnostics::export_text(&about).map_err(|e| crate::error::coded(&e))
 }
+
+/// The feedback form, with this build's `version` and `device` filled in.
+#[uniffi::export]
+pub fn feedback_form_url(version: String, device: String) -> String {
+    app_core::feedback::form_url(&version, &device)
+}

@@ -292,6 +292,9 @@ struct CourseDetailScreen: View {
                     LinkChip(title: t("common.syllabus"), icon: "doc.text")
                 }
             }
+            NavigationLink(value: PastExamsRoute(courseId: courseId)) {
+                LinkChip(title: t("examShare.openCourse"), icon: "doc.on.doc")
+            }
         }
         .buttonStyle(PressableStyle())
     }
