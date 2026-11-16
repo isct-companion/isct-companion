@@ -6,19 +6,10 @@ name: Campus map rules
 # against one pinned export (slotledger `approach/campus-map-tests`).
 on:
   workflow_dispatch:
-  push:
-    branches-ignore: [main]
-    paths:
-      - crates/app-core/src/campus_map/**
-      - crates/app-core/src/tests/campus_map__*.rs
-      - .github/workflows/campus-map.yml
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: campus-map-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   # The host the app downloads the map from, at one commit: the bytes never
@@ -34,7 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
-      # It never runs on main, so its branch saves the cache it reads.
       - uses: Swatinem/rust-cache@v2
         with:
           key: campus-map

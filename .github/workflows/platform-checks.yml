@@ -2,9 +2,7 @@ name: Platform checks
 
 on:
   workflow_dispatch:
-  # Every push to a working branch gets the full suite. A merge into main does
-  # not: the branch had to be up to date and pass, so main holds a tree that
-  # already passed.
+  # Work branches and PRs check changed areas. Main warms caches weekly.
   push:
     branches-ignore: [main]
   # A fork's pushes happen outside this repository, so only this trigger sees
@@ -34,28 +32,59 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      run: ${{ steps.route.outputs.run }}
+      frontend: ${{ steps.route.outputs.frontend }}
+      apple: ${{ steps.route.outputs.apple }}
+      windows: ${{ steps.route.outputs.windows }}
+      ios: ${{ steps.route.outputs.ios }}
+      android: ${{ steps.route.outputs.android }}
+      campus-map: ${{ steps.route.outputs.campus-map }}
+      app-store-tools: ${{ steps.route.outputs.app-store-tools }}
     steps:
-      # A push to a branch with an open pull request also starts that pull
-      # request's run, so the suite would run twice for every fix.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
+          sparse-checkout: scripts/checks
+          persist-credentials: false
       - id: route
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
           BRANCH: ${{ github.ref_name }}
-          EVENT: ${{ github.event_name }}
         run: |
-          run=true
-          if [[ "$EVENT" == push ]]; then
-            open=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq length)
-            [[ "$open" == 0 ]] || run=false
+          route=scripts/checks/route-platform-checks.sh
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              # Jobs build this same merge commit. Its first parent is the base.
+              range=(HEAD^1 HEAD)
+              ;;
+            push)
+              open=$(gh api "repos/$GH_REPO/pulls" --method GET -f head="$OWNER:$BRANCH" -f base=main -f state=open --jq length)
+              if [[ "$open" != 0 ]]; then
+                echo "The open pull request's run covers this commit."
+                bash "$route" </dev/null | tee -a "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              range=(origin/main...HEAD)
+              ;;
+            *)
+              bash "$route" --all | tee -a "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          paths="$RUNNER_TEMP/ci-changes"
+          if git diff --name-only --no-renames -z "${range[@]}" > "$paths"; then
+            bash "$route" < "$paths" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "Could not compare changes. Running all checks."
+            bash "$route" --all | tee -a "$GITHUB_OUTPUT"
           fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
 
   app-store-tools:
     name: App Store tooling
     needs: route
-    if: needs.route.outputs.run == 'true'
+    if: needs.route.outputs.app-store-tools == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -74,7 +103,7 @@ jobs:
   frontend:
     name: Frontend
     needs: route
-    if: needs.route.outputs.run == 'true'
+    if: needs.route.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -100,7 +129,7 @@ jobs:
   windows:
     name: Windows backend
     needs: route
-    if: needs.route.outputs.run == 'true'
+    if: needs.route.outputs.windows == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -128,9 +157,9 @@ jobs:
           --features app-core/ts,app-core/workspace-archives,app-core/agent,app-core/campus-printer
 
   apple:
-    name: Apple Rust (${{ matrix.target }})
+    name: macOS Rust (${{ matrix.target }})
     needs: route
-    if: needs.route.outputs.run == 'true'
+    if: needs.route.outputs.apple == 'true'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -138,8 +167,6 @@ jobs:
         target:
           - aarch64-apple-darwin
           - x86_64-apple-darwin
-          - aarch64-apple-ios
-          - aarch64-apple-ios-sim
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
@@ -151,14 +178,7 @@ jobs:
           key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
-      - name: Check desktop shell or portable Core
-        shell: bash
-        run: |
-          if [[ '${{ matrix.target }}' == *ios* ]]; then
-            cargo check -p app-core --locked --target ${{ matrix.target }}
-          else
-            cargo check -p isct-companion --locked --target ${{ matrix.target }}
-          fi
+      - run: cargo check -p isct-companion --locked --target ${{ matrix.target }}
       - name: Desktop Rust contracts
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo test --workspace --locked
@@ -169,64 +189,45 @@ jobs:
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-  android:
-    name: Android Core (arm64)
+  native-sdk:
+    name: Native Core SDK
     needs: route
-    if: needs.route.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    env:
-      NDK_VERSION: 27.2.12479018
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: 17
-      - name: Accept Android SDK licenses
-        run: |
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
-      - name: Install Android NDK
-        run: |
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION"
-      - uses: dtolnay/rust-toolchain@1.99.1
-        with:
-          targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-          key: aarch64-linux-android
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
-      - name: Configure Android toolchain
-        run: |
-          toolchain="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64"
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/bin/aarch64-linux-android34-clang" >> "$GITHUB_ENV"
-          echo "CC_aarch64_linux_android=$toolchain/bin/aarch64-linux-android34-clang" >> "$GITHUB_ENV"
-          echo "AR_aarch64_linux_android=$toolchain/bin/llvm-ar" >> "$GITHUB_ENV"
-      - run: cargo check -p app-core --locked --target aarch64-linux-android
+    if: needs.route.outputs.ios == 'true' || needs.route.outputs.android == 'true'
+    uses: ./.github/workflows/native-sdk.yml
+    with:
+      ios: ${{ needs.route.outputs.ios == 'true' }}
+      android: ${{ needs.route.outputs.android == 'true' }}
 
-  # The one check main's ruleset requires. Only a pull request's run reports
-  # under that name: GitHub counts a skipped job as passed, so a skipped branch
-  # push must not be able to satisfy it.
+  campus-map:
+    needs: route
+    if: needs.route.outputs.campus-map == 'true'
+    uses: ./.github/workflows/campus-map.yml
+
+  # Match the branch ruleset's check name only for PRs.
   result:
     name: ${{ github.event_name == 'pull_request' && 'Platform checks' || 'Platform checks (branch)' }}
     if: always()
-    needs: [route, app-store-tools, frontend, windows, apple, android]
+    needs: [route, app-store-tools, frontend, windows, apple, native-sdk, campus-map]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - env:
-          ROUTE: ${{ needs.route.result }}
-          RUN: ${{ needs.route.outputs.run }}
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          CHECKS: ${{ toJSON(needs) }}
         run: |
-          if [[ "$ROUTE" == success && "$RUN" == false ]]; then
-            echo "The open pull request's run covers this commit."
-            exit 0
-          fi
-          for result in $RESULTS; do
-            if [[ "$result" != success ]]; then
-              echo "Job results: $RESULTS" >&2
-              exit 1
-            fi
-          done
+          jq -e '
+            .route as $route |
+            $route.result == "success" and
+            (del(.route) | to_entries | all(
+              . as $job |
+              (if $job.key == "native-sdk" then
+                [$route.outputs.ios, $route.outputs.android]
+              else
+                [$route.outputs[$job.key]]
+              end) as $selected |
+              ($selected | all(. == "true" or . == "false")) and
+              $job.value.result == (if $selected | any(. == "true") then "success" else "skipped" end)
+            ))
+          ' <<< "$CHECKS" || {
+            jq 'map_values(.result)' <<< "$CHECKS" >&2
+            exit 1
+          }
