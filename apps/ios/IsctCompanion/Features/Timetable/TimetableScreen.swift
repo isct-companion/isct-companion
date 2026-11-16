@@ -1,6 +1,7 @@
 import IsctCore
 import SwiftUI
 import TipKit
+import UIKit
 
 /// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
 /// Monday–Friday, whatever quarter the week is in; the title opens a picker
@@ -42,8 +43,7 @@ struct TimetableScreen: View {
                     gridWidth = size.width
                 }
                 .offset(x: dragOffset)
-                // Alongside taps, so a block answers the moment it is touched.
-                .simultaneousGesture(swipe)
+                .gesture(PagePan(moved: follow, ended: release))
         }
         .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 8)
@@ -183,22 +183,27 @@ struct TimetableScreen: View {
     /// and the next one slides in from the other side, otherwise it settles
     /// back (slotledger `approach/motion-week-swipe`). With Reduce Motion the
     /// grid stays put and the week cross-fades.
-    private var swipe: some Gesture {
-        DragGesture(minimumDistance: 24)
-            .onChanged { value in
-                if !reduceMotion, abs(value.translation.width) > abs(value.translation.height) {
-                    dragOffset = value.translation.width
-                }
-            }
-            .onEnded { value in
-                let width = value.translation.width
-                let flung = abs(value.predictedEndTranslation.width) > gridWidth / 2
-                guard abs(width) > abs(value.translation.height), abs(width) > 60 || flung else {
-                    withAnimation(Motion.base(reduceMotion)) { dragOffset = 0 }
-                    return
-                }
-                turn(width < 0 ? 1 : -1)
-            }
+    private func follow(_ dx: CGFloat) {
+        if !reduceMotion { dragOffset = dx }
+    }
+
+    /// Past 60 pt, or thrown far enough to coast past half the grid, turns
+    /// the week the grid was pulled; a throw back the other way settles it.
+    private func release(_ dx: CGFloat, velocity: CGFloat) {
+        let end = dx + Self.coast(velocity)
+        guard abs(dx) > 60 || abs(end) > gridWidth / 2, (end < 0) == (dx < 0) else {
+            withAnimation(Motion.base(reduceMotion)) { dragOffset = 0 }
+            return
+        }
+        turn(dx < 0 ? 1 : -1)
+    }
+
+    /// How far a release at this velocity (pt/s) coasts at a scroll view's
+    /// normal deceleration (the projection from WWDC18 "Designing Fluid
+    /// Interfaces"), standing in for `DragGesture`'s predicted end.
+    private static func coast(_ velocity: CGFloat) -> CGFloat {
+        let rate = UIScrollView.DecelerationRate.normal.rawValue
+        return velocity / 1000 * rate / (1 - rate)
     }
 
     private func turn(_ step: Int) {

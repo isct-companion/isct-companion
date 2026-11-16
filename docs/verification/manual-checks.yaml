@@ -4970,12 +4970,15 @@ checks:
           button, so it wrapped onto two lines; on its own row it may take the
           full width.
       - action: |
-          Swipe the grid left twice, then tap 今日.
+          Swipe the grid left twice, each swipe starting on a class block,
+          then tap 今日.
         reason: |
           Swiping is now the only way to step weeks; the range figures must
-          roll in place. 今日 is dimmed on the current week and active
-          elsewhere, so a dimmed 今日 on another week or an active one on this
-          week is wrong.
+          roll in place. The grid moves with the finger, so a block under it
+          used to open its course on release: a course page after a swipe is
+          that bug (PagePan must cancel the block's tap). 今日 is dimmed on
+          the current week and active elsewhere, so a dimmed 今日 on another
+          week or an active one on this week is wrong.
       - action: |
           Find a two-period class with a long English title and one whose
           room field lists several rooms.
@@ -5022,6 +5025,7 @@ checks:
       and the desktop `nowPercent` unit tests.
     covers:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift
+      - apps/ios/IsctCompanion/Design/HorizontalPager.swift
       - apps/ios/IsctCompanion/Design/TabItemPress.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
