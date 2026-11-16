@@ -92,6 +92,10 @@ fn an_old_helper_is_updated_only_when_no_tunnel_is_up() {
 #[test]
 fn error_codes_are_stable_names() {
     assert_eq!(VpnError::HelperNotInstalled.code(), "helper_not_installed");
+    assert_eq!(
+        VpnError::HelperNeedsApproval.code(),
+        "helper_needs_approval"
+    );
     assert_eq!(VpnError::Timeout.code(), "helper_timeout");
     assert_eq!(VpnError::Tunnel("x".into()).code(), "tunnel_failed");
 }

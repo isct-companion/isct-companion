@@ -271,7 +271,7 @@ pub(crate) fn decode_output(bytes: &[u8]) -> String {
     String::from_utf16_lossy(&wide)
 }
 
-pub(crate) fn prepare(cmd: &mut Command, _cfg: &Config) {
+pub(crate) fn prepare(cmd: &mut Command, _cfg: &Config) -> Result<(), String> {
     // A console without a window: Ctrl+C on it is how openconnect is asked
     // to log out and run the hook's disconnect (`terminate`).
     let started = SystemTime::now()
@@ -281,6 +281,7 @@ pub(crate) fn prepare(cmd: &mut Command, _cfg: &Config) {
     cmd.arg("--interface")
         .arg(format!("{TUN_PREFIX}-{started}"))
         .creation_flags(CREATE_NO_WINDOW);
+    Ok(())
 }
 
 /// A job that ends openconnect with the helper, so a crashed service never

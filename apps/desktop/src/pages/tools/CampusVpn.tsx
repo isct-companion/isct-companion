@@ -14,6 +14,7 @@ import { jstClock } from "../../lib/civil-date";
 /** Codes from the desktop's VPN commands, keyed as the shell reports them. */
 const VPN_ERROR_TEXT: Record<string, MessageKey> = {
   helper_not_installed: "tools.campusWifi.vpnHelperNotInstalled",
+  helper_needs_approval: "tools.campusWifi.vpnHelperNeedsApproval",
   helper_outdated: "tools.campusWifi.vpnHelperOutdated",
   helper_unreachable: "tools.campusWifi.vpnHelperUnreachable",
   helper_timeout: "tools.campusWifi.vpnHelperTimeout",
@@ -132,11 +133,23 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     };
   }, []);
 
+  // A helper still waiting for the person to allow it (macOS Login Items)
+  // is shown as such and goes no further: a connect would spend a one-time
+  // login on a helper that cannot start the tunnel.
+  const allowed = (next: VpnStatus) => {
+    if (next.error !== "helper_needs_approval") return next;
+    setVpn(next);
+    return undefined;
+  };
+
   // The helper, installed or updated once with the person's consent; the
-  // status after it, or nothing when they declined.
+  // status after it, or nothing when they declined or it waits for approval.
   const readyHelper = async () => {
     if (!desktopBridge?.vpnStatus) return;
     const next = await desktopBridge.vpnStatus();
+    // Allowed by now, or System Settings opens at it once more.
+    if (next.error === "helper_needs_approval")
+      return allowed(await desktopBridge.vpnInstall!());
     if (
       next.error !== "helper_not_installed" &&
       next.error !== "helper_outdated"
@@ -152,7 +165,7 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
       t(update ? "tools.campusWifi.vpnUpdate" : "tools.campusWifi.vpnInstall"),
       { title: t("tools.campusWifi.campusVpn"), danger: false },
     );
-    return confirmed ? desktopBridge.vpnInstall!() : undefined;
+    return confirmed ? allowed(await desktopBridge.vpnInstall!()) : undefined;
   };
 
   // One press: install the helper once if needed, then Core signs in to the
@@ -248,7 +261,9 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
   const badge = vpnBadge(vpn, vpnBusy);
   const remaining = vpnConnected ? vpnRemaining(vpn.expiresAt, now) : undefined;
   const helperNeeded =
-    vpn?.error === "helper_not_installed" || vpn?.error === "helper_outdated";
+    vpn?.error === "helper_not_installed" ||
+    vpn?.error === "helper_outdated" ||
+    vpn?.error === "helper_needs_approval";
   // A line only when something needs saying beyond the badge.
   const detail = vpn?.error
     ? vpnErrorText(vpn)
@@ -269,7 +284,9 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
       {t(
         vpn?.error === "helper_outdated"
           ? "tools.campusWifi.vpnUpdate"
-          : "tools.campusWifi.vpnInstall",
+          : vpn?.error === "helper_needs_approval"
+            ? "tools.campusWifi.vpnAllow"
+            : "tools.campusWifi.vpnInstall",
       )}
     </UiButton>
   ) : vpn?.onDemand ? null : (
