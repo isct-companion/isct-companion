@@ -10,10 +10,14 @@ lto = true
 opt-level = "s"
 strip = true
 
-# Keep local rebuilds compact; the desktop bundle still retains line tables.
+# Keep local rebuilds compact: our crates keep line tables for backtraces,
+# dependencies carry no debug info, which is most of target/'s size.
 [profile.dev]
-debug = 1
+debug = "line-tables-only"
 incremental = false
+
+[profile.dev.package."*"]
+debug = false
 
 # Camera feedback must remain interactive in development too. Keep the shell
 # debuggable while optimizing the pixel loops and JPEG decoder used by OCR.
@@ -30,5 +34,5 @@ opt-level = 3
 opt-level = 3
 
 [profile.test]
-debug = 1
+debug = "line-tables-only"
 incremental = false
