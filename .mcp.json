@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "slotledger": {
+      "command": "/Users/xby/isct-companion/.project/run/slotledger",
+      "args": [],
+      "env": {
+        "SLOTLEDGER_ROOT": "/Users/xby/isct-companion",
+        "SLOTLEDGER_CLIENT": "claude-code"
+      }
+    }
+  }
+}
