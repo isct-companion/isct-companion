@@ -1776,8 +1776,8 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
             .material_ids
             .is_empty()
     );
-    // Files go where desktop already put them: `folderComponent` replaces
-    // every other UTF-16 unit, so an emoji takes two underscores.
+    // Files go where earlier desktop releases put them: every other UTF-16
+    // unit is replaced, so an emoji takes two underscores.
     let files = files_of(visible_by_id(&data, "courses", "c").unwrap()).unwrap();
     assert_eq!(
         (files.term.as_str(), files.course.as_str()),

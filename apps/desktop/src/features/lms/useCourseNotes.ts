@@ -12,7 +12,7 @@ import type { OpenedContent } from "./reading-state";
 type NoteSection = { id: number; title: string };
 
 export function useCourseNotes(
-  folder: CourseFolder,
+  courseId: string,
   sections: NoteSection[],
   active: boolean,
   open: (content: OpenedContent) => void,
@@ -28,7 +28,7 @@ export function useCourseNotes(
   const [creatingNote, setCreatingNote] = useState(false);
   const refreshNotes = () =>
     void listNotes(
-      folder,
+      courseId,
       sections.map((s) => `section-${s.id}`),
     )
       .then((value) => setNotes(value.sort((a, b) => a.id.localeCompare(b.id))))
@@ -39,15 +39,18 @@ export function useCourseNotes(
     window.addEventListener("course-storage-changed", refreshNotes);
     return () =>
       window.removeEventListener("course-storage-changed", refreshNotes);
-  }, [active, folder, sections]);
+  }, [active, courseId, sections]);
   const newNote = async (section: NoteSection) => {
     if (noteCreation.current) return;
     noteCreation.current = true;
     setCreatingNote(true);
     setNoteError("");
-    const context = { ...folder, section: `section-${section.id}` };
+    const context: CourseFolder = {
+      courseId,
+      section: `section-${section.id}`,
+    };
     try {
-      const existing = (await listNotes(folder, [context.section])).sort(
+      const existing = (await listNotes(courseId, [context.section])).sort(
         (a, b) => a.id.localeCompare(b.id),
       )[0];
       let id = existing?.id;

@@ -59,7 +59,6 @@ const ACTIVITIES = -1;
 import { downloadOnly, fileFamily, extension } from "./file-types";
 import { withRecords } from "../../platform/records";
 import {
-  folderComponent,
   downloadLimit,
   moveNote,
   type LocalFile,
@@ -166,14 +165,7 @@ export function LmsWorkspaceBody({
   const narrow =
     (workspaceSize.width ?? 0) > 0 && (workspaceSize.width ?? 0) < 640;
   const viewerActive = active && (!narrow || viewing);
-  const folder = useMemo(
-    () => ({
-      term: folderComponent(course.termId),
-      course: folderComponent(course.code || course.id),
-      section: "section-0",
-    }),
-    [course.termId, course.code, course.id],
-  );
+
   const limit = downloadLimit(data.settings);
   const files = useMemo<FileAccess>(
     () => ({ courseId: course.id }),
@@ -531,7 +523,7 @@ export function LmsWorkspaceBody({
     creatingNote,
     refreshNotes,
     newNote,
-  } = useCourseNotes(folder, noteSections, active, open);
+  } = useCourseNotes(course.id, noteSections, active, open);
   const [fileMenu, setFileMenu] = useState<{
     url: string;
     title: string;
@@ -845,7 +837,6 @@ export function LmsWorkspaceBody({
         )}
         {workspaces ? (
           <AssignmentWorkspaceFooter
-            context={folder}
             assignment={a}
             closed={closedIds.has(a.id)}
             submit={a.sourceUrl ? submit : undefined}
@@ -1352,7 +1343,7 @@ export function LmsWorkspaceBody({
                     onClick={() => {
                       const note = deletedNote;
                       void moveNote(
-                        { ...folder, section: note.section },
+                        { courseId: course.id, section: note.section },
                         note.id,
                         true,
                       )
@@ -1449,7 +1440,7 @@ export function LmsWorkspaceBody({
                   <NoteEditor
                     key={opened.id}
                     id={opened.id}
-                    context={{ ...folder, section: opened.section! }}
+                    context={{ courseId: course.id, section: opened.section! }}
                     onSaved={refreshNotes}
                     onDeleted={() => {
                       setDeletedNote({

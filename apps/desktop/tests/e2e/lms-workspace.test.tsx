@@ -64,8 +64,8 @@ vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({
 }));
 
 const LIMIT = 20 * 1024 * 1024;
-const CONTEXT = { term: "2026-3Q", course: "TEST", section: "section-91" };
 const COURSE_ID = "test-course";
+const CONTEXT = { courseId: COURSE_ID, section: "section-91" };
 const SOURCE = { provider: "lms" as const, externalId: "42" };
 
 let app: MountedApp | undefined;

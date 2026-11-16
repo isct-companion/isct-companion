@@ -296,7 +296,7 @@ impl CourseMaterials {
         // gone has no folder to keep the file in.
         let context = {
             let store = self.store.clone();
-            blocking(move || Ok(course_key(&store, &course))).await?
+            blocking(move || Ok(course_folder(&store, &course))).await?
         };
         let Some(context) = context else {
             return Ok(lms_failed(MaterialFailure::Unresolved));
@@ -393,10 +393,17 @@ fn failed(reason: MaterialFailure, page: Option<SchoolWebTarget>) -> Material {
     Material::Failed { reason, page }
 }
 
-/// The folder of the visible course `id` (`CourseDetail`'s own naming).
-fn course_key(store: &DataStore, id: &str) -> Option<CourseKey> {
+/// The folder of course `id`, the one place a course's files and notes are
+/// named. A course the school no longer lists keeps its folder until it is
+/// deleted.
+pub(crate) fn course_folder(store: &DataStore, id: &str) -> Option<CourseKey> {
     let workspace = store.load_fields(&["courses"]).ok()?;
-    crate::schedule::visible_by_id(&workspace, "courses", id).and_then(crate::schedule::files_of)
+    crate::schedule::array(&workspace, "courses")
+        .iter()
+        .find(|row| {
+            crate::schedule::not_deleted(row) && crate::schedule::text(row, "id") == Some(id)
+        })
+        .and_then(crate::schedule::files_of)
 }
 
 /// A link that is not an LMS resource: a school site with an adapter opens
@@ -736,4 +743,4 @@ fn has_digest_suffix(value: &str) -> bool {
 
 #[cfg(test)]
 #[path = "tests/course_materials.rs"]
-mod tests;
+pub(crate) mod tests;

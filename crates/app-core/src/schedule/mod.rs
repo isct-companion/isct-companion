@@ -945,7 +945,7 @@ pub(crate) fn text_or_empty<'a>(value: &'a Value, key: &str) -> &'a str {
 
 /// Not tombstoned. Unlike [`visible`], a row the school no longer lists
 /// still counts: course details keep cached rows until they are deleted.
-pub(super) fn not_deleted(row: &Value) -> bool {
+pub(crate) fn not_deleted(row: &Value) -> bool {
     row.get("deletedAt").is_none_or(Value::is_null)
 }
 

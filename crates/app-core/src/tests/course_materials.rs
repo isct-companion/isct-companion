@@ -3,7 +3,7 @@ use crate::storage::{component, stored_file};
 use serde_json::json;
 use uuid::Uuid;
 
-fn store(name: &str) -> DataStore {
+pub(crate) fn store(name: &str) -> DataStore {
     let path = std::env::temp_dir().join(format!("course-materials-{name}-{}", Uuid::new_v4()));
     DataStore::initialize_dir(path).unwrap().0
 }
@@ -20,7 +20,7 @@ fn course() -> CourseKey {
 }
 
 /// A course as LMS enrolment writes it: its id and the folder Core names.
-fn enrolled(store: &DataStore) -> (String, CourseKey) {
+pub(crate) fn enrolled(store: &DataStore) -> (String, CourseKey) {
     let enrolment: adpt_isct::lms::LmsEnrolment = serde_json::from_value(json!({
         "language":"en",
         "courses":[{"id":99,"idnumber":"202602431","shortname":"CSC.T273[2026]","fullname":"Compilers","coursecategory":3}],

@@ -26,7 +26,7 @@ impl Session {
             Ok(OperationResult::File {
                 file: project(
                     notes
-                        .save(project_input(context)?, id, text)
+                        .save(&i.core.store, project_input(context)?, id, text)
                         .map_err(note_error)?,
                 )?,
             })
@@ -40,7 +40,7 @@ impl Session {
                         .runtime
                         .notes
                         .at(i.files.clone())
-                        .read(project_input(context)?, id)
+                        .read(&i.core.store, project_input(context)?, id)
                         .map_err(note_error)?,
                 )?,
             })
@@ -48,7 +48,7 @@ impl Session {
     }
     pub fn list_notes(
         &self,
-        context: CourseFolder,
+        course_id: String,
         sections: Vec<String>,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
@@ -58,7 +58,7 @@ impl Session {
                         .runtime
                         .notes
                         .at(i.files.clone())
-                        .list(project_input(context)?, sections)
+                        .list(&i.core.store, &course_id, sections)
                         .map_err(note_error)?,
                 )?,
             })

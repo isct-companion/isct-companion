@@ -1,6 +1,5 @@
 import { t } from "../../i18n";
 import { errorCode, invoke } from "../../platform/native-error";
-import type { CourseFolder } from "./files";
 
 /** A per-assignment folder (desktop only); see `apps/desktop/src-tauri/src/workspaces.rs`. */
 export type AssignmentWorkspace = {
@@ -19,12 +18,8 @@ export type HandInView = {
 };
 
 /** `closed`: the assignment is in `TaskView.closedIds`. */
-export const findWorkspace = (
-  context: CourseFolder,
-  assignment: string,
-  closed: boolean,
-) =>
-  invoke<HandInView>("assignment_workspace", { context, assignment, closed });
+export const findWorkspace = (assignment: string, closed: boolean) =>
+  invoke<HandInView>("assignment_workspace", { assignment, closed });
 
 /** The workspace folder was deleted outside the app. */
 export const workspaceMissing = (error: unknown) =>

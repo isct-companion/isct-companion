@@ -5,7 +5,6 @@ import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/ui";
 import { FileTile, LmsIcon } from "./LmsIcon";
-import type { CourseFolder } from "./files";
 import {
   createWorkspace,
   deleteWorkspace,
@@ -22,12 +21,10 @@ import {
  * Desktop assignment footer: the assignment workspace and a handoff to the official draft upload area.
  */
 export function AssignmentWorkspaceFooter({
-  context,
   assignment,
   closed,
   submit,
 }: {
-  context: CourseFolder;
   assignment: { id: string; title: string; sourceUrl?: string };
   /** In `TaskView.closedIds`: submitted, or past a deadline LMS no longer extends. */
   closed: boolean;
@@ -45,13 +42,13 @@ export function AssignmentWorkspaceFooter({
   const [zipName, setZipName] = useState("");
   const load = useCallback(
     () =>
-      findWorkspace(context, assignment.id, closed).then((next) => {
+      findWorkspace(assignment.id, closed).then((next) => {
         if (next.workspace) setLost(undefined);
         else if (shown.current) setLost(shown.current.name);
         shown.current = next.workspace;
         setView(next);
       }),
-    [context, assignment.id, closed],
+    [assignment.id, closed],
   );
   useEffect(() => {
     void load().catch(() => setView({ workspace: null, handIn: "openLms" }));

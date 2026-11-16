@@ -153,11 +153,12 @@ pub async fn save_course_note(
 ) -> Result<LocalFile, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
+    let data = crate::core_ports::core(&app).store.clone();
     let runtime = crate::core_ports::runtime(&app);
     runtime
         .run(async move {
             let file = tauri::async_runtime::spawn_blocking(move || {
-                service.save(context, id, text).map_err(coded)
+                service.save(&data, context, id, text).map_err(coded)
             })
             .await
             .map_err(shell)??;
@@ -175,7 +176,8 @@ pub async fn read_course_note(
 ) -> Result<LocalFile, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.read(context, id).map_err(coded))
+    let data = crate::core_ports::core(&app).store.clone();
+    tauri::async_runtime::spawn_blocking(move || service.read(&data, context, id).map_err(coded))
         .await
         .map_err(shell)?
 }
@@ -189,11 +191,14 @@ pub async fn move_course_note(
 ) -> Result<bool, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
+    let data = crate::core_ports::core(&app).store.clone();
     let runtime = crate::core_ports::runtime(&app);
     runtime
         .run(async move {
             let moved = tauri::async_runtime::spawn_blocking(move || {
-                service.move_note(context, id, restore).map_err(coded)
+                service
+                    .move_note(&data, context, id, restore)
+                    .map_err(coded)
             })
             .await
             .map_err(shell)??;
@@ -206,14 +211,17 @@ pub async fn move_course_note(
 pub async fn list_course_notes(
     webview: tauri::Webview,
     app: AppHandle,
-    context: CourseFolder,
+    course_id: String,
     sections: Vec<String>,
 ) -> Result<Vec<LocalFile>, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.list(context, sections).map_err(coded))
-        .await
-        .map_err(shell)?
+    let data = crate::core_ports::core(&app).store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service.list(&data, &course_id, sections).map_err(coded)
+    })
+    .await
+    .map_err(shell)?
 }
 /// What `url` opens as for the course `course_id` (Core's `Material`): a
 /// course file from disk, downloaded first when asked; files over `limit`

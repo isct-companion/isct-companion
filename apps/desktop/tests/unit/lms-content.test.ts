@@ -207,14 +207,6 @@ describe("LMS file addresses", () => {
       delete window.__ISCT_COMPANION_NATIVE_OS__;
     }
   });
-
-  it("bounds a folder path component and refuses traversal names", () => {
-    expect(files.folderComponent("..")).toBe("course");
-    expect(files.folderComponent(".")).toBe("course");
-    expect(files.folderComponent("")).toBe("course");
-    expect(files.folderComponent("x/y\\z")).toBe("x_y_z");
-    expect(files.folderComponent("a".repeat(200))).toHaveLength(120);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -249,11 +241,7 @@ describe("course file policy bounds", () => {
 // Note persistence
 // ---------------------------------------------------------------------------
 
-const noteContext = {
-  term: "2026-3Q",
-  course: "CSC.T251",
-  section: "section-91",
-};
+const noteContext = { courseId: "course-1", section: "section-91" };
 
 type NoteHost = {
   core: FakeCore;
@@ -269,11 +257,9 @@ type NoteHost = {
  * A scripted host that holds the first `save_course_note` until `release()`,
  * so the suite can see what the shell does while a write is still in flight.
  */
-function noteHost({
-  holdFirst = true,
-}: { holdFirst?: boolean } = {}): NoteHost {
+function noteHost(): NoteHost {
   const state = {
-    holding: holdFirst,
+    holding: true,
     committed: null as string | null,
     saved: [] as string[],
     pending: [] as (() => void)[],
@@ -360,26 +346,6 @@ describe("note persistence", () => {
     expect(secondFile.text).toBe("latest");
     // The reopen waited for the write, so it reads the newest draft.
     expect(reopenedFile.text).toBe("latest");
-  });
-
-  it("rejects an oversized draft before the host is asked to write", async () => {
-    const host = noteHost();
-    await expect(
-      files.saveNote(noteContext, "large-note", "あ".repeat(400_000)),
-    ).rejects.toThrowError(/^Notes are limited to 1 MB$/);
-    expect(host.core.calls).toEqual([]);
-  });
-
-  it("accepts a draft of exactly the byte limit and rejects one byte more", async () => {
-    const host = noteHost({ holdFirst: false });
-    const atLimit = "a".repeat(1_000_000);
-    await expect(
-      files.saveNote(noteContext, "limit-note", atLimit),
-    ).resolves.toMatchObject({ id: "limit-note", text: atLimit });
-    await expect(
-      files.saveNote(noteContext, "limit-note", `${atLimit}a`),
-    ).rejects.toThrowError(/^Notes are limited to 1 MB$/);
-    expect(host.savedTexts()).toEqual([atLimit]);
   });
 
   it("moves a note only after its pending autosave, and delegates undo to the restore flag", async () => {

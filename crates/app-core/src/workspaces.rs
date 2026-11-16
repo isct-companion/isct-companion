@@ -109,6 +109,17 @@ pub struct HandInView {
     pub hand_in: HandIn,
 }
 
+impl HandInView {
+    fn of(workspace: Option<WorkspaceInfo>, closed: bool) -> Self {
+        let hand_in = if closed || workspace.is_none() {
+            HandIn::OpenLms
+        } else {
+            HandIn::PrepareDraft
+        };
+        Self { workspace, hand_in }
+    }
+}
+
 pub struct PreparedUpload {
     pub info: WorkspaceInfo,
     pub files: Vec<SubmissionFile>,
@@ -149,24 +160,6 @@ impl Workspaces {
     ) -> Result<Option<WorkspaceInfo>, WorkspaceError> {
         let parent = self.workspaces_dir(course)?;
         Ok(find(&parent, assignment).map(|(path, meta)| info(&path, &meta)))
-    }
-
-    /// The workspace and main action for one assignment. `closed` is the
-    /// assignment's membership in `TaskView::closed_ids`: closed work, and
-    /// open work without a workspace, go straight to LMS.
-    pub fn hand_in(
-        &self,
-        course: &CourseKey,
-        assignment: &str,
-        closed: bool,
-    ) -> Result<HandInView, WorkspaceError> {
-        let workspace = self.find(course, assignment)?;
-        let hand_in = if closed || workspace.is_none() {
-            HandIn::OpenLms
-        } else {
-            HandIn::PrepareDraft
-        };
-        Ok(HandInView { workspace, hand_in })
     }
 
     /// Creates a workspace once. Existing files are never overwritten.
@@ -688,6 +681,13 @@ impl AssignmentWorkspaces {
             Some(course) => self.at()?.find(&course, assignment),
             None => Ok(None),
         }
+    }
+
+    /// The workspace and main action for one assignment. `closed` is the
+    /// assignment's membership in `TaskView::closed_ids`: closed work, and
+    /// open work without a workspace, go straight to LMS.
+    pub fn hand_in(&self, assignment: &str, closed: bool) -> Result<HandInView, WorkspaceError> {
+        Ok(HandInView::of(self.find(assignment)?, closed))
     }
 
     /// Creates the assignment's workspace once: downloads its attachments

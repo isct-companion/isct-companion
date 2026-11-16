@@ -1,58 +1,98 @@
 use super::*;
+use crate::course_materials::tests::{enrolled, store};
 
 fn service(name: &str) -> Notes {
     NoteStore::default()
         .at(std::env::temp_dir().join(format!("isct-notes-{name}-{}", uuid::Uuid::new_v4())))
 }
 
-fn context() -> CourseFolder {
-    CourseFolder {
-        term: "2026-3Q".into(),
-        course: "CSC.T251".into(),
+/// A section of a course LMS enrolment wrote, and the folder Core names for
+/// that course.
+fn context(name: &str) -> (DataStore, CourseFolder, CourseKey) {
+    let data = store(name);
+    let (course_id, folder) = enrolled(&data);
+    let context = CourseFolder {
+        course_id,
         section: "section-91".into(),
-    }
+    };
+    (data, context, folder)
 }
 
 #[test]
 fn save_read_list_and_move_through_the_trash() {
     let notes = service("roundtrip");
+    let (data, context, folder) = context("roundtrip");
     let saved = notes
-        .save(context(), String::new(), "# 読書ノート\n".into())
+        .save(
+            &data,
+            context.clone(),
+            String::new(),
+            "# 読書ノート\n".into(),
+        )
         .unwrap();
-    let read = notes.read(context(), saved.id.clone()).unwrap();
+    let read = notes
+        .read(&data, context.clone(), saved.id.clone())
+        .unwrap();
     assert_eq!(read.name, "読書ノート");
     assert_eq!(read.text.as_deref(), Some("# 読書ノート\n"));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let path = notes.note_path(&context(), &saved.id).unwrap();
+        let path = notes.note_path(&folder, "section-91", &saved.id).unwrap();
         assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o600);
     }
     let listed = |notes: &Notes| {
         notes
-            .list(context(), vec!["section-91".into()])
+            .list(&data, &context.course_id, vec!["section-91".into()])
             .unwrap()
             .len()
     };
     assert_eq!(listed(&notes), 1);
-    notes.move_note(context(), saved.id.clone(), false).unwrap();
+    notes
+        .move_note(&data, context.clone(), saved.id.clone(), false)
+        .unwrap();
     assert_eq!(listed(&notes), 0);
-    notes.move_note(context(), saved.id.clone(), true).unwrap();
+    notes
+        .move_note(&data, context.clone(), saved.id.clone(), true)
+        .unwrap();
+    // A course Core does not know has no folder to keep notes in.
+    assert!(matches!(
+        notes.save(
+            &data,
+            CourseFolder {
+                course_id: "unknown".into(),
+                section: "section-91".into()
+            },
+            String::new(),
+            "lost".into()
+        ),
+        Err(NoteError::Input(_))
+    ));
     assert_eq!(listed(&notes), 1);
 }
 
 #[test]
-fn an_oversized_note_is_rejected_before_touching_storage() {
+fn an_oversized_note_is_rejected_before_touching_storage_and_one_at_the_limit_is_kept() {
     let notes = service("limits");
+    let (data, context, _) = context("limits");
     assert!(matches!(
         notes.save(
-            context(),
+            &data,
+            context.clone(),
             String::new(),
             "x".repeat(MAX_NOTE_BYTES as usize + 1),
         ),
         Err(NoteError::TooLarge)
     ));
     assert!(!notes.root.exists());
+    assert!(notes
+        .save(
+            &data,
+            context,
+            String::new(),
+            "a".repeat(MAX_NOTE_BYTES as usize)
+        )
+        .is_ok());
 }
 
 #[test]
@@ -65,25 +105,31 @@ fn root_selection_rejects_stale_handles_and_changes_only_after_persisting() {
     let second_root = base.join("second");
     let store = NoteStore::default();
     let stale = store.at(first_root.clone());
+    let (data, context, _) = context("root-selection");
 
     assert!(store
         .select_root(second_root.clone(), || Err::<(), _>("persist failed"))
         .is_err());
     stale
-        .save(context(), String::new(), "still current".into())
+        .save(
+            &data,
+            context.clone(),
+            String::new(),
+            "still current".into(),
+        )
         .unwrap();
 
     store
         .select_root(second_root.clone(), || Ok::<(), &str>(()))
         .unwrap();
     assert!(matches!(
-        stale.save(context(), String::new(), "stale".into()),
+        stale.save(&data, context.clone(), String::new(), "stale".into()),
         Err(NoteError::Storage(message))
             if message == "Course storage changed; retry with the current folder"
     ));
     store
         .at(second_root)
-        .save(context(), String::new(), "new root".into())
+        .save(&data, context, String::new(), "new root".into())
         .unwrap();
     let _ = fs::remove_dir_all(base);
 }
@@ -126,17 +172,18 @@ fn constructing_a_handle_does_not_wait_for_long_note_io() {
 fn symbolic_link_note_is_rejected() {
     use std::os::unix::fs::symlink;
     let notes = service("symlink");
+    let (data, context, folder) = context("symlink");
     let id = uuid::Uuid::new_v4().to_string();
     let dir = storage_dir(
         &crate::storage::material_root(&notes.root),
-        &["2026-3Q", "CSC.T251", "section-91", "notes"],
+        &[&folder.term, &folder.course, "section-91", "notes"],
     )
     .unwrap();
     let outside = notes.root.join("outside.md");
     fs::write(&outside, "keep").unwrap();
     symlink(&outside, dir.join(format!("{id}.md"))).unwrap();
     assert!(matches!(
-        notes.save(context(), id, "replace".into()),
+        notes.save(&data, context, id, "replace".into()),
         Err(NoteError::Storage(message)) if message == "Cannot edit symbolic link"
     ));
     assert_eq!(fs::read_to_string(outside).unwrap(), "keep");
