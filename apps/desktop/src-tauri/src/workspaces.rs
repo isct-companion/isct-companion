@@ -3,7 +3,6 @@
 
 use crate::{coded, CommandError};
 use app_core::{
-    course_materials::CourseKey,
     school_browser::SubmissionMessages,
     workspaces::{CreatedWorkspace, HandInView, WorkspaceError, WorkspaceInfo, Workspaces},
 };
@@ -38,12 +37,12 @@ where
 pub async fn assignment_workspace(
     webview: tauri::Webview,
     app: AppHandle,
-    context: CourseKey,
     assignment: String,
     closed: bool,
 ) -> Result<HandInView, CommandError> {
-    let service = service(&webview, &app)?;
-    Ok(run_workspace(&app, move || service.hand_in(&context, &assignment, closed)).await?)
+    crate::require_local_main(&webview)?;
+    let workspaces = crate::core_ports::core(&app).assignment_workspaces.clone();
+    Ok(run_workspace(&app, move || workspaces.hand_in(&assignment, closed)).await?)
 }
 
 /// Core downloads the attachments, writes `ASSIGNMENT.md` and creates the

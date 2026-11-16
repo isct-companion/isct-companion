@@ -10,7 +10,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 use app_core::course_materials::CourseMaterials;
-pub use app_core::course_materials::{CourseKey, Material};
+pub use app_core::course_materials::Material;
 pub use app_core::notes::CourseFolder;
 use app_core::notes::Notes;
 use app_core::storage;
@@ -21,9 +21,6 @@ pub struct StorageInfo {
     root: String,
     custom: bool,
     can_choose: bool,
-}
-pub(crate) fn component(value: &str) -> Result<&str, CommandError> {
-    storage::component(value).map_err(coded)
 }
 fn config(app: &AppHandle) -> Result<PathBuf, CommandError> {
     Ok(app
@@ -156,11 +153,12 @@ pub async fn save_course_note(
 ) -> Result<LocalFile, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
+    let data = crate::core_ports::core(&app).store.clone();
     let runtime = crate::core_ports::runtime(&app);
     runtime
         .run(async move {
             let file = tauri::async_runtime::spawn_blocking(move || {
-                service.save(context, id, text).map_err(coded)
+                service.save(&data, context, id, text).map_err(coded)
             })
             .await
             .map_err(shell)??;
@@ -178,7 +176,8 @@ pub async fn read_course_note(
 ) -> Result<LocalFile, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.read(context, id).map_err(coded))
+    let data = crate::core_ports::core(&app).store.clone();
+    tauri::async_runtime::spawn_blocking(move || service.read(&data, context, id).map_err(coded))
         .await
         .map_err(shell)?
 }
@@ -192,11 +191,14 @@ pub async fn move_course_note(
 ) -> Result<bool, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
+    let data = crate::core_ports::core(&app).store.clone();
     let runtime = crate::core_ports::runtime(&app);
     runtime
         .run(async move {
             let moved = tauri::async_runtime::spawn_blocking(move || {
-                service.move_note(context, id, restore).map_err(coded)
+                service
+                    .move_note(&data, context, id, restore)
+                    .map_err(coded)
             })
             .await
             .map_err(shell)??;
@@ -209,22 +211,26 @@ pub async fn move_course_note(
 pub async fn list_course_notes(
     webview: tauri::Webview,
     app: AppHandle,
-    context: CourseFolder,
+    course_id: String,
     sections: Vec<String>,
 ) -> Result<Vec<LocalFile>, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.list(context, sections).map_err(coded))
-        .await
-        .map_err(shell)?
+    let data = crate::core_ports::core(&app).store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service.list(&data, &course_id, sections).map_err(coded)
+    })
+    .await
+    .map_err(shell)?
 }
-/// A course file from disk, downloading it first when asked. Files over
-/// `limit` bytes are reported instead of downloaded.
+/// What `url` opens as for the course `course_id` (Core's `Material`): a
+/// course file from disk, downloaded first when asked; files over `limit`
+/// bytes are reported instead of downloaded.
 #[tauri::command]
 pub async fn open_course_material(
     webview: tauri::Webview,
     app: AppHandle,
-    context: CourseKey,
+    course_id: String,
     url: String,
     download: bool,
     read_text: bool,
@@ -235,13 +241,13 @@ pub async fn open_course_material(
     let result = crate::core_ports::runtime(&app)
         .run(async move {
             materials
-                .open(context, url, download, read_text, limit)
+                .open(course_id, url, download, read_text, limit)
                 .await
         })
         .await
         .map_err(coded)?
         .map_err(coded)?;
-    if let Material::Ready { file } = &result {
+    if let Material::Ready { file, .. } = &result {
         app.asset_protocol_scope()
             .allow_file(&file.path)
             .map_err(shell)?;

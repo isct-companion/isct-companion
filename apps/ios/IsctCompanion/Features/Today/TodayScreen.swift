@@ -660,9 +660,9 @@ struct MaterialRow: View {
     let item: MaterialItem
 
     var body: some View {
-        MaterialOpener(title: item.title, source: item.url, files: nil, courseId: item.courseId) { opening in
+        MaterialOpener(title: item.title, source: item.url, courseId: item.courseId) { opening in
             HStack(spacing: 12) {
-                Image(systemName: icon).foregroundStyle(Theme.muted).frame(width: 16)
+                Image(systemName: MaterialButton.icon(item.kind)).foregroundStyle(Theme.muted).frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
                     if let detail {
@@ -678,14 +678,6 @@ struct MaterialRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-        }
-    }
-
-    private var icon: String {
-        switch item.kind {
-        case "pdf": return "doc"
-        case "video": return "play.rectangle"
-        default: return "link"
         }
     }
 

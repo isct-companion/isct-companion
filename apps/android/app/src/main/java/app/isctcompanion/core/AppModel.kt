@@ -691,9 +691,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     /** Downloads (or reuses) a course file through the signed-in LMS session. */
-    suspend fun openMaterial(files: CourseKey, source: String): Material? {
+    /** What an item or link of the course `courseId` opens as; a file is
+     * downloaded (or reused) through the signed-in LMS session. */
+    suspend fun openMaterial(courseId: String, source: String): Material? {
         val session = session ?: return null
-        val result = runCatching { session.openMaterial(files, source, true, false, null).value() }.getOrNull()
+        val result = runCatching { session.openMaterial(courseId, source, true, false, null).value() }.getOrNull()
         return (result as? OperationResult.Material)?.material
     }
 

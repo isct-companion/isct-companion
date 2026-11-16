@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.AssignmentDetail
+import app.isctcompanion.core.LessonItemKind
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.text
@@ -139,7 +140,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             due?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         }
         if (assignment.bodyHtml.isNotEmpty()) {
-            HtmlText(assignment.bodyHtml)
+            HtmlText(assignment.bodyHtml, assignment.courseId)
         } else if (assignment.details.isNotEmpty()) {
             Text(assignment.details, color = Theme.colors.ink)
         }
@@ -147,7 +148,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             Card {
                 assignment.attachments.forEachIndexed { index, file ->
                     if (index > 0) RowDivider()
-                    MaterialButton(file.name, "file", file.url, assignment.files)
+                    MaterialButton(file.name, LessonItemKind.FILE, file.url, assignment.courseId)
                 }
             }
         }

@@ -56,14 +56,13 @@ import {
 const ACTIVITIES = -1;
 /** The lesson the course is at, for marking rows of schedule tables. */
 
-import { fileFamily, extension } from "./file-types";
+import { downloadOnly, fileFamily, extension } from "./file-types";
 import { withRecords } from "../../platform/records";
 import {
-  folderComponent,
   downloadLimit,
-  previewKind,
   moveNote,
   type LocalFile,
+  type SchoolPage,
 } from "./files";
 const FilePopover = lazy(() =>
   import("./FilePreview").then((m) => ({ default: m.FilePopover })),
@@ -104,48 +103,6 @@ function groupImageLabels(items: LessonItem[]): (LessonItem | LessonItem[])[] {
   return grouped;
 }
 
-/**
- * A folder's files without a request: the listing kept from its last read,
- * else the folder links the crawl stored in its body.
- */
-const parsedFolders = new Map<
-  string,
-  { name: string; url: string }[] | undefined
->();
-function knownFolderFiles(m: Material) {
-  if (m.folderFiles?.length) return m.folderFiles;
-  if (!m.bodyHtml?.includes("mod_folder")) return undefined;
-  if (parsedFolders.has(m.bodyHtml)) return parsedFolders.get(m.bodyHtml);
-  if (parsedFolders.size > 200) parsedFolders.clear();
-  const files = folderLinks(m.bodyHtml);
-  parsedFolders.set(m.bodyHtml, files);
-  return files;
-}
-function folderLinks(html: string) {
-  const page = new DOMParser().parseFromString(
-    html.slice(0, 200000),
-    "text/html",
-  );
-  const files = [
-    ...page.querySelectorAll<HTMLAnchorElement>(
-      'a[href*="/pluginfile.php/"][href*="/mod_folder/"]',
-    ),
-  ].flatMap((link) => {
-    const url = safeUrl(link.getAttribute("href") ?? "");
-    return url && new URL(url).hostname === "lms.s.isct.ac.jp"
-      ? [
-          {
-            name:
-              link.textContent?.trim() ||
-              decodeURIComponent(url.split("/").pop()?.split("?")[0] ?? ""),
-            url,
-          },
-        ]
-      : [];
-  });
-  return files.length ? files : undefined;
-}
-
 export function LmsWorkspaceBody({
   course,
   data,
@@ -160,6 +117,7 @@ export function LmsWorkspaceBody({
   navigationProvided = false,
   headerStart,
   openPastExams,
+  openWeb,
 }: {
   course: Course;
   data: Workspace;
@@ -169,6 +127,8 @@ export function LmsWorkspaceBody({
   navigationProvided?: boolean;
   headerStart?: ReactNode;
   openPastExams?: () => void;
+  /** Opens a school page on the Web page. */
+  openWeb?: (url: string) => void;
   close: () => void;
   /** Asks Core to refresh this course now (`Refresh { course }`). */
   refresh?: () => void;
@@ -205,18 +165,11 @@ export function LmsWorkspaceBody({
   const narrow =
     (workspaceSize.width ?? 0) > 0 && (workspaceSize.width ?? 0) < 640;
   const viewerActive = active && (!narrow || viewing);
-  const folder = useMemo(
-    () => ({
-      term: folderComponent(course.termId),
-      course: folderComponent(course.code || course.id),
-      section: "section-0",
-    }),
-    [course.termId, course.code, course.id],
-  );
+
   const limit = downloadLimit(data.settings);
   const files = useMemo<FileAccess>(
-    () => ({ context: folder, limit }),
-    [folder, limit],
+    () => ({ courseId: course.id }),
+    [course.id],
   );
   /** Assignment workspaces are a desktop feature (folders, VS Code). */
   const workspaces = detectPlatform() === "native-desktop";
@@ -570,7 +523,7 @@ export function LmsWorkspaceBody({
     creatingNote,
     refreshNotes,
     newNote,
-  } = useCourseNotes(folder, noteSections, active, open);
+  } = useCourseNotes(course.id, noteSections, active, open);
   const [fileMenu, setFileMenu] = useState<{
     url: string;
     title: string;
@@ -586,13 +539,7 @@ export function LmsWorkspaceBody({
     title: string,
     anchor?: Element,
   ) => {
-    if (
-      !url ||
-      !anchor ||
-      previewKind(url) ||
-      !new URL(url).pathname.includes("/pluginfile.php/")
-    )
-      return false;
+    if (!url || !anchor || !downloadOnly(url)) return false;
     setFileMenu({ url, title, anchor });
     return true;
   };
@@ -603,6 +550,21 @@ export function LmsWorkspaceBody({
     },
     [open],
   );
+  /**
+   * A school page Core named: the LMS in the reader's signed-in view, the
+   * syllabus in its frame, any other school site on the Web page (the reader
+   * lets the item go, so coming back does not open it there again).
+   */
+  const openPage = ({ site, url }: SchoolPage, title: string) => {
+    if (site === "science-lms")
+      open({ id: `official:${url}`, title, kind: "official", url });
+    else if (site === "syllabus")
+      open({ id: `syllabus:${url}`, title, kind: "syllabus", url });
+    else {
+      closeContent();
+      openWeb?.(url);
+    }
+  };
   const openAssignment = useCallback((a: Assignment) => {
     setViewing(false);
     requestAnimationFrame(() => revealAssignment(a.id));
@@ -875,7 +837,6 @@ export function LmsWorkspaceBody({
         )}
         {workspaces ? (
           <AssignmentWorkspaceFooter
-            context={folder}
             assignment={a}
             closed={closedIds.has(a.id)}
             submit={a.sourceUrl ? submit : undefined}
@@ -986,20 +947,12 @@ export function LmsWorkspaceBody({
             >
               <InlineFolder
                 url={safeUrl(m.url)!}
-                context={folder}
+                courseId={course.id}
                 limit={limit}
-                known={knownFolderFiles(m)}
                 openFile={(fileUrl, name, anchor) =>
                   openLink(fileUrl, name, anchor)
                 }
-                openInApp={() =>
-                  open({
-                    id: `official:${m.url}`,
-                    title: m.title,
-                    kind: "official",
-                    url: m.url,
-                  })
-                }
+                openPage={(page) => openPage(page, m.title)}
               />
             </Suspense>
           )}
@@ -1373,19 +1326,11 @@ export function LmsWorkspaceBody({
                     key={fileMenu.url}
                     url={fileMenu.url}
                     title={fileMenu.title}
-                    context={folder}
+                    courseId={course.id}
                     limit={limit}
                     anchor={fileMenu.anchor}
                     onClose={closeFileMenu}
-                    openInApp={() => {
-                      closeFileMenu();
-                      open({
-                        id: `official:${fileMenu.url}`,
-                        title: fileMenu.title,
-                        kind: "official",
-                        url: fileMenu.url,
-                      });
-                    }}
+                    openPage={(page) => openPage(page, fileMenu.title)}
                   />
                 </Suspense>
               )}
@@ -1398,7 +1343,7 @@ export function LmsWorkspaceBody({
                     onClick={() => {
                       const note = deletedNote;
                       void moveNote(
-                        { ...folder, section: note.section },
+                        { courseId: course.id, section: note.section },
                         note.id,
                         true,
                       )
@@ -1495,7 +1440,7 @@ export function LmsWorkspaceBody({
                   <NoteEditor
                     key={opened.id}
                     id={opened.id}
-                    context={{ ...folder, section: opened.section! }}
+                    context={{ courseId: course.id, section: opened.section! }}
                     onSaved={refreshNotes}
                     onDeleted={() => {
                       setDeletedNote({
@@ -1531,69 +1476,29 @@ export function LmsWorkspaceBody({
                     />
                   )}
                   {(() => {
+                    // The item's own address, as Core's read models pick it;
+                    // Core decides what it opens as (`open_material`).
                     const url = safeUrl(
-                      material?.resourceUrl ||
-                        (material?.url &&
-                        ["resource", "url", "folder"].includes(
-                          material.module ?? "",
-                        )
-                          ? material.url
-                          : undefined) ||
+                      material?.url ||
+                        material?.resourceUrl ||
                         (opened.kind === "link" ? opened.url : undefined),
                     );
-                    if (!url) {
-                      // A forum read without posts is empty, not unsynced; any
-                      // unresolved activity can still open on the official page.
-                      const official = safeUrl(material?.url);
+                    if (!url)
                       return material && !material.bodyHtml ? (
-                        <>
-                          <p className="lmsQuiet">
-                            {t(
-                              material.module === "forum"
-                                ? "lms.noAnnouncementsYet"
-                                : "lms.noContentInThisSection",
-                            )}
-                          </p>
-                          {official &&
-                            new URL(official).hostname ===
-                              "lms.s.isct.ac.jp" && (
-                              <button
-                                type="button"
-                                className="lmsRefresh"
-                                onClick={() =>
-                                  open({
-                                    id: `official:${official}`,
-                                    title: opened.title,
-                                    kind: "official",
-                                    url: official,
-                                  })
-                                }
-                              >
-                                {t("common.openInLMS")}
-                              </button>
-                            )}
-                        </>
+                        <p className="lmsQuiet">
+                          {t("lms.noContentInThisSection")}
+                        </p>
                       ) : null;
-                    }
                     return (
                       <Suspense fallback={<p>{t("lms.loadingPreview")}</p>}>
                         <FilePreview
                           key={url}
                           url={url}
                           title={opened.title}
-                          context={folder}
+                          courseId={course.id}
                           limit={limit}
-                          openInApp={
-                            new URL(url).hostname === "lms.s.isct.ac.jp"
-                              ? () =>
-                                  open({
-                                    id: `official:${url}`,
-                                    title: opened.title,
-                                    kind: "official",
-                                    url,
-                                  })
-                              : undefined
-                          }
+                          inline={Boolean(material?.bodyHtml)}
+                          openPage={(page) => openPage(page, opened.title)}
                           openFile={(fileUrl, name) =>
                             open({
                               id: `link:${fileUrl}`,

@@ -233,7 +233,7 @@ fn safe_url(raw: Option<&str>) -> Option<url::Url> {
 
 /// Moodle's expand/collapse controls inside cached section markup.
 fn collapse_control(url: &url::Url, raw: &str) -> bool {
-    url.host_str() == Some("lms.s.isct.ac.jp")
+    adpt_isct::lms::is_lms_origin(url)
         && url.path().ends_with("/course/view.php")
         && (raw.ends_with('#')
             || url

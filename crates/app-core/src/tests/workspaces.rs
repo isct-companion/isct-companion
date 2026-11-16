@@ -228,10 +228,10 @@ fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
         )
         .unwrap();
     fs::write(PathBuf::from(&created.path).join("submit/answer.txt"), "x").unwrap();
-    let open = service.hand_in(&course(), "a", false).unwrap();
+    let open = HandInView::of(service.find(&course(), "a").unwrap(), false);
     assert_eq!(open.hand_in, HandIn::PrepareDraft);
     // Closed work goes to LMS even while its workspace is still there.
-    let closed = service.hand_in(&course(), "a", true).unwrap();
+    let closed = HandInView::of(service.find(&course(), "a").unwrap(), true);
     assert_eq!(closed.hand_in, HandIn::OpenLms);
     assert!(closed.workspace.is_some());
 
@@ -257,7 +257,7 @@ fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
         .unwrap(),
         serde_json::json!({"kind": "workspaceMissing"})
     );
-    let gone = service.hand_in(&course(), "a", false).unwrap();
+    let gone = HandInView::of(service.find(&course(), "a").unwrap(), false);
     assert_eq!(gone.hand_in, HandIn::OpenLms);
     assert!(gone.workspace.is_none());
 }
@@ -441,7 +441,6 @@ fn brief_carries_the_description_due_time_and_each_attachment() {
         body_html: "<p>Answer <b>all</b> questions.</p><ul><li>PDF only</li></ul>".into(),
         details: "row notes".into(),
         attachments: vec![attachment("sheet.pdf"), attachment("data.csv")],
-        files: Some(course()),
     };
     let missing = [MissingAttachment {
         name: "data.csv".into(),

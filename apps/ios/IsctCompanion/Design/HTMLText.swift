@@ -3,7 +3,10 @@ import UIKit
 
 /// LMS text (Core's sanitized `bodyHtml`) as native text: paragraphs, lists,
 /// emphasis and links keep their shape; colours follow the app, so dark mode
-/// and Dynamic Type apply. Links open in the in-app school page.
+/// and Dynamic Type apply. A web link opens as Core decides for the course
+/// (`MaterialOpening`): a file in Quick Look, a school page in its in-app
+/// view, anything else in the browser; other links (mail, phone) go to the
+/// system.
 ///
 /// The text is there on first layout, so a card never grows under an
 /// animation: screens warm `HTMLCache` ahead of showing it. A miss renders
@@ -12,8 +15,12 @@ import UIKit
 /// layout crashes seen on iPadOS 26 when an assignment page opened).
 struct HTMLText: View {
     let html: String
+    let courseId: String
+    @Environment(AppModel.self) private var model
     @Environment(\.push) private var push
+    @Environment(\.openURL) private var openURL
     @State private var rendered: AttributedString?
+    @State private var opening = MaterialOpening()
 
     var body: some View {
         Text(rendered ?? HTMLCache.cached(html) ?? AttributedString())
@@ -22,8 +29,9 @@ struct HTMLText: View {
             .tint(Theme.accent)
             .textSelection(.enabled)
             .environment(\.openURL, OpenURLAction { url in
-                guard url.host == "lms.s.isct.ac.jp" else { return .systemAction }
-                push(WebRouter.PushedPage(site: .scienceLms, target: url.absoluteString, title: ""))
+                guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return .systemAction }
+                let place = MaterialPlace(model: model, push: push, openURL: openURL)
+                Task { await opening.open(courseId, url.absoluteString, title: "", at: place) }
                 return .handled
             })
             .task(id: html) {
@@ -33,6 +41,7 @@ struct HTMLText: View {
                 await Task.yield()
                 rendered = HTMLCache.text(html)
             }
+            .materialOpening(opening)
     }
 
     /// WebKit's HTML import runs on the main thread; the body's own colours

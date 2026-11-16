@@ -506,9 +506,25 @@ async fn callback_failure_and_worker_panic_settle_without_killing_the_process() 
 #[tokio::test]
 async fn notes_parser_backup_and_disabled_ocr_share_the_real_core() {
     let f = Fixture::new().await;
+    // A note belongs to a course Core knows; Core names its folder.
+    f.commit(WorkspaceMutation {
+        expected_revision: f.revision().await,
+        intent: WorkspaceIntent::SaveCourse {
+            draft: JsonValue(
+                json!({"code":"X.1","title":"Sample","instructor":"Me","credits":1,"meetings":[]}),
+            ),
+            term_id: "2026-3Q".into(),
+            existing_id: None,
+        },
+    })
+    .await
+    .unwrap();
+    let course_id = f.records(&["courses"]).await["courses"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let context = CourseFolder {
-        term: "2026-3Q".into(),
-        course: "sample".into(),
+        course_id,
         section: "lesson".into(),
     };
     let saved = f

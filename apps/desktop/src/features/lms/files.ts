@@ -1,11 +1,14 @@
-import { t } from "../../i18n";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "../../platform/native-error";
-import { desktopBridge } from "../../app/native";
-import { nativeOs, type NativeOs } from "../../platform/desktop-bridge";
+import {
+  nativeOs,
+  type NativeOs,
+  type SchoolSite,
+} from "../../platform/desktop-bridge";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
 import type { Settings } from "../../lib/model";
-export type CourseFolder = { term: string; course: string; section: string };
+/** Where a note lives: a section of a course; Core names the course's folder. */
+export type CourseFolder = { courseId: string; section: string };
 export type LocalFile = {
   id: string;
   name: string;
@@ -16,53 +19,34 @@ export type LocalFile = {
   text?: string | null;
 };
 export type StorageInfo = { root: string; custom: boolean; canChoose: boolean };
-const prefix = "isct-companion-lms-note:";
+/** Writes to one note run one after another. */
 const queues = new Map<string, Promise<unknown>>();
 const key = (context: CourseFolder, id: string) =>
-  `${prefix}${context.term}/${context.course}/${context.section}/${id}`;
-export const folderComponent = (value: string) => {
-  const name = value.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 120);
-  return !name || name === "." || name === ".." ? "course" : name;
-};
+  `${context.courseId}/${context.section}/${id}`;
+/** Why Core could not open an item (`MaterialFailure`). */
 export type LmsFileReason =
   | "login"
   | "unresolved"
-  | "tooLarge"
   | "network"
   | "invalid"
   | "timeout"
+  | "cancelled"
   | "denied";
 
-export class LmsFileError extends Error {
-  constructor(
-    public reason: LmsFileReason,
-    public bytes?: number,
-  ) {
-    super(reason);
-  }
-}
-
+/**
+ * The app URI a page loads a course file from (`lms_protocol.rs`): Core
+ * serves the file of `source` for the course `courseId`.
+ */
 export function lmsFileUrl(
   source: string,
-  context: Pick<CourseFolder, "term" | "course">,
-  options: {
-    download?: boolean;
-    foreground?: boolean;
-    native?: boolean;
-    os?: NativeOs;
-  } = {},
+  courseId: string,
+  options: { download?: boolean; foreground?: boolean; os?: NativeOs } = {},
 ) {
-  const native = options.native ?? Boolean(desktopBridge);
-  if (!native) return source;
   // WebView2 only serves custom schemes over http://<scheme>.localhost.
   const os = options.os ?? nativeOs();
   const origin =
     os === "windows" ? "http://lmsfile.localhost" : "lmsfile://localhost";
-  const query = new URLSearchParams({
-    u: source,
-    term: context.term,
-    course: context.course,
-  });
+  const query = new URLSearchParams({ u: source, course: courseId });
   if (options.download) query.set("download", "1");
   if (options.foreground) query.set("foreground", "1");
   return `${origin}/get?${query}`;
@@ -89,93 +73,33 @@ export const downloadLimit = (
 export const retentionDays = (settings: Pick<Settings, "autoCleanDays">) =>
   boundedInteger(settings.autoCleanDays, COURSE_FILE_POLICY.retentionDays);
 export { previewKind } from "./file-types";
-export async function storageInfo(): Promise<StorageInfo> {
-  return desktopBridge
-    ? invoke("course_storage_info")
-    : {
-        root: t("lms.browserStorageDesktopAppSaves"),
-        custom: false,
-        canChoose: false,
-      };
-}
+export const storageInfo = (): Promise<StorageInfo> =>
+  invoke("course_storage_info");
 export async function chooseStorage(reset = false): Promise<StorageInfo> {
   return invoke("choose_course_storage", { reset });
 }
-export async function listNotes(
-  context: CourseFolder,
+/** The notes of course `courseId` in `sections`. */
+export const listNotes = (
+  courseId: string,
   sections: string[],
-): Promise<LocalFile[]> {
-  if (desktopBridge) return invoke("list_course_notes", { context, sections });
-  const notes: LocalFile[] = [];
-  const base = `${prefix}${context.term}/${context.course}/`;
-  for (let index = 0; index < localStorage.length; index++) {
-    const name = localStorage.key(index);
-    if (!name?.startsWith(base)) continue;
-    const [section, id] = name.slice(base.length).split("/");
-    if (id.endsWith(":deleted")) continue;
-    if (!sections.includes(section)) continue;
-    const text = localStorage.getItem(name) ?? "";
-    notes.push({
-      id,
-      section,
-      name: text.split("\n")[0].replace(/^#+\s*/, "") || "Note",
-      path: name,
-      bytes: text.length,
-      cached: true,
-    });
-  }
-  return notes;
-}
+): Promise<LocalFile[]> => invoke("list_course_notes", { courseId, sections });
 export async function readNote(
   context: CourseFolder,
   id: string,
 ): Promise<LocalFile> {
   await queues.get(key(context, id))?.catch(() => undefined);
-  if (desktopBridge) return invoke("read_course_note", { context, id });
-  const text = localStorage.getItem(key(context, id));
-  if (text === null) throw new Error(t("lms.noteWasNotFound"));
-  return {
-    id,
-    section: context.section,
-    name: "Note",
-    path: key(context, id),
-    bytes: text.length,
-    cached: true,
-    text,
-  };
+  return invoke("read_course_note", { context, id });
 }
 export function saveNote(
   context: CourseFolder,
   id: string,
   text: string,
 ): Promise<LocalFile> {
-  // Production IDs come from Rust (UUIDv7). Browser preview has no backend,
-  // so its fallback is intentionally confined to localStorage.
-  const recordId = id || (desktopBridge ? "" : crypto.randomUUID());
-  const name = key(context, recordId || "new");
+  const name = key(context, id || "new");
   const previous = queues.get(name) ?? Promise.resolve();
   const next = previous
     .catch(() => undefined)
-    .then(async () => {
-      if (new TextEncoder().encode(text).length > 1_000_000)
-        throw new Error(t("lms.notesAreLimitedTo1"));
-      if (desktopBridge)
-        return invoke<LocalFile>("save_course_note", {
-          context,
-          id: recordId,
-          text,
-        });
-      const storageKey = key(context, recordId);
-      localStorage.setItem(storageKey, text);
-      return {
-        id: recordId,
-        section: context.section,
-        name: text.split("\n")[0].replace(/^#+\s*/, "") || "Note",
-        path: storageKey,
-        bytes: text.length,
-        cached: false,
-      };
-    });
+    .then(() => invoke<LocalFile>("save_course_note", { context, id, text }));
   queues.set(name, next);
   void next
     .finally(() => {
@@ -184,22 +108,34 @@ export function saveNote(
     .catch(() => undefined);
   return next;
 }
-/** A course file on disk, or why it is not (yet). */
+/** A school page: where an LMS source lives, or a link to a school site. */
+export type SchoolPage = { site: SchoolSite; url: string };
+/**
+ * What an item or link opens as (Core's `Material`): a course file on disk or
+ * why it is not (yet), a folder's files, a school page, or an outside page.
+ * `page` is the LMS page of an LMS source, offered instead of the file.
+ */
 export type Material =
-  | { state: "ready"; file: LocalFile }
-  | { state: "missing" }
-  | { state: "tooLarge"; bytes: number }
-  | { state: "folder"; files: { name: string; url: string }[] }
+  | { state: "ready"; file: LocalFile; page: SchoolPage }
+  | { state: "missing"; page: SchoolPage }
+  | { state: "tooLarge"; bytes: number; page: SchoolPage }
+  | {
+      state: "folder";
+      files: { name: string; url: string }[];
+      page: SchoolPage;
+    }
+  | ({ state: "page" } & SchoolPage)
   | { state: "external"; url: string }
-  | { state: "failed"; reason: LmsFileReason };
+  | { state: "failed"; reason: LmsFileReason; page: SchoolPage | null };
 
 export const localFileUrl = (path: string) => convertFileSrc(path);
 /**
- * Read a course file from the course folder; with `download`, fetch it first
- * through the signed-in LMS view. Files over `limit` bytes report their size.
+ * Asks Core what an item or link opens as. A file is read from the course
+ * folder; with `download`, Core fetches it first with its signed-in LMS
+ * session. Files over `limit` bytes report their size.
  */
 export async function openMaterial(
-  context: CourseFolder,
+  courseId: string,
   url: string,
   {
     download = false,
@@ -207,9 +143,8 @@ export async function openMaterial(
     limit,
   }: { download?: boolean; readText?: boolean; limit?: number } = {},
 ): Promise<Material> {
-  if (!desktopBridge) return { state: "missing" };
   return invoke("open_course_material", {
-    context,
+    courseId,
     url,
     download,
     readText,
@@ -228,9 +163,7 @@ export const shareStoredFile = (
 ): Promise<void> => invoke("share_course_file", { path, anchor });
 /** Remove downloaded files not opened for `days` days. */
 export const cleanMaterials = (days: number): Promise<number> =>
-  desktopBridge
-    ? invoke("clean_course_materials", { days })
-    : Promise.resolve(0);
+  invoke("clean_course_materials", { days });
 
 export async function moveNote(
   context: CourseFolder,
@@ -241,21 +174,7 @@ export async function moveNote(
   const previous = queues.get(name) ?? Promise.resolve();
   const operation = previous
     .catch(() => undefined)
-    .then(async () => {
-      if (desktopBridge) {
-        await invoke("move_course_note", { context, id, restore });
-        return;
-      }
-      const trash = `${name}:deleted`;
-      const source = restore ? trash : name;
-      const target = restore ? name : trash;
-      const text = localStorage.getItem(source);
-      if (text === null) throw new Error(t("lms.noteWasNotFound"));
-      if (localStorage.getItem(target) !== null)
-        throw new Error(t("lms.aNoteAlreadyExistsAt"));
-      localStorage.setItem(target, text);
-      localStorage.removeItem(source);
-    });
+    .then(() => invoke("move_course_note", { context, id, restore }));
   queues.set(name, operation);
   try {
     await operation;

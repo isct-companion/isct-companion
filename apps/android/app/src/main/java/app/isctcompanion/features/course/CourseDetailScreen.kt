@@ -144,7 +144,7 @@ fun CourseDetailScreen(courseId: String) {
             }
             val lessons = content?.lessons.orEmpty()
             if (lessons.isNotEmpty()) {
-                Lessons(courseId, content!!, lessons, assignments, detail?.files) { reread -> content = reread }
+                Lessons(courseId, content!!, lessons, assignments) { reread -> content = reread }
             } else if (detail != null) {
                 EmptyState(Icons.Rounded.FolderOpen, t("course.noMaterialsYet"))
             } else {
@@ -163,7 +163,6 @@ private fun Lessons(
     content: CourseContent,
     lessons: List<LessonContent>,
     assignments: List<AssignmentDetail>,
-    files: CourseKey?,
     reread: (CourseContent) -> Unit,
 ) {
     val model = LocalModel.current
@@ -189,7 +188,7 @@ private fun Lessons(
         LessonPage(
             lesson,
             assignments.filter { it.assignmentId in set },
-            files,
+            courseId,
             expanded,
         ) { id, open -> expanded = if (open) expanded + id else expanded - id }
     }
@@ -254,7 +253,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
 private fun LessonPage(
     lesson: LessonContent,
     work: List<AssignmentDetail>,
-    files: CourseKey?,
+    courseId: String,
     expanded: Set<String>,
     expand: (String, Boolean) -> Unit,
 ) {
@@ -263,16 +262,16 @@ private fun LessonPage(
         (lesson.summary.ifEmpty { null } ?: lesson.title)?.takeIf { it.isNotEmpty() }?.let {
             Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         }
-        if (lesson.summaryHtml.isNotEmpty()) Surface { HtmlText(lesson.summaryHtml) }
+        if (lesson.summaryHtml.isNotEmpty()) Surface { HtmlText(lesson.summaryHtml, courseId) }
         for (group in groups(lesson.items)) {
             val item = group.first()
             if (group.size == 1 && item.bodyHtml != null) {
-                InlineItem(item)
+                InlineItem(item, courseId)
             } else {
                 Card {
                     group.forEachIndexed { index, row ->
                         if (index > 0) RowDivider()
-                        MaterialButton(row.title, kind(row.kind), row.source, files)
+                        MaterialButton(row.title, row.kind, row.source, courseId)
                     }
                 }
             }
@@ -306,18 +305,9 @@ private fun groups(items: List<LessonItem>): List<List<LessonItem>> {
     return groups
 }
 
-private fun kind(kind: LessonItemKind): String = when (kind) {
-    LessonItemKind.FILE -> "resource"
-    LessonItemKind.FOLDER -> "folder"
-    LessonItemKind.LINK, LessonItemKind.OTHER -> "link"
-    LessonItemKind.PAGE -> "page"
-    LessonItemKind.LABEL -> "label"
-    LessonItemKind.FORUM -> "forum"
-}
-
 /** A page, label or announcement shown in place, as on the desktop. */
 @Composable
-private fun InlineItem(item: LessonItem) {
+private fun InlineItem(item: LessonItem, courseId: String) {
     Surface {
         when (item.kind) {
             LessonItemKind.PAGE -> Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
@@ -327,7 +317,7 @@ private fun InlineItem(item: LessonItem) {
             }
             else -> Unit
         }
-        item.bodyHtml?.let { HtmlText(it) }
+        item.bodyHtml?.let { HtmlText(it, courseId) }
     }
 }
 

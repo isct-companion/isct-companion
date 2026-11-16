@@ -25,21 +25,18 @@ pub struct CourseDetail {
     #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub lms_course_id: Option<u64>,
     pub syllabus_url: Option<String>,
-    /// Where the course's downloaded files live, for opening its materials.
-    pub files: Option<CourseKey>,
     /// The content language, which LMS text published in both languages is
     /// filtered to when the person asks for one language.
     #[cfg_attr(feature = "ts", ts(type = "\"ja\" | \"en\""))]
     pub content_language: String,
 }
 
-const LMS_HOST: &str = "lms.s.isct.ac.jp";
-
 fn lms_url(workspace: &Value, course: &Value) -> Option<String> {
     let provider = course.pointer("/source/provider").and_then(Value::as_str);
-    if let Some(url) =
-        text(course, "url").filter(|url| provider == Some("lms") && url.contains(LMS_HOST))
-    {
+    if let Some(url) = text(course, "url").filter(|url| {
+        provider == Some("lms")
+            && url::Url::parse(url).is_ok_and(|url| adpt_isct::lms::is_lms_origin(&url))
+    }) {
         return Some(url.into());
     }
     lms_record(workspace, course)
@@ -155,11 +152,10 @@ pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -
         content_language,
         lms_course_id: lms_course_id(workspace, course),
         syllabus_url,
-        files: files_of(course),
     }
 }
 
-pub(super) fn files_of(course: &Value) -> Option<CourseKey> {
+pub(crate) fn files_of(course: &Value) -> Option<CourseKey> {
     text(course, "termId").map(|term| CourseKey {
         term: crate::storage::folder_name(term),
         course: crate::storage::folder_name(
@@ -192,8 +188,6 @@ pub struct AssignmentDetail {
     /// Notes the assignment row carries besides the LMS text.
     pub details: String,
     pub attachments: Vec<AssignmentAttachment>,
-    /// Where opened attachments are kept.
-    pub files: Option<CourseKey>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -218,7 +212,6 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
     let raw = source
         .and_then(|row| text(row, "bodyHtml"))
         .unwrap_or_default();
-    let course = super::visible_by_id(workspace, "courses", course_id);
     let owned = |key: &str| text(assignment, key).map(str::to_owned);
     Some(AssignmentDetail {
         assignment_id: assignment_id.into(),
@@ -232,11 +225,8 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
         attachments: attachments(raw),
         body_html: super::lms_html::safe_html(raw, true),
         details: text(assignment, "details").unwrap_or_default().into(),
-        files: course.and_then(files_of),
     })
 }
-
-const LMS_FILE_HOST: &str = "lms.s.isct.ac.jp";
 
 /// LMS files the description links (`pluginfile.php`), once each, named by
 /// their file name.
@@ -253,9 +243,7 @@ fn attachments(html: &str) -> Vec<AssignmentAttachment> {
         let Ok(url) = url::Url::parse(href) else {
             continue;
         };
-        if url.scheme() != "https"
-            || url.host_str() != Some(LMS_FILE_HOST)
-            || found.iter().any(|known| known.url == href)
+        if !adpt_isct::lms::is_plugin_file_url(&url) || found.iter().any(|known| known.url == href)
         {
             continue;
         }

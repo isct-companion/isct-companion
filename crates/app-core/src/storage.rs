@@ -193,9 +193,9 @@ pub struct LocalFile {
     pub text: Option<String>,
 }
 
-/// A safe folder name for a course or term, matching the folders desktop
-/// already created (`folderComponent` in `features/lms/files.ts`): every
-/// other UTF-16 unit becomes `_`, at most 120 characters.
+/// A safe folder name for a course or term, matching the folders earlier
+/// desktop releases created: every other UTF-16 unit becomes `_`, at most
+/// 120 characters.
 pub fn folder_name(value: &str) -> String {
     let mut name = String::new();
     for character in value.chars() {

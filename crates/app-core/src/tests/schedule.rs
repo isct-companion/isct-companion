@@ -1113,9 +1113,12 @@ fn phone_workspace() -> Value {
     let mut data = workspace();
     data["courses"].as_array_mut().unwrap().push(json!({"id":"afternoon","termId":"2026-1Q","title":"Afternoon","code":"CSC.T300","color":"#526e91","meetings":[{"days":[1],"startTime":"13:30","endTime":"15:10","room":"W9-325"}]}));
     data["memberships"].as_array_mut().unwrap().push(json!({"id":"member-2","termId":"2026-1Q","courseId":"afternoon","status":"registered","evidence":{"provider":"school"}}));
+    // Rows as LMS ingest writes them: `type` is always "link", the module
+    // says what the item is, and a label has no address.
     data["materials"] = json!([
-        {"id":"slides-1","courseId":"course","title":"Slides 1","type":"pdf","sectionNumber":1,"updatedAt":"2026-04-06T08:00:00+09:00"},
-        {"id":"slides-2","courseId":"course","title":"Slides 2","type":"pdf","sectionNumber":2,"updatedAt":"2026-04-13T08:00:00+09:00"},
+        {"id":"slides-1","courseId":"course","title":"Slides 1","type":"link","module":"resource","sectionNumber":1,"updatedAt":"2026-04-06T08:00:00+09:00","url":"https://lms.s.isct.ac.jp/2026/mod/resource/view.php?id=101"},
+        {"id":"slides-2","courseId":"course","title":"Slides 2","type":"link","module":"resource","sectionNumber":2,"updatedAt":"2026-04-13T08:00:00+09:00","url":"https://lms.s.isct.ac.jp/2026/mod/resource/view.php?id=102","resourceUrl":"https://lms.s.isct.ac.jp/2026/pluginfile.php/2002/mod_resource/content/1/slides-2.pdf"},
+        {"id":"after-class","courseId":"course","title":"Posted after class","type":"link","module":"label","sectionNumber":2,"updatedAt":"2026-04-13T08:30:00+09:00","url":"","bodyHtml":"<p>Posted after class</p>"},
         {"id":"quiz","courseId":"course","title":"Quiz","type":"link","module":"quiz","sectionNumber":3,"updatedAt":"2026-04-13T08:00:00+09:00"}
     ]);
     data["assignments"] = json!([
@@ -1183,11 +1186,33 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         Some("2026-04-13T08:50:00+09:00")
     );
 
-    // In class: newest material and this course's open work, then today's other deadlines.
+    // In class: newest material and this course's open work, then today's
+    // other deadlines. A label is text on the course page, not a material
+    // to open, even when it is the newest row.
     let class = today("2026-04-13T09:00:00+09:00");
     assert_eq!(class.phase, TodayPhase::InClass);
     assert_eq!(class.class_materials[0].material_id, "slides-2");
     assert!(class.class_materials[0].added_today);
+    // Today opens a row from the same address and calls it the same kind as
+    // the course page, so a row cannot open on one and fail on the other.
+    let lesson_item = course_content(
+        &data,
+        &SchoolReads::fixture(&data),
+        "course",
+        DateTime::parse_from_rfc3339("2026-04-13T09:00:00+09:00").unwrap(),
+    )
+    .unwrap()
+    .lessons
+    .iter()
+    .flat_map(|lesson| &lesson.items)
+    .find(|item| item.material_id == "slides-2")
+    .cloned()
+    .unwrap();
+    let material = &class.class_materials[0];
+    assert_eq!(
+        (Some(material.url.as_str()), material.kind),
+        (lesson_item.source.as_deref(), lesson_item.kind)
+    );
     // Without a section title, the row names the lesson by its number.
     assert_eq!(
         class.class_materials[0].section_label.as_deref(),
@@ -1751,17 +1776,12 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
             .material_ids
             .is_empty()
     );
-    // Files go where desktop already put them: `folderComponent` replaces
-    // every other UTF-16 unit, so an emoji takes two underscores.
-    let files = view.files.unwrap();
+    // Files go where earlier desktop releases put them: every other UTF-16
+    // unit is replaced, so an emoji takes two underscores.
+    let files = files_of(visible_by_id(&data, "courses", "c").unwrap()).unwrap();
     assert_eq!(
         (files.term.as_str(), files.course.as_str()),
         ("2026-3Q", "_csc.t101_")
-    );
-    assert!(
-        course_detail(&data, &SchoolReads::fixture(&data), "unknown")
-            .files
-            .is_none()
     );
     assert_eq!(crate::storage::folder_name("線形代数🙂"), "______");
     assert_eq!(crate::storage::folder_name(".."), "course");
@@ -3015,7 +3035,6 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert_eq!(view.files.unwrap().course, "CSC.T273");
     assert!(assignment_detail(&data, "gone").is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
     // relative links and other hosts are not attachments.

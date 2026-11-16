@@ -148,7 +148,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     constraints {
-        implementation("com.google.firebase:firebase-components:18.0.1") {
+        implementation("com.google.firebase:firebase-components:20.0.0") {
             because("This release keeps the registrar constructors that ML Kit calls by reflection")
         }
     }
@@ -163,8 +163,8 @@ dependencies {
     }
     // The campus map's drawing surface (features/map): MapLibre over
     // OpenFreeMap's tiles, which need no key and no Google Play services.
-    // 11.x is the API the map view is written against.
-    implementation("org.maplibre.gl:android-sdk:11.13.5")
+    // 13.x is the API the map view is written against.
+    implementation("org.maplibre.gl:android-sdk:13.7.1")
     // Google Drive: the authorization API hands Core drive.appdata tokens.
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")

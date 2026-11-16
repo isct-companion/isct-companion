@@ -1,7 +1,11 @@
 //! Local course notes. They stay in the course folder: no backup or cloud
 //! copy carries them (slotledger constraint/cloud-sync-scope).
 
-use crate::storage::{self, component, describe, storage_dir, LocalFile, StorageError};
+use crate::{
+    course_materials::{course_folder, CourseKey},
+    data::DataStore,
+    storage::{self, component, describe, storage_dir, LocalFile, StorageError},
+};
 use serde::Deserialize;
 use std::{
     fs,
@@ -12,11 +16,12 @@ use std::{
 const MAX_NOTE_BYTES: u64 = 1_000_000;
 const MAX_LISTED_NOTES: usize = 1_000;
 
+/// Where a note lives: a section of a course, named by the course's id. Core
+/// finds the course's folder (`course_folder`).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CourseFolder {
-    pub term: String,
-    pub course: String,
+    pub course_id: String,
     pub section: String,
 }
 
@@ -106,6 +111,7 @@ impl Notes {
 
     pub fn save(
         &self,
+        data: &DataStore,
         context: CourseFolder,
         id: String,
         text: String,
@@ -118,16 +124,23 @@ impl Notes {
         } else {
             id
         };
+        let course = course(data, &context.course_id)?;
         let _guard = self.lock_selected()?;
-        let path = self.note_path(&context, &id)?;
+        let path = self.note_path(&course, &context.section, &id)?;
         write_note(&path, text.as_bytes())?;
         describe(path, id, context.section, false, false).map_err(NoteError::from)
     }
 
-    pub fn read(&self, context: CourseFolder, id: String) -> Result<LocalFile, NoteError> {
+    pub fn read(
+        &self,
+        data: &DataStore,
+        context: CourseFolder,
+        id: String,
+    ) -> Result<LocalFile, NoteError> {
+        let course = course(data, &context.course_id)?;
         let _guard = self.lock_selected()?;
         describe(
-            self.note_path(&context, &id)?,
+            self.note_path(&course, &context.section, &id)?,
             id,
             context.section,
             false,
@@ -138,14 +151,16 @@ impl Notes {
 
     pub fn move_note(
         &self,
+        data: &DataStore,
         context: CourseFolder,
         id: String,
         restore: bool,
     ) -> Result<bool, NoteError> {
+        let course = course(data, &context.course_id)?;
         let _guard = self.lock_selected()?;
-        let note = self.note_path(&context, &id)?;
+        let note = self.note_path(&course, &context.section, &id)?;
         let trash = self
-            .folder(&context, "deleted-notes")?
+            .folder(&course, &context.section, "deleted-notes")?
             .join(format!("{id}.md"));
         reject_symlink(&trash, "Cannot move symbolic link")?;
         let (source, target) = if restore {
@@ -169,11 +184,14 @@ impl Notes {
         Ok(true)
     }
 
+    /// The notes of the course `course_id` in `sections`.
     pub fn list(
         &self,
-        context: CourseFolder,
+        data: &DataStore,
+        course_id: &str,
         sections: Vec<String>,
     ) -> Result<Vec<LocalFile>, NoteError> {
+        let context = course(data, course_id)?;
         let _guard = self.lock_selected()?;
         let mut notes = Vec::new();
         let tree = self.tree();
@@ -222,20 +240,24 @@ impl Notes {
         crate::storage::material_root(&self.root)
     }
 
-    fn folder(&self, context: &CourseFolder, kind: &str) -> Result<PathBuf, NoteError> {
-        storage_dir(
-            &self.tree(),
-            &[&context.term, &context.course, &context.section, kind],
-        )
-        .map_err(NoteError::from)
+    fn folder(&self, course: &CourseKey, section: &str, kind: &str) -> Result<PathBuf, NoteError> {
+        storage_dir(&self.tree(), &[&course.term, &course.course, section, kind])
+            .map_err(NoteError::from)
     }
 
-    fn note_path(&self, context: &CourseFolder, id: &str) -> Result<PathBuf, NoteError> {
+    fn note_path(&self, course: &CourseKey, section: &str, id: &str) -> Result<PathBuf, NoteError> {
         uuid::Uuid::parse_str(id).map_err(|_| NoteError::Input("Invalid note ID".into()))?;
-        let path = self.folder(context, "notes")?.join(format!("{id}.md"));
+        let path = self
+            .folder(course, section, "notes")?
+            .join(format!("{id}.md"));
         reject_symlink(&path, "Cannot edit symbolic link")?;
         Ok(path)
     }
+}
+
+/// The folder of the course a note belongs to.
+fn course(data: &DataStore, id: &str) -> Result<CourseKey, NoteError> {
+    course_folder(data, id).ok_or_else(|| NoteError::Input("Unknown course".into()))
 }
 
 impl From<StorageError> for NoteError {

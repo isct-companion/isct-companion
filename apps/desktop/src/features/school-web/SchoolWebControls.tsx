@@ -5,14 +5,16 @@ import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import { useAnimatedNavigate } from "../../app/navigation";
 import { paths } from "../../app/routes";
-import type {
-  SchoolLoadFailure,
-  SchoolOtpEnrollment,
-  SchoolOtpIntent,
-  SchoolSite,
-  SchoolWebNotice,
-  SchoolWebPage,
-  SchoolWebProblem,
+import {
+  nativeOs,
+  type SchoolDownloadEvent,
+  type SchoolLoadFailure,
+  type SchoolOtpEnrollment,
+  type SchoolOtpIntent,
+  type SchoolSite,
+  type SchoolWebNotice,
+  type SchoolWebPage,
+  type SchoolWebProblem,
 } from "../../platform/desktop-bridge";
 
 /** Core's one-time notes about the page on screen. */
@@ -39,14 +41,24 @@ const failureText: Record<SchoolLoadFailure, MessageKey> = {
   other: "web.thisPageCouldNotBeOpened2",
 };
 
+/** What the line says about a file the page is saving to Downloads. */
+const downloadText: Record<SchoolDownloadEvent["state"], MessageKey> = {
+  started: "web.downloadingName",
+  done: "web.savedNameToDownloads",
+  failed: "web.downloadFailedName",
+};
+const revealLabel: MessageKey =
+  nativeOs() === "macos" ? "web.showInFinder" : "web.showInFolder";
+
 /**
  * The lines between a surface's toolbar and the school page: the popup in
  * front with its close button, Core signing the view in (the native view is
  * out of sight meanwhile) with "Cancel, I'll sign in myself", why that
  * sign-in stopped, the button that signs a stuck sign-in page in, a failed load with Retry and Open in browser (all from
- * Core's page, so every surface shows the same), and Core's one-time note
- * that a reload was sent without the form. They sit outside the element the
- * native view covers.
+ * Core's page, so every surface shows the same), Core's one-time note
+ * that a reload was sent without the form, and a file being saved to
+ * Downloads, then saved with its Reveal button. They sit outside the element
+ * the native view covers, which a toast at the bottom of the window does not.
  */
 export function SchoolWebNotices({
   site,
@@ -72,6 +84,33 @@ export function SchoolWebNotices({
       setNotice(undefined);
     };
   }, [site]);
+  /** The last file this site saved; `missing` once Reveal no longer finds it. */
+  const [download, setDownload] = useState<
+    SchoolDownloadEvent & { missing?: boolean }
+  >();
+  useEffect(() => {
+    let clear: number | undefined;
+    const dispose = desktopBridge?.onSchoolDownload?.((event) => {
+      if (event.site !== site) return;
+      window.clearTimeout(clear);
+      setDownload(event);
+      if (event.state !== "started")
+        clear = window.setTimeout(() => setDownload(undefined), 30_000);
+    });
+    return () => {
+      dispose?.();
+      window.clearTimeout(clear);
+      setDownload(undefined);
+    };
+  }, [site]);
+  const reveal = async (path: string) => {
+    try {
+      if (!(await desktopBridge?.revealSchoolDownload?.(path)))
+        setDownload((shown) => shown && { ...shown, missing: true });
+    } catch (error) {
+      onError(error);
+    }
+  };
   const routed = useInRouterContext();
   const failure = page?.notice;
   const access = page?.access;
@@ -155,6 +194,29 @@ export function SchoolWebNotices({
       {notice && (
         <div className="webNotice" role="status">
           <span>{t(noticeText[notice])}</span>
+        </div>
+      )}
+      {download && (
+        <div
+          className={`webNotice${download.state === "failed" ? " warning" : ""}`}
+          role="status"
+          aria-busy={download.state === "started"}
+        >
+          <span>
+            {download.missing
+              ? t("web.thatFileCanNoLonger")
+              : t(downloadText[download.state], { name: download.name })}
+          </span>
+          {download.path &&
+            !download.missing &&
+            desktopBridge?.revealSchoolDownload && (
+              <UiButton
+                type="button"
+                onClick={() => void reveal(download.path!)}
+              >
+                {t(revealLabel)}
+              </UiButton>
+            )}
         </div>
       )}
     </>

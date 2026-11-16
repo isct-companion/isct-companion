@@ -182,71 +182,30 @@ describe("LMS file classification", () => {
 
 describe("LMS file addresses", () => {
   const source = "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
-  const context = {
-    term: "2026-3Q",
-    course: "CSC.T251",
-    section: "section-91",
-  };
+  const course = "course-1";
 
-  it("leaves the source address alone outside the desktop shell", () => {
-    expect(files.lmsFileUrl(source, context, { native: false })).toBe(source);
-  });
-
-  it("rewrites the address onto the app scheme on macOS", () => {
-    expect(
-      files.lmsFileUrl(source, context, { native: true, os: "macos" }),
-    ).toBe(
-      "lmsfile://localhost/get?u=https%3A%2F%2Flms.s.isct.ac.jp%2F2025%2Fmod%2Fresource%2Fview.php%3Fid%3D42&term=2026-3Q&course=CSC.T251",
+  // `lms_protocol.rs` reads exactly these query keys.
+  it("puts the source and course on the app scheme on macOS", () => {
+    expect(files.lmsFileUrl(source, course, { os: "macos" })).toBe(
+      "lmsfile://localhost/get?u=https%3A%2F%2Flms.s.isct.ac.jp%2F2025%2Fmod%2Fresource%2Fview.php%3Fid%3D42&course=course-1",
     );
-  });
-
-  it("uses the http form the Windows webview requires", () => {
     expect(
-      files.lmsFileUrl(source, context, { native: true, os: "windows" }),
-    ).toMatch(/^http:\/\/lmsfile\.localhost\/get\?/);
-  });
-
-  it("carries the download and foreground flags when the caller asks for them", () => {
-    expect(
-      files.lmsFileUrl(source, context, {
-        native: true,
-        os: "windows",
-        download: true,
-      }),
+      files.lmsFileUrl(source, course, { os: "macos", download: true }),
     ).toContain("download=1");
     expect(
-      files.lmsFileUrl(source, context, {
-        native: true,
-        os: "macos",
-        foreground: true,
-      }),
+      files.lmsFileUrl(source, course, { os: "macos", foreground: true }),
     ).toContain("foreground=1");
   });
 
-  it("takes the platform from the injected native OS when the caller does not name one", () => {
+  it("uses the http form the Windows webview requires, from the injected native OS", () => {
     window.__ISCT_COMPANION_NATIVE_OS__ = "windows";
     try {
-      expect(files.lmsFileUrl(source, context, { native: true })).toMatch(
+      expect(files.lmsFileUrl(source, course)).toMatch(
         /^http:\/\/lmsfile\.localhost\/get\?/,
       );
     } finally {
       delete window.__ISCT_COMPANION_NATIVE_OS__;
     }
-  });
-
-  it("rewrites through the app protocol by default inside the desktop shell", () => {
-    delete window.__ISCT_COMPANION_NATIVE_OS__;
-    expect(files.lmsFileUrl(source, context)).toMatch(
-      /^lmsfile:\/\/localhost\/get\?/,
-    );
-  });
-
-  it("bounds a folder path component and refuses traversal names", () => {
-    expect(files.folderComponent("..")).toBe("course");
-    expect(files.folderComponent(".")).toBe("course");
-    expect(files.folderComponent("")).toBe("course");
-    expect(files.folderComponent("x/y\\z")).toBe("x_y_z");
-    expect(files.folderComponent("a".repeat(200))).toHaveLength(120);
   });
 });
 
@@ -282,11 +241,7 @@ describe("course file policy bounds", () => {
 // Note persistence
 // ---------------------------------------------------------------------------
 
-const noteContext = {
-  term: "2026-3Q",
-  course: "CSC.T251",
-  section: "section-91",
-};
+const noteContext = { courseId: "course-1", section: "section-91" };
 
 type NoteHost = {
   core: FakeCore;
@@ -302,11 +257,9 @@ type NoteHost = {
  * A scripted host that holds the first `save_course_note` until `release()`,
  * so the suite can see what the shell does while a write is still in flight.
  */
-function noteHost({
-  holdFirst = true,
-}: { holdFirst?: boolean } = {}): NoteHost {
+function noteHost(): NoteHost {
   const state = {
-    holding: holdFirst,
+    holding: true,
     committed: null as string | null,
     saved: [] as string[],
     pending: [] as (() => void)[],
@@ -393,26 +346,6 @@ describe("note persistence", () => {
     expect(secondFile.text).toBe("latest");
     // The reopen waited for the write, so it reads the newest draft.
     expect(reopenedFile.text).toBe("latest");
-  });
-
-  it("rejects an oversized draft before the host is asked to write", async () => {
-    const host = noteHost();
-    await expect(
-      files.saveNote(noteContext, "large-note", "あ".repeat(400_000)),
-    ).rejects.toThrowError(/^Notes are limited to 1 MB$/);
-    expect(host.core.calls).toEqual([]);
-  });
-
-  it("accepts a draft of exactly the byte limit and rejects one byte more", async () => {
-    const host = noteHost({ holdFirst: false });
-    const atLimit = "a".repeat(1_000_000);
-    await expect(
-      files.saveNote(noteContext, "limit-note", atLimit),
-    ).resolves.toMatchObject({ id: "limit-note", text: atLimit });
-    await expect(
-      files.saveNote(noteContext, "limit-note", `${atLimit}a`),
-    ).rejects.toThrowError(/^Notes are limited to 1 MB$/);
-    expect(host.savedTexts()).toEqual([atLimit]);
   });
 
   it("moves a note only after its pending autosave, and delegates undo to the restore flag", async () => {

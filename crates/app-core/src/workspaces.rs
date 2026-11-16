@@ -5,7 +5,7 @@
 //! Either way the hand-in reads `submit/`.
 
 use crate::{
-    course_materials::{CourseKey, CourseMaterials, Material},
+    course_materials::{course_folder, CourseKey, CourseMaterials, Material},
     data::DataStore,
     downloads::Downloader,
     notes::NoteStore,
@@ -109,6 +109,17 @@ pub struct HandInView {
     pub hand_in: HandIn,
 }
 
+impl HandInView {
+    fn of(workspace: Option<WorkspaceInfo>, closed: bool) -> Self {
+        let hand_in = if closed || workspace.is_none() {
+            HandIn::OpenLms
+        } else {
+            HandIn::PrepareDraft
+        };
+        Self { workspace, hand_in }
+    }
+}
+
 pub struct PreparedUpload {
     pub info: WorkspaceInfo,
     pub files: Vec<SubmissionFile>,
@@ -149,24 +160,6 @@ impl Workspaces {
     ) -> Result<Option<WorkspaceInfo>, WorkspaceError> {
         let parent = self.workspaces_dir(course)?;
         Ok(find(&parent, assignment).map(|(path, meta)| info(&path, &meta)))
-    }
-
-    /// The workspace and main action for one assignment. `closed` is the
-    /// assignment's membership in `TaskView::closed_ids`: closed work, and
-    /// open work without a workspace, go straight to LMS.
-    pub fn hand_in(
-        &self,
-        course: &CourseKey,
-        assignment: &str,
-        closed: bool,
-    ) -> Result<HandInView, WorkspaceError> {
-        let workspace = self.find(course, assignment)?;
-        let hand_in = if closed || workspace.is_none() {
-            HandIn::OpenLms
-        } else {
-            HandIn::PrepareDraft
-        };
-        Ok(HandInView { workspace, hand_in })
     }
 
     /// Creates a workspace once. Existing files are never overwritten.
@@ -682,12 +675,42 @@ impl AssignmentWorkspaces {
         })
     }
 
+    /// The folder of an assignment's course (`course_folder`). An assignment
+    /// or course the school no longer lists keeps its folder until it is
+    /// deleted, so its workspace stays reachable.
+    fn course_folder_of(&self, assignment: &str) -> Result<Option<CourseKey>, WorkspaceError> {
+        let workspace = self
+            .store
+            .load_fields(&["assignments"])
+            .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
+        Ok(crate::schedule::array(&workspace, "assignments")
+            .iter()
+            .find(|row| {
+                crate::schedule::not_deleted(row)
+                    && crate::schedule::text(row, "id") == Some(assignment)
+            })
+            .and_then(|row| crate::schedule::text(row, "courseId"))
+            .and_then(|course| course_folder(&self.store, course)))
+    }
+
+    fn known_folder(&self, assignment: &str) -> Result<CourseKey, WorkspaceError> {
+        self.course_folder_of(assignment)?.ok_or_else(|| {
+            WorkspaceError::Input("This assignment's course folder is not known yet.".into())
+        })
+    }
+
     pub fn find(&self, assignment: &str) -> Result<Option<WorkspaceInfo>, WorkspaceError> {
-        let (detail, _) = self.detail(assignment)?;
-        match detail.files {
+        match self.course_folder_of(assignment)? {
             Some(course) => self.at()?.find(&course, assignment),
             None => Ok(None),
         }
+    }
+
+    /// The workspace and main action for one assignment. `closed` is the
+    /// assignment's membership in `TaskView::closed_ids`: closed work, and
+    /// open work without a workspace, go straight to LMS.
+    pub fn hand_in(&self, assignment: &str, closed: bool) -> Result<HandInView, WorkspaceError> {
+        Ok(HandInView::of(self.find(assignment)?, closed))
     }
 
     /// Creates the assignment's workspace once: downloads its attachments
@@ -696,7 +719,7 @@ impl AssignmentWorkspaces {
     pub async fn create(&self, assignment: &str) -> Result<CreatedWorkspace, WorkspaceError> {
         let workspaces = self.at()?;
         let (detail, course_title) = self.detail(assignment)?;
-        let course = folder(&detail)?;
+        let course = self.known_folder(assignment)?;
         if let Some(workspace) = workspaces.find(&course, assignment)? {
             return Ok(CreatedWorkspace {
                 workspace,
@@ -712,17 +735,23 @@ impl AssignmentWorkspaces {
         let mut missing = Vec::new();
         for attachment in &detail.attachments {
             let reason = match materials
-                .open(course.clone(), attachment.url.clone(), true, false, None)
+                .open(
+                    detail.course_id.clone(),
+                    attachment.url.clone(),
+                    true,
+                    false,
+                    None,
+                )
                 .await
             {
-                Ok(Material::Ready { file }) => {
+                Ok(Material::Ready { file, .. }) => {
                     saved.push(Attachment {
                         path: file.path,
                         name: attachment.name.clone(),
                     });
                     continue;
                 }
-                Ok(Material::Failed { reason }) => format!("{reason:?}").to_lowercase(),
+                Ok(Material::Failed { reason, .. }) => format!("{reason:?}").to_lowercase(),
                 Ok(Material::TooLarge { .. }) => "too large".into(),
                 Ok(_) => "not a file".into(),
                 Err(error) => error.to_string(),
@@ -763,7 +792,7 @@ impl AssignmentWorkspaces {
     ) -> Result<Vec<LocalFile>, HandInError> {
         let workspaces = self.at()?;
         let (detail, course_title) = self.detail(assignment)?;
-        let course = folder(&detail)?;
+        let course = self.known_folder(assignment)?;
         let pending = detail
             .attachments
             .iter()
@@ -777,7 +806,7 @@ impl AssignmentWorkspaces {
     }
 
     pub fn submit_files(&self, assignment: &str) -> Result<Vec<LocalFile>, WorkspaceError> {
-        match self.detail(assignment)?.0.files {
+        match self.course_folder_of(assignment)? {
             Some(course) => self.at()?.submit_files(&course, assignment),
             None => Ok(Vec::new()),
         }
@@ -788,7 +817,7 @@ impl AssignmentWorkspaces {
         assignment: &str,
         name: &str,
     ) -> Result<Vec<LocalFile>, WorkspaceError> {
-        let course = folder(&self.detail(assignment)?.0)?;
+        let course = self.known_folder(assignment)?;
         self.at()?.remove_submit_file(&course, assignment, name)
     }
 
@@ -800,13 +829,6 @@ impl AssignmentWorkspaces {
             .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
         Ok(self.at()?.waiting(&workspace))
     }
-}
-
-/// The course folder an assignment's workspace lives under.
-fn folder(detail: &AssignmentDetail) -> Result<CourseKey, WorkspaceError> {
-    detail.files.clone().ok_or_else(|| {
-        WorkspaceError::Input("This assignment's course folder is not known yet.".into())
-    })
 }
 
 fn digest(path: &Path, name: &str) -> Result<SubmitFile, WorkspaceError> {

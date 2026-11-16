@@ -50,6 +50,7 @@ pub use colors::{display_color, event_color, COURSE_PALETTE};
 pub use course_content::{
     course_content, CourseContent, LessonContent, LessonItem, LessonItemKind,
 };
+pub(crate) use course_detail::files_of;
 pub use course_detail::{
     assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
 };
@@ -944,7 +945,7 @@ pub(crate) fn text_or_empty<'a>(value: &'a Value, key: &str) -> &'a str {
 
 /// Not tombstoned. Unlike [`visible`], a row the school no longer lists
 /// still counts: course details keep cached rows until they are deleted.
-pub(super) fn not_deleted(row: &Value) -> bool {
+pub(crate) fn not_deleted(row: &Value) -> bool {
     row.get("deletedAt").is_none_or(Value::is_null)
 }
 

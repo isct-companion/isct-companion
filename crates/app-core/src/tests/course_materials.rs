@@ -1,9 +1,9 @@
 use super::*;
-use crate::storage::stored_file;
+use crate::storage::{component, stored_file};
 use serde_json::json;
 use uuid::Uuid;
 
-fn store(name: &str) -> DataStore {
+pub(crate) fn store(name: &str) -> DataStore {
     let path = std::env::temp_dir().join(format!("course-materials-{name}-{}", Uuid::new_v4()));
     DataStore::initialize_dir(path).unwrap().0
 }
@@ -12,11 +12,37 @@ fn root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("course-materials-{name}-{}", Uuid::new_v4()))
 }
 
+#[cfg(unix)]
 fn course() -> CourseKey {
     CourseKey {
         term: "2026-3Q".into(),
         course: "CSC.T251".into(),
     }
+}
+
+/// A course as LMS enrolment writes it: its id and the folder Core names.
+pub(crate) fn enrolled(store: &DataStore) -> (String, CourseKey) {
+    let enrolment: adpt_isct::lms::LmsEnrolment = serde_json::from_value(json!({
+        "language":"en",
+        "courses":[{"id":99,"idnumber":"202602431","shortname":"CSC.T273[2026]","fullname":"Compilers","coursecategory":3}],
+        "timetables":[{"term":"2026-3Q","meetings":{"99":[{"day":2,"periods":[3,4]}]},"unscheduled":[]}]
+    }))
+    .unwrap();
+    store
+        .write(
+            Some(crate::data::WorkspaceChangeSource::SchoolPull),
+            |transaction| {
+                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, chrono::Utc::now())
+                    .map_err(|error| crate::data::DataError::from(error.to_string()))
+            },
+        )
+        .unwrap();
+    let workspace = store.load_fields(&["courses"]).unwrap();
+    let row = &workspace["courses"][0];
+    (
+        row["id"].as_str().unwrap().to_owned(),
+        crate::schedule::files_of(row).unwrap(),
+    )
 }
 
 #[test]
@@ -34,25 +60,111 @@ fn url_paths_and_names_preserve_the_desktop_contract() {
     );
     assert!(matches!(
         lms_resource_url("https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42"),
-        Ok((_, LmsResourceKind::View { cmid: 42, .. }))
+        Some((_, LmsResourceKind::View { cmid: 42, .. }))
     ));
     assert!(!safe_external_url("https://user:secret@example.test/file"));
 }
 
+/// Every source has an answer, and what is not a file to fetch is decided
+/// without a request: the downloader here has no school session, so a
+/// request would end in a failure instead of the answer asserted.
 #[tokio::test]
-async fn cached_hit_and_missing_do_not_reach_the_school() {
+async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
     let root = root("cache");
-    let service = CourseMaterials::new(store("cache"), root.clone(), Downloader::default());
+    let store = store("cache");
+    let service = CourseMaterials::new(store.clone(), root.clone(), Downloader::default());
+    let (id, folder) = enrolled(&store);
+    let open = |source: &str| {
+        let (service, id, source) = (service.clone(), id.clone(), source.to_owned());
+        async move { service.open(id, source, true, false, None).await.unwrap() }
+    };
+    let invalid = Material::Failed {
+        reason: MaterialFailure::Invalid,
+        page: None,
+    };
+    let page = |site, url: &str| Material::Page {
+        site,
+        url: url.into(),
+    };
+
+    // LMS activities that are not files open as their LMS page: an LTI tool
+    // (the course survey), a forum, a feedback, a module Core has never
+    // seen, and an activity address without an id.
+    for source in [
+        "https://lms.s.isct.ac.jp/2025/mod/ltifmane/view.php?id=150975",
+        "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=140001",
+        "https://lms.s.isct.ac.jp/2025/mod/feedback/view.php?id=140002",
+        "https://lms.s.isct.ac.jp/2025/mod/hvp/view.php?id=140003",
+        "https://lms.s.isct.ac.jp/2025/mod/resource/view.php",
+    ] {
+        assert_eq!(open(source).await, page(SchoolSite::ScienceLms, source));
+    }
+    // A link to a school site with an adapter opens in its signed-in view;
+    // the same host over HTTP would be refused there, so it is no page.
+    let syllabus = "https://syllabus.s.isct.ac.jp/courses/2025/4/0-904-342300-0-0/202503924";
+    assert_eq!(open(syllabus).await, page(SchoolSite::Syllabus, syllabus));
+    assert_eq!(open(&syllabus.replacen("https", "http", 1)).await, invalid);
+    let video = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    assert_eq!(open(video).await, Material::External { url: video.into() });
+    for corrupt in [
+        "",
+        "lecture slides",
+        "javascript:alert(1)",
+        "file:///etc/hosts",
+    ] {
+        assert_eq!(open(corrupt).await, invalid, "{corrupt:?}");
+    }
+    // A `mod/url` resolved before keeps what it resolved to: a school site
+    // with an adapter is its page (not the system browser), anything else
+    // is the system browser.
+    let forms = "https://forms.office.com/r/AbCdEf1234";
+    for (cmid, resolved, expected) in [
+        (140010, syllabus, page(SchoolSite::Syllabus, syllabus)),
+        (140011, forms, Material::External { url: forms.into() }),
+    ] {
+        let source = format!("https://lms.s.isct.ac.jp/2025/mod/url/view.php?id={cmid}");
+        store
+            .test_connection()
+            .execute(
+                "INSERT INTO lms_items (id,value,hash,updated_at,updated_by,rev,source)
+                     VALUES (?1,?2,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
+                [
+                    format!("m{cmid}"),
+                    json!({"id":format!("m{cmid}"),"cmid":cmid,"module":"url","url":source,"resourceUrl":resolved})
+                        .to_string(),
+                ],
+            )
+            .unwrap();
+        assert_eq!(open(&source).await, expected);
+    }
+    // A course that is gone has no folder for the file, and the item still
+    // opens on its LMS page.
+    let file = "https://lms.s.isct.ac.jp/2026/pluginfile.php/3/handout.pdf";
+    assert_eq!(
+        service
+            .open("gone".into(), file.into(), true, false, None)
+            .await
+            .unwrap(),
+        Material::Failed {
+            reason: MaterialFailure::Unresolved,
+            page: Some(SchoolWebTarget {
+                site: SchoolSite::ScienceLms,
+                url: file.into(),
+            }),
+        }
+    );
+
+    // The file in the folder the course page names is read without a request.
     let source = "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/readme.txt";
     let url = Url::parse(source).unwrap();
-    let path = material_path(&root, &course(), &url).unwrap();
+    let path = material_path(&root, &folder, &url).unwrap();
     fs::write(&path, "cached text").unwrap();
 
     let material = service
-        .open(course(), source.into(), true, true, Some(1))
+        .open(id.clone(), source.into(), true, true, Some(1))
         .await
         .unwrap();
-    let Material::Ready { file } = material else {
+    let Material::Ready { file, .. } = material else {
         panic!("cached material should be ready");
     };
     assert!(file.cached);
@@ -60,7 +172,7 @@ async fn cached_hit_and_missing_do_not_reach_the_school() {
 
     let missing = service
         .open(
-            course(),
+            id,
             "https://lms.s.isct.ac.jp/2026/pluginfile.php/2/missing.pdf".into(),
             false,
             false,
@@ -68,7 +180,7 @@ async fn cached_hit_and_missing_do_not_reach_the_school() {
         )
         .await
         .unwrap();
-    assert_eq!(missing, Material::Missing);
+    assert!(matches!(missing, Material::Missing { .. }));
 }
 
 #[test]
@@ -85,11 +197,11 @@ fn stored_folders_validate_every_file_and_fetch_errors_keep_wire_reasons() {
     assert!(stored_folder_files(Some(&invalid)).is_none());
     // The desktop file card reads these wire names.
     assert_eq!(
-        serde_json::to_value(material_for_fetch_error(FetchError::Login)).unwrap()["reason"],
+        serde_json::to_value(failure_of(FetchError::Login)).unwrap(),
         "login"
     );
     assert_eq!(
-        serde_json::to_value(material_for_fetch_error(FetchError::WriteDenied)).unwrap()["reason"],
+        serde_json::to_value(failure_of(FetchError::WriteDenied)).unwrap(),
         "denied"
     );
     assert_eq!(bounded_download_limit(Some(0)), Some(1));

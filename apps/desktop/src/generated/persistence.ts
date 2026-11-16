@@ -769,18 +769,6 @@ export type ExamSubjectPage = {
    */
   exams: Array<ExamDocument>;
   /**
-   * Every teacher the materials name, for filtering, the class's first.
-   */
-  teachers: Array<ExamTeacher>;
-  /**
-   * The years the materials are from, newest first, for filtering.
-   */
-  years: Array<number>;
-  /**
-   * The occasions the materials name, in `ExamChoices` order.
-   */
-  occasions: Array<string>;
-  /**
    * The local course's class when one of `rows` lists it. Reopening the
    * subject passes it back so the order survives a refresh.
    */
@@ -790,8 +778,9 @@ export type ExamSubjectPage = {
    */
   webUrl: string;
   /**
-   * `exams` by sitting, in `exams`' order: a question and its answer are
-   * one row on every shell.
+   * `exams` by sitting: the class's own first, then newest first and in
+   * the forms' occasion order. A question and its answer are one row on
+   * every shell.
    */
   sets: Array<ExamSet>;
 };
@@ -1432,10 +1421,6 @@ export type CourseDetail = {
   lmsCourseId: number | null;
   syllabusUrl: string | null;
   /**
-   * Where the course's downloaded files live, for opening its materials.
-   */
-  files: CourseKey | null;
-  /**
    * The content language, which LMS text published in both languages is
    * filtered to when the person asks for one language.
    */
@@ -1464,10 +1449,6 @@ export type AssignmentDetail = {
    */
   details: string;
   attachments: Array<AssignmentAttachment>;
-  /**
-   * Where opened attachments are kept.
-   */
-  files: CourseKey | null;
 };
 
 export type CourseContent = {
@@ -1757,15 +1738,19 @@ export type MaterialItem = {
   color: string | null;
   title: string;
   /**
-   * `pdf`, `link` or `video`.
+   * What the item is, as the course page names it.
    */
-  kind: string;
+  kind: LessonItemKind;
   /**
    * Where the material sits: its LMS section title, else the section's
    * number as a lesson in the content language (第3回, Lesson 3).
    */
   sectionLabel: string | null;
-  url: string | null;
+  /**
+   * The address `open_material` opens, the same as the course page's
+   * `LessonItem.source`.
+   */
+  url: string;
   updatedAt: string | null;
   addedToday: boolean;
 };

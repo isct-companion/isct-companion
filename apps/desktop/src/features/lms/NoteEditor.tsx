@@ -138,8 +138,7 @@ export function NoteEditor({
     mounted.current = true;
     const noteKey = JSON.stringify([
       id,
-      context.term,
-      context.course,
+      context.courseId,
       context.section,
       reload,
     ]);
@@ -181,7 +180,7 @@ export function NoteEditor({
     };
     // A tab is keyed by note ID; context is fixed for its lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, context.term, context.course, context.section, reload]);
+  }, [id, context.courseId, context.section, reload]);
   const remove = async () => {
     clearTimeout(timer.current);
     removed.current = true;

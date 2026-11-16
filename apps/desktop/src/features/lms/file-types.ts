@@ -54,3 +54,11 @@ export function previewKind(url: string): PreviewKind | undefined {
     ? family
     : undefined;
 }
+
+/**
+ * A file of a known type the reader cannot show (an archive, a slide deck):
+ * it is downloaded only when asked. An address without a known file type
+ * (an LMS activity, a link) is not one.
+ */
+export const downloadOnly = (url: string) =>
+  !previewKind(url) && fileFamily(url) !== "file";

@@ -83,10 +83,7 @@ impl Tool for Assignment {
     fn run(cx: &Context<'_>, args: AssignmentArgs) -> Result<AssignmentAnswer, AgentError> {
         let id = non_empty(&args.assignment_id, "assignmentId")?;
         let (detail, course_title) = cx.workspaces.detail(id)?;
-        let workspace = match &detail.files {
-            Some(course) => cx.workspaces.at()?.find(course, id)?,
-            None => None,
-        };
+        let workspace = cx.workspaces.find(id)?;
         Ok(AssignmentAnswer {
             id: detail.assignment_id,
             course_id: detail.course_id,

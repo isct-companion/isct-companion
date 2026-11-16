@@ -926,6 +926,7 @@ export function WorkspaceApp() {
               navigationProvided
               headerStart={sidebarToggle}
               openPastExams={openPastExams && (() => openPastExams(course.id))}
+              openWeb={(url) => openWeb(url, "lectures")}
               schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
               close={() =>
                 void hideNativeSchoolWeb()

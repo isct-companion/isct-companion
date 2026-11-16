@@ -51,6 +51,18 @@ export function run(cmd, args, options = {}) {
 export function capture(cmd, args) {
   return execFileSync(cmd, args, { cwd: root, encoding: "utf8" }).trim();
 }
+// The iPhone simulator the iOS smoke run uses. CI supplies the runtime; no
+// simulator download occurs on a developer's host.
+export function iphoneSimulator() {
+  const devices = JSON.parse(
+    capture("xcrun", ["simctl", "list", "devices", "available", "--json"]),
+  ).devices;
+  const device = Object.values(devices)
+    .flat()
+    .find((d) => d.name.startsWith("iPhone"));
+  if (!device) throw new Error("No installed iPhone simulator runtime");
+  return device;
+}
 const windows = process.platform === "win32";
 // kotlinc is a batch file on Windows, which Node starts only through cmd.exe,
 // and cmd.exe re-splits the line at spaces in paths. The arguments go in a

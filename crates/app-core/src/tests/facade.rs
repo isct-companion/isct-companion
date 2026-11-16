@@ -520,6 +520,8 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
         heard()
     };
 
+    // The window opens with the first change, after this instant.
+    let window = std::time::Instant::now();
     land(2026, &[offering("202600001", 2026, "CSC.T101")]);
     let first = query();
     assert_eq!(ids(&first), ["202600001"]);
@@ -535,7 +537,12 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
         .record_kyomu_search_options(2026, &json!([]), chrono::Utc::now())
         .unwrap();
     land(2025, &[offering("202500001", 2025, "CSC.T101")]);
-    assert_eq!(catalog_events(0).len(), 1, "held until the window ends");
+    let held = catalog_events(0).len();
+    // A slow runner can spend the whole window on the writes, and the merged
+    // change is then rightly out; only a window still open must hold it.
+    if window.elapsed() < crate::workspace_changes::COALESCE_WINDOW {
+        assert_eq!(held, 1, "held until the window ends");
+    }
     let page = query();
     assert_eq!(ids(&page), ["202600001", "202600002"]);
     assert_eq!(page.ineligible, 0);
