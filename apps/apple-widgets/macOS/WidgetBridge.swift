@@ -16,6 +16,6 @@ public func widgetContainer(_ receive: @convention(c) (UnsafePointer<CChar>, Uns
 
 @_cdecl("isct_widget_reload")
 public func widgetReload(_ courses: Bool, _ assignments: Bool) {
-    if courses { WidgetCenter.shared.reloadTimelines(ofKind: "app.isctcompanion.widgets.courses") }
-    if assignments { WidgetCenter.shared.reloadTimelines(ofKind: "app.isctcompanion.widgets.assignments") }
+    if courses { WidgetCenter.shared.reloadTimelines(ofKind: "app.isctcompanion.widgetkit.courses") }
+    if assignments { WidgetCenter.shared.reloadTimelines(ofKind: "app.isctcompanion.widgetkit.assignments") }
 }
