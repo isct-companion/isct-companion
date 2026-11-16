@@ -17,26 +17,17 @@ struct ExamSubjectScreen: View {
     @State private var othersOpen = false
     @State private var showsRequest = false
     @State private var uploadEntry: ExamUploadEntry?
-    @State private var year: UInt32?
-    @State private var teacher = ""
-    @State private var occasion = ""
-
-    private var filtered: Bool { year != nil || !teacher.isEmpty || !occasion.isEmpty }
 
     var body: some View {
         List {
             if let subject {
-                let sets = subject.sets.filter {
-                    (year == nil || $0.academicYear == year) &&
-                    (teacher.isEmpty || $0.teachers.contains { $0.id == teacher }) &&
-                    (occasion.isEmpty || $0.occasion == occasion)
-                }
+                let sets = subject.sets
                 // Only a course with its own teachers among the sittings splits them.
                 let grouped = subject.sets.contains(where: \.mine)
                 let mine = grouped ? sets.filter(\.mine) : sets
                 let others = grouped ? sets.filter { !$0.mine } : []
                 if sets.isEmpty {
-                    Text(t("examShare.noItems")).foregroundStyle(Theme.muted)
+                    Text(t("examShare.noDocuments")).foregroundStyle(Theme.muted)
                 } else {
                     if !mine.isEmpty {
                         Section {
@@ -65,9 +56,6 @@ struct ExamSubjectScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let subject {
-                if subject.sets.count > 1 {
-                    ToolbarItem(placement: .topBarTrailing) { filters(subject) }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button(t("examShare.upload.title"), systemImage: "square.and.arrow.up") {
@@ -85,7 +73,7 @@ struct ExamSubjectScreen: View {
                 }
             }
         }
-        .refreshable { await load(resetFilters: false) }
+        .refreshable { await load() }
         .task {
             await page.loadChoices(model)
             if subject == nil && candidates == nil { await load() }
@@ -103,7 +91,7 @@ struct ExamSubjectScreen: View {
         .sheet(item: $uploadEntry) { entry in
             if let choices = page.choices {
                 ExamUploadSheet(entry: entry, choices: choices) { outcome in
-                    await load(resetFilters: false)
+                    await load()
                     page.notice = outcome.notice
                     if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
                 }
@@ -116,38 +104,7 @@ struct ExamSubjectScreen: View {
         ExamSetRow(set: set, withTeachers: withTeachers, opening: opening) { id in Task { await open(id) } }
     }
 
-    /// Year, teacher and exam type, each one choice; the icon fills while any is set.
-    private func filters(_ subject: ExamSubjectPage) -> some View {
-        Menu {
-            Picker(t("examShare.year"), selection: $year) {
-                Text(t("examShare.allYears")).tag(nil as UInt32?)
-                ForEach(subject.years, id: \.self) { Text(verbatim: String($0)).tag(Optional($0)) }
-            }
-            .pickerStyle(.menu)
-            Picker(t("examShare.teacher"), selection: $teacher) {
-                Text(t("examShare.allTeachers")).tag("")
-                ForEach(subject.teachers, id: \.id) { Text($0.name).tag($0.id) }
-            }
-            .pickerStyle(.menu)
-            Picker(t("examShare.occasion"), selection: $occasion) {
-                Text(t("examShare.allOccasions")).tag("")
-                ForEach(subject.occasions, id: \.self) { Text(t("examShare.occasion.\($0)")).tag($0) }
-            }
-            .pickerStyle(.menu)
-            if filtered {
-                Button(t("common.clear"), systemImage: "xmark") {
-                    year = nil
-                    teacher = ""
-                    occasion = ""
-                }
-            }
-        } label: {
-            Label(t("common.filter"), systemImage: filtered
-                  ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-        }
-    }
-
-    private func load(resetFilters: Bool = true) async {
+    private func load() async {
         failed = false
         // A refresh keeps the class the page was ordered by.
         let action: ExamAction = subject.map { .subject(code: $0.subject.code, classId: $0.classId) } ?? route.action
@@ -155,11 +112,6 @@ struct ExamSubjectScreen: View {
         case let .subject(value)?:
             subject = value
             candidates = nil
-            if resetFilters {
-                year = nil
-                teacher = ""
-                occasion = ""
-            }
         case let .subjects(value)?:
             candidates = value
         default:

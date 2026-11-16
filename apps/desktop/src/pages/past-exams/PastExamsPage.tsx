@@ -34,7 +34,6 @@ import {
   Input,
   Menu,
   SegmentedControl,
-  Select,
   Skeleton,
   Tag,
 } from "../../components/ui";
@@ -817,9 +816,9 @@ function BrowseList({
   );
 }
 
-/** A subject's sittings inside its panel: the filters when there is a
- * choice, the person's own class's teachers first, the rest behind one
- * toggle, then a way to share or ask for what is missing. */
+/** A subject's sittings inside its panel: the person's own class's
+ * teachers first, the rest behind one toggle, then a way to share or ask for
+ * what is missing. */
 function SubjectSets({
   state,
   choices,
@@ -843,9 +842,6 @@ function SubjectSets({
 }) {
   const [requesting, setRequesting] = useState(false);
   const [othersOpen, setOthersOpen] = useState(false);
-  const [year, setYear] = useState("");
-  const [teacher, setTeacher] = useState("");
-  const [occasion, setOccasion] = useState("");
   if (state?.failed)
     return (
       <ErrorBanner onRetry={retry}>
@@ -869,12 +865,7 @@ function SubjectSets({
     );
   const page = state?.page;
   if (!page) return <Skeleton count={3} />;
-  const sets = page.sets.filter(
-    (set) =>
-      (!year || String(set.academicYear) === year) &&
-      (!teacher || set.teachers.some(({ id }) => id === teacher)) &&
-      (!occasion || set.occasion === occasion),
-  );
+  const sets = page.sets;
   // Core knows the person's class only when the subject came from a course.
   const grouped = page.classId !== null;
   const mine = sets.filter((set) => !grouped || set.mine);
@@ -893,57 +884,10 @@ function SubjectSets({
       ))}
     </ul>
   );
-  const filter = (
-    label: string,
-    all: string,
-    value: string,
-    set: (value: string) => void,
-    options: { value: string; label: string }[],
-  ) =>
-    options.length > 1 && (
-      <Select
-        aria-label={label}
-        value={value}
-        onChange={set}
-        data={[{ value: "", label: all }, ...options]}
-      />
-    );
-  const filters = [
-    filter(
-      t("examShare.year"),
-      t("examShare.allYears"),
-      year,
-      setYear,
-      page.years.map((value) => ({
-        value: String(value),
-        label: String(value),
-      })),
-    ),
-    filter(
-      t("examShare.teacher"),
-      t("examShare.allTeachers"),
-      teacher,
-      setTeacher,
-      page.teachers.map(({ id, name }) => ({ value: id, label: name })),
-    ),
-    filter(
-      t("examShare.occasion"),
-      t("examShare.allOccasions"),
-      occasion,
-      setOccasion,
-      page.occasions.map((value) => ({
-        value,
-        label: lookup(`examShare.occasion.${value}`) ?? value,
-      })),
-    ),
-  ].filter(Boolean);
   return (
     <>
-      {filters.length > 0 && <div className="examFilters">{filters}</div>}
-      {!page.sets.length ? (
+      {!sets.length ? (
         <p className="examQuiet">{t("examShare.noDocuments")}</p>
-      ) : !sets.length ? (
-        <p className="examQuiet">{t("examShare.noItems")}</p>
       ) : (
         <>
           {mine.length > 0

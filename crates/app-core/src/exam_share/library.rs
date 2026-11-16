@@ -39,12 +39,6 @@ impl RemotePage {
             .collect();
         let mut exams = self.exams;
         exams.sort_by_key(|exam| !exam.teachers.iter().any(|t| ours.contains(&t.id)));
-        let mut teachers = form::distinct_teachers(exams.iter().flat_map(|exam| &exam.teachers));
-        teachers.sort_by_key(|teacher| !ours.contains(&teacher.id));
-        let mut years: Vec<u32> = exams.iter().filter_map(|exam| exam.academic_year).collect();
-        years.sort_unstable_by(|a, b| b.cmp(a));
-        years.dedup();
-        let occasions = form::occasions_in(exams.iter().filter_map(|exam| exam.occasion.as_deref()));
         let web_url = url::Url::parse_with_params(
             &format!("https://{}/search", client::Endpoint::Site.host()),
             [("course", &self.subject.code)],
@@ -57,9 +51,6 @@ impl RemotePage {
             rows: self.rows,
             sets,
             exams,
-            teachers,
-            years,
-            occasions,
             class_id,
             web_url,
         })

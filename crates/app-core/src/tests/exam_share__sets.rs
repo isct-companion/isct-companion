@@ -22,16 +22,16 @@ fn document(id: &str, year: u32, occasion: &str, role: &str, teachers: &[&str]) 
 
 /// A question and its answer from one sitting share a row, question first,
 /// whatever order the service lists them in; another year, occasion or
-/// teacher is another row, and rows keep the order the page sorted them in
-/// (the class's own teachers first).
+/// teacher is another row. The class's own sittings come first, then newest
+/// first, a year's sittings in the forms' occasion order.
 #[test]
 fn documents_of_one_sitting_share_a_row() {
     let exams = [
-        document("a", 2025, "final", "answer", &["t1"]),
+        document("o", 2026, "final", "question", &["t2"]),
         document("b", 2024, "final", "question", &["t1"]),
+        document("a", 2025, "final", "answer", &["t1"]),
         document("q", 2025, "final", "question", &["t1"]),
         document("m", 2025, "midterm", "question", &["t1"]),
-        document("o", 2025, "final", "question", &["t2"]),
     ];
     let ours = HashSet::from(["t1".to_string()]);
     let sets = group(&exams, &ours);
@@ -43,8 +43,8 @@ fn documents_of_one_sitting_share_a_row() {
         rows,
         [
             (vec!["q", "a"], true),
-            (vec!["b"], true),
             (vec!["m"], true),
+            (vec!["b"], true),
             (vec!["o"], false),
         ]
     );

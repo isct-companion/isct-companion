@@ -319,18 +319,6 @@ ol.examUploadFiles {
   max-width: 320px;
 }
 
-/* A subject's filters, when it has more than one year, teacher or type. */
-.examFilters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0 2px 10px;
-}
-.examFilters > * {
-  flex: 1 1 110px;
-  min-width: 0;
-}
-
 .examSets {
   list-style: none;
   margin: 4px 0;

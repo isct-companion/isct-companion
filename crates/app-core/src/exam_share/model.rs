@@ -55,19 +55,14 @@ pub struct ExamSubjectPage {
     /// When the page was opened from a local course whose class is one of
     /// `rows`, materials naming that class's teachers come first.
     pub exams: Vec<ExamDocument>,
-    /// Every teacher the materials name, for filtering, the class's first.
-    pub teachers: Vec<ExamTeacher>,
-    /// The years the materials are from, newest first, for filtering.
-    pub years: Vec<u32>,
-    /// The occasions the materials name, in `ExamChoices` order.
-    pub occasions: Vec<String>,
     /// The local course's class when one of `rows` lists it. Reopening the
     /// subject passes it back so the order survives a refresh.
     pub class_id: Option<u32>,
     /// This subject on the ScienceTokyoExam website.
     pub web_url: String,
-    /// `exams` by sitting, in `exams`' order: a question and its answer are
-    /// one row on every shell.
+    /// `exams` by sitting: the class's own first, then newest first and in
+    /// the forms' occasion order. A question and its answer are one row on
+    /// every shell.
     pub sets: Vec<ExamSet>,
 }
 

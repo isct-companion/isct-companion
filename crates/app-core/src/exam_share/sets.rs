@@ -1,11 +1,14 @@
 //! The subject page's sittings: documents of one year, occasion, round,
 //! variant and set of teachers side by side, so a question and its answer are
 //! one row on every shell.
+use super::form::occasion_rank;
 use super::model::{ExamDocument, ExamSet};
+use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashSet};
 
-/// Groups `exams` by sitting in the order they come. `ours` holds the IDs of
-/// the course's own class's teachers.
+/// Groups `exams` by sitting: the course's own class's sittings first, then
+/// newest first, a year's sittings in the forms' occasion order, a sitting
+/// with no year last. `ours` holds the IDs of the class's teachers.
 pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamSet> {
     let mut sets: Vec<ExamSet> = Vec::new();
     for exam in exams {
@@ -33,6 +36,16 @@ pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamS
     for set in &mut sets {
         set.documents.sort_by_key(|document| role_order(document.role.as_deref()));
     }
+    sets.sort_by_key(|set| {
+        (
+            !set.mine,
+            set.academic_year.is_none(),
+            Reverse(set.academic_year),
+            set.occasion.as_deref().map_or(usize::MAX, occasion_rank),
+            set.occasion_number,
+            set.variant.clone(),
+        )
+    });
     sets
 }
 
