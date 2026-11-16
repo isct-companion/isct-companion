@@ -571,7 +571,7 @@ impl Inner {
 
     fn open_target(&self, plan: &Plan) -> Option<()> {
         let url = plan.target.clone();
-        log::info!(target: "app_core::school_browser", "web operation {} opens host={}", plan.id, url.host_str().unwrap_or("-"));
+        log::info!(target: "app_core::school_browser", "web operation {} opens host={} path={}", plan.id, url.host_str().unwrap_or("-"), url.path());
         let action = self
             .dispatch_for(plan.browser, BrowserAction::Navigate(url), Some(plan.id))
             .ok()?;

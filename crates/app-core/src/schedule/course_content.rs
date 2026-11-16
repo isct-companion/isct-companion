@@ -206,6 +206,15 @@ fn section_of(row: &Value) -> i32 {
         .unwrap_or_default() as i32
 }
 
+/// The address an LMS item opens from, the same on every page that lists it:
+/// its activity page (`url`), else the file or link it resolved to
+/// (`resourceUrl`). `open_material` decides what either does; an empty
+/// value (a label has no page) is no address.
+pub(super) fn item_source(row: &Value) -> Option<&str> {
+    let address = |key| text(row, key).filter(|value| !value.trim().is_empty());
+    address("url").or_else(|| address("resourceUrl"))
+}
+
 /// The course's syllabus link among its materials, which the course page
 /// offers on its own rather than as course content.
 fn syllabus(row: &Value) -> bool {
@@ -248,7 +257,7 @@ fn place(lessons: &mut Vec<(Option<u64>, LessonContent)>, row: &Value) -> usize 
     lessons.len() - 1
 }
 
-fn kind_of(module: Option<&str>) -> LessonItemKind {
+pub(super) fn kind_of(module: Option<&str>) -> LessonItemKind {
     match module {
         Some("resource") => LessonItemKind::File,
         Some("url") => LessonItemKind::Link,
@@ -339,9 +348,7 @@ pub fn course_content(
                 .then(|| body.map(|html| safe_html(html, true)))
                 .flatten()
                 .filter(|html| !html.is_empty()),
-            source: text(row, "url")
-                .or_else(|| text(row, "resourceUrl"))
-                .map(str::to_owned),
+            source: item_source(row).map(str::to_owned),
             image_only: kind == LessonItemKind::Label && body.is_some_and(image_only),
         });
     }

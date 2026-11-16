@@ -1727,15 +1727,23 @@ export type MaterialItem = {
   color: string | null;
   title: string;
   /**
-   * `pdf`, `link` or `video`.
+   * What the item is, as the course page names it.
    */
-  kind: string;
+  kind: LessonItemKind;
   /**
    * Where the material sits: its LMS section title, else the section's
    * number as a lesson in the content language (第3回, Lesson 3).
    */
   sectionLabel: string | null;
-  url: string | null;
+  /**
+   * The address `open_material` opens, the same as the course page's
+   * `LessonItem.source`.
+   */
+  url: string;
+  /**
+   * The course folder `open_material` keeps the file in.
+   */
+  files: CourseKey;
   updatedAt: string | null;
   addedToday: boolean;
 };

@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.text.format.Formatter
 import android.webkit.MimeTypeMap
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -19,8 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +46,7 @@ import androidx.core.net.toUri
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.CourseKey
+import app.isctcompanion.core.LessonItemKind
 import app.isctcompanion.core.Material
 import app.isctcompanion.core.MaterialFailure
 import app.isctcompanion.core.SchoolSite
@@ -91,8 +91,8 @@ private fun AnnotatedString.trimmed(): AnnotatedString {
 
 /** A course file or page row with its icon; see `rememberMaterialOpener`. */
 @Composable
-fun MaterialButton(title: String, kind: String, source: String?, files: CourseKey?, courseId: String? = null) {
-    val opener = rememberMaterialOpener(title, source, files, courseId)
+fun MaterialButton(title: String, kind: LessonItemKind, source: String?, files: CourseKey?) {
+    val opener = rememberMaterialOpener(title, source, files)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -107,59 +107,60 @@ fun MaterialButton(title: String, kind: String, source: String?, files: CourseKe
     }
 }
 
-fun materialIcon(kind: String): ImageVector = when (kind) {
-    "pdf" -> Icons.Rounded.Description
-    "video" -> Icons.Rounded.PlayCircleOutline
-    "file" -> Icons.Rounded.AttachFile
-    "folder" -> Icons.Rounded.Folder
-    "link" -> Icons.Rounded.Link
-    else -> Icons.Rounded.Description
+fun materialIcon(kind: LessonItemKind): ImageVector = when (kind) {
+    LessonItemKind.FILE -> Icons.Rounded.AttachFile
+    LessonItemKind.FOLDER -> Icons.Rounded.Folder
+    LessonItemKind.LINK, LessonItemKind.OTHER -> Icons.Rounded.Link
+    LessonItemKind.FORUM -> Icons.Rounded.Forum
+    LessonItemKind.PAGE, LessonItemKind.LABEL -> Icons.Rounded.Description
 }
 
 class MaterialOpener(val opening: Boolean, val open: () -> Unit)
 
-/** Opens a course file or page wherever it is listed. Core fetches it with
- * the signed-in LMS session (or from the course folder) and the system viewer
- * shows it; what is not a file opens in the in-app LMS page. A download that
- * only failed this time (offline, timed out) asks instead: silently showing
- * the LMS page made Share hand out a link where it had handed out the file.
- * `courseId` names the course whose folder Core uses when `files` is not
- * known yet. */
+/** Opens a course item wherever it is listed, as Core decides
+ * (`open_material`): a file Core fetches with the signed-in LMS session (or
+ * from the course folder) goes to the system viewer, a school page opens in
+ * its in-app view, any other page in the browser. A download that only
+ * failed this time (offline, timed out) asks instead: silently showing the
+ * LMS page made Share hand out a link where it had handed out the file. */
 @Composable
-fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, courseId: String? = null): MaterialOpener {
+fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?): MaterialOpener {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var opening by remember { mutableStateOf(false) }
     var retry by remember { mutableStateOf(false) }
-    fun push(url: String) = navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title))
+    var notice by remember { mutableStateOf<String?>(null) }
+    /** The item's own LMS page. */
+    fun openSource() {
+        source?.let { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, it, title)) }
+    }
     lateinit var open: () -> Unit
     open = open@{
         val target = source ?: return@open
+        // Core names a folder for every listed course item; without one there
+        // is nothing to ask it, so the item's own page opens.
+        val folder = files ?: return@open openSource()
         scope.launch {
             opening = true
             try {
-                val folder = files ?: courseId?.let {
-                    // Core names a folder for every course; none means the read failed.
-                    model.courseDetail(it)?.files ?: return@launch run { retry = true }
-                }
-                if (folder == null) return@launch push(target)
                 when (val material = model.openMaterial(folder, target)) {
-                    is Material.Ready -> if (!view(context, File(material.file.path))) push(target)
-                    is Material.TooLarge -> notice(
-                        context,
-                        t("lmsFile.thisFileIsTooLarge", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong())),
-                    )
+                    is Material.Ready -> if (!view(context, File(material.file.path))) openSource()
+                    is Material.Page -> navigator.openPage(WebRouter.PushedPage(material.site, material.url, title))
+                    is Material.External ->
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, material.url.toUri())) }
+                            .onFailure { openSource() }
+                    is Material.TooLarge -> notice =
+                        t("lmsFile.thisFileIsTooLarge", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong()))
                     is Material.Failed -> when (material.reason) {
-                        MaterialFailure.LOGIN -> notice(context, t("lmsFile.signInToTheLMS"))
+                        MaterialFailure.LOGIN -> notice = t("lmsFile.signInToTheLMS")
                         MaterialFailure.NETWORK, MaterialFailure.TIMEOUT, MaterialFailure.CANCELLED -> retry = true
-                        else -> push(target)
+                        // What Core could not read (it logged why) still opens on its LMS page.
+                        else -> openSource()
                     }
-                    null -> retry = true
-                    is Material.External -> push(material.url)
-                    // Folders, pages and anything Core could not fetch: the LMS page itself.
-                    else -> push(target)
+                    // A folder's files are listed on its LMS page.
+                    is Material.Folder, is Material.Missing, null -> openSource()
                 }
             } finally {
                 opening = false
@@ -179,8 +180,23 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, co
             dismissButton = {
                 TextButton(onClick = {
                     retry = false
-                    source?.let(::push)
+                    openSource()
                 }) { Text(t("common.openInLMS")) }
+            },
+        )
+    }
+    notice?.let { text ->
+        AlertDialog(
+            onDismissRequest = { notice = null },
+            text = { Text(text) },
+            confirmButton = {
+                TextButton(onClick = {
+                    notice = null
+                    openSource()
+                }) { Text(t("common.openInLMS")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { notice = null }) { Text(t("common.cancel")) }
             },
         )
     }
@@ -198,5 +214,3 @@ private fun view(context: Context, file: File): Boolean {
         false
     }
 }
-
-private fun notice(context: Context, text: String) = Toast.makeText(context, text, Toast.LENGTH_LONG).show()

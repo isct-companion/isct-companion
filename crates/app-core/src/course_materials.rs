@@ -4,6 +4,8 @@ use crate::{
     contracts::FolderFile,
     data::DataStore,
     downloads::{Downloader, FetchError, Fetched, ResolvedResource},
+    lifecycle::SchoolSite,
+    school_browser::{automation_target, browsing_url},
     storage::{self, component, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
 use adpt_isct::lms::ResolvedFile;
@@ -32,20 +34,41 @@ pub struct CourseKey {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LmsResourceKind {
+enum LmsResourceKind {
     File,
     View { module: String, cmid: u64 },
 }
 
+/// What opening an LMS item or a link gives: every source has one answer, so
+/// shells act on it and never guess from an error what the item was.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Material {
-    Ready { file: LocalFile },
+    Ready {
+        file: LocalFile,
+    },
     Missing,
-    TooLarge { bytes: u64 },
-    Folder { files: Vec<ResolvedFile> },
-    External { url: String },
-    Failed { reason: MaterialFailure },
+    TooLarge {
+        bytes: u64,
+    },
+    Folder {
+        files: Vec<ResolvedFile>,
+    },
+    /// A school page with an adapter, opened in the App's signed-in school
+    /// web view of `site`: an LMS activity that is not a file (forum,
+    /// feedback, page, an LTI tool, any module Core does not know), or a link
+    /// to another school site.
+    Page {
+        site: SchoolSite,
+        url: String,
+    },
+    /// A page outside the school sites, for the system browser.
+    External {
+        url: String,
+    },
+    Failed {
+        reason: MaterialFailure,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -139,7 +162,48 @@ impl CourseMaterials {
     ) -> Result<Material, MaterialError> {
         component(&context.term)?;
         component(&context.course)?;
-        let (source_url, kind) = lms_resource_url(&source)?;
+        let material = self
+            .classify_and_open(context, &source, download, read_text, limit, foreground)
+            .await?;
+        if let Material::Failed { reason } = &material {
+            let parsed = Url::parse(&source).ok();
+            let module = parsed.as_ref().map_or("-", module_of);
+            log::info!(
+                target: "app_core::course_materials",
+                "material open failed module={module} reason={reason:?}"
+            );
+        }
+        Ok(material)
+    }
+
+    /// The one decision of what an item does when opened. A source Core
+    /// cannot read as a web address is corrupt data; an LMS address that is
+    /// not a downloadable resource is its LMS page; any other link is a
+    /// school page or the system browser (`link`).
+    async fn classify_and_open(
+        &self,
+        context: CourseKey,
+        source: &str,
+        download: bool,
+        read_text: bool,
+        limit: Option<u64>,
+        foreground: bool,
+    ) -> Result<Material, MaterialError> {
+        let Some(source_url) = browsing_url(source).and_then(|raw| Url::parse(&raw).ok()) else {
+            log::error!(
+                target: "app_core::course_materials",
+                "material source is not a web address ({} bytes)",
+                source.len()
+            );
+            return Ok(failed(MaterialFailure::Invalid));
+        };
+        if !adpt_isct::lms::is_lms_origin(&source_url) {
+            return Ok(link(source));
+        }
+        let Some((source_url, kind)) = lms_resource_url(source) else {
+            return Ok(lms_page(source_url));
+        };
+        let source = source.to_owned();
         let url = match kind {
             LmsResourceKind::File => source_url,
             LmsResourceKind::View { module, cmid } => {
@@ -160,16 +224,13 @@ impl CourseMaterials {
                     .map(str::to_string);
                 if let Some(known) = known {
                     match lms_resource_url(&known) {
-                        Ok((url, LmsResourceKind::File)) => url,
-                        _ if safe_external_url(&known) => {
-                            return Ok(Material::External { url: known });
-                        }
-                        _ => return Ok(failed(MaterialFailure::Invalid)),
+                        Some((url, LmsResourceKind::File)) => url,
+                        _ => return Ok(link(&known)),
                     }
                 } else {
                     match self.downloads.resolve(&source_url, cmid, &module).await {
                         Ok(ResolvedResource::File { url }) => {
-                            let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
+                            let Some((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
                             else {
                                 return Ok(failed(MaterialFailure::Invalid));
                             };
@@ -177,11 +238,11 @@ impl CourseMaterials {
                             url_value
                         }
                         Ok(ResolvedResource::External { url }) => {
-                            if !safe_external_url(&url) {
-                                return Ok(failed(MaterialFailure::Invalid));
+                            let material = link(&url);
+                            if !matches!(material, Material::Failed { .. }) {
+                                self.remember_resource(cmid, &source, &url).await;
                             }
-                            self.remember_resource(cmid, &source, &url).await;
-                            return Ok(Material::External { url });
+                            return Ok(material);
                         }
                         Ok(ResolvedResource::Folder { files }) => {
                             if !valid_folder_files(&files) {
@@ -301,6 +362,57 @@ fn failed(reason: MaterialFailure) -> Material {
     Material::Failed { reason }
 }
 
+/// A link that is not an LMS resource: a school site with an adapter opens
+/// in its signed-in web view; any other HTTPS page goes to the system
+/// browser. Plain HTTP, embedded credentials or a port are refused, so a
+/// school host over HTTP never becomes a page the web view then rejects.
+fn link(raw: &str) -> Material {
+    if let Some(site) = automation_target(raw).and_then(|url| SchoolSite::for_url(url.as_str())) {
+        return Material::Page {
+            site,
+            url: raw.to_owned(),
+        };
+    }
+    if safe_external_url(raw) {
+        return Material::External {
+            url: raw.to_owned(),
+        };
+    }
+    failed(MaterialFailure::Invalid)
+}
+
+/// An LMS address that is not a downloadable resource (forum, feedback,
+/// page, questionnaire, H5P, an LTI tool, a module Core does not know, an
+/// address without an id) opens as that LMS page, without a request.
+fn lms_page(url: Url) -> Material {
+    let site = SchoolSite::ScienceLms;
+    let lti = module_of(&url).starts_with("lti");
+    let url = String::from(url);
+    if lti {
+        // LTI tools (lti, ltifmane) open their view page like any activity
+        // until it is known whether their launch needs the top-level window;
+        // that launch is decided on its own, here.
+        return Material::Page { site, url };
+    }
+    Material::Page { site, url }
+}
+
+/// The LMS module an address belongs to (`mod/<module>/…`), `pluginfile`
+/// for a file, else `-`; named in diagnostics only.
+fn module_of(url: &Url) -> &str {
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(Iterator::collect)
+        .unwrap_or_default();
+    if segments.contains(&"pluginfile.php") {
+        return "pluginfile";
+    }
+    segments
+        .windows(2)
+        .find(|pair| pair[0] == "mod")
+        .map_or("-", |pair| pair[1])
+}
+
 fn material_for_fetch_error(error: FetchError) -> Material {
     failed(match error {
         FetchError::Login => MaterialFailure::Login,
@@ -375,34 +487,32 @@ pub fn material_name(url: &Url) -> String {
     }
 }
 
-pub fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), MaterialError> {
-    let url = Url::parse(raw).map_err(|_| MaterialError::Input("Invalid material URL".into()))?;
+/// An LMS address Core downloads from: a `pluginfile.php` file, or the view
+/// page of a resource, link or folder with its id. Anything else is not a
+/// download (`lms_page`, `link`).
+fn lms_resource_url(raw: &str) -> Option<(Url, LmsResourceKind)> {
+    let url = Url::parse(raw).ok()?;
     if !adpt_isct::lms::is_lms_origin(&url) {
-        return Err(MaterialError::Input(
-            "Only allowlisted LMS resource URLs are accepted".into(),
-        ));
+        return None;
     }
     let segments = url
         .path_segments()
         .map(Iterator::collect::<Vec<_>>)
         .unwrap_or_default();
     if segments.contains(&"pluginfile.php") {
-        return Ok((url, LmsResourceKind::File));
+        return Some((url, LmsResourceKind::File));
     }
     let [.., "mod", module @ ("resource" | "url" | "folder"), "view.php"] = segments.as_slice()
     else {
-        return Err(MaterialError::Input(
-            "Only allowlisted LMS resource URLs are accepted".into(),
-        ));
+        return None;
     };
     let cmid = url
         .query_pairs()
         .find(|(key, _)| key == "id")
         .and_then(|(_, value)| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .ok_or_else(|| MaterialError::Input("LMS resource URL needs a numeric id".into()))?;
+        .filter(|value| *value > 0)?;
     let module = (*module).to_string();
-    Ok((url, LmsResourceKind::View { module, cmid }))
+    Some((url, LmsResourceKind::View { module, cmid }))
 }
 
 pub fn folder_contract(files: &[ResolvedFile]) -> Vec<FolderFile> {
@@ -421,12 +531,17 @@ pub fn stored_folder_files(row: Option<&serde_json::Value>) -> Option<Vec<Resolv
 }
 
 fn valid_folder_files(files: &[ResolvedFile]) -> bool {
-    files
-        .iter()
-        .all(|file| matches!(lms_resource_url(&file.url), Ok((_, LmsResourceKind::File))))
+    files.iter().all(|file| {
+        matches!(
+            lms_resource_url(&file.url),
+            Some((_, LmsResourceKind::File))
+        )
+    })
 }
 
-pub fn safe_external_url(raw: &str) -> bool {
+/// An outside page the system browser may open: HTTPS on the default port,
+/// without embedded credentials.
+fn safe_external_url(raw: &str) -> bool {
     Url::parse(raw).ok().is_some_and(|url| {
         url.scheme() == "https"
             && url.host_str().is_some()

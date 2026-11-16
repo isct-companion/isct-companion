@@ -8,15 +8,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { desktopBridge } from "../../app/native";
 import { notify } from "../../app/notify";
-import { nativeOs } from "../../platform/desktop-bridge";
+import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t, type MessageKey } from "../../i18n";
 import { extension, fileFamily } from "./file-types";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import {
-  LmsFileError,
   localFileUrl,
   copyStoredFile,
   openMaterial,
@@ -36,21 +34,6 @@ const MarkdownDocument = lazy(() =>
   import("./MarkdownDocument").then((m) => ({ default: m.MarkdownDocument })),
 );
 
-const isLmsResource = (url: string) => {
-  try {
-    const parsed = new URL(url);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    return (
-      parsed.protocol === "https:" &&
-      parsed.hostname === "lms.s.isct.ac.jp" &&
-      !parsed.port &&
-      (parts.includes("pluginfile.php") ||
-        /\/mod\/(resource|url|folder)\/view\.php$/.test(parsed.pathname))
-    );
-  } catch {
-    return false;
-  }
-};
 const megabytes = (bytes: number) =>
   `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 const revealLabel: MessageKey =
@@ -70,16 +53,31 @@ type View =
       src: string;
       kind?: ReturnType<typeof previewKind>;
       text?: string;
+      /** A copy in the course folder, which Show, Copy and Share act on. */
+      local: boolean;
     }
   | { state: "folder"; files: { name: string; url: string }[] }
+  | { state: "page"; site: SchoolSite; url: string }
   | { state: "external"; url: string }
   | { state: "tooLarge"; bytes: number }
-  | { state: "failed"; reason: LmsFileReason; error: string };
+  | { state: "failed"; reason: LmsFileReason; note?: MessageKey };
 type CourseFile = ReturnType<typeof useCourseFile>;
 
+/** What a failure tells the person, in their language. */
+const failureNote: Record<LmsFileReason, MessageKey> = {
+  login: "lmsFile.signInToTheLMS",
+  network: "lmsFile.theFileCouldNotBe",
+  timeout: "lmsFile.theFileCouldNotBe",
+  cancelled: "lmsFile.theFileCouldNotBe",
+  denied: deniedNote,
+  invalid: "lmsFile.thisCantBeShownHere",
+  unresolved: "lmsFile.thisCantBeShownHere",
+};
+
 /**
- * A course file's state on disk. With `autoDownload`, a missing file within
- * `limit` bytes is downloaded at once; `fetchNow` downloads at any size.
+ * What an item or link opens as, as Core decides (`open_material`), and a
+ * file's state on disk. With `autoDownload`, a missing file within `limit`
+ * bytes is downloaded at once; `fetchNow` downloads at any size.
  */
 function useCourseFile(
   url: string,
@@ -88,19 +86,10 @@ function useCourseFile(
   autoDownload: boolean,
   readText = false,
 ) {
-  const managed = isLmsResource(url) && Boolean(desktopBridge);
   const [view, setView] = useState<View>({ state: "loading" });
   const [request, setRequest] = useState({ download: false, attempt: 0 });
   const loadedRequest = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!managed) {
-      setView(
-        autoDownload
-          ? { state: "ready", src: url, kind: previewKind(url) }
-          : { state: "missing" },
-      );
-      return;
-    }
     if (!autoDownload && !request.download) {
       setView({ state: "missing" });
       return;
@@ -110,7 +99,6 @@ function useCourseFile(
       context.term,
       context.course,
       request,
-      managed,
       autoDownload,
       readText,
     ]);
@@ -128,49 +116,49 @@ function useCourseFile(
         if (material.state !== "failed") loadedRequest.current = requestKey;
         if (material.state === "folder")
           return setView({ state: "folder", files: material.files });
-        if (material.state === "external")
-          return setView({ state: "external", url: material.url });
+        if (material.state === "page")
+          return setView({
+            state: "page",
+            site: material.site,
+            url: material.url,
+          });
+        if (material.state === "external") {
+          // An outside file the reader can show (a PDF, a picture) stays in
+          // place; any other page is the system browser's.
+          const kind = previewKind(material.url);
+          return setView(
+            kind
+              ? { state: "ready", src: material.url, kind, local: false }
+              : { state: "external", url: material.url },
+          );
+        }
         if (material.state === "tooLarge")
           return setView({ state: "tooLarge", bytes: material.bytes });
         if (material.state === "missing") return setView({ state: "missing" });
         if (material.state === "failed")
-          throw new LmsFileError(material.reason);
+          return setView({ state: "failed", reason: material.reason });
         setView({
           state: "ready",
           src: localFileUrl(material.file.path),
           kind: previewKind(material.file.name || url),
           text: material.file.text ?? undefined,
+          local: true,
         });
-      } catch (error) {
-        if (disposed) return;
-        if (error instanceof LmsFileError && error.reason === "tooLarge")
-          setView({ state: "tooLarge", bytes: error.bytes ?? 0 });
-        else
-          setView({
-            state: "failed",
-            reason: error instanceof LmsFileError ? error.reason : "network",
-            error: String(error),
-          });
+      } catch {
+        // A command error is not the item's: Core refused the request, so
+        // the item opens on its LMS page like one Core cannot read.
+        if (!disposed) setView({ state: "failed", reason: "invalid" });
       }
     };
     void load();
     return () => {
       disposed = true;
     };
-  }, [
-    url,
-    context.term,
-    context.course,
-    request,
-    managed,
-    autoDownload,
-    readText,
-  ]);
+  }, [url, context.term, context.course, request, autoDownload, readText]);
   return {
     url,
     context,
     limit,
-    managed,
     view,
     setView,
     retry: () =>
@@ -180,40 +168,50 @@ function useCourseFile(
   };
 }
 
-/** Previews what the app can show; anything else gets the file card. */
+/**
+ * Opens an item or link where Core says it belongs: a file previews when the
+ * app can show it and gets the file card otherwise, a school page opens in
+ * its signed-in view (`openPage`), an outside page in the system browser.
+ */
 export function FilePreview({
   url,
   title,
   context,
   limit,
+  inline = false,
   openInApp,
+  openPage,
   openFile,
 }: {
   url: string;
   title: string;
   context: CourseFolder;
   limit: number;
+  /** The item's own text is shown above; a school page is then offered
+   * rather than replacing it. */
+  inline?: boolean;
   openInApp?: () => void;
+  /** Shows a school page in the reader or on the Web page. */
+  openPage?: (site: SchoolSite, url: string) => void;
   /** Opens one file of a folder in the reader. */
   openFile?: (url: string, name: string) => void;
 }) {
   const expected = previewKind(url);
-  const lazyResource = /\/mod\/(resource|url|folder)\/view\.php/.test(url);
-  const course = useCourseFile(
-    url,
-    context,
-    limit,
-    Boolean(expected) || lazyResource,
-    true,
-  );
+  const course = useCourseFile(url, context, limit, true, true);
   const { view } = course;
+  const page = view.state === "page" ? view : undefined;
+  useEffect(() => {
+    if (page && !inline) openPage?.(page.site, page.url);
+    // Opening replaces this preview; it runs once per answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.site, page?.url, inline]);
   const ready = view.state === "ready" ? view : undefined;
   const kind = ready?.kind ?? expected;
   const src = ready?.src;
   const textTooLarge =
     (kind === "text" || kind === "markdown") && ready && ready.text == null;
   const actions = <FileActions course={course} openInApp={openInApp} />;
-  if ((kind || lazyResource) && view.state === "loading") {
+  if (view.state === "loading") {
     return (
       <div className="lmsAttachmentPreview">
         <Toolbar title={title} url={url}>
@@ -271,6 +269,17 @@ export function FilePreview({
       </div>
     );
   }
+  if (view.state === "page") {
+    return inline && openPage ? (
+      <button
+        type="button"
+        className="lmsRefresh"
+        onClick={() => openPage(view.site, view.url)}
+      >
+        {t("common.openInLMS")}
+      </button>
+    ) : null;
+  }
   if (view.state === "external") {
     return (
       <div className="lmsFileCardStage">
@@ -325,7 +334,7 @@ export function FilePreview({
             course.setView({
               state: "failed",
               reason: "network",
-              error: t("lms.thisImageCantBeDisplayed"),
+              note: "lms.thisImageCantBeDisplayed",
             })
           }
         />
@@ -373,6 +382,7 @@ function FileActions({
   menu?: boolean;
 }) {
   const { url, context, view } = course;
+  const local = view.state === "ready" && view.local;
   const reveal = async (open = false) => {
     const material = await openMaterial(context, url, { download: true });
     if (material.state === "ready")
@@ -403,7 +413,7 @@ function FileActions({
       : { "aria-label": t(text), title: t(text) };
   return (
     <div className="lmsFileActions" data-layout={menu ? "menu" : undefined}>
-      {view.state === "ready" && course.managed && (
+      {local && (
         <button
           type="button"
           {...label(revealLabel)}
@@ -413,7 +423,7 @@ function FileActions({
           <span className="lmsToolLabel">{t(revealLabel)}</span>
         </button>
       )}
-      {view.state === "ready" && course.managed && systemShare && (
+      {local && systemShare && (
         <>
           <button
             type="button"
@@ -433,7 +443,7 @@ function FileActions({
           </button>
         </>
       )}
-      {openInApp && (
+      {openInApp && !(view.state === "ready" && !view.local) && (
         <button
           type="button"
           {...label("common.openInLMS")}
@@ -465,58 +475,52 @@ function FileCard({
   previewable: boolean;
   note?: string;
 }) {
-  const { url, view, managed, limit } = course;
-  const attachment = isLmsResource(url);
+  const { url, view, limit } = course;
   const size = view.state === "tooLarge" ? megabytes(view.bytes) : "";
-  const primary = !managed ? null : view.state === "failed" &&
-    view.reason === "login" &&
-    openInApp ? (
-    <button type="button" onClick={openInApp}>
-      {t("lms.signInToLMS")}
-    </button>
-  ) : view.state === "failed" &&
-    ["unresolved", "network", "timeout"].includes(view.reason) &&
-    openInApp ? (
-    <button type="button" onClick={openInApp}>
-      {t("common.openInLMS")}
-    </button>
-  ) : view.state === "failed" ? (
-    <button type="button" onClick={course.retry}>
-      {t("common.retry")}
-    </button>
-  ) : view.state === "tooLarge" ? (
-    <button type="button" onClick={course.fetchNow}>
-      <LmsIcon name="download" size={15} />
-      {previewable ? t("lms.preview") : t("lms.download")} · {size}
-    </button>
-  ) : view.state === "ready" ? null : (
-    <button
-      type="button"
-      disabled={view.state === "loading"}
-      onClick={course.fetchNow}
-    >
-      <LmsIcon name="download" size={15} />
-      {t(view.state === "loading" ? "common.downloading" : "lms.download")}
-    </button>
-  );
+  const primary =
+    view.state === "failed" && view.reason === "login" && openInApp ? (
+      <button type="button" onClick={openInApp}>
+        {t("lms.signInToLMS")}
+      </button>
+    ) : view.state === "failed" &&
+      ["unresolved", "invalid"].includes(view.reason) &&
+      openInApp ? (
+      <button type="button" onClick={openInApp}>
+        {t("common.openInLMS")}
+      </button>
+    ) : view.state === "failed" ? (
+      <button type="button" onClick={course.retry}>
+        {t("common.retry")}
+      </button>
+    ) : view.state === "tooLarge" ? (
+      <button type="button" onClick={course.fetchNow}>
+        <LmsIcon name="download" size={15} />
+        {previewable ? t("lms.preview") : t("lms.download")} · {size}
+      </button>
+    ) : view.state === "ready" ? null : (
+      <button
+        type="button"
+        disabled={view.state === "loading"}
+        onClick={course.fetchNow}
+      >
+        <LmsIcon name="download" size={15} />
+        {t(view.state === "loading" ? "common.downloading" : "lms.download")}
+      </button>
+    );
   const note =
     override ??
-    (!attachment
-      ? t("lms.thisPageOpensOutsideThe")
-      : view.state === "failed"
-        ? view.reason === "denied"
-          ? t(deniedNote)
-          : view.error
-        : view.state === "tooLarge"
-          ? t("lms.largerThanTheAutomaticDownload", {
-              size: megabytes(limit),
-            })
-          : view.state === "ready"
-            ? t("lms.savedInYourCourseFolder")
-            : t("lms.thisFileTypeCantBe"));
+    (view.state === "failed"
+      ? t(view.note ?? failureNote[view.reason])
+      : view.state === "tooLarge"
+        ? t("lms.largerThanTheAutomaticDownload", {
+            size: megabytes(limit),
+          })
+        : view.state === "ready"
+          ? t("lms.savedInYourCourseFolder")
+          : t("lms.thisFileTypeCantBe"));
   return (
     <div className="lmsFileCard">
-      <FileTile family={attachment ? fileFamily(url) : "link"} />
+      <FileTile family={fileFamily(url)} />
       <div className="lmsFileCardText">
         <h3>{title}</h3>
         <small>

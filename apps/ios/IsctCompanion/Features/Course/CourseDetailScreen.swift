@@ -189,17 +189,6 @@ struct CourseDetailScreen: View {
         return groups
     }
 
-    static func kind(_ kind: LessonItemKind) -> String {
-        switch kind {
-        case .file: "resource"
-        case .folder: "folder"
-        case .link, .other: "link"
-        case .page: "page"
-        case .label: "label"
-        case .forum: "forum"
-        }
-    }
-
     // MARK: Header
 
     private struct Meeting {
@@ -397,7 +386,7 @@ private struct LessonPage: View {
                     Card {
                         ForEach(Array(group.enumerated()), id: \.element.materialId) { index, item in
                             if index > 0 { RowDivider() }
-                            MaterialButton(title: item.title, kind: CourseDetailScreen.kind(item.kind), source: item.source, files: files)
+                            MaterialButton(title: item.title, kind: item.kind, source: item.source, files: files)
                         }
                     }
                 }

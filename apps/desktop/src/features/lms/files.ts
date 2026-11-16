@@ -2,7 +2,11 @@ import { t } from "../../i18n";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "../../platform/native-error";
 import { desktopBridge } from "../../app/native";
-import { nativeOs, type NativeOs } from "../../platform/desktop-bridge";
+import {
+  nativeOs,
+  type NativeOs,
+  type SchoolSite,
+} from "../../platform/desktop-bridge";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
 import type { Settings } from "../../lib/model";
 export type CourseFolder = { term: string; course: string; section: string };
@@ -24,23 +28,15 @@ export const folderComponent = (value: string) => {
   const name = value.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 120);
   return !name || name === "." || name === ".." ? "course" : name;
 };
+/** Why Core could not open an item (`MaterialFailure`). */
 export type LmsFileReason =
   | "login"
   | "unresolved"
-  | "tooLarge"
   | "network"
   | "invalid"
   | "timeout"
+  | "cancelled"
   | "denied";
-
-export class LmsFileError extends Error {
-  constructor(
-    public reason: LmsFileReason,
-    public bytes?: number,
-  ) {
-    super(reason);
-  }
-}
 
 export function lmsFileUrl(
   source: string,
@@ -184,19 +180,25 @@ export function saveNote(
     .catch(() => undefined);
   return next;
 }
-/** A course file on disk, or why it is not (yet). */
+/**
+ * What an item or link opens as (Core's `Material`): a course file on disk or
+ * why it is not (yet), a folder's files, a school page with its site, or an
+ * outside page.
+ */
 export type Material =
   | { state: "ready"; file: LocalFile }
   | { state: "missing" }
   | { state: "tooLarge"; bytes: number }
   | { state: "folder"; files: { name: string; url: string }[] }
+  | { state: "page"; site: SchoolSite; url: string }
   | { state: "external"; url: string }
   | { state: "failed"; reason: LmsFileReason };
 
 export const localFileUrl = (path: string) => convertFileSrc(path);
 /**
- * Read a course file from the course folder; with `download`, fetch it first
- * through the signed-in LMS view. Files over `limit` bytes report their size.
+ * Asks Core what an item or link opens as. A file is read from the course
+ * folder; with `download`, Core fetches it first with its signed-in LMS
+ * session. Files over `limit` bytes report their size.
  */
 export async function openMaterial(
   context: CourseFolder,
@@ -207,7 +209,6 @@ export async function openMaterial(
     limit,
   }: { download?: boolean; readText?: boolean; limit?: number } = {},
 ): Promise<Material> {
-  if (!desktopBridge) return { state: "missing" };
   return invoke("open_course_material", {
     context,
     url,

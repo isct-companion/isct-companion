@@ -325,6 +325,9 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
                 json_response(json!({"kind":"folder","files":files}))
             }
         }
+        Ok(Ok(Material::Page { site, url })) => {
+            json_response(json!({"kind":"page","site":site,"url":url}))
+        }
         Ok(Ok(Material::External { url })) => json_response(json!({"kind":"external","url":url})),
         Ok(Ok(Material::TooLarge { bytes })) => error(Reason::TooLarge, Some(bytes)),
         Ok(Ok(Material::Missing)) => error(Reason::Unresolved, None),

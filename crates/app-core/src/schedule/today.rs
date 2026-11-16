@@ -13,6 +13,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::calendar::{quarter_range, teaching_week};
+use super::course_content::{item_source, kind_of, LessonItemKind};
+use super::course_detail::files_of;
 use super::reminders::reminder_term;
 use super::tasks::{countdown_tone, task_view, AssignmentGroups};
 use super::{
@@ -20,6 +22,7 @@ use super::{
     teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind, ScheduleError,
     TeachingPeriod,
 };
+use crate::course_materials::CourseKey;
 use crate::locale::ContentLanguage;
 
 /// Classes the Today stack previews: the next one and two after it.
@@ -88,12 +91,16 @@ pub struct MaterialItem {
     pub course_title: Option<String>,
     pub color: Option<String>,
     pub title: String,
-    /// `pdf`, `link` or `video`.
-    pub kind: String,
+    /// What the item is, as the course page names it.
+    pub kind: LessonItemKind,
     /// Where the material sits: its LMS section title, else the section's
     /// number as a lesson in the content language (第3回, Lesson 3).
     pub section_label: Option<String>,
-    pub url: Option<String>,
+    /// The address `open_material` opens, the same as the course page's
+    /// `LessonItem.source`.
+    pub url: String,
+    /// The course folder `open_material` keeps the file in.
+    pub files: CourseKey,
     pub updated_at: Option<String>,
     pub added_today: bool,
 }
@@ -282,17 +289,20 @@ fn deadline_item(
     })
 }
 
+/// A material row as Today lists it. A row of a course Today cannot place
+/// in a course folder (no visible course, no term) cannot be opened, so it
+/// is not listed.
 fn material_item(workspace: &Value, row: &Value, date: &str) -> Option<MaterialItem> {
     let course_id = text(row, "courseId")?;
-    let course = super::visible_by_id(workspace, "courses", course_id);
+    let course = super::visible_by_id(workspace, "courses", course_id)?;
     let updated_at = text(row, "updatedAt");
     Some(MaterialItem {
         material_id: text(row, "id")?.into(),
         course_id: course_id.into(),
-        course_title: course.and_then(|c| text(c, "title")).map(str::to_owned),
-        color: course.map(display_color),
+        course_title: text(course, "title").map(str::to_owned),
+        color: Some(display_color(course)),
         title: text(row, "title").unwrap_or_default().into(),
-        kind: text(row, "type").unwrap_or("link").into(),
+        kind: kind_of(text(row, "module")),
         section_label: text(row, "sectionTitle").map(str::to_owned).or_else(|| {
             let number = row
                 .get("sectionNumber")
@@ -303,9 +313,8 @@ fn material_item(workspace: &Value, row: &Value, date: &str) -> Option<MaterialI
                 ContentLanguage::En => format!("Lesson {number}"),
             })
         }),
-        url: text(row, "resourceUrl")
-            .or_else(|| text(row, "url"))
-            .map(str::to_owned),
+        url: item_source(row)?.into(),
+        files: files_of(course)?,
         updated_at: updated_at.map(str::to_owned),
         added_today: updated_at
             .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
@@ -313,12 +322,15 @@ fn material_item(workspace: &Value, row: &Value, date: &str) -> Option<MaterialI
     })
 }
 
-/// Materials a student can open: visible LMS rows other than assignment and quiz modules.
+/// Materials a student can open: visible LMS rows with an address, other
+/// than assignments and quizzes (pages of their own) and labels (text
+/// between items, read on the course page).
 fn materials(workspace: &Value) -> impl Iterator<Item = &Value> {
     array(workspace, "materials").iter().filter(|row| {
         visible(row)
             && row.get("visible").and_then(Value::as_bool) != Some(false)
-            && !matches!(text(row, "module"), Some("assign" | "quiz"))
+            && !matches!(text(row, "module"), Some("assign" | "quiz" | "label"))
+            && item_source(row).is_some()
     })
 }
 

@@ -272,7 +272,7 @@ private fun LessonPage(
                 Card {
                     group.forEachIndexed { index, row ->
                         if (index > 0) RowDivider()
-                        MaterialButton(row.title, kind(row.kind), row.source, files)
+                        MaterialButton(row.title, row.kind, row.source, files)
                     }
                 }
             }
@@ -304,15 +304,6 @@ private fun groups(items: List<LessonItem>): List<List<LessonItem>> {
         }
     }
     return groups
-}
-
-private fun kind(kind: LessonItemKind): String = when (kind) {
-    LessonItemKind.FILE -> "resource"
-    LessonItemKind.FOLDER -> "folder"
-    LessonItemKind.LINK, LessonItemKind.OTHER -> "link"
-    LessonItemKind.PAGE -> "page"
-    LessonItemKind.LABEL -> "label"
-    LessonItemKind.FORUM -> "forum"
 }
 
 /** A page, label or announcement shown in place, as on the desktop. */

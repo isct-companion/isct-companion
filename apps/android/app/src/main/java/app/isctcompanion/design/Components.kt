@@ -15,12 +15,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Visibility
@@ -274,10 +271,10 @@ private fun MenuItem(text: String, icon: ImageVector, tint: Color = Theme.colors
 }
 
 /** A material listed outside its lesson (今日); Core opens it through the
- * course's folder. */
+ * course's folder Today names. */
 @Composable
 fun MaterialRow(item: MaterialItem) {
-    val opener = rememberMaterialOpener(item.title, item.url, null, item.courseId)
+    val opener = rememberMaterialOpener(item.title, item.url, item.files)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -286,14 +283,7 @@ fun MaterialRow(item: MaterialItem) {
             .clickable(enabled = !opener.opening) { opener.open() }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Icon(
-            when (item.kind) {
-                "pdf" -> Icons.Rounded.Description
-                "video" -> Icons.Rounded.PlayCircleOutline
-                else -> Icons.Rounded.Link
-            },
-            null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp),
-        )
+        Icon(materialIcon(item.kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             item.sectionLabel?.let {

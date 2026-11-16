@@ -31,6 +31,7 @@ import type { Assignment, Course, Material, Workspace } from "../../lib/model";
 import type { LessonContent, LessonItem } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { detectPlatform } from "../../platform/capabilities";
+import type { SchoolSite } from "../../platform/desktop-bridge";
 import { useClock } from "../../platform/use-clock";
 import type { PageProgress } from "../../platform/sync";
 import { ageText } from "../../app/sync-text";
@@ -160,6 +161,7 @@ export function LmsWorkspaceBody({
   navigationProvided = false,
   headerStart,
   openPastExams,
+  openWeb,
 }: {
   course: Course;
   data: Workspace;
@@ -169,6 +171,8 @@ export function LmsWorkspaceBody({
   navigationProvided?: boolean;
   headerStart?: ReactNode;
   openPastExams?: () => void;
+  /** Opens a school page on the Web page. */
+  openWeb?: (url: string) => void;
   close: () => void;
   /** Asks Core to refresh this course now (`Refresh { course }`). */
   refresh?: () => void;
@@ -602,6 +606,20 @@ export function LmsWorkspaceBody({
       open({ id: m.id, title: m.title, kind: "material" });
     },
     [open],
+  );
+  /**
+   * A school page Core named: the LMS in the reader's signed-in view, the
+   * syllabus in its frame, any other school site on the Web page.
+   */
+  const openPage = useCallback(
+    (site: SchoolSite, url: string, title: string) => {
+      if (site === "science-lms")
+        open({ id: `official:${url}`, title, kind: "official", url });
+      else if (site === "syllabus")
+        open({ id: `syllabus:${url}`, title, kind: "syllabus", url });
+      else openWeb?.(url);
+    },
+    [open, openWeb],
   );
   const openAssignment = useCallback((a: Assignment) => {
     setViewing(false);
@@ -1531,50 +1549,19 @@ export function LmsWorkspaceBody({
                     />
                   )}
                   {(() => {
+                    // The item's own address, as Core's read models pick it;
+                    // Core decides what it opens as (`open_material`).
                     const url = safeUrl(
-                      material?.resourceUrl ||
-                        (material?.url &&
-                        ["resource", "url", "folder"].includes(
-                          material.module ?? "",
-                        )
-                          ? material.url
-                          : undefined) ||
+                      material?.url ||
+                        material?.resourceUrl ||
                         (opened.kind === "link" ? opened.url : undefined),
                     );
-                    if (!url) {
-                      // A forum read without posts is empty, not unsynced; any
-                      // unresolved activity can still open on the official page.
-                      const official = safeUrl(material?.url);
+                    if (!url)
                       return material && !material.bodyHtml ? (
-                        <>
-                          <p className="lmsQuiet">
-                            {t(
-                              material.module === "forum"
-                                ? "lms.noAnnouncementsYet"
-                                : "lms.noContentInThisSection",
-                            )}
-                          </p>
-                          {official &&
-                            new URL(official).hostname ===
-                              "lms.s.isct.ac.jp" && (
-                              <button
-                                type="button"
-                                className="lmsRefresh"
-                                onClick={() =>
-                                  open({
-                                    id: `official:${official}`,
-                                    title: opened.title,
-                                    kind: "official",
-                                    url: official,
-                                  })
-                                }
-                              >
-                                {t("common.openInLMS")}
-                              </button>
-                            )}
-                        </>
+                        <p className="lmsQuiet">
+                          {t("lms.noContentInThisSection")}
+                        </p>
                       ) : null;
-                    }
                     return (
                       <Suspense fallback={<p>{t("lms.loadingPreview")}</p>}>
                         <FilePreview
@@ -1583,16 +1570,12 @@ export function LmsWorkspaceBody({
                           title={opened.title}
                           context={folder}
                           limit={limit}
-                          openInApp={
-                            new URL(url).hostname === "lms.s.isct.ac.jp"
-                              ? () =>
-                                  open({
-                                    id: `official:${url}`,
-                                    title: opened.title,
-                                    kind: "official",
-                                    url,
-                                  })
-                              : undefined
+                          inline={Boolean(material?.bodyHtml)}
+                          openInApp={() =>
+                            openPage("science-lms", url, opened.title)
+                          }
+                          openPage={(site, page) =>
+                            openPage(site, page, opened.title)
                           }
                           openFile={(fileUrl, name) =>
                             open({

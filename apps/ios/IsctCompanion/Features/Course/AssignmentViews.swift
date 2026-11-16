@@ -110,7 +110,7 @@ struct AssignmentBody: View {
                 Card {
                     ForEach(Array(assignment.attachments.enumerated()), id: \.element.url) { index, file in
                         if index > 0 { RowDivider() }
-                        MaterialButton(title: file.name, kind: "file", source: file.url, files: assignment.files)
+                        MaterialButton(title: file.name, kind: .file, source: file.url, files: assignment.files)
                     }
                 }
             }
@@ -150,13 +150,12 @@ private struct AssignmentState: View {
 /// A course file or page row with its icon.
 struct MaterialButton: View {
     let title: String
-    let kind: String
+    let kind: LessonItemKind
     let source: String?
     let files: CourseKey?
-    var courseId: String? = nil
 
     var body: some View {
-        MaterialOpener(title: title, source: source, files: files, courseId: courseId) { opening in
+        MaterialOpener(title: title, source: source, files: files) { opening in
             HStack(spacing: 12) {
                 Image(systemName: Self.icon(kind)).foregroundStyle(Theme.muted).frame(width: 18)
                 Text(title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
@@ -168,32 +167,31 @@ struct MaterialButton: View {
         }
     }
 
-    static func icon(_ kind: String) -> String {
+    static func icon(_ kind: LessonItemKind) -> String {
         switch kind {
-        case "pdf": "doc.richtext"
-        case "video": "play.rectangle"
-        case "file": "paperclip"
-        case "folder": "folder"
-        case "link": "link"
-        default: "doc.text"
+        case .file: "doc"
+        case .folder: "folder"
+        case .link, .other: "link"
+        case .forum: "bubble.left.and.bubble.right"
+        case .page, .label: "doc.text"
         }
     }
 }
 
-/// Opens a course file or page wherever it is listed. Core fetches it with
-/// the signed-in LMS session (or from the course folder) and Quick Look shows
-/// it; what is not a file opens in the in-app LMS page. A download that only
+/// Opens a course item wherever it is listed, as Core decides
+/// (`open_material`): a file Core fetches with the signed-in LMS session (or
+/// from the course folder) shows in Quick Look, a school page opens in its
+/// in-app view, any other page in the system browser. A download that only
 /// failed this time (offline, timed out) asks instead: silently showing the
 /// LMS page made Share hand out a link where it had handed out the file.
 struct MaterialOpener<Label: View>: View {
     let title: String
     let source: String?
     let files: CourseKey?
-    /// When `files` is not known yet, the course whose folder Core names.
-    var courseId: String? = nil
     @ViewBuilder var label: (_ opening: Bool) -> Label
     @Environment(AppModel.self) private var model
     @Environment(\.push) private var push
+    @Environment(\.openURL) private var openURL
     @State private var opening = false
     @State private var preview: URL?
     @State private var notice: String?
@@ -209,44 +207,46 @@ struct MaterialOpener<Label: View>: View {
         .disabled(opening)
         .quickLookPreview($preview)
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("OK", role: .cancel) {}
+            Button(t("common.openInLMS")) { openSource() }
+            Button(t("common.cancel"), role: .cancel) {}
         }
         .alert(t("lmsFile.theFileCouldNotBe"), isPresented: $retry) {
             Button(t("common.tryAgain")) { Task { await open() } }
-            Button(t("common.openInLMS")) { if let source { push(source) } }
+            Button(t("common.openInLMS")) { openSource() }
             Button(t("common.cancel"), role: .cancel) {}
         }
     }
 
     private func open() async {
         guard let source else { return }
+        // Core names a folder for every listed course item; without one
+        // there is nothing to ask it, so the item's own page opens.
+        guard let files else { return openSource() }
         opening = true
         defer { opening = false }
-        var folder = files
-        if folder == nil, let courseId {
-            // Core names a folder for every course; none means the read failed.
-            guard let detail = await model.courseDetail(courseId) else { return retry = true }
-            folder = detail.files
-        }
-        guard let files = folder else { return push(source) }
         switch await model.openMaterial(files, source: source) {
         case let .ready(file)?:
             preview = URL(fileURLWithPath: file.path)
+        case let .page(site, url)?:
+            push(WebRouter.PushedPage(site: site, target: url, title: title))
+        case let .external(url)?:
+            if let url = URL(string: url) { openURL(url) }
         case let .tooLarge(bytes)?:
             notice = t("lmsFile.thisFileIsTooLarge", ["size": ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)])
         case .failed(.login)?:
             notice = t("lmsFile.signInToTheLMS")
-        case nil, .failed(.network)?, .failed(.timeout)?, .failed(.cancelled)?:
+        case .failed(.network)?, .failed(.timeout)?, .failed(.cancelled)?:
             retry = true
-        case let .external(url)?:
-            push(url)
-        default:
-            // Folders, pages and anything Core could not fetch: the LMS page itself.
-            push(source)
+        case .folder?, .missing?, .failed?, nil:
+            // A folder's files are listed on its LMS page; what Core could not
+            // read (it logged why) still opens there.
+            openSource()
         }
     }
 
-    private func push(_ url: String) {
-        push(WebRouter.PushedPage(site: .scienceLms, target: url, title: title))
+    /// The item's own LMS page.
+    private func openSource() {
+        guard let source else { return }
+        push(WebRouter.PushedPage(site: .scienceLms, target: source, title: title))
     }
 }
