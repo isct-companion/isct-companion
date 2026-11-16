@@ -39,12 +39,14 @@ pub struct Core {
     /// reference data, and the deadline duties (`crate::deadlines`);
     /// `Core::reset` closes its admission.
     pub(crate) sync: Arc<PlanEngine>,
-    maintenance: Arc<crate::deadlines::Maintenance>,
     /// The desktop's MCP listener as a duty of the engine.
     #[cfg(feature = "agent")]
     agent_access: Arc<crate::deadlines::AgentAccess>,
     /// The school accounts' sign-in and sessions, owned by Core.
     sessions: SchoolSessions,
+    /// The ScienceTokyoExam client once a shell opened it with its ports;
+    /// maintenance cleans its file cache.
+    exam_share: crate::deadlines::ExamShareSlot,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
     pub(crate) reset_lease: crate::reset::ResetLease,
@@ -336,12 +338,13 @@ impl Core {
             store: store.clone(),
         }));
         sync.register(Arc::new(crate::deadlines::Cloud(runtime.clone())));
-        let maintenance = Arc::new(crate::deadlines::Maintenance::new(
+        let exam_share = crate::deadlines::ExamShareSlot::default();
+        sync.register(Arc::new(crate::deadlines::Maintenance::new(
             store.clone(),
+            exam_share.clone(),
             #[cfg(feature = "agent")]
             submissions.as_ref().as_ref().ok().cloned(),
-        ));
-        sync.register(maintenance.clone());
+        )));
         #[cfg(feature = "agent")]
         {
             sync.register(agent_access.clone());
@@ -366,10 +369,10 @@ impl Core {
             #[cfg(feature = "campus-map")]
             campus_map: crate::campus_map::CampusMapService::new(store.clone()),
             sync,
-            maintenance,
             #[cfg(feature = "agent")]
             agent_access,
             sessions,
+            exam_share,
             school_browser: Mutex::new(None),
             store,
             auth,
@@ -410,9 +413,52 @@ impl Core {
         self.sync.duties_changed();
     }
 
-    /// Include ScienceTokyoExam's cache in the existing maintenance duty.
-    pub fn attach_exam_cache(&self, exams: &Arc<crate::exam_share::ExamShare>) {
-        self.maintenance.attach_exam_cache(exams);
+    /// Open the ScienceTokyoExam client with the shell's vault and, where
+    /// the build has an OAuth client, its sign-in port. Its files live in the
+    /// data folder's `exam-share`. Once only; if it cannot open, past exams
+    /// answer `unavailable` and the rest of the app runs on.
+    pub fn open_exam_share(
+        &self,
+        vault: Arc<dyn crate::ports::SecretVault>,
+        sign_in: Option<crate::exam_share::ExamSignIn>,
+        version: String,
+    ) {
+        let events: Arc<dyn EventSink> = match &self.events {
+            Some(events) => events.clone(),
+            None => Arc::new(NoopEvents),
+        };
+        match crate::exam_share::ExamShare::new(
+            vault,
+            self.store.paths().root().join("exam-share"),
+            version,
+            sign_in,
+            events,
+        ) {
+            Ok(service) => {
+                let _ = self.exam_share.set(Arc::new(service));
+            }
+            Err(error) => log::error!("[exam-share] could not open: {error}"),
+        }
+    }
+
+    /// One ScienceTokyoExam action; see `ExamAction`.
+    pub async fn exam_share(
+        &self,
+        action: crate::exam_share::ExamAction,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<crate::exam_share::ExamAnswer, crate::exam_share::ExamError> {
+        let service = self
+            .exam_share
+            .get()
+            .ok_or(crate::exam_share::ExamError::Unavailable)?;
+        service.act(action, cancel, &self.store).await
+    }
+
+    /// Stop every ScienceTokyoExam action in flight, for shutdown.
+    pub fn cancel_exam_share(&self) {
+        if let Some(service) = self.exam_share.get() {
+            service.cancel();
+        }
     }
 
     /// The desktop's MCP listener, which Core starts and stops to match the

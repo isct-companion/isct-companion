@@ -117,13 +117,8 @@ describe("OAuth client configuration", () => {
 
   it("gives the iOS app its own client id and no other platform's", () => {
     const project = readRepoFile("apps/ios/project.yml");
-    const client = googleDriveClientId("ios");
     expect(project).toContain(
-      `ISCT_GOOGLE_IOS_CLIENT_ID: ${client}`,
-    );
-    const callbackScheme = client.split(".").reverse().join(".");
-    expect(project).toContain(
-      `ISCT_GOOGLE_IOS_CALLBACK_SCHEME: ${callbackScheme}`,
+      `ISCT_GOOGLE_IOS_CLIENT_ID: ${googleDriveClientId("ios")}`,
     );
     for (const other of ["desktop", "android"]) {
       expect(project).not.toContain(googleDriveClientId(other));

@@ -1,6 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -25,18 +23,19 @@ const KEY_SHAPE = /^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/;
 
 /** Keys no source spells out whole. Core rejects with a code and the shells
  * show `error.<code>`; every shell reads Core's sync label keys with `lookup`;
- * a campus map amenity is named after the key Core gives it. Past-exam labels
- * include the selected tab, document metadata and request status. */
+ * a campus map amenity is named after the key Core gives it; past-exam labels
+ * are named after the API word Core passes on (role, occasion, report reason,
+ * request status, and an upload's provenance and answer source). */
 const KEYS_BUILT_AT_RUNTIME = [
   "error.",
   "sync.run.",
   "sync.current.",
   "campusMap.amenity.",
-  "examShare.(",
   "examShare.occasion.",
   "examShare.requestStatus.",
   "examShare.role.",
   "examShare.reason.",
+  "examShare.upload.",
 ];
 
 /** Dotted strings in the sources that look like keys but are not: Core's
@@ -70,29 +69,19 @@ const SOURCE_ROOTS = [
 ];
 const SOURCE_FILE = /\.(tsx?|rs|swift|kt)$|^resources\/otp-guide\/.*\.json$/;
 
-/** Sources that spell keys: files in the working tree, including new files
- * before they are staged. Ignore deleted paths and generated code. */
+/** Sources that spell keys: tracked files of the four shells, without tests,
+ * generated code and the Rust shell's test modules. */
 function sources(): { file: string; text: string }[] {
-  const listed = execFileSync(
-    "git",
-    [
-      "ls-files",
-      "-z",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "--",
-      ...SOURCE_ROOTS,
-    ],
-    { cwd: repositoryRoot, encoding: "utf8" },
-  )
-    .split("\0")
+  const listed = execFileSync("git", ["ls-files", "--", ...SOURCE_ROOTS], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  })
+    .split("\n")
     .filter(
       (file) =>
         SOURCE_FILE.test(file) &&
         !file.includes("/generated/") &&
-        !file.includes("/tests/") &&
-        existsSync(join(repositoryRoot, file)),
+        !file.includes("/tests/"),
     );
   return listed.map((file) => ({
     file,
@@ -341,7 +330,7 @@ describe("Chinese translation catalogue", () => {
           (key) =>
             !(key in en) &&
             !isNotAKey(key) &&
-            // A dynamic family still requires catalog entries for literal keys.
+            // `error.$code` and `error.\(code)` are built from Core's code.
             !(
               KEYS_BUILT_AT_RUNTIME.some((p) => key.startsWith(p)) &&
               /[$(]/.test(key)

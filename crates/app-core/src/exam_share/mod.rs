@@ -1,12 +1,7 @@
 //! Native client for the ScienceTokyoExam sharing service.
 mod cache;
 mod client;
-#[cfg(any(
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "android"
-))]
+mod form;
 mod google;
 mod identity;
 mod library;
@@ -15,14 +10,13 @@ mod upload;
 mod upload_file;
 pub use model::*;
 
-#[cfg(any(
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "android"
-))]
 use crate::oauth::{code_exchange::OAuthClient, NativeBrowserAuth};
-use crate::{data::DataStore, net::Host, oauth::OAuthError, ports::SecretVault};
+use crate::{
+    data::DataStore,
+    events::CoreEvent,
+    oauth::OAuthError,
+    ports::{EventSink, SecretVault},
+};
 use client::Client;
 use identity::{SavedSession, SessionToken};
 use reqwest::Method;
@@ -75,8 +69,6 @@ pub enum ExamError {
     Storage,
     #[error("The ScienceTokyoExam operation was cancelled")]
     Cancelled,
-    #[error("A ScienceTokyoExam operation is already running")]
-    Busy,
     #[error("This ScienceTokyoExam document has already been reported")]
     AlreadyReported,
     #[error("The ScienceTokyoExam daily request limit was reached")]
@@ -85,6 +77,8 @@ pub enum ExamError {
     InvalidInput,
     #[error("The selected upload files could not be prepared")]
     UploadFile,
+    #[error("Only images can be combined into one upload")]
+    UploadMixed,
     #[error("The upload exceeds the file size limit")]
     UploadSize,
     #[error("ScienceTokyoExam already has this material")]
@@ -96,7 +90,7 @@ pub enum ExamError {
     #[error("The uploaded file is still referenced")]
     UploadInUse,
     #[error("The upload is already registered")]
-    UploadRegistered(String),
+    UploadRegistered,
 }
 
 impl ExamError {
@@ -110,11 +104,68 @@ impl From<OAuthError> for ExamError {
         match error {
             OAuthError::Cancelled => Self::Cancelled,
             OAuthError::Timeout => Self::Timeout,
-            OAuthError::Busy => Self::Busy,
             OAuthError::Configuration => Self::Unavailable,
             _ => Self::Identity,
         }
     }
+}
+
+/// Run `work` unless `cancel` fires first.
+async fn interrupt<T>(
+    cancel: &CancellationToken,
+    work: impl std::future::Future<Output = Result<T, ExamError>>,
+) -> Result<T, ExamError> {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(ExamError::Cancelled),
+        result = work => result,
+    }
+}
+
+/// The account as shells last saw it. A change, upload progress included,
+/// goes out as `CoreEvent::ExamAccount`, so shells never poll for it.
+pub(super) struct Publisher {
+    events: Arc<dyn EventSink>,
+    shown: std::sync::Mutex<ExamAccount>,
+}
+
+impl Publisher {
+    fn current(&self) -> ExamAccount {
+        self.shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn session(&self, session: &Session) {
+        self.change(|shown| {
+            shown.status = session.status.clone();
+            shown.email = session.saved.as_ref().map(|saved| saved.email.clone());
+        });
+    }
+
+    fn upload(&self, upload: ExamUploadStatus) {
+        self.change(|shown| shown.upload = upload);
+    }
+
+    fn change(&self, edit: impl FnOnce(&mut ExamAccount)) {
+        let mut shown = self
+            .shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = shown.clone();
+        edit(&mut shown);
+        if *shown != before {
+            // Events are hints: a shell reads the account when it shows it.
+            let _ = self.events.emit(CoreEvent::ExamAccount(shown.clone()));
+        }
+    }
+}
+
+/// What a shell provides to connect: the OAuth client and the browser port.
+pub struct ExamSignIn {
+    pub client: OAuthClient,
+    pub browser: Arc<dyn NativeBrowserAuth>,
 }
 
 struct Session {
@@ -130,47 +181,25 @@ pub struct ExamShare {
     vault: Arc<dyn SecretVault>,
     folder: PathBuf,
     session: Mutex<Session>,
-    #[cfg(any(
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ))]
-    browser: Option<(OAuthClient, Arc<dyn NativeBrowserAuth>)>,
+    /// Absent when this build has no OAuth client configured.
+    sign_in: Option<ExamSignIn>,
     upload: upload::UploadTracker,
+    publisher: Arc<Publisher>,
     // Cancellation travels with a connection generation. Disconnect cancels
     // the generation before waiting for the gate to clear the vault.
     generation: std::sync::Mutex<CancellationToken>,
 }
 
 impl ExamShare {
-    pub fn new(
+    pub(crate) fn new(
         vault: Arc<dyn SecretVault>,
         folder: PathBuf,
         version: String,
-        #[cfg(any(
-            target_os = "ios",
-            target_os = "macos",
-            target_os = "windows",
-            target_os = "android"
-        ))]
-        browser: Option<(OAuthClient, Arc<dyn NativeBrowserAuth>)>,
+        sign_in: Option<ExamSignIn>,
+        events: Arc<dyn EventSink>,
     ) -> Result<Self, ExamError> {
         let api = Client::new(version.clone())?;
-        let saved = if folder.join("installation").is_file() {
-            vault
-                .load(ACCOUNT)
-                .map_err(|_| ExamError::Storage)?
-                .map(|encoded| serde_json::from_str(&encoded))
-                .transpose()
-                .map_err(|_| ExamError::Storage)?
-        } else {
-            // After an iOS reinstall Keychain can outlive the data folder.
-            vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
-            std::fs::create_dir_all(&folder).map_err(|_| ExamError::Storage)?;
-            std::fs::write(folder.join("installation"), []).map_err(|_| ExamError::Storage)?;
-            None
-        };
+        let saved = Self::stored_session(vault.as_ref(), &folder)?;
         let status = if saved
             .as_ref()
             .is_some_and(|session: &SavedSession| session.registered)
@@ -179,31 +208,65 @@ impl ExamShare {
         } else {
             ExamAccountStatus::Disconnected
         };
-        let service = Self {
+        let session = Session {
+            saved,
+            token: None,
+            status,
+            version_check: None,
+        };
+        let upload = upload::settled_status(upload::pending_upload(&folder, &session));
+        let publisher = Arc::new(Publisher {
+            events,
+            shown: std::sync::Mutex::new(ExamAccount {
+                status: session.status.clone(),
+                email: session.saved.as_ref().map(|saved| saved.email.clone()),
+                upload,
+            }),
+        });
+        Ok(Self {
             api,
             version,
             vault,
             folder,
-            session: Mutex::new(Session {
-                saved,
-                token: None,
-                status,
-                version_check: None,
-            }),
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "android"
-            ))]
-            browser,
-            upload: upload::UploadTracker::new(),
+            session: Mutex::new(session),
+            sign_in,
+            upload: upload::UploadTracker::new(publisher.clone(), upload),
+            publisher,
             generation: std::sync::Mutex::new(CancellationToken::new()),
-        };
-        if let Ok(session) = service.session.try_lock() {
-            service.update_upload_account(&session);
+        })
+    }
+
+    #[cfg(target_os = "ios")]
+    fn stored_session(
+        vault: &dyn SecretVault,
+        folder: &std::path::Path,
+    ) -> Result<Option<SavedSession>, ExamError> {
+        if folder.join("installation").is_file() {
+            return Self::load_session(vault);
         }
-        Ok(service)
+        // iOS keeps Keychain items across a reinstall that removed the data
+        // folder; such a session belongs to an earlier installation.
+        vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
+        std::fs::create_dir_all(folder).map_err(|_| ExamError::Storage)?;
+        std::fs::write(folder.join("installation"), []).map_err(|_| ExamError::Storage)?;
+        Ok(None)
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    fn stored_session(
+        vault: &dyn SecretVault,
+        _folder: &std::path::Path,
+    ) -> Result<Option<SavedSession>, ExamError> {
+        Self::load_session(vault)
+    }
+
+    fn load_session(vault: &dyn SecretVault) -> Result<Option<SavedSession>, ExamError> {
+        vault
+            .load(ACCOUNT)
+            .map_err(|_| ExamError::Storage)?
+            .map(|encoded| serde_json::from_str(&encoded))
+            .transpose()
+            .map_err(|_| ExamError::Storage)
     }
 
     pub(crate) fn clean_cached_materials(&self, now: SystemTime) -> Result<(), ExamError> {
@@ -219,49 +282,59 @@ impl ExamShare {
         }
     }
 
-    pub async fn act(
+    /// Perform one action. Subject names in the answer follow the content
+    /// language setting.
+    pub(crate) async fn act(
         &self,
         action: ExamAction,
         cancel: CancellationToken,
         store: &DataStore,
     ) -> Result<ExamAnswer, ExamError> {
-        if matches!(action, ExamAction::UploadStatus) {
-            return self.upload.status().map(ExamAnswer::UploadStatus);
-        }
-        if matches!(action, ExamAction::CancelUpload) {
-            self.upload.cancel()?;
-            return Ok(ExamAnswer::Done);
-        }
-        if matches!(action, ExamAction::CancelConnect) {
-            let mut generation = self.generation.lock().map_err(|_| ExamError::Storage)?;
-            generation.cancel();
-            *generation = CancellationToken::new();
-            return Ok(ExamAnswer::Done);
-        }
-        if matches!(action, ExamAction::Disconnect) {
-            self.cancel();
-            let mut session = self.session.lock().await;
-            let outcome = self.clear(&mut session).await;
-            *self.generation.lock().map_err(|_| ExamError::Storage)? = CancellationToken::new();
-            outcome?;
-            return Ok(ExamAnswer::Account(session.account()));
-        }
-        let generation = self
-            .generation
-            .lock()
-            .map_err(|_| ExamError::Storage)?
-            .clone();
-        let operation = generation.child_token();
-        let wake = operation.clone();
-        // Authorization owns its platform cleanup, so give it a cancellation
-        // signal and let it return before releasing the session gate.
-        let action = self.run(action, &operation, store);
-        tokio::pin!(action);
-        tokio::select! {
-            biased;
-            _ = cancel.cancelled() => { wake.cancel(); action.await }
-            result = &mut action => result,
-        }
+        let mut answer = match action {
+            // These answer without waiting for the session gate: the first
+            // needs no account, the others stop work that holds the gate.
+            ExamAction::Choices => ExamAnswer::Choices(form::choices()),
+            ExamAction::CancelUpload => {
+                self.upload.cancel()?;
+                ExamAnswer::Done
+            }
+            ExamAction::CancelConnect => {
+                let mut generation = self.generation.lock().map_err(|_| ExamError::Storage)?;
+                generation.cancel();
+                *generation = CancellationToken::new();
+                ExamAnswer::Done
+            }
+            ExamAction::Disconnect => {
+                self.cancel();
+                let mut session = self.session.lock().await;
+                let outcome = self.clear(&mut session).await;
+                *self.generation.lock().map_err(|_| ExamError::Storage)? = CancellationToken::new();
+                self.publisher.session(&session);
+                outcome?;
+                ExamAnswer::Account(self.publisher.current())
+            }
+            action => {
+                let generation = self
+                    .generation
+                    .lock()
+                    .map_err(|_| ExamError::Storage)?
+                    .clone();
+                let operation = generation.child_token();
+                let wake = operation.clone();
+                // Authorization owns its platform cleanup, so give it a
+                // cancellation signal and let it return before releasing the
+                // session gate.
+                let run = self.run(action, &operation, store);
+                tokio::pin!(run);
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => { wake.cancel(); run.await }
+                    result = &mut run => result,
+                }?
+            }
+        };
+        answer.localize_subject_names(store)?;
+        Ok(answer)
     }
 
     async fn run(
@@ -275,123 +348,159 @@ impl ExamShare {
             _ = cancel.cancelled() => return Err(ExamError::Cancelled),
             lock = self.session.lock() => lock,
         };
-        if matches!(action, ExamAction::Connect) {
-            #[cfg(not(any(
-                target_os = "ios",
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "android"
-            )))]
-            return Err(ExamError::Unavailable);
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "android"
-            ))]
-            {
-                let (client, browser) = self.browser.as_ref().ok_or(ExamError::Unavailable)?;
-                self.clear(&mut session).await?;
-                self.check_version_for_action(&mut session, cancel).await?;
-                let token = google::connect(&self.api, client, browser.as_ref(), cancel).await?;
-                if cancel.is_cancelled() {
-                    return Err(ExamError::Cancelled);
-                }
-                let result = tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => Err(ExamError::Cancelled),
-                    result = self.establish(&mut session, token) => result,
-                };
-                if matches!(&result, Err(ExamError::Cancelled)) {
-                    self.clear(&mut session).await?;
-                } else {
-                    self.apply_session_error(&mut session, &result).await?;
-                }
-                result?;
-                return Ok(ExamAnswer::Account(session.account()));
-            }
-        }
-        if !matches!(action, ExamAction::AccountSnapshot)
-            && (session.saved.is_some() || matches!(session.status, ExamAccountStatus::Unavailable))
-        {
-            self.check_version_for_action(&mut session, cancel).await?;
-            if session.saved.is_none() {
-                session.status = ExamAccountStatus::Disconnected;
-            }
-        }
-        let result = match action {
-            ExamAction::Upload { .. } | ExamAction::RecoverUpload => {
-                self.upload_action(&mut session, action, cancel).await
-            }
-            _ => tokio::select! {
-                biased;
-                _ = cancel.cancelled() => Err(ExamError::Cancelled),
-                result = self.perform(&mut session, action, store) => result,
-            },
+        let result = if matches!(action, ExamAction::Connect) {
+            self.connect(&mut session, cancel).await
+        } else {
+            self.perform(&mut session, action, cancel, store).await
         };
-        self.apply_session_error(&mut session, &result).await?;
+        let settled = self.apply_session_error(&mut session, &result).await;
+        self.publisher.session(&session);
+        settled?;
         result
+    }
+
+    async fn connect(
+        &self,
+        session: &mut Session,
+        cancel: &CancellationToken,
+    ) -> Result<ExamAnswer, ExamError> {
+        let sign_in = self.sign_in.as_ref().ok_or(ExamError::Unavailable)?;
+        self.clear(session).await?;
+        self.check_version_for_action(session, cancel).await?;
+        let token =
+            google::connect(&self.api, &sign_in.client, sign_in.browser.as_ref(), cancel).await?;
+        let result = interrupt(cancel, self.establish(session, token)).await;
+        if matches!(&result, Err(ExamError::Cancelled)) {
+            self.clear(session).await?;
+        }
+        result?;
+        Ok(self.account_answer(session))
+    }
+
+    fn account_answer(&self, session: &Session) -> ExamAnswer {
+        self.publisher.session(session);
+        ExamAnswer::Account(self.publisher.current())
     }
 
     async fn perform(
         &self,
         session: &mut Session,
         action: ExamAction,
+        cancel: &CancellationToken,
         store: &DataStore,
     ) -> Result<ExamAnswer, ExamError> {
-        match action {
-            ExamAction::AccountSnapshot => Ok(ExamAnswer::Account(session.account())),
-            ExamAction::Account => {
-                if session.saved.is_some() && session.token.is_none() {
-                    let result = self.resume(session).await;
-                    self.apply_session_error(session, &result).await?;
-                    if let Err(error) = result {
-                        if error.temporarily_unavailable()
-                            && session.saved.as_ref().is_some_and(|saved| saved.registered)
-                        {
-                            return Ok(ExamAnswer::Account(session.account()));
-                        }
-                        if !matches!(
-                            error,
-                            ExamError::Expired | ExamError::Denied | ExamError::Administrator
-                        ) {
-                            return Err(error);
-                        }
-                    }
-                }
-                Ok(ExamAnswer::Account(session.account()))
+        if session.saved.is_some() || matches!(session.status, ExamAccountStatus::Unsupported) {
+            self.check_version_for_action(session, cancel).await?;
+            if session.saved.is_none() {
+                session.status = ExamAccountStatus::Disconnected;
             }
-            ExamAction::AcceptTerms => {
-                if !matches!(session.status, ExamAccountStatus::NeedsConsent) {
-                    return Err(ExamError::InvalidInput);
-                }
-                let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-                let _: Value = self
-                    .api
-                    .service(
-                        self.service(Method::POST, &["auth", "register"])?
-                            .bearer_auth(&current.id_token),
-                    )
-                    .await?;
-                let updated = identity::refresh(&self.api, &current.saved).await?;
-                self.establish(session, updated).await?;
-                Ok(ExamAnswer::Account(session.account()))
-            }
-            ExamAction::CourseSubject { course_id } => {
-                let (workspace, school, _) = store
-                    .view(&["courses", "lmsCourses"].into())
-                    .map_err(|_| ExamError::Storage)?;
-                let course = crate::schedule::visible_by_id(&workspace, "courses", &course_id)
-                    .ok_or(ExamError::NotFound)?;
-                let codes = crate::schedule::subject_codes(&workspace, &school, course);
-                let class_id = course
-                    .get("offeringId")
-                    .and_then(Value::as_str)
-                    .and_then(|id| id.parse().ok());
-                self.resolve_subjects(session, codes, class_id).await
-            }
-            _ => self.feature(session, action).await,
         }
+        let answer = match action {
+            ExamAction::Upload { files, draft } => {
+                return self.upload(session, files, draft, cancel).await;
+            }
+            ExamAction::RecoverUpload => return self.recover_upload(session, cancel).await,
+            ExamAction::Account => return interrupt(cancel, self.account(session)).await,
+            ExamAction::AcceptTerms => return interrupt(cancel, self.accept_terms(session)).await,
+            action => action,
+        };
+        interrupt(cancel, async {
+            Ok(match answer {
+                ExamAction::Search { query } => {
+                    ExamAnswer::Subjects(self.search(session, &query).await?)
+                }
+                ExamAction::Subject { code, class_id } => {
+                    self.resolve_subjects(session, vec![code], class_id).await?
+                }
+                ExamAction::CourseSubject { course_id } => {
+                    let (codes, class_id) = course_subject(store, &course_id)?;
+                    self.resolve_subjects(session, codes, class_id).await?
+                }
+                ExamAction::Open { id, download } => {
+                    ExamAnswer::Document(self.open(session, &id, download).await?)
+                }
+                ExamAction::Library => ExamAnswer::Library(self.library(session).await?),
+                ExamAction::Save { id, saved } => {
+                    ExamAnswer::Saved(self.save(session, &id, saved).await?)
+                }
+                ExamAction::RemoveDownload { id } => {
+                    ExamAnswer::Library(self.remove_download(session, &id).await?)
+                }
+                ExamAction::DeleteSubmission { id } => {
+                    ExamAnswer::Library(self.delete_submission(session, &id).await?)
+                }
+                ExamAction::Report { id, reason, detail } => {
+                    self.report(session, &id, reason, &detail).await?;
+                    ExamAnswer::Done
+                }
+                ExamAction::Requests { mine, cursor } => {
+                    ExamAnswer::Requests(self.requests(session, mine, cursor).await?)
+                }
+                ExamAction::CreateRequest { draft } => {
+                    self.create_request(session, draft).await?;
+                    ExamAnswer::Done
+                }
+                ExamAction::SetRequestOpen { id, open, mine } => {
+                    ExamAnswer::Requests(self.set_request_open(session, &id, open, mine).await?)
+                }
+                ExamAction::DeleteRequest { id, mine } => {
+                    ExamAnswer::Requests(self.delete_request(session, &id, mine).await?)
+                }
+                ExamAction::UploadForm { start } => {
+                    ExamAnswer::UploadForm(self.upload_form(session, start).await?)
+                }
+                ExamAction::EditUpload { form, edit } => {
+                    ExamAnswer::UploadForm(self.edit_upload(session, form, edit).await?)
+                }
+                // `act` and `run` answer these before reaching here.
+                ExamAction::Choices
+                | ExamAction::CancelUpload
+                | ExamAction::CancelConnect
+                | ExamAction::Disconnect
+                | ExamAction::Connect
+                | ExamAction::Upload { .. }
+                | ExamAction::RecoverUpload
+                | ExamAction::Account
+                | ExamAction::AcceptTerms => return Err(ExamError::InvalidInput),
+            })
+        })
+        .await
+    }
+
+    async fn account(&self, session: &mut Session) -> Result<ExamAnswer, ExamError> {
+        if session.saved.is_some() && session.token.is_none() {
+            let result = self.resume(session).await;
+            self.apply_session_error(session, &result).await?;
+            if let Err(error) = result {
+                let offline = error.temporarily_unavailable()
+                    && session.saved.as_ref().is_some_and(|saved| saved.registered);
+                let signed_out = matches!(
+                    error,
+                    ExamError::Expired | ExamError::Denied | ExamError::Administrator
+                );
+                if !offline && !signed_out {
+                    return Err(error);
+                }
+            }
+        }
+        Ok(self.account_answer(session))
+    }
+
+    async fn accept_terms(&self, session: &mut Session) -> Result<ExamAnswer, ExamError> {
+        if !matches!(session.status, ExamAccountStatus::NeedsConsent) {
+            return Err(ExamError::InvalidInput);
+        }
+        let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
+        let _: Value = self
+            .api
+            .service(
+                self.service(Method::POST, &["auth", "register"])?
+                    .bearer_auth(&current.id_token),
+            )
+            .await?;
+        let updated = identity::refresh(&self.api, &current.saved).await?;
+        self.establish(session, updated).await?;
+        Ok(self.account_answer(session))
     }
 
     async fn check_version_for_action(
@@ -399,11 +508,7 @@ impl ExamShare {
         session: &mut Session,
         cancel: &CancellationToken,
     ) -> Result<(), ExamError> {
-        let result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err(ExamError::Cancelled),
-            result = self.check_version(session) => result,
-        };
+        let result = interrupt(cancel, self.check_version(session)).await;
         self.apply_session_error(session, &result).await?;
         result
     }
@@ -541,7 +646,7 @@ impl ExamShare {
                 self.clear(session).await?
             }
             Err(ExamError::Unsupported) => {
-                session.status = ExamAccountStatus::Unavailable;
+                session.status = ExamAccountStatus::Unsupported;
                 // If the version gate opens again, re-establish the account
                 // through its stored session instead of showing stale state.
                 session.token = None;
@@ -559,19 +664,14 @@ impl ExamShare {
         self.upload.settled(false);
         self.vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
         if let Some(saved) = session.saved.take() {
-            let path = self.account_folder(&saved.uid);
-            if let Err(error) = tokio::fs::remove_dir_all(path).await {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    return Err(ExamError::Storage);
-                }
-            }
+            cache::erase(&self.account_folder(&saved.uid)).await?;
         }
         Ok(())
     }
 
     fn service(&self, method: Method, path: &[&str]) -> Result<reqwest::RequestBuilder, ExamError> {
         let path: Vec<_> = std::iter::once("api").chain(path.iter().copied()).collect();
-        self.api.request(Host::ScienceTokyoExam, method, &path)
+        self.api.request(client::Endpoint::Site, method, &path)
     }
 
     async fn call<T: DeserializeOwned>(
@@ -658,14 +758,27 @@ fn compatible_version(current: &str, minimum: Option<&str>) -> Result<bool, Exam
     Ok(current >= minimum)
 }
 
-impl Session {
-    fn account(&self) -> ExamAccount {
-        ExamAccount {
-            status: self.status.clone(),
-            email: self.saved.as_ref().map(|saved| saved.email.clone()),
-        }
-    }
+/// The subject codes and class a local course is looked up by.
+fn course_subject(
+    store: &DataStore,
+    course_id: &str,
+) -> Result<(Vec<String>, Option<u32>), ExamError> {
+    let (workspace, school, _) = store
+        .view(&["courses", "lmsCourses"].into())
+        .map_err(|_| ExamError::Storage)?;
+    let course = crate::schedule::visible_by_id(&workspace, "courses", course_id)
+        .ok_or(ExamError::NotFound)?;
+    let codes = crate::schedule::subject_codes(&workspace, &school, course);
+    let class_id = course
+        .get("offeringId")
+        .and_then(Value::as_str)
+        .and_then(|id| id.parse().ok());
+    Ok((codes, class_id))
 }
+
+#[cfg(test)]
+#[path = "../tests/exam_share.rs"]
+mod tests;
 
 #[cfg(feature = "ts")]
 pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
@@ -688,7 +801,17 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamUploadFile::decl(cfg),
         ExamNewTeacher::decl(cfg),
         ExamUploadDraft::decl(cfg),
-        ExamUploadOptions::decl(cfg),
+        ExamRole::decl(cfg),
+        ExamOccasion::decl(cfg),
+        ExamProvenance::decl(cfg),
+        ExamAnswerSource::decl(cfg),
+        ExamRoleChoice::decl(cfg),
+        ExamChoices::decl(cfg),
+        ExamLimits::decl(cfg),
+        ExamUploadSubject::decl(cfg),
+        ExamUploadForm::decl(cfg),
+        ExamUploadStart::decl(cfg),
+        ExamUploadEdit::decl(cfg),
         ExamUploadPhase::decl(cfg),
         ExamUploadStatus::decl(cfg),
         ExamAction::decl(cfg),

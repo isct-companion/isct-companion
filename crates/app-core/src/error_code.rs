@@ -107,11 +107,7 @@ codes! {
     LmsWritesDisabled => "lms-writes-disabled",
     DataFolderInUse => "data-folder-in-use",
     SubmissionIdentityChanged => "submission-identity-changed",
-    ExamShareNetwork => "exam-share-network",
-    ExamShareTimeout => "exam-share-timeout",
-    ExamShareUnavailable => "exam-share-unavailable",
     ExamShareUnsupported => "exam-share-unsupported",
-    ExamShareResponse => "exam-share-response",
     ExamShareSignedOut => "exam-share-signed-out",
     ExamShareExpired => "exam-share-expired",
     ExamShareDenied => "exam-share-denied",
@@ -120,13 +116,10 @@ codes! {
     ExamShareNotFound => "exam-share-not-found",
     ExamShareRejected => "exam-share-rejected",
     ExamShareIdentity => "exam-share-identity",
-    ExamShareStorage => "exam-share-storage",
-    ExamShareCancelled => "exam-share-cancelled",
-    ExamShareBusy => "exam-share-busy",
     ExamShareAlreadyReported => "exam-share-already-reported",
     ExamShareQuota => "exam-share-quota",
-    ExamShareInvalidInput => "exam-share-invalid-input",
     ExamShareUploadFile => "exam-share-upload-file",
+    ExamShareUploadMixed => "exam-share-upload-mixed",
     ExamShareUploadSize => "exam-share-upload-size",
     ExamShareUploadDuplicate => "exam-share-upload-duplicate",
     ExamShareUploadQuota => "exam-share-upload-quota",
@@ -241,14 +234,20 @@ macro_rules! coded {
     };
 }
 
+// A failure anyone meets the same way everywhere (offline, timed out, this
+// device's storage, cancelled, a malformed request) takes the shared code;
+// only a failure the person acts on differently on this service gets an
+// `exam-share-` code of its own.
 coded!(crate::exam_share::ExamError, |e| {
     use crate::exam_share::ExamError as E;
     match e {
-        E::Network => C::ExamShareNetwork,
-        E::Timeout => C::ExamShareTimeout,
-        E::Unavailable => C::ExamShareUnavailable,
+        E::Network => C::Network,
+        E::Timeout => C::Timeout,
+        E::Unavailable | E::Response => C::Unavailable,
+        E::Storage => C::Storage,
+        E::Cancelled => C::Cancelled,
+        E::InvalidInput => C::InvalidInput,
         E::Unsupported => C::ExamShareUnsupported,
-        E::Response => C::ExamShareResponse,
         E::SignedOut => C::ExamShareSignedOut,
         E::Expired => C::ExamShareExpired,
         E::Denied => C::ExamShareDenied,
@@ -257,17 +256,14 @@ coded!(crate::exam_share::ExamError, |e| {
         E::NotFound | E::SubjectNotFound => C::ExamShareNotFound,
         E::Rejected => C::ExamShareRejected,
         E::Identity => C::ExamShareIdentity,
-        E::Storage => C::ExamShareStorage,
-        E::Cancelled => C::ExamShareCancelled,
-        E::Busy => C::ExamShareBusy,
         E::AlreadyReported => C::ExamShareAlreadyReported,
         E::Quota => C::ExamShareQuota,
-        E::InvalidInput => C::ExamShareInvalidInput,
         E::UploadFile => C::ExamShareUploadFile,
+        E::UploadMixed => C::ExamShareUploadMixed,
         E::UploadSize => C::ExamShareUploadSize,
         E::UploadDuplicate => C::ExamShareUploadDuplicate,
         E::UploadQuota => C::ExamShareUploadQuota,
-        E::UploadPending | E::UploadInUse | E::UploadRegistered(_) => C::ExamShareUploadPending,
+        E::UploadPending | E::UploadInUse | E::UploadRegistered => C::ExamShareUploadPending,
     }
 });
 

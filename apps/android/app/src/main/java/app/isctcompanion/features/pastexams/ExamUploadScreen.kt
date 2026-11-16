@@ -36,7 +36,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,11 +52,13 @@ import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
+import app.isctcompanion.core.ExamChoices
 import app.isctcompanion.core.ExamNewTeacher
 import app.isctcompanion.core.ExamSubject
-import app.isctcompanion.core.ExamTeacher
+import app.isctcompanion.core.ExamUploadDraft
+import app.isctcompanion.core.ExamUploadEdit
 import app.isctcompanion.core.ExamUploadFile
-import app.isctcompanion.core.ExamUploadOptions
+import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadPhase
 import app.isctcompanion.core.ExamUploadStatus
 import app.isctcompanion.core.SdkException
@@ -73,26 +74,13 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-private val uploadRoles = listOf("question", "answer", "both", "notes", "other")
-private val uploadOccasions = examOccasions + "unknown"
-private val numberedOccasions = setOf("quiz", "check", "report")
 private val acceptedDocuments = arrayOf("application/pdf", "text/plain", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
 private const val maxSourceBytes = 25 * 1024 * 1024
-
-internal suspend fun AppModel.examUploadStatus(): ExamUploadStatus? = try {
-    (examShare(ExamAction.UploadStatus) as? ExamAnswer.UploadStatus)?.v1
-} catch (cancelled: CancellationException) {
-    throw cancelled
-} catch (_: Exception) {
-    // A closed session may race a progress read while the view disappears.
-    null
-}
 
 @Composable
 internal fun ExamUploadProgress(status: ExamUploadStatus?, sending: Boolean) {
@@ -118,25 +106,24 @@ internal fun ExamUploadProgress(status: ExamUploadStatus?, sending: Boolean) {
     }
 }
 
+/** Core's upload form: edits with rules (subjects, role) go back to Core,
+ * plain fields change [form]'s draft here, and the upload sends that draft. */
 @Composable
 internal fun ExamUploadScreen(
-    options: ExamUploadOptions,
+    form: ExamUploadForm,
+    choices: ExamChoices,
     onBack: () -> Unit,
-    onUnsupported: () -> Unit,
     onUploaded: () -> Unit,
 ) {
     val model = LocalModel.current
     val context = LocalContext.current.applicationContext as IsctApplication
     val scope = rememberCoroutineScope()
-    val boundSubject = options.draft.subjectCodes.first().takeIf { options.draft.requestId != null }
     val staging = remember { File(context.cacheDir, "exam-upload/${UUID.randomUUID()}") }
     var files by remember { mutableStateOf(emptyList<ExamUploadFile>()) }
-    var draft by remember(options) { mutableStateOf(options.draft) }
-    var year by remember(options) { mutableStateOf(draft.academicYear?.toString().orEmpty()) }
-    var number by remember(options) { mutableStateOf(draft.occasionNumber.toString()) }
-    var teachersBySubject by remember(options) {
-        mutableStateOf(draft.subjectCodes.associateWith { options.teachers })
-    }
+    var current by remember(form) { mutableStateOf(form) }
+    val draft = current.draft
+    var year by remember(form) { mutableStateOf(draft.academicYear?.toString().orEmpty()) }
+    var number by remember(form) { mutableStateOf(draft.occasionNumber.toString()) }
     var familyName by remember { mutableStateOf("") }
     var givenName by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
@@ -145,15 +132,20 @@ internal fun ExamUploadScreen(
     var picking by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var disposed by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf<ExamUploadStatus?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Core's `exam-account` events carry the upload's progress.
+    val progress = model.examAccount?.upload
     val busy = loading || picking || sending
     val pending = progress?.phase == ExamUploadPhase.PENDING
     val canEdit = !busy && !pending
-    val nonExam = draft.role == "notes" || draft.role == "other"
-    val hasAnswers = draft.role == "answer" || draft.role == "both"
-    val numbered = draft.occasion in numberedOccasions
-    val teachers = teachersBySubject.values.flatten().distinctBy { it.id }
+    val limits = choices.limits
+    val role = choices.roles.first { it.role == draft.role }
+    val numbered = draft.occasion in choices.numbered
+
+    /** A plain field: the draft changes here. */
+    fun edit(update: (ExamUploadDraft) -> ExamUploadDraft) {
+        current = current.copy(draft = update(current.draft))
+    }
 
     DisposableEffect(staging) {
         onDispose {
@@ -161,13 +153,6 @@ internal fun ExamUploadScreen(
             // The process-owned job still owns the files if the screen leaves
             // before Core finishes reading them.
             if (!sending) context.scope.launch(Dispatchers.IO) { staging.deleteRecursively() }
-        }
-    }
-    LaunchedEffect(sending) {
-        progress = model.examUploadStatus()
-        while (sending) {
-            delay(220)
-            progress = model.examUploadStatus()
         }
     }
     BackHandler { if (!busy) onBack() }
@@ -198,40 +183,28 @@ internal fun ExamUploadScreen(
         files = files.toMutableList().apply { add(index + offset, removeAt(index)) }
     }
 
-    fun changeSubjects(codes: List<String>, available: Map<String, List<ExamTeacher>>) {
-        teachersBySubject = available
-        val ids = available.values.flatten().mapTo(hashSetOf()) { it.id }
-        draft = draft.copy(subjectCodes = codes, teacherIds = draft.teacherIds.filter(ids::contains))
-    }
-
-    fun reportFailure(failure: Exception) {
-        if (failure is SdkException.Unavailable && failure.detail == "exam-share-unsupported") {
-            onUnsupported()
-        } else {
-            error = AppModel.describe(failure)
-        }
-    }
-
-    fun addSubject(hit: ExamSubject) {
+    /** Runs a form request; a failure shows on the form. */
+    fun perform(work: suspend () -> Unit) {
         scope.launch {
             loading = true
             error = null
             try {
-                val answer = (model.examShare(ExamAction.UploadOptions(hit.code, null)) as? ExamAnswer.UploadOptions)?.v1
-                if (answer != null) {
-                    val code = answer.draft.subjectCodes.first()
-                    changeSubjects((draft.subjectCodes + code).distinct(), teachersBySubject + (code to answer.teachers))
-                    query = ""
-                    hits = null
-                }
+                work()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                reportFailure(failure)
+                error = AppModel.describe(failure)
             } finally {
                 loading = false
             }
         }
+    }
+
+    /** An edit with rules: Core answers the form it leads to. */
+    fun change(step: ExamUploadEdit, then: () -> Unit = {}) = perform {
+        current = (model.examShare(ExamAction.EditUpload(current, step)) as ExamAnswer.UploadForm).v1
+        if (current.draft.occasion !in choices.numbered) number = "0"
+        then()
     }
 
     fun send(action: ExamAction) {
@@ -239,7 +212,7 @@ internal fun ExamUploadScreen(
         error = null
         context.scope.launch {
             try {
-                if (model.examShare(action) is ExamAnswer.Uploaded) {
+                if (model.examShare(action) == ExamAnswer.Uploaded) {
                     withContext(Dispatchers.IO) { staging.deleteRecursively() }
                     if (!disposed) onUploaded()
                 }
@@ -248,17 +221,16 @@ internal fun ExamUploadScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (!disposed) reportFailure(failure)
+                if (!disposed) error = AppModel.describe(failure)
             } finally {
                 sending = false
                 if (disposed) withContext(Dispatchers.IO) { staging.deleteRecursively() }
-                else progress = model.examUploadStatus()
             }
         }
     }
 
     TabPage(
-        title = t(if (boundSubject == null) "examShare.upload.title" else "examShare.upload.answerRequest"),
+        title = t(if (current.request == null) "examShare.upload.title" else "examShare.upload.answerRequest"),
         navigationIcon = {
             IconButton(enabled = !busy, onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
         },
@@ -292,52 +264,48 @@ internal fun ExamUploadScreen(
                     }
                 }
                 item { SectionLabel(t("examShare.upload.subjects")) }
-                items(draft.subjectCodes, key = { "subject:$it" }) { code ->
+                items(current.subjects, key = { "subject:${it.subject.code}" }) { entry ->
+                    val code = entry.subject.code
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(code, modifier = Modifier.weight(1f))
-                        if (code != boundSubject && draft.subjectCodes.size > 1) {
-                            IconButton(enabled = canEdit, onClick = {
-                                changeSubjects(draft.subjectCodes - code, teachersBySubject - code)
-                            }) { Icon(Icons.Rounded.Close, t("common.remove")) }
+                        Text("${entry.subject.name} · $code", modifier = Modifier.weight(1f))
+                        if (entry.removable) {
+                            IconButton(enabled = canEdit, onClick = { change(ExamUploadEdit.RemoveSubject(code)) }) {
+                                Icon(Icons.Rounded.Close, t("common.remove"))
+                            }
                         }
                     }
                 }
-                if (draft.subjectCodes.size < 10) {
+                if (current.subjects.size.toUInt() < limits.subjects) {
                     item {
-                        OutlinedTextField(query, { query = it.take(100); hits = null }, enabled = canEdit, singleLine = true,
+                        OutlinedTextField(query, { query = it.take(limits.query.toInt()); hits = null }, enabled = canEdit, singleLine = true,
                             label = { Text(t("examShare.upload.addSubject")) }, modifier = Modifier.fillMaxWidth())
                         TextButton(enabled = canEdit && query.isNotBlank(), onClick = {
-                            scope.launch {
-                                loading = true
-                                error = null
-                                try {
-                                    hits = (model.examShare(ExamAction.Search(query)) as? ExamAnswer.Subjects)?.v1
-                                        ?.filterNot { it.code in draft.subjectCodes }
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Exception) {
-                                    reportFailure(failure)
-                                } finally {
-                                    loading = false
-                                }
+                            perform {
+                                hits = (model.examShare(ExamAction.Search(query)) as ExamAnswer.Subjects).v1
+                                    .filterNot { it.code in draft.subjectCodes }
                             }
                         }) { Text(t("examShare.search")) }
                         if (hits?.isEmpty() == true) Text(t("examShare.noItems"), color = Theme.colors.muted)
                     }
                     items(hits.orEmpty(), key = { "hit:${it.code}" }) { hit ->
-                        TextButton(enabled = canEdit, onClick = { addSubject(hit) }) {
+                        TextButton(enabled = canEdit, onClick = {
+                            change(ExamUploadEdit.AddSubject(hit.code)) {
+                                query = ""
+                                hits = null
+                            }
+                        }) {
                             Text("${hit.name} · ${hit.code}")
                         }
                     }
                 }
                 item { SectionLabel(t("examShare.teacher")) }
-                items(teachers, key = { "teacher:${it.id}" }) { teacher ->
+                items(current.teachers, key = { "teacher:${it.id}" }) { teacher ->
                     val checked = teacher.id in draft.teacherIds
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = checked,
-                            enabled = canEdit && (checked || draft.teacherIds.size < 40),
+                            enabled = canEdit && (checked || draft.teacherIds.size.toUInt() < limits.teachers),
                             onCheckedChange = { selected ->
-                                draft = draft.copy(teacherIds = if (selected) draft.teacherIds + teacher.id else draft.teacherIds - teacher.id)
+                                edit { it.copy(teacherIds = if (selected) it.teacherIds + teacher.id else it.teacherIds - teacher.id) }
                             })
                         Text(teacher.name)
                     }
@@ -347,58 +315,47 @@ internal fun ExamUploadScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(listOf(teacher.familyName, teacher.givenName).filter { it.isNotEmpty() }.joinToString(" "), modifier = Modifier.weight(1f))
                         IconButton(enabled = canEdit, onClick = {
-                            draft = draft.copy(newTeachers = draft.newTeachers.toMutableList().apply { removeAt(index) })
+                            edit { it.copy(newTeachers = it.newTeachers.toMutableList().apply { removeAt(index) }) }
                         }) { Icon(Icons.Rounded.Close, t("common.remove")) }
                     }
                 }
-                if (draft.newTeachers.size < 40) item {
+                if (draft.newTeachers.size.toUInt() < limits.teachers) item {
                     SectionLabel(t("examShare.upload.newTeacher"))
-                    UploadField("examShare.upload.familyName", familyName, canEdit, 100) { familyName = it }
-                    UploadField("examShare.upload.givenName", givenName, canEdit, 100) { givenName = it }
+                    UploadField("examShare.upload.familyName", familyName, canEdit, limits.teacherName.toInt()) { familyName = it }
+                    UploadField("examShare.upload.givenName", givenName, canEdit, limits.teacherName.toInt()) { givenName = it }
                     TextButton(enabled = canEdit && familyName.isNotBlank(), onClick = {
-                        draft = draft.copy(newTeachers = draft.newTeachers + ExamNewTeacher(familyName.trim(), givenName.trim()))
+                        edit { it.copy(newTeachers = it.newTeachers + ExamNewTeacher(familyName.trim(), givenName.trim())) }
                         familyName = ""
                         givenName = ""
                     }) { Text(t("common.add")) }
                 }
                 item {
-                    UploadChoice("examShare.upload.role", draft.role, uploadRoles.map { it to t("examShare.role.$it") }, canEdit) { role ->
-                        val kind = when {
-                            role == "notes" || role == "other" -> "none"
-                            draft.occasion == "none" -> "unknown"
-                            else -> draft.occasion
-                        }
-                        val source = if (role == "answer" || role == "both") draft.answerSource ?: "unknown" else null
-                        draft = draft.copy(role = role, occasion = kind, answerSource = source)
-                        if (kind !in numberedOccasions) number = "0"
+                    UploadChoice("examShare.upload.role", draft.role, choices.roles.map { it.role to t("examShare.role.${it.role.wire}") }, canEdit) {
+                        change(ExamUploadEdit.Role(it))
                     }
                     OutlinedTextField(year, { year = it.filter { digit -> digit in '0'..'9' }.take(4) },
                         enabled = canEdit, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
                         label = { Text(t("examShare.year")) }, modifier = Modifier.fillMaxWidth())
-                    if (!nonExam) {
-                        UploadChoice("examShare.occasion", draft.occasion, uploadOccasions.map { it to t("examShare.occasion.$it") }, canEdit) {
-                            draft = draft.copy(occasion = it)
-                            if (it !in numberedOccasions) number = "0"
+                    // A role with one occasion (notes, other) has nothing to pick.
+                    if (role.occasions.size != 1) {
+                        UploadChoice("examShare.occasion", draft.occasion, role.occasions.map { it to t("examShare.occasion.${it.wire}") }, canEdit) { picked ->
+                            edit { it.copy(occasion = picked) }
+                            if (picked !in choices.numbered) number = "0"
                         }
                     }
-                    if (numbered) OutlinedTextField(number, { number = it.filter { digit -> digit in '0'..'9' }.take(2) },
+                    if (numbered) OutlinedTextField(number, { number = it.filter { digit -> digit in '0'..'9' }.take(limits.occasionNumber.toString().length) },
                         enabled = canEdit, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
                         label = { Text(t("examShare.upload.occasionNumber")) }, modifier = Modifier.fillMaxWidth())
-                    UploadChoice("examShare.upload.provenance", draft.provenance, listOf(
-                        "original" to t("examShare.upload.original"),
-                        "reconstructed" to t("examShare.upload.reconstructed"),
-                    ), canEdit) {
-                        draft = draft.copy(provenance = it)
+                    UploadChoice("examShare.upload.provenance", draft.provenance, choices.provenances.map { it to t("examShare.upload.${it.wire}") }, canEdit) { picked ->
+                        edit { it.copy(provenance = picked) }
                     }
-                    if (hasAnswers) UploadChoice("examShare.upload.answerSource", draft.answerSource ?: "unknown", listOf(
-                        "official" to t("examShare.upload.official"),
-                        "student" to t("examShare.upload.student"),
-                        "unknown" to t("examShare.upload.unknown"),
-                    ), canEdit) {
-                        draft = draft.copy(answerSource = it)
+                    if (role.answerSources.isNotEmpty()) {
+                        UploadChoice("examShare.upload.answerSource", draft.answerSource, role.answerSources.map { it to t("examShare.upload.${it.wire}") }, canEdit) { picked ->
+                            edit { it.copy(answerSource = picked) }
+                        }
                     }
-                    UploadField("examShare.upload.variant", draft.variant, canEdit, 100) { draft = draft.copy(variant = it) }
-                    UploadField("examShare.upload.note", draft.note, canEdit, 40) { draft = draft.copy(note = it) }
+                    UploadField("examShare.upload.variant", draft.variant, canEdit, limits.variant.toInt()) { value -> edit { it.copy(variant = value) } }
+                    UploadField("examShare.upload.note", draft.note, canEdit, limits.note.toInt()) { value -> edit { it.copy(note = value) } }
                 }
             }
             Column(
@@ -409,7 +366,7 @@ internal fun ExamUploadScreen(
                 when {
                     sending -> {
                         ExamUploadProgress(progress, true)
-                        if (progress?.phase == ExamUploadPhase.PREPARING || progress?.phase == ExamUploadPhase.TRANSFERRING) {
+                        if (progress?.cancellable == true) {
                             TextButton(onClick = {
                                 scope.launch {
                                     try {
@@ -417,7 +374,7 @@ internal fun ExamUploadScreen(
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (failure: Exception) {
-                                        reportFailure(failure)
+                                        error = AppModel.describe(failure)
                                     }
                                 }
                             }) { Text(t("common.cancel")) }
@@ -431,7 +388,7 @@ internal fun ExamUploadScreen(
                     else -> ActionButton(
                         title = t("examShare.upload.title"),
                         enabled = canEdit && files.isNotEmpty() && (year.isEmpty() || year.length == 4) &&
-                            (!numbered || (number.toUIntOrNull() ?: 0u) <= 30u) && familyName.isBlank() && givenName.isBlank(),
+                            (!numbered || (number.toUIntOrNull() ?: 0u) <= limits.occasionNumber) && familyName.isBlank() && givenName.isBlank(),
                         onClick = {
                             send(ExamAction.Upload(files, draft.copy(academicYear = year.toUIntOrNull(),
                                 occasionNumber = if (numbered) number.toUIntOrNull() ?: 0u else 0u)))
@@ -450,12 +407,12 @@ private fun UploadField(field: String, value: String, enabled: Boolean, limit: I
 }
 
 @Composable
-private fun UploadChoice(label: String, value: String, choices: List<Pair<String, String>>, enabled: Boolean, pick: (String) -> Unit) {
+private fun <T> UploadChoice(label: String, value: T, choices: List<Pair<T, String>>, enabled: Boolean, pick: (T) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
         Text(t(label))
         Box {
-            TextButton(enabled = enabled, onClick = { menu = true }) { Text(choices.firstOrNull { it.first == value }?.second ?: value) }
+            TextButton(enabled = enabled, onClick = { menu = true }) { Text(choices.first { it.first == value }.second) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 choices.forEach { (choice, text) ->
                     DropdownMenuItem(text = { Text(text) }, onClick = { menu = false; pick(choice) })
@@ -476,8 +433,6 @@ private suspend fun stageFiles(context: Context, folder: File, uris: List<Uri>):
         val name = SharedInbox.displayName(context, uri)
         val extension = name.substringAfterLast('.', "").lowercase()
         val heif = type in setOf("image/heic", "image/heif") || extension in setOf("heic", "heif")
-        val isImage = type.startsWith("image/") || extension in setOf("jpg", "jpeg", "png", "webp", "heic", "heif")
-        if (uris.size > 1 && !isImage) throw IOException()
         val suffix = when {
             heif -> ".jpg"
             extension in setOf("pdf", "txt", "jpg", "jpeg", "png", "webp") -> ".$extension"

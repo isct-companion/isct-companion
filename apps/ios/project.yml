@@ -78,8 +78,6 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: app.isctcompanion.inbox
             CFBundleURLSchemes: [isctcompanion]
-          - CFBundleURLName: app.isctcompanion.oauth
-            CFBundleURLSchemes: [$(ISCT_GOOGLE_IOS_CALLBACK_SCHEME)]
         CFBundleDocumentTypes:
           - CFBundleTypeName: File
             LSHandlerRank: Alternate
@@ -122,7 +120,6 @@ targets:
         ENABLE_PREVIEWS: true
         CODE_SIGN_STYLE: Automatic
         ISCT_GOOGLE_IOS_CLIENT_ID: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
-        ISCT_GOOGLE_IOS_CALLBACK_SCHEME: com.googleusercontent.apps.681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv
   IsctWidgetsExtension:
     type: app-extension
     platform: iOS

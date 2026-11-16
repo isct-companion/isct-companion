@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 import IsctCore
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -17,17 +18,13 @@ enum ExamUploadEntry: Identifiable {
         }
     }
 
-    var subject: ExamSubject? {
+    /// Where Core starts the form; a recovery has none.
+    var start: ExamUploadStart? {
         switch self {
-        case let .subject(subject): subject
-        case let .request(request): request.subject
+        case let .subject(subject): .subject(code: subject.code)
+        case let .request(request): .request(request: request)
         case .recovery: nil
         }
-    }
-
-    var request: ExamRequest? {
-        if case let .request(request) = self { return request }
-        return nil
     }
 
     var title: String {
@@ -39,32 +36,35 @@ enum ExamUploadEntry: Identifiable {
     }
 }
 
+/// Renders Core's upload form. Fields without rules are edited in
+/// `form.draft`; subjects and the role go back to Core (`EditUpload`), which
+/// answers the consistent form. Progress follows the account Core sends.
 struct ExamUploadSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     let entry: ExamUploadEntry
-    let subjectName: (ExamSubject) -> String
-    let onUploaded: () async -> Void
+    let choices: ExamChoices
+    /// An upload or recovery finished; `published` when materials went up.
+    let onFinished: (_ published: Bool) async -> Void
 
-    @State private var draft: ExamUploadDraft?
-    @State private var subjectNames: [String: String] = [:]
-    @State private var subjectTeachers: [String: [ExamTeacher]] = [:]
+    @State private var form: ExamUploadForm?
     @State private var newTeachers: [TeacherEntry] = []
     @State private var year = ""
     @State private var selection: ExamUploadSelection?
     @State private var files: [ExamUploadSelection.File] = []
-    @State private var status: ExamUploadStatus?
     @State private var problem: String?
     @State private var choosingFiles = false
+    @State private var choosingPhotos = false
+    @State private var photos: [PhotosPickerItem] = []
     @State private var choosingSubject = false
     @State private var loading = true
+    @State private var editing = false
     @State private var staging = false
     @State private var running = false
     @State private var cancelling = false
 
-    private static let roles = ["question", "answer", "both", "notes", "other"]
-    private static let occasions = ["final", "midterm", "makeup", "quiz", "check", "report", "exercise", "textbook", "mock", "unknown"]
+    private var upload: ExamUploadStatus? { model.examAccount?.upload }
 
     var body: some View {
         NavigationStack {
@@ -72,25 +72,25 @@ struct ExamUploadSheet: View {
                 if let problem { Section { Text(problem).foregroundStyle(.red) } }
                 if let stageLabel {
                     Section {
-                        if let status, status.phase == .transferring, status.total > 0 {
-                            ProgressView(stageLabel, value: Double(status.sent), total: Double(status.total))
+                        if let upload, upload.phase == .transferring, upload.total > 0 {
+                            ProgressView(stageLabel, value: Double(upload.sent), total: Double(upload.total))
                         } else {
                             ProgressView(stageLabel)
                         }
                     }
                 }
-                if status?.phase == .pending {
+                if upload?.phase == .pending {
                     Section {
                         Text(t("examShare.upload.pending"))
                         Button(t("examShare.upload.recover")) { Task { await perform(.recoverUpload) } }
                             .disabled(running)
                     }
                 }
-                if let draft = Binding($draft) {
+                if let form = Binding($form) {
                     fileFields.disabled(formDisabled)
-                    classificationFields(draft).disabled(formDisabled)
-                    subjectFields(draft).disabled(formDisabled)
-                    teacherFields(draft).disabled(formDisabled)
+                    classificationFields(form.draft).disabled(formDisabled)
+                    subjectFields(form.wrappedValue).disabled(formDisabled)
+                    teacherFields(form).disabled(formDisabled)
                 }
             }
             .navigationTitle(entry.title)
@@ -99,12 +99,12 @@ struct ExamUploadSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     if running {
                         Button(t("common.cancel")) { Task { await cancel() } }
-                            .disabled(cancelling || !canCancel)
+                            .disabled(cancelling || upload?.cancellable != true)
                     } else {
                         Button(t("common.close")) { dismiss() }.disabled(staging)
                     }
                 }
-                if draft != nil {
+                if form != nil {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(t("common.submit")) { Task { await submit() } }.disabled(!canSubmit)
                     }
@@ -121,42 +121,38 @@ struct ExamUploadSheet: View {
                     problem = t("examShare.upload.failedFiles")
                 }
             }
+            .photosPicker(isPresented: $choosingPhotos, selection: $photos, matching: .images)
+            .onChange(of: photos) { _, picked in
+                guard !picked.isEmpty else { return }
+                photos = []
+                Task { await stage(picked) }
+            }
             .sheet(isPresented: $choosingSubject) {
-                ExamUploadSubjectPicker(subjectName: subjectName, selected: Set(draft?.subjectCodes ?? [])) { subject in
-                    try await addSubject(subject)
+                ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? [])) { subject in
+                    try await edit(.addSubject(code: subject.code))
                 }
             }
             .task { await load() }
-            .task(id: running) {
-                guard running else { return }
-                while !Task.isCancelled {
-                    await refreshStatus()
-                    do { try await Task.sleep(for: .milliseconds(250)) }
-                    catch { return }
-                }
-            }
         }
     }
 
     private var formDisabled: Bool {
-        running || staging || cancelling || status?.phase == .pending
+        running || staging || cancelling || editing || upload?.phase == .pending
     }
 
     private var canSubmit: Bool {
+        guard let draft = form?.draft else { return false }
         let trimmedYear = year.trimmingCharacters(in: .whitespacesAndNewlines)
         return !formDisabled && !files.isEmpty && (trimmedYear.isEmpty || UInt32(trimmedYear) != nil)
             && newTeachers.allSatisfy { !$0.familyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-
-    private var canCancel: Bool {
-        guard let phase = status?.phase else { return false }
-        return phase == .preparing || phase == .transferring
+            && draft.variant.utf16.count <= choices.limits.variant
+            && draft.note.utf16.count <= choices.limits.note
     }
 
     private var stageLabel: String? {
         if loading || staging { return t("examShare.upload.preparing") }
         guard running else { return nil }
-        switch status?.phase {
+        switch upload?.phase {
         case .transferring: return t("examShare.upload.transferring")
         case .registering: return t("examShare.upload.registering")
         case .cleaning: return t("examShare.upload.cleaning")
@@ -166,7 +162,13 @@ struct ExamUploadSheet: View {
 
     private var fileFields: some View {
         Section {
-            Button(t("examShare.upload.chooseFiles"), systemImage: "folder") { choosingFiles = true }
+            // Photos come from the library, documents from Files, as in Mail.
+            Menu {
+                Button(t("examShare.upload.photoLibrary"), systemImage: "photo.on.rectangle") { choosingPhotos = true }
+                Button(t("examShare.upload.browseFiles"), systemImage: "folder") { choosingFiles = true }
+            } label: {
+                Label(t("examShare.upload.chooseFiles"), systemImage: "plus")
+            }
             if files.count > 1 { Text(t("examShare.upload.fileOrder")).foregroundStyle(Theme.muted) }
             ForEach(Array(files.enumerated()), id: \.element.url) { index, file in
                 HStack {
@@ -196,84 +198,79 @@ struct ExamUploadSheet: View {
     }
 
     private func classificationFields(_ draft: Binding<ExamUploadDraft>) -> some View {
-        let role = draft.wrappedValue.role
-        let isExam = role != "notes" && role != "other"
+        let allowed = choices.roles.first { $0.role == draft.wrappedValue.role }
+        let occasions = allowed?.occasions ?? []
+        let sources = allowed?.answerSources ?? []
         return Section {
-            Picker(t("examShare.upload.role"), selection: draft.role) {
-                ForEach(Self.roles, id: \.self) { Text(t("examShare.role.\($0)")).tag($0) }
+            Picker(t("examShare.upload.role"), selection: Binding(
+                get: { draft.wrappedValue.role },
+                set: { role in Task { await change(.role(role: role)) } }
+            )) {
+                ForEach(choices.roles, id: \.role) { Text($0.role.label).tag($0.role) }
             }
             TextField(t("examShare.year"), text: $year).keyboardType(.numberPad)
-            if isExam {
+            // A role with one occasion (notes, other) has nothing to choose.
+            if occasions.count != 1 {
                 Picker(t("examShare.occasion"), selection: draft.occasion) {
-                    ForEach(Self.occasions, id: \.self) { Text(t("examShare.occasion.\($0)")).tag($0) }
+                    ForEach(occasions, id: \.self) { Text($0.label).tag($0) }
                 }
-                if ["quiz", "check", "report"].contains(draft.wrappedValue.occasion) {
-                    Stepper(value: draft.occasionNumber, in: 0...30) {
-                        Text("\(t("examShare.upload.occasionNumber")) · \(draft.wrappedValue.occasionNumber)")
-                    }
+            }
+            if choices.numbered.contains(draft.wrappedValue.occasion) {
+                Stepper(value: draft.occasionNumber, in: 0...choices.limits.occasionNumber) {
+                    Text("\(t("examShare.upload.occasionNumber")) · \(draft.wrappedValue.occasionNumber)")
                 }
             }
             TextField(t("examShare.upload.variant"), text: draft.variant)
             Picker(t("examShare.upload.provenance"), selection: draft.provenance) {
-                Text(t("examShare.upload.original")).tag("original")
-                Text(t("examShare.upload.reconstructed")).tag("reconstructed")
+                ForEach(choices.provenances, id: \.self) { Text($0.label).tag($0) }
             }
-            if role == "answer" || role == "both" {
+            if !sources.isEmpty {
                 Picker(t("examShare.upload.answerSource"), selection: draft.answerSource) {
-                    Text(t("examShare.upload.official")).tag(Optional("official"))
-                    Text(t("examShare.upload.student")).tag(Optional("student"))
-                    Text(t("examShare.upload.unknown")).tag(Optional("unknown"))
+                    ForEach(sources, id: \.self) { Text($0.label).tag(Optional($0)) }
                 }
             }
             TextField(t("examShare.upload.note"), text: draft.note, axis: .vertical)
         }
-        .onChange(of: role) {
-            if isExam && draft.wrappedValue.occasion == "none" { draft.occasion.wrappedValue = "unknown" }
-            if (role == "answer" || role == "both") && draft.wrappedValue.answerSource == nil {
-                draft.answerSource.wrappedValue = "unknown"
-            }
-        }
     }
 
-    private func subjectFields(_ draft: Binding<ExamUploadDraft>) -> some View {
-        let codes = draft.wrappedValue.subjectCodes
-        return Section(t("examShare.upload.subjects")) {
-            ForEach(codes, id: \.self) { code in
+    private func subjectFields(_ form: ExamUploadForm) -> some View {
+        Section(t("examShare.upload.subjects")) {
+            ForEach(form.subjects, id: \.subject.code) { entry in
+                let code = entry.subject.code
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(subjectNames[code] ?? code)
+                        Text(entry.subject.name)
                         Text(code).font(.caption.monospaced()).foregroundStyle(Theme.muted)
                     }
                     Spacer()
-                    if code != codes.first {
-                        fileButton(t("common.remove"), icon: "minus.circle") { removeSubject(code) }
+                    if entry.removable {
+                        fileButton(t("common.remove"), icon: "minus.circle") {
+                            Task { await change(.removeSubject(code: code)) }
+                        }
                     }
                 }
             }
             Button(t("examShare.upload.addSubject"), systemImage: "plus") { choosingSubject = true }
-                .disabled(codes.count >= 10)
+                .disabled(form.subjects.count >= Int(choices.limits.subjects))
         }
     }
 
-    private var availableTeachers: [ExamTeacher] {
-        var seen = Set<String>()
-        return (draft?.subjectCodes ?? []).flatMap { subjectTeachers[$0] ?? [] }
-            .filter { seen.insert($0.id).inserted }
-    }
-
-    private func teacherFields(_ draft: Binding<ExamUploadDraft>) -> some View {
-        Section(t("examShare.teacher")) {
-            ForEach(availableTeachers, id: \.id) { teacher in
+    private func teacherFields(_ form: Binding<ExamUploadForm>) -> some View {
+        let teacherIds = form.draft.teacherIds
+        let limit = Int(choices.limits.teachers)
+        return Section(t("examShare.teacher")) {
+            ForEach(form.wrappedValue.teachers, id: \.id) { teacher in
                 Toggle(teacher.name, isOn: Binding(
-                    get: { draft.wrappedValue.teacherIds.contains(teacher.id) },
+                    get: { teacherIds.wrappedValue.contains(teacher.id) },
                     set: { selected in
                         if selected {
-                            draft.teacherIds.wrappedValue.append(teacher.id)
+                            teacherIds.wrappedValue.append(teacher.id)
                         } else {
-                            draft.teacherIds.wrappedValue.removeAll { $0 == teacher.id }
+                            teacherIds.wrappedValue.removeAll { $0 == teacher.id }
                         }
                     }
                 ))
+                .disabled(teacherIds.wrappedValue.count >= limit && !teacherIds.wrappedValue.contains(teacher.id))
             }
             ForEach($newTeachers) { $teacher in
                 VStack(alignment: .leading, spacing: 8) {
@@ -286,48 +283,35 @@ struct ExamUploadSheet: View {
                 }
             }
             Button(t("examShare.upload.newTeacher"), systemImage: "plus") { newTeachers.append(TeacherEntry()) }
+                .disabled(newTeachers.count >= limit)
         }
     }
 
     private func load() async {
         defer { loading = false }
-        await refreshStatus()
-        guard let subject = entry.subject else {
-            if status?.phase == .idle { dismiss() }
-            return
-        }
+        guard let start = entry.start else { return }
         do {
-            let answer = try await model.examShare(.uploadOptions(subjectCode: subject.code, request: entry.request))
-            guard case let .uploadOptions(options) = answer else { return }
-            draft = options.draft
-            year = options.draft.academicYear.map(String.init) ?? ""
-            newTeachers = options.draft.newTeachers.map { TeacherEntry(familyName: $0.familyName, givenName: $0.givenName) }
-            if let code = options.draft.subjectCodes.first {
-                subjectNames[code] = subjectName(subject)
-                subjectTeachers[code] = options.teachers
-            }
+            guard case let .uploadForm(value) = try await model.examShare(.uploadForm(start: start)) else { return }
+            form = value
+            year = value.draft.academicYear.map(String.init) ?? ""
+            newTeachers = value.draft.newTeachers.map { TeacherEntry(familyName: $0.familyName, givenName: $0.givenName) }
         } catch { problem = AppModel.describe(error) }
     }
 
-    private func addSubject(_ subject: ExamSubject) async throws {
-        let answer = try await model.examShare(.uploadOptions(subjectCode: subject.code, request: nil))
-        guard case let .uploadOptions(options) = answer, let code = options.draft.subjectCodes.first,
-            var updated = draft, !updated.subjectCodes.contains(code)
-        else { return }
-        updated.subjectCodes.append(code)
-        draft = updated
-        subjectNames[code] = subjectName(subject)
-        subjectTeachers[code] = options.teachers
+    /// Sends one rule-bearing edit to Core and shows the form it answers.
+    private func edit(_ change: ExamUploadEdit) async throws {
+        guard let current = form else { return }
+        editing = true
+        defer { editing = false }
+        if case let .uploadForm(value) = try await model.examShare(.editUpload(form: current, edit: change)) {
+            form = value
+        }
     }
 
-    private func removeSubject(_ code: String) {
-        guard var updated = draft else { return }
-        updated.subjectCodes.removeAll { $0 == code }
-        subjectNames.removeValue(forKey: code)
-        let removed = Set(subjectTeachers.removeValue(forKey: code)?.map(\.id) ?? [])
-        let retained = Set(updated.subjectCodes.flatMap { subjectTeachers[$0]?.map(\.id) ?? [] })
-        updated.teacherIds.removeAll { removed.contains($0) && !retained.contains($0) }
-        draft = updated
+    private func change(_ edit: ExamUploadEdit) async {
+        problem = nil
+        do { try await self.edit(edit) }
+        catch { problem = AppModel.describe(error) }
     }
 
     private func stage(_ urls: [URL]) async {
@@ -344,15 +328,37 @@ struct ExamUploadSheet: View {
         } catch { problem = t("examShare.upload.failedFiles") }
     }
 
+    /// Photos from the library, written out as files and staged like files
+    /// (HEIC becomes JPEG there).
+    private func stage(_ items: [PhotosPickerItem]) async {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var urls: [URL] = []
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (index, item) in items.enumerated() {
+                guard let data = try await item.loadTransferable(type: Data.self) else { throw CocoaError(.fileReadUnknown) }
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                let url = folder.appendingPathComponent("photo-\(index + 1).\(ext)")
+                try data.write(to: url)
+                urls.append(url)
+            }
+        } catch {
+            problem = t("examShare.upload.failedFiles")
+            return
+        }
+        await stage(urls)
+    }
+
     private func submit() async {
-        guard canSubmit, var updated = draft, let selection else { return }
-        updated.academicYear = UInt32(year.trimmingCharacters(in: .whitespacesAndNewlines))
-        updated.newTeachers = newTeachers.map {
+        guard canSubmit, var draft = form?.draft, let selection else { return }
+        draft.academicYear = UInt32(year.trimmingCharacters(in: .whitespacesAndNewlines))
+        draft.newTeachers = newTeachers.map {
             ExamNewTeacher(familyName: $0.familyName, givenName: $0.givenName)
         }
         let input = files.map { ExamUploadFile(path: $0.url.path, name: $0.name) }
         // The staging directory is kept alive through the native operation.
-        await perform(.upload(files: input, draft: updated))
+        await perform(.upload(files: input, draft: draft))
         withExtendedLifetime(selection) {}
     }
 
@@ -367,31 +373,26 @@ struct ExamUploadSheet: View {
         do {
             switch try await model.examShare(action) {
             case .uploaded:
-                await onUploaded()
+                await onFinished(true)
                 dismiss()
             case .done:
-                if entry.subject == nil { dismiss() }
+                await onFinished(false)
+                if entry.start == nil { dismiss() }
             default: break
             }
         } catch SdkError.Cancelled {}
         catch is CancellationError {}
         catch { problem = AppModel.describe(error) }
-        await refreshStatus()
     }
 
     private func cancel() async {
-        guard !cancelling, canCancel else { return }
+        guard !cancelling, upload?.cancellable == true else { return }
         cancelling = true
         do { _ = try await model.examShare(.cancelUpload) }
         catch {
             problem = AppModel.describe(error)
             cancelling = false
         }
-    }
-
-    private func refreshStatus() async {
-        guard case let .uploadStatus(value)? = try? await model.examShare(.uploadStatus), !Task.isCancelled else { return }
-        status = value
     }
 
     private struct TeacherEntry: Identifiable {
@@ -404,7 +405,6 @@ struct ExamUploadSheet: View {
 private struct ExamUploadSubjectPicker: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    let subjectName: (ExamSubject) -> String
     let selected: Set<String>
     let pick: (ExamSubject) async throws -> Void
     @State private var query = ""
@@ -428,7 +428,7 @@ private struct ExamUploadSubjectPicker: View {
                         }
                     } label: {
                         VStack(alignment: .leading) {
-                            Text(subjectName(subject))
+                            Text(subject.name)
                             Text(subject.code).font(.caption.monospaced()).foregroundStyle(Theme.muted)
                         }
                     }
@@ -485,11 +485,11 @@ private struct ExamUploadSelection: Sendable {
     static func copy(_ urls: [URL]) throws -> Self {
         let directory = Directory(FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true))
         try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: false)
-        let files = try urls.map { try copy($0, into: directory.url, imagesOnly: urls.count > 1) }
+        let files = try urls.map { try copy($0, into: directory.url) }
         return Self(directory: directory, files: files)
     }
 
-    private static func copy(_ source: URL, into folder: URL, imagesOnly: Bool) throws -> File {
+    private static func copy(_ source: URL, into folder: URL) throws -> File {
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
         var coordinationError: NSError?
@@ -498,8 +498,7 @@ private struct ExamUploadSelection: Sendable {
             outcome = Result {
                 let type = try url.resourceValues(forKeys: [.contentTypeKey]).contentType
                     ?? UTType(filenameExtension: source.pathExtension)
-                guard let type, types.contains(where: { type.conforms(to: $0) }),
-                    !imagesOnly || type.conforms(to: .image)
+                guard let type, types.contains(where: { type.conforms(to: $0) })
                 else { throw CocoaError(.fileReadCorruptFile) }
                 let needsJPEG = type.conforms(to: .heic) || type.conforms(to: .heif)
                 let targetType = needsJPEG ? UTType.jpeg : type

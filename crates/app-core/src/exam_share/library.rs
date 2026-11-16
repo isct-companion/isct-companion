@@ -7,7 +7,6 @@ use std::{
     collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
 };
-use tokio::io::AsyncWriteExt;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,16 +39,14 @@ impl RemotePage {
             .collect();
         let mut exams = self.exams;
         exams.sort_by_key(|exam| !exam.teachers.iter().any(|t| ours.contains(&t.id)));
-        let mut seen = HashSet::new();
-        let mut teachers: Vec<ExamTeacher> = exams
-            .iter()
-            .flat_map(|exam| &exam.teachers)
-            .filter(|teacher| seen.insert(teacher.id.clone()))
-            .cloned()
-            .collect();
+        let mut teachers = form::distinct_teachers(exams.iter().flat_map(|exam| &exam.teachers));
         teachers.sort_by_key(|teacher| !ours.contains(&teacher.id));
+        let mut years: Vec<u32> = exams.iter().filter_map(|exam| exam.academic_year).collect();
+        years.sort_unstable_by(|a, b| b.cmp(a));
+        years.dedup();
+        let occasions = form::occasions_in(exams.iter().filter_map(|exam| exam.occasion.as_deref()));
         let web_url = url::Url::parse_with_params(
-            &format!("https://{}/search", Host::ScienceTokyoExam.name()),
+            &format!("https://{}/search", client::Endpoint::Site.host()),
             [("course", &self.subject.code)],
         )
         .map_err(|_| ExamError::Response)?
@@ -59,6 +56,8 @@ impl RemotePage {
             rows: self.rows,
             exams,
             teachers,
+            years,
+            occasions,
             class_id,
             web_url,
         })
@@ -185,6 +184,10 @@ struct ReadUrl {
     url: String,
 }
 
+pub(super) fn account_folder(folder: &Path, uid: &str) -> PathBuf {
+    folder.join(key(uid))
+}
+
 fn key(value: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(value.as_bytes()))
@@ -192,7 +195,7 @@ fn key(value: &str) -> String {
 
 impl ExamShare {
     pub(super) fn account_folder(&self, uid: &str) -> PathBuf {
-        self.folder.join(key(uid))
+        account_folder(&self.folder, uid)
     }
 
     async fn subject_details(
@@ -300,189 +303,238 @@ impl ExamShare {
         ))
     }
 
-    pub(super) async fn feature(
+    pub(super) async fn search(
         &self,
         session: &mut Session,
-        action: ExamAction,
-    ) -> Result<ExamAnswer, ExamError> {
-        let get = Method::GET;
-        let post = Method::POST;
-        match action {
-            ExamAction::Search { query } => {
-                let query = query.trim();
-                if query.is_empty() {
-                    return Ok(ExamAnswer::Subjects(vec![]));
-                }
-                if query.encode_utf16().count() > 100 {
-                    return Err(ExamError::InvalidInput);
-                }
-                let matches = self.search_subjects(session, query, "20").await?;
-                Ok(ExamAnswer::Subjects(
-                    matches.into_iter().map(|hit| hit.subject).collect(),
-                ))
-            }
-            ExamAction::Subject { code, class_id } => {
-                self.resolve_subjects(session, vec![code], class_id).await
-            }
-            ExamAction::UploadOptions {
-                subject_code,
-                request,
-            } => {
-                if request
-                    .as_ref()
-                    .is_some_and(|item| item.subject.code != subject_code || item.status != "open")
-                {
-                    return Err(ExamError::InvalidInput);
-                }
-                let details = self.subject_details(session, &subject_code).await?;
-                let mut seen = HashSet::new();
-                let teachers: Vec<_> = details
-                    .current_teachers
-                    .into_iter()
-                    .chain(details.past_teachers)
-                    .filter(|teacher| seen.insert(teacher.id.clone()))
-                    .collect();
-                let request = request.as_ref();
-                let role = request
-                    .and_then(|item| item.wanted_role.as_deref())
-                    .unwrap_or("question");
-                let draft = ExamUploadDraft {
-                    subject_codes: vec![details.page.subject.code],
-                    teacher_ids: request
-                        .into_iter()
-                        .flat_map(|item| &item.teachers)
-                        .filter(|teacher| seen.contains(&teacher.id))
-                        .map(|teacher| teacher.id.clone())
-                        .collect(),
-                    new_teachers: vec![],
-                    academic_year: request.and_then(|item| item.academic_year),
-                    occasion: request
-                        .and_then(|item| item.occasion.clone())
-                        .unwrap_or_else(|| "unknown".into()),
-                    occasion_number: 0,
-                    variant: String::new(),
-                    role: role.into(),
-                    provenance: "original".into(),
-                    answer_source: (role == "answer").then(|| "unknown".into()),
-                    note: String::new(),
-                    request_id: request.map(|item| item.id.clone()),
-                };
-                Ok(ExamAnswer::UploadOptions(ExamUploadOptions {
-                    draft,
-                    teachers,
-                }))
-            }
-            ExamAction::Open { id, download } => self
-                .open(session, &id, download)
-                .await
-                .map(ExamAnswer::Document),
-            ExamAction::Library => self.library(session).await.map(ExamAnswer::Library),
-            ExamAction::RemoveDownload { id } => {
-                let uid = session
-                    .saved
-                    .as_ref()
-                    .ok_or(ExamError::SignedOut)?
-                    .uid
-                    .clone();
-                let base = self.account_folder(&uid).join(key(&id));
-                erase(&base).await?;
-                Ok(ExamAnswer::Done)
-            }
-            ExamAction::Save { id, saved } => {
-                let path = ["me", "saved-exams", &id];
-                let answer: Saved = self
-                    .call(
-                        session,
-                        self.service(post, &path)?.json(&json!({"saved": saved})),
-                    )
-                    .await?;
-                Ok(ExamAnswer::Saved(answer.exam_ids.contains(&id)))
-            }
-            ExamAction::DeleteSubmission { id } => {
-                let _: Value = self
-                    .call(session, self.service(post, &["exams", &id, "delete"])?)
-                    .await?;
-                let uid = &session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid;
-                erase(&self.account_folder(uid).join(key(&id))).await?;
-                Ok(ExamAnswer::Done)
-            }
-            ExamAction::Report { id, reason, detail } => {
-                let detail = detail.trim();
-                if detail.encode_utf16().count() > 900 {
-                    return Err(ExamError::InvalidInput);
-                }
-                let _: Value = self
-                    .call(
-                        session,
-                        self.service(post, &["exams", &id, "report"])?
-                            .json(&json!({"reason": reason.api_code(), "detail": detail})),
-                    )
-                    .await?;
-                Ok(ExamAnswer::Done)
-            }
-            ExamAction::Requests { mine, cursor } => {
-                let request = if mine {
-                    self.service(get, &["me", "requests"])?
-                } else {
-                    self.service(get, &["requests"])?
-                };
-                let request = if let Some(cursor) = cursor {
-                    request.query(&[
-                        ("cursorCreatedAt", cursor.created_at.to_string()),
-                        ("cursorId", cursor.id),
-                    ])
-                } else {
-                    request
-                };
-                let answer: Requests = self.call(session, request).await?;
-                let uid = &session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid;
-                Ok(ExamAnswer::Requests(ExamRequestPage {
-                    items: answer
-                        .items
-                        .into_iter()
-                        .map(|request| request.model(uid))
-                        .collect(),
-                    cursor: answer.cursor,
-                }))
-            }
-            ExamAction::CreateRequest { draft } => {
-                let _: Value = self
-                    .call(session, self.service(post, &["requests"])?.json(&draft))
-                    .await?;
-                Ok(ExamAnswer::Done)
-            }
-            ExamAction::SetRequestOpen { id, open } => {
-                let status = if open { "open" } else { "closed" };
-                let _: Value = self
-                    .call(
-                        session,
-                        self.service(post, &["requests", &id, "status"])?
-                            .json(&json!({"status":status})),
-                    )
-                    .await?;
-                Ok(ExamAnswer::Done)
-            }
-            ExamAction::DeleteRequest { id } => {
-                let _: Value = self
-                    .call(session, self.service(post, &["requests", &id, "delete"])?)
-                    .await?;
-                Ok(ExamAnswer::Done)
-            }
-            ExamAction::Account
-            | ExamAction::AccountSnapshot
-            | ExamAction::Connect
-            | ExamAction::CancelConnect
-            | ExamAction::AcceptTerms
-            | ExamAction::Disconnect
-            | ExamAction::CourseSubject { .. }
-            | ExamAction::Upload { .. }
-            | ExamAction::UploadStatus
-            | ExamAction::CancelUpload
-            | ExamAction::RecoverUpload => Err(ExamError::InvalidInput),
+        query: &str,
+    ) -> Result<Vec<ExamSubject>, ExamError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(vec![]);
         }
+        if query.encode_utf16().count() > form::limits().query as usize {
+            return Err(ExamError::InvalidInput);
+        }
+        let matches = self.search_subjects(session, query, "20").await?;
+        Ok(matches.into_iter().map(|hit| hit.subject).collect())
     }
 
-    async fn library(&self, session: &mut Session) -> Result<ExamLibrary, ExamError> {
+    async fn upload_subject(
+        &self,
+        session: &mut Session,
+        code: &str,
+    ) -> Result<ExamUploadSubject, ExamError> {
+        let details = self.subject_details(session, code).await?;
+        Ok(ExamUploadSubject {
+            removable: false,
+            subject: details.page.subject,
+            teachers: form::distinct_teachers(
+                details
+                    .current_teachers
+                    .iter()
+                    .chain(&details.past_teachers),
+            ),
+        })
+    }
+
+    pub(super) async fn upload_form(
+        &self,
+        session: &mut Session,
+        start: ExamUploadStart,
+    ) -> Result<ExamUploadForm, ExamError> {
+        let (code, request) = match start {
+            ExamUploadStart::Subject { code } => (code, None),
+            ExamUploadStart::Request { request } if request.status == "open" => {
+                (request.subject.code.clone(), Some(request))
+            }
+            ExamUploadStart::Request { .. } => return Err(ExamError::InvalidInput),
+        };
+        let subject = self.upload_subject(session, &code).await?;
+        let role = form::role(request.as_ref().and_then(|item| item.wanted_role.as_deref()));
+        let mut form = ExamUploadForm {
+            draft: ExamUploadDraft {
+                subject_codes: vec![],
+                teacher_ids: request
+                    .iter()
+                    .flat_map(|item| &item.teachers)
+                    .map(|teacher| teacher.id.clone())
+                    .collect(),
+                new_teachers: vec![],
+                academic_year: request.as_ref().and_then(|item| item.academic_year),
+                occasion: form::occasion(request.as_ref().and_then(|item| item.occasion.as_deref())),
+                occasion_number: 0,
+                variant: String::new(),
+                role,
+                provenance: ExamProvenance::Original,
+                answer_source: None,
+                note: String::new(),
+                request_id: request.as_ref().map(|item| item.id.clone()),
+            },
+            subjects: vec![subject],
+            teachers: vec![],
+            request,
+        };
+        form::settle(&mut form);
+        Ok(form)
+    }
+
+    pub(super) async fn edit_upload(
+        &self,
+        session: &mut Session,
+        mut form: ExamUploadForm,
+        edit: ExamUploadEdit,
+    ) -> Result<ExamUploadForm, ExamError> {
+        match edit {
+            ExamUploadEdit::AddSubject { code } => {
+                let subject = self.upload_subject(session, &code).await?;
+                form::add_subject(&mut form, subject)?;
+            }
+            ExamUploadEdit::RemoveSubject { code } => form::remove_subject(&mut form, &code)?,
+            ExamUploadEdit::Role { role } => {
+                form.draft.role = role;
+                form::normalize(&mut form.draft);
+            }
+        }
+        Ok(form)
+    }
+
+    pub(super) async fn remove_download(
+        &self,
+        session: &mut Session,
+        id: &str,
+    ) -> Result<ExamLibrary, ExamError> {
+        let uid = session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid.clone();
+        erase(&self.account_folder(&uid).join(key(id))).await?;
+        self.library(session).await
+    }
+
+    pub(super) async fn save(
+        &self,
+        session: &mut Session,
+        id: &str,
+        saved: bool,
+    ) -> Result<bool, ExamError> {
+        let answer: Saved = self
+            .call(
+                session,
+                self.service(Method::POST, &["me", "saved-exams", id])?
+                    .json(&json!({"saved": saved})),
+            )
+            .await?;
+        Ok(answer.exam_ids.iter().any(|saved| saved == id))
+    }
+
+    pub(super) async fn delete_submission(
+        &self,
+        session: &mut Session,
+        id: &str,
+    ) -> Result<ExamLibrary, ExamError> {
+        let _: Value = self
+            .call(session, self.service(Method::POST, &["exams", id, "delete"])?)
+            .await?;
+        let uid = session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid.clone();
+        erase(&self.account_folder(&uid).join(key(id))).await?;
+        self.library(session).await
+    }
+
+    pub(super) async fn report(
+        &self,
+        session: &mut Session,
+        id: &str,
+        reason: ExamReportReason,
+        detail: &str,
+    ) -> Result<(), ExamError> {
+        let detail = detail.trim();
+        if detail.encode_utf16().count() > form::limits().report_detail as usize {
+            return Err(ExamError::InvalidInput);
+        }
+        let _: Value = self
+            .call(
+                session,
+                self.service(Method::POST, &["exams", id, "report"])?
+                    .json(&json!({"reason": reason.api_code(), "detail": detail})),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(super) async fn requests(
+        &self,
+        session: &mut Session,
+        mine: bool,
+        cursor: Option<ExamRequestCursor>,
+    ) -> Result<ExamRequestPage, ExamError> {
+        let request = if mine {
+            self.service(Method::GET, &["me", "requests"])?
+        } else {
+            self.service(Method::GET, &["requests"])?
+        };
+        let request = match cursor {
+            Some(cursor) => request.query(&[
+                ("cursorCreatedAt", cursor.created_at.to_string()),
+                ("cursorId", cursor.id),
+            ]),
+            None => request,
+        };
+        let answer: Requests = self.call(session, request).await?;
+        let uid = &session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid;
+        Ok(ExamRequestPage {
+            items: answer
+                .items
+                .into_iter()
+                .map(|request| request.model(uid))
+                .collect(),
+            cursor: answer.cursor,
+        })
+    }
+
+    pub(super) async fn create_request(
+        &self,
+        session: &mut Session,
+        draft: ExamRequestDraft,
+    ) -> Result<(), ExamError> {
+        if draft.description.encode_utf16().count() > form::limits().request_description as usize
+            || draft.academic_year.is_some_and(|year| !form::valid_year(year))
+        {
+            return Err(ExamError::InvalidInput);
+        }
+        let _: Value = self
+            .call(session, self.service(Method::POST, &["requests"])?.json(&draft))
+            .await?;
+        Ok(())
+    }
+
+    pub(super) async fn set_request_open(
+        &self,
+        session: &mut Session,
+        id: &str,
+        open: bool,
+        mine: bool,
+    ) -> Result<ExamRequestPage, ExamError> {
+        let status = if open { "open" } else { "closed" };
+        let _: Value = self
+            .call(
+                session,
+                self.service(Method::POST, &["requests", id, "status"])?
+                    .json(&json!({"status": status})),
+            )
+            .await?;
+        self.requests(session, mine, None).await
+    }
+
+    pub(super) async fn delete_request(
+        &self,
+        session: &mut Session,
+        id: &str,
+        mine: bool,
+    ) -> Result<ExamRequestPage, ExamError> {
+        let _: Value = self
+            .call(session, self.service(Method::POST, &["requests", id, "delete"])?)
+            .await?;
+        self.requests(session, mine, None).await
+    }
+
+    pub(super) async fn library(&self, session: &mut Session) -> Result<ExamLibrary, ExamError> {
         let remote = self.remote_library(session).await;
         let (saved, submitted, offline) = match remote {
             Ok((saved, submitted)) => (saved, submitted, false),
@@ -531,7 +583,7 @@ impl ExamShare {
         Ok((exams, submitted.exams))
     }
 
-    async fn open(
+    pub(super) async fn open(
         &self,
         session: &mut Session,
         id: &str,
@@ -609,7 +661,8 @@ impl ExamShare {
                 .map_err(|_| ExamError::Storage)?;
             let mut keep = TempFile(path.clone());
             match self
-                .fetch(
+                .api
+                .fetch_file(
                     url::Url::parse(&url.url).map_err(|_| ExamError::Response)?,
                     &path,
                 )
@@ -650,47 +703,6 @@ impl ExamShare {
             .call::<Value>(session, self.service(Method::POST, &["me", "views", id])?)
             .await;
         local(&base, metadata, false, saved).await
-    }
-
-    async fn fetch(&self, url: url::Url, path: &Path) -> Result<(), ExamError> {
-        const LIMIT: usize = 25 * 1024 * 1024;
-        if !client::is_file_url(&url) {
-            return Err(ExamError::Response);
-        }
-        let mut response = self
-            .api
-            .http
-            .get(url)
-            .send()
-            .await
-            .map_err(client::network)?;
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(ExamError::NotFound);
-        }
-        if !response.status().is_success() {
-            return Err(ExamError::Unavailable);
-        }
-        if response
-            .content_length()
-            .is_some_and(|len| len > LIMIT as u64)
-        {
-            return Err(ExamError::Response);
-        }
-        let mut stream = tokio::fs::File::create(path)
-            .await
-            .map_err(|_| ExamError::Storage)?;
-        let mut written = 0;
-        while let Some(chunk) = response.chunk().await.map_err(client::network)? {
-            written += chunk.len();
-            if written > LIMIT {
-                return Err(ExamError::Response);
-            }
-            stream
-                .write_all(&chunk)
-                .await
-                .map_err(|_| ExamError::Storage)?;
-        }
-        stream.flush().await.map_err(|_| ExamError::Storage)
     }
 }
 

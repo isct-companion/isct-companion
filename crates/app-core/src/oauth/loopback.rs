@@ -14,7 +14,6 @@ use url::Url;
 const PATH: &str = "/oauth/callback";
 const MAX_REQUEST: usize = 8192;
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
-const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(180);
 
 pub struct Loopback {
     listener: TcpListener,
@@ -42,6 +41,7 @@ impl Loopback {
         browser: &dyn NativeBrowserAuth,
         pending: &PendingAuthorization,
         cancel: &CancellationToken,
+        limit: Duration,
     ) -> Result<Url, OAuthError> {
         let authenticate = async {
             browser
@@ -52,7 +52,7 @@ impl Loopback {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(OAuthError::Cancelled),
-            result = timeout(AUTHORIZATION_TIMEOUT, authenticate) => {
+            result = timeout(limit, authenticate) => {
                 result.map_err(|_| OAuthError::Timeout)?
             }
         }

@@ -396,10 +396,9 @@ pub fn run() {
             };
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
-            let exams = exam_share::service(app.handle().clone(), vault.clone(), app_data_dir.join("exam-share"));
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
-                vault,
+                vault.clone(),
                 app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
             )));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
@@ -409,10 +408,7 @@ pub fn run() {
                     .clone(),
                 std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
-            if let Some(exams) = &exams {
-                core_ports::core(app.handle()).attach_exam_cache(exams);
-            }
-            app.manage(exams);
+            exam_share::open(app.handle(), vault);
             core_ports::core(app.handle()).attach_web_cookies(std::sync::Arc::new(
                 school_cookies::DesktopWebCookies::new(app.handle().clone()),
             ));

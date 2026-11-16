@@ -3,21 +3,21 @@ import IsctCore
 import UIKit
 
 /// Presents a system authentication session for a callback owned by Core.
-final class BrowserAuthentication: NSObject, NativeBrowserAuth,
+final class BrowserAuthentication: NSObject, NativeWebAuthSession,
     ASWebAuthenticationPresentationContextProviding, @unchecked Sendable
 {
     @MainActor private var session: ASWebAuthenticationSession?
     @MainActor private var generation = 0
-    @MainActor private var completion: CheckedContinuation<String?, any Error>?
+    @MainActor private var completion: CheckedContinuation<String, any Error>?
 
-    func authenticate(url: String, callbackScheme: String?) async throws -> String? {
-        guard let start = URL(string: url), let callbackScheme else {
+    func authenticate(url: String, callbackScheme: String) async throws -> String {
+        guard let start = URL(string: url) else {
             throw SdkError.InvalidInput(detail: "Sign-in address is invalid.")
         }
         return try await present(start, scheme: callbackScheme)
     }
 
-    @MainActor private func present(_ url: URL, scheme: String) async throws -> String? {
+    @MainActor private func present(_ url: URL, scheme: String) async throws -> String {
         guard session == nil else { throw SdkError.Busy(detail: "A browser session is open.") }
         return try await withCheckedThrowingContinuation { continuation in
             generation += 1
@@ -52,7 +52,7 @@ final class BrowserAuthentication: NSObject, NativeBrowserAuth,
         }
     }
 
-    @MainActor private func finish(_ result: Result<String?, any Error>) {
+    @MainActor private func finish(_ result: Result<String, any Error>) {
         let completion = completion
         self.completion = nil
         session = nil

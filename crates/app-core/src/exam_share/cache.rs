@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
+use tokio::io::AsyncWriteExt;
 
 const DOWNLOAD_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const PREVIEW_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
@@ -102,12 +103,20 @@ fn read_cache(base: &Path, now: SystemTime) -> Result<Option<CacheEntry>, ExamEr
 }
 
 pub(super) async fn save_metadata(base: &Path, cached: &Cached) -> Result<(), ExamError> {
-    let temp = TempFile(base.join("metadata-new.json"));
     let data = serde_json::to_vec(cached).map_err(|_| ExamError::Storage)?;
-    tokio::fs::write(&temp.0, data)
+    write_atomically(&base.join("metadata.json"), &data).await
+}
+
+/// Replace `path` with `data` whole: a crash leaves the old file or the new.
+pub(super) async fn write_atomically(path: &Path, data: &[u8]) -> Result<(), ExamError> {
+    let temp = TempFile(path.with_extension("new"));
+    let mut file = tokio::fs::File::create(&temp.0)
         .await
         .map_err(|_| ExamError::Storage)?;
-    tokio::fs::rename(&temp.0, base.join("metadata.json"))
+    file.write_all(data).await.map_err(|_| ExamError::Storage)?;
+    file.sync_all().await.map_err(|_| ExamError::Storage)?;
+    drop(file);
+    tokio::fs::rename(&temp.0, path)
         .await
         .map_err(|_| ExamError::Storage)
 }

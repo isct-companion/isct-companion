@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type FormEvent,
@@ -19,23 +20,21 @@ import type {
   ExamAccount,
   ExamAction,
   ExamAnswer,
+  ExamChoices,
   ExamDocument,
   ExamLibrary,
   ExamLocalDocument,
-  ExamRequest,
+  ExamOccasion,
   ExamRequestCursor,
   ExamRequestPage,
   ExamReportReason,
+  ExamRole,
   ExamSubject,
   ExamSubjectPage,
-  ExamUploadOptions,
-  ExamUploadStatus,
+  ExamUploadForm,
+  ExamUploadStart,
 } from "../../generated/persistence";
-import {
-  ExamUploadDialog,
-  ExamUploadProgress,
-  examOccasions as occasions,
-} from "./ExamUploadDialog";
+import { ExamUploadDialog, ExamUploadProgress } from "./ExamUploadDialog";
 import { CurrentCourses } from "./CurrentCourses";
 import "./past-exams.css";
 
@@ -45,13 +44,7 @@ const Pdf = lazy(() =>
   })),
 );
 const tabs = ["browse", "requests", "library"] as const;
-const reasons = [
-  "copyright",
-  "inappropriate",
-  "wrongAnswer",
-  "brokenFile",
-  "other",
-] as const;
+type Tab = (typeof tabs)[number];
 export function PastExams({
   active,
   courseId,
@@ -77,8 +70,9 @@ export function PastExams({
     ]
       .filter(Boolean)
       .join(" · ") || document.fileName;
-  const [tab, setTab] = useState<(typeof tabs)[number]>("browse");
+  const [tab, setTab] = useState<Tab>("browse");
   const [account, setAccount] = useState<ExamAccount>();
+  const [choices, setChoices] = useState<ExamChoices>();
   const [query, setQuery] = useState("");
   const [subjects, setSubjects] = useState<ExamSubject[]>([]);
   const [searched, setSearched] = useState(false);
@@ -87,20 +81,16 @@ export function PastExams({
   const [library, setLibrary] = useState<ExamLibrary>();
   const [requests, setRequests] = useState<ExamRequestPage>();
   const [mine, setMine] = useState(false);
+  /** Views an upload changed while hidden; each reloads when next shown. */
+  const [stale, setStale] = useState<ReadonlySet<Tab>>(new Set());
   const [requestDraft, setRequestDraft] = useState(false);
   const [report, setReport] = useState(false);
-  const [upload, setUpload] = useState<{
-    options: ExamUploadOptions;
-    subject: ExamSubject;
-    request: ExamRequest | null;
-  }>();
-  const [uploadStatus, setUploadStatus] = useState<ExamUploadStatus>();
+  const [upload, setUpload] = useState<ExamUploadForm>();
   const [uploadRunning, setUploadRunning] = useState(false);
   const closeUpload = useCallback(() => {
     setUpload(undefined);
     void desktopBridge?.examUploadClearFiles?.().catch(() => undefined);
   }, []);
-  const [reason, setReason] = useState<ExamReportReason>(reasons[0]);
   const [year, setYear] = useState("");
   const [teacher, setTeacher] = useState("");
   const [occasion, setOccasion] = useState("");
@@ -116,7 +106,6 @@ export function PastExams({
       if (next.status === "connected") return;
       courseOpened.current = false;
       closeUpload();
-      setUploadStatus(undefined);
       setSubjects([]);
       setSubject(undefined);
       setFile(undefined);
@@ -137,15 +126,11 @@ export function PastExams({
       setNotice("");
       try {
         const run = desktopBridge?.examShare;
-        if (!run) throw new Error(t("error.exam-share-unavailable"));
+        if (!run) throw new Error(t("error.unavailable"));
         return await run(action);
       } catch (e) {
-        if (errorCode(e) === "exam-share-cancelled") return undefined;
-        setError(errorText(e) ?? t("error.exam-share-unavailable"));
-        const snapshot = await desktopBridge
-          ?.examShare?.({ kind: "accountSnapshot" })
-          .catch(() => undefined);
-        if (snapshot?.kind === "account") applyAccount(snapshot.value);
+        if (errorCode(e) !== "cancelled")
+          setError(errorText(e) ?? t("error.unavailable"));
         return undefined;
       } finally {
         pendingCalls.current -= 1;
@@ -155,29 +140,17 @@ export function PastExams({
         }
       }
     },
-    [applyAccount],
+    [],
   );
   const accountAction = useCallback(
     async (kind: "account" | "connect" | "disconnect" | "acceptTerms") => {
       const answer = await call({ kind });
       if (answer?.kind === "account") applyAccount(answer.value);
+      return answer?.kind === "account" ? answer.value : undefined;
     },
     [applyAccount, call],
   );
-  useEffect(() => {
-    if (!active) return;
-    const refreshAccount = () => {
-      if (pendingCalls.current === 0 && document.visibilityState !== "hidden")
-        void accountAction("account");
-    };
-    refreshAccount();
-    window.addEventListener("focus", refreshAccount);
-    document.addEventListener("visibilitychange", refreshAccount);
-    return () => {
-      window.removeEventListener("focus", refreshAccount);
-      document.removeEventListener("visibilitychange", refreshAccount);
-    };
-  }, [active, accountAction]);
+  const connected = account?.status === "connected";
 
   const loadLibrary = useCallback(async () => {
     const answer = await call({ kind: "library" });
@@ -197,12 +170,70 @@ export function PastExams({
     },
     [call],
   );
+  /** Reads again the view on screen: the open subject, the request board or
+   * the library. One that was never loaded is left to load when shown. */
+  const reloadVisible = async () => {
+    if (tab === "browse" && subject) {
+      const answer = await call({
+        kind: "subject",
+        code: subject.subject.code,
+        classId: subject.classId,
+      });
+      if (answer?.kind === "subject") setSubject(answer.value);
+    } else if (tab === "requests" && requests) {
+      await loadRequests(mine);
+    } else if (tab === "library" && library) {
+      await loadLibrary();
+    }
+  };
+  // Back in the foreground: read the account, then the view on screen.
+  const returnToForeground = useEffectEvent(async () => {
+    if (pendingCalls.current > 0 || document.visibilityState === "hidden")
+      return;
+    if ((await accountAction("account"))?.status === "connected")
+      await reloadVisible();
+  });
   useEffect(() => {
-    if (!active || account?.status !== "connected") return;
-    if (tab === "requests") void loadRequests(mine);
-    if (tab === "library") void loadLibrary();
-  }, [active, account?.status, tab, mine, loadLibrary, loadRequests]);
-  const switchTab = (next: (typeof tabs)[number]) => {
+    if (!active) return;
+    const stop = desktopBridge?.onExamAccount?.(applyAccount);
+    const refresh = () => void returnToForeground();
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      stop?.();
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [active, applyAccount]);
+  useEffect(() => {
+    if (!active || !connected || choices) return;
+    void call({ kind: "choices" }).then((answer) => {
+      if (answer?.kind === "choices") setChoices(answer.value);
+    });
+  }, [active, connected, choices, call]);
+  // A tab's view loads the first time it is shown and is kept afterwards.
+  useEffect(() => {
+    if (!active || !connected) return;
+    if (tab === "requests" && !requests) void loadRequests(mine);
+    if (tab === "library" && !library) void loadLibrary();
+  }, [
+    active,
+    connected,
+    tab,
+    mine,
+    requests,
+    library,
+    loadLibrary,
+    loadRequests,
+  ]);
+  const reloadShown = useEffectEvent(() => reloadVisible());
+  useEffect(() => {
+    if (!active || !connected || !stale.has(tab)) return;
+    setStale((previous) => new Set([...previous].filter((key) => key !== tab)));
+    void reloadShown();
+  }, [active, connected, tab, stale]);
+  const switchTab = (next: Tab) => {
     setTab(next);
     setFile(undefined);
     setReport(false);
@@ -211,7 +242,11 @@ export function PastExams({
   };
   const open = async (id: string, download = false) => {
     const answer = await call({ kind: "open", id, download });
-    if (answer?.kind === "document") setFile(answer.value);
+    if (answer?.kind === "document") {
+      setFile(answer.value);
+      // A download joins the library, which answers no view of its own.
+      if (download) setLibrary(undefined);
+    }
   };
   const loadSubject = useCallback(
     async (
@@ -232,77 +267,38 @@ export function PastExams({
     [call],
   );
   useEffect(() => {
-    if (
-      !active ||
-      !courseId ||
-      account?.status !== "connected" ||
-      courseOpened.current
-    )
-      return;
+    if (!active || !courseId || !connected || courseOpened.current) return;
     courseOpened.current = true;
     void loadSubject({ kind: "courseSubject", courseId });
-  }, [active, account?.status, courseId, loadSubject]);
-  useEffect(() => {
-    if (!active || account?.status !== "connected") return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const read = async () => {
-      const answer = await desktopBridge
-        ?.examShare?.({ kind: "uploadStatus" })
-        .catch(() => undefined);
-      if (stopped) return;
-      if (answer?.kind === "uploadStatus") setUploadStatus(answer.value);
-      if (uploadRunning) timer = setTimeout(() => void read(), 300);
-    };
-    void read();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [active, account?.status, uploadRunning]);
-  const openUpload = async (
-    subject: ExamSubject,
-    request: ExamRequest | null = null,
-  ) => {
-    const answer = await call({
-      kind: "uploadOptions",
-      subjectCode: subject.code,
-      request,
-    });
-    if (answer?.kind === "uploadOptions") {
-      setUpload({ options: answer.value, subject, request });
-    }
+  }, [active, connected, courseId, loadSubject]);
+  const openUpload = async (start: ExamUploadStart) => {
+    const answer = await call({ kind: "uploadForm", start });
+    if (answer?.kind === "uploadForm") setUpload(answer.value);
   };
   const cancelUpload = () => {
     void desktopBridge
       ?.examShare?.({ kind: "cancelUpload" })
       .catch((failure) =>
-        setError(errorText(failure) ?? t("error.exam-share-unavailable")),
+        setError(errorText(failure) ?? t("error.unavailable")),
       );
   };
   const submitUpload = async (action: ExamAction) => {
     setUploadRunning(true);
     try {
       const answer = await call(action);
-      if (answer?.kind === "uploaded") {
-        closeUpload();
-        setLibrary(undefined);
-        if (tab === "library") {
-          await loadLibrary();
-        } else if (tab === "requests") {
-          await loadRequests(mine);
-        } else if (subject) {
-          const updated = await call({
-            kind: "subject",
-            code: subject.subject.code,
-            classId: subject.classId,
-          });
-          if (updated?.kind === "subject") setSubject(updated.value);
-        }
-        setNotice(t("examShare.upload.uploaded"));
-      } else if (action.kind === "recoverUpload" && answer?.kind === "done") {
-        setNotice(t("examShare.upload.cleaned"));
-      }
+      if (answer?.kind !== "uploaded" && answer?.kind !== "done") return;
+      if (answer.kind === "uploaded") closeUpload();
+      // The upload changed every view: read the one on screen again; the
+      // others reload when next shown.
+      setStale(new Set(tabs.filter((key) => key !== tab)));
+      await reloadVisible();
+      setNotice(
+        t(
+          answer.kind === "uploaded"
+            ? "examShare.upload.uploaded"
+            : "examShare.upload.cleaned",
+        ),
+      );
     } finally {
       setUploadRunning(false);
     }
@@ -346,16 +342,14 @@ export function PastExams({
                     ))
                   )
                     return;
-                  if (
-                    await call({
-                      kind:
-                        kind === "submitted"
-                          ? "deleteSubmission"
-                          : "removeDownload",
-                      id: entry.id,
-                    })
-                  )
-                    await loadLibrary();
+                  const answer = await call({
+                    kind:
+                      kind === "submitted"
+                        ? "deleteSubmission"
+                        : "removeDownload",
+                    id: entry.id,
+                  });
+                  if (answer?.kind === "library") setLibrary(answer.value);
                 }}
               >
                 {t(
@@ -396,18 +390,18 @@ export function PastExams({
           )}
         </div>
       </header>
-      {error && !upload && account?.status !== "unavailable" && (
+      {error && !upload && account?.status !== "unsupported" && (
         <p role="alert">{error}</p>
       )}
       {notice && <p role="status">{notice}</p>}
       {busy && !uploadRunning && <p role="status">{t("common.loading")}</p>}
-      {!upload && uploadRunning && account?.status === "connected" && (
-        <ExamUploadProgress status={uploadStatus} cancel={cancelUpload} />
+      {!upload && uploadRunning && connected && (
+        <ExamUploadProgress status={account.upload} cancel={cancelUpload} />
       )}
       {!upload &&
         !uploadRunning &&
-        account?.status === "connected" &&
-        uploadStatus?.phase === "pending" && (
+        connected &&
+        account.upload.phase === "pending" && (
           <div className="examShareActions">
             <p role="status">{t("examShare.upload.pending")}</p>
             <UiButton
@@ -418,14 +412,13 @@ export function PastExams({
             </UiButton>
           </div>
         )}
-      {upload && account?.status === "connected" && (
+      {upload && choices && connected && (
         <ExamUploadDialog
-          options={upload.options}
-          subject={upload.subject}
-          request={upload.request}
+          form={upload}
+          choices={choices}
           subjectLabel={subjectLabel}
           running={uploadRunning}
-          status={uploadStatus}
+          status={account.upload}
           error={error}
           run={call}
           submit={submitUpload}
@@ -472,19 +465,17 @@ export function PastExams({
             void desktopBridge
               ?.examShare?.({ kind: "cancelConnect" })
               .catch((failure) =>
-                setError(
-                  errorText(failure) ?? t("error.exam-share-unavailable"),
-                ),
+                setError(errorText(failure) ?? t("error.unavailable")),
               );
           }}
         >
           {t("common.cancel")}
         </UiButton>
       )}
-      {account?.status === "unavailable" && (
+      {account?.status === "unsupported" && (
         <p role="alert">{t("error.exam-share-unsupported")}</p>
       )}
-      {account?.status === "connected" &&
+      {connected &&
         (file ? (
           <>
             <div className="examShareActions">
@@ -493,7 +484,6 @@ export function PastExams({
                 onClick={() => {
                   setReport(false);
                   setFile(undefined);
-                  if (tab === "library") void loadLibrary();
                 }}
               >
                 {t("common.back")}
@@ -517,8 +507,11 @@ export function PastExams({
                       saved: !file.saved,
                       id: file.document.id,
                     });
-                    if (answer?.kind === "saved")
+                    if (answer?.kind === "saved") {
                       setFile({ ...file, saved: answer.value });
+                      // The library lists saved materials; it reads them again.
+                      setLibrary(undefined);
+                    }
                   }}
                 >
                   {t(file.saved ? "examShare.unsave" : "examShare.save")}
@@ -532,43 +525,24 @@ export function PastExams({
               </UiButton>
             </div>
             {file.offline && <p>{t("examShare.offline")}</p>}
-            {report && (
-              <form
-                className="examShareActions"
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  const data = new FormData(event.currentTarget);
+            {report && choices && (
+              <ReportForm
+                choices={choices}
+                disabled={busy}
+                submit={async (reason, detail) => {
                   if (
                     await call({
                       kind: "report",
                       id: file.document.id,
                       reason,
-                      detail: String(data.get("detail") ?? ""),
+                      detail,
                     })
                   ) {
                     setReport(false);
                     setNotice(t("examShare.reported"));
                   }
                 }}
-              >
-                <UiSelect
-                  aria-label={t("examShare.report")}
-                  value={reason}
-                  onChange={(value) => setReason(value as ExamReportReason)}
-                  data={reasons.map((value) => ({
-                    value,
-                    label: t(`examShare.reason.${value}`),
-                  }))}
-                />
-                <UiInput
-                  name="detail"
-                  maxLength={900}
-                  placeholder={t("examShare.description")}
-                />
-                <UiButton type="submit" disabled={busy}>
-                  {t("examShare.report")}
-                </UiButton>
-              </form>
+              />
             )}
             {file.document.fileType === "application/pdf" ? (
               <div className="examDocument">
@@ -596,7 +570,7 @@ export function PastExams({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.currentTarget.value)}
-                maxLength={100}
+                maxLength={choices?.limits.query}
                 placeholder={t("examShare.search")}
               />
               <UiButton type="submit" disabled={busy || !query.trim()}>
@@ -619,7 +593,12 @@ export function PastExams({
                     </ExternalLink>
                     <UiButton
                       disabled={busy}
-                      onClick={() => void openUpload(subject.subject)}
+                      onClick={() =>
+                        void openUpload({
+                          kind: "subject",
+                          code: subject.subject.code,
+                        })
+                      }
                     >
                       {t("examShare.upload.title")}
                     </UiButton>
@@ -631,13 +610,16 @@ export function PastExams({
                     </UiButton>
                   </div>
                 </header>
-                {requestDraft && (
+                {requestDraft && choices && (
                   <RequestForm
                     subject={subject}
+                    choices={choices}
                     disabled={busy}
                     submit={async (action) => {
                       if (await call(action)) {
                         setRequestDraft(false);
+                        // Both request boards list it; they load fresh when shown.
+                        setRequests(undefined);
                         setNotice(t("examShare.requestCreated"));
                       }
                     }}
@@ -650,17 +632,7 @@ export function PastExams({
                     onChange={setYear}
                     data={[
                       { value: "", label: t("examShare.allYears") },
-                      ...[
-                        ...new Set(
-                          subject.exams.flatMap((exam) =>
-                            exam.academicYear === null
-                              ? []
-                              : [exam.academicYear],
-                          ),
-                        ),
-                      ]
-                        .sort((a, b) => b - a)
-                        .map(String),
+                      ...subject.years.map(String),
                     ]}
                   />
                   <UiSelect
@@ -681,9 +653,9 @@ export function PastExams({
                     onChange={setOccasion}
                     data={[
                       { value: "", label: t("examShare.allOccasions") },
-                      ...occasions.map((value) => ({
+                      ...subject.occasions.map((value) => ({
                         value,
-                        label: t(`examShare.occasion.${value}`),
+                        label: lookup(`examShare.occasion.${value}`) ?? value,
                       })),
                     ]}
                   />
@@ -781,7 +753,9 @@ export function PastExams({
                     {item.status === "open" && (
                       <UiButton
                         disabled={busy}
-                        onClick={() => void openUpload(item.subject, item)}
+                        onClick={() =>
+                          void openUpload({ kind: "request", request: item })
+                        }
                       >
                         {t("examShare.upload.answerRequest")}
                       </UiButton>
@@ -799,14 +773,14 @@ export function PastExams({
                         <UiButton
                           disabled={busy}
                           onClick={async () => {
-                            if (
-                              await call({
-                                kind: "setRequestOpen",
-                                id: item.id,
-                                open: item.status !== "open",
-                              })
-                            )
-                              await loadRequests(mine);
+                            const answer = await call({
+                              kind: "setRequestOpen",
+                              id: item.id,
+                              open: item.status !== "open",
+                              mine,
+                            });
+                            if (answer?.kind === "requests")
+                              setRequests(answer.value);
                           }}
                         >
                           {t(
@@ -819,16 +793,19 @@ export function PastExams({
                           disabled={busy}
                           onClick={async () => {
                             if (
-                              (await confirmAction(
+                              !(await confirmAction(
                                 t("examShare.deleteRequest"),
                                 t("common.delete"),
-                              )) &&
-                              (await call({
-                                kind: "deleteRequest",
-                                id: item.id,
-                              }))
+                              ))
                             )
-                              await loadRequests(mine);
+                              return;
+                            const answer = await call({
+                              kind: "deleteRequest",
+                              id: item.id,
+                              mine,
+                            });
+                            if (answer?.kind === "requests")
+                              setRequests(answer.value);
                           }}
                         >
                           {t("common.delete")}
@@ -895,7 +872,7 @@ function PlainTextPreview({ path }: { path: string }) {
       });
     return () => controller.abort();
   }, [path]);
-  if (failed) return <p role="alert">{t("error.exam-share-response")}</p>;
+  if (failed) return <p role="alert">{t("error.storage")}</p>;
   return text === undefined ? (
     <p>{t("common.loading")}</p>
   ) : (
@@ -903,18 +880,60 @@ function PlainTextPreview({ path }: { path: string }) {
   );
 }
 
+function ReportForm({
+  choices,
+  disabled,
+  submit,
+}: {
+  choices: ExamChoices;
+  disabled: boolean;
+  submit: (reason: ExamReportReason, detail: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState(choices.reportReasons[0]);
+  return (
+    <form
+      className="examShareActions"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        void submit(reason, String(data.get("detail") ?? ""));
+      }}
+    >
+      <UiSelect
+        aria-label={t("examShare.report")}
+        value={reason}
+        onChange={(value) => setReason(value as ExamReportReason)}
+        data={choices.reportReasons.map((value) => ({
+          value,
+          label: t(`examShare.reason.${value}`),
+        }))}
+      />
+      <UiInput
+        name="detail"
+        maxLength={choices.limits.reportDetail}
+        placeholder={t("examShare.description")}
+      />
+      <UiButton type="submit" disabled={disabled}>
+        {t("examShare.report")}
+      </UiButton>
+    </form>
+  );
+}
+
 function RequestForm({
   subject,
+  choices,
   disabled,
   submit,
 }: {
   subject: ExamSubjectPage;
+  choices: ExamChoices;
   disabled: boolean;
   submit: (action: ExamAction) => Promise<void>;
 }) {
   const [classId, setClassId] = useState("");
-  const [occasion, setOccasion] = useState("");
-  const [role, setRole] = useState("");
+  const [occasion, setOccasion] = useState<ExamOccasion | "">("");
+  const [role, setRole] = useState<ExamRole | "">("");
   return (
     <form
       className="examShareActions"
@@ -959,19 +978,19 @@ function RequestForm({
       <UiInput
         name="year"
         type="number"
-        min={1950}
-        max={3000}
+        min={choices.limits.earliestYear}
+        max={choices.limits.latestYear}
         aria-label={t("examShare.year")}
         placeholder={t("examShare.year")}
       />
       <UiSelect
         aria-label={t("examShare.occasion")}
         value={occasion}
-        onChange={setOccasion}
+        onChange={(value) => setOccasion(value as ExamOccasion | "")}
         disabled={disabled}
         data={[
           { value: "", label: t("examShare.allOccasions") },
-          ...occasions.map((value) => ({
+          ...choices.requestOccasions.map((value) => ({
             value,
             label: t(`examShare.occasion.${value}`),
           })),
@@ -980,17 +999,19 @@ function RequestForm({
       <UiSelect
         aria-label={t("examShare.wantedRole")}
         value={role}
-        onChange={setRole}
+        onChange={(value) => setRole(value as ExamRole | "")}
         disabled={disabled}
         data={[
           { value: "", label: t("examShare.wantedRole") },
-          { value: "question", label: t("examShare.role.question") },
-          { value: "answer", label: t("examShare.role.answer") },
+          ...choices.requestRoles.map((value) => ({
+            value,
+            label: t(`examShare.role.${value}`),
+          })),
         ]}
       />
       <UiInput
         name="description"
-        maxLength={1000}
+        maxLength={choices.limits.requestDescription}
         placeholder={t("examShare.description")}
       />
       <UiButton type="submit" disabled={disabled}>

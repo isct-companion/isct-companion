@@ -31,12 +31,20 @@ fn only_the_authorization_with_the_same_redirect_and_state_can_supply_a_code() {
             Err(OAuthError::Configuration)
         ));
         let pending = begin("client.apps.googleusercontent.com", redirect_url, options).unwrap();
-        let state = pending
-            .url
-            .query_pairs()
-            .find(|(key, _)| key == "state")
-            .unwrap()
-            .1;
+        let query = |key: &str| {
+            pending
+                .url
+                .query_pairs()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.into_owned())
+        };
+        // Google must see a PKCE challenge, and the nonce that binds the ID
+        // token to this sign-in when one was asked for.
+        assert_eq!(query("code_challenge_method").as_deref(), Some("S256"));
+        assert!(query("code_challenge").is_some_and(|challenge| challenge.len() >= 43));
+        assert_eq!(query("nonce").as_deref(), options.nonce);
+        assert_eq!(query("scope").as_deref(), Some(options.scope));
+        let state = query("state").unwrap();
         let callback = |params: &str| Url::parse(&format!("{redirect}?{params}")).unwrap();
         let good = callback(&format!("state={state}&code=abc"));
         assert_eq!(pending.callback_code(&good).unwrap(), "abc");

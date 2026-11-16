@@ -44,24 +44,18 @@ pub enum Host {
     GetAccessRouter,
     ScienceAccount,
     IsctData,
-    ScienceTokyoExam,
-    FirebaseIdentityToolkit,
-    FirebaseSecureToken,
     /// The F5 APM in front of the campus VPN.
     CampusVpn,
 }
 
 impl Host {
-    pub const ALL: [Host; 10] = [
+    pub const ALL: [Host; 7] = [
         Host::Moodle,
         Host::Kyomu,
         Host::GetAccess,
         Host::GetAccessRouter,
         Host::ScienceAccount,
         Host::IsctData,
-        Host::ScienceTokyoExam,
-        Host::FirebaseIdentityToolkit,
-        Host::FirebaseSecureToken,
         Host::CampusVpn,
     ];
 
@@ -73,9 +67,6 @@ impl Host {
             Host::GetAccessRouter => "rp.nap.gsic.titech.ac.jp",
             Host::ScienceAccount => "isct.ex-tic.com",
             Host::IsctData => "raw.githubusercontent.com",
-            Host::ScienceTokyoExam => "sciencetokyoexam.com",
-            Host::FirebaseIdentityToolkit => "identitytoolkit.googleapis.com",
-            Host::FirebaseSecureToken => "securetoken.googleapis.com",
             Host::CampusVpn => "apm.nap.gsic.titech.ac.jp",
         }
     }
@@ -103,8 +94,6 @@ impl Host {
             | Host::ScienceAccount
             | Host::CampusVpn => (1, Duration::from_millis(300)),
             Host::IsctData => (2, Duration::ZERO),
-            Host::ScienceTokyoExam => (1, Duration::from_millis(500)),
-            Host::FirebaseIdentityToolkit | Host::FirebaseSecureToken => (1, Duration::ZERO),
         }
     }
 }

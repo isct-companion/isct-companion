@@ -1,4 +1,5 @@
 import type {
+  ExamAccount,
   ExamAction,
   ExamAnswer,
   ExamUploadFile,
@@ -554,6 +555,8 @@ export type ApplicationLogSnapshot = {
 
 export interface DesktopBridge {
   examShare?(action: ExamAction): Promise<ExamAnswer>;
+  /** Every `exam-account` event: the account and its upload progress. */
+  onExamAccount?(callback: (account: ExamAccount) => void): () => void;
   examUploadPickFiles?(title: string): Promise<ExamUploadFile[] | null>;
   examUploadClearFiles?(): Promise<void>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
@@ -866,6 +869,21 @@ export function createTauriDesktopBridge(
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     examShare: (action) => result("exam_share", { action }),
+    onExamAccount: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<ExamAccount>("exam-account", (payload) => {
+        if (!disposed && payload && typeof payload.status === "string")
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
     examUploadPickFiles: (title) => result("exam_upload_pick_files", { title }),
     examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
     scheduleQuery: (queries) => result("schedule_query", { queries }),

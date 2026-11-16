@@ -8,14 +8,12 @@ use app_core::cloud_sync::document::{
     BoxFuture, DocumentCloud, DocumentError, ObjectStore, Providers, StoredObject, TaggedWorkspace,
 };
 use app_core::cloud_sync::google_drive::{DriveAuthorization, GoogleDrive};
-#[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 use app_core::cloud_sync::google_drive::{SCOPE, VAULT_ACCOUNT};
 use app_core::cloud_sync::{CloudFuture, CloudSignIn, CloudSyncError};
 #[cfg(target_os = "ios")]
-use app_core::{
-    cloud_sync::google_drive::Pkce,
-    oauth::{code_exchange::OAuthClient, BrowserCallback, OAuthError},
-};
+use app_core::{cloud_sync::google_drive::Pkce, oauth::code_exchange::OAuthClient};
+use app_core::oauth::{BrowserCallback, OAuthError};
 use app_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
 use tokio_util::sync::CancellationToken;
@@ -574,21 +572,36 @@ impl ObjectStore for Cloud {
             .map_err(cloud_error)
     }
 }
-/// Opens the platform's browser. A scheme denotes a native web authentication
-/// session; with no scheme, Core owns the loopback and the callback returns nil.
+/// iOS's web authentication session. It returns the URL the session ended
+/// at, whose scheme is `callback_scheme`; fail with `SdkError::Cancelled`
+/// when the person closed it.
 #[uniffi::export(rust, foreign)]
 #[async_trait::async_trait]
-pub trait NativeBrowserAuth: Send + Sync {
-    async fn authenticate(
-        &self,
-        url: String,
-        callback_scheme: Option<String>,
-    ) -> Result<Option<String>, SdkError>;
+pub trait NativeWebAuthSession: Send + Sync {
+    async fn authenticate(&self, url: String, callback_scheme: String) -> Result<String, SdkError>;
+    /// Closes the session Core gave up on.
     async fn cancel(&self);
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
-pub(crate) struct BrowserAuth(pub Arc<dyn NativeBrowserAuth>);
+/// Android's browser: it only opens the page. Core's loopback listener
+/// receives the answer.
+#[uniffi::export(rust, foreign)]
+#[async_trait::async_trait]
+pub trait NativeBrowserOpener: Send + Sync {
+    async fn open_url(&self, url: String) -> Result<(), SdkError>;
+}
+
+fn browser_error(error: SdkError) -> OAuthError {
+    match error {
+        SdkError::Cancelled => OAuthError::Cancelled,
+        _ => OAuthError::Browser,
+    }
+}
+
+#[cfg(target_os = "ios")]
+pub(crate) struct BrowserAuth(pub Arc<dyn NativeWebAuthSession>);
+#[cfg(not(target_os = "ios"))]
+pub(crate) struct BrowserAuth(pub Arc<dyn NativeBrowserOpener>);
 
 #[cfg(target_os = "ios")]
 impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
@@ -599,34 +612,23 @@ impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
     ) -> app_core::net::BoxFuture<'a, Result<String, OAuthError>> {
         Box::pin(async move {
             self.0
-                .authenticate(url.to_string(), Some(scheme.into()))
+                .authenticate(url.to_string(), scheme.into())
                 .await
-                .map_err(|error| match error {
-                    SdkError::Cancelled => OAuthError::Cancelled,
-                    _ => OAuthError::Browser,
-                })?
-                .ok_or(OAuthError::Callback)
+                .map_err(browser_error)
         })
     }
     fn cancel(&self) -> app_core::net::BoxFuture<'_, ()> {
         Box::pin(self.0.cancel())
     }
 }
-#[cfg(target_os = "android")]
+#[cfg(not(target_os = "ios"))]
 impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
     fn authenticate<'a>(
         &'a self,
         url: &'a Url,
-        _: app_core::oauth::BrowserCallback,
-    ) -> app_core::net::BoxFuture<'a, Result<(), app_core::oauth::OAuthError>> {
-        Box::pin(async move {
-            self.0.authenticate(url.to_string(), None).await
-                .map(|_| ())
-                .map_err(|error| match error {
-                    SdkError::Cancelled => app_core::oauth::OAuthError::Cancelled,
-                    _ => app_core::oauth::OAuthError::Browser,
-                })
-        })
+        _: BrowserCallback,
+    ) -> app_core::net::BoxFuture<'a, Result<(), OAuthError>> {
+        Box::pin(async move { self.0.open_url(url.to_string()).await.map_err(browser_error) })
     }
 }
 
@@ -643,63 +645,61 @@ pub trait NativeDriveTokens: Send + Sync {
     /// person's other devices out of Drive too.
     fn sign_out(&self) -> Result<(), SdkError>;
 }
-/// Drive's authorization mechanism is selected for the native build target.
+/// Drive's authorization mechanism is selected for the native build target:
+/// PKCE in a web authentication session on iOS, the OS account's tokens on
+/// Android (and on the hosts the bindings are generated and tested on).
 pub(crate) enum DriveAuth {
     #[cfg(target_os = "ios")]
     Pkce {
         pkce: Pkce<Vault>,
         browser: BrowserAuth,
     },
-    #[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     Tokens {
         tokens: Arc<dyn NativeDriveTokens>,
         vault: Vault,
     },
-    // Desktop host builds generate the common foreign bindings. The desktop
-    // product uses app-core directly and cannot construct an FFI Drive grant.
-    #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-    #[allow(dead_code)]
-    Unavailable,
 }
 
-#[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 const DRIVE_CONNECTED: &str = "connected";
 
 impl DriveAuth {
+    #[cfg(target_os = "ios")]
     pub(crate) fn new(
-        _vault: Arc<dyn NativeVault>,
-        _browser: Option<Arc<dyn NativeBrowserAuth>>,
-        _ios_client_id: Option<String>,
-        _tokens: Option<Arc<dyn NativeDriveTokens>>,
+        vault: Arc<dyn NativeVault>,
+        session: Option<Arc<dyn NativeWebAuthSession>>,
+        client_id: Option<String>,
     ) -> Result<Option<Self>, SdkError> {
-        #[cfg(target_os = "ios")]
-        if let (Some(browser), Some(id)) = (_browser, _ios_client_id) {
-            return Ok(Some(Self::Pkce {
-                pkce: Pkce::new(Vault(_vault), OAuthClient { id, secret: None })
-                    .map_err(|e| crate::error::coded(&e))?,
-                browser: BrowserAuth(browser),
-            }));
-        }
-        #[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
-        if let Some(tokens) = _tokens {
-            return Ok(Some(Self::Tokens {
-                tokens,
-                vault: Vault(_vault),
-            }));
-        }
-        Ok(None)
+        let (Some(session), Some(id)) = (session, client_id) else {
+            return Ok(None);
+        };
+        Ok(Some(Self::Pkce {
+            pkce: Pkce::new(Vault(vault), OAuthClient { id, secret: None })
+                .map_err(|e| crate::error::coded(&e))?,
+            browser: BrowserAuth(session),
+        }))
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    pub(crate) fn new(
+        vault: Arc<dyn NativeVault>,
+        tokens: Option<Arc<dyn NativeDriveTokens>>,
+    ) -> Option<Self> {
+        tokens.map(|tokens| Self::Tokens {
+            tokens,
+            vault: Vault(vault),
+        })
     }
 
     pub(crate) fn authorized(&self) -> Result<bool, CloudSyncError> {
         match self {
             #[cfg(target_os = "ios")]
             Self::Pkce { pkce, .. } => pkce.authorized().map_err(drive_error),
-            #[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { vault, .. } => core::SecretVault::load(vault, VAULT_ACCOUNT)
                 .map(|saved| saved.as_deref() == Some(DRIVE_CONNECTED))
                 .map_err(drive_error),
-            #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-            Self::Unavailable => Err(no_drive()),
         }
     }
 
@@ -707,7 +707,7 @@ impl DriveAuth {
         match self {
             #[cfg(target_os = "ios")]
             Self::Pkce { pkce, browser } => pkce.connect(browser, _cancel).await,
-            #[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { tokens, vault } => {
                 tokens
                     .access_token(SCOPE.into(), true)
@@ -715,18 +715,15 @@ impl DriveAuth {
                     .map_err(sign_in_error)?;
                 core::SecretVault::store(vault, VAULT_ACCOUNT, DRIVE_CONNECTED).map_err(drive_error)
             }
-            #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-            Self::Unavailable => Err(no_drive()),
         }
     }
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", test))]
 fn drive_error(error: impl ToString) -> CloudSyncError {
     CloudSyncError::Transport(error.to_string())
 }
 
-#[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 fn sign_in_error(e: SdkError) -> CloudSyncError {
     match e {
         SdkError::Cancelled => CloudSyncError::Cancelled,
@@ -740,24 +737,20 @@ impl DriveAuthorization for DriveAuth {
             #[cfg(target_os = "ios")]
             Self::Pkce { pkce, .. } => pkce.access_token(_refresh),
             // The OS refreshes its own tokens; a background request never shows UI.
-            #[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { tokens, .. } => Box::pin(async move {
                 tokens
                     .access_token(SCOPE.into(), false)
                     .await
                     .map_err(|error| DocumentError::Transport(error.to_string()))
             }),
-            #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-            Self::Unavailable => {
-                Box::pin(async { Err(DocumentError::Transport(no_drive().to_string())) })
-            }
         }
     }
     fn disconnect(&self) -> Result<(), DocumentError> {
         match self {
             #[cfg(target_os = "ios")]
             Self::Pkce { pkce, .. } => pkce.disconnect(),
-            #[cfg(all(any(target_os = "android", test), not(target_os = "ios")))]
+            #[cfg(not(target_os = "ios"))]
             Self::Tokens { tokens, vault } => {
                 core::SecretVault::delete(vault, VAULT_ACCOUNT)
                     .map_err(|e| DocumentError::Transport(e.to_string()))?;
@@ -765,8 +758,6 @@ impl DriveAuthorization for DriveAuth {
                     .sign_out()
                     .map_err(|e| DocumentError::Transport(e.to_string()))
             }
-            #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-            Self::Unavailable => Err(DocumentError::Transport(no_drive().to_string())),
         }
     }
 }

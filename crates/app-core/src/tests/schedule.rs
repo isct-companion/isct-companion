@@ -998,7 +998,6 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
         .iter()
         .map(|course| (course.course_id.as_str(), course.subject_codes.clone()))
         .collect();
-    assert_eq!(list.term, "2026-4Q");
     // "multi" is only planned in 4Q (a plan item), so it is not listed.
     assert_eq!(
         courses,

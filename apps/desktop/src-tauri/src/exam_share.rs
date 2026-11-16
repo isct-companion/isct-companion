@@ -2,8 +2,8 @@ use crate::{
     coded, commands::cloud::SystemBrowser, require_local_main, secrets::OsSecretVault, CommandError,
 };
 use app_core::{
-    exam_share::{ExamAction, ExamAnswer, ExamError, ExamShare, ExamUploadFile},
-    oauth::{code_exchange::OAuthClient, NativeBrowserAuth},
+    exam_share::{ExamAction, ExamAnswer, ExamError, ExamSignIn, ExamUploadFile},
+    oauth::code_exchange,
 };
 use std::{
     path::{Path, PathBuf},
@@ -13,37 +13,26 @@ use tauri::{Manager, Webview};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-pub(crate) fn service(
-    app: tauri::AppHandle,
-    vault: OsSecretVault,
-    folder: PathBuf,
-) -> Option<Arc<ExamShare>> {
-    let version = app.package_info().version.to_string();
-    let browser = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID").map(|id| {
-        let client = OAuthClient {
-            id: id.to_owned(),
-            secret: option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET").map(str::to_owned),
-        };
-        let browser: Arc<dyn NativeBrowserAuth> = Arc::new(SystemBrowser(app));
-        (client, browser)
+/// Open Core's ScienceTokyoExam client with the system browser for sign-in.
+pub(crate) fn open(app: &tauri::AppHandle, vault: OsSecretVault) {
+    let sign_in = code_exchange::installed_client().map(|client| ExamSignIn {
+        client,
+        browser: Arc::new(SystemBrowser(app.clone())),
     });
-    ExamShare::new(Arc::new(vault), folder, version, browser)
-        .ok()
-        .map(Arc::new)
+    crate::core_ports::core(app).open_exam_share(
+        Arc::new(vault),
+        sign_in,
+        app.package_info().version.to_string(),
+    );
 }
 
 #[tauri::command]
 pub(crate) async fn exam_share(
     webview: Webview,
-    service: tauri::State<'_, Option<Arc<ExamShare>>>,
     selection: tauri::State<'_, UploadSelection>,
     mut action: ExamAction,
 ) -> Result<ExamAnswer, CommandError> {
     require_local_main(&webview)?;
-    let service = service
-        .inner()
-        .as_ref()
-        .ok_or_else(|| coded(ExamError::Unavailable))?;
     let _selected_files = match &mut action {
         ExamAction::Upload { files, .. } => Some(selection.resolve(files).map_err(coded)?),
         _ => None,
@@ -51,11 +40,7 @@ pub(crate) async fn exam_share(
     let cancel = CancellationToken::new();
     let _guard = cancel.clone().drop_guard();
     let core = crate::core_ports::core(webview.app_handle());
-    let mut answer = service
-        .act(action, cancel, &core.store)
-        .await
-        .map_err(coded)?;
-    answer.localize_subject_names(&core.store).map_err(coded)?;
+    let answer = core.exam_share(action, cancel).await.map_err(coded)?;
     if let ExamAnswer::Document(file) = &answer {
         webview
             .app_handle()

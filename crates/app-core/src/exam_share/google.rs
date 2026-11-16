@@ -3,9 +3,6 @@ use super::{
     identity::{SavedSession, SessionToken},
     ExamError,
 };
-use crate::net::Host;
-#[cfg(target_os = "ios")]
-use crate::oauth::OAuthError;
 use crate::oauth::{
     code_exchange::{self, CodeExchange, OAuthClient, Options},
     NativeBrowserAuth,
@@ -14,8 +11,6 @@ use jsonwebtoken::{decode, decode_header, jwk::JwkSet, Algorithm, DecodingKey, V
 use reqwest::Method;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-#[cfg(target_os = "ios")]
-use url::Url;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,40 +66,18 @@ pub(super) async fn connect(
     cancel: &CancellationToken,
 ) -> Result<SessionToken, ExamError> {
     let nonce = code_exchange::random_urlsafe::<32>()?;
-    #[cfg(target_os = "ios")]
-    let redirect = client.ios_redirect()?;
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "android"))]
-    let listener = crate::oauth::loopback::Loopback::bind(0).await?;
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "android"))]
-    let redirect = listener.redirect().clone();
-    let pending = code_exchange::begin(
-        &client.id,
-        redirect.clone(),
-        Options {
-            scope: "openid email profile",
-            prompt: "select_account",
-            offline: false,
-            hosted_domain: Some("m.isct.ac.jp"),
-            nonce: Some(&nonce),
-        },
-    )?;
-    #[cfg(target_os = "ios")]
-    let callback = {
-        use crate::oauth::BrowserCallback;
-        let authorize =
-            browser.authenticate(&pending.url, BrowserCallback::Scheme(redirect.scheme()));
-        let result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err(OAuthError::Cancelled),
-            answer = authorize => answer,
-        };
-        if matches!(result, Err(OAuthError::Cancelled)) {
-            browser.cancel().await;
-        }
-        Url::parse(&result?).map_err(|_| OAuthError::Callback)?
+    let options = Options {
+        scope: "openid email profile",
+        prompt: "select_account",
+        offline: false,
+        hosted_domain: Some("m.isct.ac.jp"),
+        nonce: Some(&nonce),
     };
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "android"))]
-    let callback = listener.authenticate(browser, &pending, cancel).await?;
+    #[cfg(target_os = "ios")]
+    let (pending, callback) = crate::oauth::authorize(client, options, browser, cancel).await?;
+    #[cfg(not(target_os = "ios"))]
+    let (pending, callback) =
+        crate::oauth::authorize(&client.id, 0, options, browser, cancel).await?;
     tokio::select! {
         biased;
         _ = cancel.cancelled() => Err(ExamError::Cancelled),
@@ -114,7 +87,7 @@ pub(super) async fn connect(
             verify_google(api, &token, &client.id, &nonce).await?;
             let post_body: String = url::form_urlencoded::Serializer::new(String::new())
                 .append_pair("id_token", &token).append_pair("providerId", "google.com").finish();
-            let request = api.request(Host::FirebaseIdentityToolkit, Method::POST, &["v1", "accounts:signInWithIdp"])?
+            let request = api.request(super::client::Endpoint::IdentityToolkit, Method::POST, &["v1", "accounts:signInWithIdp"])?
                 .json(&serde_json::json!({"requestUri":"http://localhost","postBody":post_body,"returnSecureToken":true}));
             let answer: SignIn = api.firebase(request).await?;
             SessionToken::new(SavedSession { uid: answer.local_id, email: answer.email, refresh_token: answer.refresh_token, registered: false }, answer.id_token)

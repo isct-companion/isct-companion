@@ -32,6 +32,19 @@ impl OAuthClient {
     }
 }
 
+/// The installed-app ("Desktop") client the desktop and Android builds sign
+/// in to Google with. The build scripts supply it from
+/// `config/oauth-clients.yaml`; Google requires its secret in token requests
+/// even with PKCE and documents it as not confidential for installed apps.
+#[cfg(not(target_os = "ios"))]
+pub fn installed_client() -> Option<OAuthClient> {
+    let id = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID").filter(|id| !id.is_empty())?;
+    Some(OAuthClient {
+        id: id.into(),
+        secret: option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET").map(str::to_owned),
+    })
+}
+
 #[derive(Clone, Copy)]
 pub struct Options<'a> {
     pub scope: &'a str,
@@ -212,7 +225,7 @@ impl PendingAuthorization {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "android"))]
+    #[cfg(not(target_os = "ios"))]
     pub(super) fn is_answered_by(&self, callback: &Url) -> bool {
         matches!(
             self.callback_code(callback),

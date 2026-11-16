@@ -3,17 +3,12 @@ use app_core::cloud_sync::document::{self, CloudWorkspaceFile, DocumentError, Wo
 use app_core::cloud_sync::google_drive::{GoogleDrive, Pkce};
 pub use app_core::cloud_sync::CloudProvider;
 use app_core::cloud_sync::CloudSyncError;
-use app_core::oauth::{code_exchange::OAuthClient, NativeBrowserAuth};
+use app_core::oauth::{
+    code_exchange::{self, OAuthClient},
+    NativeBrowserAuth,
+};
 use app_core::ports::SecretVault;
 use tokio_util::sync::CancellationToken;
-
-/// Google requires the client secret of a Desktop OAuth client in token
-/// requests, even with PKCE; Google documents it as not confidential for
-/// installed apps. `scripts/desktop/tauri.mjs` supplies both values at build time
-/// from config/oauth-clients.yaml, and Core sends the secret only with the
-/// client it belongs to (not with a development override).
-const GOOGLE_DESKTOP_CLIENT_ID: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
-const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
 
 /// Drive's REST calls and token refresh live in Core; the desktop shell runs
 /// the system browser and keeps the iCloud store.
@@ -26,10 +21,11 @@ pub struct DesktopCloudService<V: SecretVault> {
 
 impl<V: SecretVault> DesktopCloudService<V> {
     pub fn new(vault: V) -> Result<Self, String> {
-        let client = OAuthClient {
-            id: GOOGLE_DESKTOP_CLIENT_ID.unwrap_or_default().into(),
-            secret: GOOGLE_DESKTOP_CLIENT_SECRET.map(str::to_owned),
-        };
+        // A build without the client still opens; Drive then fails to sign in.
+        let client = code_exchange::installed_client().unwrap_or(OAuthClient {
+            id: String::new(),
+            secret: None,
+        });
         let pkce = Pkce::new(vault, client).map_err(|error| error.to_string())?;
         Ok(Self {
             drive: GoogleDrive::new(pkce).map_err(|error| error.to_string())?,

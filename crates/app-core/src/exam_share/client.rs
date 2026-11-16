@@ -1,19 +1,46 @@
 use super::ExamError;
-use crate::net::{client_builder, read_response_limited, Host};
+use crate::net::{client_builder, read_response_limited};
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize};
-use std::time::Duration;
-use tokio::{sync::Mutex, time::Instant};
+use std::{path::Path, time::Duration};
+use tokio::{io::AsyncWriteExt, sync::Mutex, time::Instant};
 use url::Url;
 
 const MAX_JSON: usize = 16 * 1024 * 1024;
+/// The service's limit for one material, and so for a download too.
+pub(super) const FILE_LIMIT: usize = 25 * 1024 * 1024;
+/// The spacing between request starts the site asks of a client.
+const SITE_SPACING: Duration = Duration::from_millis(500);
 const API_KEY: &str = "AIzaSyBKTbvs7OBhZB__eISYaznVp_R-QMLMFEM";
 pub(super) const FIREBASE_PROJECT: &str = "gen-lang-client-0463137884";
+
+/// The services the client talks to. They are not campus hosts, so they stay
+/// out of `net::Host`, whose list the school session, cookie and VPN rules
+/// read as the school's own.
+#[derive(Clone, Copy)]
+pub(super) enum Endpoint {
+    Site,
+    IdentityToolkit,
+    SecureToken,
+}
+
+impl Endpoint {
+    pub const fn host(self) -> &'static str {
+        match self {
+            Self::Site => "sciencetokyoexam.com",
+            Self::IdentityToolkit => "identitytoolkit.googleapis.com",
+            Self::SecureToken => "securetoken.googleapis.com",
+        }
+    }
+}
 
 pub(super) struct Client {
     pub http: reqwest::Client,
     version: String,
     last_start: Mutex<Option<Instant>>,
+    /// Tests point every endpoint, and the file host, at a local server.
+    #[cfg(test)]
+    pub origin: Option<Url>,
 }
 
 impl Client {
@@ -26,17 +53,26 @@ impl Client {
                 .map_err(|_| ExamError::Unavailable)?,
             version,
             last_start: Mutex::new(None),
+            #[cfg(test)]
+            origin: None,
         })
+    }
+
+    fn base(&self, endpoint: Endpoint) -> Result<Url, ExamError> {
+        #[cfg(test)]
+        if let Some(origin) = &self.origin {
+            return Ok(origin.clone());
+        }
+        Url::parse(&format!("https://{}/", endpoint.host())).map_err(|_| ExamError::Unavailable)
     }
 
     pub fn request(
         &self,
-        host: Host,
+        endpoint: Endpoint,
         method: Method,
         path: &[&str],
     ) -> Result<RequestBuilder, ExamError> {
-        let mut url =
-            Url::parse(&format!("https://{}/", host.name())).map_err(|_| ExamError::Unavailable)?;
+        let mut url = self.base(endpoint)?;
         url.path_segments_mut()
             .map_err(|_| ExamError::Unavailable)?
             .pop_if_empty()
@@ -54,7 +90,7 @@ impl Client {
         {
             let mut last = self.last_start.lock().await;
             if let Some(last) = *last {
-                tokio::time::sleep_until(last + Host::ScienceTokyoExam.budget().1).await;
+                tokio::time::sleep_until(last + SITE_SPACING).await;
             }
             *last = Some(Instant::now());
         }
@@ -66,8 +102,7 @@ impl Client {
         if status.is_success() {
             return read(response).await;
         }
-        let body: Result<ServiceError, _> = read(response).await;
-        let body = body.ok();
+        let body: Option<ServiceError> = read(response).await.ok();
         let code = body.as_ref().and_then(|body| body.code.as_deref());
         match (status, code) {
             (StatusCode::UNAUTHORIZED, _) => Err(ExamError::Expired),
@@ -76,13 +111,7 @@ impl Client {
             (_, Some("server.not_found")) => Err(ExamError::Unsupported),
             (_, Some("exam.report_duplicate")) => Err(ExamError::AlreadyReported),
             (_, Some("request.daily_limit")) => Err(ExamError::Quota),
-            (_, Some("upload.already_registered")) => body
-                .and_then(|body| body.params)
-                .and_then(|params| params.exam_id)
-                .filter(|id| !id.is_empty())
-                .map_or(Err(ExamError::Response), |id| {
-                    Err(ExamError::UploadRegistered(id))
-                }),
+            (_, Some("upload.already_registered")) => Err(ExamError::UploadRegistered),
             (_, Some("upload.duplicate_file")) => Err(ExamError::UploadDuplicate),
             (_, Some("upload.quota_daily" | "upload.quota_total")) => Err(ExamError::UploadQuota),
             (_, Some("upload.rollback_in_use")) => Err(ExamError::UploadInUse),
@@ -136,21 +165,59 @@ impl Client {
             _ => Err(ExamError::Rejected),
         }
     }
+
+    /// Whether `url` is the storage host the service signs file URLs for.
+    pub fn is_file_url(&self, url: &Url) -> bool {
+        #[cfg(test)]
+        if let Some(origin) = &self.origin {
+            return url.origin() == origin.origin();
+        }
+        is_file_url(url)
+    }
+
+    /// Stream a signed file URL into `path`, refusing more than the limit.
+    pub async fn fetch_file(&self, url: Url, path: &Path) -> Result<(), ExamError> {
+        if !self.is_file_url(&url) {
+            return Err(ExamError::Response);
+        }
+        let mut response = self.http.get(url).send().await.map_err(network)?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(ExamError::NotFound);
+        }
+        if !response.status().is_success() {
+            return Err(ExamError::Unavailable);
+        }
+        if response
+            .content_length()
+            .is_some_and(|len| len > FILE_LIMIT as u64)
+        {
+            return Err(ExamError::Response);
+        }
+        let mut stream = tokio::fs::File::create(path)
+            .await
+            .map_err(|_| ExamError::Storage)?;
+        let mut written = 0;
+        while let Some(chunk) = response.chunk().await.map_err(network)? {
+            written += chunk.len();
+            if written > FILE_LIMIT {
+                return Err(ExamError::Response);
+            }
+            stream
+                .write_all(&chunk)
+                .await
+                .map_err(|_| ExamError::Storage)?;
+        }
+        stream.flush().await.map_err(|_| ExamError::Storage)
+    }
+
 }
 
 #[derive(Deserialize)]
 struct ServiceError {
     code: Option<String>,
-    params: Option<ErrorParams>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ErrorParams {
-    exam_id: Option<String>,
-}
-
-pub(super) fn is_file_url(url: &Url) -> bool {
+fn is_file_url(url: &Url) -> bool {
     url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()

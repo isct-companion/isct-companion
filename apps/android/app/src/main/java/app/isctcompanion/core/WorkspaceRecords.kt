@@ -9,7 +9,6 @@ import org.json.JSONObject
 class WorkspaceRecords(workspace: String? = null) {
     val courses: Map<String, JSONObject>
     val assignments: Map<String, JSONObject>
-    val currentTerm: String?
     /** The complete settings object; forms edit a copy and replace it. */
     val settings: JSONObject
 
@@ -17,7 +16,6 @@ class WorkspaceRecords(workspace: String? = null) {
         val root = workspace?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
         courses = index(root.optJSONArray("courses"))
         assignments = index(root.optJSONArray("assignments"))
-        currentTerm = root.text("currentTerm")
         settings = root.optJSONObject("settings") ?: JSONObject()
     }
 

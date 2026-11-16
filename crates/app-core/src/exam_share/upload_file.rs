@@ -9,7 +9,7 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-pub(super) const LIMIT: usize = 25 * 1024 * 1024;
+use super::client::FILE_LIMIT as LIMIT;
 
 pub(super) struct Prepared {
     pub name: String,
@@ -106,14 +106,18 @@ fn single(file: &ExamUploadFile) -> Result<SingleFile, ExamError> {
     ))
 }
 
+/// The image formats the service stores, and so the ones a photo may be in.
+fn photo_format(data: &[u8]) -> Option<ImageFormat> {
+    image::guess_format(data).ok().filter(|format| {
+        matches!(
+            format,
+            ImageFormat::Jpeg | ImageFormat::Png | ImageFormat::WebP
+        )
+    })
+}
+
 fn decode(data: &[u8]) -> Result<DynamicImage, ExamError> {
-    let format = image::guess_format(data).map_err(|_| ExamError::UploadFile)?;
-    if !matches!(
-        format,
-        ImageFormat::Jpeg | ImageFormat::Png | ImageFormat::WebP
-    ) {
-        return Err(ExamError::UploadFile);
-    }
+    let format = photo_format(data).ok_or(ExamError::UploadFile)?;
     let mut decoder = ImageReader::with_format(Cursor::new(data), format)
         .into_decoder()
         .map_err(|_| ExamError::UploadFile)?;
@@ -151,7 +155,12 @@ fn image_pdf(files: &[ExamUploadFile], cancel: &CancellationToken) -> Result<Vec
         if cancel.is_cancelled() {
             return Err(ExamError::Cancelled);
         }
-        let image = decode(&read(file)?)?;
+        let data = read(file)?;
+        // Several files become one PDF of their pages, which only photos give.
+        if photo_format(&data).is_none() {
+            return Err(ExamError::UploadMixed);
+        }
+        let image = decode(&data)?;
         let width = image.width().min(1600);
         let source_height = (2048_u64 * u64::from(image.width()) / u64::from(width))
             .min(u64::from(image.height())) as u32;

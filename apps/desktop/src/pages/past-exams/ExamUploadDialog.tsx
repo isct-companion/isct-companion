@@ -12,45 +12,25 @@ import { t } from "../../i18n";
 import type {
   ExamAction,
   ExamAnswer,
-  ExamRequest,
+  ExamAnswerSource,
+  ExamChoices,
+  ExamOccasion,
+  ExamProvenance,
+  ExamRole,
   ExamSubject,
-  ExamTeacher,
   ExamUploadDraft,
+  ExamUploadEdit,
   ExamUploadFile,
-  ExamUploadOptions,
+  ExamUploadForm,
   ExamUploadStatus,
 } from "../../generated/persistence";
 
-export const examOccasions = [
-  "final",
-  "midterm",
-  "makeup",
-  "quiz",
-  "check",
-  "report",
-  "exercise",
-  "textbook",
-  "mock",
-] as const;
-
-const roles = ["question", "answer", "both", "notes", "other"] as const;
-const origins = ["original", "reconstructed"] as const;
-const answerSources = ["official", "student", "unknown"] as const;
-const numberedOccasions = ["quiz", "check", "report"];
-const imageExtension = /\.(?:jpe?g|png|webp)$/i;
-
-type UploadSubject = {
-  subject: ExamSubject;
-  teachers: ExamTeacher[];
-};
-
 type Props = {
-  options: ExamUploadOptions;
-  subject: ExamSubject;
-  request: ExamRequest | null;
+  form: ExamUploadForm;
+  choices: ExamChoices;
   subjectLabel: (subject: ExamSubject) => string;
   running: boolean;
-  status: ExamUploadStatus | undefined;
+  status: ExamUploadStatus;
   error: string;
   run: (action: ExamAction) => Promise<ExamAnswer | undefined>;
   submit: (action: ExamAction) => Promise<void>;
@@ -59,9 +39,8 @@ type Props = {
 };
 
 export function ExamUploadDialog({
-  options,
-  subject,
-  request,
+  form: initial,
+  choices,
   subjectLabel,
   running,
   status,
@@ -72,40 +51,40 @@ export function ExamUploadDialog({
   cancel,
 }: Props) {
   const [files, setFiles] = useState<ExamUploadFile[]>([]);
-  const [draft, setDraft] = useState(options.draft);
-  const [subjects, setSubjects] = useState<UploadSubject[]>([
-    {
-      subject: {
-        ...subject,
-        code: options.draft.subjectCodes[0] ?? subject.code,
-      },
-      teachers: options.teachers,
-    },
-  ]);
+  const [form, setForm] = useState(initial);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<ExamSubject[]>();
   const [choosing, setChoosing] = useState(false);
   const [finding, setFinding] = useState(false);
   const [pickerError, setPickerError] = useState("");
-  const teachers = [
-    ...new Map(
-      subjects.flatMap((entry) =>
-        entry.teachers.map((teacher) => [teacher.id, teacher] as const),
-      ),
-    ).values(),
-  ];
-  const pending = status?.phase === "pending";
+  const { draft } = form;
+  const { limits } = choices;
+  // Core's choices list every role; the draft's role is always among them.
+  const role = choices.roles.find((choice) => choice.role === draft.role)!;
+  const pending = status.phase === "pending";
   const waiting = running || choosing || finding;
   const disabled = waiting || pending;
-  const mixedFiles =
-    files.length > 1 && files.some((file) => !imageExtension.test(file.name));
-  const isNonExam = draft.role === "notes" || draft.role === "other";
-  const needsSource = draft.role === "answer" || draft.role === "both";
 
   const update = <K extends keyof ExamUploadDraft>(
     key: K,
     value: ExamUploadDraft[K],
-  ) => setDraft((previous) => ({ ...previous, [key]: value }));
+  ) =>
+    setForm((previous) => ({
+      ...previous,
+      draft: { ...previous.draft, [key]: value },
+    }));
+
+  /** Core applies the edits that follow a rule and answers the whole form. */
+  const edit = async (change: ExamUploadEdit) => {
+    setFinding(true);
+    try {
+      const answer = await run({ kind: "editUpload", form, edit: change });
+      if (answer?.kind === "uploadForm") setForm(answer.value);
+      return answer?.kind === "uploadForm";
+    } finally {
+      setFinding(false);
+    }
+  };
 
   const chooseFiles = async () => {
     setChoosing(true);
@@ -131,7 +110,7 @@ export function ExamUploadDialog({
   };
 
   const searchSubjects = async () => {
-    if (disabled || !query.trim() || subjects.length === 10) return;
+    if (disabled || !query.trim()) return;
     setFinding(true);
     try {
       const answer = await run({ kind: "search", query });
@@ -145,70 +124,10 @@ export function ExamUploadDialog({
   };
 
   const addSubject = async (match: ExamSubject) => {
-    setFinding(true);
-    try {
-      const answer = await run({
-        kind: "uploadOptions",
-        subjectCode: match.code,
-        request: null,
-      });
-      if (answer?.kind === "uploadOptions") {
-        const code = answer.value.draft.subjectCodes[0] ?? match.code;
-        if (draft.subjectCodes.includes(code)) {
-          setMatches((previous) =>
-            previous?.filter((entry) => entry.code !== match.code),
-          );
-          return;
-        }
-        const next = [
-          ...subjects,
-          { subject: { ...match, code }, teachers: answer.value.teachers },
-        ];
-        setSubjects(next);
-        update(
-          "subjectCodes",
-          next.map(({ subject }) => subject.code),
-        );
-        setMatches(undefined);
-        setQuery("");
-      }
-    } finally {
-      setFinding(false);
+    if (await edit({ kind: "addSubject", code: match.code })) {
+      setMatches(undefined);
+      setQuery("");
     }
-  };
-
-  const removeSubject = (code: string) => {
-    const next = subjects.filter((entry) => entry.subject.code !== code);
-    const availableTeachers = new Set(
-      next.flatMap((entry) => entry.teachers.map(({ id }) => id)),
-    );
-    setSubjects(next);
-    setDraft((previous) => ({
-      ...previous,
-      subjectCodes: next.map(({ subject }) => subject.code),
-      teacherIds: previous.teacherIds.filter((id) => availableTeachers.has(id)),
-    }));
-  };
-
-  const setRole = (role: string) => {
-    setDraft((previous) => {
-      const nonExam = role === "notes" || role === "other";
-      const occasion = nonExam
-        ? "none"
-        : previous.occasion === "none"
-          ? "unknown"
-          : previous.occasion;
-      return {
-        ...previous,
-        role,
-        occasion,
-        occasionNumber: nonExam ? 0 : previous.occasionNumber,
-        answerSource:
-          role === "answer" || role === "both"
-            ? (previous.answerSource ?? "unknown")
-            : null,
-      };
-    });
   };
 
   return (
@@ -221,7 +140,9 @@ export function ExamUploadDialog({
       closeOnEscape={!waiting}
       withCloseButton={!waiting}
       title={t(
-        request ? "examShare.upload.answerRequest" : "examShare.upload.title",
+        form.request
+          ? "examShare.upload.answerRequest"
+          : "examShare.upload.title",
       )}
       size="lg"
     >
@@ -229,7 +150,7 @@ export function ExamUploadDialog({
         className="examUpload"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!disabled && files.length > 0 && !mixedFiles) {
+          if (!disabled && files.length > 0) {
             void submit({ kind: "upload", files, draft });
           }
         }}
@@ -240,9 +161,6 @@ export function ExamUploadDialog({
           </UiButton>
         </div>
         {pickerError && <p role="alert">{pickerError}</p>}
-        {mixedFiles && (
-          <p role="alert">{t("examShare.upload.fileSelection")}</p>
-        )}
         {files.length > 0 && (
           <ol
             className="examImportList examUploadList"
@@ -284,15 +202,17 @@ export function ExamUploadDialog({
         <fieldset className="examUploadFields" disabled={disabled}>
           <legend>{t("examShare.upload.subjects")}</legend>
           <ul className="examImportList examUploadList">
-            {subjects.map(({ subject: selected }, index) => (
+            {form.subjects.map(({ subject: selected, removable }) => (
               <li key={selected.code}>
                 <span>
                   {subjectLabel(selected)} <small>{selected.code}</small>
                 </span>
-                {index > 0 && (
+                {removable && (
                   <UiButton
                     disabled={disabled}
-                    onClick={() => removeSubject(selected.code)}
+                    onClick={() =>
+                      void edit({ kind: "removeSubject", code: selected.code })
+                    }
                   >
                     {t("common.remove")}
                   </UiButton>
@@ -300,11 +220,11 @@ export function ExamUploadDialog({
               </li>
             ))}
           </ul>
-          {subjects.length < 10 && (
+          {form.subjects.length < limits.subjects && (
             <div className="examShareActions">
               <TextInput
                 type="search"
-                maxLength={100}
+                maxLength={limits.query}
                 value={query}
                 aria-label={t("examShare.search")}
                 placeholder={t("examShare.search")}
@@ -349,9 +269,9 @@ export function ExamUploadDialog({
         </fieldset>
         <fieldset className="examUploadFields" disabled={disabled}>
           <legend>{t("examShare.teacher")}</legend>
-          {teachers.length > 0 && (
+          {form.teachers.length > 0 && (
             <div className="examUploadTeacherList">
-              {teachers.map((teacher) => (
+              {form.teachers.map((teacher) => (
                 <Checkbox
                   key={teacher.id}
                   label={teacher.name}
@@ -359,7 +279,7 @@ export function ExamUploadDialog({
                   disabled={
                     disabled ||
                     (!draft.teacherIds.includes(teacher.id) &&
-                      draft.teacherIds.length >= 40)
+                      draft.teacherIds.length >= limits.teachers)
                   }
                   onCheckedChange={(checked) =>
                     update(
@@ -378,7 +298,7 @@ export function ExamUploadDialog({
               <TextInput
                 label={t("examShare.upload.familyName")}
                 required
-                maxLength={100}
+                maxLength={limits.teacherName}
                 value={teacher.familyName}
                 onChange={(event) =>
                   update(
@@ -393,7 +313,7 @@ export function ExamUploadDialog({
               />
               <TextInput
                 label={t("examShare.upload.givenName")}
-                maxLength={100}
+                maxLength={limits.teacherName}
                 value={teacher.givenName}
                 onChange={(event) =>
                   update(
@@ -423,7 +343,7 @@ export function ExamUploadDialog({
           ))}
           <div>
             <UiButton
-              disabled={disabled || draft.newTeachers.length >= 40}
+              disabled={disabled || draft.newTeachers.length >= limits.teachers}
               onClick={() =>
                 update("newTeachers", [
                   ...draft.newTeachers,
@@ -439,9 +359,11 @@ export function ExamUploadDialog({
           <UiSelect
             label={t("examShare.upload.role")}
             value={draft.role}
-            onChange={setRole}
+            onChange={(value) =>
+              void edit({ kind: "role", role: value as ExamRole })
+            }
             disabled={disabled}
-            data={roles.map((value) => ({
+            data={choices.roles.map(({ role: value }) => ({
               value,
               label: t(`examShare.role.${value}`),
             }))}
@@ -449,20 +371,22 @@ export function ExamUploadDialog({
           <UiSelect
             label={t("examShare.upload.provenance")}
             value={draft.provenance}
-            onChange={(value) => update("provenance", value)}
+            onChange={(value) => update("provenance", value as ExamProvenance)}
             disabled={disabled}
-            data={origins.map((value) => ({
+            data={choices.provenances.map((value) => ({
               value,
               label: t(`examShare.upload.${value}`),
             }))}
           />
-          {needsSource && (
+          {role.answerSources.length > 0 && (
             <UiSelect
               label={t("examShare.upload.answerSource")}
-              value={draft.answerSource ?? "unknown"}
-              onChange={(value) => update("answerSource", value)}
+              value={draft.answerSource ?? undefined}
+              onChange={(value) =>
+                update("answerSource", value as ExamAnswerSource)
+              }
               disabled={disabled}
-              data={answerSources.map((value) => ({
+              data={role.answerSources.map((value) => ({
                 value,
                 label: t(`examShare.upload.${value}`),
               }))}
@@ -471,40 +395,32 @@ export function ExamUploadDialog({
           <TextInput
             label={t("examShare.year")}
             type="number"
-            min={1950}
-            max={new Date().getFullYear() + 1}
+            min={limits.earliestYear}
+            max={limits.latestYear}
             value={draft.academicYear ?? ""}
             disabled={disabled}
             onChange={(event) =>
               update("academicYear", Number(event.currentTarget.value) || null)
             }
           />
-          {!isNonExam && (
+          {role.occasions.length !== 1 && (
             <UiSelect
               label={t("examShare.occasion")}
               value={draft.occasion}
-              onChange={(occasion) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  occasion,
-                  occasionNumber: numberedOccasions.includes(occasion)
-                    ? previous.occasionNumber
-                    : 0,
-                }))
-              }
+              onChange={(value) => update("occasion", value as ExamOccasion)}
               disabled={disabled}
-              data={[...examOccasions, "unknown" as const].map((value) => ({
+              data={role.occasions.map((value) => ({
                 value,
                 label: t(`examShare.occasion.${value}`),
               }))}
             />
           )}
-          {numberedOccasions.includes(draft.occasion) && (
+          {choices.numbered.includes(draft.occasion) && (
             <TextInput
               label={t("examShare.upload.occasionNumber")}
               type="number"
               min={0}
-              max={30}
+              max={limits.occasionNumber}
               value={draft.occasionNumber}
               disabled={disabled}
               onChange={(event) =>
@@ -514,14 +430,14 @@ export function ExamUploadDialog({
           )}
           <TextInput
             label={t("examShare.upload.variant")}
-            maxLength={100}
+            maxLength={limits.variant}
             disabled={disabled}
             value={draft.variant}
             onChange={(event) => update("variant", event.currentTarget.value)}
           />
           <TextInput
             label={t("examShare.upload.note")}
-            maxLength={40}
+            maxLength={limits.note}
             disabled={disabled}
             value={draft.note}
             onChange={(event) => update("note", event.currentTarget.value)}
@@ -544,7 +460,7 @@ export function ExamUploadDialog({
           <UiButton
             type="submit"
             className="button primary"
-            disabled={disabled || !files.length || mixedFiles}
+            disabled={disabled || !files.length}
           >
             {t("examShare.upload.title")}
           </UiButton>
@@ -558,10 +474,10 @@ export function ExamUploadProgress({
   status,
   cancel,
 }: {
-  status: ExamUploadStatus | undefined;
+  status: ExamUploadStatus;
   cancel: () => void;
 }) {
-  const phase = status?.phase ?? "idle";
+  const { phase } = status;
   const label =
     phase === "idle" || phase === "pending"
       ? t("common.loading")
@@ -569,10 +485,10 @@ export function ExamUploadProgress({
   return (
     <div className="examShareActions" role="status">
       <span>{label}</span>
-      {status?.phase === "transferring" && status.total > 0 && (
+      {phase === "transferring" && status.total > 0 && (
         <progress aria-label={label} max={status.total} value={status.sent} />
       )}
-      {(phase === "preparing" || phase === "transferring") && (
+      {status.cancellable && (
         <UiButton onClick={cancel}>{t("common.cancel")}</UiButton>
       )}
     </div>

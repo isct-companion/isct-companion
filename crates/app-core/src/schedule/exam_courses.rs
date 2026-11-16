@@ -13,7 +13,6 @@ use ts_rs::TS;
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExamCourseList {
-    pub term: String,
     pub courses: Vec<ExamCourse>,
 }
 
@@ -60,7 +59,7 @@ pub(super) fn current(
             subject_codes: subject_codes(workspace, school, course),
         })
         .collect();
-    Ok(ExamCourseList { term, courses })
+    Ok(ExamCourseList { courses })
 }
 
 fn course_label(

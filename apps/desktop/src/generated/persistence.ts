@@ -735,12 +735,7 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
-export type ExamSubject = {
-  code: string;
-  name: string;
-  nameEn: string | null;
-  examCount: number | null;
-};
+export type ExamSubject = { code: string; name: string; nameEn: string | null };
 
 export type ExamTeacher = { id: string; name: string };
 
@@ -778,6 +773,14 @@ export type ExamSubjectPage = {
    */
   teachers: Array<ExamTeacher>;
   /**
+   * The years the materials are from, newest first, for filtering.
+   */
+  years: Array<number>;
+  /**
+   * The occasions the materials name, in `ExamChoices` order.
+   */
+  occasions: Array<string>;
+  /**
    * The local course's class when one of `rows` lists it. Reopening the
    * subject passes it back so the order survives a refresh.
    */
@@ -812,8 +815,8 @@ export type ExamRequestDraft = {
   subjectCode: string;
   classId: number | null;
   academicYear: number | null;
-  occasion: string | null;
-  wantedRole: string | null;
+  occasion: ExamOccasion | null;
+  wantedRole: ExamRole | null;
   description: string;
 };
 
@@ -833,9 +836,13 @@ export type ExamLibrary = {
 };
 
 export type ExamAccountStatus =
-  "disconnected" | "needsConsent" | "connected" | "unavailable";
+  "disconnected" | "needsConsent" | "connected" | "unsupported";
 
-export type ExamAccount = { status: ExamAccountStatus; email: string | null };
+export type ExamAccount = {
+  status: ExamAccountStatus;
+  email: string | null;
+  upload: ExamUploadStatus;
+};
 
 export type ExamReportReason =
   "copyright" | "inappropriate" | "wrongAnswer" | "brokenFile" | "other";
@@ -849,20 +856,113 @@ export type ExamUploadDraft = {
   teacherIds: Array<string>;
   newTeachers: Array<ExamNewTeacher>;
   academicYear: number | null;
-  occasion: string;
+  occasion: ExamOccasion;
   occasionNumber: number;
   variant: string;
-  role: string;
-  provenance: string;
-  answerSource: string | null;
+  role: ExamRole;
+  provenance: ExamProvenance;
+  answerSource: ExamAnswerSource | null;
   note: string;
   requestId: string | null;
 };
 
-export type ExamUploadOptions = {
-  draft: ExamUploadDraft;
-  teachers: Array<ExamTeacher>;
+export type ExamRole = "question" | "answer" | "both" | "notes" | "other";
+
+export type ExamOccasion =
+  | "unknown"
+  | "final"
+  | "midterm"
+  | "makeup"
+  | "quiz"
+  | "check"
+  | "report"
+  | "exercise"
+  | "textbook"
+  | "mock"
+  | "none";
+
+export type ExamProvenance = "original" | "reconstructed";
+
+export type ExamAnswerSource = "unknown" | "official" | "student";
+
+export type ExamRoleChoice = {
+  role: ExamRole;
+  occasions: Array<ExamOccasion>;
+  /**
+   * Empty when the role has no answer.
+   */
+  answerSources: Array<ExamAnswerSource>;
 };
+
+export type ExamChoices = {
+  roles: Array<ExamRoleChoice>;
+  /**
+   * Occasions that take a number, such as the third quiz.
+   */
+  numbered: Array<ExamOccasion>;
+  provenances: Array<ExamProvenance>;
+  requestRoles: Array<ExamRole>;
+  requestOccasions: Array<ExamOccasion>;
+  reportReasons: Array<ExamReportReason>;
+  limits: ExamLimits;
+};
+
+export type ExamLimits = {
+  /**
+   * Subjects one upload may list.
+   */
+  subjects: number;
+  /**
+   * Listed teachers one upload may name, and as many new ones.
+   */
+  teachers: number;
+  occasionNumber: number;
+  variant: number;
+  note: number;
+  requestDescription: number;
+  reportDetail: number;
+  query: number;
+  /**
+   * A new teacher's family and given name, each.
+   */
+  teacherName: number;
+  /**
+   * The academic years an upload or a request may name.
+   */
+  earliestYear: number;
+  latestYear: number;
+};
+
+export type ExamUploadSubject = {
+  subject: ExamSubject;
+  teachers: Array<ExamTeacher>;
+  /**
+   * Whether `RemoveSubject` accepts it: not the last one, nor the
+   * subject of the request the upload answers.
+   */
+  removable: boolean;
+};
+
+export type ExamUploadForm = {
+  draft: ExamUploadDraft;
+  subjects: Array<ExamUploadSubject>;
+  /**
+   * Every teacher of `subjects`, once: the form's teacher choices.
+   */
+  teachers: Array<ExamTeacher>;
+  /**
+   * The open request this upload answers.
+   */
+  request: ExamRequest | null;
+};
+
+export type ExamUploadStart =
+  { kind: "subject"; code: string } | { kind: "request"; request: ExamRequest };
+
+export type ExamUploadEdit =
+  | { kind: "addSubject"; code: string }
+  | { kind: "removeSubject"; code: string }
+  | { kind: "role"; role: ExamRole };
 
 export type ExamUploadPhase =
   | "idle"
@@ -876,11 +976,15 @@ export type ExamUploadStatus = {
   phase: ExamUploadPhase;
   sent: number;
   total: number;
+  /**
+   * Whether `CancelUpload` would stop it now.
+   */
+  cancellable: boolean;
 };
 
 export type ExamAction =
   | { kind: "account" }
-  | { kind: "accountSnapshot" }
+  | { kind: "choices" }
   | { kind: "connect" }
   | { kind: "cancelConnect" }
   | { kind: "acceptTerms" }
@@ -903,11 +1007,11 @@ export type ExamAction =
   | { kind: "report"; id: string; reason: ExamReportReason; detail: string }
   | { kind: "requests"; mine: boolean; cursor: ExamRequestCursor | null }
   | { kind: "createRequest"; draft: ExamRequestDraft }
-  | { kind: "setRequestOpen"; id: string; open: boolean }
-  | { kind: "deleteRequest"; id: string }
-  | { kind: "uploadOptions"; subjectCode: string; request: ExamRequest | null }
+  | { kind: "setRequestOpen"; id: string; open: boolean; mine: boolean }
+  | { kind: "deleteRequest"; id: string; mine: boolean }
+  | { kind: "uploadForm"; start: ExamUploadStart }
+  | { kind: "editUpload"; form: ExamUploadForm; edit: ExamUploadEdit }
   | { kind: "upload"; files: Array<ExamUploadFile>; draft: ExamUploadDraft }
-  | { kind: "uploadStatus" }
   | { kind: "cancelUpload" }
   | { kind: "recoverUpload" };
 
@@ -919,9 +1023,9 @@ export type ExamAnswer =
   | { kind: "library"; value: ExamLibrary }
   | { kind: "saved"; value: boolean }
   | { kind: "requests"; value: ExamRequestPage }
-  | { kind: "uploadOptions"; value: ExamUploadOptions }
-  | { kind: "uploadStatus"; value: ExamUploadStatus }
-  | { kind: "uploaded"; value: string }
+  | { kind: "choices"; value: ExamChoices }
+  | { kind: "uploadForm"; value: ExamUploadForm }
+  | { kind: "uploaded" }
   | { kind: "done" };
 
 export type TeachingPeriod = {
@@ -1730,7 +1834,7 @@ export type ExamCourse = {
   subjectCodes: Array<string>;
 };
 
-export type ExamCourseList = { term: string; courses: Array<ExamCourse> };
+export type ExamCourseList = { courses: Array<ExamCourse> };
 
 export type ScheduleView = {
   term: string;
@@ -2277,11 +2381,7 @@ export type ErrorCode =
   | "lms-writes-disabled"
   | "data-folder-in-use"
   | "submission-identity-changed"
-  | "exam-share-network"
-  | "exam-share-timeout"
-  | "exam-share-unavailable"
   | "exam-share-unsupported"
-  | "exam-share-response"
   | "exam-share-signed-out"
   | "exam-share-expired"
   | "exam-share-denied"
@@ -2290,13 +2390,10 @@ export type ErrorCode =
   | "exam-share-not-found"
   | "exam-share-rejected"
   | "exam-share-identity"
-  | "exam-share-storage"
-  | "exam-share-cancelled"
-  | "exam-share-busy"
   | "exam-share-already-reported"
   | "exam-share-quota"
-  | "exam-share-invalid-input"
   | "exam-share-upload-file"
+  | "exam-share-upload-mixed"
   | "exam-share-upload-size"
   | "exam-share-upload-duplicate"
   | "exam-share-upload-quota"

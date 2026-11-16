@@ -53,14 +53,6 @@
 				<string>isctcompanion</string>
 			</array>
 		</dict>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>app.isctcompanion.oauth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>$(ISCT_GOOGLE_IOS_CALLBACK_SCHEME)</string>
-			</array>
-		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>

@@ -102,6 +102,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
     var cloud: SyncState? by mutableStateOf(null)
         private set
+    /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
+     * events and `Account` answers report it; null until the page reads it. */
+    var examAccount: ExamAccount? by mutableStateOf(null)
+        private set
     /** Bumped whenever Core reports new content, so open screens re-query. */
     var contentRevision: String by mutableStateOf("")
         private set
@@ -151,7 +155,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), ExamBrowserAuth(context), null, drive,
+                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
             )
             session.attachWidgets(WidgetStorage(context))
             this.session = session
@@ -347,6 +351,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "cloud-sync-state" -> refreshCloud()
                     "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
                         .onSuccess(::applyDirective)
+                    "exam-account" -> runCatching { decodeExamAccount(update.event.payload) }
+                        .onSuccess { examAccount = it }
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
                     "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
@@ -368,6 +374,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     web.refreshPages()
                     refreshAccounts()
                     readSync()
+                    // Only once the past-exams page read it; events carry it after.
+                    if (examAccount != null) scope.launch { runCatching { examShare(ExamAction.Account) } }
                 }
             }
         }
@@ -631,8 +639,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     suspend fun examShare(action: ExamAction): ExamAnswer {
         val session = session ?: throw SdkException.Closed()
-        return (session.examShare(action).value() as? OperationResult.ExamShare)?.answer
-            ?: throw SdkException.Unavailable("exam-share-unavailable")
+        val answer = (session.examShare(action).value() as OperationResult.ExamShare).answer
+        if (answer is ExamAnswer.Account) examAccount = answer.v1
+        return answer
     }
 
     suspend fun examCourses(): ExamCourseList? =

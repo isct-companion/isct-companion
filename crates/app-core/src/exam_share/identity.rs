@@ -2,7 +2,6 @@ use super::{
     client::{Client, FIREBASE_PROJECT},
     ExamError,
 };
-use crate::net::Host;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -72,7 +71,7 @@ struct Refresh {
 
 pub(super) async fn refresh(api: &Client, saved: &SavedSession) -> Result<SessionToken, ExamError> {
     let request = api
-        .request(Host::FirebaseSecureToken, Method::POST, &["v1", "token"])?
+        .request(super::client::Endpoint::SecureToken, Method::POST, &["v1", "token"])?
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", saved.refresh_token.as_str()),

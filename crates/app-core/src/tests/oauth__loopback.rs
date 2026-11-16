@@ -1,6 +1,8 @@
 use super::*;
 use crate::oauth::code_exchange::{begin, Options};
 
+/// The system browser has no headless mode; the test plays the browser by
+/// sending the callback requests to the listener itself.
 struct Browser;
 impl NativeBrowserAuth for Browser {
     fn authenticate<'a>(
@@ -45,7 +47,7 @@ async fn unrelated_requests_do_not_consume_a_callback_and_success_closes_the_soc
         response
     };
     let cancel = CancellationToken::new();
-    let (callback, ()) = tokio::join!(listener.authenticate(&Browser, &pending, &cancel), async {
+    let (callback, ()) = tokio::join!(listener.authenticate(&Browser, &pending, &cancel, std::time::Duration::from_secs(5)), async {
         assert!(request(format!("/wrong?state={state}&code=bad"))
             .await
             .starts_with("HTTP/1.1 400"));

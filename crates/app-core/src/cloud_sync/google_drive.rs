@@ -439,27 +439,15 @@ impl<V: SecretVault> Pkce<V> {
             .interactive
             .try_lock()
             .map_err(|_| sign_in_error(OAuthError::Busy))?;
-        let redirect = self.oauth.ios_redirect().map_err(sign_in_error)?;
-        let scheme = redirect.scheme().to_owned();
-        let pending =
-            code_exchange::begin(&self.oauth.id, redirect, DRIVE_OPTIONS).map_err(sign_in_error)?;
-        let authorize = async {
-            let raw = browser
-                .authenticate(&pending.url, crate::oauth::BrowserCallback::Scheme(&scheme))
-                .await?;
-            let callback = Url::parse(&raw).map_err(|_| OAuthError::Callback)?;
-            self.exchange
-                .exchange(&self.oauth, &pending, &callback)
+        let (pending, callback) =
+            crate::oauth::authorize(&self.oauth, DRIVE_OPTIONS, browser, cancel)
                 .await
-        };
+                .map_err(sign_in_error)?;
         let result = tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(OAuthError::Cancelled),
-            result = tokio::time::timeout(Duration::from_secs(180), authorize) => result.unwrap_or(Err(OAuthError::Timeout)),
+            result = self.exchange.exchange(&self.oauth, &pending, &callback) => result,
         };
-        if matches!(result, Err(OAuthError::Cancelled | OAuthError::Timeout)) {
-            browser.cancel().await;
-        }
         self.save_grant(&self.oauth.id, result.map_err(sign_in_error)?)
     }
 
@@ -471,15 +459,10 @@ impl<V: SecretVault> Pkce<V> {
         cancel: &tokio_util::sync::CancellationToken,
     ) -> Result<(), crate::cloud_sync::CloudSyncError> {
         let client_id = override_id.unwrap_or(&self.oauth.id);
-        let listener = crate::oauth::loopback::Loopback::bind(42813)
-            .await
-            .map_err(sign_in_error)?;
-        let pending = code_exchange::begin(client_id, listener.redirect().clone(), DRIVE_OPTIONS)
-            .map_err(sign_in_error)?;
-        let callback = listener
-            .authenticate(browser, &pending, cancel)
-            .await
-            .map_err(sign_in_error)?;
+        let (pending, callback) =
+            crate::oauth::authorize(client_id, 42813, DRIVE_OPTIONS, browser, cancel)
+                .await
+                .map_err(sign_in_error)?;
         let token = tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(OAuthError::Cancelled),

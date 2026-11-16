@@ -445,7 +445,13 @@ fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
 /// was added) with a row in each quarter.
 pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
     let clock = teaching_periods(workspace).unwrap_or_default();
-    timetable_courses(workspace, term)
+    let ids: HashSet<&str> = placements(workspace)
+        .filter(|row| text(row, "termId") == Some(term))
+        .filter_map(|row| text(row, "courseId"))
+        .collect();
+    array(workspace, "courses")
+        .iter()
+        .filter(|row| visible(row) && text(row, "id").is_some_and(|id| ids.contains(id)))
         .cloned()
         .map(|mut course| {
             if let Some(meetings) = course.get_mut("meetings").and_then(Value::as_array_mut) {
@@ -482,19 +488,6 @@ pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
             course
         })
         .collect()
-}
-
-pub(super) fn timetable_courses<'a>(
-    workspace: &'a Value,
-    term: &str,
-) -> impl Iterator<Item = &'a Value> + use<'a> {
-    let ids: HashSet<&str> = placements(workspace)
-        .filter(|row| text(row, "termId") == Some(term))
-        .filter_map(|row| text(row, "courseId"))
-        .collect();
-    array(workspace, "courses")
-        .iter()
-        .filter(move |row| visible(row) && text(row, "id").is_some_and(|id| ids.contains(id)))
 }
 
 /// Every quarter a course belongs to, sorted: its own `termId` and each
