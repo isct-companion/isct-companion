@@ -8,7 +8,7 @@ struct CurrentCoursesSection: View {
     let list: ExamCourseList?
     let failed: Bool
     let retry: () -> Void
-    let open: (String) -> Void
+    let open: (ExamCourse) -> Void
 
     var body: some View {
         Section(t("examShare.currentCourses")) {
@@ -17,7 +17,7 @@ struct CurrentCoursesSection: View {
                     Text(t("examShare.noCurrentCourses")).foregroundStyle(Theme.muted)
                 }
                 ForEach(list.courses, id: \.courseId) { course in
-                    Button { open(course.courseId) } label: {
+                    Button { open(course) } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(course.title).foregroundStyle(Theme.ink)
                             if !course.instructor.isEmpty {

@@ -85,3 +85,192 @@
     center / contain no-repeat;
   pointer-events: none;
 }
+
+/* Header link to the same view on the ScienceTokyoExam website. */
+.examSiteLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: var(--radius-control);
+  color: var(--accent);
+  font-size: calc(var(--type-note-size) * var(--text));
+  text-decoration: none;
+  white-space: nowrap;
+}
+.examSiteLink:hover {
+  background: var(--accent-soft);
+}
+
+/* A subject's sittings: each a label row whose documents are the buttons. */
+.examSets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.examSet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-block-end: 1px solid var(--line);
+}
+.examSetYear {
+  flex: none;
+  min-inline-size: 4ch;
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.examSetText {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.examSetText strong {
+  font-weight: 600;
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.examSetText small {
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.examSetRoles {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* A document: a bordered pill that tints on hover and spins while its file
+   loads; an answer takes the ok colour. */
+.examRole {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 11px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-duration-fast)
+    var(--motion-easing-standard);
+}
+.examRole:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--accent-soft));
+}
+.examRole[data-role="answer"] {
+  background: var(--ok-soft, var(--accent-soft));
+  color: var(--ok, var(--accent));
+}
+.examRole[aria-busy] {
+  cursor: progress;
+}
+.examSpin {
+  animation: examSpin 0.8s linear infinite;
+}
+@keyframes examSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Requests: the list on the left, the chosen request on the right. */
+.examRequests {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.examList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.examRow {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-control);
+}
+.examRow > .examRowMain {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ink);
+  text-align: start;
+  cursor: default;
+  transition: background var(--motion-duration-fast)
+    var(--motion-easing-standard);
+}
+.examRow > .examRowMain:hover {
+  background: var(--surface-2);
+}
+.examRow[aria-current] > .examRowMain {
+  background: var(--accent-soft);
+}
+.examRow strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: calc(var(--type-row-size) * var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.examRow small {
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.examMore {
+  margin: 8px auto;
+  display: flex;
+}
+.examRequest {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  max-width: 640px;
+  padding: 8px 12px;
+}
+.examRequest > header {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.examRequest > header small {
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.examRequest h2 {
+  margin: 0;
+  font-size: calc(var(--type-title-size) * var(--text));
+  font-weight: 600;
+}
+.examRequestFacts {
+  margin: 0;
+  color: var(--muted);
+}
+.examRequestText {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -8,7 +8,14 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { UiButton, UiInput, UiSelect } from "../../components/ui";
+import { Globe, LoaderCircle } from "lucide-react";
+import {
+  EmptyState,
+  Tag,
+  UiButton,
+  UiInput,
+  UiSelect,
+} from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { ExternalLink } from "../../components/ExternalLink";
 import { desktopBridge } from "../../app/native";
@@ -25,10 +32,12 @@ import type {
   ExamLibrary,
   ExamLocalDocument,
   ExamOccasion,
+  ExamRequest,
   ExamRequestCursor,
   ExamRequestPage,
   ExamReportReason,
   ExamRole,
+  ExamSet,
   ExamSubject,
   ExamSubjectPage,
   ExamUploadForm,
@@ -98,13 +107,26 @@ export function PastExams({
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** The document being opened; only its button spins. */
+  const [opening, setOpening] = useState<string>();
+  /** The request shown beside the requests list. */
+  const [selectedRequest, setSelectedRequest] = useState<string>();
   const courseOpened = useRef(false);
+  /** Every call in flight; a foreground refresh waits for none. */
   const pendingCalls = useRef(0);
+  /** Calls that lock the page with `busy`; opening a document does not. */
+  const lockingCalls = useRef(0);
+  // The last document clicked wins: an earlier one still loading is dropped
+  // when it arrives, so a slow file cannot replace the newer one.
+  const openSeq = useRef(0);
   const applyAccount = useCallback(
     (next: ExamAccount) => {
       setAccount(next);
       if (next.status === "connected") return;
       courseOpened.current = false;
+      openSeq.current += 1;
+      setOpening(undefined);
+      setSelectedRequest(undefined);
       closeUpload();
       setSubjects([]);
       setSubject(undefined);
@@ -118,12 +140,19 @@ export function PastExams({
     [closeUpload],
   );
   const call = useCallback(
-    async (action: ExamAction): Promise<ExamAnswer | undefined> => {
+    async (
+      action: ExamAction,
+      lock = true,
+    ): Promise<ExamAnswer | undefined> => {
       pendingCalls.current += 1;
-      setBusy(true);
-      setConnecting(action.kind === "connect");
+      if (lock) {
+        lockingCalls.current += 1;
+        setBusy(true);
+        setConnecting(action.kind === "connect");
+      }
       setError("");
-      setNotice("");
+      // An open keeps the notice of the upload that led to it.
+      if (lock) setNotice("");
       try {
         const run = desktopBridge?.examShare;
         if (!run) throw new Error(t("error.unavailable"));
@@ -134,7 +163,8 @@ export function PastExams({
         return undefined;
       } finally {
         pendingCalls.current -= 1;
-        if (pendingCalls.current === 0) {
+        if (lock) lockingCalls.current -= 1;
+        if (lock && lockingCalls.current === 0) {
           setConnecting(false);
           setBusy(false);
         }
@@ -234,6 +264,9 @@ export function PastExams({
     void reloadShown();
   }, [active, connected, tab, stale]);
   const switchTab = (next: Tab) => {
+    // A document still opening belonged to the view being left.
+    openSeq.current += 1;
+    setOpening(undefined);
     setTab(next);
     setFile(undefined);
     setReport(false);
@@ -241,7 +274,11 @@ export function PastExams({
     setError("");
   };
   const open = async (id: string, download = false) => {
-    const answer = await call({ kind: "open", id, download });
+    const seq = ++openSeq.current;
+    setOpening(id);
+    const answer = await call({ kind: "open", id, download }, false);
+    if (seq !== openSeq.current) return;
+    setOpening(undefined);
     if (answer?.kind === "document") {
       setFile(answer.value);
       // A download joins the library, which answers no view of its own.
@@ -299,6 +336,8 @@ export function PastExams({
             : "examShare.upload.cleaned",
         ),
       );
+      // The new document, when Core names it, opens straight away.
+      if (answer.kind === "uploaded" && answer.value) void open(answer.value);
     } finally {
       setUploadRunning(false);
     }
@@ -323,8 +362,10 @@ export function PastExams({
             <UiButton
               disabled={busy}
               className="textButton"
+              aria-busy={opening === entry.id || undefined}
               onClick={() => void open(entry.id)}
             >
+              {opening === entry.id && <Spinner />}
               {examLabel(entry)}
             </UiButton>
             {kind && (
@@ -366,11 +407,40 @@ export function PastExams({
       <p>{t("examShare.noItems")}</p>
     );
 
+  const chosenRequest = requests?.items.find(
+    (item) => item.id === selectedRequest,
+  );
+  const requestFacts = (item: ExamRequest) =>
+    [
+      item.academicYear,
+      item.occasion && lookup(`examShare.occasion.${item.occasion}`),
+      item.wantedRole && lookup(`examShare.role.${item.wantedRole}`),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  // Core's address for what is on screen: the open document, else the tab's
+  // view once it has loaded.
+  const webUrl = !connected
+    ? undefined
+    : file
+      ? file.webUrl
+      : tab === "browse"
+        ? subject?.webUrl
+        : tab === "requests"
+          ? requests?.webUrl
+          : library?.webUrl;
+
   return (
     <section className="page" aria-busy={busy}>
       <header className="pageBar">
         <h1>{t("examShare.title")}</h1>
         <div className="pageBarRight">
+          {webUrl && (
+            <ExternalLink className="examSiteLink" href={webUrl}>
+              <Globe size={14} strokeWidth={1.75} aria-hidden />
+              {t("examShare.openOnWeb")}
+            </ExternalLink>
+          )}
           {account?.email && <span>{account.email}</span>}
           {account?.status === "connected" && (
             <UiButton
@@ -489,9 +559,16 @@ export function PastExams({
                 {t("common.back")}
               </UiButton>
               <UiButton
-                disabled={busy || file.downloaded || file.offline}
+                disabled={
+                  busy ||
+                  file.downloaded ||
+                  file.offline ||
+                  opening === file.document.id
+                }
+                aria-busy={opening === file.document.id || undefined}
                 onClick={() => void open(file.document.id, true)}
               >
+                {opening === file.document.id && <Spinner />}
                 {t(
                   file.downloaded
                     ? "examShare.downloaded"
@@ -588,9 +665,6 @@ export function PastExams({
                     >
                       {t("common.back")}
                     </UiButton>
-                    <ExternalLink href={subject.webUrl}>
-                      {t("examShare.openOnWeb")}
-                    </ExternalLink>
                     <UiButton
                       disabled={busy}
                       onClick={() =>
@@ -660,14 +734,17 @@ export function PastExams({
                     ]}
                   />
                 </div>
-                {documents(
-                  subject.exams.filter(
-                    (d) =>
-                      (!year || String(d.academicYear) === year) &&
-                      (!teacher || d.teachers.some((x) => x.id === teacher)) &&
-                      (!occasion || d.occasion === occasion),
-                  ),
-                )}
+                <SetList
+                  sets={subject.sets.filter(
+                    (set) =>
+                      (!year || String(set.academicYear) === year) &&
+                      (!teacher ||
+                        set.teachers.some((x) => x.id === teacher)) &&
+                      (!occasion || set.occasion === occasion),
+                  )}
+                  opening={opening}
+                  open={(id) => void open(id)}
+                />
               </>
             ) : (
               <>
@@ -731,98 +808,115 @@ export function PastExams({
                 {t("examShare.newRequest")}
               </UiButton>
             </div>
-            {requests && !requests.items.length && (
-              <p>{t("examShare.noItems")}</p>
-            )}
-            <ul className="examImportList">
-              {requests?.items.map((item) => (
-                <li key={item.id}>
+            {requests && !requests.items.length ? (
+              <EmptyState compact>{t("examShare.noItems")}</EmptyState>
+            ) : (
+              requests && (
+                <div className="examRequests">
                   <div>
-                    <strong>{subjectLabel(item.subject)}</strong>
-                    <small>
-                      {[
-                        item.academicYear,
-                        lookup(`examShare.requestStatus.${item.status}`),
-                        item.description,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
+                    <ul className="examList">
+                      {requests.items.map((item) => (
+                        <li
+                          key={item.id}
+                          className="examRow"
+                          aria-current={
+                            item.id === selectedRequest || undefined
+                          }
+                        >
+                          <button
+                            type="button"
+                            className="examRowMain"
+                            onClick={() => setSelectedRequest(item.id)}
+                          >
+                            <strong>
+                              {subjectLabel(item.subject)}
+                              {item.status !== "open" && (
+                                <Tag
+                                  tone={
+                                    item.status === "fulfilled"
+                                      ? "ok"
+                                      : "neutral"
+                                  }
+                                >
+                                  {lookup(
+                                    `examShare.requestStatus.${item.status}`,
+                                  )}
+                                </Tag>
+                              )}
+                            </strong>
+                            <small>
+                              {[requestFacts(item), item.description]
+                                .filter(Boolean)
+                                .join(" · ") || item.subject.code}
+                            </small>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {requests.cursor && (
+                      <UiButton
+                        className="examMore"
+                        disabled={busy}
+                        onClick={() => void loadRequests(mine, requests.cursor)}
+                      >
+                        {t("examShare.more")}
+                      </UiButton>
+                    )}
                   </div>
-                  <span className="examShareActions">
-                    {item.status === "open" && (
-                      <UiButton
-                        disabled={busy}
-                        onClick={() =>
-                          void openUpload({ kind: "request", request: item })
+                  {chosenRequest ? (
+                    <RequestDetail
+                      item={chosenRequest}
+                      subjectLabel={subjectLabel}
+                      facts={requestFacts(chosenRequest)}
+                      disabled={busy}
+                      opening={
+                        !!chosenRequest.answerExamId &&
+                        opening === chosenRequest.answerExamId
+                      }
+                      view={() =>
+                        chosenRequest.answerExamId &&
+                        void open(chosenRequest.answerExamId)
+                      }
+                      answer={() =>
+                        void openUpload({
+                          kind: "request",
+                          request: chosenRequest,
+                        })
+                      }
+                      setOpen={async (next) => {
+                        const answer = await call({
+                          kind: "setRequestOpen",
+                          id: chosenRequest.id,
+                          open: next,
+                          mine,
+                        });
+                        if (answer?.kind === "requests")
+                          setRequests(answer.value);
+                      }}
+                      remove={async () => {
+                        if (
+                          !(await confirmAction(
+                            t("examShare.deleteRequest"),
+                            t("common.delete"),
+                          ))
+                        )
+                          return;
+                        const answer = await call({
+                          kind: "deleteRequest",
+                          id: chosenRequest.id,
+                          mine,
+                        });
+                        if (answer?.kind === "requests") {
+                          setSelectedRequest(undefined);
+                          setRequests(answer.value);
                         }
-                      >
-                        {t("examShare.upload.answerRequest")}
-                      </UiButton>
-                    )}
-                    {item.answerExamId && (
-                      <UiButton
-                        disabled={busy}
-                        onClick={() => void open(item.answerExamId!)}
-                      >
-                        {t("examShare.viewAnswer")}
-                      </UiButton>
-                    )}
-                    {item.mine && (
-                      <>
-                        <UiButton
-                          disabled={busy}
-                          onClick={async () => {
-                            const answer = await call({
-                              kind: "setRequestOpen",
-                              id: item.id,
-                              open: item.status !== "open",
-                              mine,
-                            });
-                            if (answer?.kind === "requests")
-                              setRequests(answer.value);
-                          }}
-                        >
-                          {t(
-                            item.status === "open"
-                              ? "examShare.closeRequest"
-                              : "examShare.reopenRequest",
-                          )}
-                        </UiButton>
-                        <UiButton
-                          disabled={busy}
-                          onClick={async () => {
-                            if (
-                              !(await confirmAction(
-                                t("examShare.deleteRequest"),
-                                t("common.delete"),
-                              ))
-                            )
-                              return;
-                            const answer = await call({
-                              kind: "deleteRequest",
-                              id: item.id,
-                              mine,
-                            });
-                            if (answer?.kind === "requests")
-                              setRequests(answer.value);
-                          }}
-                        >
-                          {t("common.delete")}
-                        </UiButton>
-                      </>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {requests?.cursor && (
-              <UiButton
-                disabled={busy}
-                onClick={() => void loadRequests(mine, requests.cursor)}
-              >
-                {t("examShare.more")}
-              </UiButton>
+                      }}
+                    />
+                  ) : (
+                    <EmptyState>{t("examShare.pickRequest")}</EmptyState>
+                  )}
+                </div>
+              )
             )}
           </>
         ) : (
@@ -1018,5 +1112,155 @@ function RequestForm({
         {t("examShare.newRequest")}
       </UiButton>
     </form>
+  );
+}
+
+/** The spinner a document button shows while its file loads. */
+function Spinner() {
+  return (
+    <LoaderCircle size={12} strokeWidth={2} className="examSpin" aria-hidden />
+  );
+}
+
+/** One row per sitting. The row is a label; each of its documents (question,
+ * answer, …) is its own pill button, and only the one being opened spins. */
+function SetList({
+  sets,
+  opening,
+  open,
+}: {
+  sets: ExamSet[];
+  opening?: string;
+  open: (id: string) => void;
+}) {
+  if (!sets.length) return <p>{t("examShare.noItems")}</p>;
+  return (
+    <ul className="examSets">
+      {sets.map((set) => (
+        <li key={set.documents[0]?.id} className="examSet">
+          <span className="examSetYear">{set.academicYear}</span>
+          <span className="examSetText">
+            <strong>
+              {[
+                set.occasion && lookup(`examShare.occasion.${set.occasion}`),
+                set.occasionNumber > 1 ? set.occasionNumber : null,
+                set.variant,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            </strong>
+            {set.teachers.length > 0 && (
+              <small>{set.teachers.map(({ name }) => name).join(" / ")}</small>
+            )}
+          </span>
+          <span className="examSetRoles">
+            {set.documents.map((document) => (
+              <button
+                key={document.id}
+                type="button"
+                className="examRole"
+                data-role={document.role ?? undefined}
+                aria-busy={document.id === opening || undefined}
+                title={document.note ?? document.fileName}
+                onClick={() => open(document.id)}
+              >
+                {document.id === opening && <Spinner />}
+                {document.role
+                  ? (lookup(`examShare.role.${document.role}`) ??
+                    document.fileName)
+                  : t("examShare.role.other")}
+              </button>
+            ))}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** One request in full: what is wanted and from whom, what it is for, and
+ * what to do next: share a file, see the shared one, or manage one's own. */
+function RequestDetail({
+  item,
+  subjectLabel,
+  facts,
+  disabled,
+  opening,
+  view,
+  answer,
+  setOpen,
+  remove,
+}: {
+  item: ExamRequest;
+  subjectLabel: (subject: ExamSubject) => string;
+  facts: string;
+  disabled: boolean;
+  opening: boolean;
+  view: () => void;
+  answer: () => void;
+  setOpen: (open: boolean) => Promise<void>;
+  remove: () => Promise<void>;
+}) {
+  return (
+    <article className="examRequest">
+      <header>
+        <small>{item.subject.code}</small>
+        <h2>{subjectLabel(item.subject)}</h2>
+        <Tag
+          tone={
+            item.status === "fulfilled"
+              ? "ok"
+              : item.status === "open"
+                ? "accent"
+                : "neutral"
+          }
+        >
+          {lookup(`examShare.requestStatus.${item.status}`) ?? item.status}
+        </Tag>
+      </header>
+      {facts && <p className="examRequestFacts">{facts}</p>}
+      {item.teachers.length > 0 && (
+        <p className="examRequestFacts">
+          {item.teachers.map(({ name }) => name).join(" / ")}
+        </p>
+      )}
+      {item.description && (
+        <p className="examRequestText">{item.description}</p>
+      )}
+      <div className="examShareActions">
+        {item.answerExamId && (
+          <UiButton
+            aria-busy={opening || undefined}
+            disabled={opening}
+            onClick={view}
+          >
+            {opening && <Spinner />}
+            {t("examShare.viewAnswer")}
+          </UiButton>
+        )}
+        {item.status === "open" && (
+          <UiButton disabled={disabled} onClick={answer}>
+            {t("examShare.upload.answerRequest")}
+          </UiButton>
+        )}
+        {item.mine && (
+          <>
+            <UiButton
+              disabled={disabled}
+              onClick={() => void setOpen(item.status !== "open")}
+            >
+              {t(
+                item.status === "open"
+                  ? "examShare.closeRequest"
+                  : "examShare.reopenRequest",
+              )}
+            </UiButton>
+            <UiButton disabled={disabled} onClick={() => void remove()}>
+              {t("common.delete")}
+            </UiButton>
+          </>
+        )}
+      </div>
+    </article>
   );
 }

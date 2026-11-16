@@ -1,24 +1,20 @@
 package app.isctcompanion.features.pastexams
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -31,6 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -40,7 +38,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
@@ -48,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.isctcompanion.LocalModel
+import app.isctcompanion.LocalNavigator
 import app.isctcompanion.R
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.ExamAccountStatus
@@ -59,32 +57,29 @@ import app.isctcompanion.core.ExamLibrary
 import app.isctcompanion.core.ExamLocalDocument
 import app.isctcompanion.core.ExamOccasion
 import app.isctcompanion.core.ExamReportReason
+import app.isctcompanion.core.ExamRequest
 import app.isctcompanion.core.ExamRequestCursor
 import app.isctcompanion.core.ExamRequestDraft
 import app.isctcompanion.core.ExamRequestPage
-import app.isctcompanion.core.ExamSubject
 import app.isctcompanion.core.ExamRole
+import app.isctcompanion.core.ExamSubject
 import app.isctcompanion.core.ExamSubjectPage
-import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadPhase
-import app.isctcompanion.core.ExamUploadStart
 import app.isctcompanion.core.SdkException
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
-import java.io.File
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private enum class Tab(val key: String) {
     Browse("examShare.browse"), Requests("examShare.requests"), Library("examShare.library"),
 }
 
-private data class Confirmation(val key: String, val action: ExamAction)
+internal data class Confirmation(val key: String, val action: ExamAction)
 
 /** The API word an enum value stands for (`WRONG_ANSWER` → `wrongAnswer`),
  * which names its label; the API calls `NOT_APPLICABLE` `none`. */
@@ -93,59 +88,32 @@ internal val Enum<*>.wire: String
         .mapIndexed { index, word -> if (index == 0) word else word.replaceFirstChar(Char::uppercase) }
         .joinToString("")
 
-@Composable
-fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
-    val model = LocalModel.current
-    val scope = rememberCoroutineScope()
-    val uri = LocalUriHandler.current
-    val account = model.examAccount
-    val connected = account?.status == ExamAccountStatus.CONNECTED
-    var tab by rememberSaveable { mutableStateOf(Tab.Browse) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var subjects by remember { mutableStateOf<List<ExamSubject>?>(null) }
-    var subject by remember { mutableStateOf<ExamSubjectPage?>(null) }
-    var courseResolved by remember { mutableStateOf(false) }
-    /** An upload published while another tab was shown: the open subject reloads on return. */
-    var subjectStale by remember { mutableStateOf(false) }
-    var requests by remember { mutableStateOf<ExamRequestPage?>(null) }
-    var mine by rememberSaveable { mutableStateOf(false) }
-    var library by remember { mutableStateOf<ExamLibrary?>(null) }
-    var file by remember { mutableStateOf<ExamLocalDocument?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var connecting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var requestForm by rememberSaveable { mutableStateOf(false) }
-    var reportForm by rememberSaveable { mutableStateOf(false) }
-    var uploadForm by remember { mutableStateOf<ExamUploadForm?>(null) }
-    var confirmation by remember { mutableStateOf<Confirmation?>(null) }
-    var year by rememberSaveable { mutableStateOf("") }
-    var teacher by rememberSaveable { mutableStateOf("") }
-    var occasion by rememberSaveable { mutableStateOf("") }
-    val choices by produceState<ExamChoices?>(null) {
-        value = try {
-            (model.examShare(ExamAction.Choices) as ExamAnswer.Choices).v1
-        } catch (failure: SdkException) {
-            error = AppModel.describe(failure)
-            null
-        }
-    }
+/** What one past-exams page hands the next across a navigation: Core answers
+ * with values, which routes cannot carry. Lost with the process, when each
+ * page loads its own again. */
+internal object ExamViews {
+    /** Documents opened from a list, taken by the document page they open. */
+    val documents = mutableMapOf<String, ExamLocalDocument>()
+    /** Requests listed on a board, read by the request page. */
+    val requests = mutableMapOf<String, ExamRequest>()
+    /** The board's page on the site, from the last board Core answered. */
+    var requestBoardUrl: String? = null
 
-    // What a signed-out, consenting or unsupported account cannot show.
-    LaunchedEffect(connected) {
-        if (connected) return@LaunchedEffect
-        courseResolved = false
-        subjectStale = false
-        confirmation = null
-        subjects = null
-        subject = null
-        file = null
-        requests = null
-        library = null
-        requestForm = false
-        reportForm = false
-        uploadForm = null
+    fun board(page: ExamRequestPage) {
+        page.items.forEach { requests[it.id] = it }
+        requestBoardUrl = page.webUrl
     }
+}
+
+/** One page's calls into Core: one at a time, a failure shown on the page. */
+@Stable
+internal class ExamCalls(private val model: AppModel) {
+    var busy by mutableStateOf(false)
+        private set
+    var connecting by mutableStateOf(false)
+        private set
+    var error by mutableStateOf<String?>(null)
+    var notice by mutableStateOf<String?>(null)
 
     suspend fun call(action: ExamAction): ExamAnswer? {
         if (busy) return null
@@ -167,242 +135,266 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
             busy = false
         }
     }
+}
 
-    /** Shows the view an answer carries; writes answer the view they changed. */
+@Composable
+internal fun rememberExamCalls(): ExamCalls {
+    val model = LocalModel.current
+    return remember(model) { ExamCalls(model) }
+}
+
+/** Core's form choices and limits, read once per page. */
+@Composable
+internal fun rememberExamChoices(calls: ExamCalls): State<ExamChoices?> {
+    val model = LocalModel.current
+    return produceState<ExamChoices?>(null) {
+        value = try {
+            (model.examShare(ExamAction.Choices) as ExamAnswer.Choices).v1
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            calls.error = AppModel.describe(failure)
+            null
+        }
+    }
+}
+
+/** Opens documents from a list: the one opening shows a spinner, and the
+ * last one tapped is the one shown. */
+@Stable
+internal class ExamOpener(
+    private val model: AppModel,
+    private val scope: CoroutineScope,
+    private val calls: ExamCalls,
+    private val show: (String) -> Unit,
+) {
+    var opening by mutableStateOf<String?>(null)
+        private set
+
+    fun open(id: String) {
+        opening = id
+        calls.error = null
+        scope.launch {
+            val opened = try {
+                (model.examShare(ExamAction.Open(id, false)) as? ExamAnswer.Document)?.v1
+            } catch (_: SdkException.Cancelled) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (opening == id) calls.error = AppModel.describe(failure)
+                null
+            }
+            if (opening != id) return@launch
+            opening = null
+            if (opened != null) {
+                ExamViews.documents[id] = opened
+                show(id)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun rememberExamOpener(calls: ExamCalls): ExamOpener {
+    val model = LocalModel.current
+    val navigator = LocalNavigator.current
+    val scope = rememberCoroutineScope()
+    return remember(model, navigator, calls) { ExamOpener(model, scope, calls, navigator::openExamDocument) }
+}
+
+/** The page's last failure and notice, and a spinner while a call runs. */
+@Composable
+internal fun ExamStatus(calls: ExamCalls) {
+    val account = LocalModel.current.examAccount
+    // The unsupported status already says why the call failed.
+    calls.error?.takeIf { account?.status != ExamAccountStatus.UNSUPPORTED }?.let { Text(it, color = Theme.colors.danger) }
+    calls.notice?.let { Text(it, color = Theme.colors.muted) }
+    if (calls.busy) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+}
+
+/** The account: who is signed in, what connecting needs, and an upload to
+ * recover. [reload] reads (or changes) the account and reloads the page. */
+@Composable
+internal fun ExamAccountPanel(calls: ExamCalls, reload: suspend (ExamAction) -> Unit, uploaded: (String?) -> Unit) {
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    val uri = LocalUriHandler.current
+    val account = model.examAccount
+    val connected = account?.status == ExamAccountStatus.CONNECTED
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    Column {
+        account?.email?.let { Text(it, color = Theme.colors.muted) }
+        ExamStatus(calls)
+        account?.upload?.takeIf { connected && it.phase == ExamUploadPhase.PENDING }?.let { upload ->
+            ExamUploadProgress(upload, false)
+            TextButton(enabled = !calls.busy, onClick = {
+                scope.launch { (calls.call(ExamAction.RecoverUpload) as? ExamAnswer.Uploaded)?.let { uploaded(it.v1) } }
+            }) { Text(t("examShare.upload.recover")) }
+        }
+        if (calls.connecting) TextButton(onClick = {
+            scope.launch {
+                try {
+                    model.examShare(ExamAction.CancelConnect)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    calls.error = AppModel.describe(failure)
+                }
+            }
+        }) { Text(t("common.cancel")) }
+        when (account?.status) {
+            ExamAccountStatus.CONNECTED -> TextButton(enabled = !calls.busy, onClick = { confirmDisconnect = true }) {
+                Text(t("examShare.disconnect"))
+            }
+            // Terms and privacy are the service's own pages, which Core does not model.
+            ExamAccountStatus.NEEDS_CONSENT -> Row {
+                TextButton(onClick = { uri.openUri("https://sciencetokyoexam.com/terms") }) { Text(t("examShare.terms")) }
+                TextButton(onClick = { uri.openUri("https://sciencetokyoexam.com/privacy") }) { Text(t("examShare.privacy")) }
+                TextButton(enabled = !calls.busy, onClick = { scope.launch { reload(ExamAction.AcceptTerms) } }) { Text(t("examShare.accept")) }
+            }
+            ExamAccountStatus.UNSUPPORTED -> Text(t("error.exam-share-unsupported"))
+            ExamAccountStatus.DISCONNECTED, null -> TextButton(enabled = !calls.busy, onClick = {
+                scope.launch { reload(ExamAction.Connect) }
+            }) { Text(t("examShare.connect")) }
+        }
+    }
+    if (confirmDisconnect) ConfirmDialog(Confirmation("examShare.disconnectHint", ExamAction.Disconnect), { confirmDisconnect = false }) {
+        scope.launch { reload(ExamAction.Disconnect) }
+    }
+}
+
+@Composable
+internal fun ConfirmDialog(confirmation: Confirmation, dismiss: () -> Unit, confirm: (ExamAction) -> Unit) {
+    AlertDialog(onDismissRequest = dismiss, title = { Text(t(confirmation.key)) },
+        confirmButton = { TextButton(onClick = { dismiss(); confirm(confirmation.action) }) { Text(t("common.ok")) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(t("common.cancel")) } })
+}
+
+/** The past-exams tab: the account, subject search and this quarter's
+ * courses, the request board and the library. Subjects, documents and
+ * requests open as their own destinations. */
+@Composable
+fun PastExamsScreen(onBack: (() -> Unit)? = null) {
+    val model = LocalModel.current
+    val navigator = LocalNavigator.current
+    val uri = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    val calls = rememberExamCalls()
+    val opener = rememberExamOpener(calls)
+    val account = model.examAccount
+    val connected = account?.status == ExamAccountStatus.CONNECTED
+    var tab by rememberSaveable { mutableStateOf(Tab.Browse) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var subjects by remember { mutableStateOf<List<ExamSubject>?>(null) }
+    var requests by remember { mutableStateOf<ExamRequestPage?>(null) }
+    var mine by rememberSaveable { mutableStateOf(false) }
+    var library by remember { mutableStateOf<ExamLibrary?>(null) }
+    var confirmation by remember { mutableStateOf<Confirmation?>(null) }
+    val choices by rememberExamChoices(calls)
+
+    // What a signed-out, consenting or unsupported account cannot show.
+    LaunchedEffect(connected) {
+        if (connected) return@LaunchedEffect
+        confirmation = null
+        subjects = null
+        requests = null
+        library = null
+    }
+
     fun show(answer: ExamAnswer?) {
         when (answer) {
-            is ExamAnswer.Subject -> {
-                if (answer.v1.subject.code != subject?.subject?.code) {
-                    year = ""
-                    teacher = ""
-                    occasion = ""
-                }
-                subject = answer.v1
-            }
-            is ExamAnswer.Subjects -> {
-                subject = null
-                subjects = answer.v1
-            }
+            is ExamAnswer.Subjects -> subjects = answer.v1
             is ExamAnswer.Library -> library = answer.v1
-            is ExamAnswer.Requests -> requests = answer.v1
+            is ExamAnswer.Requests -> {
+                ExamViews.board(answer.v1)
+                requests = answer.v1
+            }
             else -> Unit
         }
     }
 
-    suspend fun open(id: String, download: Boolean = false) {
-        (call(ExamAction.Open(id, download)) as? ExamAnswer.Document)?.v1?.let {
-            file = it
-            // A download changes the library, which loads fresh when shown.
-            if (download) library = null
-        }
-    }
-
     suspend fun loadRequests(cursor: ExamRequestCursor? = null) {
-        (call(ExamAction.Requests(mine, cursor)) as? ExamAnswer.Requests)?.v1?.let {
+        (calls.call(ExamAction.Requests(mine, cursor)) as? ExamAnswer.Requests)?.v1?.let {
+            ExamViews.board(it)
             requests = it.copy(items = (if (cursor == null) emptyList() else requests?.items.orEmpty()) + it.items)
         }
     }
 
-    /** Loads a tab's view: the open subject again, the board's first page or the library. */
+    /** Loads a tab's view: the board's first page or the library. Search
+     * results stay as they were. */
     suspend fun load(view: Tab) {
         when (view) {
-            Tab.Browse -> {
-                subjectStale = false
-                subject?.let { show(call(ExamAction.Subject(it.subject.code, it.classId))) }
-            }
+            Tab.Browse -> Unit
             Tab.Requests -> loadRequests()
-            Tab.Library -> show(call(ExamAction.Library))
+            Tab.Library -> show(calls.call(ExamAction.Library))
         }
     }
 
-    /** Whether a tab's view was dropped (or never loaded) and loads when shown. */
-    fun missing(view: Tab) = when (view) {
-        Tab.Browse -> subjectStale
-        Tab.Requests -> requests == null
-        Tab.Library -> library == null
-    }
-
-    /** Shows a tab, closing an open document; a missing view loads (rule 1). */
     fun showTab(view: Tab) {
         tab = view
-        file = null
-        error = null
-        if (connected && missing(view)) scope.launch { load(view) }
+        calls.error = null
+        val missing = when (view) {
+            Tab.Browse -> false
+            Tab.Requests -> requests == null
+            Tab.Library -> library == null
+        }
+        if (connected && missing) scope.launch { load(view) }
     }
 
     /** The refresh rule: read the account (or change it with [action]) and,
-     * when connected, reload the view on screen. A course route opens its
-     * subject the first time instead. */
+     * when connected, reload the view on screen. */
     suspend fun reloadVisible(action: ExamAction = ExamAction.Account) {
-        if ((call(action) as? ExamAnswer.Account)?.v1?.status != ExamAccountStatus.CONNECTED) return
-        if (courseId != null && !courseResolved) {
-            tab = Tab.Browse
-            val answer = call(ExamAction.CourseSubject(courseId))
-            show(answer)
-            courseResolved = answer != null
-        } else {
-            load(tab)
-        }
+        if ((calls.call(action) as? ExamAnswer.Account)?.v1?.status != ExamAccountStatus.CONNECTED) return
+        load(tab)
     }
 
-    /** A published upload: the view on screen reloads; the request board and
-     * library load fresh when next shown. An open browse subject stays open
-     * and reloads when the browse tab is shown. */
-    suspend fun uploaded() {
-        if (tab != Tab.Browse) subjectStale = subject != null
-        if (tab != Tab.Requests) requests = null
-        if (tab != Tab.Library) library = null
-        reloadVisible()
-        notice = t("examShare.upload.uploaded")
+    fun uploaded(id: String?) {
+        requests = null
+        library = null
+        calls.notice = t("examShare.upload.uploaded")
+        if (id != null) navigator.openExamDocument(id) else scope.launch { reloadVisible() }
     }
-    LifecycleResumeEffect(courseId) {
+
+    // Returning to the page (from a pushed one, or to the app) reloads it.
+    LifecycleResumeEffect(Unit) {
         val refresh = scope.launch { reloadVisible() }
         onPauseOrDispose { refresh.cancel() }
     }
 
-    val editingUpload = uploadForm
-    val formChoices = choices
-    if (editingUpload != null && formChoices != null) {
-        ExamUploadScreen(form = editingUpload, choices = formChoices, onBack = {
-            uploadForm = null
-        }, onUploaded = {
-            // Use the parent scope so the refresh survives dismissing the form.
-            scope.launch {
-                uploadForm = null
-                uploaded()
-            }
-        })
-        return
-    }
-    if (file != null) androidx.activity.compose.BackHandler { showTab(tab) }
-    val currentFile = file
-
     TabPage(
         title = t("examShare.title"),
         navigationIcon = {
-            val back = if (currentFile != null) ({ showTab(tab) }) else onBack
-            if (back != null) IconButton(onClick = back) {
+            if (onBack != null) IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back"))
             }
         },
     ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            item {
-                account?.email?.let { Text(it, color = Theme.colors.muted) }
-                // The unsupported status below already says why the call failed.
-                error?.takeIf { account?.status != ExamAccountStatus.UNSUPPORTED }?.let { Text(it, color = Theme.colors.danger) }
-                notice?.let { Text(it, color = Theme.colors.muted) }
-                if (busy) CircularProgressIndicator()
-                account?.upload?.takeIf { connected && it.phase == ExamUploadPhase.PENDING }?.let { upload ->
-                    ExamUploadProgress(upload, false)
-                    TextButton(enabled = !busy, onClick = {
-                        scope.launch { if (call(ExamAction.RecoverUpload) == ExamAnswer.Uploaded) uploaded() }
-                    }) { Text(t("examShare.upload.recover")) }
-                }
-                if (connecting) TextButton(onClick = {
-                    scope.launch {
-                        try {
-                            model.examShare(ExamAction.CancelConnect)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            error = AppModel.describe(failure)
-                        }
-                    }
-                }) { Text(t("common.cancel")) }
-                when (account?.status) {
-                    ExamAccountStatus.CONNECTED -> TextButton(enabled = !busy, onClick = {
-                        confirmation = Confirmation("examShare.disconnectHint", ExamAction.Disconnect)
-                    }) { Text(t("examShare.disconnect")) }
-                    ExamAccountStatus.NEEDS_CONSENT -> Row {
-                        TextButton(onClick = { uri.openUri("https://sciencetokyoexam.com/terms") }) { Text(t("examShare.terms")) }
-                        TextButton(onClick = { uri.openUri("https://sciencetokyoexam.com/privacy") }) { Text(t("examShare.privacy")) }
-                        TextButton(enabled = !busy, onClick = { scope.launch { reloadVisible(ExamAction.AcceptTerms) } }) { Text(t("examShare.accept")) }
-                    }
-                    ExamAccountStatus.UNSUPPORTED -> Text(t("error.exam-share-unsupported"))
-                    ExamAccountStatus.DISCONNECTED, null -> TextButton(enabled = !busy, onClick = {
-                        scope.launch { reloadVisible(ExamAction.Connect) }
-                    }) { Text(t("examShare.connect")) }
-                }
-            }
+            item { ExamAccountPanel(calls, { reloadVisible(it) }, ::uploaded) }
             if (account?.status == ExamAccountStatus.UNSUPPORTED) return@LazyColumn
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Tab.entries.forEach { choice ->
-                        FilterChip(selected = tab == choice, enabled = !busy, onClick = { showTab(choice) }, label = { Text(t(choice.key)) })
+                        FilterChip(selected = tab == choice, enabled = !calls.busy, onClick = { showTab(choice) }, label = { Text(t(choice.key)) })
                     }
                 }
             }
-            if (currentFile != null) {
-                item {
-                    val id = currentFile.document.id
-                    SectionLabel(examLabel(currentFile.document))
-                    if (currentFile.offline) Text(t("examShare.offline"))
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        TextButton(enabled = !busy && !currentFile.downloaded && !currentFile.offline, onClick = {
-                            scope.launch { open(id, true) }
-                        }) { Text(t(if (currentFile.downloaded) "examShare.downloaded" else "examShare.download")) }
-                        currentFile.saved?.let { saved ->
-                            TextButton(enabled = !busy && !currentFile.offline, onClick = {
-                                scope.launch {
-                                    val answer = call(ExamAction.Save(id, !saved)) as? ExamAnswer.Saved
-                                    if (answer != null) {
-                                        file = currentFile.copy(saved = answer.v1)
-                                        library = null
-                                    }
-                                }
-                            }) { Text(t(if (saved) "examShare.unsave" else "examShare.save")) }
-                        }
-                        TextButton(enabled = !busy && !currentFile.offline, onClick = { reportForm = true }) { Text(t("examShare.report")) }
-                    }
-                }
-                item { NativeDocument(currentFile) }
+            if (!connected) {
+                // Nothing to list until the account is connected.
             } else if (tab == Tab.Browse) {
-                if (connected) {
-                    item {
-                        OutlinedTextField(query, { query = it.take(choices?.limits?.query?.toInt() ?: it.length) }, label = { Text(t("examShare.search")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        TextButton(enabled = !busy && query.isNotBlank(), onClick = {
-                            scope.launch { show(call(ExamAction.Search(query))) }
-                        }) { Text(t("examShare.search")) }
-                    }
-                    val selected = subject
-                    if (selected != null) {
-                        item {
-                            SectionLabel(selected.subject.name)
-                            TextButton(onClick = { subject = null }) { Text(t("common.back")) }
-                            TextButton(onClick = { uri.openUri(selected.webUrl) }) { Text(t("examShare.openOnWeb")) }
-                            TextButton(enabled = !busy, onClick = { requestForm = true }) { Text(t("examShare.newRequest")) }
-                            TextButton(enabled = !busy, onClick = {
-                                scope.launch {
-                                    uploadForm = (call(ExamAction.UploadForm(ExamUploadStart.Subject(selected.subject.code))) as? ExamAnswer.UploadForm)?.v1
-                                }
-                            }) { Text(t("examShare.upload.title")) }
-                            ChoiceRow("examShare.allYears", year.ifEmpty { null }, selected.years.map { "$it" to "$it" }) { year = it.orEmpty() }
-                            ChoiceRow("examShare.allTeachers", teacher.ifEmpty { null }, selected.teachers.map { it.id to it.name }) { teacher = it.orEmpty() }
-                            ChoiceRow("examShare.allOccasions", occasion.ifEmpty { null }, selected.occasions.map { it to t("examShare.occasion.$it") }) { occasion = it.orEmpty() }
-                        }
-                        val exams = selected.exams.filter {
-                            (year.isEmpty() || it.academicYear?.toString() == year) &&
-                                (teacher.isEmpty() || it.teachers.any { x -> x.id == teacher }) &&
-                                (occasion.isEmpty() || it.occasion == occasion)
-                        }
-                        if (exams.isEmpty()) item { Text(t("examShare.noItems")) }
-                        items(exams, key = { it.id }) { exam -> TextButton(enabled = !busy, onClick = { scope.launch { open(exam.id) } }) { Text(examLabel(exam)) } }
-                    } else {
-                        if (subjects?.isEmpty() == true) item { Text(t("examShare.noItems")) }
-                        items(subjects.orEmpty(), key = { it.code }) { hit ->
-                            TextButton(enabled = !busy, onClick = {
-                                scope.launch { show(call(ExamAction.Subject(hit.code, null))) }
-                            }) { Text("${hit.name} · ${hit.code}") }
-                        }
-                        item {
-                            CurrentCourses(enabled = !busy) { id ->
-                                scope.launch { show(call(ExamAction.CourseSubject(id))) }
-                            }
-                        }
-                    }
+                item {
+                    OutlinedTextField(query, { query = it.take(choices?.limits?.query?.toInt() ?: it.length) }, label = { Text(t("examShare.search")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    TextButton(enabled = !calls.busy && query.isNotBlank(), onClick = {
+                        scope.launch { show(calls.call(ExamAction.Search(query))) }
+                    }) { Text(t("examShare.search")) }
                 }
-            } else if (connected && tab == Tab.Requests) {
+                if (subjects?.isEmpty() == true) item { Text(t("examShare.noItems")) }
+                items(subjects.orEmpty(), key = { it.code }) { hit ->
+                    TextButton(onClick = { navigator.openExamSubject(hit.code) }) { Text("${hit.name} · ${hit.code}") }
+                }
+                item { CurrentCourses(enabled = true) { id -> navigator.openPastExams(id) } }
+            } else if (tab == Tab.Requests) {
                 item {
                     ChoiceRow("examShare.openRequests", "mine".takeIf { mine }, listOf("mine" to t("examShare.myRequests"))) {
                         mine = it != null; requests = null; scope.launch { loadRequests() }
@@ -411,33 +403,17 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                 }
                 if (requests?.items?.isEmpty() == true) item { Text(t("examShare.noItems")) }
                 items(requests?.items.orEmpty(), key = { it.id }) { request ->
-                    Card {
+                    Card(Modifier.clickable { navigator.openExamRequest(request.id, mine) }) {
                         Column(Modifier.padding(12.dp)) {
                             Text(request.subject.name)
-                            Text(listOfNotNull(request.academicYear?.toString(), t("examShare.requestStatus.${request.status}"), request.description.ifEmpty { null }).joinToString(" · "), color = Theme.colors.muted)
-                            request.answerExamId?.let { id ->
-                                TextButton(enabled = !busy, onClick = { scope.launch { open(id) } }) { Text(t("examShare.viewAnswer")) }
-                            }
-                            if (request.status == "open") {
-                                TextButton(enabled = !busy, onClick = {
-                                    scope.launch {
-                                        uploadForm = (call(ExamAction.UploadForm(ExamUploadStart.Request(request))) as? ExamAnswer.UploadForm)?.v1
-                                    }
-                                }) { Text(t("examShare.upload.answerRequest")) }
-                            }
-                            if (request.mine) Row {
-                                TextButton(enabled = !busy, onClick = {
-                                    scope.launch { show(call(ExamAction.SetRequestOpen(request.id, request.status != "open", mine))) }
-                                }) { Text(t(if (request.status == "open") "examShare.closeRequest" else "examShare.reopenRequest")) }
-                                TextButton(enabled = !busy, onClick = { confirmation = Confirmation("examShare.deleteRequest", ExamAction.DeleteRequest(request.id, mine)) }) { Text(t("common.delete")) }
-                            }
+                            Text(requestFacts(request), color = Theme.colors.muted)
                         }
                     }
                 }
                 requests?.cursor?.let { cursor -> item {
-                    TextButton(enabled = !busy, onClick = { scope.launch { loadRequests(cursor) } }) { Text(t("examShare.more")) }
+                    TextButton(enabled = !calls.busy, onClick = { scope.launch { loadRequests(cursor) } }) { Text(t("examShare.more")) }
                 } }
-            } else if (connected) {
+            } else {
                 library?.let { content ->
                     val groups = if (content.offline) {
                         item { Text(t("examShare.libraryUnavailable"), color = Theme.colors.muted) }
@@ -445,13 +421,15 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                     } else {
                         listOf("examShare.saved" to content.saved, "examShare.downloaded" to content.downloaded, "examShare.submitted" to content.submitted)
                     }
+                    item { TextButton(onClick = { uri.openUri(content.webUrl) }) { Text(t("examShare.openOnWeb")) } }
                     groups.forEach { (key, exams) ->
                         item { SectionLabel(t(key)); if (exams.isEmpty()) Text(t("examShare.noItems")) }
                         items(exams, key = { "$key:${it.id}" }) { exam ->
-                            Row {
-                                TextButton(modifier = Modifier.weight(1f), enabled = !busy, onClick = { scope.launch { open(exam.id) } }) { Text(examLabel(exam)) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(modifier = Modifier.weight(1f), onClick = { opener.open(exam.id) }) { Text(examLabel(exam)) }
+                                if (opener.opening == exam.id) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 if (key == "examShare.downloaded" || key == "examShare.submitted") {
-                                    TextButton(enabled = !busy, onClick = {
+                                    TextButton(enabled = !calls.busy, onClick = {
                                         confirmation = if (key == "examShare.downloaded")
                                             Confirmation("examShare.removeDownload", ExamAction.RemoveDownload(exam.id))
                                         else Confirmation("examShare.deleteSubmission", ExamAction.DeleteSubmission(exam.id))
@@ -462,54 +440,38 @@ fun PastExamsScreen(courseId: String? = null, onBack: (() -> Unit)? = null) {
                     }
                 }
             }
-            // English only by design: it names the service and its operator.
-            item {
-                Image(
-                    painterResource(R.drawable.past_exams_credit),
-                    "Supported by ScienceTokyoExam · teduryu",
-                    Modifier.fillMaxWidth().padding(top = 12.dp).height(11.dp),
-                    alignment = Alignment.CenterEnd,
-                    contentScale = ContentScale.Fit,
-                    colorFilter = ColorFilter.tint(Theme.colors.muted),
-                )
-            }
+            item { ExamCredit() }
         }
     }
     confirmation?.let {
-        AlertDialog(onDismissRequest = { confirmation = null }, title = { Text(t(it.key)) },
-            confirmButton = { TextButton(onClick = {
-                confirmation = null
-                scope.launch {
-                    if (it.action == ExamAction.Disconnect) reloadVisible(it.action)
-                    else show(call(it.action))
-                }
-            }) { Text(t("common.ok")) } },
-            dismissButton = { TextButton(onClick = { confirmation = null }) { Text(t("common.cancel")) } })
+        ConfirmDialog(it, { confirmation = null }) { action -> scope.launch { show(calls.call(action)) } }
     }
-    subject?.takeIf { requestForm }?.let { page -> formChoices?.let {
-        RequestDialog(page, it, busy, error, { requestForm = false }) { draft ->
-            scope.launch {
-                if (call(ExamAction.CreateRequest(draft)) != null) {
-                    // Both boards hold one board's page; either loads fresh when shown.
-                    requests = null
-                    requestForm = false
-                    notice = t("examShare.requestCreated")
-                }
-            }
-        }
-    } }
-    currentFile?.takeIf { reportForm }?.let { shown -> formChoices?.let {
-        ReportDialog(it.reportReasons, it.limits.reportDetail.toInt(), busy, error, { reportForm = false }) { reason, detail ->
-            scope.launch {
-                if (call(ExamAction.Report(shown.document.id, reason, detail)) != null) { reportForm = false; notice = t("examShare.reported") }
-            }
-        }
-    } }
 }
+
+/** English only by design: it names the service and its operator. */
+@Composable
+internal fun ExamCredit() {
+    Image(
+        painterResource(R.drawable.past_exams_credit),
+        "Supported by ScienceTokyoExam · teduryu",
+        Modifier.fillMaxWidth().padding(top = 12.dp).height(11.dp),
+        alignment = Alignment.CenterEnd,
+        contentScale = ContentScale.Fit,
+        colorFilter = ColorFilter.tint(Theme.colors.muted),
+    )
+}
+
+internal fun requestFacts(request: ExamRequest): String = listOfNotNull(
+    request.academicYear?.toString(),
+    request.occasion?.let { t("examShare.occasion.$it") },
+    request.wantedRole?.let { t("examShare.role.$it") },
+    t("examShare.requestStatus.${request.status}"),
+    request.description.ifEmpty { null },
+).joinToString(" · ")
 
 /** Filter chips: [empty] means no filter (null), then one chip per choice. */
 @Composable
-private fun <T> ChoiceRow(empty: String, selected: T?, choices: List<Pair<T, String>>, pick: (T?) -> Unit) {
+internal fun <T> ChoiceRow(empty: String, selected: T?, choices: List<Pair<T, String>>, pick: (T?) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         FilterChip(selected = selected == null, onClick = { pick(null) }, label = { Text(t(empty)) })
         choices.forEach { (value, label) ->
@@ -519,7 +481,7 @@ private fun <T> ChoiceRow(empty: String, selected: T?, choices: List<Pair<T, Str
 }
 
 @Composable
-private fun RequestDialog(subject: ExamSubjectPage, choices: ExamChoices, busy: Boolean, error: String?, dismiss: () -> Unit, submit: (ExamRequestDraft) -> Unit) {
+internal fun RequestDialog(subject: ExamSubjectPage, choices: ExamChoices, busy: Boolean, error: String?, dismiss: () -> Unit, submit: (ExamRequestDraft) -> Unit) {
     var classId by remember { mutableStateOf<UInt?>(null) }
     var year by remember { mutableStateOf("") }
     var occasion by remember { mutableStateOf<ExamOccasion?>(null) }
@@ -546,7 +508,7 @@ private fun RequestDialog(subject: ExamSubjectPage, choices: ExamChoices, busy: 
 }
 
 @Composable
-private fun ReportDialog(reasons: List<ExamReportReason>, detailLimit: Int, busy: Boolean, error: String?, dismiss: () -> Unit, submit: (ExamReportReason, String) -> Unit) {
+internal fun ReportDialog(reasons: List<ExamReportReason>, detailLimit: Int, busy: Boolean, error: String?, dismiss: () -> Unit, submit: (ExamReportReason, String) -> Unit) {
     var reason by remember { mutableStateOf(reasons.first()) }
     var detail by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = dismiss, title = { Text(t("examShare.report")) },
@@ -561,67 +523,19 @@ private fun ReportDialog(reasons: List<ExamReportReason>, detailLimit: Int, busy
         dismissButton = { TextButton(onClick = dismiss) { Text(t("common.cancel")) } })
 }
 
-@Composable
-private fun NativeDocument(file: ExamLocalDocument) {
-    if (file.document.fileType == "text/plain") {
-        val content by produceState<String?>(null, file.path) {
-            value = withContext(Dispatchers.IO) {
-                runCatching { File(file.path).readText() }.getOrElse { t("error.storage") }
-            }
-        }
-        Text(content ?: t("common.loading"))
-        return
-    }
-    val isPdf = file.document.fileType == "application/pdf"
-    var page by rememberSaveable(file.path) { mutableStateOf(0) }
-    val result by produceState<Result<Pair<Bitmap, Int>>?>(null, file.path, page) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                if (!isPdf) {
-                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(file.path, options)
-                    options.inJustDecodeBounds = false
-                    options.inSampleSize = maxOf(1, maxOf(options.outWidth, options.outHeight) / 1600)
-                    val bitmap = checkNotNull(BitmapFactory.decodeFile(file.path, options))
-                    bitmap to 1
-                }
-                else ParcelFileDescriptor.open(File(file.path), ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                    PdfRenderer(descriptor).use { pdf ->
-                        pdf.openPage(page).use { source ->
-                            val scale = (1400f / maxOf(source.width, source.height)).coerceAtMost(2f)
-                            val bitmap = Bitmap.createBitmap((source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-                            bitmap.eraseColor(Color.WHITE)
-                            source.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            bitmap to pdf.pageCount
-                        }
-                    }
-                }
-            }
-        }
-    }
-    val preview = result
-    val shown = preview?.getOrNull()
-    if (shown == null) {
-        Text(t(if (preview == null) "common.loading" else "error.unavailable"))
-    } else {
-        val (bitmap, pages) = shown
-        if (pages > 1) Row {
-            TextButton(enabled = page > 0, onClick = { page-- }) { Text(t("common.back")) }
-            Text("${page + 1} / $pages", modifier = Modifier.padding(top = 12.dp))
-            TextButton(enabled = page + 1 < pages, onClick = { page++ }) { Text(t("examShare.more")) }
-        }
-        Image(bitmap.asImageBitmap(), file.document.fileName, Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height))
-    }
-}
-
-private fun examLabel(exam: ExamDocument): String = listOfNotNull(
-    exam.subjects.joinToString(" / ") { it.name },
-    exam.academicYear?.toString(),
-    exam.occasion?.let {
+/** A sitting's name: year, exam type and round, variant. */
+internal fun sittingLabel(year: UInt?, occasion: String?, number: UInt, variant: String): String = listOfNotNull(
+    year?.toString(),
+    occasion?.let {
         val label = t("examShare.occasion.$it")
-        if (exam.occasionNumber > 1u) "$label ${exam.occasionNumber}" else label
+        if (number > 1u) "$label $number" else label
     },
-    exam.variant,
+    variant,
+).filter { it.isNotBlank() }.joinToString(" · ")
+
+internal fun examLabel(exam: ExamDocument): String = listOfNotNull(
+    exam.subjects.joinToString(" / ") { it.name },
+    sittingLabel(exam.academicYear, exam.occasion, exam.occasionNumber, exam.variant),
     exam.role?.let { t("examShare.role.$it") },
     exam.teachers.joinToString(" / ") { it.name },
     exam.note,

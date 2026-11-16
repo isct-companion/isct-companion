@@ -4,6 +4,7 @@ import IsctCore
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
+import VisionKit
 
 enum ExamUploadEntry: Identifiable {
     case subject(ExamSubject)
@@ -36,6 +37,18 @@ enum ExamUploadEntry: Identifiable {
     }
 }
 
+/// How an upload or recovery ended, for the page that opened the sheet.
+struct ExamUploadOutcome {
+    /// Materials went up; otherwise a previous upload was cleaned away.
+    let published: Bool
+    /// The new document, when Core could tell which it is.
+    let documentId: String?
+
+    var notice: String {
+        published ? t("examShare.upload.uploaded") : t("examShare.upload.cleaned")
+    }
+}
+
 /// Renders Core's upload form. Fields without rules are edited in
 /// `form.draft`; subjects and the role go back to Core (`EditUpload`), which
 /// answers the consistent form. Progress follows the account Core sends.
@@ -45,18 +58,20 @@ struct ExamUploadSheet: View {
 
     let entry: ExamUploadEntry
     let choices: ExamChoices
-    /// An upload or recovery finished; `published` when materials went up.
-    let onFinished: (_ published: Bool) async -> Void
+    /// An upload or recovery finished.
+    let onFinished: (ExamUploadOutcome) async -> Void
 
     @State private var form: ExamUploadForm?
     @State private var newTeachers: [TeacherEntry] = []
     @State private var year = ""
-    @State private var selection: ExamUploadSelection?
+    /// Every staging, each keeping its copies alive while the form shows.
+    @State private var selections: [ExamUploadSelection] = []
     @State private var files: [ExamUploadSelection.File] = []
     @State private var problem: String?
     @State private var choosingFiles = false
     @State private var choosingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
+    @State private var scanning = false
     @State private var choosingSubject = false
     @State private var loading = true
     @State private var editing = false
@@ -127,6 +142,14 @@ struct ExamUploadSheet: View {
                 photos = []
                 Task { await stage(picked) }
             }
+            .fullScreenCover(isPresented: $scanning) {
+                DocumentScanner { pages in
+                    scanning = false
+                    guard !pages.isEmpty else { return }
+                    Task { await stage(pages) }
+                }
+                .ignoresSafeArea()
+            }
             .sheet(isPresented: $choosingSubject) {
                 ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? [])) { subject in
                     try await edit(.addSubject(code: subject.code))
@@ -162,8 +185,12 @@ struct ExamUploadSheet: View {
 
     private var fileFields: some View {
         Section {
-            // Photos come from the library, documents from Files, as in Mail.
+            // Paper is scanned with the camera, photos come from the library,
+            // documents from Files, as in Mail. Each adds to the list.
             Menu {
+                if VNDocumentCameraViewController.isSupported {
+                    Button(t("examShare.upload.scan"), systemImage: "doc.viewfinder") { scanning = true }
+                }
                 Button(t("examShare.upload.photoLibrary"), systemImage: "photo.on.rectangle") { choosingPhotos = true }
                 Button(t("examShare.upload.browseFiles"), systemImage: "folder") { choosingFiles = true }
             } label: {
@@ -323,8 +350,8 @@ struct ExamUploadSheet: View {
             let staged = try await Task.detached(priority: .userInitiated) {
                 try ExamUploadSelection.copy(urls)
             }.value
-            selection = staged
-            files = staged.files
+            selections.append(staged)
+            files.append(contentsOf: staged.files)
         } catch { problem = t("examShare.upload.failedFiles") }
     }
 
@@ -350,8 +377,30 @@ struct ExamUploadSheet: View {
         await stage(urls)
     }
 
+    /// Scanned pages, written out as JPEG files and staged like photos.
+    private func stage(_ pages: [UIImage]) async {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = files.count + 1
+        var urls: [URL] = []
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (index, page) in pages.enumerated() {
+                guard let data = page.jpegData(compressionQuality: 0.9) else { throw CocoaError(.fileWriteUnknown) }
+                let url = folder.appendingPathComponent("scan-\(first + index).jpg")
+                try data.write(to: url)
+                urls.append(url)
+            }
+        } catch {
+            problem = t("examShare.upload.failedFiles")
+            return
+        }
+        await stage(urls)
+    }
+
     private func submit() async {
-        guard canSubmit, var draft = form?.draft, let selection else { return }
+        guard canSubmit, var draft = form?.draft else { return }
+        let selections = selections
         draft.academicYear = UInt32(year.trimmingCharacters(in: .whitespacesAndNewlines))
         draft.newTeachers = newTeachers.map {
             ExamNewTeacher(familyName: $0.familyName, givenName: $0.givenName)
@@ -359,7 +408,7 @@ struct ExamUploadSheet: View {
         let input = files.map { ExamUploadFile(path: $0.url.path, name: $0.name) }
         // The staging directory is kept alive through the native operation.
         await perform(.upload(files: input, draft: draft))
-        withExtendedLifetime(selection) {}
+        withExtendedLifetime(selections) {}
     }
 
     private func perform(_ action: ExamAction) async {
@@ -372,11 +421,11 @@ struct ExamUploadSheet: View {
         }
         do {
             switch try await model.examShare(action) {
-            case .uploaded:
-                await onFinished(true)
+            case let .uploaded(id):
                 dismiss()
+                await onFinished(ExamUploadOutcome(published: true, documentId: id))
             case .done:
-                await onFinished(false)
+                await onFinished(ExamUploadOutcome(published: false, documentId: nil))
                 if entry.start == nil { dismiss() }
             default: break
             }
@@ -399,6 +448,37 @@ struct ExamUploadSheet: View {
         let id = UUID()
         var familyName = ""
         var givenName = ""
+    }
+}
+
+/// VisionKit's scanner: finds the page edges, straightens and evens out
+/// each photo, so a paper exam reads like a scan.
+private struct DocumentScanner: UIViewControllerRepresentable {
+    let finish: ([UIImage]) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(finish: finish) }
+
+    func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
+        let controller = VNDocumentCameraViewController()
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ controller: VNDocumentCameraViewController, context: Context) {}
+
+    final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+        let finish: ([UIImage]) -> Void
+        init(finish: @escaping ([UIImage]) -> Void) { self.finish = finish }
+
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
+            finish((0..<scan.pageCount).map(scan.imageOfPage))
+        }
+
+        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) { finish([]) }
+
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
+            finish([])
+        }
     }
 }
 

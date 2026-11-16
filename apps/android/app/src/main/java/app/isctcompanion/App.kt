@@ -106,6 +106,10 @@ import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.lectures.LecturesScreen
+import app.isctcompanion.features.pastexams.ExamDocumentScreen
+import app.isctcompanion.features.pastexams.ExamRequestScreen
+import app.isctcompanion.features.pastexams.ExamSubjectEntry
+import app.isctcompanion.features.pastexams.ExamSubjectScreen
 import app.isctcompanion.features.pastexams.PastExamsScreen
 import app.isctcompanion.features.map.CampusMapScreen
 import app.isctcompanion.features.settings.SettingsScreen
@@ -240,6 +244,17 @@ class Navigator(private val controller: NavHostController) {
     fun openPastExams(courseId: String? = null) =
         controller.navigate("past-exams/detail?course=${Uri.encode(courseId.orEmpty())}") { launchSingleTop = true }
 
+    /** A past-exam subject by its code, scoped to one class when given. */
+    fun openExamSubject(code: String, classId: UInt? = null) =
+        controller.navigate("past-exams/subject/${Uri.encode(code)}?class=${classId?.toString().orEmpty()}")
+
+    /** A past-exam document, full screen. */
+    fun openExamDocument(id: String) = controller.navigate("past-exams/document/${Uri.encode(id)}")
+
+    /** One request of the board, `mine` naming which board it was listed on. */
+    fun openExamRequest(id: String, mine: Boolean) =
+        controller.navigate("past-exams/request/${Uri.encode(id)}?mine=$mine")
+
     /** Opens the campus map full screen, on a room string or on none to browse. */
     fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
 
@@ -360,9 +375,11 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
         }
     }
     val tabs = AppTab.entries.filter { wide || !it.wideOnly }
-    // A pushed school page fills the screen, like a browser tab; so does the
-    // campus map.
-    val showsBar = destination?.route?.let { it.startsWith("page/") || it.startsWith("map?") } != true
+    // A pushed school page fills the screen, like a browser tab; so do the
+    // campus map and a past-exam document.
+    val showsBar = destination?.route?.let {
+        it.startsWith("page/") || it.startsWith("map?") || it.startsWith("past-exams/document/")
+    } != true
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
@@ -464,7 +481,32 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                     listOf(navArgument("course") { type = NavType.StringType; defaultValue = "" }),
                 ) {
                     val courseId = it.arguments?.getString("course")?.ifEmpty { null }
-                    key(courseId) { PastExamsScreen(courseId = courseId, onBack = { navigator.back() }) }
+                    key(courseId) {
+                        if (courseId == null) PastExamsScreen(onBack = { navigator.back() })
+                        else ExamSubjectScreen(ExamSubjectEntry.Course(courseId))
+                    }
+                }
+                destination(
+                    "past-exams/subject/{code}?class={class}",
+                    listOf(
+                        navArgument("code") { type = NavType.StringType },
+                        navArgument("class") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) {
+                    val code = it.arguments?.getString("code").orEmpty()
+                    ExamSubjectScreen(ExamSubjectEntry.Code(code, it.arguments?.getString("class")?.toUIntOrNull()))
+                }
+                destination("past-exams/document/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
+                    ExamDocumentScreen(it.arguments?.getString("id").orEmpty())
+                }
+                destination(
+                    "past-exams/request/{id}?mine={mine}",
+                    listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("mine") { type = NavType.BoolType; defaultValue = false },
+                    ),
+                ) {
+                    ExamRequestScreen(it.arguments?.getString("id").orEmpty(), it.arguments?.getBoolean("mine") ?: false)
                 }
                 destination(
                     "course/{id}?zoom={zoom}",

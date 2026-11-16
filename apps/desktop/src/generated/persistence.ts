@@ -796,6 +796,19 @@ export type ExamSubjectPage = {
   sets: Array<ExamSet>;
 };
 
+export type ExamSet = {
+  academicYear: number | null;
+  occasion: string | null;
+  occasionNumber: number;
+  variant: string;
+  teachers: Array<ExamTeacher>;
+  /**
+   * A teacher of the course's own class is among `teachers`.
+   */
+  mine: boolean;
+  documents: Array<ExamDocument>;
+};
+
 export type ExamRequest = {
   id: string;
   subject: ExamSubject;

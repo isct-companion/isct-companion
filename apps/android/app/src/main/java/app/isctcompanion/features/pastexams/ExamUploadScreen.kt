@@ -1,12 +1,18 @@
 package app.isctcompanion.features.pastexams
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,6 +74,11 @@ import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -113,7 +124,8 @@ internal fun ExamUploadScreen(
     form: ExamUploadForm,
     choices: ExamChoices,
     onBack: () -> Unit,
-    onUploaded: () -> Unit,
+    /** The upload finished, with the new document's id when the site named it. */
+    onUploaded: (String?) -> Unit,
 ) {
     val model = LocalModel.current
     val context = LocalContext.current.applicationContext as IsctApplication
@@ -157,16 +169,22 @@ internal fun ExamUploadScreen(
     }
     BackHandler { if (!busy) onBack() }
 
-    val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+    /** Copies [uris] in; Files replaces the selection, photos and scanned
+     * pages add to it. */
+    fun stage(uris: List<Uri>, replace: Boolean) {
+        if (uris.isEmpty()) return
         scope.launch {
             picking = true
             error = null
             val selection = File(staging, UUID.randomUUID().toString())
             try {
                 val next = withContext(Dispatchers.IO) { stageFiles(context, selection, uris) }
-                files.firstOrNull()?.let { File(it.path).parentFile?.deleteRecursively() }
-                files = next
+                if (replace) {
+                    files.mapNotNull { File(it.path).parentFile }.distinct().forEach { it.deleteRecursively() }
+                    files = next
+                } else {
+                    files = files + next
+                }
             } catch (cancelled: CancellationException) {
                 selection.deleteRecursively()
                 throw cancelled
@@ -177,6 +195,29 @@ internal fun ExamUploadScreen(
                 picking = false
             }
         }
+    }
+    val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { stage(it, replace = true) }
+    val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { stage(it, replace = false) }
+    val activity = LocalActivity.current
+    // ML Kit's scanner runs in Google Play services; without them it has no button.
+    val scans = remember(activity) {
+        activity != null && GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(activity) == ConnectionResult.SUCCESS
+    }
+    val scanner = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val pages = GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages.orEmpty()
+        stage(pages.map { it.imageUri }, replace = false)
+    }
+    fun scan() {
+        val host = activity ?: return
+        val options = GmsDocumentScannerOptions.Builder()
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setGalleryImportAllowed(false)
+            .build()
+        GmsDocumentScanning.getClient(options).getStartScanIntent(host)
+            .addOnSuccessListener { scanner.launch(IntentSenderRequest.Builder(it).build()) }
+            .addOnFailureListener { error = AppModel.describe(it) }
     }
 
     fun move(index: Int, offset: Int) {
@@ -212,9 +253,10 @@ internal fun ExamUploadScreen(
         error = null
         context.scope.launch {
             try {
-                if (model.examShare(action) == ExamAnswer.Uploaded) {
+                val answer = model.examShare(action) as? ExamAnswer.Uploaded
+                if (answer != null) {
                     withContext(Dispatchers.IO) { staging.deleteRecursively() }
-                    if (!disposed) onUploaded()
+                    if (!disposed) onUploaded(answer.v1)
                 }
             } catch (_: SdkException.Cancelled) {
                 // A deliberate transfer cancellation leaves the form available.
@@ -242,7 +284,13 @@ internal fun ExamUploadScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    TextButton(enabled = canEdit, onClick = { documents.launch(acceptedDocuments) }) { Text(t("examShare.upload.chooseFiles")) }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (scans) TextButton(enabled = canEdit, onClick = ::scan) { Text(t("examShare.upload.scan")) }
+                        TextButton(enabled = canEdit, onClick = {
+                            photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }) { Text(t("examShare.upload.photoLibrary")) }
+                        TextButton(enabled = canEdit, onClick = { documents.launch(acceptedDocuments) }) { Text(t("examShare.upload.chooseFiles")) }
+                    }
                     if (files.isEmpty()) Text(t("examShare.upload.fileSelection"), color = Theme.colors.muted)
                     if (files.size > 1) SectionLabel(t("examShare.upload.fileOrder"))
                 }

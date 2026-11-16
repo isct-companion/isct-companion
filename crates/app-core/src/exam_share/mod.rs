@@ -790,6 +790,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamClass::decl(cfg),
         ExamDocument::decl(cfg),
         ExamSubjectPage::decl(cfg),
+        ExamSet::decl(cfg),
         ExamRequest::decl(cfg),
         ExamRequestCursor::decl(cfg),
         ExamRequestPage::decl(cfg),
