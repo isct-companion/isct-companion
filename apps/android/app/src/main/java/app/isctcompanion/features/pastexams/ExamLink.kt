@@ -22,15 +22,16 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.design.t
 
 /**
- * Opens past exams' links to the ScienceTokyoExam website through the
- * system: a link goes to the default browser, or the system's "Open with"
- * when none is set; [choose] always shows the system chooser, for another
- * browser this once.
+ * Past exams' links to the ScienceTokyoExam website, through the system:
+ * [open] goes to the default browser (or the system's "Open with" when none
+ * is set); [share] shows the system's share sheet.
  */
 class ExamLinks internal constructor(private val context: Context) {
     fun open(url: String) = start(view(url))
 
-    fun choose(url: String) = start(Intent.createChooser(view(url), t("examShare.openWith")))
+    fun share(url: String) = start(
+        Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url), null),
+    )
 
     private fun view(url: String) =
         Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
@@ -50,7 +51,7 @@ fun rememberExamLinks(): ExamLinks {
     return remember(context) { ExamLinks(context) }
 }
 
-/** The header's website button: a tap opens the link, a long press offers the system's chooser. */
+/** The header's website button: a tap opens the link, a long press shares it. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ExamLinkButton(links: ExamLinks, url: () -> String) {
@@ -60,8 +61,8 @@ fun ExamLinkButton(links: ExamLinks, url: () -> String) {
             .clip(CircleShape)
             .combinedClickable(
                 onClickLabel = t("examShare.openOnWeb"),
-                onLongClickLabel = t("examShare.openWith"),
-                onLongClick = { links.choose(url()) },
+                onLongClickLabel = t("common.share"),
+                onLongClick = { links.share(url()) },
                 onClick = { links.open(url()) },
             ),
         contentAlignment = Alignment.Center,
