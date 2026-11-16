@@ -669,11 +669,12 @@ final class AppModel {
         return view
     }
 
-    /// Downloads (or reuses) a course file through the signed-in LMS session.
-    func openMaterial(_ files: CourseKey, source: String) async -> IsctCore.Material? {
+    /// What an item or link of the course `courseId` opens as; a file is
+    /// downloaded (or reused) through the signed-in LMS session.
+    func openMaterial(courseId: String, source: String) async -> IsctCore.Material? {
         guard let session,
             case let .material(material)? = try? await session.openMaterial(
-                context: files, source: source, download: true, readText: false, limit: nil
+                courseId: courseId, source: source, download: true, readText: false, limit: nil
             ).value()
         else { return nil }
         return material

@@ -660,7 +660,7 @@ struct MaterialRow: View {
     let item: MaterialItem
 
     var body: some View {
-        MaterialOpener(title: item.title, source: item.url, files: item.files) { opening in
+        MaterialOpener(title: item.title, source: item.url, courseId: item.courseId) { opening in
             HStack(spacing: 12) {
                 Image(systemName: MaterialButton.icon(item.kind)).foregroundStyle(Theme.muted).frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {

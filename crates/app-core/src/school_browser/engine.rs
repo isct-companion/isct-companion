@@ -1021,10 +1021,11 @@ impl Inner {
         let browser = event.page.browser;
         log::info!(
             target: "app_core::school_browser",
-            "load failed site={:?} reason={:?} host={}: {}",
+            "load failed site={:?} reason={:?} host={} path={}: {}",
             browser.site,
             event.reason,
             event.url.as_ref().and_then(Url::host_str).unwrap_or("-"),
+            event.url.as_ref().map_or("-", Url::path),
             event.message
         );
         let failure = SchoolWebFailure {
@@ -1133,7 +1134,7 @@ impl Inner {
                 NavigationDecision::Allow
             }
             Verdict::External => {
-                log::info!(target: "app_core::school_browser", "to system browser site={:?} host={}", browser.site, request.url.host_str().unwrap_or("-"));
+                log::info!(target: "app_core::school_browser", "to system browser site={:?} host={} path={}", browser.site, request.url.host_str().unwrap_or("-"), request.url.path());
                 NavigationDecision::External(request.url)
             }
             Verdict::Deny(reason) => {
@@ -1208,7 +1209,7 @@ impl Inner {
                 NewWindowDecision::Popup(id)
             }
             Verdict::External => {
-                log::info!(target: "app_core::school_browser", "window to system browser site={:?} host={}", opener.site, request.url.host_str().unwrap_or("-"));
+                log::info!(target: "app_core::school_browser", "window to system browser site={:?} host={} path={}", opener.site, request.url.host_str().unwrap_or("-"), request.url.path());
                 NewWindowDecision::External(request.url)
             }
             Verdict::Deny(reason) => {
@@ -1504,9 +1505,10 @@ impl Inner {
 fn denied(site: SchoolSite, reason: DenyReason, url: &Url) {
     log::info!(
         target: "app_core::school_browser",
-        "denied site={site:?} reason={reason:?} url={}://{}",
+        "denied site={site:?} reason={reason:?} url={}://{}{}",
         url.scheme(),
-        url.host_str().unwrap_or("")
+        url.host_str().unwrap_or(""),
+        url.path()
     );
 }
 fn interactive_url(raw: &str) -> Result<Url, SchoolBrowserError> {

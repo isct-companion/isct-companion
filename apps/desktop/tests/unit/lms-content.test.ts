@@ -182,63 +182,30 @@ describe("LMS file classification", () => {
 
 describe("LMS file addresses", () => {
   const source = "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
-  const context = {
-    term: "2026-3Q",
-    course: "CSC.T251",
-    section: "section-91",
-  };
+  const course = "course-1";
 
-  it("leaves the source address alone outside the desktop shell", () => {
-    expect(files.lmsFileUrl(source, context, { native: false })).toBe(source);
-  });
-
-  it("rewrites the address onto the app scheme on macOS", () => {
-    expect(
-      files.lmsFileUrl(source, context, { native: true, os: "macos" }),
-    ).toBe(
-      "lmsfile://localhost/get?u=https%3A%2F%2Flms.s.isct.ac.jp%2F2025%2Fmod%2Fresource%2Fview.php%3Fid%3D42&term=2026-3Q&course=CSC.T251",
+  // `lms_protocol.rs` reads exactly these query keys.
+  it("puts the source and course on the app scheme on macOS", () => {
+    expect(files.lmsFileUrl(source, course, { os: "macos" })).toBe(
+      "lmsfile://localhost/get?u=https%3A%2F%2Flms.s.isct.ac.jp%2F2025%2Fmod%2Fresource%2Fview.php%3Fid%3D42&course=course-1",
     );
-  });
-
-  it("uses the http form the Windows webview requires", () => {
     expect(
-      files.lmsFileUrl(source, context, { native: true, os: "windows" }),
-    ).toMatch(/^http:\/\/lmsfile\.localhost\/get\?/);
-  });
-
-  it("carries the download and foreground flags when the caller asks for them", () => {
-    expect(
-      files.lmsFileUrl(source, context, {
-        native: true,
-        os: "windows",
-        download: true,
-      }),
+      files.lmsFileUrl(source, course, { os: "macos", download: true }),
     ).toContain("download=1");
     expect(
-      files.lmsFileUrl(source, context, {
-        native: true,
-        os: "macos",
-        foreground: true,
-      }),
+      files.lmsFileUrl(source, course, { os: "macos", foreground: true }),
     ).toContain("foreground=1");
   });
 
-  it("takes the platform from the injected native OS when the caller does not name one", () => {
+  it("uses the http form the Windows webview requires, from the injected native OS", () => {
     window.__ISCT_COMPANION_NATIVE_OS__ = "windows";
     try {
-      expect(files.lmsFileUrl(source, context, { native: true })).toMatch(
+      expect(files.lmsFileUrl(source, course)).toMatch(
         /^http:\/\/lmsfile\.localhost\/get\?/,
       );
     } finally {
       delete window.__ISCT_COMPANION_NATIVE_OS__;
     }
-  });
-
-  it("rewrites through the app protocol by default inside the desktop shell", () => {
-    delete window.__ISCT_COMPANION_NATIVE_OS__;
-    expect(files.lmsFileUrl(source, context)).toMatch(
-      /^lmsfile:\/\/localhost\/get\?/,
-    );
   });
 
   it("bounds a folder path component and refuses traversal names", () => {

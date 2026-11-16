@@ -1778,15 +1778,10 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     );
     // Files go where desktop already put them: `folderComponent` replaces
     // every other UTF-16 unit, so an emoji takes two underscores.
-    let files = view.files.unwrap();
+    let files = files_of(visible_by_id(&data, "courses", "c").unwrap()).unwrap();
     assert_eq!(
         (files.term.as_str(), files.course.as_str()),
         ("2026-3Q", "_csc.t101_")
-    );
-    assert!(
-        course_detail(&data, &SchoolReads::fixture(&data), "unknown")
-            .files
-            .is_none()
     );
     assert_eq!(crate::storage::folder_name("線形代数🙂"), "______");
     assert_eq!(crate::storage::folder_name(".."), "course");

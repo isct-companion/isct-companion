@@ -274,13 +274,13 @@ private fun MenuItem(text: String, icon: ImageVector, tint: Color = Theme.colors
  * course's folder Today names. */
 @Composable
 fun MaterialRow(item: MaterialItem) {
-    val opener = rememberMaterialOpener(item.title, item.url, item.files)
+    val opening = rememberMaterialOpening()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !opener.opening) { opener.open() }
+            .clickable(enabled = !opening.busy) { opening.open(item.courseId, item.url, item.title) }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Icon(materialIcon(item.kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
@@ -290,7 +290,7 @@ fun MaterialRow(item: MaterialItem) {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
             }
         }
-        if (opener.opening) {
+        if (opening.busy) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         } else if (item.addedToday) {
             Tag(t("common.addedToday"))

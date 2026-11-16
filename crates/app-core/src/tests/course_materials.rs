@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::stored_file;
+use crate::storage::{component, stored_file};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -17,6 +17,31 @@ fn course() -> CourseKey {
         term: "2026-3Q".into(),
         course: "CSC.T251".into(),
     }
+}
+
+/// A course as LMS enrolment writes it: its id and the folder Core names.
+fn enrolled(store: &DataStore) -> (String, CourseKey) {
+    let enrolment: adpt_isct::lms::LmsEnrolment = serde_json::from_value(json!({
+        "language":"en",
+        "courses":[{"id":99,"idnumber":"202602431","shortname":"CSC.T273[2026]","fullname":"Compilers","coursecategory":3}],
+        "timetables":[{"term":"2026-3Q","meetings":{"99":[{"day":2,"periods":[3,4]}]},"unscheduled":[]}]
+    }))
+    .unwrap();
+    store
+        .write(
+            Some(crate::data::WorkspaceChangeSource::SchoolPull),
+            |transaction| {
+                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, chrono::Utc::now())
+                    .map_err(|error| crate::data::DataError::from(error.to_string()))
+            },
+        )
+        .unwrap();
+    let workspace = store.load_fields(&["courses"]).unwrap();
+    let row = &workspace["courses"][0];
+    (
+        row["id"].as_str().unwrap().to_owned(),
+        crate::schedule::files_of(row).unwrap(),
+    )
 }
 
 #[test]
@@ -47,14 +72,14 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
     let root = root("cache");
     let store = store("cache");
     let service = CourseMaterials::new(store.clone(), root.clone(), Downloader::default());
+    let (id, folder) = enrolled(&store);
     let open = |source: &str| {
-        let (service, source) = (service.clone(), source.to_owned());
-        async move {
-            service
-                .open(course(), source, true, false, None)
-                .await
-                .unwrap()
-        }
+        let (service, id, source) = (service.clone(), id.clone(), source.to_owned());
+        async move { service.open(id, source, true, false, None).await.unwrap() }
+    };
+    let invalid = Material::Failed {
+        reason: MaterialFailure::Invalid,
+        page: None,
     };
     let page = |site, url: &str| Material::Page {
         site,
@@ -77,12 +102,7 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
     // the same host over HTTP would be refused there, so it is no page.
     let syllabus = "https://syllabus.s.isct.ac.jp/courses/2025/4/0-904-342300-0-0/202503924";
     assert_eq!(open(syllabus).await, page(SchoolSite::Syllabus, syllabus));
-    assert_eq!(
-        open(&syllabus.replacen("https", "http", 1)).await,
-        Material::Failed {
-            reason: MaterialFailure::Invalid
-        }
-    );
+    assert_eq!(open(&syllabus.replacen("https", "http", 1)).await, invalid);
     let video = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     assert_eq!(open(video).await, Material::External { url: video.into() });
     for corrupt in [
@@ -91,13 +111,7 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
         "javascript:alert(1)",
         "file:///etc/hosts",
     ] {
-        assert_eq!(
-            open(corrupt).await,
-            Material::Failed {
-                reason: MaterialFailure::Invalid
-            },
-            "{corrupt:?}"
-        );
+        assert_eq!(open(corrupt).await, invalid, "{corrupt:?}");
     }
     // A `mod/url` resolved before keeps what it resolved to: a school site
     // with an adapter is its page (not the system browser), anything else
@@ -122,33 +136,34 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
             .unwrap();
         assert_eq!(open(&source).await, expected);
     }
-    // A bad course folder is the caller's error, not the item's.
-    assert!(matches!(
+    // A course that is gone has no folder for the file, and the item still
+    // opens on its LMS page.
+    let file = "https://lms.s.isct.ac.jp/2026/pluginfile.php/3/handout.pdf";
+    assert_eq!(
         service
-            .open(
-                CourseKey {
-                    term: "..".into(),
-                    course: "CSC.T251".into()
-                },
-                video.into(),
-                true,
-                false,
-                None
-            )
-            .await,
-        Err(MaterialError::Input(_))
-    ));
+            .open("gone".into(), file.into(), true, false, None)
+            .await
+            .unwrap(),
+        Material::Failed {
+            reason: MaterialFailure::Unresolved,
+            page: Some(SchoolWebTarget {
+                site: SchoolSite::ScienceLms,
+                url: file.into(),
+            }),
+        }
+    );
 
+    // The file in the folder the course page names is read without a request.
     let source = "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/readme.txt";
     let url = Url::parse(source).unwrap();
-    let path = material_path(&root, &course(), &url).unwrap();
+    let path = material_path(&root, &folder, &url).unwrap();
     fs::write(&path, "cached text").unwrap();
 
     let material = service
-        .open(course(), source.into(), true, true, Some(1))
+        .open(id.clone(), source.into(), true, true, Some(1))
         .await
         .unwrap();
-    let Material::Ready { file } = material else {
+    let Material::Ready { file, .. } = material else {
         panic!("cached material should be ready");
     };
     assert!(file.cached);
@@ -156,7 +171,7 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
 
     let missing = service
         .open(
-            course(),
+            id,
             "https://lms.s.isct.ac.jp/2026/pluginfile.php/2/missing.pdf".into(),
             false,
             false,
@@ -164,7 +179,7 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
         )
         .await
         .unwrap();
-    assert_eq!(missing, Material::Missing);
+    assert!(matches!(missing, Material::Missing { .. }));
 }
 
 #[test]
@@ -181,11 +196,11 @@ fn stored_folders_validate_every_file_and_fetch_errors_keep_wire_reasons() {
     assert!(stored_folder_files(Some(&invalid)).is_none());
     // The desktop file card reads these wire names.
     assert_eq!(
-        serde_json::to_value(material_for_fetch_error(FetchError::Login)).unwrap()["reason"],
+        serde_json::to_value(failure_of(FetchError::Login)).unwrap(),
         "login"
     );
     assert_eq!(
-        serde_json::to_value(material_for_fetch_error(FetchError::WriteDenied)).unwrap()["reason"],
+        serde_json::to_value(failure_of(FetchError::WriteDenied)).unwrap(),
         "denied"
     );
     assert_eq!(bounded_download_limit(Some(0)), Some(1));

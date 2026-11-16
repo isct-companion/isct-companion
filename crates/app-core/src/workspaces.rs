@@ -712,17 +712,23 @@ impl AssignmentWorkspaces {
         let mut missing = Vec::new();
         for attachment in &detail.attachments {
             let reason = match materials
-                .open(course.clone(), attachment.url.clone(), true, false, None)
+                .open(
+                    detail.course_id.clone(),
+                    attachment.url.clone(),
+                    true,
+                    false,
+                    None,
+                )
                 .await
             {
-                Ok(Material::Ready { file }) => {
+                Ok(Material::Ready { file, .. }) => {
                     saved.push(Attachment {
                         path: file.path,
                         name: attachment.name.clone(),
                     });
                     continue;
                 }
-                Ok(Material::Failed { reason }) => format!("{reason:?}").to_lowercase(),
+                Ok(Material::Failed { reason, .. }) => format!("{reason:?}").to_lowercase(),
                 Ok(Material::TooLarge { .. }) => "too large".into(),
                 Ok(_) => "not a file".into(),
                 Err(error) => error.to_string(),

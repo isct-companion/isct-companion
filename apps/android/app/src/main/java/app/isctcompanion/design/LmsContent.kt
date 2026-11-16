@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,22 +46,22 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
-import app.isctcompanion.core.CourseKey
 import app.isctcompanion.core.LessonItemKind
 import app.isctcompanion.core.Material
 import app.isctcompanion.core.MaterialFailure
-import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SchoolWebTarget
 import app.isctcompanion.core.WebRouter
 import java.io.File
 import kotlinx.coroutines.launch
 
 /** LMS text (Core's sanitized `bodyHtml`) as native text: paragraphs, lists,
- * emphasis and links keep their shape; colours follow the app. LMS links open
- * in the in-app school page, others in the browser. */
+ * emphasis and links keep their shape; colours follow the app. A web link
+ * opens as Core decides for the course `courseId` (`rememberMaterialOpening`);
+ * other links (mail, phone) go to the system. */
 @Composable
-fun HtmlText(html: String, modifier: Modifier = Modifier) {
-    val navigator = LocalNavigator.current
+fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val opening by rememberUpdatedState(rememberMaterialOpening())
     val accent = Theme.colors.accent
     val text = remember(html, accent) {
         AnnotatedString.fromHtml(
@@ -68,8 +69,8 @@ fun HtmlText(html: String, modifier: Modifier = Modifier) {
             linkStyles = TextLinkStyles(SpanStyle(color = accent)),
             linkInteractionListener = { link ->
                 val url = (link as? LinkAnnotation.Url)?.url ?: return@fromHtml
-                if (url.toUri().host == "lms.s.isct.ac.jp") {
-                    navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, ""))
+                if (url.toUri().scheme?.lowercase() in setOf("http", "https")) {
+                    opening.open(courseId, url, "")
                 } else {
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                 }
@@ -89,21 +90,21 @@ private fun AnnotatedString.trimmed(): AnnotatedString {
     return subSequence(start, end)
 }
 
-/** A course file or page row with its icon; see `rememberMaterialOpener`. */
+/** A course file or page row with its icon; see `rememberMaterialOpening`. */
 @Composable
-fun MaterialButton(title: String, kind: LessonItemKind, source: String?, files: CourseKey?) {
-    val opener = rememberMaterialOpener(title, source, files)
+fun MaterialButton(title: String, kind: LessonItemKind, source: String?, courseId: String) {
+    val opening = rememberMaterialOpening()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !opener.opening) { opener.open() }
+            .clickable(enabled = !opening.busy && source != null) { source?.let { opening.open(courseId, it, title) } }
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Icon(materialIcon(kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         Text(title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (opener.opening) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        if (opening.busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
     }
 }
 
@@ -115,73 +116,85 @@ fun materialIcon(kind: LessonItemKind): ImageVector = when (kind) {
     LessonItemKind.PAGE, LessonItemKind.LABEL -> Icons.Rounded.Description
 }
 
-class MaterialOpener(val opening: Boolean, val open: () -> Unit)
+/** Opens a course item or link; `busy` while Core answers. */
+class MaterialOpening(val busy: Boolean, val open: (courseId: String, source: String, title: String) -> Unit)
 
-/** Opens a course item wherever it is listed, as Core decides
- * (`open_material`): a file Core fetches with the signed-in LMS session (or
- * from the course folder) goes to the system viewer, a school page opens in
- * its in-app view, any other page in the browser. A download that only
- * failed this time (offline, timed out) asks instead: silently showing the
- * LMS page made Share hand out a link where it had handed out the file. */
+/** Opens an item or link as Core decides (`open_material`): a file Core
+ * fetches with the signed-in LMS session (or from the course folder) goes to
+ * the system viewer, a school page opens in its in-app view, any other page
+ * in the browser. When the file is not shown, the dialog offers the LMS page
+ * Core names for it. A download that only failed this time asks instead of
+ * showing the LMS page: silently doing so made Share hand out a link where it
+ * had handed out the file. */
 @Composable
-fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?): MaterialOpener {
+fun rememberMaterialOpening(): MaterialOpening {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var opening by remember { mutableStateOf(false) }
-    var retry by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var retry by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
-    /** The item's own LMS page. */
-    fun openSource() {
-        source?.let { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, it, title)) }
-    }
-    lateinit var open: () -> Unit
-    open = open@{
-        val target = source ?: return@open
-        // Core names a folder for every listed course item; without one there
-        // is nothing to ask it, so the item's own page opens.
-        val folder = files ?: return@open openSource()
+    /** The LMS page Core named for the item last opened. */
+    var fallback by remember { mutableStateOf<WebRouter.PushedPage?>(null) }
+    fun show(page: SchoolWebTarget, title: String) = navigator.openPage(WebRouter.PushedPage(page.site, page.url, title))
+    lateinit var open: (String, String, String) -> Unit
+    open = { courseId, source, title ->
         scope.launch {
-            opening = true
+            busy = true
+            fallback = null
+            fun offer(page: SchoolWebTarget?) {
+                fallback = page?.let { WebRouter.PushedPage(it.site, it.url, title) }
+            }
             try {
-                when (val material = model.openMaterial(folder, target)) {
-                    is Material.Ready -> if (!view(context, File(material.file.path))) openSource()
+                when (val material = model.openMaterial(courseId, source)) {
+                    is Material.Ready -> if (!view(context, File(material.file.path))) show(material.page, title)
                     is Material.Page -> navigator.openPage(WebRouter.PushedPage(material.site, material.url, title))
                     is Material.External ->
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, material.url.toUri())) }
-                            .onFailure { openSource() }
-                    is Material.TooLarge -> notice =
-                        t("lmsFile.thisFileIsTooLarge", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong()))
+                    is Material.TooLarge -> {
+                        offer(material.page)
+                        notice = t("lmsFile.thisFileIsTooLarge", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong()))
+                    }
                     is Material.Failed -> when (material.reason) {
-                        MaterialFailure.LOGIN -> notice = t("lmsFile.signInToTheLMS")
-                        MaterialFailure.NETWORK, MaterialFailure.TIMEOUT, MaterialFailure.CANCELLED -> retry = true
+                        MaterialFailure.LOGIN -> {
+                            offer(material.page)
+                            notice = t("lmsFile.signInToTheLMS")
+                        }
+                        MaterialFailure.NETWORK, MaterialFailure.TIMEOUT, MaterialFailure.CANCELLED -> {
+                            offer(material.page)
+                            retry = Triple(courseId, source, title)
+                        }
                         // What Core could not read (it logged why) still opens on its LMS page.
-                        else -> openSource()
+                        else -> material.page?.let { show(it, title) } ?: run { notice = t("lmsFile.thisCantBeShownHere") }
                     }
                     // A folder's files are listed on its LMS page.
-                    is Material.Folder, is Material.Missing, null -> openSource()
+                    is Material.Folder -> show(material.page, title)
+                    is Material.Missing -> show(material.page, title)
+                    null -> notice = t("lmsFile.thisCantBeShownHere")
                 }
             } finally {
-                opening = false
+                busy = false
             }
         }
     }
-    if (retry) {
+    retry?.let { (courseId, source, title) ->
         AlertDialog(
-            onDismissRequest = { retry = false },
+            onDismissRequest = { retry = null },
             text = { Text(t("lmsFile.theFileCouldNotBe")) },
             confirmButton = {
                 TextButton(onClick = {
-                    retry = false
-                    open()
+                    retry = null
+                    open(courseId, source, title)
                 }) { Text(t("common.tryAgain")) }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    retry = false
-                    openSource()
-                }) { Text(t("common.openInLMS")) }
+                fallback?.let { page ->
+                    TextButton(onClick = {
+                        retry = null
+                        navigator.openPage(page)
+                    }) { Text(t("common.openInLMS")) }
+                }
             },
         )
     }
@@ -190,17 +203,19 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?): M
             onDismissRequest = { notice = null },
             text = { Text(text) },
             confirmButton = {
-                TextButton(onClick = {
-                    notice = null
-                    openSource()
-                }) { Text(t("common.openInLMS")) }
+                fallback?.let { page ->
+                    TextButton(onClick = {
+                        notice = null
+                        navigator.openPage(page)
+                    }) { Text(t("common.openInLMS")) }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { notice = null }) { Text(t("common.cancel")) }
             },
         )
     }
-    return MaterialOpener(opening, open)
+    return MaterialOpening(busy, open)
 }
 
 /** Hands a downloaded file to the app that views its type. */

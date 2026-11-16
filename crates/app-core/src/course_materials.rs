@@ -5,8 +5,8 @@ use crate::{
     data::DataStore,
     downloads::{Downloader, FetchError, Fetched, ResolvedResource},
     lifecycle::SchoolSite,
-    school_browser::{automation_target, browsing_url},
-    storage::{self, component, describe, regular_file, storage_dir, LocalFile, StorageError},
+    school_browser::{automation_target, browsing_url, SchoolWebTarget},
+    storage::{self, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
 use adpt_isct::lms::ResolvedFile;
 use serde::{Deserialize, Serialize};
@@ -40,19 +40,27 @@ enum LmsResourceKind {
 }
 
 /// What opening an LMS item or a link gives: every source has one answer, so
-/// shells act on it and never guess from an error what the item was.
+/// shells act on it and never guess from an error what the item was. `page`
+/// is the LMS page an LMS source opens on, which a shell offers when it does
+/// not show the file itself.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Material {
     Ready {
         file: LocalFile,
+        page: SchoolWebTarget,
     },
-    Missing,
+    /// The file is not in the course folder and was not to be downloaded.
+    Missing {
+        page: SchoolWebTarget,
+    },
     TooLarge {
         bytes: u64,
+        page: SchoolWebTarget,
     },
     Folder {
         files: Vec<ResolvedFile>,
+        page: SchoolWebTarget,
     },
     /// A school page with an adapter, opened in the App's signed-in school
     /// web view of `site`: an LMS activity that is not a file (forum,
@@ -66,8 +74,10 @@ pub enum Material {
     External {
         url: String,
     },
+    /// `page` is absent for a source that is not on the LMS.
     Failed {
         reason: MaterialFailure,
+        page: Option<SchoolWebTarget>,
     },
 }
 
@@ -120,15 +130,17 @@ impl CourseMaterials {
         }
     }
 
+    /// What `source` opens as. `course` is the course's id; its folder keeps
+    /// the file.
     pub async fn open(
         &self,
-        context: CourseKey,
+        course: String,
         source: String,
         download: bool,
         read_text: bool,
         limit: Option<u64>,
     ) -> Result<Material, MaterialError> {
-        self.open_with_priority(context, source, download, read_text, limit, true)
+        self.open_with_priority(course, source, download, read_text, limit, true)
             .await
     }
 
@@ -136,7 +148,7 @@ impl CourseMaterials {
     /// are unbounded and take the foreground download lane.
     pub async fn preview(
         &self,
-        context: CourseKey,
+        course: String,
         source: String,
         explicit: bool,
         foreground: bool,
@@ -147,25 +159,23 @@ impl CourseMaterials {
             let materials = self.clone();
             Some(blocking(move || Ok(materials.automatic_download_limit())).await?)
         };
-        self.open_with_priority(context, source, true, false, limit, foreground || explicit)
+        self.open_with_priority(course, source, true, false, limit, foreground || explicit)
             .await
     }
 
     async fn open_with_priority(
         &self,
-        context: CourseKey,
+        course: String,
         source: String,
         download: bool,
         read_text: bool,
         limit: Option<u64>,
         foreground: bool,
     ) -> Result<Material, MaterialError> {
-        component(&context.term)?;
-        component(&context.course)?;
         let material = self
-            .classify_and_open(context, &source, download, read_text, limit, foreground)
+            .classify_and_open(course, &source, download, read_text, limit, foreground)
             .await?;
-        if let Material::Failed { reason } = &material {
+        if let Material::Failed { reason, .. } = &material {
             let parsed = Url::parse(&source).ok();
             let module = parsed.as_ref().map_or("-", module_of);
             log::info!(
@@ -182,7 +192,7 @@ impl CourseMaterials {
     /// school page or the system browser (`link`).
     async fn classify_and_open(
         &self,
-        context: CourseKey,
+        course: String,
         source: &str,
         download: bool,
         read_text: bool,
@@ -195,14 +205,26 @@ impl CourseMaterials {
                 "material source is not a web address ({} bytes)",
                 source.len()
             );
-            return Ok(failed(MaterialFailure::Invalid));
+            return Ok(failed(MaterialFailure::Invalid, None));
         };
         if !adpt_isct::lms::is_lms_origin(&source_url) {
             return Ok(link(source));
         }
+        // An LMS address that is not a download (forum, feedback, page, an LTI
+        // tool, a module Core does not know, an address without an id) is
+        // that LMS page, without a request.
         let Some((source_url, kind)) = lms_resource_url(source) else {
-            return Ok(lms_page(source_url));
+            return Ok(Material::Page {
+                site: SchoolSite::ScienceLms,
+                url: source_url.into(),
+            });
         };
+        // Whatever happens to the file, the item still opens on its LMS page.
+        let page = SchoolWebTarget {
+            site: SchoolSite::ScienceLms,
+            url: source.to_owned(),
+        };
+        let lms_failed = |reason| failed(reason, Some(page.clone()));
         let source = source.to_owned();
         let url = match kind {
             LmsResourceKind::File => source_url,
@@ -214,7 +236,7 @@ impl CourseMaterials {
                 };
                 if module == "folder" {
                     if let Some(files) = stored_folder_files(stored.as_ref()) {
-                        return Ok(Material::Folder { files });
+                        return Ok(Material::Folder { files, page });
                     }
                 }
                 let known = stored
@@ -232,7 +254,7 @@ impl CourseMaterials {
                         Ok(ResolvedResource::File { url }) => {
                             let Some((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
                             else {
-                                return Ok(failed(MaterialFailure::Invalid));
+                                return Ok(lms_failed(MaterialFailure::Invalid));
                             };
                             self.remember_resource(cmid, &source, &url).await;
                             url_value
@@ -246,7 +268,7 @@ impl CourseMaterials {
                         }
                         Ok(ResolvedResource::Folder { files }) => {
                             if !valid_folder_files(&files) {
-                                return Ok(failed(MaterialFailure::Invalid));
+                                return Ok(lms_failed(MaterialFailure::Invalid));
                             }
                             let store = self.store.clone();
                             let (source, contract) = (source.clone(), folder_contract(&files));
@@ -256,24 +278,33 @@ impl CourseMaterials {
                                 Ok(())
                             })
                             .await;
-                            return Ok(Material::Folder { files });
+                            return Ok(Material::Folder { files, page });
                         }
                         Ok(ResolvedResource::Login) => {
-                            return Ok(failed(MaterialFailure::Login));
+                            return Ok(lms_failed(MaterialFailure::Login));
                         }
                         Ok(ResolvedResource::Unresolved) => {
-                            return Ok(failed(MaterialFailure::Unresolved));
+                            return Ok(lms_failed(MaterialFailure::Unresolved));
                         }
-                        Err(error) => return Ok(material_for_fetch_error(error)),
+                        Err(error) => return Ok(lms_failed(failure_of(error))),
                     }
                 }
             }
         };
 
+        // The course's folder, as the course page names it; a course that is
+        // gone has no folder to keep the file in.
+        let context = {
+            let store = self.store.clone();
+            blocking(move || Ok(course_key(&store, &course))).await?
+        };
+        let Some(context) = context else {
+            return Ok(lms_failed(MaterialFailure::Unresolved));
+        };
         // Path checks canonicalize and stat under a user-chosen root (possibly a
         // network or cloud folder); keep them on a blocking worker.
         let (path, present) = {
-            let (root, context, url) = (self.root.clone(), context.clone(), url.clone());
+            let (root, url) = (self.root.clone(), url.clone());
             blocking(move || {
                 let path = material_path(&root, &context, &url)?;
                 let present = regular_file(&path)?;
@@ -283,7 +314,7 @@ impl CourseMaterials {
         };
         if !present {
             if !download {
-                return Ok(Material::Missing);
+                return Ok(Material::Missing { page });
             }
             let limit = bounded_download_limit(limit);
             match self
@@ -292,8 +323,8 @@ impl CourseMaterials {
                 .await
             {
                 Ok(Fetched::Saved) => {}
-                Ok(Fetched::TooLarge(bytes)) => return Ok(Material::TooLarge { bytes }),
-                Err(error) => return Ok(material_for_fetch_error(error)),
+                Ok(Fetched::TooLarge(bytes)) => return Ok(Material::TooLarge { bytes, page }),
+                Err(error) => return Ok(lms_failed(failure_of(error))),
             }
             let downloaded = path.clone();
             if !blocking(move || Ok(regular_file(&downloaded)?)).await? {
@@ -311,7 +342,7 @@ impl CourseMaterials {
             Ok(describe(path, url, String::new(), true, read_text)?)
         })
         .await?;
-        Ok(Material::Ready { file })
+        Ok(Material::Ready { file, page })
     }
 
     async fn remember_resource(&self, cmid: u64, source: &str, url: &str) {
@@ -358,8 +389,14 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| MaterialError::Storage(error.to_string()))?
 }
 
-fn failed(reason: MaterialFailure) -> Material {
-    Material::Failed { reason }
+fn failed(reason: MaterialFailure, page: Option<SchoolWebTarget>) -> Material {
+    Material::Failed { reason, page }
+}
+
+/// The folder of the visible course `id` (`CourseDetail`'s own naming).
+fn course_key(store: &DataStore, id: &str) -> Option<CourseKey> {
+    let workspace = store.load_fields(&["courses"]).ok()?;
+    crate::schedule::visible_by_id(&workspace, "courses", id).and_then(crate::schedule::files_of)
 }
 
 /// A link that is not an LMS resource: a school site with an adapter opens
@@ -378,23 +415,7 @@ fn link(raw: &str) -> Material {
             url: raw.to_owned(),
         };
     }
-    failed(MaterialFailure::Invalid)
-}
-
-/// An LMS address that is not a downloadable resource (forum, feedback,
-/// page, questionnaire, H5P, an LTI tool, a module Core does not know, an
-/// address without an id) opens as that LMS page, without a request.
-fn lms_page(url: Url) -> Material {
-    let site = SchoolSite::ScienceLms;
-    let lti = module_of(&url).starts_with("lti");
-    let url = String::from(url);
-    if lti {
-        // LTI tools (lti, ltifmane) open their view page like any activity
-        // until it is known whether their launch needs the top-level window;
-        // that launch is decided on its own, here.
-        return Material::Page { site, url };
-    }
-    Material::Page { site, url }
+    failed(MaterialFailure::Invalid, None)
 }
 
 /// The LMS module an address belongs to (`mod/<module>/…`), `pluginfile`
@@ -413,15 +434,15 @@ fn module_of(url: &Url) -> &str {
         .map_or("-", |pair| pair[1])
 }
 
-fn material_for_fetch_error(error: FetchError) -> Material {
-    failed(match error {
+fn failure_of(error: FetchError) -> MaterialFailure {
+    match error {
         FetchError::Login => MaterialFailure::Login,
         FetchError::Invalid => MaterialFailure::Invalid,
         FetchError::Network => MaterialFailure::Network,
         FetchError::Timeout => MaterialFailure::Timeout,
         FetchError::Cancelled => MaterialFailure::Cancelled,
         FetchError::WriteDenied => MaterialFailure::Denied,
-    })
+    }
 }
 
 fn bounded_download_limit(limit: Option<u64>) -> Option<u64> {

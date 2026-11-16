@@ -140,7 +140,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             due?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         }
         if (assignment.bodyHtml.isNotEmpty()) {
-            HtmlText(assignment.bodyHtml)
+            HtmlText(assignment.bodyHtml, assignment.courseId)
         } else if (assignment.details.isNotEmpty()) {
             Text(assignment.details, color = Theme.colors.ink)
         }
@@ -148,7 +148,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             Card {
                 assignment.attachments.forEachIndexed { index, file ->
                     if (index > 0) RowDivider()
-                    MaterialButton(file.name, LessonItemKind.FILE, file.url, assignment.files)
+                    MaterialButton(file.name, LessonItemKind.FILE, file.url, assignment.courseId)
                 }
             }
         }

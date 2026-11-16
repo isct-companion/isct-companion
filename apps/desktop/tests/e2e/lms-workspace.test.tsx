@@ -65,6 +65,7 @@ vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({
 
 const LIMIT = 20 * 1024 * 1024;
 const CONTEXT = { term: "2026-3Q", course: "TEST", section: "section-91" };
+const COURSE_ID = "test-course";
 const SOURCE = { provider: "lms" as const, externalId: "42" };
 
 let app: MountedApp | undefined;
@@ -581,16 +582,30 @@ describe("the LMS reading workspace", () => {
     );
   }, 30_000);
 
-  it("opens a folder in the outline from the files already stored with it", async () => {
+  it("opens a folder in the outline with the files Core lists for it", async () => {
     const f = lectureFixture();
+    const folder = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
     Object.assign(f.workspace.materials[0], {
       title: "講義資料",
       module: "folder",
-      url: "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9",
-      bodyHtml:
-        '<ul><li><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip?forcedownload=1">20260928.zip</a></li></ul>',
+      url: folder,
     });
-    const { host } = await openWorkspace(f, { entry: { request: 96 } });
+    const { host } = await openWorkspace(f, {
+      entry: { request: 96 },
+      handle: (command) =>
+        command === "open_course_material"
+          ? {
+              state: "folder",
+              files: [
+                {
+                  name: "20260928.zip",
+                  url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip?forcedownload=1",
+                },
+              ],
+              page: { site: "science-lms", url: folder },
+            }
+          : undefined,
+    });
 
     const row = host.querySelector<HTMLButtonElement>(
       '.lmsFolder > [aria-expanded="false"]',
@@ -1659,7 +1674,7 @@ describe("the file preview pipeline", () => {
   async function openPreview(
     url: string,
     handle: (command: string, args: Record<string, unknown>) => unknown,
-    props: { title?: string; openInApp?: () => void } = {},
+    props: { title?: string; openPage?: (page: unknown) => void } = {},
   ) {
     const { core, real } = await scriptedHost(
       {
@@ -1675,9 +1690,9 @@ describe("the file preview pipeline", () => {
       <real.FilePreview
         url={url}
         title={props.title ?? "Notes"}
-        context={CONTEXT}
+        courseId={COURSE_ID}
         limit={LIMIT}
-        openInApp={props.openInApp}
+        openPage={props.openPage ?? (() => undefined)}
       />,
     );
     views.push(view);
@@ -1707,7 +1722,7 @@ describe("the file preview pipeline", () => {
 
     await waitFor(() => expect(host.textContent).toContain("Lecture notes"));
     expect(core.commands("open_course_material")[0].args).toMatchObject({
-      context: CONTEXT,
+      courseId: COURSE_ID,
       url: expect.stringContaining("a.txt"),
       download: true,
       readText: true,
@@ -1790,18 +1805,20 @@ describe("the file preview pipeline", () => {
 
   it("falls back to the official LMS in the reader when a file cannot be prepared", async () => {
     const f = lectureFixture();
+    const slides =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_resource/content/1/slides.pdf";
     f.workspace.materials = [
-      material({
-        bodyHtml: undefined,
-        resourceUrl:
-          "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_resource/content/1/slides.pdf",
-      }),
+      material({ bodyHtml: undefined, resourceUrl: slides }),
     ];
     const { host } = await openWorkspace(f, {
       entry: { request: 604 },
       handle: (command) =>
         command === "open_course_material"
-          ? { state: "failed", reason: "network" }
+          ? {
+              state: "failed",
+              reason: "network",
+              page: { site: "science-lms", url: slides },
+            }
           : undefined,
     });
 
@@ -1818,27 +1835,48 @@ describe("the file preview pipeline", () => {
   it.each([
     ["login", "Sign in to LMS"],
     ["unresolved", "Open in LMS"],
-    ["network", "Open in LMS"],
   ] as const)(
-    "cannot prepare a file (%s) and offers “%s” to open it in the external viewer",
+    "cannot prepare a file (%s) and offers “%s” on the page Core names",
     async (reason, label) => {
-      const openInApp = vi.fn();
+      const source =
+        "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
+      const page = { site: "science-lms", url: source };
+      const openPage = vi.fn();
       const { host } = await openPreview(
-        "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42",
+        source,
         (command) =>
           command === "open_course_material"
-            ? { state: "failed", reason }
+            ? { state: "failed", reason, page }
             : undefined,
-        { title: "File", openInApp },
+        { title: "File", openPage },
       );
 
       await waitFor(() => expect(buttonByText(host, label)).toBeTruthy());
       expect(host.querySelector('[role="alert"]')).not.toBeNull();
       await click(buttonByText(host, label));
-      expect(openInApp).toHaveBeenCalledTimes(1);
+      expect(openPage).toHaveBeenCalledWith(page);
     },
     30_000,
   );
+
+  it("asks Core again when a download failed only this time", async () => {
+    const source = "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
+    const { core, host } = await openPreview(source, (command) =>
+      command === "open_course_material"
+        ? {
+            state: "failed",
+            reason: "network",
+            page: { site: "science-lms", url: source },
+          }
+        : undefined,
+    );
+
+    await waitFor(() => expect(buttonByText(host, "Retry")).toBeTruthy());
+    await click(buttonByText(host, "Retry"));
+    await waitFor(() =>
+      expect(core.commands("open_course_material")).toHaveLength(2),
+    );
+  }, 30_000);
 });
 
 describe("the note editor", () => {

@@ -50,6 +50,7 @@ pub use colors::{display_color, event_color, COURSE_PALETTE};
 pub use course_content::{
     course_content, CourseContent, LessonContent, LessonItem, LessonItemKind,
 };
+pub(crate) use course_detail::files_of;
 pub use course_detail::{
     assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
 };

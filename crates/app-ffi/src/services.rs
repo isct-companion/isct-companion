@@ -64,9 +64,10 @@ impl Session {
             })
         })
     }
+    /// What `source` opens as, for the course `course_id`.
     pub fn open_material(
         &self,
-        context: CourseKey,
+        course_id: String,
         source: String,
         download: bool,
         read_text: bool,
@@ -81,7 +82,7 @@ impl Session {
             Ok(OperationResult::Material {
                 material: project(
                     service
-                        .open(project_input(context)?, source, download, read_text, limit)
+                        .open(course_id, source, download, read_text, limit)
                         .await
                         .map_err(material_error)?,
                 )?,

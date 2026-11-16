@@ -1402,10 +1402,6 @@ export type CourseDetail = {
   lmsCourseId: number | null;
   syllabusUrl: string | null;
   /**
-   * Where the course's downloaded files live, for opening its materials.
-   */
-  files: CourseKey | null;
-  /**
    * The content language, which LMS text published in both languages is
    * filtered to when the person asks for one language.
    */
@@ -1435,7 +1431,7 @@ export type AssignmentDetail = {
   details: string;
   attachments: Array<AssignmentAttachment>;
   /**
-   * Where opened attachments are kept.
+   * The course folder the assignment's workspace is made in.
    */
   files: CourseKey | null;
 };
@@ -1740,10 +1736,6 @@ export type MaterialItem = {
    * `LessonItem.source`.
    */
   url: string;
-  /**
-   * The course folder `open_material` keeps the file in.
-   */
-  files: CourseKey;
   updatedAt: string | null;
   addedToday: boolean;
 };

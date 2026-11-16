@@ -38,27 +38,20 @@ export type LmsFileReason =
   | "cancelled"
   | "denied";
 
+/**
+ * The app URI a page loads a course file from (`lms_protocol.rs`): Core
+ * serves the file of `source` for the course `courseId`.
+ */
 export function lmsFileUrl(
   source: string,
-  context: Pick<CourseFolder, "term" | "course">,
-  options: {
-    download?: boolean;
-    foreground?: boolean;
-    native?: boolean;
-    os?: NativeOs;
-  } = {},
+  courseId: string,
+  options: { download?: boolean; foreground?: boolean; os?: NativeOs } = {},
 ) {
-  const native = options.native ?? Boolean(desktopBridge);
-  if (!native) return source;
   // WebView2 only serves custom schemes over http://<scheme>.localhost.
   const os = options.os ?? nativeOs();
   const origin =
     os === "windows" ? "http://lmsfile.localhost" : "lmsfile://localhost";
-  const query = new URLSearchParams({
-    u: source,
-    term: context.term,
-    course: context.course,
-  });
+  const query = new URLSearchParams({ u: source, course: courseId });
   if (options.download) query.set("download", "1");
   if (options.foreground) query.set("foreground", "1");
   return `${origin}/get?${query}`;
@@ -180,19 +173,25 @@ export function saveNote(
     .catch(() => undefined);
   return next;
 }
+/** A school page: where an LMS source lives, or a link to a school site. */
+export type SchoolPage = { site: SchoolSite; url: string };
 /**
  * What an item or link opens as (Core's `Material`): a course file on disk or
- * why it is not (yet), a folder's files, a school page with its site, or an
- * outside page.
+ * why it is not (yet), a folder's files, a school page, or an outside page.
+ * `page` is the LMS page of an LMS source, offered instead of the file.
  */
 export type Material =
-  | { state: "ready"; file: LocalFile }
-  | { state: "missing" }
-  | { state: "tooLarge"; bytes: number }
-  | { state: "folder"; files: { name: string; url: string }[] }
-  | { state: "page"; site: SchoolSite; url: string }
+  | { state: "ready"; file: LocalFile; page: SchoolPage }
+  | { state: "missing"; page: SchoolPage }
+  | { state: "tooLarge"; bytes: number; page: SchoolPage }
+  | {
+      state: "folder";
+      files: { name: string; url: string }[];
+      page: SchoolPage;
+    }
+  | ({ state: "page" } & SchoolPage)
   | { state: "external"; url: string }
-  | { state: "failed"; reason: LmsFileReason };
+  | { state: "failed"; reason: LmsFileReason; page: SchoolPage | null };
 
 export const localFileUrl = (path: string) => convertFileSrc(path);
 /**
@@ -201,7 +200,7 @@ export const localFileUrl = (path: string) => convertFileSrc(path);
  * session. Files over `limit` bytes report their size.
  */
 export async function openMaterial(
-  context: CourseFolder,
+  courseId: string,
   url: string,
   {
     download = false,
@@ -210,7 +209,7 @@ export async function openMaterial(
   }: { download?: boolean; readText?: boolean; limit?: number } = {},
 ): Promise<Material> {
   return invoke("open_course_material", {
-    context,
+    courseId,
     url,
     download,
     readText,

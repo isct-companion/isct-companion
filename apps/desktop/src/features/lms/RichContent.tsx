@@ -2,15 +2,10 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { safeContent, safeUrl } from "./content";
 import { LmsIcon } from "./LmsIcon";
-import {
-  cachedThumbnail,
-  dropThumbnail,
-  loadThumbnail,
-  onSignedIn,
-} from "./thumbnails";
-import type { CourseFolder } from "./files";
+import { onSignedIn, thumbnailUrl } from "./thumbnails";
 
-export type FileAccess = { context: CourseFolder; limit: number };
+/** The course whose files a page's pictures come from. */
+export type FileAccess = { courseId: string };
 
 export const ImageThumbnail = memo(function ImageThumbnail({
   url,
@@ -21,7 +16,7 @@ export const ImageThumbnail = memo(function ImageThumbnail({
 }) {
   const element = useRef<HTMLSpanElement>(null);
   const [src, setSrc] = useState<string | undefined>(() =>
-    cachedThumbnail(files.context, url),
+    thumbnailUrl(files.courseId, url),
   );
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -37,12 +32,9 @@ export const ImageThumbnail = memo(function ImageThumbnail({
   useEffect(() => {
     if (src || failed) return;
     let disposed = false;
-    const load = () =>
-      void loadThumbnail(files.context, url, files.limit)
-        .then((value) => {
-          if (!disposed && value) setSrc(value);
-        })
-        .catch(() => undefined);
+    const load = () => {
+      if (!disposed) setSrc(thumbnailUrl(files.courseId, url));
+    };
     const observer =
       typeof IntersectionObserver === "undefined"
         ? undefined
@@ -77,7 +69,6 @@ export const ImageThumbnail = memo(function ImageThumbnail({
           decoding="async"
           onLoad={() => setLoaded(true)}
           onError={() => {
-            dropThumbnail(url);
             setSrc(undefined);
             setLoaded(false);
             setFailed(true);
@@ -103,37 +94,21 @@ export const RichContent = memo(function RichContent({
   const renderedHtml = useMemo(() => ({ __html: content }), [content]);
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    let disposed = false;
-    const load = async (placeholder: HTMLElement) => {
-      const url = placeholder.dataset.imageSrc!;
+    const load = (placeholder: HTMLElement) => {
       placeholder.dataset.state = "loading";
-      try {
-        const src = await loadThumbnail(files.context, url, files.limit);
-        if (disposed) return;
-        if (!src) {
-          placeholder.dataset.state = "unavailable";
-          return;
-        }
-        const image = document.createElement("img");
-        image.alt = placeholder.dataset.imageAlt || "";
-        image.decoding = "async";
-        image.className = "lmsInlineThumbnail";
-        image.onload = () => {
-          placeholder.dataset.state = "ready";
-        };
-        image.onerror = () => {
-          dropThumbnail(url);
-          image.remove();
-          placeholder.dataset.state = "unavailable";
-        };
-        image.src = src;
-        placeholder.replaceChildren(image);
-      } catch (error) {
-        if (!disposed) {
-          placeholder.dataset.state = "unavailable";
-          placeholder.title = String(error);
-        }
-      }
+      const image = document.createElement("img");
+      image.alt = placeholder.dataset.imageAlt || "";
+      image.decoding = "async";
+      image.className = "lmsInlineThumbnail";
+      image.onload = () => {
+        placeholder.dataset.state = "ready";
+      };
+      image.onerror = () => {
+        image.remove();
+        placeholder.dataset.state = "unavailable";
+      };
+      image.src = thumbnailUrl(files.courseId, placeholder.dataset.imageSrc!);
+      placeholder.replaceChildren(image);
     };
     const placeholders =
       element.current?.querySelectorAll<HTMLElement>("[data-image-src]") || [];
@@ -145,21 +120,20 @@ export const RichContent = memo(function RichContent({
               for (const entry of entries)
                 if (entry.isIntersecting) {
                   observer!.unobserve(entry.target);
-                  void load(entry.target as HTMLElement);
+                  load(entry.target as HTMLElement);
                 }
             },
             { rootMargin: "80px" },
           );
     for (const placeholder of placeholders) {
       if (observer) observer.observe(placeholder);
-      else void load(placeholder);
+      else load(placeholder);
     }
     const stop = onSignedIn(() => {
       for (const placeholder of placeholders)
-        if (placeholder.dataset.state === "unavailable") void load(placeholder);
+        if (placeholder.dataset.state === "unavailable") load(placeholder);
     });
     return () => {
-      disposed = true;
       observer?.disconnect();
       stop();
     };

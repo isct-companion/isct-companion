@@ -1,4 +1,4 @@
-use crate::lms_files::{self, CourseKey, Material};
+use crate::lms_files::{self, Material};
 use app_core::course_materials::{MaterialError, MaterialFailure};
 use serde_json::json;
 use std::{
@@ -87,14 +87,6 @@ fn preflight(request: &http::Request<Vec<u8>>) -> Option<http::Response<Vec<u8>>
             .body(Vec::new())
             .unwrap_or_else(|_| http::Response::new(Vec::new()))
     })
-}
-
-fn json_response(value: serde_json::Value) -> http::Response<Vec<u8>> {
-    let body = body_bytes(&value);
-    response(http::StatusCode::OK, "application/json; charset=utf-8")
-        .header(http::header::CONTENT_LENGTH, body.len().to_string())
-        .body(body)
-        .unwrap_or_else(|_| http::Response::new(Vec::new()))
 }
 
 fn mime(path: &Path) -> &'static str {
@@ -224,66 +216,26 @@ fn serve(path: &Path, range: Option<&http::HeaderValue>, digest: &str) -> http::
         .unwrap_or_else(|_| http::Response::new(Vec::new()))
 }
 
-fn app_url(
-    request: &http::Request<Vec<u8>>,
-    source: &str,
-    course: &CourseKey,
-    download: bool,
-    foreground: bool,
-) -> String {
-    let http_origin = request.uri().scheme_str() == Some("http");
-    let origin = if http_origin {
-        "http://lmsfile.localhost"
-    } else {
-        "lmsfile://localhost"
-    };
-    let mut query = url::form_urlencoded::Serializer::new(String::new());
-    query
-        .append_pair("u", source)
-        .append_pair("term", &course.term)
-        .append_pair("course", &course.course);
-    if download {
-        query.append_pair("download", "1");
-    }
-    if foreground {
-        query.append_pair("foreground", "1");
-    }
-    format!("{origin}/get?{}", query.finish())
-}
-
-fn request_input(
-    request: &http::Request<Vec<u8>>,
-) -> Result<(String, CourseKey, bool, bool), Reason> {
+/// `/get?u=<source>&course=<course id>`, with `download=1` for an explicit
+/// request and `foreground=1` for the visible lane.
+fn request_input(request: &http::Request<Vec<u8>>) -> Result<(String, String, bool, bool), Reason> {
     if request.method() != http::Method::GET || request.uri().path() != "/get" {
         return Err(Reason::Invalid);
     }
     let query = request.uri().query().ok_or(Reason::Invalid)?;
     let values =
         url::form_urlencoded::parse(query.as_bytes()).collect::<std::collections::HashMap<_, _>>();
-    let source = values
-        .get("u")
-        .map(|value| value.to_string())
-        .ok_or(Reason::Invalid)?;
-    let course = CourseKey {
-        term: values
-            .get("term")
-            .map(|value| value.to_string())
-            .ok_or(Reason::Invalid)?,
-        course: values
-            .get("course")
-            .map(|value| value.to_string())
-            .ok_or(Reason::Invalid)?,
-    };
-    lms_files::component(&course.term).map_err(|_| Reason::Invalid)?;
-    lms_files::component(&course.course).map_err(|_| Reason::Invalid)?;
+    let value = |key: &str| values.get(key).map(|value| value.to_string());
     Ok((
-        source,
-        course,
+        value("u").ok_or(Reason::Invalid)?,
+        value("course").ok_or(Reason::Invalid)?,
         values.get("download").is_some_and(|value| value == "1"),
         values.get("foreground").is_some_and(|value| value == "1"),
     ))
 }
 
+/// Serves a course file to the page (`<img>`, media): only a file Core has
+/// on disk is an answer; anything else is the reason it is not.
 pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     if let Some(response) = preflight(&request) {
         return response;
@@ -295,12 +247,15 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
         Ok(service) => service,
         Err(_) => return error(Reason::Network, None),
     };
-    let key = course.clone();
     let result = crate::core_ports::runtime(&app)
-        .run(async move { materials.preview(key, source, explicit, foreground).await })
+        .run(async move {
+            materials
+                .preview(course, source, explicit, foreground)
+                .await
+        })
         .await;
     match result {
-        Ok(Ok(Material::Ready { file })) => {
+        Ok(Ok(Material::Ready { file, .. })) => {
             let range = request.headers().get(http::header::RANGE).cloned();
             // Reading (possibly the whole file) blocks; keep it off the executor.
             tauri::async_runtime::spawn_blocking(move || {
@@ -315,23 +270,9 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
             .await
             .unwrap_or_else(|_| error(Reason::Network, None))
         }
-        Ok(Ok(Material::Folder { files })) => {
-            let files = files.into_iter().map(|file| {
-                json!({"name":file.name,"url":app_url(&request,&file.url,&course,explicit,true)})
-            }).collect::<Vec<_>>();
-            if files.is_empty() {
-                error(Reason::Unresolved, None)
-            } else {
-                json_response(json!({"kind":"folder","files":files}))
-            }
-        }
-        Ok(Ok(Material::Page { site, url })) => {
-            json_response(json!({"kind":"page","site":site,"url":url}))
-        }
-        Ok(Ok(Material::External { url })) => json_response(json!({"kind":"external","url":url})),
-        Ok(Ok(Material::TooLarge { bytes })) => error(Reason::TooLarge, Some(bytes)),
-        Ok(Ok(Material::Missing)) => error(Reason::Unresolved, None),
-        Ok(Ok(Material::Failed { reason })) => match reason {
+        Ok(Ok(Material::TooLarge { bytes, .. })) => error(Reason::TooLarge, Some(bytes)),
+        Ok(Ok(Material::Missing { .. })) => error(Reason::Unresolved, None),
+        Ok(Ok(Material::Failed { reason, .. })) => match reason {
             MaterialFailure::Login => login_error(),
             MaterialFailure::Invalid => error(Reason::Invalid, None),
             MaterialFailure::Timeout => error(Reason::Timeout, None),
@@ -339,7 +280,9 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
             MaterialFailure::Denied => error(Reason::Denied, None),
             MaterialFailure::Network | MaterialFailure::Cancelled => error(Reason::Network, None),
         },
-        Ok(Err(MaterialError::Input(_))) => error(Reason::Invalid, None),
+        // A folder, a page or an outside link is not a file to serve.
+        Ok(Ok(Material::Folder { .. } | Material::Page { .. } | Material::External { .. }))
+        | Ok(Err(MaterialError::Input(_))) => error(Reason::Invalid, None),
         Ok(Err(MaterialError::Denied(_))) => error(Reason::Denied, None),
         _ => error(Reason::Network, None),
     }

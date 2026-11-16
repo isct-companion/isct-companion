@@ -31,7 +31,6 @@ import type { Assignment, Course, Material, Workspace } from "../../lib/model";
 import type { LessonContent, LessonItem } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { detectPlatform } from "../../platform/capabilities";
-import type { SchoolSite } from "../../platform/desktop-bridge";
 import { useClock } from "../../platform/use-clock";
 import type { PageProgress } from "../../platform/sync";
 import { ageText } from "../../app/sync-text";
@@ -57,14 +56,14 @@ import {
 const ACTIVITIES = -1;
 /** The lesson the course is at, for marking rows of schedule tables. */
 
-import { fileFamily, extension } from "./file-types";
+import { downloadOnly, fileFamily, extension } from "./file-types";
 import { withRecords } from "../../platform/records";
 import {
   folderComponent,
   downloadLimit,
-  previewKind,
   moveNote,
   type LocalFile,
+  type SchoolPage,
 } from "./files";
 const FilePopover = lazy(() =>
   import("./FilePreview").then((m) => ({ default: m.FilePopover })),
@@ -103,48 +102,6 @@ function groupImageLabels(items: LessonItem[]): (LessonItem | LessonItem[])[] {
     else grouped.push(item.imageOnly ? [item] : item);
   }
   return grouped;
-}
-
-/**
- * A folder's files without a request: the listing kept from its last read,
- * else the folder links the crawl stored in its body.
- */
-const parsedFolders = new Map<
-  string,
-  { name: string; url: string }[] | undefined
->();
-function knownFolderFiles(m: Material) {
-  if (m.folderFiles?.length) return m.folderFiles;
-  if (!m.bodyHtml?.includes("mod_folder")) return undefined;
-  if (parsedFolders.has(m.bodyHtml)) return parsedFolders.get(m.bodyHtml);
-  if (parsedFolders.size > 200) parsedFolders.clear();
-  const files = folderLinks(m.bodyHtml);
-  parsedFolders.set(m.bodyHtml, files);
-  return files;
-}
-function folderLinks(html: string) {
-  const page = new DOMParser().parseFromString(
-    html.slice(0, 200000),
-    "text/html",
-  );
-  const files = [
-    ...page.querySelectorAll<HTMLAnchorElement>(
-      'a[href*="/pluginfile.php/"][href*="/mod_folder/"]',
-    ),
-  ].flatMap((link) => {
-    const url = safeUrl(link.getAttribute("href") ?? "");
-    return url && new URL(url).hostname === "lms.s.isct.ac.jp"
-      ? [
-          {
-            name:
-              link.textContent?.trim() ||
-              decodeURIComponent(url.split("/").pop()?.split("?")[0] ?? ""),
-            url,
-          },
-        ]
-      : [];
-  });
-  return files.length ? files : undefined;
 }
 
 export function LmsWorkspaceBody({
@@ -219,8 +176,8 @@ export function LmsWorkspaceBody({
   );
   const limit = downloadLimit(data.settings);
   const files = useMemo<FileAccess>(
-    () => ({ context: folder, limit }),
-    [folder, limit],
+    () => ({ courseId: course.id }),
+    [course.id],
   );
   /** Assignment workspaces are a desktop feature (folders, VS Code). */
   const workspaces = detectPlatform() === "native-desktop";
@@ -590,13 +547,7 @@ export function LmsWorkspaceBody({
     title: string,
     anchor?: Element,
   ) => {
-    if (
-      !url ||
-      !anchor ||
-      previewKind(url) ||
-      !new URL(url).pathname.includes("/pluginfile.php/")
-    )
-      return false;
+    if (!url || !anchor || !downloadOnly(url)) return false;
     setFileMenu({ url, title, anchor });
     return true;
   };
@@ -609,18 +560,19 @@ export function LmsWorkspaceBody({
   );
   /**
    * A school page Core named: the LMS in the reader's signed-in view, the
-   * syllabus in its frame, any other school site on the Web page.
+   * syllabus in its frame, any other school site on the Web page (the reader
+   * lets the item go, so coming back does not open it there again).
    */
-  const openPage = useCallback(
-    (site: SchoolSite, url: string, title: string) => {
-      if (site === "science-lms")
-        open({ id: `official:${url}`, title, kind: "official", url });
-      else if (site === "syllabus")
-        open({ id: `syllabus:${url}`, title, kind: "syllabus", url });
-      else openWeb?.(url);
-    },
-    [open, openWeb],
-  );
+  const openPage = ({ site, url }: SchoolPage, title: string) => {
+    if (site === "science-lms")
+      open({ id: `official:${url}`, title, kind: "official", url });
+    else if (site === "syllabus")
+      open({ id: `syllabus:${url}`, title, kind: "syllabus", url });
+    else {
+      closeContent();
+      openWeb?.(url);
+    }
+  };
   const openAssignment = useCallback((a: Assignment) => {
     setViewing(false);
     requestAnimationFrame(() => revealAssignment(a.id));
@@ -1004,20 +956,12 @@ export function LmsWorkspaceBody({
             >
               <InlineFolder
                 url={safeUrl(m.url)!}
-                context={folder}
+                courseId={course.id}
                 limit={limit}
-                known={knownFolderFiles(m)}
                 openFile={(fileUrl, name, anchor) =>
                   openLink(fileUrl, name, anchor)
                 }
-                openInApp={() =>
-                  open({
-                    id: `official:${m.url}`,
-                    title: m.title,
-                    kind: "official",
-                    url: m.url,
-                  })
-                }
+                openPage={(page) => openPage(page, m.title)}
               />
             </Suspense>
           )}
@@ -1391,19 +1335,11 @@ export function LmsWorkspaceBody({
                     key={fileMenu.url}
                     url={fileMenu.url}
                     title={fileMenu.title}
-                    context={folder}
+                    courseId={course.id}
                     limit={limit}
                     anchor={fileMenu.anchor}
                     onClose={closeFileMenu}
-                    openInApp={() => {
-                      closeFileMenu();
-                      open({
-                        id: `official:${fileMenu.url}`,
-                        title: fileMenu.title,
-                        kind: "official",
-                        url: fileMenu.url,
-                      });
-                    }}
+                    openPage={(page) => openPage(page, fileMenu.title)}
                   />
                 </Suspense>
               )}
@@ -1568,15 +1504,10 @@ export function LmsWorkspaceBody({
                           key={url}
                           url={url}
                           title={opened.title}
-                          context={folder}
+                          courseId={course.id}
                           limit={limit}
                           inline={Boolean(material?.bodyHtml)}
-                          openInApp={() =>
-                            openPage("science-lms", url, opened.title)
-                          }
-                          openPage={(site, page) =>
-                            openPage(site, page, opened.title)
-                          }
+                          openPage={(page) => openPage(page, opened.title)}
                           openFile={(fileUrl, name) =>
                             open({
                               id: `link:${fileUrl}`,

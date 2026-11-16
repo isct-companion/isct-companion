@@ -108,7 +108,7 @@ struct CourseDetailScreen: View {
         let page = LessonPage(
             lesson: shown,
             work: assignments.filter { set.contains($0.assignmentId) },
-            files: detail?.files,
+            courseId: courseId,
             opened: $opened)
         let forward = step == .next
         return ZStack(alignment: .topLeading) {
@@ -361,7 +361,7 @@ private struct LessonChips: View {
 private struct LessonPage: View {
     let lesson: LessonContent?
     let work: [AssignmentDetail]
-    let files: CourseKey?
+    let courseId: String
     @Binding var opened: Set<String>
 
     var body: some View {
@@ -374,19 +374,19 @@ private struct LessonPage: View {
                     .foregroundStyle(Theme.ink)
             }
             if let summary = lesson?.summaryHtml, !summary.isEmpty {
-                HTMLText(html: summary)
+                HTMLText(html: summary, courseId: courseId)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
             }
             ForEach(CourseDetailScreen.groups(lesson?.items ?? []), id: \.first?.materialId) { group in
                 if let item = group.first, group.count == 1, item.bodyHtml != nil {
-                    InlineItem(item: item)
+                    InlineItem(item: item, courseId: courseId)
                 } else {
                     Card {
                         ForEach(Array(group.enumerated()), id: \.element.materialId) { index, item in
                             if index > 0 { RowDivider() }
-                            MaterialButton(title: item.title, kind: item.kind, source: item.source, files: files)
+                            MaterialButton(title: item.title, kind: item.kind, source: item.source, courseId: courseId)
                         }
                     }
                 }
@@ -431,6 +431,7 @@ private struct LinkChip: View {
 /// A page, label or announcement shown in place, as on the desktop.
 private struct InlineItem: View {
     let item: LessonItem
+    let courseId: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -442,7 +443,7 @@ private struct InlineItem: View {
             default:
                 EmptyView()
             }
-            if let html = item.bodyHtml { HTMLText(html: html) }
+            if let html = item.bodyHtml { HTMLText(html: html, courseId: courseId) }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
