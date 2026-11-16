@@ -290,3 +290,24 @@ pub(crate) mod one_answer;
 #[cfg(test)]
 #[path = "../tests/net.rs"]
 mod tests;
+
+/// Collect a non-redirecting client's response without exposing its URL in errors.
+pub(crate) async fn read_response_limited(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, NetError> {
+    if response
+        .content_length()
+        .is_some_and(|size| size > limit as u64)
+    {
+        return Err(NetError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| NetError::Stalled)? {
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(NetError::TooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}

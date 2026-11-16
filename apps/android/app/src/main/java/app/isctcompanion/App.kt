@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.FileCopy
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Settings
@@ -48,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -97,6 +99,7 @@ import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.lectures.LecturesScreen
+import app.isctcompanion.features.pastexams.PastExamsScreen
 import app.isctcompanion.features.map.CampusMapScreen
 import app.isctcompanion.features.settings.SettingsScreen
 import app.isctcompanion.features.settings.UpdatePrompt
@@ -227,6 +230,8 @@ class Navigator(private val controller: NavHostController) {
     fun openAssignments() = controller.navigate("assignments")
 
     fun openRecord() = controller.navigate("record")
+    fun openPastExams(courseId: String? = null) =
+        controller.navigate("past-exams/detail?course=${Uri.encode(courseId.orEmpty())}") { launchSingleTop = true }
 
     /** Opens the campus map full screen, on a room string or on none to browse. */
     fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
@@ -250,9 +255,9 @@ class Navigator(private val controller: NavHostController) {
     fun back() = controller.popBackStack()
 }
 
-/** Assignments live on 今日, and 設定 is the last tab. 授業 is a tab only on
- * tablets, as on iPad; a phone reaches courses from 今日 and
- * 時間割. */
+private const val PAST_EXAMS_DETAIL = "past-exams/detail?course={course}"
+
+/** On phones, past exams have a tab. On tablets they open from 授業. */
 private enum class AppTab(
     val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
 ) {
@@ -260,6 +265,7 @@ private enum class AppTab(
     Timetable("tab/timetable", "timetable", "common.timetable", Icons.Rounded.GridView),
     Lectures("tab/lectures", "lectures", "common.courses", Icons.AutoMirrored.Rounded.LibraryBooks, wideOnly = true),
     Web("tab/web", "web", "common.web", Icons.Rounded.Language),
+    PastExams("tab/past-exams", "past-exams", "examShare.title", Icons.Rounded.FileCopy),
     Settings("tab/settings", "settings", "common.settings", Icons.Rounded.Settings),
 }
 
@@ -338,8 +344,15 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     val context = LocalContext.current
     val wide = remember(configuration) { context.largeScreen() }
     LaunchedEffect(wide, current) {
-        // Folded while on 授業, which the phone's bar has no tab for.
-        if (!wide && current == AppTab.Lectures) navigator.openTab(AppTab.Today.route)
+        val courseId = entry?.arguments?.getString("course")?.ifEmpty { null }
+        if (!wide && current == AppTab.Lectures) {
+            val tab = if (destination?.route == PAST_EXAMS_DETAIL) AppTab.PastExams else AppTab.Today
+            navigator.openTab(tab.route)
+            if (tab == AppTab.PastExams && courseId != null) navigator.openPastExams(courseId)
+        } else if (wide && current == AppTab.PastExams) {
+            navigator.openTab(AppTab.Lectures.route)
+            navigator.openPastExams(courseId)
+        }
     }
     // A pushed school page fills the screen, like a browser tab; so does the
     // campus map.
@@ -389,7 +402,9 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             bottomBar = {
                 if (showsBar) {
                     NavigationBar {
-                        for (tab in AppTab.entries.filter { wide || !it.wideOnly }) {
+                        for (tab in AppTab.entries.filter {
+                            if (wide) it != AppTab.PastExams else !it.wideOnly
+                        }) {
                             NavigationBarItem(
                                 selected = tab == current,
                                 onClick = {
@@ -419,7 +434,15 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 tab(AppTab.Timetable) { TimetableScreen() }
                 tab(AppTab.Lectures) { LecturesScreen() }
                 tab(AppTab.Web) { WebTabScreen() }
+                tab(AppTab.PastExams) { PastExamsScreen() }
                 tab(AppTab.Settings) { SettingsScreen() }
+                destination(
+                    PAST_EXAMS_DETAIL,
+                    listOf(navArgument("course") { type = NavType.StringType; defaultValue = "" }),
+                ) {
+                    val courseId = it.arguments?.getString("course")?.ifEmpty { null }
+                    key(courseId) { PastExamsScreen(courseId = courseId, onBack = { navigator.back() }) }
+                }
                 destination(
                     "course/{id}?zoom={zoom}",
                     listOf(

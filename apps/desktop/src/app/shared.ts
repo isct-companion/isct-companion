@@ -1,5 +1,12 @@
 export type Page =
-  "home" | "timetable" | "lectures" | "web" | "tools" | "settings" | "about";
+  | "home"
+  | "timetable"
+  | "lectures"
+  | "web"
+  | "tools"
+  | "pastExams"
+  | "settings"
+  | "about";
 export type Section =
   | "accounts"
   | "study"

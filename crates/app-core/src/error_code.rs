@@ -107,6 +107,23 @@ codes! {
     LmsWritesDisabled => "lms-writes-disabled",
     DataFolderInUse => "data-folder-in-use",
     SubmissionIdentityChanged => "submission-identity-changed",
+    ExamShareUnsupported => "exam-share-unsupported",
+    ExamShareSignedOut => "exam-share-signed-out",
+    ExamShareExpired => "exam-share-expired",
+    ExamShareDenied => "exam-share-denied",
+    ExamShareConsent => "exam-share-consent",
+    ExamShareAdministrator => "exam-share-administrator",
+    ExamShareNotFound => "exam-share-not-found",
+    ExamShareRejected => "exam-share-rejected",
+    ExamShareIdentity => "exam-share-identity",
+    ExamShareAlreadyReported => "exam-share-already-reported",
+    ExamShareQuota => "exam-share-quota",
+    ExamShareUploadFile => "exam-share-upload-file",
+    ExamShareUploadMixed => "exam-share-upload-mixed",
+    ExamShareUploadSize => "exam-share-upload-size",
+    ExamShareUploadDuplicate => "exam-share-upload-duplicate",
+    ExamShareUploadQuota => "exam-share-upload-quota",
+    ExamShareUploadPending => "exam-share-upload-pending",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -216,6 +233,39 @@ macro_rules! coded {
         }
     };
 }
+
+// A failure anyone meets the same way everywhere (offline, timed out, this
+// device's storage, cancelled, a malformed request) takes the shared code;
+// only a failure the person acts on differently on this service gets an
+// `exam-share-` code of its own.
+coded!(crate::exam_share::ExamError, |e| {
+    use crate::exam_share::ExamError as E;
+    match e {
+        E::Network => C::Network,
+        E::Timeout => C::Timeout,
+        E::Unavailable | E::Response => C::Unavailable,
+        E::Storage => C::Storage,
+        E::Cancelled => C::Cancelled,
+        E::InvalidInput => C::InvalidInput,
+        E::Unsupported => C::ExamShareUnsupported,
+        E::SignedOut => C::ExamShareSignedOut,
+        E::Expired => C::ExamShareExpired,
+        E::Denied => C::ExamShareDenied,
+        E::Consent => C::ExamShareConsent,
+        E::Administrator => C::ExamShareAdministrator,
+        E::NotFound | E::SubjectNotFound => C::ExamShareNotFound,
+        E::Rejected => C::ExamShareRejected,
+        E::Identity => C::ExamShareIdentity,
+        E::AlreadyReported => C::ExamShareAlreadyReported,
+        E::Quota => C::ExamShareQuota,
+        E::UploadFile => C::ExamShareUploadFile,
+        E::UploadMixed => C::ExamShareUploadMixed,
+        E::UploadSize => C::ExamShareUploadSize,
+        E::UploadDuplicate => C::ExamShareUploadDuplicate,
+        E::UploadQuota => C::ExamShareUploadQuota,
+        E::UploadPending | E::UploadInUse | E::UploadRegistered => C::ExamShareUploadPending,
+    }
+});
 
 #[cfg(feature = "campus-map")]
 coded!(crate::campus_map::CampusMapError, |e| {

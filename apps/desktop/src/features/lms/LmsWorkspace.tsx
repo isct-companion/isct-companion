@@ -159,6 +159,7 @@ export function LmsWorkspaceBody({
   markLesson,
   navigationProvided = false,
   headerStart,
+  openPastExams,
 }: {
   course: Course;
   data: Workspace;
@@ -167,6 +168,7 @@ export function LmsWorkspaceBody({
   schoolWebAvailable: boolean;
   navigationProvided?: boolean;
   headerStart?: ReactNode;
+  openPastExams?: () => void;
   close: () => void;
   /** Asks Core to refresh this course now (`Refresh { course }`). */
   refresh?: () => void;
@@ -1221,6 +1223,11 @@ export function LmsWorkspaceBody({
             }
           >
             <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
+          </button>
+        )}
+        {openPastExams && (
+          <button type="button" className="lmsRefresh" onClick={openPastExams}>
+            {t("examShare.openCourse")}
           </button>
         )}
         {(progress != null || refresh) && (

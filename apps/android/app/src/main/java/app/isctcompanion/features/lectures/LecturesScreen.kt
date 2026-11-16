@@ -4,6 +4,7 @@ import app.isctcompanion.design.CourseSquare
 import app.isctcompanion.design.SkeletonRows
 import app.isctcompanion.design.Loading
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FileCopy
 import androidx.compose.material.icons.rounded.School
 import app.isctcompanion.design.EmptyState
 import androidx.compose.foundation.background
@@ -21,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,7 +62,14 @@ fun LecturesScreen() {
     var overview by remember { mutableStateOf<WorkspaceOverview?>(null) }
     val term = model.today?.term
     LaunchedEffect(term, model.contentRevision) { term?.let { overview = model.overview(it) } }
-    TabPage(t("common.courses")) {
+    TabPage(
+        t("common.courses"),
+        actions = {
+            IconButton(onClick = navigator::openPastExams) {
+                Icon(Icons.Rounded.FileCopy, t("examShare.title"))
+            }
+        },
+    ) {
         val ids = overview?.termCourseIds.orEmpty()
         Loading(
             overview != null,

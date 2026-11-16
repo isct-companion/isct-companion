@@ -32,6 +32,7 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::SyncSnapshot(_) => "sync",
         CoreEvent::CloudSyncState(_) => "cloud",
         CoreEvent::WakeDirective(_) => "directive",
+        CoreEvent::ExamAccount(_) => "exam",
     }
 }
 
@@ -191,11 +192,25 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             "wake-directive",
             json!({"revision":0,"at":null,"background":[]}),
         ),
+        (
+            CoreEvent::ExamAccount(app_core::exam_share::ExamAccount {
+                status: app_core::exam_share::ExamAccountStatus::Connected,
+                email: Some("student@m.isct.ac.jp".into()),
+                upload: app_core::exam_share::ExamUploadStatus {
+                    phase: app_core::exam_share::ExamUploadPhase::Transferring,
+                    sent: 4,
+                    total: 9,
+                    cancellable: true,
+                },
+            }),
+            "exam-account",
+            json!({"status":"connected","email":"student@m.isct.ac.jp","upload":{"phase":"transferring","sent":4,"total":9,"cancellable":true}}),
+        ),
     ];
     let mut covered = std::collections::HashSet::new();
     for (event, name, payload) in cases {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 11);
+    assert_eq!(covered.len(), 12);
 }

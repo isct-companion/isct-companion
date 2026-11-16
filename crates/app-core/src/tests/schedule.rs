@@ -964,6 +964,53 @@ pub(crate) fn multi_quarter_workspace() -> Value {
 }
 
 #[test]
+fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
+    let mut data = multi_quarter_workspace();
+    // Local timetable records as stored after editing or importing a course.
+    // A syllabus code written PRIMARY(ALIAS) is looked up by its primary
+    // code only (ScienceTokyoExam files the subject there); a lone code of
+    // unknown standing stays, and a lone code another source of the same
+    // course names as its alias is dropped.
+    data["courses"] = json!([
+        {"id":"cross","termId":"2026-4Q","title":"Frontiers","code":"ＥＮＴ．Ｂ１０１（ＬＡＳ．Ｆ１０１）-02"},
+        {"id":"alias-only","termId":"2026-4Q","title":"Creativity","code":"LAW.X376"},
+        {"id":"lms-pair","termId":"2026-4Q","title":"Paired","code":"LAS.F101","lmsCourseId":7},
+        {"id":"manual","termId":"2026-4Q","title":"Independent Study","code":""},
+        {"id":"withdrawn","termId":"2026-4Q","title":"Dropped","code":"CSC.T101"},
+        {"id":"multi","termId":"2026-3Q","title":"Long Course","code":"MTH.B301"}
+    ]);
+    data["lmsCourses"] = json!([{"lmsId":7,"shortname":"ENT.B101(LAS.F101)-01 [2026]"}]);
+    data["memberships"] = json!([
+        {"courseId":"cross","termId":"2026-4Q","status":"registered"},
+        {"courseId":"alias-only","termId":"2026-4Q","status":"lms-member"},
+        {"courseId":"lms-pair","termId":"2026-4Q","status":"registered"},
+        {"courseId":"manual","termId":"2026-4Q","status":"declared"},
+        {"courseId":"withdrawn","termId":"2026-4Q","status":"withdrawn"}
+    ]);
+
+    let WorkspaceQueryResult::ExamCourses(list) =
+        query(&data, &SchoolReads::default(), WorkspaceQuery::ExamCourses).unwrap()
+    else {
+        panic!("expected this quarter's past-exam courses");
+    };
+    let courses: Vec<_> = list
+        .courses
+        .iter()
+        .map(|course| (course.course_id.as_str(), course.subject_codes.clone()))
+        .collect();
+    // "multi" is only planned in 4Q (a plan item), so it is not listed.
+    assert_eq!(
+        courses,
+        [
+            ("cross", vec!["ENT.B101".to_owned()]),
+            ("alias-only", vec!["LAW.X376".to_owned()]),
+            ("lms-pair", vec!["ENT.B101".to_owned()]),
+            ("manual", vec![]),
+        ]
+    );
+}
+
+#[test]
 fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
     let data = multi_quarter_workspace();
     let at = |raw: &str| DateTime::parse_from_rfc3339(raw).unwrap();

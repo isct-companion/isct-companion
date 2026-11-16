@@ -87,7 +87,7 @@ targets:
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
         # The campus map's blue dot (CampusMapLocation); never in the background.
         NSLocationWhenInUseUsageDescription: キャンパスマップに現在地を表示するために使います。
-        # Google Drive sign-in (GoogleSignIn.swift): the iOS client registered in
+        # Google sign-in: the iOS client registered in
         # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
         # this in step with that file.
         IsctGoogleClientID: $(ISCT_GOOGLE_IOS_CLIENT_ID)

@@ -53,6 +53,9 @@ final class AppModel {
     private(set) var availableUpdate: AppRelease?
     /// The release Core offers in the update prompt, until it is answered.
     var updateOffer: AppRelease?
+    /// The ScienceTokyoExam account and its upload: an `Account` answer, then
+    /// Core's `exam-account` events.
+    private(set) var examAccount: ExamAccount?
     /// A check the person started found nothing newer.
     private(set) var upToDate = false
     private(set) var checkingUpdate = false
@@ -124,7 +127,7 @@ final class AppModel {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             }
             // iCloud uses the device's account, so it needs no separate sign-in;
-            // Google Drive signs in through `GoogleSignIn`, and Core reads its
+            // Google Drive signs in through `BrowserAuthentication`, and Core reads its
             // saved authorization itself.
             #if ISCT_NO_ICLOUD
             // Personal-team builds carry no iCloud entitlement, and CKContainer
@@ -138,12 +141,16 @@ final class AppModel {
             #endif
             let inFront = UIApplication.shared.applicationState != .background
             let config = SessionConfig(
-                dataDirectory: data.path, filesDirectory: files.path, initialNetwork: .unknown,
-                startSuspended: !inFront, cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
+                dataDirectory: data.path, filesDirectory: files.path,
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                initialNetwork: .unknown, startSuspended: !inFront,
+                cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
                 notifications: nil, webCookies: WebCookieSeed(),
-                webAuthentication: GoogleSignIn(), driveTokens: nil)
+                webAuth: BrowserAuthentication(),
+                iosGoogleClientId: Bundle.main.object(forInfoDictionaryKey: "IsctGoogleClientID") as? String,
+                browserOpener: nil, driveTokens: nil)
             if let widgets = WidgetStorage() {
                 try session.attachWidgets(port: widgets)
             }
@@ -350,6 +357,8 @@ final class AppModel {
                         await refreshCloud()
                     case "wake-directive":
                         if let next = try? decodeWakeDirective(payload: event.payload) { apply(next) }
+                    case "exam-account":
+                        if let account = try? decodeExamAccount(payload: event.payload) { examAccount = account }
                     case "school-web-page", "school-web-notice":
                         web.receive(event.name, payload: event.payload)
                     // No screen here lists finder results; the catalog
@@ -373,6 +382,10 @@ final class AppModel {
                     web.refreshPages()
                     await refreshAccounts()
                     await refreshSyncSnapshot()
+                    // A missed `exam-account` event: read the account again
+                    // once the past-exams page has shown it. Its own task, as
+                    // an upload holds the account until it ends.
+                    if examAccount != nil { Task { _ = try? await self.examShare(.account) } }
                 }
             } catch {
                 return
@@ -567,6 +580,24 @@ final class AppModel {
             case let .workspaceOverview(view)? = result.values.first
         else { return nil }
         return view
+    }
+
+    func examShare(_ action: ExamAction) async throws -> ExamAnswer {
+        guard let session,
+            case let .examShare(answer) = try await session.examShare(action: action).value()
+        else { throw SdkError.Unavailable(detail: "unavailable") }
+        if case let .account(account) = answer { examAccount = account }
+        return answer
+    }
+
+    func examCourses() async -> ExamCourseList? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .examCourses
+            ]).value(),
+            case let .examCourses(list)? = result.values.first
+        else { return nil }
+        return list
     }
 
     /// One quarter's assignments as Core groups them, for 授業's 課題.

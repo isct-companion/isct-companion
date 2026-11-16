@@ -2,6 +2,7 @@ import { clearZoom } from "./course-zoom";
 import {
   BookOpen,
   CalendarDays,
+  Files,
   Globe,
   House,
   Info,
@@ -63,6 +64,7 @@ import { Settings } from "../pages/settings/SettingsPage";
 import { saveVpnOnDemand, vpnNoticeText } from "../pages/tools/CampusVpn";
 import { About } from "../pages/about/AboutPage";
 import { Tools } from "../pages/tools/ToolsPage";
+import { PastExams } from "../pages/past-exams/PastExamsPage";
 import { availableTools } from "../pages/tools/registry";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
 
@@ -191,7 +193,14 @@ function SchoolStatusAccount({
   );
 }
 
-const pages: Page[] = ["home", "timetable", "lectures", "web", "tools"];
+const pages: Page[] = [
+  "home",
+  "timetable",
+  "lectures",
+  "web",
+  "tools",
+  "pastExams",
+];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
   timetable: <CalendarDays aria-hidden strokeWidth={1.75} />,
@@ -199,6 +208,7 @@ const icons: Record<Page, React.ReactElement> = {
   lectures: <BookOpen aria-hidden strokeWidth={1.75} />,
   web: <Globe aria-hidden strokeWidth={1.75} />,
   tools: <Wrench aria-hidden strokeWidth={1.75} />,
+  pastExams: <Files aria-hidden strokeWidth={1.75} />,
   settings: <SlidersHorizontal aria-hidden strokeWidth={1.75} />,
   about: <Info aria-hidden strokeWidth={1.75} />,
 };
@@ -291,6 +301,7 @@ export function WorkspaceApp() {
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
   const webMatch = useMatch(`${routePatterns.web}/*`);
   const toolsMatch = useMatch(routePatterns.tools);
+  const pastExamsMatch = useMatch(`${routePatterns.pastExams}/*`);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
   const aboutMatch = useMatch(routePatterns.about);
   const weekMatch = useMatch(routePatterns.week);
@@ -302,11 +313,13 @@ export function WorkspaceApp() {
         ? "web"
         : toolsMatch
           ? "tools"
-          : settingsMatch
-            ? "settings"
-            : aboutMatch
-              ? "about"
-              : "home";
+          : pastExamsMatch
+            ? "pastExams"
+            : settingsMatch
+              ? "settings"
+              : aboutMatch
+                ? "about"
+                : "home";
   const courseViewTerm = previewTerm ?? overview.value?.coursesTerm;
   const timetableViews = useTimetableViews(
     overview.value?.allTerms ?? [],
@@ -382,6 +395,7 @@ export function WorkspaceApp() {
     section,
     lectureEntry: null as CourseEntry | null,
     examEntry: null as { key: string; term: TermId; request: number } | null,
+    pastExamCourse: null as { courseId: string; key: string } | null,
   });
   // Timing context and repeated entrances stay in history state, outside the URL.
   // Returning through the page's remembered URL carries no state; it resumes
@@ -420,7 +434,22 @@ export function WorkspaceApp() {
     renderedRoutes.current.lectureEntry = lectureEntry;
     renderedRoutes.current.examEntry = examEntry;
   }
+  if (page === "pastExams") {
+    const courseId = params.examCourseId;
+    const retained = renderedRoutes.current.pastExamCourse;
+    renderedRoutes.current.pastExamCourse = courseId
+      ? {
+          courseId,
+          key:
+            retained?.courseId === courseId &&
+            !location.state?.pastExamsShortcut
+              ? retained.key
+              : location.key,
+        }
+      : null;
+  }
   const retainedLecture = renderedRoutes.current.lectureEntry;
+  const pastExamCourse = renderedRoutes.current.pastExamCourse;
   const blocker = useBlocker(
     ({ nextLocation }) =>
       (page === "web" || (page === "lectures" && Boolean(params.courseId))) &&
@@ -653,6 +682,7 @@ export function WorkspaceApp() {
     lectures: t("common.lectures"),
     web: t("common.web"),
     tools: t("common.tools"),
+    pastExams: t("examShare.title"),
     settings: t("common.settings"),
     about: t("settings.main.about"),
   };
@@ -791,6 +821,12 @@ export function WorkspaceApp() {
       ...(within && { viewTransition: false }),
     });
   };
+  const openPastExams = desktopBridge?.examShare
+    ? (courseId: string) =>
+        void navigate(paths.pastExams(courseId), {
+          state: { pastExamsShortcut: true },
+        })
+    : undefined;
   const openExam = (key: string, term: string) => {
     void navigate(paths.exam(key, term), {
       state: { lectureRequest: Date.now() },
@@ -888,6 +924,7 @@ export function WorkspaceApp() {
               active={active}
               navigationProvided
               headerStart={sidebarToggle}
+              openPastExams={openPastExams && (() => openPastExams(course.id))}
               schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
               close={() =>
                 void hideNativeSchoolWeb()
@@ -1131,6 +1168,9 @@ export function WorkspaceApp() {
               }
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
               openWeb={(url) => openWeb(url)}
+              openPastExams={
+                openPastExams && (() => openPastExams(panelCourse.id))
+              }
               openLecture={() =>
                 openLecture(panelCourse.id, { term: panelCourse.termId })
               }
@@ -1430,9 +1470,11 @@ export function WorkspaceApp() {
       )}
     </>
   );
-  const railPages = availableTools(platform).length
-    ? pages
-    : pages.filter((p) => p !== "tools");
+  const railPages = pages.filter(
+    (p) =>
+      (p !== "tools" || availableTools(platform).length > 0) &&
+      (p !== "pastExams" || desktopBridge !== undefined),
+  );
   return (
     <div className="app" data-density={data.settings.density}>
       <aside className="rail">
@@ -1487,6 +1529,14 @@ export function WorkspaceApp() {
         {keep("timetable", timetablePage)}
         {keep("web", webPage)}
         {keep("tools", toolsPage)}
+        {keep(
+          "pastExams",
+          <PastExams
+            key={pastExamCourse?.key}
+            courseId={pastExamCourse?.courseId}
+            active={page === "pastExams"}
+          />,
+        )}
         {keep("settings", settingsPage)}
         {keep("about", aboutPage)}
       </main>

@@ -34,6 +34,7 @@ const WEB_SURFACE: &str = "web";
 pub struct SessionConfig {
     pub data_directory: String,
     pub files_directory: String,
+    pub app_version: String,
     /// Sent to Core's planner as the first `Hint::Network`.
     pub initial_network: SyncNetwork,
     /// A cold background launch waits for the OS opportunity before Core
@@ -115,6 +116,7 @@ impl Inner {
         *self.gate.lock().map_err(|_| SdkError::Closed)? = true;
         self.tasks.close();
         self.closed.cancel();
+        self.core.cancel_exam_share();
         if let Ok(operations) = self.operations.lock() {
             for op in operations.values().filter_map(Weak::upgrade) {
                 if op.cancellable {
@@ -246,7 +248,13 @@ impl Session {
         cloud: Option<Arc<dyn NativeCloud>>,
         notifications: Option<Arc<dyn NativeNotifications>>,
         web_cookies: Option<Arc<dyn NativeWebCookies>>,
-        web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
+        // iOS: Google sign-in in a web authentication session, with the
+        // app's registered client.
+        web_auth: Option<Arc<dyn NativeWebAuthSession>>,
+        ios_google_client_id: Option<String>,
+        // Android: the browser Core's loopback sign-in opens, and Drive's
+        // tokens from the OS account.
+        browser_opener: Option<Arc<dyn NativeBrowserOpener>>,
         drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
     ) -> Result<Arc<Self>, SdkError> {
         // The first session installs Core's logger for the process; later
@@ -278,7 +286,9 @@ impl Session {
                     cloud,
                     notifications,
                     web_cookies,
-                    web_authentication,
+                    web_auth,
+                    ios_google_client_id,
+                    browser_opener,
                     drive_tokens,
                 },
             ))
@@ -596,7 +606,7 @@ impl Session {
             if enabled && matches!(provider, CloudProvider::GoogleDrive) && i.drive.is_none() {
                 return Err(unavailable("Google Drive"));
             }
-            let sign_in = crate::ports::DriveSignIn(i.drive.as_deref());
+            let sign_in = crate::ports::DriveSignIn(i.drive.as_deref(), &i.closed);
             Ok(OperationResult::Cloud {
                 state: project(
                     sync.set_enabled(
@@ -625,6 +635,11 @@ pub fn decode_school_web_page(payload: JsonValue) -> Result<SchoolWebPage, SdkEr
 /// render it without another `sync_snapshot` round trip.
 #[uniffi::export]
 pub fn decode_sync_snapshot(payload: JsonValue) -> Result<SyncSnapshot, SdkError> {
+    project_input(payload.0)
+}
+/// Decodes the payload of an `exam-account` stream event.
+#[uniffi::export]
+pub fn decode_exam_account(payload: JsonValue) -> Result<ExamAccount, SdkError> {
     project_input(payload.0)
 }
 /// Decodes the payload of a `wake-directive` stream event.
@@ -665,7 +680,9 @@ struct Ports {
     cloud: Option<Arc<dyn NativeCloud>>,
     notifications: Option<Arc<dyn NativeNotifications>>,
     web_cookies: Option<Arc<dyn NativeWebCookies>>,
-    web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
+    web_auth: Option<Arc<dyn NativeWebAuthSession>>,
+    ios_google_client_id: Option<String>,
+    browser_opener: Option<Arc<dyn NativeBrowserOpener>>,
     drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
 }
 
@@ -679,13 +696,31 @@ async fn initialize(
         cloud,
         notifications,
         web_cookies,
-        web_authentication,
+        web_auth,
+        ios_google_client_id,
+        browser_opener,
         drive_tokens,
     } = ports;
     let data = PathBuf::from(&config.data_directory);
     let files = PathBuf::from(&config.files_directory);
     let backup_directory = data.join("backups");
-    let drive = DriveAuth::new(vault.clone(), web_authentication, drive_tokens)?.map(Arc::new);
+    // Each target takes the ports its sign-in uses; the others go unused.
+    #[cfg(target_os = "ios")]
+    let (exam_sign_in, drive) = {
+        let _ = (browser_opener, drive_tokens);
+        (
+            crate::exam_share::sign_in(web_auth.clone(), ios_google_client_id.clone()),
+            DriveAuth::new(vault.clone(), web_auth, ios_google_client_id)?.map(Arc::new),
+        )
+    };
+    #[cfg(not(target_os = "ios"))]
+    let (exam_sign_in, drive) = {
+        let _ = (web_auth, ios_google_client_id);
+        (
+            crate::exam_share::sign_in(browser_opener),
+            DriveAuth::new(vault.clone(), drive_tokens).map(Arc::new),
+        )
+    };
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
         cloud: cloud.is_some() || drive.is_some(),
@@ -696,6 +731,7 @@ async fn initialize(
     let start_suspended = config.start_suspended;
     let native_cloud = cloud.clone();
     let store_drive = drive.clone();
+    let exam_vault = Arc::new(crate::ports::Vault(vault.clone()));
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
@@ -721,7 +757,7 @@ async fn initialize(
             })
             .collect::<Vec<_>>();
         if let Some(drive) = &store_drive {
-            if drive.authorized()? {
+            if drive.authorized().map_err(SdkError::from)? {
                 authorized.push(CloudProvider::GoogleDrive);
             }
         }
@@ -736,6 +772,11 @@ async fn initialize(
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
+    core.open_exam_share(
+        exam_vault,
+        exam_sign_in,
+        config.app_version.clone(),
+    );
     if let Some(web_cookies) = web_cookies {
         core.attach_web_cookies(Arc::new(crate::ports::WebCookies(web_cookies)));
     }

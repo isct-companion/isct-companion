@@ -16,6 +16,7 @@ mod android_tls;
 mod campus_print;
 mod diagnostics;
 mod error;
+mod exam_share;
 mod json;
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/contracts.rs"));

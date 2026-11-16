@@ -7,19 +7,17 @@ use super::document::{
     MAX_DOCUMENT_BYTES,
 };
 use super::CloudProvider;
+use crate::net::read_response_limited;
+use crate::oauth::code_exchange::{self, CodeExchange, OAuthClient};
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
+use crate::oauth::{code_exchange::Options, OAuthError};
 use crate::ports::SecretVault;
-use base64::Engine;
-use ring::rand::SecureRandom;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 /// The vault account every shell keeps the Drive token under.
 pub const VAULT_ACCOUNT: &str = "google-drive";
-const AUTHORIZE_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 /// The non-sensitive scope for the app's hidden folder; nothing else is asked.
 pub const SCOPE: &str = "https://www.googleapis.com/auth/drive.appdata";
 
@@ -137,8 +135,12 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
                 response.status().as_u16()
             )));
         }
-        let files: DriveFiles = serde_json::from_slice(&read_limited(response, 1024 * 1024).await?)
-            .map_err(|_| transport("Google Drive lookup response was invalid."))?;
+        let files: DriveFiles = serde_json::from_slice(
+            &read_response_limited(response, 1024 * 1024)
+                .await
+                .map_err(transport)?,
+        )
+        .map_err(|_| transport("Google Drive lookup response was invalid."))?;
         let mut ids = files
             .files
             .unwrap_or_default()
@@ -164,7 +166,9 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
         if !response.status().is_success() {
             return Err(transport("Google Drive workspace read failed."));
         }
-        read_limited(response, MAX_BODY_BYTES).await
+        read_response_limited(response, MAX_BODY_BYTES)
+            .await
+            .map_err(transport)
     }
 
     /// Reads a file by name; `None` when the folder has none.
@@ -191,7 +195,10 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
             )
             .await?
         } else {
-            let boundary = format!("isct-companion-{}", random_urlsafe(18)?);
+            let boundary = format!(
+                "isct-companion-{}",
+                code_exchange::random_urlsafe::<18>().map_err(transport)?
+            );
             let metadata = serde_json::json!({ "name": name, "parents": ["appDataFolder"] });
             let mut body = format!(
                 "--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: application/json\r\n\r\n"
@@ -275,8 +282,12 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
         if !meta.status().is_success() {
             return Err(transport("Google Drive metadata read failed."));
         }
-        let meta: serde_json::Value =
-            serde_json::from_slice(&read_limited(meta, 65536).await?).map_err(transport)?;
+        let meta: serde_json::Value = serde_json::from_slice(
+            &read_response_limited(meta, 65536)
+                .await
+                .map_err(transport)?,
+        )
+        .map_err(transport)?;
         let etag = meta["etag"]
             .as_str()
             .ok_or_else(|| transport("Google Drive did not return a version tag."))?;
@@ -386,47 +397,6 @@ impl<A: DriveAuthorization> WorkspaceTransport for GoogleDrive<A> {
     }
 }
 
-async fn read_limited(
-    mut response: reqwest::Response,
-    limit: usize,
-) -> Result<Vec<u8>, DocumentError> {
-    if response
-        .content_length()
-        .is_some_and(|size| size > limit as u64)
-    {
-        return Err(transport("Remote response is too large."));
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| transport("Remote response read failed."))?
-    {
-        if bytes.len().saturating_add(chunk.len()) > limit {
-            return Err(transport("Remote response is too large."));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(bytes)
-}
-
-fn random_urlsafe(bytes: usize) -> Result<String, DocumentError> {
-    let mut value = vec![0u8; bytes];
-    ring::rand::SystemRandom::new()
-        .fill(&mut value)
-        .map_err(|_| transport("Secure random bytes are unavailable."))?;
-    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value))
-}
-
-/// A registered Google OAuth client. Google requires a Desktop client's
-/// secret in token requests even with PKCE and documents it as not
-/// confidential for installed apps; iOS clients have none.
-#[derive(Clone, Debug)]
-pub struct OAuthClient {
-    pub id: String,
-    pub secret: Option<String>,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 struct StoredToken {
     access_token: String,
@@ -435,43 +405,23 @@ struct StoredToken {
     client_id: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: Option<u64>,
-}
-
-/// A started authorization: open `url`, then pass the redirect it returns to
-/// [`Pkce::finish`] with this value.
-#[derive(Clone, Debug)]
-pub struct PendingAuthorization {
-    pub url: String,
-    redirect: String,
-    verifier: String,
-    state: String,
-}
-
-/// Authorization code with PKCE for installed apps, the token kept in the
-/// shell's vault under [`VAULT_ACCOUNT`]. Desktop opens the system browser
-/// to a loopback redirect; iOS presents a web authentication session.
+/// The Drive grant uses the same vault account and document on every PKCE host.
 pub struct Pkce<V> {
-    client: reqwest::Client,
+    exchange: CodeExchange,
     vault: V,
     oauth: OAuthClient,
+    #[cfg(target_os = "ios")]
+    interactive: tokio::sync::Mutex<()>,
 }
 
 impl<V: SecretVault> Pkce<V> {
     pub fn new(vault: V, oauth: OAuthClient) -> Result<Self, DocumentError> {
-        let client = crate::net::client_builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(45))
-            .build()
-            .map_err(|_| transport("Cloud HTTP client initialization failed."))?;
         Ok(Self {
-            client,
+            exchange: CodeExchange::new().map_err(transport)?,
             vault,
             oauth,
+            #[cfg(target_os = "ios")]
+            interactive: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -479,81 +429,69 @@ impl<V: SecretVault> Pkce<V> {
         &self.vault
     }
 
-    /// The authorization URL for `redirect` and the values its callback must match.
-    pub fn begin(
+    #[cfg(target_os = "ios")]
+    pub async fn connect(
         &self,
-        client_id: &str,
-        redirect: &str,
-    ) -> Result<PendingAuthorization, DocumentError> {
-        if !valid_client_id(client_id) {
-            return Err(transport("OAuth client ID is invalid."));
-        }
-        let verifier = random_urlsafe(48)?;
-        let state = random_urlsafe(32)?;
-        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(Sha256::digest(verifier.as_bytes()));
-        let mut url = endpoint(AUTHORIZE_ENDPOINT)?;
-        url.query_pairs_mut()
-            .append_pair("client_id", client_id)
-            .append_pair("redirect_uri", redirect)
-            .append_pair("response_type", "code")
-            .append_pair("scope", SCOPE)
-            .append_pair("code_challenge", &challenge)
-            .append_pair("code_challenge_method", "S256")
-            .append_pair("state", &state)
-            .append_pair("access_type", "offline")
-            .append_pair("prompt", "consent");
-        Ok(PendingAuthorization {
-            url: url.into(),
-            redirect: redirect.into(),
-            verifier,
-            state,
-        })
+        browser: &dyn crate::oauth::NativeBrowserAuth,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<(), crate::cloud_sync::CloudSyncError> {
+        let _interactive = self
+            .interactive
+            .try_lock()
+            .map_err(|_| sign_in_error(OAuthError::Busy))?;
+        let (pending, callback) =
+            crate::oauth::authorize(&self.oauth, DRIVE_OPTIONS, browser, cancel)
+                .await
+                .map_err(sign_in_error)?;
+        let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(OAuthError::Cancelled),
+            result = self.exchange.exchange(&self.oauth, &pending, &callback) => result,
+        };
+        self.save_grant(&self.oauth.id, result.map_err(sign_in_error)?)
     }
 
-    /// Checks the redirect the browser returned, exchanges its code and
-    /// stores the token. `client_id` is the one `begin` was given.
-    pub async fn finish(
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub async fn connect(
+        &self,
+        override_id: Option<&str>,
+        browser: &dyn crate::oauth::NativeBrowserAuth,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<(), crate::cloud_sync::CloudSyncError> {
+        let client_id = override_id.unwrap_or(&self.oauth.id);
+        let (pending, callback) =
+            crate::oauth::authorize(client_id, 42813, DRIVE_OPTIONS, browser, cancel)
+                .await
+                .map_err(sign_in_error)?;
+        let token = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(OAuthError::Cancelled),
+            result = self.exchange.exchange(&self.oauth, &pending, &callback) => result,
+        }
+        .map_err(sign_in_error)?;
+        self.save_grant(client_id, token)
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
+    fn save_grant(
         &self,
         client_id: &str,
-        pending: &PendingAuthorization,
-        callback: &str,
-    ) -> Result<(), DocumentError> {
-        let code = callback_code(pending, callback)?;
-        let mut form = vec![
-            ("client_id", client_id),
-            ("code", code.as_str()),
-            ("code_verifier", pending.verifier.as_str()),
-            ("redirect_uri", pending.redirect.as_str()),
-            ("grant_type", "authorization_code"),
-        ];
-        if let Some(secret) = self.secret_for(client_id) {
-            form.push(("client_secret", secret));
-        }
-        let token = self
-            .token_request(&form, "OAuth token exchange was rejected.")
-            .await?;
+        token: code_exchange::Tokens,
+    ) -> Result<(), crate::cloud_sync::CloudSyncError> {
         self.save(&StoredToken {
             access_token: token.access_token,
             refresh_token: token.refresh_token,
             expires_at: expires_at(token.expires_in),
             client_id: client_id.into(),
         })
+        .map_err(|error| crate::cloud_sync::CloudSyncError::Transport(error.to_string()))
     }
 
     /// Whether the vault holds a usable saved authorization.
     pub fn authorized(&self) -> Result<bool, DocumentError> {
         Ok(self.stored()?.is_some_and(|token| {
-            !token.access_token.is_empty() && valid_client_id(&token.client_id)
+            !token.access_token.is_empty() && code_exchange::valid_client_id(&token.client_id)
         }))
-    }
-
-    fn secret_for(&self, client_id: &str) -> Option<&str> {
-        // Only sent with the client it belongs to, not a development override.
-        (client_id == self.oauth.id)
-            .then_some(self.oauth.secret.as_deref())
-            .flatten()
-            .filter(|secret| !secret.is_empty())
     }
 
     fn stored(&self) -> Result<Option<StoredToken>, DocumentError> {
@@ -568,30 +506,6 @@ impl<V: SecretVault> Pkce<V> {
             serde_json::to_string(token).map_err(|_| transport("Token serialization failed."))?;
         self.vault.store(VAULT_ACCOUNT, &raw).map_err(transport)
     }
-
-    async fn token_request(
-        &self,
-        form: &[(&str, &str)],
-        rejected: &str,
-    ) -> Result<TokenResponse, DocumentError> {
-        let response = self
-            .client
-            .post(TOKEN_ENDPOINT)
-            .form(form)
-            .send()
-            .await
-            .map_err(|_| transport("OAuth token request failed."))?;
-        if response.status().is_redirection() || !response.status().is_success() {
-            return Err(transport(rejection(rejected, response).await));
-        }
-        let token: TokenResponse =
-            serde_json::from_slice(&read_limited(response, 1024 * 1024).await?)
-                .map_err(|_| transport("OAuth token response was invalid."))?;
-        if token.access_token.is_empty() {
-            return Err(transport("OAuth token response was invalid."));
-        }
-        Ok(token)
-    }
 }
 
 impl<V: SecretVault> DriveAuthorization for Pkce<V> {
@@ -599,7 +513,10 @@ impl<V: SecretVault> DriveAuthorization for Pkce<V> {
         Box::pin(async move {
             let mut token = self
                 .stored()?
-                .filter(|token| !token.access_token.is_empty() && valid_client_id(&token.client_id))
+                .filter(|token| {
+                    !token.access_token.is_empty()
+                        && code_exchange::valid_client_id(&token.client_id)
+                })
                 .ok_or_else(|| transport("Cloud authorization is required."))?;
             if !refresh && token.expires_at > now() {
                 return Ok(token.access_token);
@@ -608,16 +525,9 @@ impl<V: SecretVault> DriveAuthorization for Pkce<V> {
                 .refresh_token
                 .clone()
                 .ok_or_else(|| transport("Cloud authorization expired; reconnect is required."))?;
-            let mut form = vec![
-                ("client_id", token.client_id.as_str()),
-                ("refresh_token", refresh_token.as_str()),
-                ("grant_type", "refresh_token"),
-            ];
-            if let Some(secret) = self.secret_for(&token.client_id) {
-                form.push(("client_secret", secret));
-            }
             let refreshed = self
-                .token_request(&form, "Cloud token refresh was rejected.")
+                .exchange
+                .refresh(&self.oauth, &token.client_id, &refresh_token)
                 .await
                 .map_err(|error| {
                     transport(format!(
@@ -640,34 +550,21 @@ impl<V: SecretVault> DriveAuthorization for Pkce<V> {
     }
 }
 
-/// The authorization code of a redirect, after checking it answers `pending`.
-fn callback_code(pending: &PendingAuthorization, callback: &str) -> Result<String, DocumentError> {
-    let callback = Url::parse(callback).map_err(|_| transport("OAuth callback is invalid."))?;
-    let expected =
-        Url::parse(&pending.redirect).map_err(|_| transport("OAuth redirect is invalid."))?;
-    if callback.scheme() != expected.scheme()
-        || callback.host_str() != expected.host_str()
-        || callback.port() != expected.port()
-        || callback.path() != expected.path()
-    {
-        return Err(transport("OAuth callback target is invalid."));
-    }
-    let params: BTreeMap<_, _> = callback.query_pairs().into_owned().collect();
-    if params.get("state") != Some(&pending.state) {
-        return Err(transport("OAuth state did not match."));
-    }
-    if params.contains_key("error") {
-        return Err(transport("OAuth authorization was declined."));
-    }
-    params
-        .get("code")
-        .filter(|value| !value.is_empty())
-        .cloned()
-        .ok_or_else(|| transport("OAuth authorization returned no code."))
-}
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
+const DRIVE_OPTIONS: Options<'static> = Options {
+    scope: SCOPE,
+    prompt: "consent",
+    offline: true,
+    hosted_domain: None,
+    nonce: None,
+};
 
-fn valid_client_id(value: &str) -> bool {
-    !value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
+fn sign_in_error(error: OAuthError) -> crate::cloud_sync::CloudSyncError {
+    match error {
+        OAuthError::Cancelled => crate::cloud_sync::CloudSyncError::Cancelled,
+        other => crate::cloud_sync::CloudSyncError::Transport(other.to_string()),
+    }
 }
 
 fn now() -> u64 {
@@ -682,36 +579,6 @@ fn expires_at(seconds: Option<u64>) -> u64 {
         .filter(|seconds| (60..=2_592_000).contains(seconds))
         .unwrap_or(3_600);
     now() + seconds.saturating_sub(60)
-}
-
-/// Rejection message with the provider's own error code, e.g.
-/// `invalid_client`, so a misconfigured client is diagnosable.
-async fn rejection(prefix: &str, response: reqwest::Response) -> String {
-    #[derive(Deserialize)]
-    struct OAuthError {
-        error: Option<String>,
-        error_description: Option<String>,
-    }
-    let status = response.status().as_u16();
-    let detail = read_limited(response, 64 * 1024)
-        .await
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<OAuthError>(&bytes).ok())
-        .and_then(|body| match (body.error, body.error_description) {
-            (Some(code), Some(text)) => Some(format!("{code}: {text}")),
-            (Some(code), None) => Some(code),
-            (None, text) => text,
-        })
-        .map(|text| {
-            text.chars()
-                .filter(|c| !c.is_control())
-                .take(200)
-                .collect::<String>()
-        });
-    match detail {
-        Some(text) => format!("{prefix} ({status} {text})"),
-        None => format!("{prefix} ({status})"),
-    }
 }
 
 #[cfg(test)]
