@@ -267,15 +267,7 @@ export function FilePreview({
   if (view.state === "external") {
     return (
       <div className="lmsFileCardStage">
-        <div className="lmsFileCard">
-          <FileTile family="link" />
-          <div className="lmsFileCardText">
-            <h3>{title}</h3>
-          </div>
-          <ExternalLink href={view.url}>
-            {t("common.openInBrowser")}
-          </ExternalLink>
-        </div>
+        <ExternalCard title={title} url={view.url} />
       </div>
     );
   }
@@ -447,6 +439,19 @@ function FileActions({
   );
 }
 
+/** A page outside the school sites, for the system browser. */
+function ExternalCard({ title, url }: { title: string; url: string }) {
+  return (
+    <div className="lmsFileCard">
+      <FileTile family="link" />
+      <div className="lmsFileCardText">
+        <h3>{title}</h3>
+      </div>
+      <ExternalLink href={url}>{t("common.openInBrowser")}</ExternalLink>
+    </div>
+  );
+}
+
 /** Name, size, state and one primary action for the file's current state. */
 function FileCard({
   course,
@@ -546,7 +551,16 @@ export function FilePopover({
   onClose: () => void;
 }) {
   const course = useCourseFile(url, courseId, limit, { download: false });
+  const { view } = course;
   const box = useRef<HTMLDivElement>(null);
+  // A school page opens where it belongs, as from the reader.
+  useEffect(() => {
+    if (view.state !== "page") return;
+    onClose();
+    openPage(view);
+    // It runs once per answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
   useEffect(() => {
     const outside = (event: MouseEvent) => {
       if (!box.current?.contains(event.target as Node)) onClose();
@@ -587,15 +601,19 @@ export function FilePopover({
   }, [anchor, onClose]);
   return (
     <div ref={box} className="lmsFilePopover" role="dialog" aria-label={title}>
-      <FileCard
-        course={course}
-        title={title}
-        openPage={(page) => {
-          onClose();
-          openPage(page);
-        }}
-        previewable={false}
-      />
+      {view.state === "external" ? (
+        <ExternalCard title={title} url={view.url} />
+      ) : (
+        <FileCard
+          course={course}
+          title={title}
+          openPage={(page) => {
+            onClose();
+            openPage(page);
+          }}
+          previewable={false}
+        />
+      )}
     </div>
   );
 }

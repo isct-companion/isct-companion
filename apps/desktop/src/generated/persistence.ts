@@ -1430,10 +1430,6 @@ export type AssignmentDetail = {
    */
   details: string;
   attachments: Array<AssignmentAttachment>;
-  /**
-   * The course folder the assignment's workspace is made in.
-   */
-  files: CourseKey | null;
 };
 
 export type CourseContent = {

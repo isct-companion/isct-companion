@@ -3035,7 +3035,6 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert_eq!(view.files.unwrap().course, "CSC.T273");
     assert!(assignment_detail(&data, "gone").is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
     // relative links and other hosts are not attachments.

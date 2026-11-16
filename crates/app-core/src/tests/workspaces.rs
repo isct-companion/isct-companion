@@ -441,7 +441,6 @@ fn brief_carries_the_description_due_time_and_each_attachment() {
         body_html: "<p>Answer <b>all</b> questions.</p><ul><li>PDF only</li></ul>".into(),
         details: "row notes".into(),
         attachments: vec![attachment("sheet.pdf"), attachment("data.csv")],
-        files: Some(course()),
     };
     let missing = [MissingAttachment {
         name: "data.csv".into(),

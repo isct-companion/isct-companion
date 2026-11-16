@@ -188,8 +188,6 @@ pub struct AssignmentDetail {
     /// Notes the assignment row carries besides the LMS text.
     pub details: String,
     pub attachments: Vec<AssignmentAttachment>,
-    /// The course folder the assignment's workspace is made in.
-    pub files: Option<CourseKey>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -214,7 +212,6 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
     let raw = source
         .and_then(|row| text(row, "bodyHtml"))
         .unwrap_or_default();
-    let course = super::visible_by_id(workspace, "courses", course_id);
     let owned = |key: &str| text(assignment, key).map(str::to_owned);
     Some(AssignmentDetail {
         assignment_id: assignment_id.into(),
@@ -228,7 +225,6 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
         attachments: attachments(raw),
         body_html: super::lms_html::safe_html(raw, true),
         details: text(assignment, "details").unwrap_or_default().into(),
-        files: course.and_then(files_of),
     })
 }
 
