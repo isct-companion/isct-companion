@@ -242,7 +242,7 @@ fn a_disconnect_removes_the_pin_the_route_and_the_resolvers() {
 /// The daemon runs as root from inside the app bundle: it must start the
 /// openconnect beside it, never a Homebrew one, and the route hook it hands
 /// openconnect must be the root-owned copy, not the bundle's, which the
-/// person can edit.
+/// person can edit, at a path the shell does not split.
 #[cfg(target_os = "macos")]
 #[test]
 fn the_bundled_daemon_runs_its_own_openconnect_and_a_root_owned_hook() {
@@ -251,10 +251,9 @@ fn the_bundled_daemon_runs_its_own_openconnect_and_a_root_owned_hook() {
     let cfg = platform::bundled(dir);
     assert_eq!(cfg.openconnect, dir.join("openconnect/bin/openconnect"));
     assert_eq!(cfg.libdirs, vec![dir.join("openconnect/lib")]);
-    assert!(cfg
-        .script
-        .starts_with("/Library/Application Support/IsctCompanion/vpn"));
-    assert!(!cfg.script.starts_with("/Applications"));
+    assert!(cfg.script.starts_with("/Library/PrivilegedHelperTools"));
+    // openconnect hands the path to /bin/sh unquoted.
+    assert!(!cfg.script.to_string_lossy().contains(char::is_whitespace));
 }
 
 /// launchd must be able to parse the daemon's plist, run the helper where

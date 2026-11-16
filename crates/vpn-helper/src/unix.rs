@@ -33,9 +33,10 @@ const APM_PIN: &str = "131.112.12.180";
 /// The hook's scoped DNS entry for the campus domains.
 const DNS_KEY: &str = "State:/Network/Service/isct-campus-vpn/DNS";
 
-/// Root-owned folder the route hook is written to; the earlier installer
-/// copied openconnect here as well.
-const SUPPORT_DIR: &str = "/Library/Application Support/IsctCompanion/vpn";
+/// The root-owned copy of the route hook. openconnect runs `--script`
+/// through `/bin/sh -c` unquoted, so the path must hold no whitespace (an
+/// `Application Support` path ran `/Library/Application` and failed with 127).
+const ROUTE_HOOK_PATH: &str = "/Library/PrivilegedHelperTools/app.isctcompanion.vpn-script";
 const ROUTE_HOOK: &str = include_str!("../assets/vpnc-script");
 
 /// What the osascript installer of helper revisions 1–3 put under /Library.
@@ -46,6 +47,8 @@ const LEGACY_FILES: &[&str] = &[
     "/Library/PrivilegedHelperTools/app.isctcompanion.vpnhelper",
     "/Library/PrivilegedHelperTools/isct-vpn-script",
 ];
+/// The earlier installer's openconnect copy.
+const LEGACY_SUPPORT_DIR: &str = "/Library/Application Support/IsctCompanion";
 
 /// The signer openconnect must carry, set by `bundle-vpn.mjs` when it signs
 /// with a Developer ID. A local ad hoc build has none and skips the check.
@@ -84,7 +87,7 @@ pub(crate) fn bundled(dir: &Path) -> Config {
     Config {
         socket: SOCKET_PATH.into(),
         openconnect: dir.join("openconnect/bin/openconnect"),
-        script: Path::new(SUPPORT_DIR).join("vpnc-script"),
+        script: ROUTE_HOOK_PATH.into(),
         server: super::DEFAULT_SERVER.into(),
         libdirs: vec![dir.join("openconnect/lib")],
         log: LOG.into(),
@@ -115,7 +118,7 @@ fn retire_legacy() {
     for file in LEGACY_FILES {
         let _ = fs::remove_file(file);
     }
-    let _ = fs::remove_dir_all(Path::new(SUPPORT_DIR).join("openconnect"));
+    let _ = fs::remove_dir_all(LEGACY_SUPPORT_DIR);
 }
 
 /// Writes the route hook root-owned and not writable by anyone else, through
