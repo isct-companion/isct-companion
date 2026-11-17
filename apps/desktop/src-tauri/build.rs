@@ -125,6 +125,9 @@ fn write_native_text(os: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The identifier `scripts/desktop/tauri.mjs` gives development builds.
+const DEV_IDENTIFIER: &str = "app.isctcompanion.dev";
+
 fn main() {
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if os == "macos" {
@@ -151,16 +154,34 @@ fn main() {
     }
     println!("cargo::rustc-env=ISCT_DESKTOP_TOOLS={}", tools.join(","));
 
+    // `scripts/desktop/tauri.mjs` gives development builds (`tauri dev`, and a
+    // debug bundle without the team profile) their own identifier and
+    // productName, so their data folder, single-instance lock and credential
+    // service are not the release app's. The Tauri CLI hands that override to
+    // the build as TAURI_CONFIG; code that would touch the release app's state
+    // is compiled out with `isolated_dev`.
+    println!("cargo::rustc-check-cfg=cfg(isolated_dev)");
+    println!("cargo::rerun-if-env-changed=TAURI_CONFIG");
+    let isolated = std::env::var("TAURI_CONFIG").is_ok_and(|config| {
+        let config: serde_json::Value =
+            serde_json::from_str(&config).expect("TAURI_CONFIG is not JSON");
+        config["identifier"] == DEV_IDENTIFIER
+    });
+    if isolated {
+        println!("cargo::rustc-cfg=isolated_dev");
+    }
+
     // CloudKit traps (SIGILL) instead of returning an error in a binary that
     // lacks the iCloud container entitlement. Unsigned macOS debug builds lack
     // it; `scripts/desktop/tauri.mjs` sets ISCT_APPLE_ENTITLED when it signs the
     // bundle with the entitlements and a provisioning profile that grants them.
+    // Development builds never get it: their identifier is not the profile's.
     println!("cargo::rustc-check-cfg=cfg(icloud)");
     println!("cargo::rerun-if-env-changed=ISCT_APPLE_ENTITLED");
     let apple = std::env::var("CARGO_CFG_TARGET_VENDOR").is_ok_and(|vendor| vendor == "apple");
     let debug = std::env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_some();
     let entitled = std::env::var("ISCT_APPLE_ENTITLED").is_ok_and(|value| value == "1");
-    if apple && (os != "macos" || !debug || entitled) {
+    if apple && !isolated && (os != "macos" || !debug || entitled) {
         println!("cargo::rustc-cfg=icloud");
     }
     // Windows reads the Matrix card with LiteRT. app-ocr's build fetched the

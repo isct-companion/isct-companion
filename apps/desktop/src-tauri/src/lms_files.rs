@@ -50,7 +50,12 @@ fn default_root(app: &AppHandle) -> Result<PathBuf, CommandError> {
         .document_dir()
         .or_else(|_| app.path().app_data_dir())
         .map_err(shell)?;
-    Ok(base.join("IsctCompanion"))
+    // A development build (`isolated_dev`) keeps its own course folder.
+    Ok(base.join(if cfg!(isolated_dev) {
+        "IsctCompanion Dev"
+    } else {
+        "IsctCompanion"
+    }))
 }
 
 /// Keep canonical/extended paths internally, but never expose Windows' `\\?\`

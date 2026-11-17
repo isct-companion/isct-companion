@@ -12,9 +12,9 @@ use secrets::OsSecretVault;
 
 mod agent_server;
 mod cloud;
-mod exam_share;
 mod cloud_sync;
 mod command_error;
+mod exam_share;
 pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
 mod desktop_updates;
@@ -213,6 +213,15 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 }
 
 pub fn run() {
+    // A debug binary built outside `scripts/desktop/tauri.mjs` (say `cargo
+    // run`) has neither the development identifier nor the release
+    // entitlements: it would use the release app's data folder and credential
+    // service, and the release app would take its login-keychain items for
+    // old ones to migrate.
+    if cfg!(all(debug_assertions, not(isolated_dev), not(icloud))) {
+        eprintln!("Run the desktop app with `yarn desktop:dev` (or `yarn desktop:build --debug`).");
+        std::process::exit(1);
+    }
     let _ = app_core::diagnostics::initialize();
     let builder = tauri::Builder::default();
     // Registered first, so a second launch hands over before anything starts.

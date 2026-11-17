@@ -44,10 +44,20 @@ use tokio_util::sync::CancellationToken;
 
 /// Below Windows' default dynamic range (49152+), where Hyper-V and WSL
 /// reserve ports at boot, and above the well-known service ports.
-const PORT: u16 = 24_761;
+/// A development build (`isolated_dev`) has its own port and queue, so it runs
+/// beside the release app without replacing the release app's printer.
+const PORT: u16 = if cfg!(isolated_dev) { 24_762 } else { 24_761 };
 const IPP_PATH: &str = "/ipp/print";
-const PRINTER_NAME: &str = "IsctCompanion Campus Printer";
-const PRINTER_UUID: &str = "urn:uuid:c3581d21-8147-4bdb-b39f-bb74fe36fc19";
+const PRINTER_NAME: &str = if cfg!(isolated_dev) {
+    "IsctCompanion Dev Campus Printer"
+} else {
+    "IsctCompanion Campus Printer"
+};
+const PRINTER_UUID: &str = if cfg!(isolated_dev) {
+    "urn:uuid:4f0c1a3e-6a52-4d1f-9a8e-2b7f0d6c5e19"
+} else {
+    "urn:uuid:c3581d21-8147-4bdb-b39f-bb74fe36fc19"
+};
 
 struct PrintServer {
     task: Result<JoinHandle<()>, String>,
