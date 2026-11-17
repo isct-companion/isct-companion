@@ -38,14 +38,14 @@
 .lmsWorkspace svg { flex: 0 0 auto; }
 /* The title keeps at least 18rem; below that the actions wrap to a second row
    instead of squeezing the title (CJK text can break between any two glyphs). */
-.lmsWorkspaceHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 4px 4px 16px; border-bottom: 1px solid var(--line); }
-.lmsCourseIdentity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; flex: 1 1 18rem; min-width: 0; }
+.lmsWorkspaceHeader { display: flex; flex-wrap: wrap; align-items: center; gap: var(--workspace-gutter); padding: 4px 4px 16px; border-bottom: 1px solid var(--line); }
+.lmsCourseIdentity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--workspace-gutter); flex: 1 1 18rem; min-width: 0; }
 .lmsCourseIdentity small { flex: 0 0 auto; white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsCourseIdentity h1 {
-  flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: break-word; font-size: calc(var(--type-title-size) * var(--text)); font-weight: 600; line-height: 1.35; letter-spacing: -.015em;
+  flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: break-word; font-size: calc(var(--type-title-size) * var(--text)); font-weight: var(--type-title-weight); line-height: 1.35; letter-spacing: -.015em;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
-.lmsHeaderActions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-left: auto; }
+.lmsHeaderActions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--workspace-gutter); margin-left: auto; }
 .lmsEntryTime { white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsBack, .lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
   display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: var(--lms-radius-sm);
