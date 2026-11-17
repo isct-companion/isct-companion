@@ -85,8 +85,6 @@ fun FloorMapView(
      * come to rest, since it frames the part the panel leaves visible. */
     canFrame: Boolean,
     showsPosition: Boolean,
-    /** Rises when the person asked for their position and may now see it. */
-    follows: Int,
     /** Where the camera settled after the person moved it. */
     onCamera: (CampusMapCamera) -> Unit,
     /** A tap off the marks, the floor drawn under it and the map's metres
@@ -135,7 +133,7 @@ fun FloorMapView(
         AndroidView(
             factory = { view },
             modifier = Modifier.fillMaxSize(),
-            update = { painter.show(scene, palette, dark, chrome, showsPosition, follows) },
+            update = { painter.show(scene, palette, dark, chrome, showsPosition) },
         )
         SpokenMarks(placed, onSelect)
     }
@@ -272,12 +270,8 @@ private class FloorPainter(private val view: MapView) {
     private var palette: Palette? = null
     private var dark = false
     private var showsPosition = false
-    private var follows = 0
     private var chrome = MapInsets(0, 0, 0, 0)
-    /** The person asked to be followed before the blue dot was ready. */
-    private var followPending = false
-    /** The camera's current move is the person's: a gesture, or following
-     * their position, which they asked for. */
+    /** The camera's current move is the person's own gesture. */
     private var personMoving = false
     /** A first framing places the camera; later ones animate. */
     private var framed = false
@@ -299,7 +293,7 @@ private class FloorPainter(private val view: MapView) {
         map.uiSettings.isTiltGesturesEnabled = false
         map.uiSettings.isLogoEnabled = false
         map.addOnCameraMoveStartedListener { reason ->
-            personMoving = reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE || following(map)
+            personMoving = reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE
         }
         map.addOnCameraIdleListener {
             if (personMoving) report(map)
@@ -346,17 +340,12 @@ private class FloorPainter(private val view: MapView) {
         dark: Boolean,
         chrome: MapInsets,
         showsPosition: Boolean,
-        follows: Int,
     ) {
         this.scene = scene
         this.palette = palette
         this.dark = dark
         this.showsPosition = showsPosition
         this.chrome = chrome
-        if (follows != this.follows) {
-            this.follows = follows
-            followPending = true
-        }
         render()
     }
 
@@ -452,9 +441,6 @@ private class FloorPainter(private val view: MapView) {
         if (animates) map.animateCamera(update, FRAMING_MS) else map.moveCamera(update)
     }
 
-    private fun following(map: MapLibreMap): Boolean =
-        positionStyle != null && runCatching { map.locationComponent.cameraMode != CameraMode.NONE }.getOrDefault(false)
-
     /** The visible part's corners on the ground: a turned map gives a
      * turned box. */
     private fun report(map: MapLibreMap) {
@@ -492,12 +478,6 @@ private class FloorPainter(private val view: MapView) {
                     component.renderMode = RenderMode.NORMAL
                 }
                 if (!component.isLocationComponentEnabled) component.isLocationComponentEnabled = true
-                if (followPending) {
-                    // The person's position stays in the middle until they
-                    // move the map.
-                    followPending = false
-                    component.cameraMode = CameraMode.TRACKING
-                }
             } else if (positionStyle === style && component.isLocationComponentEnabled) {
                 component.isLocationComponentEnabled = false
             }

@@ -137,9 +137,10 @@ pub(super) struct Building {
     pub street_level_id: Option<String>,
     pub entrances: Vec<Entrance>,
     /// The maintainers marked the building's data complete: the map asks
-    /// for no more photos of it. Optional so this build reads exports with
-    /// and without it; Isct-Data may start writing it once the builds
-    /// before this one, which refuse an unknown field, are gone.
+    /// for no more photos of it. Not in the published format 2, which is
+    /// frozen for the builds that read it (Isct-Data
+    /// `docs/campus-map-export.md`, "Versioning"); it arrives with the next
+    /// format, and this build reads it when present.
     #[serde(default)]
     pub complete: bool,
 }
