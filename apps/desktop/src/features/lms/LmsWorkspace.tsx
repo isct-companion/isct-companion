@@ -1152,73 +1152,81 @@ export function LmsWorkspaceBody({
           </button>
         )}
         <div className="lmsCourseIdentity">
-          <h1>{course.title}</h1>
+          <h1 title={course.title}>{course.title}</h1>
           <small>{course.code}</small>
         </div>
-        {entry.date && (
-          <span className="lmsEntryTime">
-            {entry.date}{" "}
-            {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
-          </span>
-        )}
-        {syllabus && (
-          <button
-            type="button"
-            className="lmsRefresh"
-            aria-pressed={selected === "syllabus"}
-            onClick={() =>
-              open({
-                id: "syllabus",
-                title: t("common.syllabus"),
-                kind: "syllabus",
-                url: syllabus,
-              })
-            }
-          >
-            <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
-          </button>
-        )}
-        {openPastExams && (
-          <button type="button" className="lmsRefresh" onClick={openPastExams}>
-            {t("examShare.openCourse")}
-          </button>
-        )}
-        {(progress != null || refresh) && (
-          <div className="lmsPullControls">
-            {progress != null && (
-              // Local data stays on screen; the whole course switches when
-              // Core commits it.
-              <span className="syncPageStatus" role="status">
-                <i className="schoolStatusSpinner" aria-hidden="true" />
-                {updatedAt
-                  ? `${t("lms.showingDataFromAge", {
-                      age: ageText(
-                        updatedAt,
-                        timelineNow,
-                        data.settings.locale,
-                      ),
-                    })} · `
-                  : null}
-                {progress.total !== null
-                  ? t("lms.updatingThisCourseDoneTotal", {
-                      done: progress.done,
-                      total: progress.total,
-                    })
-                  : t("lms.updatingThisCourse")}
-              </span>
-            )}
-            {refresh && (
-              <button
-                type="button"
-                className="lmsRefresh"
-                disabled={progress != null || opened?.kind === "official"}
-                onClick={refresh}
-              >
-                {t("lms.pullFromLMS")}
-              </button>
-            )}
-          </div>
-        )}
+        {/* One group, so the actions move to their own row together when
+            the title would otherwise get less than its minimum width. */}
+        <div className="lmsHeaderActions">
+          {entry.date && (
+            <span className="lmsEntryTime">
+              {entry.date}{" "}
+              {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
+            </span>
+          )}
+          {syllabus && (
+            <button
+              type="button"
+              className="lmsRefresh"
+              aria-pressed={selected === "syllabus"}
+              onClick={() =>
+                open({
+                  id: "syllabus",
+                  title: t("common.syllabus"),
+                  kind: "syllabus",
+                  url: syllabus,
+                })
+              }
+            >
+              <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
+            </button>
+          )}
+          {openPastExams && (
+            <button
+              type="button"
+              className="lmsRefresh"
+              onClick={openPastExams}
+            >
+              {t("examShare.openCourse")}
+            </button>
+          )}
+          {(progress != null || refresh) && (
+            <div className="lmsPullControls">
+              {progress != null && (
+                // Local data stays on screen; the whole course switches when
+                // Core commits it.
+                <span className="syncPageStatus" role="status">
+                  <i className="schoolStatusSpinner" aria-hidden="true" />
+                  {updatedAt
+                    ? `${t("lms.showingDataFromAge", {
+                        age: ageText(
+                          updatedAt,
+                          timelineNow,
+                          data.settings.locale,
+                        ),
+                      })} · `
+                    : null}
+                  {progress.total !== null
+                    ? t("lms.updatingThisCourseDoneTotal", {
+                        done: progress.done,
+                        total: progress.total,
+                      })
+                    : t("lms.updatingThisCourse")}
+                </span>
+              )}
+              {refresh && (
+                <button
+                  type="button"
+                  className="lmsRefresh"
+                  disabled={progress != null || opened?.kind === "official"}
+                  onClick={refresh}
+                >
+                  {t("lms.pullFromLMS")}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </header>
       <div className="lmsWorkspaceTools">
         {lessons.length > 0 && !query.trim() && (
