@@ -757,6 +757,18 @@ final class AppModel {
         }
     }
 
+    /// Sends one floor photo to the maintainers' inbox; `nil` once stored.
+    func campusMapUploadPhoto(buildingId: String, jpeg: Data) async -> CampusMapFailure? {
+        guard let session else { return CampusMapFailure(message: t("error.internal")) }
+        do {
+            _ = try await session.campusMapUploadPhoto(buildingId: buildingId, jpeg: jpeg).value()
+            return nil
+        } catch {
+            Self.mapLog.error("campus map photo: \(Self.describe(error), privacy: .public)")
+            return CampusMapFailure(message: Self.describe(error))
+        }
+    }
+
     /// Drops Core's map page, and its open if it is still loading.
     func campusMapClose() {
         session?.campusMapClose()

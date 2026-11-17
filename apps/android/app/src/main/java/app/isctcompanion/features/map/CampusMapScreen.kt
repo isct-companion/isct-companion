@@ -48,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -167,6 +168,7 @@ fun CampusMapScreen(room: String?) {
     // Intents reach Core one after another, in the order sent.
     val intents = remember { Channel<CampusMapIntent>(Channel.UNLIMITED) }
     val search = rememberTextFieldState()
+    val photoCamera = rememberFloorPhotoCamera()
     val searchInteraction = remember { MutableInteractionSource() }
     val searchFocused by searchInteraction.collectIsFocusedAsState()
     val sheet = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded, skipHiddenState = true)
@@ -293,6 +295,10 @@ fun CampusMapScreen(room: String?) {
                             openInMaps = { openInMaps(context, card.mapsUrl) },
                             select = { send(CampusMapIntent.Select(it)) },
                             choose = { send(CampusMapIntent.Choose(it.toUInt())) },
+                            photos = card.photoBuildingId?.takeIf { photoCamera.available }?.let {
+                                photoCamera.uploads[it] ?: FloorPhotoUploads()
+                            },
+                            takePhoto = { card.photoBuildingId?.let(photoCamera.take) },
                         )
                     }
                 }
@@ -300,6 +306,14 @@ fun CampusMapScreen(room: String?) {
         },
     ) { _ ->
         Box(Modifier.fillMaxSize()) {
+            photoCamera.failure?.let { message ->
+                AlertDialog(
+                    onDismissRequest = photoCamera.dismissFailure,
+                    confirmButton = { TextButton(onClick = photoCamera.dismissFailure) { Text(t("common.ok")) } },
+                    title = { Text(t("campusMap.photos.failed")) },
+                    text = { Text(message) },
+                )
+            }
             FloorMapView(
                 scene = scene,
                 chrome = chrome,
@@ -508,6 +522,8 @@ private fun CardDetails(
     openInMaps: () -> Unit,
     select: (CampusMapPlace) -> Unit,
     choose: (Int) -> Unit,
+    photos: FloorPhotoUploads?,
+    takePhoto: () -> Unit,
 ) {
     Column(
         Modifier.padding(start = Theme.cardPadding, end = Theme.cardPadding, bottom = Theme.cardPadding),
@@ -531,7 +547,7 @@ private fun CardDetails(
         } else if (card.noFloorPlans) {
             Text(t("campusMap.noFloorPlans"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
-        Actions(card, openInMaps, select)
+        Actions(card, openInMaps, select, photos, takePhoto)
         if (card.entrances.isNotEmpty()) Entrances(card.entrances, select)
         if (card.candidates.isNotEmpty()) Candidates(card.candidates, choose)
     }
@@ -553,8 +569,28 @@ private fun Notice(title: String, detail: String, retry: (() -> Unit)? = null) {
 /** The building (on a room's card) and the maps app: the
  * card moves the map, and only this button leaves the app. */
 @Composable
-private fun Actions(card: CampusMapCard, openInMaps: () -> Unit, select: (CampusMapPlace) -> Unit) {
+private fun Actions(
+    card: CampusMapCard,
+    openInMaps: () -> Unit,
+    select: (CampusMapPlace) -> Unit,
+    photos: FloorPhotoUploads?,
+    takePhoto: () -> Unit,
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Each tap opens the camera; the label tells how the photos went.
+        if (photos != null) {
+            ActionButton(
+                when {
+                    photos.sending > 0 -> t("campusMap.photos.sending")
+                    photos.sent > 0 -> t("campusMap.photos.sent", "count" to photos.sent.toString())
+                    else -> t("campusMap.photos.upload")
+                },
+                onClick = takePhoto,
+                modifier = Modifier.weight(1f),
+                level = ButtonLevel.Secondary,
+                icon = Icons.Rounded.PhotoCamera,
+            )
+        }
         card.building?.let { building ->
             ActionButton(
                 card.buildingName,

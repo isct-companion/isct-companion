@@ -772,11 +772,7 @@ async fn initialize(
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
-    core.open_exam_share(
-        exam_vault,
-        exam_sign_in,
-        config.app_version.clone(),
-    );
+    core.open_exam_share(exam_vault, exam_sign_in, config.app_version.clone());
     if let Some(web_cookies) = web_cookies {
         core.attach_web_cookies(Arc::new(crate::ports::WebCookies(web_cookies)));
     }

@@ -363,6 +363,11 @@ fn an_entrance_picked_on_the_building_card_shows_its_floor_in_the_map() {
     let card = select(&mut page, building(W9)).card.expect("W9's card");
     assert_eq!(card.kind, CampusMapCardKind::Building);
     assert_eq!(card.building, None);
+    // W9 is not marked complete: a build that can send photos asks for them.
+    assert_eq!(
+        card.photo_building_id.as_deref(),
+        crate::campus_map::photos::available().then_some(W9)
+    );
     let record = &map.export.buildings[w9];
     assert_eq!(card.entrances.len(), record.entrances.len());
     // An entrance on a floor other than the one W9 opened on, else any.
@@ -399,4 +404,42 @@ fn an_entrance_picked_on_the_building_card_shows_its_floor_in_the_map() {
         &mark.kind,
         CampusMapMarkKind::Entrance { entrance_id, selected: true, .. } if *entrance_id == entrance.id
     )));
+}
+
+#[test]
+#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
+fn locate_picks_the_building_the_person_stands_in_or_near() {
+    let map = map();
+    let w9 = map.buildings[W9];
+    let mut page = Page::open(map.clone(), PREFERENCES, None);
+    let point = |at: [f64; 2]| CampusMapPoint {
+        latitude: at[1],
+        longitude: at[0],
+    };
+    // Inside W9: W9's card, its floor shown, the camera on it.
+    let inside = send(
+        &mut page,
+        CampusMapIntent::Locate {
+            point: point(BY_THE_SPORTS_CENTER),
+        },
+    );
+    assert_eq!(
+        inside.card.as_ref().map(|card| card.title.clone()),
+        Some(map.name(w9, ContentLanguage::Ja))
+    );
+    assert_eq!(building_of(&map, inside.level_id.as_deref()), Some(w9));
+    let framed = inside.framing.clone().expect("a framing");
+    assert!(!framed.reveal);
+
+    // Far from campus: the card stays, only the position is framed.
+    let far = send(
+        &mut page,
+        CampusMapIntent::Locate {
+            point: point([139.0, 35.0]),
+        },
+    );
+    assert_eq!(far.card, inside.card);
+    let around = far.framing.expect("a framing");
+    assert_ne!(around.key, framed.key);
+    assert!(around.bounds.west < 139.0 && around.bounds.east > 139.0);
 }

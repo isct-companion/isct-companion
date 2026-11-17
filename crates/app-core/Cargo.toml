@@ -19,8 +19,9 @@ ts = ["dep:ts-rs", "adpt-isct/ts"]
 # (app-ffi turns it on for that target only). iOS never prints to it.
 campus-printer = ["dep:adpt-printer", "dep:ipp", "tokio/net"]
 # The campus map: its Isct-Data file, room matching and floor read models;
-# the iOS and Android bindings switch it on, desktop does not.
-campus-map = ["dep:flate2"]
+# the iOS and Android bindings switch it on, desktop does not. `hmac` signs
+# floor photo uploads.
+campus-map = ["dep:flate2", "dep:hmac"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
@@ -48,6 +49,7 @@ bytes = "1"
 encoding_rs = "0.8"
 md-5 = "0.11"
 sha2 = "0.11"
+hmac = { version = "0.13", optional = true }
 regex = "1"
 unicode-normalization = "0.1"
 strsim = "0.11"

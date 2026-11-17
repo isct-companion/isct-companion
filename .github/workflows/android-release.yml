@@ -53,6 +53,12 @@ jobs:
           corepack enable
           yarn install --immutable
       - name: Build the Core AAR (release profile)
+        # The floor photo upload key, compiled into Core masked
+        # (crates/app-core/src/campus_map/photos.rs). Unset, the build offers
+        # no upload.
+        env:
+          ISCT_FLOOR_PHOTO_KEY: ${{ secrets.ISCT_FLOOR_PHOTO_KEY }}
+          ISCT_FLOOR_PHOTO_KID: ${{ vars.ISCT_FLOOR_PHOTO_KID }}
         run: node scripts/bindings/build-android.mjs
       - name: Read the version
         id: version

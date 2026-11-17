@@ -62,7 +62,8 @@ struct CampusMapScreen: View {
     /// Intents reach Core one after another, in the order sent.
     @State private var sending: Task<Void, Never>?
     @State private var location = CampusMapLocation()
-    @State private var follows = 0
+    /// Taps of the position button: each picks the building the person is at.
+    @State private var locates = 0
     /// Floors picked in the picker: each gives a tick and a cross-fade.
     @State private var levelPicks = 0
     /// The floor just picked, lit in the picker before Core answers.
@@ -72,6 +73,10 @@ struct CampusMapScreen: View {
     /// The card's and the results' content, measured: each panel is as tall
     /// as its content up to a share of the window.
     @State private var cardHeight: CGFloat = 0
+    @State private var cardHeaderHeight: CGFloat = 56
+    /// Where the narrow window's card rests, and the finger's pull on it.
+    @State private var cardDetent = CampusMapCardDetent.fit
+    @State private var cardDrag: CGFloat = 0
     @State private var resultsHeight: CGFloat = 0
     @ScaledMetric(relativeTo: .body) private var minimumResultHeight: CGFloat = 64
     @State private var railLeading: CGFloat?
@@ -85,6 +90,10 @@ struct CampusMapScreen: View {
     @State private var pickingResult = false
     @State private var searchAnswer: CampusMapSearch?
     @State private var searchFailure: String?
+    /// The building the camera is open for, and how its photos went.
+    @State private var cameraFor: String?
+    @State private var photoUploads: [String: FloorPhotoUploads] = [:]
+    @State private var photoFailure: String?
 
     init(request: CampusMapRequest) {
         self.request = request
@@ -106,7 +115,8 @@ struct CampusMapScreen: View {
     private var layoutRequest: CampusMapLayoutRequest {
         CampusMapLayoutRequest(
             framing: scene?.framing?.key ?? 0, keyboardVisible: keyboardVisible,
-            searching: searching, card: showsCard ? cardHeight : nil, wide: wide)
+            searching: searching, card: showsCard ? cardHeight : nil, detent: cardDetent,
+            dragging: cardDrag != 0, wide: wide)
     }
 
     private var chrome: CampusMapChrome {
@@ -126,13 +136,14 @@ struct CampusMapScreen: View {
                 chrome: chrome,
                 layoutRequest: layoutRequest,
                 showsPosition: location.allowed,
-                follows: follows,
+                locates: locates,
                 levelPicks: levelPicks,
                 onCamera: { send(.camera(camera: $0)) },
                 // Core ignores a tap on a floor it has already left.
                 onTap: { selectOnMap(.tap(point: $0, levelId: $1, metresPerPoint: $2, roomsOnly: $3)) },
                 onSelect: { selectOnMap(.select(place: $0)) },
-                onLocate: { location.requestPermission() })
+                onLocated: { selectOnMap(.locate(point: $0)) },
+                )
                 .ignoresSafeArea()
             GeometryReader { proxy in
                 Group {
@@ -153,8 +164,13 @@ struct CampusMapScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
             keyboardVisible = false
         }
+        // Each new place opens at its content's height.
+        .onChange(of: scene?.card?.title) { _, _ in
+            cardDetent = .fit
+            cardDrag = 0
+        }
         .onChange(of: location.allowed) { _, allowed in
-            if allowed && location.asked { follows += 1 }
+            if allowed && location.asked { locates += 1 }
         }
         .alert(t("campusMap.locationAccessTitle"), isPresented: $location.settingsRequired) {
             Button(t("settings.main.openSettings")) {
@@ -168,6 +184,37 @@ struct CampusMapScreen: View {
             if case .loading = load { await open() }
         }
         .task(id: query) { await search(query) }
+        .fullScreenCover(isPresented: Binding(get: { cameraFor != nil }, set: { if !$0 { cameraFor = nil } })) {
+            SystemCamera { image in
+                let building = cameraFor
+                cameraFor = nil
+                if let image, let building { Task { await sendPhoto(image, of: building) } }
+            }
+            .ignoresSafeArea()
+        }
+        .alert(
+            t("campusMap.photos.failed"),
+            isPresented: Binding(get: { photoFailure != nil }, set: { if !$0 { photoFailure = nil } })
+        ) {
+            Button(t("common.ok"), role: .cancel) {}
+        } message: {
+            Text(photoFailure ?? "")
+        }
+    }
+
+    /// Sends a photo in the background; the card's button tells how it went.
+    private func sendPhoto(_ image: UIImage, of building: String) async {
+        guard let jpeg = await Task.detached(priority: .userInitiated, operation: { floorPhotoJPEG(image) }).value
+        else { return }
+        photoUploads[building, default: FloorPhotoUploads()].sending += 1
+        let refused = await model.campusMapUploadPhoto(buildingId: building, jpeg: jpeg)
+        photoUploads[building, default: FloorPhotoUploads()].sending -= 1
+        if let refused {
+            photoFailure = refused.message
+        } else {
+            photoUploads[building, default: FloorPhotoUploads()].sent += 1
+            mapPicks += 1
+        }
     }
 
     private func open() async {
@@ -225,7 +272,7 @@ struct CampusMapScreen: View {
             }
             openRegion
             if showsCard, let card = scene?.card {
-                cardPanel(card, maximum: size.height * 0.5)
+                cardPanel(card, window: size.height, adjustable: true)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if !load.isReady {
                 statusPanel
@@ -243,7 +290,7 @@ struct CampusMapScreen: View {
                 if searching {
                     resultsPanel(maximum: size.height * 0.7)
                 } else if showsCard, let card = scene?.card {
-                    cardPanel(card, maximum: size.height * 0.7)
+                    cardPanel(card, window: size.height * 0.7, adjustable: false)
                         .transition(.opacity)
                 } else if !load.isReady {
                     statusPanel
@@ -263,7 +310,10 @@ struct CampusMapScreen: View {
     private var openRegion: some View {
         GeometryReader { region in
             ZStack(alignment: .topTrailing) {
-                rail(available: region.size.height)
+                rail(available: region.size.height - CampusMapChrome.controlSide - CampusMapChrome.controlGap)
+                // On the card's top edge, so it rides along as the card moves.
+                locateButton
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 if let attribution = scene?.attribution, !attribution.isEmpty {
                     Text(attribution.joined(separator: " · "))
                         .font(.caption2)
@@ -271,9 +321,7 @@ struct CampusMapScreen: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .floatingGlass(in: Capsule())
-                        .frame(
-                            maxWidth: .infinity, maxHeight: .infinity,
-                            alignment: wide ? .bottomTrailing : .bottomLeading)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .allowsHitTesting(false)
                 }
             }
@@ -331,6 +379,21 @@ struct CampusMapScreen: View {
         }
     }
 
+    /// Zooms to the building the person is at, or the nearest one, and
+    /// selects it; asks for while-in-use permission on the first tap.
+    private var locateButton: some View {
+        Button {
+            if location.allowed { locates += 1 } else { location.requestPermission() }
+        } label: {
+            Image(systemName: "scope")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(location.allowed ? Theme.accent : Theme.ink)
+                .frame(width: CampusMapChrome.controlSide, height: CampusMapChrome.controlSide)
+                .floatingGlass(in: Circle())
+        }
+        .accessibilityLabel(t("campusMap.position"))
+    }
+
     private var closeButton: some View {
         Button {
             dismiss()
@@ -384,23 +447,107 @@ struct CampusMapScreen: View {
     }
 
     /// One level: the place, then everything about it at once.
-    private func cardPanel(_ card: CampusMapCard, maximum: CGFloat) -> some View {
-        glass(
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+    /// The lowest the card rests: its title and the start of its details.
+    private static let peekHeight: CGFloat = 150
+
+    /// The card's resting heights in a narrow window: about 150 pt, its
+    /// content up to half the window, or up to the search bar.
+    private func detentHeights(_ window: CGFloat) -> [CampusMapCardDetent: CGFloat] {
+        let content = cardHeaderHeight + cardHeight
+        let peek = min(content, max(cardHeaderHeight, Self.peekHeight))
+        let fit = max(peek, min(content, window * 0.5))
+        let full = max(fit, min(content, window - CampusMapChrome.controlSide - 4 * CampusMapChrome.controlGap))
+        return [.peek: peek, .fit: fit, .full: full]
+    }
+
+    /// One level: the place, then everything about it. In a narrow window
+    /// it rests at one of three heights, dragged by its top or stepped by
+    /// tapping its grabber; beside the map it is as tall as its content.
+    private func cardPanel(_ card: CampusMapCard, window: CGFloat, adjustable: Bool) -> some View {
+        let heights = detentHeights(window)
+        let resting = heights[cardDetent] ?? 0
+        let lowest = heights[.peek] ?? 0
+        let highest = heights[.full] ?? resting
+        let raw = resting - cardDrag
+        // Past either end the card follows the finger only a little.
+        let shown = raw > highest
+            ? highest + (raw - highest) * 0.2
+            : raw < lowest ? lowest - (lowest - raw) * 0.2 : raw
+        let height = adjustable ? shown : min(window, cardHeaderHeight + cardHeight)
+        return glass(
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(spacing: 0) {
+                    if adjustable { cardGrabber(heights) }
                     cardHeader(card)
+                }
+                .padding(.top, adjustable ? 0 : 6)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                    if abs(measured - cardHeaderHeight) > 0.5 { cardHeaderHeight = measured }
+                }
+                .contentShape(Rectangle())
+                .gesture(cardDragGesture(heights), including: adjustable ? .all : .subviews)
+                ScrollView {
                     CampusMapCardView(
                         card: card,
                         choose: { send(.choose(index: UInt32($0))) },
                         select: { selectOnMap(.select(place: $0)) },
-                        open: { if let url = URL(string: $0) { openURL(url) } })
+                        open: { if let url = URL(string: $0) { openURL(url) } },
+                        photos: card.photoBuildingId.map { photoUploads[$0] ?? FloorPhotoUploads() },
+                        takePhoto: {
+                            if let id = card.photoBuildingId, UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                cameraFor = id
+                            }
+                        })
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                            if abs(measured - cardHeight) > 0.5 { cardHeight = measured }
+                        }
                 }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
-                    if abs(measured - cardHeight) > 0.5 { cardHeight = measured }
-                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDisabled(adjustable && cardDetent == .peek)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(maximum, max(cardHeight, CampusMapChrome.controlSide))))
+            .frame(height: max(height, CampusMapChrome.controlSide), alignment: .top))
+    }
+
+    private func cardGrabber(_ heights: [CampusMapCardDetent: CGFloat]) -> some View {
+        Button {
+            settleCard(cardDetent == .peek ? .fit : .peek)
+        } label: {
+            Capsule()
+                .fill(Theme.muted.opacity(0.55))
+                .frame(width: 36, height: 5)
+                .frame(maxWidth: .infinity, minHeight: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(t(cardDetent == .peek ? "campusMap.unfoldCard" : "campusMap.foldCard"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: settleCard(cardDetent == .peek ? .fit : .full)
+            case .decrement: settleCard(cardDetent == .full ? .fit : .peek)
+            @unknown default: break
+            }
+        }
+    }
+
+    /// Follows the finger, then settles on the height nearest to where the
+    /// throw would have carried it.
+    private func cardDragGesture(_ heights: [CampusMapCardDetent: CGFloat]) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { cardDrag = $0.translation.height }
+            .onEnded { drag in
+                let projected = (heights[cardDetent] ?? 0) - drag.predictedEndTranslation.height
+                let nearest = CampusMapCardDetent.allCases.min { first, second in
+                    abs((heights[first] ?? 0) - projected) < abs((heights[second] ?? 0) - projected)
+                }
+                settleCard(nearest ?? cardDetent)
+            }
+    }
+
+    private func settleCard(_ detent: CampusMapCardDetent) {
+        withAnimation(cardSpring) {
+            cardDetent = detent
+            cardDrag = 0
+        }
     }
 
     private func cardHeader(_ card: CampusMapCard) -> some View {
@@ -422,7 +569,6 @@ struct CampusMapScreen: View {
         }
         .padding(.leading, Theme.cardPadding)
         .padding(.trailing, 6)
-        .padding(.top, 6)
     }
 
     /// Loading, or the map file is missing or unreadable.
@@ -581,6 +727,9 @@ private struct CampusMapCardView: View {
     let choose: (Int) -> Void
     let select: (CampusMapPlace) -> Void
     let open: (String) -> Void
+    /// The building's uploads this visit, when the card offers photos.
+    let photos: FloorPhotoUploads?
+    let takePhoto: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -637,6 +786,20 @@ private struct CampusMapCardView: View {
                 }
                 .buttonStyle(CapsuleButtonStyle(level: .secondary))
                 .accessibilityLabel(t("campusMap.showBuilding", ["name": card.buildingName]))
+            }
+            if let photos {
+                // Each tap opens the camera; the label tells how the photos went.
+                Button(action: takePhoto) {
+                    if photos.sending > 0 {
+                        action(t("campusMap.photos.sending"), systemImage: "arrow.up.circle")
+                    } else if photos.sent > 0 {
+                        action(t("campusMap.photos.sent", ["count": String(photos.sent)]), systemImage: "checkmark.circle")
+                    } else {
+                        action(t("campusMap.photos.upload"), systemImage: "camera")
+                    }
+                }
+                .buttonStyle(CapsuleButtonStyle(level: .secondary))
+                .accessibilityHint(t("campusMap.photos.upload"))
             }
             Button {
                 open(card.mapsUrl)
@@ -734,6 +897,60 @@ private struct CampusMapCardView: View {
     }
 }
 
+/// A building Core asks floor photos of.
+/// A building's photo uploads during this map visit.
+struct FloorPhotoUploads: Equatable {
+    var sending = 0
+    var sent = 0
+}
+
+/// Upright pixels at most 2048 px on the long side, as JPEG: drawing the
+/// photo anew keeps none of the camera's metadata, so no EXIF and no
+/// location leave the device. Core signs it for the maintainers' inbox.
+private func floorPhotoJPEG(_ image: UIImage) -> Data? {
+    let longest = max(image.size.width, image.size.height)
+    guard longest > 0 else { return nil }
+    let scale = min(1, 2048 / longest)
+    let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    format.opaque = true
+    let drawn = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+        image.draw(in: CGRect(origin: .zero, size: size))
+    }
+    return drawn.jpegData(compressionQuality: 0.8)
+}
+
+/// The system camera; answers the photo, or `nil` when the person cancels.
+private struct SystemCamera: UIViewControllerRepresentable {
+    let done: (UIImage?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (UIImage?) -> Void
+        init(done: @escaping (UIImage?) -> Void) { self.done = done }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            done(info[.originalImage] as? UIImage)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
+    }
+}
+
 /// Floors top floor first, as in Apple Maps. A dot marks the floor the
 /// selected room is on, the entrance icon the floor the building is entered
 /// on from the street. A tall building (J2・J3 has 20 floors) scrolls within
@@ -820,7 +1037,7 @@ private struct LevelPicker: View {
 @Observable
 final class CampusMapLocation: NSObject, CLLocationManagerDelegate {
     private(set) var status: CLAuthorizationStatus
-    /// This page asked: once allowed, the map follows the person.
+    /// This page asked: once allowed, the map goes to the person's building.
     private(set) var asked = false
     var settingsRequired = false
     @ObservationIgnored private let manager = CLLocationManager()

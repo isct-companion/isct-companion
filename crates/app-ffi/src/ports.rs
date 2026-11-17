@@ -11,9 +11,9 @@ use app_core::cloud_sync::google_drive::{DriveAuthorization, GoogleDrive};
 #[cfg(not(target_os = "ios"))]
 use app_core::cloud_sync::google_drive::{SCOPE, VAULT_ACCOUNT};
 use app_core::cloud_sync::{CloudFuture, CloudSignIn, CloudSyncError};
+use app_core::oauth::{BrowserCallback, OAuthError};
 #[cfg(target_os = "ios")]
 use app_core::{cloud_sync::google_drive::Pkce, oauth::code_exchange::OAuthClient};
-use app_core::oauth::{BrowserCallback, OAuthError};
 use app_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
 use tokio_util::sync::CancellationToken;
@@ -628,7 +628,12 @@ impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
         url: &'a Url,
         _: BrowserCallback,
     ) -> app_core::net::BoxFuture<'a, Result<(), OAuthError>> {
-        Box::pin(async move { self.0.open_url(url.to_string()).await.map_err(browser_error) })
+        Box::pin(async move {
+            self.0
+                .open_url(url.to_string())
+                .await
+                .map_err(browser_error)
+        })
     }
 }
 

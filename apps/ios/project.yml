@@ -83,7 +83,7 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.data, public.content]
         LSSupportsOpeningDocumentsInPlace: false
-        NSCameraUsageDescription: 認証アプリの QR コードやマトリクス表の読み取りと、過去問の用紙のスキャンにカメラを使います。
+        NSCameraUsageDescription: 認証アプリの QR コードやマトリクス表の読み取り、過去問の用紙のスキャン、キャンパスマップを補うための建物のフロアの撮影にカメラを使います。
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
         # The campus map's blue dot (CampusMapLocation); never in the background.
         NSLocationWhenInUseUsageDescription: キャンパスマップに現在地を表示するために使います。

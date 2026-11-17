@@ -273,7 +273,17 @@ coded!(crate::campus_map::CampusMapError, |e| {
     match e {
         E::Format(_) => C::Compatibility,
         E::Invalid(_) | E::Storage(_) => C::Storage,
-        E::Unavailable => C::Unavailable,
+        E::Unavailable | E::PhotoUnavailable => C::Unavailable,
+        E::PhotoInvalid(_) => C::InvalidInput,
+        E::PhotoTooLarge => C::TooLarge,
+        E::Network(_) => C::Network,
+        // A retired key or a clock far off: this build needs an update.
+        E::PhotoRefused(401 | 426) => C::Compatibility,
+        E::PhotoRefused(413) => C::TooLarge,
+        E::PhotoRefused(429) => C::Busy,
+        // Outside Japan (the inbox answers only Japanese IPs), or the inbox
+        // is down.
+        E::PhotoRefused(_) => C::Unavailable,
     }
 });
 

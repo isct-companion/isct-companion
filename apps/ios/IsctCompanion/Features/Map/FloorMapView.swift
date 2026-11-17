@@ -10,8 +10,8 @@ struct CampusMapChrome: Equatable {
     static let controlSide: CGFloat = 44
     static let controlGap: CGFloat = 8
     static let pageInset: CGFloat = 12
-    /// The compass and the position button, at the top of the rail.
-    static let railHeaderHeight = 2 * controlSide + 2 * controlGap
+    /// The compass, at the top of the rail.
+    static let railHeaderHeight = controlSide + controlGap
 
     var top: CGFloat = 0
     var bottom: CGFloat = .greatestFiniteMagnitude
@@ -21,18 +21,27 @@ struct CampusMapChrome: Equatable {
     var layout: CampusMapLayoutRequest?
 }
 
+/// The narrow window's card heights: its title alone, its content up to
+/// half the window, or up to the search bar.
+enum CampusMapCardDetent: CaseIterable, Hashable {
+    case peek, fit, full
+}
+
 /// What the map waits on before an explicit framing: the framing itself and
 /// the panels it is shown beside.
 struct CampusMapLayoutRequest: Equatable {
     let framing: UInt64
     let keyboardVisible: Bool
     let searching: Bool
-    /// The card's content height while it shows.
+    /// The card's content height while it shows, and where it rests.
     let card: CGFloat?
+    let detent: CampusMapCardDetent
+    /// A finger is pulling the card: the visible part is moving.
+    let dragging: Bool
     /// The panels sit in a column along the leading edge.
     let wide: Bool
 
-    var canFrame: Bool { !keyboardVisible }
+    var canFrame: Bool { !keyboardVisible && !dragging }
 }
 
 /// UIKit is asked to lay out after every request update, even at an equal
@@ -75,8 +84,9 @@ struct FloorMapView: UIViewRepresentable {
     let chrome: CampusMapChrome
     let layoutRequest: CampusMapLayoutRequest
     let showsPosition: Bool
-    /// Rises when the person asked for their position and may now see it.
-    let follows: Int
+    /// Rises each time the person asks where they are; the next position
+    /// MapKit has goes to `onLocated` once, and Core picks the building.
+    let locates: Int
     /// Rises with each floor picked in the picker: that floor change
     /// cross-fades, while one the camera causes is drawn as it comes.
     let levelPicks: Int
@@ -89,8 +99,7 @@ struct FloorMapView: UIViewRepresentable {
     /// tap is ruled out (Core then selects only a room).
     let onTap: (CampusMapPoint, String?, Double, Bool) -> Void
     let onSelect: (CampusMapPlace) -> Void
-    /// The person turned on following their position.
-    let onLocate: () -> Void
+    let onLocated: (CampusMapPoint) -> Void
 
     /// Room between the visible part's edges and what a framing shows.
     private static let framingMargin: CGFloat = 16
@@ -146,20 +155,6 @@ struct FloorMapView: UIViewRepresentable {
         contact.delegate = coordinator
         map.addGestureRecognizer(contact)
         coordinator.contact = contact
-        let tracking = MKUserTrackingButton(mapView: map)
-        tracking.backgroundColor = UIColor(Theme.surface)
-        tracking.layer.cornerRadius = 8
-        tracking.clipsToBounds = true
-        // Gate only permission on an actual tap (including VoiceOver).
-        // After authorization the native button receives touches directly
-        // and owns the follow / heading / off cycle.
-        let trackingHost = UIButton(type: .custom)
-        trackingHost.addTarget(coordinator, action: #selector(Coordinator.locateTapped), for: .touchUpInside)
-        trackingHost.addSubview(tracking)
-        tracking.frame = CGRect(x: 0, y: 0, width: CampusMapChrome.controlSide, height: CampusMapChrome.controlSide)
-        map.addSubview(trackingHost)
-        coordinator.trackingHost = trackingHost
-        coordinator.tracking = tracking
         let compass = MKCompassButton(mapView: map)
         compass.compassVisibility = .adaptive
         map.addSubview(compass)
@@ -177,19 +172,16 @@ struct FloorMapView: UIViewRepresentable {
         coordinator.onCamera = onCamera
         coordinator.onTap = onTap
         coordinator.onSelect = onSelect
-        coordinator.onLocate = onLocate
         coordinator.animatesCamera = !context.environment.accessibilityReduceMotion
         coordinator.chrome = chrome
         coordinator.layoutRequest = layoutRequest
         coordinator.layOut(map)
-        coordinator.trackingHost?.isAccessibilityElement = !showsPosition
-        coordinator.trackingHost?.accessibilityLabel = t("campusMap.position")
-        coordinator.tracking?.isUserInteractionEnabled = showsPosition
-        coordinator.tracking?.accessibilityElementsHidden = !showsPosition
         if map.showsUserLocation != showsPosition { map.showsUserLocation = showsPosition }
-        if follows != coordinator.follows {
-            coordinator.follows = follows
-            map.setUserTrackingMode(.follow, animated: coordinator.animatesCamera)
+        coordinator.onLocated = onLocated
+        if locates != coordinator.locates {
+            coordinator.locates = locates
+            coordinator.locating = true
+            coordinator.deliverPosition(map)
         }
         let appearance = "\(context.environment.colorScheme)|\(context.environment.isctTheme)"
         coordinator.prepareAppearance(appearance, on: map)
@@ -222,11 +214,13 @@ struct FloorMapView: UIViewRepresentable {
         var onCamera: (CampusMapCamera) -> Void = { _ in }
         var onTap: (CampusMapPoint, String?, Double, Bool) -> Void = { _, _, _, _ in }
         var onSelect: (CampusMapPlace) -> Void = { _ in }
-        var onLocate: () -> Void = {}
         var animatesCamera = true
         var chrome = CampusMapChrome()
         var layoutRequest: CampusMapLayoutRequest?
-        var follows = 0
+        var locates = 0
+        /// A position was asked for and has not been delivered yet.
+        var locating = false
+        var onLocated: (CampusMapPoint) -> Void = { _ in }
         var levelPicks = 0
         var fadesNextFloor = false
         var levelId: String?
@@ -234,8 +228,6 @@ struct FloorMapView: UIViewRepresentable {
         var drawnRevision: UInt64?
         var appliedFraming: UInt64 = 0
         var pendingFraming: CampusMapFraming?
-        weak var trackingHost: UIButton?
-        weak var tracking: MKUserTrackingButton?
         weak var compass: MKCompassButton?
         weak var contact: MapContactRecognizer?
         /// The framing this view is moving the camera for: a move made
@@ -264,18 +256,15 @@ struct FloorMapView: UIViewRepresentable {
                 width: max(right - leading, 1), height: max(bottom - top, 1))
         }
 
-        /// The native controls sit at the top of the same rail as the floor picker.
+        /// The compass sits at the top of the same rail as the floor picker.
         func layOut(_ map: MKMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             let side = CampusMapChrome.controlSide
-            let gap = CampusMapChrome.controlGap
             let x = map.bounds.maxX - map.safeAreaInsets.right - side - CampusMapChrome.pageInset
             // At the top of the map's open part, under the search bar.
             let open = map.window == nil ? chrome.top : map.convert(CGPoint(x: 0, y: chrome.top), from: nil).y
             let compassY = max(open, map.bounds.minY + map.safeAreaInsets.top)
-            let trackingY = compassY + side + gap
             compass?.frame = CGRect(x: x, y: compassY, width: side, height: side)
-            trackingHost?.frame = CGRect(x: x, y: trackingY, width: side, height: side)
         }
 
         // MARK: Framing
@@ -432,8 +421,6 @@ struct FloorMapView: UIViewRepresentable {
             DispatchQueue.main.async { [onCamera] in onCamera(camera) }
         }
 
-        @objc func locateTapped() { onLocate() }
-
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
@@ -443,12 +430,25 @@ struct FloorMapView: UIViewRepresentable {
             if gestureRecognizer is MapContactRecognizer { return true }
             var hit = touch.view
             while let view = hit, view !== gestureRecognizer.view {
-                if view is UIControl || view is MKAnnotationView || view is MKUserTrackingButton || view is MKCompassButton {
+                if view is UIControl || view is MKAnnotationView || view is MKCompassButton {
                     return false
                 }
                 hit = view.superview
             }
             return true
+        }
+
+        /// Hands the position on once, as soon as MapKit has a fix.
+        func deliverPosition(_ map: MKMapView) {
+            guard locating, let position = map.userLocation.location,
+                position.horizontalAccuracy >= 0, -position.timestamp.timeIntervalSinceNow < 60
+            else { return }
+            locating = false
+            onLocated(CampusMapPoint(latitude: position.coordinate.latitude, longitude: position.coordinate.longitude))
+        }
+
+        func mapView(_ map: MKMapView, didUpdate userLocation: MKUserLocation) {
+            deliverPosition(map)
         }
 
         @objc func doubleTapped(_ recognizer: UITapGestureRecognizer) {}
@@ -659,7 +659,7 @@ final class MapContactRecognizer: UIGestureRecognizer {
 }
 
 /// `setVisibleMapRect` needs a real size, which a new map does not have yet;
-/// the position button follows the visible part on every layout.
+/// the compass follows the visible part on every layout.
 final class MeasuredMapView: MKMapView {
     var laidOut: (() -> Void)?
 

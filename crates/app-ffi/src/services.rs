@@ -593,6 +593,19 @@ impl Session {
             })
         })
     }
+    /// Sends one photo of the card's `photo_building_id`. `jpeg` is
+    /// re-encoded from the camera's pixels, so it carries no EXIF; Core
+    /// refuses anything else. Answers `Done` once the inbox stored it.
+    pub fn campus_map_upload_photo(
+        &self,
+        building_id: String,
+        jpeg: Vec<u8>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            i.core.campus_map.upload_photo(&building_id, jpeg).await?;
+            Ok(OperationResult::Done)
+        })
+    }
     /// Forgets the page, and any open still loading; their scenes name
     /// nothing afterwards.
     pub fn campus_map_close(&self) {

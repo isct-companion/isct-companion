@@ -136,6 +136,12 @@ pub(super) struct Building {
     /// building with no floors.
     pub street_level_id: Option<String>,
     pub entrances: Vec<Entrance>,
+    /// The maintainers marked the building's data complete: the map asks
+    /// for no more photos of it. Optional so this build reads exports with
+    /// and without it; Isct-Data may start writing it once the builds
+    /// before this one, which refuse an unknown field, are gone.
+    #[serde(default)]
+    pub complete: bool,
 }
 
 #[derive(Debug, Deserialize)]

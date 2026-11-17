@@ -68,9 +68,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::ExamShareAdministrator
         | C::ExamShareIdentity => SdkError::Authentication { detail },
         C::SchoolMaintenance => SdkError::Maintenance { detail },
-        C::Network | C::Offline | C::HostPaused => {
-            SdkError::Network { detail }
-        }
+        C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
         C::Timeout | C::CloudRetrying => SdkError::Timeout { detail },
         C::Busy
         | C::ResetBusy

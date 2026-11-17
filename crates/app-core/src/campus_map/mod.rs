@@ -17,7 +17,10 @@ mod geometry;
 mod map;
 mod matching;
 mod page;
+pub(crate) mod photos;
 mod search;
+
+pub use photos::MAX_PHOTO_BYTES;
 
 use crate::data::{DataError, DataStore};
 use crate::locale::ContentLanguage;
@@ -145,6 +148,11 @@ pub enum CampusMapIntent {
     Select { place: CampusMapPlace },
     /// Closed the card: nothing is selected.
     Clear,
+    /// The person asked where they are; `point` is the system's position.
+    /// The building holding it, else the nearest within a short walk, is
+    /// selected and framed on its floor; farther off, only the position is
+    /// framed.
+    Locate { point: CampusMapPoint },
 }
 
 /// What a layer of the scene is, which decides its colours: shells map each
@@ -305,6 +313,10 @@ pub struct CampusMapCard {
     pub building: Option<CampusMapPlace>,
     /// On a building's card, each of its entrances in the export's order.
     pub entrances: Vec<CampusMapEntranceRow>,
+    /// The building to send floor photos of, unless its data is marked
+    /// complete or this build cannot send them: the card offers "Upload
+    /// floor photos" beside "Open in Maps".
+    pub photo_building_id: Option<String>,
     /// Every room an ambiguous spelling names; empty for one.
     pub candidates: Vec<CampusMapCandidate>,
 }
@@ -390,6 +402,20 @@ pub enum CampusMapError {
     Unavailable,
     #[error("{0}")]
     Storage(String),
+    /// A floor photo Core will not send: the shell asked for something the
+    /// card did not offer.
+    #[error("Not a floor photo the map takes: {0}")]
+    PhotoInvalid(String),
+    #[error("The floor photo is larger than the inbox takes.")]
+    PhotoTooLarge,
+    /// This build carries no upload key (a local or fork build).
+    #[error("This build cannot send floor photos.")]
+    PhotoUnavailable,
+    /// The inbox answered with this HTTP status instead of storing it.
+    #[error("The photo inbox refused the photo (HTTP {0}).")]
+    PhotoRefused(u16),
+    #[error("The photo could not be sent: {0}")]
+    Network(String),
 }
 
 impl From<DataError> for CampusMapError {

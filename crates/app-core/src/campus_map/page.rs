@@ -19,6 +19,11 @@ use std::sync::Arc;
 
 /// However far in, a framed room keeps some of its surroundings in view.
 const LEAST_FRAMED_SIDE_M: f64 = 60.0;
+/// How far from a footprint the person may stand for "locate" to pick its
+/// building: across a plaza, not from the station.
+const LOCATE_REACH_M: f64 = 300.0;
+/// Around a position no building is near, what "locate" frames.
+const LOCATE_VIEW_M: f64 = 200.0;
 /// A page opened on no room string starts over this campus.
 const HOME_CAMPUS: &str = "ookayama";
 
@@ -118,6 +123,7 @@ impl Page {
             } => self.tap(point, level_id.as_deref(), metres_per_point, rooms_only),
             CampusMapIntent::Select { place } => self.select(&place),
             CampusMapIntent::Clear => self.selection = Selection::None,
+            CampusMapIntent::Locate { point } => self.locate(&point),
         }
         self.keep_room();
     }
@@ -287,6 +293,23 @@ impl Page {
                         self.reveal([lng, lat, lng, lat]);
                     }
                 }
+            }
+        }
+    }
+
+    /// The person's own building, or the nearest one, picked as a tap on
+    /// it would; with none near, only the position comes into view.
+    fn locate(&mut self, at: &CampusMapPoint) {
+        let position = [at.longitude, at.latitude];
+        match self.map.building_tapped(position, LOCATE_REACH_M) {
+            Some(building) => self.pick_building(building),
+            None => {
+                let rect = geometry::at_least(
+                    [position[0], position[1], position[0], position[1]],
+                    LOCATE_VIEW_M,
+                );
+                let floor = self.floor;
+                self.frame(rect, floor);
             }
         }
     }
@@ -766,6 +789,10 @@ impl Page {
         } else {
             Vec::new()
         };
+        // Every building asks for photos of its floors until its data is
+        // marked complete.
+        let photos =
+            kind == CampusMapCardKind::Building && !record.complete && super::photos::available();
         let candidates = if self.targets.len() > 1 {
             self.targets
                 .iter()
@@ -792,6 +819,7 @@ impl Page {
             maps_url,
             building: parent,
             entrances,
+            photo_building_id: photos.then(|| record.id.clone()),
             candidates,
         })
     }
