@@ -181,6 +181,8 @@ export function PdfDocument({
   );
   useEffect(() => {
     let disposed = false;
+    setError("");
+    setFinding(false);
     const task = getDocument({
       url: src,
       disableAutoFetch: true,
@@ -209,6 +211,8 @@ export function PdfDocument({
       });
     return () => {
       disposed = true;
+      // Activity keeps state on hide, but its effect cleanup closes this worker.
+      setPdf(undefined);
       void task.destroy();
     };
   }, [src]);
