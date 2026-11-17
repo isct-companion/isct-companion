@@ -886,7 +886,23 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    examUploadPickFiles: (title) => result("exam_upload_pick_files", { title }),
+    examUploadPickFiles: async (title) => {
+      const command = "exam_upload_pick_files";
+      const files = await invokeCommand<ExamUploadFile[] | null>(command, {
+        title,
+      });
+      if (files === null) return null;
+      if (
+        !Array.isArray(files) ||
+        !files.every(
+          (file) =>
+            typeof file?.path === "string" && typeof file.name === "string",
+        )
+      ) {
+        throw new Error(`${command} returned an invalid result.`);
+      }
+      return files;
+    },
     examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
