@@ -44,10 +44,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-          key: android-release
       - name: Install JavaScript build dependencies
         run: |
           corepack enable
