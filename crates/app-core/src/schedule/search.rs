@@ -46,9 +46,16 @@ fn course_code_parts(code: &str) -> Option<regex::Captures<'_>> {
 /// that another source of this course names as its alias is dropped for the
 /// same reason. A lone code of unknown standing stays; the site answers an
 /// alias with `course.not_found` and the lookup falls back to search.
-pub(crate) fn subject_codes(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
+pub(crate) fn subject_codes(
+    workspace: &Value,
+    school: &SchoolReads,
+    course: &Value,
+) -> Vec<String> {
     let codes = source_course_codes(workspace, school, course);
-    let parts: Vec<_> = codes.iter().filter_map(|code| course_code_parts(code)).collect();
+    let parts: Vec<_> = codes
+        .iter()
+        .filter_map(|code| course_code_parts(code))
+        .collect();
     let aliases: Vec<&str> = parts
         .iter()
         .filter_map(|parts| parts.get(2).map(|alias| alias.as_str()))

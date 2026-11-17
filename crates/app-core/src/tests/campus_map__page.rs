@@ -76,6 +76,7 @@ fn tap(
     at: [f64; 2],
     level_id: Option<String>,
     metres_per_point: f64,
+    rooms_only: bool,
 ) -> CampusMapScene {
     let point = CampusMapPoint {
         latitude: at[1],
@@ -87,6 +88,7 @@ fn tap(
             point,
             level_id,
             metres_per_point,
+            rooms_only,
         },
     )
 }
@@ -156,10 +158,10 @@ fn the_building_holding_a_point_wins_over_a_smaller_one_nearby() {
 
     let mut page = Page::open(map.clone(), PREFERENCES, None);
     // At a scale whose slop reaches the sports center.
-    let tapped = tap(&mut page, point, None, 2.0);
+    let tapped = tap(&mut page, point, None, 2.0, false);
     let w9 = map.buildings[W9];
     assert_eq!(
-        tapped.card.and_then(|card| card.title),
+        tapped.card.map(|card| card.title),
         Some(map.name(w9, ContentLanguage::Ja))
     );
     let focused = look(&mut page, &view_at(&map, W9, point, 0.8));
@@ -203,7 +205,7 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
             .iter()
             .any(|layer| layer.role == CampusMapLayerRole::Highlight && !layer.polygons.is_empty())
     };
-    let title = |scene: &CampusMapScene| scene.card.as_ref().and_then(|card| card.title.clone());
+    let title = |scene: &CampusMapScene| scene.card.as_ref().map(|card| card.title.clone());
     // The name a building carries on the map, when it carries one.
     let named = |scene: &CampusMapScene, id: &str| {
         scene.marks.iter().find_map(|mark| match &mark.kind {
@@ -244,7 +246,7 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
                 && map.unit_at(w9, level, point).is_none()
         })
         .expect("an unnamed part of W9's footprint");
-    let tapped = tap(&mut page, at, room_floor.clone(), 0.1);
+    let tapped = tap(&mut page, at, room_floor.clone(), 0.1, false);
     assert_eq!(title(&tapped), Some(map.name(w9, ContentLanguage::Ja)));
     assert_eq!(tapped.level_id, room_floor);
     assert!(lit(&tapped));
@@ -301,4 +303,100 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
     let cleared = send(&mut page, CampusMapIntent::Clear);
     assert_eq!(cleared.card, None);
     assert!(named(&cleared, W9).is_some());
+}
+
+#[test]
+#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
+fn a_quick_tap_picks_a_room_and_a_tap_on_nothing_closes_the_card() {
+    let map = map();
+    let mut page = Page::open(map.clone(), PREFERENCES, Some("W9-202"));
+    let opened = page.render(1);
+    let floor = opened.level_id.clone();
+    let classrooms = |scene: &CampusMapScene| {
+        scene
+            .layers
+            .iter()
+            .find(|layer| layer.role == CampusMapLayerRole::Classroom)
+            .map(|layer| layer.id.clone())
+    };
+    // Another named unit on the room's floor.
+    let other = map.units_by_level[floor.as_deref().expect("a floor")]
+        .iter()
+        .map(|unit| &map.export.units[*unit])
+        .find(|unit| unit.label.as_deref().is_some_and(|label| label != "W9-202"))
+        .expect("another named unit on W9-202's floor");
+    let title = |scene: &CampusMapScene| scene.card.as_ref().map(|card| card.title.clone());
+
+    // The quick tap selects it on its floor and asks for it to be revealed,
+    // not fitted; the floor's classrooms stay the same layer.
+    let quick = tap(&mut page, other.center, floor.clone(), 0.1, true);
+    assert_eq!(title(&quick), other.label);
+    assert_eq!(quick.level_id, floor);
+    assert!(quick.framing.as_ref().is_some_and(|framing| framing.reveal));
+    assert_eq!(classrooms(&quick), classrooms(&opened));
+    // The full tap that follows finds it selected: no new scene.
+    assert!(page.scene(1).is_some());
+    page.apply(CampusMapIntent::Tap {
+        point: point(other.center),
+        level_id: floor.clone(),
+        metres_per_point: 0.1,
+        rooms_only: false,
+    });
+    assert!(page.scene(1).is_none());
+
+    // Far from every building: the quick tap leaves the card, the full one
+    // closes it.
+    let nowhere = [139.0, 35.0];
+    assert_eq!(
+        title(&tap(&mut page, nowhere, floor.clone(), 0.1, true)),
+        other.label
+    );
+    assert_eq!(tap(&mut page, nowhere, floor, 0.1, false).card, None);
+}
+
+#[test]
+#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
+fn an_entrance_picked_on_the_building_card_shows_its_floor_in_the_map() {
+    let map = map();
+    let w9 = map.buildings[W9];
+    let mut page = Page::open(map.clone(), PREFERENCES, None);
+    let card = select(&mut page, building(W9)).card.expect("W9's card");
+    assert_eq!(card.kind, CampusMapCardKind::Building);
+    assert_eq!(card.building, None);
+    let record = &map.export.buildings[w9];
+    assert_eq!(card.entrances.len(), record.entrances.len());
+    // An entrance on a floor other than the one W9 opened on, else any.
+    let shown = page.render(1).level_id;
+    let entrance = record
+        .entrances
+        .iter()
+        .find(|entrance| entrance.level_id.is_some() && entrance.level_id != shown)
+        .or_else(|| record.entrances.first())
+        .expect("W9 has entrances");
+    let picked = select(
+        &mut page,
+        CampusMapPlace::Entrance {
+            id: entrance.id.clone(),
+        },
+    );
+    if entrance.level_id.is_some() {
+        assert_eq!(picked.level_id, entrance.level_id);
+    }
+    // Still W9's one card, the entrance's row checked.
+    let card = picked.card.expect("W9's card");
+    assert_eq!(card.kind, CampusMapCardKind::Building);
+    assert_eq!(card.building, None);
+    let checked: Vec<_> = card.entrances.iter().filter(|row| row.selected).collect();
+    assert_eq!(checked.len(), 1);
+    assert_eq!(checked[0].entrance_id, entrance.id);
+    // Its one way out pins the entrance, not the building.
+    let [lng, lat] = entrance.point;
+    assert!(
+        card.maps_url.contains(&format!("{lat:.7}"))
+            && card.maps_url.contains(&format!("{lng:.7}"))
+    );
+    assert!(picked.marks.iter().any(|mark| matches!(
+        &mark.kind,
+        CampusMapMarkKind::Entrance { entrance_id, selected: true, .. } if *entrance_id == entrance.id
+    )));
 }

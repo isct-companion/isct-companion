@@ -2,15 +2,16 @@ import IsctCore
 import MapKit
 import SwiftUI
 
-/// Where the page's own controls sit, in window coordinates: the close
-/// button's bottom edge, the bottom panel's top edge, the leading
-/// panel's trailing edge and the control rail's leading edge. The rail stays
-/// reserved when a floor picker is not shown.
+/// The part of the map the page's own controls leave, in window
+/// coordinates: under the search bar (and the results), over the card,
+/// beside the leading column, and the control rail's leading edge. The rail
+/// stays reserved when a floor picker is not shown.
 struct CampusMapChrome: Equatable {
     static let controlSide: CGFloat = 44
     static let controlGap: CGFloat = 8
     static let pageInset: CGFloat = 12
-    static let railHeaderHeight = 2 * controlSide + 3 * controlGap
+    /// The compass and the position button, at the top of the rail.
+    static let railHeaderHeight = 2 * controlSide + 2 * controlGap
 
     var top: CGFloat = 0
     var bottom: CGFloat = .greatestFiniteMagnitude
@@ -20,23 +21,18 @@ struct CampusMapChrome: Equatable {
     var layout: CampusMapLayoutRequest?
 }
 
-/// The panel's resting heights.
-enum CampusMapPanelHeight: Hashable {
-    case small, search, medium
-}
-
 /// What the map waits on before an explicit framing: the framing itself and
-/// the panel state it is shown beside.
+/// the panels it is shown beside.
 struct CampusMapLayoutRequest: Equatable {
     let framing: UInt64
     let keyboardVisible: Bool
-    let height: CampusMapPanelHeight
-    let headerHeight: CGFloat
-    let dragging: Bool
-    /// The panel sits along the leading edge.
+    let searching: Bool
+    /// The card's content height while it shows.
+    let card: CGFloat?
+    /// The panels sit in a column along the leading edge.
     let wide: Bool
 
-    var canFrame: Bool { !keyboardVisible && !dragging }
+    var canFrame: Bool { !keyboardVisible }
 }
 
 /// UIKit is asked to lay out after every request update, even at an equal
@@ -81,13 +77,17 @@ struct FloorMapView: UIViewRepresentable {
     let showsPosition: Bool
     /// Rises when the person asked for their position and may now see it.
     let follows: Int
+    /// Rises with each floor picked in the picker: that floor change
+    /// cross-fades, while one the camera causes is drawn as it comes.
+    let levelPicks: Int
     /// Where the camera settled after the person moved it. A move of this
     /// view's own, for a framing, is never reported: Core does not wait for
     /// it to land.
     let onCamera: (CampusMapCamera) -> Void
-    /// A tap off the marks, the floor drawn under it and the map's metres
-    /// per point there.
-    let onTap: (CampusMapPoint, String?, Double) -> Void
+    /// A tap off the marks, the floor drawn under it, the map's metres per
+    /// point there, and whether it is the quick one sent before a double
+    /// tap is ruled out (Core then selects only a room).
+    let onTap: (CampusMapPoint, String?, Double, Bool) -> Void
     let onSelect: (CampusMapPlace) -> Void
     /// The person turned on following their position.
     let onLocate: () -> Void
@@ -114,8 +114,16 @@ struct FloorMapView: UIViewRepresentable {
         map.insetsLayoutMarginsFromSafeArea = false
         map.delegate = coordinator
         map.register(FloorMarkView.self, forAnnotationViewWithReuseIdentifier: FloorMarkView.reuse)
-        // A double tap zooms, which MapKit does; this recognizer only makes
-        // a single tap wait for it, so a zoom selects nothing.
+        // A double tap zooms, which MapKit does. The quick tap answers the
+        // moment the finger lifts and can only pick a room; the full tap
+        // waits for the double tap to fail, so a zoom never picks a
+        // building or closes the card.
+        let quick = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.tappedQuickly(_:)))
+        quick.cancelsTouchesInView = false
+        quick.delaysTouchesBegan = false
+        quick.delaysTouchesEnded = false
+        quick.delegate = coordinator
+        map.addGestureRecognizer(quick)
         let double = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.doubleTapped(_:)))
         double.numberOfTapsRequired = 2
         double.cancelsTouchesInView = false
@@ -185,7 +193,16 @@ struct FloorMapView: UIViewRepresentable {
         }
         let appearance = "\(context.environment.colorScheme)|\(context.environment.isctTheme)"
         coordinator.prepareAppearance(appearance, on: map)
+        // The pick lands with a later scene: fade once its floor is drawn.
+        if levelPicks != coordinator.levelPicks {
+            coordinator.levelPicks = levelPicks
+            coordinator.fadesNextFloor = !context.environment.accessibilityReduceMotion
+        }
         if coordinator.drawnPage != scene?.page || coordinator.drawnRevision != scene?.revision {
+            if coordinator.fadesNextFloor, scene?.levelId != coordinator.levelId {
+                coordinator.fadesNextFloor = false
+                coordinator.crossFade(map)
+            }
             coordinator.draw(scene?.layers ?? [], on: map)
             coordinator.draw(scene?.marks ?? [], on: map)
             coordinator.drawnPage = scene?.page
@@ -203,13 +220,15 @@ struct FloorMapView: UIViewRepresentable {
 
     final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         var onCamera: (CampusMapCamera) -> Void = { _ in }
-        var onTap: (CampusMapPoint, String?, Double) -> Void = { _, _, _ in }
+        var onTap: (CampusMapPoint, String?, Double, Bool) -> Void = { _, _, _, _ in }
         var onSelect: (CampusMapPlace) -> Void = { _ in }
         var onLocate: () -> Void = {}
         var animatesCamera = true
         var chrome = CampusMapChrome()
         var layoutRequest: CampusMapLayoutRequest?
         var follows = 0
+        var levelPicks = 0
+        var fadesNextFloor = false
         var levelId: String?
         var drawnPage: UInt64?
         var drawnRevision: UInt64?
@@ -251,7 +270,9 @@ struct FloorMapView: UIViewRepresentable {
             let side = CampusMapChrome.controlSide
             let gap = CampusMapChrome.controlGap
             let x = map.bounds.maxX - map.safeAreaInsets.right - side - CampusMapChrome.pageInset
-            let compassY = map.bounds.minY + map.safeAreaInsets.top + gap
+            // At the top of the map's open part, under the search bar.
+            let open = map.window == nil ? chrome.top : map.convert(CGPoint(x: 0, y: chrome.top), from: nil).y
+            let compassY = max(open, map.bounds.minY + map.safeAreaInsets.top)
             let trackingY = compassY + side + gap
             compass?.frame = CGRect(x: x, y: compassY, width: side, height: side)
             trackingHost?.frame = CGRect(x: x, y: trackingY, width: side, height: side)
@@ -270,7 +291,65 @@ struct FloorMapView: UIViewRepresentable {
             guard viewport.width > minSide, viewport.height > minSide else { return }
             let animated = appliedFraming != 0 && animatesCamera
             pendingFraming = nil
-            frame(framing, in: viewport, on: map, animated: animated)
+            if framing.reveal {
+                reveal(framing, in: viewport, on: map, animated: animated)
+            } else {
+                frame(framing, in: viewport, on: map, animated: animated)
+            }
+        }
+
+        /// Pans the least that brings the bounds inside the visible part,
+        /// keeping the zoom; centres them when they are larger than it.
+        private func reveal(_ framing: CampusMapFraming, in visible: CGRect, on map: MKMapView, animated: Bool) {
+            let bounds = framing.bounds
+            let corners = [
+                (bounds.north, bounds.west), (bounds.north, bounds.east),
+                (bounds.south, bounds.east), (bounds.south, bounds.west),
+            ].map { map.convert(CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1), toPointTo: map) }
+            let xs = corners.map(\.x), ys = corners.map(\.y)
+            let target = CGRect(
+                x: xs.min() ?? 0, y: ys.min() ?? 0,
+                width: (xs.max() ?? 0) - (xs.min() ?? 0), height: (ys.max() ?? 0) - (ys.min() ?? 0))
+            let room = visible.insetBy(dx: FloorMapView.framingMargin, dy: FloorMapView.framingMargin)
+            let shift = { (low: CGFloat, high: CGFloat, from: CGFloat, to: CGFloat) -> CGFloat in
+                if high - low > to - from { return (low + high) / 2 - (from + to) / 2 }
+                if low < from { return low - from }
+                if high > to { return high - to }
+                return 0
+            }
+            let dx = shift(target.minX, target.maxX, room.minX, room.maxX)
+            let dy = shift(target.minY, target.maxY, room.minY, room.maxY)
+            appliedFraming = framing.key
+            activeFraming = framing.key
+            announced = false
+            if dx != 0 || dy != 0 {
+                if map.userTrackingMode != .none { map.setUserTrackingMode(.none, animated: false) }
+                let center = map.convert(map.centerCoordinate, toPointTo: map)
+                let moved = map.convert(CGPoint(x: center.x + dx, y: center.y + dy), toCoordinateFrom: map)
+                map.setCenter(moved, animated: animated)
+            }
+            DispatchQueue.main.async { [weak self, weak map] in
+                guard let self, let map, activeFraming == framing.key, !announced else { return }
+                finishFraming(on: map)
+            }
+        }
+
+        /// The floor shown now fades out over the one drawn next, which
+        /// MapKit renders in tiles a moment later. Only a floor picked from
+        /// the picker fades, when no finger moves the map under the picture.
+        func crossFade(_ map: MKMapView) {
+            guard contact?.fingersDown != true, map.alpha > 0,
+                let picture = map.snapshotView(afterScreenUpdates: false)
+            else { return }
+            picture.isUserInteractionEnabled = false
+            picture.frame = map.bounds
+            // Over the floor but under the native controls.
+            if let compass { map.insertSubview(picture, belowSubview: compass) } else { map.addSubview(picture) }
+            UIView.animate(withDuration: 0.18, delay: 0.04, options: [.curveEaseOut, .allowUserInteraction]) {
+                picture.alpha = 0
+            } completion: { _ in
+                picture.removeFromSuperview()
+            }
         }
 
         private func frame(_ framing: CampusMapFraming, in visible: CGRect, on map: MKMapView, animated: Bool) {
@@ -374,7 +453,11 @@ struct FloorMapView: UIViewRepresentable {
 
         @objc func doubleTapped(_ recognizer: UITapGestureRecognizer) {}
 
-        @objc func tapped(_ recognizer: UITapGestureRecognizer) {
+        @objc func tappedQuickly(_ recognizer: UITapGestureRecognizer) { send(recognizer, roomsOnly: true) }
+
+        @objc func tapped(_ recognizer: UITapGestureRecognizer) { send(recognizer, roomsOnly: false) }
+
+        private func send(_ recognizer: UITapGestureRecognizer, roomsOnly: Bool) {
             guard recognizer.state == .ended, let map = recognizer.view as? MKMapView else { return }
             let location = recognizer.location(in: map)
             let coordinate = map.convert(location, toCoordinateFrom: map)
@@ -384,7 +467,7 @@ struct FloorMapView: UIViewRepresentable {
             let metres = MKMapPoint(coordinate).distance(to: MKMapPoint(across))
             onTap(
                 CampusMapPoint(latitude: coordinate.latitude, longitude: coordinate.longitude),
-                levelId, metres / Double(span))
+                levelId, metres / Double(span), roomsOnly)
         }
 
         /// A tap on a mark, or VoiceOver activating one.
@@ -651,6 +734,8 @@ private final class FloorMark: NSObject, MKAnnotation {
 private final class FloorMarkView: MKAnnotationView {
     static let reuse = "floor-mark"
     private static let iconSide: CGFloat = 28
+    /// The smallest a map icon gets (slotledger `approach/campus-map-icons`).
+    private static let passageSide: CGFloat = 24
     private static let touchSide: CGFloat = 44
     private let label = UILabel()
     private let badge = UIView()
@@ -708,10 +793,15 @@ private final class FloorMarkView: MKAnnotationView {
             zPriority = .defaultUnselected
             accessibilityLabel = name
             accessibilityTraits = .button
-        case let .amenity(key):
-            showIcon(key, side: Self.iconSide, tint: color(Theme.ink), fill: color(Theme.surface), traits: traits)
-            displayPriority = .defaultHigh
-            zPriority = .defaultUnselected
+        case let .amenity(key, tone):
+            // A white glyph on a badge of its class's colour; stairs and
+            // elevators are smaller and give way first, under room labels.
+            let passage = tone == .passage
+            showIcon(
+                key, side: passage ? Self.passageSide : Self.iconSide, tint: .white,
+                fill: Self.fill(for: tone).resolvedColor(with: traits), traits: traits, badge: true)
+            displayPriority = Self.priority(for: tone)
+            zPriority = passage ? .min : .defaultUnselected
             accessibilityLabel = t("campusMap.amenity.\(key)")
             accessibilityTraits = .image
         case let .entrance(_, name, selected):
@@ -726,20 +816,49 @@ private final class FloorMarkView: MKAnnotationView {
         }
     }
 
-    /// A 28 pt badge centred in a frame of `side`, the area MapKit hit-tests.
-    private func showIcon(_ name: String, side: CGFloat, tint: UIColor, fill: UIColor, traits: UITraitCollection) {
+    /// A round mark (or, with `badge`, a rounded square) of at most
+    /// 28 pt centred in a frame of `side`, the area MapKit hit-tests.
+    private func showIcon(
+        _ name: String, side: CGFloat, tint: UIColor, fill: UIColor, traits: UITraitCollection, badge square: Bool = false
+    ) {
         label.isHidden = true
         badge.isHidden = false
         frame.size = CGSize(width: side, height: side)
-        let inset = (side - Self.iconSide) / 2
+        let mark = min(side, Self.iconSide)
+        let inset = (side - mark) / 2
         badge.frame = bounds.insetBy(dx: inset, dy: inset)
         badge.backgroundColor = fill
-        badge.layer.cornerRadius = Self.iconSide / 2
-        badge.layer.borderWidth = 1
-        badge.layer.borderColor = UIColor(Theme.line).resolvedColor(with: traits).cgColor
+        badge.layer.cornerRadius = square ? mark * 0.26 : mark / 2
+        badge.layer.cornerCurve = .continuous
+        // A hairline in the surface colour keeps a coloured badge apart from
+        // the floor lines under it.
+        badge.layer.borderWidth = square ? 1.5 : 1
+        badge.layer.borderColor = UIColor(square ? Theme.surface : Theme.line).resolvedColor(with: traits).cgColor
         icon.image = UIImage(named: "CampusMap/\(name)")?.withRenderingMode(.alwaysTemplate)
         icon.tintColor = tint
-        icon.frame = badge.bounds.insetBy(dx: 5, dy: 5)
+        icon.frame = badge.bounds.insetBy(dx: mark * 0.18, dy: mark * 0.18)
+    }
+
+    /// The class colours of slotledger `approach/campus-map-icons`, the
+    /// system's so they hold in dark mode and match Apple Maps' wayfinding.
+    private static func fill(for tone: CampusMapAmenityTone) -> UIColor {
+        switch tone {
+        case .aed: .systemRed
+        case .restroom: .systemBlue
+        case .stay: .systemGreen
+        case .passage: .systemGray
+        }
+    }
+
+    /// Core lists tones most important first; MapKit keeps the higher one.
+    private static func priority(for tone: CampusMapAmenityTone) -> MKFeatureDisplayPriority {
+        switch tone {
+        case .aed: .defaultHigh
+        case .restroom: MKFeatureDisplayPriority(rawValue: 700)
+        case .stay: MKFeatureDisplayPriority(rawValue: 650)
+        // Under the room labels (250), over the building names (200).
+        case .passage: MKFeatureDisplayPriority(rawValue: 240)
+        }
     }
 }
 

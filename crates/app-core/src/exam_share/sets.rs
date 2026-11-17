@@ -18,7 +18,12 @@ pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamS
                 && set.occasion == exam.occasion
                 && set.occasion_number == exam.occasion_number
                 && set.variant == exam.variant
-                && set.teachers.iter().map(|t| t.id.as_str()).collect::<BTreeSet<_>>() == teachers
+                && set
+                    .teachers
+                    .iter()
+                    .map(|t| t.id.as_str())
+                    .collect::<BTreeSet<_>>()
+                    == teachers
         });
         match sitting {
             Some(set) => set.documents.push(exam.clone()),
@@ -34,7 +39,8 @@ pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamS
         }
     }
     for set in &mut sets {
-        set.documents.sort_by_key(|document| role_order(document.role.as_deref()));
+        set.documents
+            .sort_by_key(|document| role_order(document.role.as_deref()));
     }
     sets.sort_by_key(|set| {
         (

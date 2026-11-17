@@ -52,6 +52,25 @@ pub(super) enum AmenityCategory {
 }
 
 impl AmenityCategory {
+    /// The badge colour class (slotledger `approach/campus-map-icons`).
+    pub(super) fn tone(self) -> super::CampusMapAmenityTone {
+        use super::CampusMapAmenityTone as Tone;
+        match self {
+            Self::Aed => Tone::Aed,
+            Self::Restroom
+            | Self::RestroomMale
+            | Self::RestroomFemale
+            | Self::RestroomWheelchair => Tone::Restroom,
+            Self::Lounge
+            | Self::LoungeWomen
+            | Self::LoungeInternational
+            | Self::RestRoom
+            | Self::CalmDown
+            | Self::StudyRoom => Tone::Stay,
+            Self::Elevator | Self::Stairs => Tone::Passage,
+        }
+    }
+
     /// The key shells name an amenity's icon and text by: the iOS asset
     /// `CampusMap/<key>` and the catalog key `campusMap.amenity.<key>`.
     pub(super) fn key(self) -> &'static str {

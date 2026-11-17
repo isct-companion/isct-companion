@@ -52,7 +52,8 @@ struct Api {
 impl Api {
     async fn start(route: Route) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let origin = url::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        let origin =
+            url::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let route = Arc::new(StdMutex::new(route));
         let (log, answer) = (seen.clone(), route.clone());
@@ -71,7 +72,11 @@ impl Api {
                 };
                 let length = head
                     .lines()
-                    .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap())
+                    })
                     .unwrap_or(0);
                 while data.len() < body_start + length {
                     let read = stream.read(&mut buffer).await.unwrap();
@@ -89,7 +94,11 @@ impl Api {
                 let _ = stream.write_all(reply.as_bytes()).await;
             }
         });
-        Self { origin, seen, route }
+        Self {
+            origin,
+            seen,
+            route,
+        }
     }
 
     fn answer(&self, route: Route) {
@@ -97,7 +106,12 @@ impl Api {
     }
 
     fn count(&self, request: &str) -> usize {
-        self.seen.lock().unwrap().iter().filter(|seen| *seen == request).count()
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|seen| *seen == request)
+            .count()
     }
 }
 
@@ -110,14 +124,17 @@ fn id_token(uid: &str, claims: serde_json::Value) -> String {
         "exp": chrono::Utc::now().timestamp() + 3600,
         "allowed": true,
     });
-    body.as_object_mut().unwrap().extend(claims.as_object().unwrap().clone());
+    body.as_object_mut()
+        .unwrap()
+        .extend(claims.as_object().unwrap().clone());
     format!("e30.{}.sig", URL_SAFE_NO_PAD.encode(body.to_string()))
 }
 
 fn refreshed(uid: &str) -> Reply {
     (
         200,
-        json!({"user_id": uid, "refresh_token": "r2", "id_token": id_token(uid, json!({}))}).to_string(),
+        json!({"user_id": uid, "refresh_token": "r2", "id_token": id_token(uid, json!({}))})
+            .to_string(),
     )
 }
 
@@ -149,21 +166,23 @@ fn fixture(api: &Api, name: &str) -> Fixture {
         .unwrap();
     let events = Arc::new(Events::default());
     let folder = root.join("exam-share");
-    let mut share = ExamShare::new(
-        vault.clone(),
-        folder,
-        "9.0.0".into(),
-        None,
-        events.clone(),
-    )
-    .unwrap();
+    let mut share =
+        ExamShare::new(vault.clone(), folder, "9.0.0".into(), None, events.clone()).unwrap();
     share.api.origin = Some(api.origin.clone());
-    Fixture { root, vault, events, share, store }
+    Fixture {
+        root,
+        vault,
+        events,
+        share,
+        store,
+    }
 }
 
 impl Fixture {
     async fn act(&self, action: ExamAction) -> Result<ExamAnswer, ExamError> {
-        self.share.act(action, CancellationToken::new(), &self.store).await
+        self.share
+            .act(action, CancellationToken::new(), &self.store)
+            .await
     }
 
     fn account_folder(&self) -> PathBuf {
@@ -191,20 +210,32 @@ async fn an_outage_keeps_the_account_and_an_expired_grant_clears_it() {
     std::fs::create_dir_all(fixture.account_folder()).unwrap();
     std::fs::write(fixture.account_folder().join("copy.pdf"), b"%PDF").unwrap();
 
-    assert_eq!(status(fixture.act(ExamAction::Account).await), ExamAccountStatus::Connected);
+    assert_eq!(
+        status(fixture.act(ExamAction::Account).await),
+        ExamAccountStatus::Connected
+    );
     assert!(fixture.vault.load(ACCOUNT).unwrap().is_some());
     assert!(fixture.account_folder().join("copy.pdf").is_file());
 
     api.answer(Box::new(|method, path| match (method, path) {
         ("GET", "/api/client-config") => (200, "{}".into()),
-        ("POST", "/v1/token") => (400, json!({"error": {"message": "INVALID_REFRESH_TOKEN"}}).to_string()),
+        ("POST", "/v1/token") => (
+            400,
+            json!({"error": {"message": "INVALID_REFRESH_TOKEN"}}).to_string(),
+        ),
         _ => (500, "{}".into()),
     }));
-    assert_eq!(status(fixture.act(ExamAction::Account).await), ExamAccountStatus::Disconnected);
+    assert_eq!(
+        status(fixture.act(ExamAction::Account).await),
+        ExamAccountStatus::Disconnected
+    );
     assert!(fixture.vault.load(ACCOUNT).unwrap().is_none());
     assert!(!fixture.account_folder().exists());
     let shown = fixture.last_event();
-    assert_eq!((shown.status, shown.email), (ExamAccountStatus::Disconnected, None));
+    assert_eq!(
+        (shown.status, shown.email),
+        (ExamAccountStatus::Disconnected, None)
+    );
 }
 
 fn connected(method: &str, path: &str) -> Option<Reply> {
@@ -256,23 +287,35 @@ async fn a_recovered_upload_is_registered_once_and_never_dropped() {
     let fixture = fixture(&api, "upload");
     journal(&fixture, "Register", 0);
 
-    assert!(matches!(fixture.act(ExamAction::RecoverUpload).await, Err(ExamError::UploadPending)));
+    assert!(matches!(
+        fixture.act(ExamAction::RecoverUpload).await,
+        Err(ExamError::UploadPending)
+    ));
     assert_eq!(journal_phase(&fixture).as_deref(), Some("Register"));
     assert_eq!(fixture.last_event().upload.phase, ExamUploadPhase::Pending);
     // Waiting out the retry delay asks the service nothing.
     let registrations = api.count("POST /api/exams");
-    assert!(matches!(fixture.act(ExamAction::RecoverUpload).await, Err(ExamError::UploadPending)));
+    assert!(matches!(
+        fixture.act(ExamAction::RecoverUpload).await,
+        Err(ExamError::UploadPending)
+    ));
     assert_eq!(api.count("POST /api/exams"), registrations);
 
     journal(&fixture, "Register", 0);
     api.answer(Box::new(|method, path| {
         connected(method, path).unwrap_or_else(|| match (method, path) {
-            ("POST", "/api/exams") => (409, json!({"code": "upload.already_registered"}).to_string()),
+            ("POST", "/api/exams") => (
+                409,
+                json!({"code": "upload.already_registered"}).to_string(),
+            ),
             _ => (500, "{}".into()),
         })
     }));
     // An attempt whose answer was lost has no id to hand the shell.
-    assert!(matches!(fixture.act(ExamAction::RecoverUpload).await, Ok(ExamAnswer::Uploaded(None))));
+    assert!(matches!(
+        fixture.act(ExamAction::RecoverUpload).await,
+        Ok(ExamAnswer::Uploaded(None))
+    ));
     assert_eq!(journal_phase(&fixture), None);
     assert_eq!(fixture.last_event().upload.phase, ExamUploadPhase::Idle);
 
@@ -299,7 +342,10 @@ async fn a_recovered_upload_is_registered_once_and_never_dropped() {
             _ => (500, "{}".into()),
         })
     }));
-    assert!(matches!(fixture.act(ExamAction::RecoverUpload).await, Err(ExamError::UploadPending)));
+    assert!(matches!(
+        fixture.act(ExamAction::RecoverUpload).await,
+        Err(ExamError::UploadPending)
+    ));
     assert_eq!(journal_phase(&fixture).as_deref(), Some("Register"));
 }
 
@@ -327,12 +373,19 @@ fn draft(role: ExamRole, occasion: ExamOccasion) -> ExamUploadDraft {
 fn a_draft_follows_its_role_and_the_api_limits() {
     let mut notes = draft(ExamRole::Notes, ExamOccasion::Quiz);
     upload::validate(&mut notes).unwrap();
-    assert_eq!((notes.occasion, notes.occasion_number, notes.answer_source), (ExamOccasion::NotApplicable, 0, None));
+    assert_eq!(
+        (notes.occasion, notes.occasion_number, notes.answer_source),
+        (ExamOccasion::NotApplicable, 0, None)
+    );
 
     let mut answer = draft(ExamRole::Answer, ExamOccasion::NotApplicable);
     upload::validate(&mut answer).unwrap();
     assert_eq!(
-        (answer.occasion, answer.occasion_number, answer.answer_source),
+        (
+            answer.occasion,
+            answer.occasion_number,
+            answer.answer_source
+        ),
         (ExamOccasion::Unknown, 0, Some(ExamAnswerSource::Unknown))
     );
 
@@ -341,11 +394,19 @@ fn a_draft_follows_its_role_and_the_api_limits() {
     assert_eq!(quiz.occasion_number, 3);
 
     let mut crowded = draft(ExamRole::Question, ExamOccasion::Final);
-    crowded.subject_codes = (0..=form::limits().subjects).map(|n| format!("LAS.B1{n:02}")).collect();
-    assert!(matches!(upload::validate(&mut crowded), Err(ExamError::InvalidInput)));
+    crowded.subject_codes = (0..=form::limits().subjects)
+        .map(|n| format!("LAS.B1{n:02}"))
+        .collect();
+    assert!(matches!(
+        upload::validate(&mut crowded),
+        Err(ExamError::InvalidInput)
+    ));
     let mut long_note = draft(ExamRole::Question, ExamOccasion::Final);
     long_note.note = "x".repeat(41);
-    assert!(matches!(upload::validate(&mut long_note), Err(ExamError::InvalidInput)));
+    assert!(matches!(
+        upload::validate(&mut long_note),
+        Err(ExamError::InvalidInput)
+    ));
 }
 
 /// How the App API's statuses and error codes reach the person: each must
@@ -372,12 +433,27 @@ async fn service_answers_map_to_what_the_person_does_next() {
     client.origin = Some(api.origin.clone());
     let mut seen = Vec::new();
     for (name, _, _) in cases {
-        let request = client.request(client::Endpoint::Site, Method::GET, &["api", name]).unwrap();
-        seen.push(format!("{:?}", client.service::<Value>(request).await.unwrap_err()));
+        let request = client
+            .request(client::Endpoint::Site, Method::GET, &["api", name])
+            .unwrap();
+        seen.push(format!(
+            "{:?}",
+            client.service::<Value>(request).await.unwrap_err()
+        ));
     }
     assert_eq!(
         seen,
-        ["Expired", "SubjectNotFound", "NotFound", "Consent", "Denied", "Unavailable", "Unavailable", "InvalidInput", "Rejected"]
+        [
+            "Expired",
+            "SubjectNotFound",
+            "NotFound",
+            "Consent",
+            "Denied",
+            "Unavailable",
+            "Unavailable",
+            "InvalidInput",
+            "Rejected"
+        ]
     );
 }
 
@@ -401,7 +477,10 @@ fn only_a_current_token_of_this_project_and_account_is_taken() {
     ] {
         assert!(matches!(take(claims), Err(ExamError::Response)));
     }
-    assert!(matches!(take(json!({"admin": true})), Err(ExamError::Administrator)));
+    assert!(matches!(
+        take(json!({"admin": true})),
+        Err(ExamError::Administrator)
+    ));
 }
 
 /// Signed file URLs are fetched only from the storage host, over HTTPS on
@@ -410,7 +489,9 @@ fn only_a_current_token_of_this_project_and_account_is_taken() {
 fn files_come_only_from_the_storage_host() {
     let client = Client::new("9.0.0".into()).unwrap();
     let file = |url: &str| client.is_file_url(&url::Url::parse(url).unwrap());
-    assert!(file("https://bucket.r2.cloudflarestorage.com/exams/u1/key?X-Amz=1"));
+    assert!(file(
+        "https://bucket.r2.cloudflarestorage.com/exams/u1/key?X-Amz=1"
+    ));
     for refused in [
         "http://bucket.r2.cloudflarestorage.com/exams/u1/key",
         "https://bucket.r2.cloudflarestorage.com:8443/exams/u1/key",

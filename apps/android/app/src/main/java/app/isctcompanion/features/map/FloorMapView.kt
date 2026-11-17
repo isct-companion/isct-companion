@@ -38,6 +38,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.isctcompanion.core.CampusMapBounds
 import app.isctcompanion.core.CampusMapCamera
 import app.isctcompanion.core.CampusMapFraming
 import app.isctcompanion.core.CampusMapMark
@@ -90,7 +91,7 @@ fun FloorMapView(
     onCamera: (CampusMapCamera) -> Unit,
     /** A tap off the marks, the floor drawn under it and the map's metres
      * per dp there. */
-    onTap: (CampusMapPoint, String?, Double) -> Unit,
+    onTap: (CampusMapPoint, String?, Double, Boolean) -> Unit,
     onSelect: (CampusMapPlace) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -257,7 +258,7 @@ private fun MapLifecycle(view: MapView) {
 private class FloorPainter(private val view: MapView) {
     var insets: () -> MapInsets = { MapInsets(0, 0, 0, 0) }
     var onCamera: (CampusMapCamera) -> Unit = {}
-    var onTap: (CampusMapPoint, String?, Double) -> Unit = { _, _, _ -> }
+    var onTap: (CampusMapPoint, String?, Double, Boolean) -> Unit = { _, _, _, _ -> }
     var onSelect: (CampusMapPlace) -> Unit = {}
     /** The marks in the visible part and where they are, for a screen reader. */
     var onPlaced: (List<PlacedMark>) -> Unit = {}
@@ -305,7 +306,8 @@ private class FloorPainter(private val view: MapView) {
             personMoving = false
             place()
         }
-        // A double tap zooms and never arrives here; it selects nothing.
+        // A double tap zooms and never arrives here; it selects nothing. So
+        // every tap here is the full one (`roomsOnly` false).
         map.addOnMapClickListener { at ->
             val point = map.projection.toScreenLocation(at)
             val reach = TOUCH_DP * density
@@ -324,7 +326,7 @@ private class FloorPainter(private val view: MapView) {
                 else -> {
                     // The map's scale here, over a few dp across the tap.
                     val across = map.projection.fromScreenLocation(PointF(point.x + SCALE_DP * density, point.y))
-                    onTap(CampusMapPoint(latitude = at.latitude, longitude = at.longitude), scene?.levelId, at.distanceTo(across) / SCALE_DP)
+                    onTap(CampusMapPoint(latitude = at.latitude, longitude = at.longitude), scene?.levelId, at.distanceTo(across) / SCALE_DP, false)
                 }
             }
             true
@@ -409,6 +411,10 @@ private class FloorPainter(private val view: MapView) {
         // The camera is Core's now, not the blue dot's.
         if (positionStyle != null) runCatching { map.locationComponent.cameraMode = CameraMode.NONE }
         val bounds = framing.bounds
+        if (framing.reveal) {
+            reveal(map, bounds, inset, margin, animates)
+            return
+        }
         val box = LatLngBounds.from(bounds.north, bounds.east, bounds.south, bounds.west)
         val padding = intArrayOf(inset.left + margin, inset.top + margin, inset.right + margin, inset.bottom + margin)
         val update = map.getCameraForLatLngBounds(box, padding, map.cameraPosition.bearing, 0.0)
@@ -416,6 +422,34 @@ private class FloorPainter(private val view: MapView) {
             ?: CameraUpdateFactory.newLatLngBounds(box, padding[0], padding[1], padding[2], padding[3])
         if (framed && animates) map.animateCamera(update, FRAMING_MS) else map.moveCamera(update)
         framed = true
+    }
+
+    /** Pans the least that brings `bounds` inside the visible part, at the
+     * same zoom; centres them when they are larger than it. */
+    private fun reveal(map: MapLibreMap, bounds: CampusMapBounds, inset: MapInsets, margin: Int, animates: Boolean) {
+        val corners = listOf(
+            LatLng(bounds.north, bounds.west), LatLng(bounds.north, bounds.east),
+            LatLng(bounds.south, bounds.east), LatLng(bounds.south, bounds.west),
+        ).map(map.projection::toScreenLocation)
+        val left = (inset.left + margin).toFloat()
+        val top = (inset.top + margin).toFloat()
+        val right = (view.width - inset.right - margin).toFloat()
+        val bottom = (view.height - inset.bottom - margin).toFloat()
+        fun shift(low: Float, high: Float, from: Float, to: Float): Float = when {
+            high - low > to - from -> (low + high) / 2 - (from + to) / 2
+            low < from -> low - from
+            high > to -> high - to
+            else -> 0f
+        }
+        val dx = shift(corners.minOf { it.x }, corners.maxOf { it.x }, left, right)
+        val dy = shift(corners.minOf { it.y }, corners.maxOf { it.y }, top, bottom)
+        framed = true
+        if (dx == 0f && dy == 0f) return
+        if (positionStyle != null) runCatching { map.locationComponent.cameraMode = CameraMode.NONE }
+        val center = map.projection.toScreenLocation(map.cameraPosition.target ?: return)
+        val target = map.projection.fromScreenLocation(PointF(center.x + dx, center.y + dy))
+        val update = CameraUpdateFactory.newLatLng(target)
+        if (animates) map.animateCamera(update, FRAMING_MS) else map.moveCamera(update)
     }
 
     private fun following(map: MapLibreMap): Boolean =

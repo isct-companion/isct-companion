@@ -71,7 +71,11 @@ struct Refresh {
 
 pub(super) async fn refresh(api: &Client, saved: &SavedSession) -> Result<SessionToken, ExamError> {
     let request = api
-        .request(super::client::Endpoint::SecureToken, Method::POST, &["v1", "token"])?
+        .request(
+            super::client::Endpoint::SecureToken,
+            Method::POST,
+            &["v1", "token"],
+        )?
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", saved.refresh_token.as_str()),

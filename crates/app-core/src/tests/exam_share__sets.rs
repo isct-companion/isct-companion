@@ -7,7 +7,10 @@ fn document(id: &str, year: u32, occasion: &str, role: &str, teachers: &[&str]) 
         subjects: Vec::new(),
         teachers: teachers
             .iter()
-            .map(|id| ExamTeacher { id: (*id).into(), name: format!("T{id}") })
+            .map(|id| ExamTeacher {
+                id: (*id).into(),
+                name: format!("T{id}"),
+            })
             .collect(),
         academic_year: Some(year),
         occasion: Some(occasion.into()),
@@ -37,7 +40,12 @@ fn documents_of_one_sitting_share_a_row() {
     let sets = group(&exams, &ours);
     let rows: Vec<(Vec<&str>, bool)> = sets
         .iter()
-        .map(|set| (set.documents.iter().map(|d| d.id.as_str()).collect(), set.mine))
+        .map(|set| {
+            (
+                set.documents.iter().map(|d| d.id.as_str()).collect(),
+                set.mine,
+            )
+        })
         .collect();
     assert_eq!(
         rows,

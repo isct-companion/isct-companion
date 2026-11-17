@@ -29,7 +29,10 @@ fn a_course_class_puts_its_teachers_materials_first_and_keeps_the_rest() {
     let ours = page().present(Some(202600336)).unwrap();
     assert_eq!(ids(&ours), ["ours", "unknown", "other"]);
     assert!(ours.sets[0].mine && !ours.sets[1].mine);
-    assert_eq!(ours.web_url, "https://sciencetokyoexam.com/search?course=LAS.B103");
+    assert_eq!(
+        ours.web_url,
+        "https://sciencetokyoexam.com/search?course=LAS.B103"
+    );
     // Reopening passes the class back to keep this order.
     assert_eq!(ours.class_id, Some(202600336));
     // A class the latest-year rows do not list: the plain subject order.

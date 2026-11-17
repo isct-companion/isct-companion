@@ -107,7 +107,9 @@ import app.isctcompanion.core.CampusMapCandidate
 import app.isctcompanion.core.CampusMapCard
 import app.isctcompanion.core.CampusMapIntent
 import app.isctcompanion.core.CampusMapLevel
-import app.isctcompanion.core.CampusMapLink
+import app.isctcompanion.core.CampusMapCardKind
+import app.isctcompanion.core.CampusMapEntranceRow
+import app.isctcompanion.core.CampusMapPlace
 import app.isctcompanion.core.CampusMapOpening
 import app.isctcompanion.core.CampusMapScene
 import app.isctcompanion.core.CampusMapSearch
@@ -288,7 +290,8 @@ fun CampusMapScreen(room: String?) {
                         }
                         card != null -> CardDetails(
                             card,
-                            openLink = { openInMaps(context, it.url) },
+                            openInMaps = { openInMaps(context, card.mapsUrl) },
+                            select = { send(CampusMapIntent.Select(it)) },
                             choose = { send(CampusMapIntent.Choose(it.toUInt())) },
                         )
                     }
@@ -307,7 +310,7 @@ fun CampusMapScreen(room: String?) {
                 follows = position.follows,
                 onCamera = { send(CampusMapIntent.Camera(it)) },
                 // Core ignores a tap on a floor it has already left.
-                onTap = { point, level, metresPerPoint -> send(CampusMapIntent.Tap(point, level, metresPerPoint)) },
+                onTap = { point, level, metresPerPoint, roomsOnly -> send(CampusMapIntent.Tap(point, level, metresPerPoint, roomsOnly)) },
                 onSelect = { send(CampusMapIntent.Select(it)) },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -483,7 +486,7 @@ private fun CardHeader(card: CampusMapCard, expanded: Boolean, fold: () -> Unit,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                card.title ?: t("campusMap.entrance"),
+                card.title,
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).semantics { heading() },
@@ -500,13 +503,25 @@ private fun CardHeader(card: CampusMapCard, expanded: Boolean, fold: () -> Unit,
 
 /** Details below the place header, while the card is unfolded. */
 @Composable
-private fun CardDetails(card: CampusMapCard, openLink: (CampusMapLink) -> Unit, choose: (Int) -> Unit) {
+private fun CardDetails(
+    card: CampusMapCard,
+    openInMaps: () -> Unit,
+    select: (CampusMapPlace) -> Unit,
+    choose: (Int) -> Unit,
+) {
     Column(
         Modifier.padding(start = Theme.cardPadding, end = Theme.cardPadding, bottom = Theme.cardPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // The building unless it is the title, the floor, the campus.
-        val subtitle = listOfNotNull(card.buildingName.takeIf { it != card.title }, card.levelName, campusName(card.campus))
+        // `建物 · 大岡山`, `西9号館 · 2F · 大岡山`.
+        val subtitle = listOfNotNull(
+            when (card.kind) {
+                CampusMapCardKind.BUILDING -> t("campusMap.kind.building")
+                CampusMapCardKind.ROOM -> card.buildingName.takeIf { it != card.title }
+            },
+            card.levelName,
+            campusName(card.campus),
+        )
         Text(
             subtitle.joinToString(" · "),
             style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
@@ -516,7 +531,8 @@ private fun CardDetails(card: CampusMapCard, openLink: (CampusMapLink) -> Unit, 
         } else if (card.noFloorPlans) {
             Text(t("campusMap.noFloorPlans"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
-        Links(card.links, openLink)
+        Actions(card, openInMaps, select)
+        if (card.entrances.isNotEmpty()) Entrances(card.entrances, select)
         if (card.candidates.isNotEmpty()) Candidates(card.candidates, choose)
     }
 }
@@ -534,20 +550,57 @@ private fun Notice(title: String, detail: String, retry: (() -> Unit)? = null) {
     }
 }
 
-/** One "Open in Maps" per link, Core's first one primary. */
+/** The building (on a room's card) and the maps app: the
+ * card moves the map, and only this button leaves the app. */
 @Composable
-private fun Links(links: List<CampusMapLink>, open: (CampusMapLink) -> Unit) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        links.forEachIndexed { index, link ->
-            val name = link.name ?: t("campusMap.entrance")
-            val spoken = if (link.entrance) t("campusMap.openEntranceInMaps", "name" to name) else t("campusMap.openInMaps")
+private fun Actions(card: CampusMapCard, openInMaps: () -> Unit, select: (CampusMapPlace) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        card.building?.let { building ->
             ActionButton(
-                if (links.size == 1) t("campusMap.openInMaps") else name,
-                onClick = { open(link) },
-                modifier = Modifier.semantics { contentDescription = spoken },
-                level = if (index == 0) ButtonLevel.Primary else ButtonLevel.Secondary,
-                icon = Icons.Rounded.Map,
+                card.buildingName,
+                onClick = { select(building) },
+                modifier = Modifier.weight(1f)
+                    .semantics { contentDescription = t("campusMap.showBuilding", "name" to card.buildingName) },
+                level = ButtonLevel.Secondary,
             )
+        }
+        ActionButton(
+            t("campusMap.openInMaps"),
+            onClick = openInMaps,
+            modifier = Modifier.weight(1f),
+            level = ButtonLevel.Secondary,
+            icon = Icons.Rounded.Map,
+        )
+    }
+}
+
+/** Each entrance lights on the map, on its floor, in this same card;
+ * "Open in Maps" then pins it. */
+@Composable
+private fun Entrances(rows: List<CampusMapEntranceRow>, select: (CampusMapPlace) -> Unit) {
+    Column {
+        Text(
+            t("campusMap.entrances"),
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.muted,
+        )
+        rows.forEach { row ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .clickable { select(CampusMapPlace.Entrance(row.entranceId)) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    row.name ?: t("campusMap.entrance"),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (row.selected) FontWeight.SemiBold else null,
+                    color = if (row.selected) Theme.colors.accent else Theme.colors.ink,
+                    maxLines = 1,
+                )
+                row.levelName?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
+                }
+            }
         }
     }
 }
