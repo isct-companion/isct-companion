@@ -18,6 +18,12 @@ Do not copy the logic. Example: `crates/app-core/src/school_session` signs in
 over HTTP for every platform, and `crates/app-core/src/school_browser` decides
 when a school page recovers, for every school-web host.
 
+For UI, the same applies to visual values: use the role tokens from
+`design/tokens`, not raw colours, radii or spacing, and one component per UI
+pattern. [docs/code-quality.md](docs/code-quality.md) spells out the token,
+shared-UI and logic-placement rules and the review checklist; follow it when
+writing code and when reviewing it.
+
 ## 3. Isolate native differences at compile time, not with runtime checks
 
 Behaviour that differs because of the native platform is separated in source
