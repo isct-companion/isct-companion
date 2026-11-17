@@ -1195,6 +1195,46 @@ checks:
       device; the page's rules are Core's and are tested there.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/map/FloorMapView.kt
+  - id: CAMPUS-MAP-FLOOR-PHOTO-RELEASE
+    area: native
+    title: A release build's floor photo reaches the private inbox, without EXIF
+    persona: international-student
+    preconditions: |
+      A release build (TestFlight IPA or the CI-signed APK) on a phone in
+      Japan, the campus map downloaded, and access to the R2 bucket
+      `isct-floor-photos` (or the NAS folder it is moved to).
+    steps:
+      - action: |
+          Open the map, tap any building, tap "Upload floor photos" and take
+          one photo.
+        reason: |
+          The button shows only in a build that carries the key; a release
+          built without `ISCT_FLOOR_PHOTO_KEY` (an unset secret or variable)
+          shows no button, and that is invisible to every suite.
+      - action: |
+          Wait for "1 sent" on the button, then find the object under
+          `inbox/<building id>/` and read its metadata with an EXIF
+          tool.
+        reason: |
+          The Actions key and the Pages `FLOOR_PHOTO_KEYS` entry must match
+          by `kid`; after a rotation a mismatch refuses every upload (HTTP
+          401 or 426). The phone camera writes GPS into the original, which
+          the shell's re-encode must drop.
+    observe: |
+      The button's label, and the stored object and its EXIF.
+    expected: |
+      The button reports the photo sent; the object exists under the
+      building and carries no GPS or camera EXIF.
+    why_manual: |
+      The key exists only in release builds and the inbox only on the
+      deployed Homepage; the signing itself is tested against a shared
+      vector on both sides.
+    covers:
+      - crates/app-core/src/campus_map/photos.rs
+      - apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt
+      - .github/workflows/ios-release.yml
+      - .github/workflows/android-release.yml
   - id: SCHOOL-MATRIX-TITECH-APP-IMPORT
     area: school
     title: A Matrix exported from titech-app pastes in the card's own order

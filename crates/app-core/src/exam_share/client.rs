@@ -214,7 +214,6 @@ impl Client {
         }
         stream.flush().await.map_err(|_| ExamError::Storage)
     }
-
 }
 
 #[derive(Deserialize)]

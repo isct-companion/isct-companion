@@ -343,7 +343,11 @@ impl ExamShare {
             ExamUploadStart::Request { .. } => return Err(ExamError::InvalidInput),
         };
         let subject = self.upload_subject(session, &code).await?;
-        let role = form::role(request.as_ref().and_then(|item| item.wanted_role.as_deref()));
+        let role = form::role(
+            request
+                .as_ref()
+                .and_then(|item| item.wanted_role.as_deref()),
+        );
         let mut form = ExamUploadForm {
             draft: ExamUploadDraft {
                 subject_codes: vec![],
@@ -354,7 +358,9 @@ impl ExamShare {
                     .collect(),
                 new_teachers: vec![],
                 academic_year: request.as_ref().and_then(|item| item.academic_year),
-                occasion: form::occasion(request.as_ref().and_then(|item| item.occasion.as_deref())),
+                occasion: form::occasion(
+                    request.as_ref().and_then(|item| item.occasion.as_deref()),
+                ),
                 occasion_number: 0,
                 variant: String::new(),
                 role,
@@ -396,7 +402,12 @@ impl ExamShare {
         session: &mut Session,
         id: &str,
     ) -> Result<ExamLibrary, ExamError> {
-        let uid = session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid.clone();
+        let uid = session
+            .saved
+            .as_ref()
+            .ok_or(ExamError::SignedOut)?
+            .uid
+            .clone();
         erase(&self.account_folder(&uid).join(key(id))).await?;
         self.library(session).await
     }
@@ -423,9 +434,17 @@ impl ExamShare {
         id: &str,
     ) -> Result<ExamLibrary, ExamError> {
         let _: Value = self
-            .call(session, self.service(Method::POST, &["exams", id, "delete"])?)
+            .call(
+                session,
+                self.service(Method::POST, &["exams", id, "delete"])?,
+            )
             .await?;
-        let uid = session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid.clone();
+        let uid = session
+            .saved
+            .as_ref()
+            .ok_or(ExamError::SignedOut)?
+            .uid
+            .clone();
         erase(&self.account_folder(&uid).join(key(id))).await?;
         self.library(session).await
     }
@@ -488,12 +507,17 @@ impl ExamShare {
         draft: ExamRequestDraft,
     ) -> Result<(), ExamError> {
         if draft.description.encode_utf16().count() > form::limits().request_description as usize
-            || draft.academic_year.is_some_and(|year| !form::valid_year(year))
+            || draft
+                .academic_year
+                .is_some_and(|year| !form::valid_year(year))
         {
             return Err(ExamError::InvalidInput);
         }
         let _: Value = self
-            .call(session, self.service(Method::POST, &["requests"])?.json(&draft))
+            .call(
+                session,
+                self.service(Method::POST, &["requests"])?.json(&draft),
+            )
             .await?;
         Ok(())
     }
@@ -523,7 +547,10 @@ impl ExamShare {
         mine: bool,
     ) -> Result<ExamRequestPage, ExamError> {
         let _: Value = self
-            .call(session, self.service(Method::POST, &["requests", id, "delete"])?)
+            .call(
+                session,
+                self.service(Method::POST, &["requests", id, "delete"])?,
+            )
             .await?;
         self.requests(session, mine, None).await
     }

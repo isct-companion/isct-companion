@@ -17,7 +17,10 @@ mod geometry;
 mod map;
 mod matching;
 mod page;
+pub(crate) mod photos;
 mod search;
+
+pub use photos::MAX_PHOTO_BYTES;
 
 use crate::data::{DataError, DataStore};
 use crate::locale::ContentLanguage;
@@ -124,19 +127,32 @@ pub enum CampusMapIntent {
     /// Picked a floor in the level picker.
     Level { id: String },
     /// Tapped the map anywhere but a mark, on the floor drawn then (`None`
-    /// with no floor drawn): a unit of that floor, else a building. A tap on
-    /// a floor the page no longer shows changes nothing. `metres_per_point`
-    /// is the map's scale at the tap, which sets how near a footprint a tap
-    /// must be.
+    /// with no floor drawn): a unit of that floor, else a building, else
+    /// nothing, which closes the card. A tap on a floor the page no longer
+    /// shows changes nothing. `metres_per_point` is the map's scale at the
+    /// tap, which sets how near a footprint a tap must be.
+    ///
+    /// `rooms_only` is the same tap sent the moment the finger lifts, before
+    /// the shell knows it is not the first of a double tap (which zooms): it
+    /// selects a unit and nothing else, so a zoom never moves the camera
+    /// to a building or closes the card. The shell sends the full tap once
+    /// the double tap has failed; one that finds the unit already selected
+    /// changes nothing.
     Tap {
         point: CampusMapPoint,
         level_id: Option<String>,
         metres_per_point: f64,
+        rooms_only: bool,
     },
     /// Picked a place: a search result, a room or entrance mark.
     Select { place: CampusMapPlace },
     /// Closed the card: nothing is selected.
     Clear,
+    /// The person asked where they are; `point` is the system's position.
+    /// The building holding it, else the nearest within a short walk, is
+    /// selected and framed on its floor; farther off, only the position is
+    /// framed.
+    Locate { point: CampusMapPoint },
 }
 
 /// What a layer of the scene is, which decides its colours: shells map each
@@ -191,8 +207,12 @@ pub enum CampusMapMarkKind {
         highlighted: bool,
     },
     /// An amenity's icon. `key` is stable lowercase (`restroom-male`):
-    /// shells name the icon and the spoken name after it.
-    Amenity { key: String },
+    /// shells name the icon and the spoken name after it. `tone` colours
+    /// its badge and decides which marks give way first as the map zooms out.
+    Amenity {
+        key: String,
+        tone: CampusMapAmenityTone,
+    },
     /// A building's name at its centre, on every building but the one
     /// selected or whose floor is shown. Picking it selects the building.
     Building { building_id: String, label: String },
@@ -202,6 +222,22 @@ pub enum CampusMapMarkKind {
         name: Option<String>,
         selected: bool,
     },
+}
+
+/// The class of an amenity, which colours its badge (slotledger
+/// `approach/campus-map-icons`). Listed most important first: as marks
+/// collide, a later tone gives way to an earlier one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CampusMapAmenityTone {
+    /// Red: an AED.
+    Aed,
+    /// Blue: restrooms of every kind.
+    Restroom,
+    /// Green: places to stay (lounges, rest and study rooms).
+    Stay,
+    /// Grey: stairs and elevators.
+    Passage,
 }
 
 /// A point mark over the map.
@@ -214,17 +250,29 @@ pub struct CampusMapMark {
     pub kind: CampusMapMarkKind,
 }
 
-/// An "Open in Maps" link of the card.
+/// What the card describes, which its info line names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CampusMapCardKind {
+    /// A building, or one of its entrances picked within its card.
+    Building,
+    /// A room or a named unit.
+    Room,
+}
+
+/// One entrance on a building's card. Picking it selects the entrance in
+/// the map, in the same card: its floor shows, it is lit and the card's
+/// maps link pins it; nothing leaves the app.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CampusMapLink {
-    /// An entrance's link, else the building's centre.
-    pub entrance: bool,
+pub struct CampusMapEntranceRow {
+    pub entrance_id: String,
     /// The entrance's name, when the export names it.
     pub name: Option<String>,
-    /// A pin in the maps app the settings name: `https://maps.apple.com/?ll=…&q=…`
-    /// or `https://www.google.com/maps/search/?api=1&query=…`.
-    pub url: String,
+    /// The floor it is entered on, when the building has floor plans.
+    pub level_name: Option<String>,
+    /// The entrance selected, lit on the map.
+    pub selected: bool,
 }
 
 /// One room of an ambiguous spelling.
@@ -241,9 +289,10 @@ pub struct CampusMapCandidate {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CampusMapCard {
-    /// The selected room, unit, entrance or building; `None` for an entrance
-    /// the export does not name.
-    pub title: Option<String>,
+    /// The selected room, unit or building; an entrance's card is its
+    /// building's.
+    pub title: String,
+    pub kind: CampusMapCardKind,
     /// The selection's building, never the camera's.
     pub building_name: String,
     /// `ookayama` or `suzukakedai`; shells name it.
@@ -254,9 +303,20 @@ pub struct CampusMapCard {
     pub building_only: bool,
     /// The selection's building has no floor plans at all.
     pub no_floor_plans: bool,
-    /// One per entrance of the selection's building, the tapped one first;
-    /// the building's centre when it has none. No route is ever drawn.
-    pub links: Vec<CampusMapLink>,
+    /// The selection as a pin in the maps app the settings name
+    /// (`https://maps.apple.com/?ll=…&q=…` or
+    /// `https://www.google.com/maps/search/?api=1&query=…`): the entrance
+    /// selected, else the building's first entrance, else its centre. It is
+    /// the card's one way out of the app; no route is ever drawn.
+    pub maps_url: String,
+    /// On a room's card, its building: picking it shows the building's card.
+    pub building: Option<CampusMapPlace>,
+    /// On a building's card, each of its entrances in the export's order.
+    pub entrances: Vec<CampusMapEntranceRow>,
+    /// The building to send floor photos of, unless its data is marked
+    /// complete or this build cannot send them: the card offers "Upload
+    /// floor photos" beside "Open in Maps".
+    pub photo_building_id: Option<String>,
     /// Every room an ambiguous spelling names; empty for one.
     pub candidates: Vec<CampusMapCandidate>,
 }
@@ -270,6 +330,10 @@ pub struct CampusMapCard {
 pub struct CampusMapFraming {
     pub key: u64,
     pub bounds: CampusMapBounds,
+    /// Bring `bounds` into the visible part by panning as little as needed,
+    /// at the same zoom, and not at all when it is already in view: a
+    /// tapped room the card would cover. Otherwise fit `bounds` to it.
+    pub reveal: bool,
 }
 
 /// Everything the map page draws.
@@ -338,6 +402,20 @@ pub enum CampusMapError {
     Unavailable,
     #[error("{0}")]
     Storage(String),
+    /// A floor photo Core will not send: the shell asked for something the
+    /// card did not offer.
+    #[error("Not a floor photo the map takes: {0}")]
+    PhotoInvalid(String),
+    #[error("The floor photo is larger than the inbox takes.")]
+    PhotoTooLarge,
+    /// This build carries no upload key (a local or fork build).
+    #[error("This build cannot send floor photos.")]
+    PhotoUnavailable,
+    /// The inbox answered with this HTTP status instead of storing it.
+    #[error("The photo inbox refused the photo (HTTP {0}).")]
+    PhotoRefused(u16),
+    #[error("The photo could not be sent: {0}")]
+    Network(String),
 }
 
 impl From<DataError> for CampusMapError {

@@ -52,6 +52,25 @@ pub(super) enum AmenityCategory {
 }
 
 impl AmenityCategory {
+    /// The badge colour class (slotledger `approach/campus-map-icons`).
+    pub(super) fn tone(self) -> super::CampusMapAmenityTone {
+        use super::CampusMapAmenityTone as Tone;
+        match self {
+            Self::Aed => Tone::Aed,
+            Self::Restroom
+            | Self::RestroomMale
+            | Self::RestroomFemale
+            | Self::RestroomWheelchair => Tone::Restroom,
+            Self::Lounge
+            | Self::LoungeWomen
+            | Self::LoungeInternational
+            | Self::RestRoom
+            | Self::CalmDown
+            | Self::StudyRoom => Tone::Stay,
+            Self::Elevator | Self::Stairs => Tone::Passage,
+        }
+    }
+
     /// The key shells name an amenity's icon and text by: the iOS asset
     /// `CampusMap/<key>` and the catalog key `campusMap.amenity.<key>`.
     pub(super) fn key(self) -> &'static str {
@@ -117,6 +136,13 @@ pub(super) struct Building {
     /// building with no floors.
     pub street_level_id: Option<String>,
     pub entrances: Vec<Entrance>,
+    /// The maintainers marked the building's data complete: the map asks
+    /// for no more photos of it. Not in the published format 2, which is
+    /// frozen for the builds that read it (Isct-Data
+    /// `docs/campus-map-export.md`, "Versioning"); it arrives with the next
+    /// format, and this build reads it when present.
+    #[serde(default)]
+    pub complete: bool,
 }
 
 #[derive(Debug, Deserialize)]

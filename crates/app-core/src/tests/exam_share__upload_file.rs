@@ -34,7 +34,10 @@ fn one_photo_goes_up_as_a_pdf_keyed_by_the_photo() {
         + String::from_utf8_lossy(&prepared.bytes)
             .matches("/Type /Page ")
             .count();
-    assert!(pages >= 3, "a 5000px photo spans several pages, got {pages}");
+    assert!(
+        pages >= 3,
+        "a 5000px photo spans several pages, got {pages}"
+    );
 
     let cancelled = CancellationToken::new();
     cancelled.cancel();

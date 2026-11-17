@@ -1,5 +1,19 @@
 package app.isctcompanion.features.map
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.rounded.GpsFixed
+import android.location.LocationManager
+import android.annotation.SuppressLint
+import app.isctcompanion.core.CampusMapPoint
+import kotlin.math.abs
+import app.isctcompanion.design.LocalReducedMotion
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -48,6 +62,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -107,7 +122,9 @@ import app.isctcompanion.core.CampusMapCandidate
 import app.isctcompanion.core.CampusMapCard
 import app.isctcompanion.core.CampusMapIntent
 import app.isctcompanion.core.CampusMapLevel
-import app.isctcompanion.core.CampusMapLink
+import app.isctcompanion.core.CampusMapCardKind
+import app.isctcompanion.core.CampusMapEntranceRow
+import app.isctcompanion.core.CampusMapPlace
 import app.isctcompanion.core.CampusMapOpening
 import app.isctcompanion.core.CampusMapScene
 import app.isctcompanion.core.CampusMapSearch
@@ -142,16 +159,24 @@ private sealed interface MapLoad {
     data class Ready(val scene: CampusMapScene) : MapLoad
 }
 
+/** The card's resting heights: about 150 dp, its content up to half the
+ * window, or up to the search bar. */
+private enum class CardDetent { Peek, Fit, Full }
+
+private val PeekHeight = 150.dp
+
 /** The campus map over OpenFreeMap's base map, full screen with a close
  * button, opened on a room string or on none to browse. The page is Core's
  * and its `apply` is the reducer: this screen draws Core's scene, forwards
  * what the person does and adds what the platform has, the blue dot. There
- * is no route: an entrance opens in the maps app the settings name.
+ * is no route: the card's one way out of the app opens the maps app the
+ * settings name.
  *
- * Search, its results and the place card share one bottom sheet, which a
- * card folds to its header. The map's visible part is what the sheet, the
- * close button and the control rail leave. */
-@OptIn(ExperimentalMaterial3Api::class)
+ * As on iOS, the search bar runs along the top and its results drop under
+ * it while typing. A selection's card is one level at the bottom, resting at
+ * one of three heights, dragged by its top or stepped by its grabber; the
+ * position button rides on its top edge. The map's visible part is what the
+ * search bar, the card and the control rail leave. */
 @Composable
 fun CampusMapScreen(room: String?) {
     val model = LocalModel.current
@@ -161,17 +186,22 @@ fun CampusMapScreen(room: String?) {
     val haptics = LocalHapticFeedback.current
     val focus = LocalFocusManager.current
     val scope = rememberCoroutineScope()
+    val reduceMotion = LocalReducedMotion.current
     var load by remember { mutableStateOf<MapLoad>(MapLoad.Loading) }
     // Intents reach Core one after another, in the order sent.
     val intents = remember { Channel<CampusMapIntent>(Channel.UNLIMITED) }
     val search = rememberTextFieldState()
+    val photoCamera = rememberFloorPhotoCamera()
     val searchInteraction = remember { MutableInteractionSource() }
     val searchFocused by searchInteraction.collectIsFocusedAsState()
-    val sheet = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded, skipHiddenState = true)
-    // Layout only: how far up the screen the sheet reaches, and its header,
-    // which is what a folded card shows.
-    var panelHeight by remember { mutableIntStateOf(0) }
+    // Layout only, in px: the search bar's bottom edge, the card's header
+    // and content, and the card's shown height.
+    var barBottom by remember { mutableIntStateOf(0) }
     var headerHeight by remember { mutableIntStateOf(0) }
+    var contentHeight by remember { mutableIntStateOf(0) }
+    var detent by remember { mutableStateOf(CardDetent.Fit) }
+    val cardHeight = remember { Animatable(0f) }
+    var dragging by remember { mutableStateOf(false) }
     val position = rememberPosition()
 
     val scene = (load as? MapLoad.Ready)?.scene
@@ -194,22 +224,22 @@ fun CampusMapScreen(room: String?) {
     LaunchedEffect(page) {
         if (page == null) return@LaunchedEffect
         for (intent in intents) {
+            val drawnBefore = (load as? MapLoad.Ready)?.scene
             val next = model.campusMapSend(page, intent) ?: continue
             // Unless a newer scene is already drawn.
             val drawn = (load as? MapLoad.Ready)?.scene
-            if (drawn != null && next.revision > drawn.revision) load = MapLoad.Ready(next)
+            if (drawn != null && next.revision > drawn.revision) {
+                load = MapLoad.Ready(next)
+                // A place picked on the map, by search or by position ticks.
+                val picked = intent is CampusMapIntent.Tap || intent is CampusMapIntent.Select || intent is CampusMapIntent.Locate
+                if (picked && next.card != null && next.card != drawnBefore?.card) {
+                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                }
+            }
         }
     }
     // Also when left before the open finished: Core drops it.
     DisposableEffect(Unit) { onDispose { model.campusMapClose() } }
-    LaunchedEffect(Unit) {
-        // A tick when the floor changes, not for the first one shown.
-        snapshotFlow { (load as? MapLoad.Ready)?.scene?.levelId }
-            .filterNotNull()
-            .distinctUntilChanged()
-            .drop(1)
-            .collect { haptics.performHapticFeedback(HapticFeedbackType.SegmentTick) }
-    }
 
     fun send(intent: CampusMapIntent) {
         if (scene != null) intents.trySend(intent)
@@ -220,10 +250,10 @@ fun CampusMapScreen(room: String?) {
         search.clearText()
     }
 
-    // The results need the sheet open; so does the next card once one closed.
-    LaunchedEffect(searching, card == null) { if (searching || card == null) sheet.expand() }
     // A place picked on the map while searching ends the search.
     LaunchedEffect(card) { if (card != null && searching) endSearch() }
+    // Each new place opens at its content's height.
+    LaunchedEffect(card?.title) { detent = CardDetent.Fit }
     // Core's places for the text; the map does not move while they type.
     val answer by produceState<Result<CampusMapSearch>?>(null, query) {
         value = null
@@ -231,145 +261,230 @@ fun CampusMapScreen(room: String?) {
     }
     BackHandler(enabled = searching) { endSearch() }
 
-    // The map's visible part: under the close button's row, beside the
-    // control rail, above the sheet.
-    val statusBar = WindowInsets.statusBars.getTop(density)
-    val keyboard = WindowInsets.ime.getBottom(density)
-    val navigationBar = WindowInsets.navigationBars.getBottom(density)
-    val gap = with(density) { ControlGap.roundToPx() }
-    val chrome = with(density) {
-        MapInsets(
+    BoxWithConstraints(Modifier.fillMaxSize().background(Theme.colors.bg)) {
+        val window = constraints.maxHeight.toFloat()
+        val statusBar = WindowInsets.statusBars.getTop(density)
+        val keyboard = WindowInsets.ime.getBottom(density)
+        val navigationBar = WindowInsets.navigationBars.getBottom(density)
+        val gap = with(density) { ControlGap.toPx() }
+        val control = with(density) { Control.toPx() }
+        // The card's resting heights, in px.
+        val content = (headerHeight + contentHeight).toFloat()
+        val peek = minOf(content, maxOf(headerHeight.toFloat(), with(density) { PeekHeight.toPx() }))
+        val fit = maxOf(peek, minOf(content, window * 0.5f))
+        val full = maxOf(fit, minOf(content, window - barBottom - navigationBar - 3 * gap))
+        val heights = mapOf(CardDetent.Peek to peek, CardDetent.Fit to fit, CardDetent.Full to full)
+        val resting = heights.getValue(detent)
+        LaunchedEffect(resting, showsCard) {
+            if (!dragging && showsCard) {
+                if (reduceMotion || cardHeight.value == 0f) cardHeight.snapTo(resting) else cardHeight.animateTo(resting, spring(stiffness = Spring.StiffnessMediumLow))
+            }
+        }
+        val shownCard = if (showsCard) cardHeight.value else 0f
+        // Above the card, or above the navigation bar when there is none.
+        val bottomEdge = navigationBar + gap + (if (showsCard) shownCard + gap else 0f)
+        val chrome = MapInsets(
             left = 0,
-            top = statusBar + (ControlGap / 2 + Control).roundToPx(),
-            right = (PageInset + Control).roundToPx(),
-            bottom = panelHeight + gap,
+            top = (barBottom + gap).roundToInt(),
+            right = (with(density) { PageInset.toPx() } + control).roundToInt(),
+            bottom = (bottomEdge + control + gap).roundToInt(),
         )
-    }
 
-    BottomSheetScaffold(
-        scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheet),
-        // A folded card shows its header above the navigation bar.
-        sheetPeekHeight = with(density) { (headerHeight + navigationBar).toDp() },
-        sheetDragHandle = null,
-        // Only a card folds; search and its results stay open.
-        sheetSwipeEnabled = showsCard,
-        sheetContainerColor = Theme.colors.surface,
-        sheetShadowElevation = 8.dp,
-        containerColor = Theme.colors.bg,
-        sheetContent = {
-            Column(
-                Modifier
-                    .onGloballyPositioned { panelHeight = it.findRootCoordinates().size.height - it.positionInRoot().y.roundToInt() }
-                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
-            ) {
-                Column(Modifier.onSizeChanged { headerHeight = it.height }) {
-                    if (card != null && showsCard) {
-                        val expanded = sheet.targetValue == SheetValue.Expanded
-                        CardHeader(
-                            card, expanded,
-                            fold = { scope.launch { if (expanded) sheet.partialExpand() else sheet.expand() } },
-                            close = { send(CampusMapIntent.Clear) },
-                        )
-                    } else {
-                        SearchHeader(search, searchInteraction, searching, enabled = scene != null, cancel = ::endSearch)
-                    }
-                }
-                when (val state = load) {
-                    MapLoad.Loading -> Box(Modifier.fillMaxWidth().padding(bottom = Theme.cardPadding), Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    }
-                    MapLoad.Missing -> Notice(t("campusMap.unavailable"), t("campusMap.notDownloaded"))
-                    is MapLoad.Failed -> Notice(t("campusMap.failed"), state.message) { load = MapLoad.Loading }
-                    is MapLoad.Ready -> when {
-                        // A second tap on a result only selects it again.
-                        searching -> Results(query, answer) { result ->
-                            send(CampusMapIntent.Select(result.place))
-                            endSearch()
-                        }
-                        card != null -> CardDetails(
-                            card,
-                            openLink = { openInMaps(context, it.url) },
-                            choose = { send(CampusMapIntent.Choose(it.toUInt())) },
-                        )
-                    }
-                }
-            }
-        },
-    ) { _ ->
-        Box(Modifier.fillMaxSize()) {
-            FloorMapView(
-                scene = scene,
-                chrome = chrome,
-                // The sheet's height as measured in this frame's layout.
-                insets = { chrome.copy(bottom = panelHeight + gap) },
-                canFrame = keyboard == 0,
-                showsPosition = position.allowed,
-                follows = position.follows,
-                onCamera = { send(CampusMapIntent.Camera(it)) },
-                // Core ignores a tap on a floor it has already left.
-                onTap = { point, level, metresPerPoint -> send(CampusMapIntent.Tap(point, level, metresPerPoint)) },
-                onSelect = { send(CampusMapIntent.Select(it)) },
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(start = PageInset, top = ControlGap / 2)
-                    .size(Control)
-                    .floating(CircleShape)
-                    .clickable(onClickLabel = t("common.close"), role = Role.Button) { navigator.back() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.Close, t("common.close"), tint = Theme.colors.ink)
-            }
-            // The control rail: MapLibre's compass heads it, then the position
-            // button, then the floors, which scroll within what is left.
+        FloorMapView(
+            scene = scene,
+            chrome = chrome,
+            insets = { chrome },
+            canFrame = keyboard == 0 && !dragging,
+            showsPosition = position.allowed,
+            onCamera = { send(CampusMapIntent.Camera(it)) },
+            // Core ignores a tap on a floor it has already left.
+            onTap = { point, level, metresPerPoint, roomsOnly -> send(CampusMapIntent.Tap(point, level, metresPerPoint, roomsOnly)) },
+            onSelect = { send(CampusMapIntent.Select(it)) },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // The control rail: MapLibre's compass heads it, then the floors,
+        // which scroll within what the card and the position button leave.
+        if (scene != null && scene.levels.isNotEmpty()) {
             Column(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(
-                        top = with(density) { chrome.top.toDp() } + ControlGap,
+                        top = with(density) { (barBottom + gap + control + gap).toDp() },
                         end = PageInset,
-                        bottom = with(density) { chrome.bottom.toDp() } + ControlGap,
+                        bottom = with(density) { (bottomEdge + control + gap).toDp() },
                     )
                     .width(Control),
-                verticalArrangement = Arrangement.spacedBy(ControlGap),
             ) {
-                val spoken = t("campusMap.position")
+                LevelPicker(scene.levels, scene.levelId, scene.markedLevelId, Modifier.weight(1f, fill = false)) {
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    send(CampusMapIntent.Level(it))
+                }
+            }
+        }
+
+        // The position button on the card's top edge, riding along with it.
+        val spoken = t("campusMap.position")
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = PageInset, bottom = with(density) { bottomEdge.toDp() })
+                .size(Control)
+                .floating(CircleShape)
+                .clickable(role = Role.Button) { position.locate(context) { send(CampusMapIntent.Locate(it)) } }
+                .semantics { contentDescription = spoken },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.GpsFixed, null,
+                tint = if (position.allowed) Theme.colors.accent else Theme.colors.ink,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        val attribution = scene?.attribution.orEmpty()
+        if (attribution.isNotEmpty() && !searching) {
+            Text(
+                attribution.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall, color = Theme.colors.muted,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = PageInset, bottom = with(density) { bottomEdge.toDp() })
+                    .floating(CircleShape, elevation = 2)
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+
+        // The card, or what stands in for it while the map cannot be drawn.
+        val panelShape = RoundedCornerShape(Theme.radiusPanel)
+        if (showsCard && card != null) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = PageInset)
+                    .padding(bottom = with(density) { (navigationBar + gap).toDp() })
+                    .fillMaxWidth()
+                    .height(with(density) { maxOf(shownCard, control).toDp() })
+                    .floating(panelShape, elevation = 8),
+            ) {
+                Column(
+                    Modifier
+                        .onSizeChanged { headerHeight = it.height }
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                // Past either end the card follows the finger only a little.
+                                val next = cardHeight.value - delta
+                                val eased = when {
+                                    next > full -> cardHeight.value - delta * 0.2f
+                                    next < peek -> cardHeight.value - delta * 0.2f
+                                    else -> next
+                                }
+                                scope.launch { cardHeight.snapTo(eased) }
+                            },
+                            onDragStarted = { dragging = true },
+                            onDragStopped = { velocity ->
+                                // Where the throw would carry it, as a scroll view coasts.
+                                val projected = cardHeight.value - velocity * 0.2f
+                                val nearest = heights.minBy { abs(it.value - projected) }.key
+                                dragging = false
+                                detent = nearest
+                                val target = heights.getValue(nearest)
+                                if (reduceMotion) cardHeight.snapTo(target) else cardHeight.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
+                            },
+                        ),
+                ) {
+                    CardHeader(
+                        card, folded = detent == CardDetent.Peek,
+                        fold = { detent = if (detent == CardDetent.Peek) CardDetent.Fit else CardDetent.Peek },
+                        close = { send(CampusMapIntent.Clear) },
+                    )
+                }
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Box(Modifier.onSizeChanged { contentHeight = it.height }) {
+                        CardDetails(
+                            card,
+                            openInMaps = { openInMaps(context, card.mapsUrl) },
+                            select = { send(CampusMapIntent.Select(it)) },
+                            choose = { send(CampusMapIntent.Choose(it.toUInt())) },
+                            photos = card.photoBuildingId?.takeIf { photoCamera.available }?.let {
+                                photoCamera.uploads[it] ?: FloorPhotoUploads()
+                            },
+                            takePhoto = { card.photoBuildingId?.let(photoCamera.take) },
+                        )
+                    }
+                }
+            }
+        } else if (load !is MapLoad.Ready && !searching) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = PageInset)
+                    .padding(bottom = with(density) { (navigationBar + gap).toDp() })
+                    .fillMaxWidth()
+                    .floating(panelShape, elevation = 8),
+            ) {
+                when (val state = load) {
+                    MapLoad.Loading -> Box(Modifier.fillMaxWidth().padding(Theme.cardPadding), Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    }
+                    MapLoad.Missing -> Notice(t("campusMap.unavailable"), t("campusMap.notDownloaded"))
+                    is MapLoad.Failed -> Notice(t("campusMap.failed"), state.message) { load = MapLoad.Loading }
+                    is MapLoad.Ready -> Unit
+                }
+            }
+        }
+
+        // The search bar, and its results while typing.
+        Column(
+            Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = PageInset)
+                .padding(top = ControlGap / 2),
+            verticalArrangement = Arrangement.spacedBy(ControlGap),
+        ) {
+            Row(
+                Modifier.onGloballyPositioned { barBottom = (it.positionInRoot().y + it.size.height).roundToInt() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ControlGap),
+            ) {
                 Box(
                     Modifier
                         .size(Control)
-                        .floating(RoundedCornerShape(Theme.radiusChip))
-                        .clickable(role = Role.Button) { position.locate() }
-                        .semantics { contentDescription = spoken },
+                        .floating(CircleShape)
+                        .clickable(onClickLabel = t("common.close"), role = Role.Button) { navigator.back() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Rounded.MyLocation, null,
-                        tint = if (position.allowed) Theme.colors.accent else Theme.colors.ink,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Icon(Icons.Rounded.Close, t("common.close"), tint = Theme.colors.ink)
                 }
-                if (scene != null && scene.levels.isNotEmpty()) {
-                    LevelPicker(
-                        scene.levels, scene.levelId, scene.markedLevelId,
-                        Modifier.weight(1f, fill = false),
-                    ) { send(CampusMapIntent.Level(it)) }
+                SearchBar(search, searchInteraction, enabled = scene != null, Modifier.weight(1f))
+                if (searching) TextButton(onClick = ::endSearch) { Text(t("common.cancel")) }
+            }
+            if (searching && answer != null) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = with(density) { (window * 0.5f - statusBar).coerceAtLeast(control).toDp() })
+                        .floating(panelShape, elevation = 8),
+                ) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        // A second tap on a result only selects it again.
+                        Results(query, answer) { result ->
+                            send(CampusMapIntent.Select(result.place))
+                            endSearch()
+                        }
+                    }
                 }
             }
-            val attribution = scene?.attribution.orEmpty()
-            if (attribution.isNotEmpty() && !searching) {
-                Text(
-                    attribution.joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall, color = Theme.colors.muted,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = PageInset + Control, bottom = with(density) { chrome.bottom.toDp() })
-                        .floating(CircleShape, elevation = 2)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
+        }
+        photoCamera.failure?.let { message ->
+            AlertDialog(
+                onDismissRequest = photoCamera.dismissFailure,
+                confirmButton = { TextButton(onClick = photoCamera.dismissFailure) { Text(t("common.ok")) } },
+                title = { Text(t("campusMap.photos.failed")) },
+                text = { Text(message) },
+            )
         }
     }
     if (position.settingsRequired) {
@@ -409,64 +524,57 @@ private fun campusName(campus: String): String = when (campus) {
     else -> t("campusMap.ookayama")
 }
 
-// Panel
+// Search bar and card
 
+/** A capsule floating over the map, as iOS draws it: no inner field box. */
 @Composable
-private fun SearchHeader(
+private fun SearchBar(
     state: TextFieldState,
     interaction: MutableInteractionSource,
-    searching: Boolean,
     enabled: Boolean,
-    cancel: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        Modifier.padding(horizontal = Theme.cardPadding, vertical = 10.dp),
+        modifier
+            .defaultMinSize(minHeight = Control)
+            .floating(CircleShape)
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = Control)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Theme.colors.surface2)
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(Icons.Rounded.Search, null, tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
-            BasicTextField(
-                state = state,
-                enabled = enabled,
-                lineLimits = TextFieldLineLimits.SingleLine,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Theme.colors.ink),
-                cursorBrush = SolidColor(Theme.colors.accent),
-                // Room codes are capitals and digits; no word is being spelt.
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Search,
-                ),
-                interactionSource = interaction,
-                modifier = Modifier.weight(1f),
-                decorator = { field ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (state.text.isEmpty()) {
-                            Text(
-                                t("campusMap.search"), style = MaterialTheme.typography.bodyLarge, color = Theme.colors.muted,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        field()
+        Icon(Icons.Rounded.Search, null, tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
+        BasicTextField(
+            state = state,
+            enabled = enabled,
+            lineLimits = TextFieldLineLimits.SingleLine,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Theme.colors.ink),
+            cursorBrush = SolidColor(Theme.colors.accent),
+            // Room codes are capitals and digits; no word is being spelt.
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Search,
+            ),
+            interactionSource = interaction,
+            modifier = Modifier.weight(1f),
+            decorator = { field ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (state.text.isEmpty()) {
+                        Text(
+                            t("campusMap.search"), style = MaterialTheme.typography.bodyLarge, color = Theme.colors.muted,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                     }
-                },
-            )
-        }
-        if (searching) TextButton(onClick = cancel) { Text(t("common.cancel")) }
+                    field()
+                }
+            },
+        )
     }
 }
 
-/** The place's name with the button that closes the card. The sheet folds
- * the details away by a drag; the grabber over the name, by a tap. */
+/** The place's name with the button that closes the card, under the
+ * grabber: a tap on it steps the card between its lowest height and its
+ * content's; a drag anywhere here moves the card. */
 @Composable
-private fun CardHeader(card: CampusMapCard, expanded: Boolean, fold: () -> Unit, close: () -> Unit) {
-    val spoken = t(if (expanded) "campusMap.foldCard" else "campusMap.unfoldCard")
+private fun CardHeader(card: CampusMapCard, folded: Boolean, fold: () -> Unit, close: () -> Unit) {
+    val spoken = t(if (folded) "campusMap.unfoldCard" else "campusMap.foldCard")
     Column {
         Box(
             Modifier
@@ -483,7 +591,7 @@ private fun CardHeader(card: CampusMapCard, expanded: Boolean, fold: () -> Unit,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                card.title ?: t("campusMap.entrance"),
+                card.title,
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).semantics { heading() },
@@ -500,13 +608,27 @@ private fun CardHeader(card: CampusMapCard, expanded: Boolean, fold: () -> Unit,
 
 /** Details below the place header, while the card is unfolded. */
 @Composable
-private fun CardDetails(card: CampusMapCard, openLink: (CampusMapLink) -> Unit, choose: (Int) -> Unit) {
+private fun CardDetails(
+    card: CampusMapCard,
+    openInMaps: () -> Unit,
+    select: (CampusMapPlace) -> Unit,
+    choose: (Int) -> Unit,
+    photos: FloorPhotoUploads?,
+    takePhoto: () -> Unit,
+) {
     Column(
         Modifier.padding(start = Theme.cardPadding, end = Theme.cardPadding, bottom = Theme.cardPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // The building unless it is the title, the floor, the campus.
-        val subtitle = listOfNotNull(card.buildingName.takeIf { it != card.title }, card.levelName, campusName(card.campus))
+        // `建物 · 大岡山`, `西9号館 · 2F · 大岡山`.
+        val subtitle = listOfNotNull(
+            when (card.kind) {
+                CampusMapCardKind.BUILDING -> t("campusMap.kind.building")
+                CampusMapCardKind.ROOM -> card.buildingName.takeIf { it != card.title }
+            },
+            card.levelName,
+            campusName(card.campus),
+        )
         Text(
             subtitle.joinToString(" · "),
             style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
@@ -516,7 +638,8 @@ private fun CardDetails(card: CampusMapCard, openLink: (CampusMapLink) -> Unit, 
         } else if (card.noFloorPlans) {
             Text(t("campusMap.noFloorPlans"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
-        Links(card.links, openLink)
+        Actions(card, openInMaps, select, photos, takePhoto)
+        if (card.entrances.isNotEmpty()) Entrances(card.entrances, select)
         if (card.candidates.isNotEmpty()) Candidates(card.candidates, choose)
     }
 }
@@ -534,20 +657,77 @@ private fun Notice(title: String, detail: String, retry: (() -> Unit)? = null) {
     }
 }
 
-/** One "Open in Maps" per link, Core's first one primary. */
+/** The building (on a room's card) and the maps app: the
+ * card moves the map, and only this button leaves the app. */
 @Composable
-private fun Links(links: List<CampusMapLink>, open: (CampusMapLink) -> Unit) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        links.forEachIndexed { index, link ->
-            val name = link.name ?: t("campusMap.entrance")
-            val spoken = if (link.entrance) t("campusMap.openEntranceInMaps", "name" to name) else t("campusMap.openInMaps")
+private fun Actions(
+    card: CampusMapCard,
+    openInMaps: () -> Unit,
+    select: (CampusMapPlace) -> Unit,
+    photos: FloorPhotoUploads?,
+    takePhoto: () -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Each tap opens the camera; the label tells how the photos went.
+        if (photos != null) {
             ActionButton(
-                if (links.size == 1) t("campusMap.openInMaps") else name,
-                onClick = { open(link) },
-                modifier = Modifier.semantics { contentDescription = spoken },
-                level = if (index == 0) ButtonLevel.Primary else ButtonLevel.Secondary,
-                icon = Icons.Rounded.Map,
+                when {
+                    photos.sending > 0 -> t("campusMap.photos.sending")
+                    photos.sent > 0 -> t("campusMap.photos.sent", "count" to photos.sent.toString())
+                    else -> t("campusMap.photos.upload")
+                },
+                onClick = takePhoto,
+                modifier = Modifier.weight(1f),
+                level = ButtonLevel.Secondary,
+                icon = Icons.Rounded.PhotoCamera,
             )
+        }
+        card.building?.let { building ->
+            ActionButton(
+                card.buildingName,
+                onClick = { select(building) },
+                modifier = Modifier.weight(1f)
+                    .semantics { contentDescription = t("campusMap.showBuilding", "name" to card.buildingName) },
+                level = ButtonLevel.Secondary,
+            )
+        }
+        ActionButton(
+            t("campusMap.openInMaps"),
+            onClick = openInMaps,
+            modifier = Modifier.weight(1f),
+            level = ButtonLevel.Secondary,
+            icon = Icons.Rounded.Map,
+        )
+    }
+}
+
+/** Each entrance lights on the map, on its floor, in this same card;
+ * "Open in Maps" then pins it. */
+@Composable
+private fun Entrances(rows: List<CampusMapEntranceRow>, select: (CampusMapPlace) -> Unit) {
+    Column {
+        Text(
+            t("campusMap.entrances"),
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.muted,
+        )
+        rows.forEach { row ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .clickable { select(CampusMapPlace.Entrance(row.entranceId)) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    row.name ?: t("campusMap.entrance"),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (row.selected) FontWeight.SemiBold else null,
+                    color = if (row.selected) Theme.colors.accent else Theme.colors.ink,
+                    maxLines = 1,
+                )
+                row.levelName?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
+                }
+            }
         }
     }
 }
@@ -692,24 +872,39 @@ private fun LevelPicker(
 // Position
 
 /** The blue dot's permission, asked for only when the person taps the
- * position button; once allowed, the map follows them. MapLibre draws the
- * dot itself, and there is no background location. */
+ * position button. Each tap then reads the position once and hands it on:
+ * Core picks the building the person is at. MapLibre draws the dot itself,
+ * and there is no background location. */
 private class Position(private val granted: () -> Boolean, private val ask: () -> Unit) {
     var allowed by mutableStateOf(granted())
-
-    /** Rises each time the person asks for their position and may see it. */
-    var follows by mutableIntStateOf(0)
 
     /** Android no longer asks: the app's settings page is the way on. */
     var settingsRequired by mutableStateOf(false)
 
-    fun locate() {
+    /** The position the next grant reads, for the tap that asked. */
+    var pending: ((CampusMapPoint) -> Unit)? = null
+
+    fun locate(context: Context, located: (CampusMapPoint) -> Unit) {
         // Granted in the system settings since the page opened, perhaps.
         if (granted()) {
             allowed = true
-            follows += 1
+            readOnce(context, located)
         } else {
+            pending = located
             ask()
+        }
+    }
+
+    /** One fix from the system's fused provider (part of AOSP since
+     * Android 12), else from GPS where a device ships without it. */
+    @SuppressLint("MissingPermission")
+    fun readOnce(context: Context, located: (CampusMapPoint) -> Unit) {
+        val manager = context.getSystemService(LocationManager::class.java) ?: return
+        val provider = if (manager.hasProvider(LocationManager.FUSED_PROVIDER)) LocationManager.FUSED_PROVIDER else LocationManager.GPS_PROVIDER
+        runCatching {
+            manager.getCurrentLocation(provider, null, context.mainExecutor) { fix ->
+                if (fix != null) located(CampusMapPoint(latitude = fix.latitude, longitude = fix.longitude))
+            }
         }
     }
 }
@@ -722,9 +917,11 @@ private fun rememberPosition(): Position {
     val holder = remember { arrayOfNulls<Position>(1) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val position = holder[0] ?: return@rememberLauncherForActivityResult
+        val located = position.pending
+        position.pending = null
         if (result.values.any { it }) {
             position.allowed = true
-            position.follows += 1
+            located?.let { position.readOnce(context, it) }
         } else if (activity == null || permissions.none { activity.shouldShowRequestPermissionRationale(it) }) {
             // Refused for good (or restricted): the request showed nothing.
             position.settingsRequired = true

@@ -605,6 +605,21 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** One intent on an open map page; null when nothing drawn changed or
      * the page is gone. A failure is logged: the page keeps its last scene. */
+    /** Sends one floor photo to the maintainers' inbox; `null` once stored,
+     * else what to show. */
+    suspend fun campusMapUploadPhoto(buildingId: String, jpeg: ByteArray): String? {
+        val session = session ?: return t("error.internal")
+        return try {
+            session.campusMapUploadPhoto(buildingId, jpeg).value()
+            null
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("isct", "campus map photo", error)
+            describe(error)
+        }
+    }
+
     suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
         val session = session ?: return null
         return try {

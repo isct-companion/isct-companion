@@ -34,10 +34,16 @@ pub(super) fn choices() -> ExamChoices {
         },
     };
     ExamChoices {
-        roles: [Role::Question, Role::Answer, Role::Both, Role::Notes, Role::Other]
-            .into_iter()
-            .map(role)
-            .collect(),
+        roles: [
+            Role::Question,
+            Role::Answer,
+            Role::Both,
+            Role::Notes,
+            Role::Other,
+        ]
+        .into_iter()
+        .map(role)
+        .collect(),
         numbered: vec![Occasion::Quiz, Occasion::Check, Occasion::Report],
         provenances: vec![ExamProvenance::Original, ExamProvenance::Reconstructed],
         request_roles: vec![Role::Question, Role::Answer],
@@ -57,7 +63,11 @@ pub(super) fn choices() -> ExamChoices {
 /// a value the role does not offer becomes its default.
 pub(super) fn normalize(draft: &mut ExamUploadDraft) {
     let choices = choices();
-    let Some(allowed) = choices.roles.iter().find(|choice| choice.role == draft.role) else {
+    let Some(allowed) = choices
+        .roles
+        .iter()
+        .find(|choice| choice.role == draft.role)
+    else {
         return;
     };
     if !allowed.occasions.contains(&draft.occasion) {
@@ -104,7 +114,10 @@ pub(super) fn settle(form: &mut ExamUploadForm) {
         .collect();
     form.draft.teacher_ids.retain(|id| seen.contains(id));
     let only = form.subjects.len() == 1;
-    let requested = form.request.as_ref().map(|request| request.subject.code.clone());
+    let requested = form
+        .request
+        .as_ref()
+        .map(|request| request.subject.code.clone());
     for entry in &mut form.subjects {
         entry.removable = !only && requested.as_ref() != Some(&entry.subject.code);
     }
@@ -183,7 +196,11 @@ pub(super) fn occasion_rank(value: &str) -> usize {
     EXAM_OCCASIONS
         .iter()
         .position(|occasion| {
-            serde_json::to_value(occasion).ok().as_ref().and_then(|v| v.as_str()) == Some(value)
+            serde_json::to_value(occasion)
+                .ok()
+                .as_ref()
+                .and_then(|v| v.as_str())
+                == Some(value)
         })
         .unwrap_or(EXAM_OCCASIONS.len())
 }

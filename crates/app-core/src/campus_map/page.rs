@@ -10,15 +10,20 @@ use super::{
     geometry::{self, Viewport},
     map::{maps_url, point, polygon, rect_bounds, Map, MapsApp, Match, Target, TAP_SLOP_POINTS},
     search::Found,
-    CampusMapCamera, CampusMapCandidate, CampusMapCard, CampusMapFraming, CampusMapIntent,
-    CampusMapLayer, CampusMapLayerRole, CampusMapLink, CampusMapMark, CampusMapMarkKind,
-    CampusMapPlace, CampusMapPoint, CampusMapScene, CampusMapSearchResult,
+    CampusMapCamera, CampusMapCandidate, CampusMapCard, CampusMapCardKind, CampusMapEntranceRow,
+    CampusMapFraming, CampusMapIntent, CampusMapLayer, CampusMapLayerRole, CampusMapMark,
+    CampusMapMarkKind, CampusMapPlace, CampusMapPoint, CampusMapScene, CampusMapSearchResult,
 };
 use crate::locale::ContentLanguage;
 use std::sync::Arc;
 
 /// However far in, a framed room keeps some of its surroundings in view.
 const LEAST_FRAMED_SIDE_M: f64 = 60.0;
+/// How far from a footprint the person may stand for "locate" to pick its
+/// building: across a plaza, not from the station.
+const LOCATE_REACH_M: f64 = 300.0;
+/// Around a position no building is near, what "locate" frames.
+const LOCATE_VIEW_M: f64 = 200.0;
 /// A page opened on no room string starts over this campus.
 const HOME_CAMPUS: &str = "ookayama";
 
@@ -114,9 +119,11 @@ impl Page {
                 point,
                 level_id,
                 metres_per_point,
-            } => self.tap(point, level_id.as_deref(), metres_per_point),
+                rooms_only,
+            } => self.tap(point, level_id.as_deref(), metres_per_point, rooms_only),
             CampusMapIntent::Select { place } => self.select(&place),
             CampusMapIntent::Clear => self.selection = Selection::None,
+            CampusMapIntent::Locate { point } => self.locate(&point),
         }
         self.keep_room();
     }
@@ -169,8 +176,20 @@ impl Page {
         self.framing = Some(CampusMapFraming {
             key,
             bounds: rect_bounds(geometry::at_least(rect, LEAST_FRAMED_SIDE_M)),
+            reveal: false,
         });
         self.floor = floor;
+    }
+
+    /// Asks the shell to bring `rect` into view without zooming, panning
+    /// only if the card or the controls cover it. The floor stays.
+    fn reveal(&mut self, rect: geometry::Rect) {
+        let key = self.framing.as_ref().map_or(0, |framing| framing.key) + 1;
+        self.framing = Some(CampusMapFraming {
+            key,
+            bounds: rect_bounds(rect),
+            reveal: true,
+        });
     }
 
     fn frame_target(&mut self, target: &Target) {
@@ -231,20 +250,66 @@ impl Page {
                     return;
                 };
                 let floor = map.levels.get(&map.export.units[unit].level_id).copied();
-                if floor.is_some() && floor == self.floor {
-                    if let Some((building, level)) = floor {
-                        self.selection = Selection::Unit {
-                            unit,
-                            building,
-                            level,
-                        };
-                    }
+                if floor.is_none() || floor != self.floor {
+                    return;
+                }
+                let Some((building, level)) = floor else {
+                    return;
+                };
+                let picked = Selection::Unit {
+                    unit,
+                    building,
+                    level,
+                };
+                // The full tap after the quick one finds it selected.
+                if self.selection == picked {
+                    return;
+                }
+                self.selection = picked;
+                if let Some(rect) = geometry::bounds(&map.export.units[unit].polygon) {
+                    self.reveal(rect);
                 }
             }
             CampusMapPlace::Entrance { id } => {
                 if let Some((building, entrance)) = map.entrances.get(id).copied() {
-                    self.selection = Selection::Entrance { building, entrance };
+                    let picked = Selection::Entrance { building, entrance };
+                    if self.selection == picked {
+                        return;
+                    }
+                    self.selection = picked;
+                    let record = &map.export.buildings[building].entrances[entrance];
+                    let floor = record
+                        .level_id
+                        .as_deref()
+                        .and_then(|id| map.levels.get(id).copied())
+                        .filter(|(owner, _)| *owner == building);
+                    // Picked from the building's card, on another floor: that
+                    // floor shows over the whole building. Tapped on the map,
+                    // where it is drawn already: only revealed.
+                    if floor.is_some() && floor != self.floor {
+                        self.frame(map.building_bounds(building), floor);
+                    } else {
+                        let [lng, lat] = record.point;
+                        self.reveal([lng, lat, lng, lat]);
+                    }
                 }
+            }
+        }
+    }
+
+    /// The person's own building, or the nearest one, picked as a tap on
+    /// it would; with none near, only the position comes into view.
+    fn locate(&mut self, at: &CampusMapPoint) {
+        let position = [at.longitude, at.latitude];
+        match self.map.building_tapped(position, LOCATE_REACH_M) {
+            Some(building) => self.pick_building(building),
+            None => {
+                let rect = geometry::at_least(
+                    [position[0], position[1], position[0], position[1]],
+                    LOCATE_VIEW_M,
+                );
+                let floor = self.floor;
+                self.frame(rect, floor);
             }
         }
     }
@@ -276,10 +341,18 @@ impl Page {
 
     /// A tap on a named unit of the floor shown selects it. Elsewhere, a
     /// tap on a building's footprint (or within [`TAP_SLOP_POINTS`] of one,
-    /// in metres at the map's scale there) selects the building. A tap on
-    /// nothing changes nothing. `level_id` is the floor the shell drew under
-    /// the finger: a tap on a floor the page has since left changes nothing.
-    fn tap(&mut self, at: CampusMapPoint, level_id: Option<&str>, metres_per_point: f64) {
+    /// in metres at the map's scale there) selects the building, and a tap
+    /// on nothing closes the card, as in Apple Maps. `rooms_only` stops after
+    /// the unit (see [`CampusMapIntent::Tap`]). `level_id` is the floor the
+    /// shell drew under the finger: a tap on a floor the page has since left
+    /// changes nothing.
+    fn tap(
+        &mut self,
+        at: CampusMapPoint,
+        level_id: Option<&str>,
+        metres_per_point: f64,
+        rooms_only: bool,
+    ) {
         let tapped = level_id.and_then(|id| self.map.levels.get(id).copied());
         if tapped != self.floor {
             return;
@@ -291,10 +364,15 @@ impl Page {
                 return;
             }
         }
+        if rooms_only {
+            return;
+        }
         let slop = TAP_SLOP_POINTS * metres_per_point;
         if let Some(building) = self.map.building_tapped([at.longitude, at.latitude], slop) {
             let id = self.map.export.buildings[building].id.clone();
             self.select(&CampusMapPlace::Building { id });
+        } else {
+            self.selection = Selection::None;
         }
     }
 
@@ -459,16 +537,11 @@ impl Page {
             .map(usize::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        let hidden_classrooms_id = units
-            .iter()
-            .filter(|unit| {
-                lit.contains(unit) && map.export.units[**unit].category == UnitCategory::Classroom
-            })
-            .map(usize::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
+        // Every classroom, lit or not: the highlight is drawn over it, so a
+        // new selection replaces the highlight alone and the floor's
+        // classrooms stay drawn.
         let mut classrooms = Self::layer(
-            format!("classrooms/{}/{}", level.id, hidden_classrooms_id),
+            format!("classrooms/{}", level.id),
             CampusMapLayerRole::Classroom,
         );
         let mut highlight = Self::layer(
@@ -477,10 +550,11 @@ impl Page {
         );
         for unit in &units {
             let shape = polygon(&map.export.units[*unit].polygon);
+            if map.export.units[*unit].category == UnitCategory::Classroom {
+                classrooms.polygons.push(shape.clone());
+            }
             if lit.contains(unit) {
                 highlight.polygons.push(shape);
-            } else if map.export.units[*unit].category == UnitCategory::Classroom {
-                classrooms.polygons.push(shape);
             }
         }
         let linework = on_level(&map.linework_by_level);
@@ -594,6 +668,7 @@ impl Page {
                     point: point(amenity.point),
                     kind: CampusMapMarkKind::Amenity {
                         key: amenity.category.key().to_owned(),
+                        tone: amenity.category.tone(),
                     },
                 });
             }
@@ -658,57 +733,66 @@ impl Page {
             Selection::Target(_) | Selection::Room(_) => {
                 let target = self.selected_target()?;
                 (
-                    Some(target.label.clone()),
+                    target.label.clone(),
                     target.building_name.clone(),
                     target.level.map(|level| record.levels[level].name.clone()),
                 )
             }
-            Selection::Building(_) => (Some(place.clone()), place.clone(), None),
+            Selection::Building(_) => (place.clone(), place.clone(), None),
             Selection::Unit { unit, level, .. } => (
-                Some(
-                    map.export.units[*unit]
-                        .label
-                        .clone()
-                        .unwrap_or_else(|| place.clone()),
-                ),
+                map.export.units[*unit]
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| place.clone()),
                 place.clone(),
                 Some(record.levels[*level].name.clone()),
             ),
-            Selection::Entrance { entrance, .. } => (
-                entrance_name(*entrance),
-                place.clone(),
-                self.level_name(building, record.entrances[*entrance].level_id.as_deref()),
-            ),
+            // An entrance is picked within its building's card.
+            Selection::Entrance { .. } => (place.clone(), place.clone(), None),
         };
-        let tapped = match self.selection {
+        let chosen = match self.selection {
             Selection::Entrance { entrance, .. } => Some(entrance),
             _ => None,
         };
-        let mut order: Vec<usize> = (0..record.entrances.len()).collect();
-        order.sort_by_key(|index| Some(*index) != tapped);
         let maps = self.preferences.maps;
-        let mut links: Vec<CampusMapLink> = order
-            .into_iter()
-            .map(|index| {
-                let name = entrance_name(index);
-                let label = match &name {
-                    Some(name) => format!("{place} {name}"),
-                    None => place.clone(),
-                };
-                CampusMapLink {
-                    entrance: true,
-                    url: maps_url(maps, record.entrances[index].point, &label),
-                    name,
-                }
-            })
-            .collect();
-        if links.is_empty() {
-            links.push(CampusMapLink {
-                entrance: false,
-                name: None,
-                url: maps_url(maps, record.center, &place),
-            });
-        }
+        let pin = |index: usize| {
+            let label = match entrance_name(index) {
+                Some(name) => format!("{place} {name}"),
+                None => place.clone(),
+            };
+            maps_url(maps, record.entrances[index].point, &label)
+        };
+        let kind = match self.selection {
+            Selection::Building(_) | Selection::Entrance { .. } => CampusMapCardKind::Building,
+            _ => CampusMapCardKind::Room,
+        };
+        let maps_url = match chosen {
+            Some(entrance) => pin(entrance),
+            None if record.entrances.is_empty() => maps_url(maps, record.center, &place),
+            None => pin(0),
+        };
+        let parent = (kind != CampusMapCardKind::Building).then(|| CampusMapPlace::Building {
+            id: record.id.clone(),
+        });
+        let entrances = if kind == CampusMapCardKind::Building {
+            record
+                .entrances
+                .iter()
+                .enumerate()
+                .map(|(index, entrance)| CampusMapEntranceRow {
+                    entrance_id: entrance.id.clone(),
+                    name: entrance_name(index),
+                    level_name: self.level_name(building, entrance.level_id.as_deref()),
+                    selected: chosen == Some(index),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // Every building asks for photos of its floors until its data is
+        // marked complete.
+        let photos =
+            kind == CampusMapCardKind::Building && !record.complete && super::photos::available();
         let candidates = if self.targets.len() > 1 {
             self.targets
                 .iter()
@@ -731,7 +815,11 @@ impl Page {
                 .selected_target()
                 .is_some_and(|target| target.matched == Match::Building),
             no_floor_plans: record.levels.is_empty(),
-            links,
+            kind,
+            maps_url,
+            building: parent,
+            entrances,
+            photo_building_id: photos.then(|| record.id.clone()),
             candidates,
         })
     }

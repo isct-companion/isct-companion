@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 170 checks must be re-run before the next release.**
+**5 of 171 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**165 checks have never been run or could not be run:**
+**166 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -41,6 +41,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-CREDENTIAL-BACKUP` — never verified
 - `CLOUD-RESILIENCE` — never verified
 - `ANDROID-CAMPUS-MAP-SYSTEM` — never verified
+- `CAMPUS-MAP-FLOOR-PHOTO-RELEASE` — never verified
 - `SCHOOL-MATRIX-TITECH-APP-IMPORT` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
 - `DESKTOP-SCHOOL-WEBVIEW` — never verified
@@ -214,6 +215,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `ANDROID-CAMPUS-MAP-SYSTEM` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/map/FloorMapView.kt |
+| `CAMPUS-MAP-FLOOR-PHOTO-RELEASE` | native | International student | —<br>not run | crates/app-core/src/campus_map/photos.rs<br>apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
 | `SCHOOL-MATRIX-TITECH-APP-IMPORT` | school | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
@@ -1595,6 +1597,58 @@ device; the page's rules are Core's and are tested there.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/map/FloorMapView.kt`
+
+**Last recorded** never run
+
+### A release build's floor photo reaches the private inbox, without EXIF (`CAMPUS-MAP-FLOOR-PHOTO-RELEASE`)
+
+**Area** native · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A release build (TestFlight IPA or the CI-signed APK) on a phone in
+Japan, the campus map downloaded, and access to the R2 bucket
+`isct-floor-photos` (or the NAS folder it is moved to).
+
+**Steps**
+
+1. Open the map, tap any building, tap "Upload floor photos" and take
+   one photo.
+   - *Why:* The button shows only in a build that carries the key; a release
+     built without `ISCT_FLOOR_PHOTO_KEY` (an unset secret or variable)
+     shows no button, and that is invisible to every suite.
+2. Wait for "1 sent" on the button, then find the object under
+   `inbox/<building id>/` and read its metadata with an EXIF
+   tool.
+   - *Why:* The Actions key and the Pages `FLOOR_PHOTO_KEYS` entry must match
+     by `kid`; after a rotation a mismatch refuses every upload (HTTP
+     401 or 426). The phone camera writes GPS into the original, which
+     the shell's re-encode must drop.
+
+**Where to look**
+
+The button's label, and the stored object and its EXIF.
+
+**Expected**
+
+The button reports the photo sent; the object exists under the
+building and carries no GPS or camera EXIF.
+
+**Why this is manual**
+
+The key exists only in release builds and the inbox only on the
+deployed Homepage; the signing itself is tested against a shared
+vector on both sides.
+
+**Covers**
+
+- `crates/app-core/src/campus_map/photos.rs`
+- `apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt`
+- `.github/workflows/ios-release.yml`
+- `.github/workflows/android-release.yml`
 
 **Last recorded** never run
 

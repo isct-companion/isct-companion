@@ -228,7 +228,9 @@ impl ExamShare {
         }
         match pending.phase {
             Phase::Register => {
-                let _run = self.upload.begin(&path, ExamUploadPhase::Registering, cancel);
+                let _run = self
+                    .upload
+                    .begin(&path, ExamUploadPhase::Registering, cancel);
                 self.register_upload(session, &path, &mut pending, cancel)
                     .await
             }

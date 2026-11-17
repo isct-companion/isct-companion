@@ -308,9 +308,7 @@ impl WorkspaceQuery {
             | Self::TimetableYear { .. } => CALENDAR,
             Self::SubscriptionViews => &[Subscriptions, Settings],
             Self::DeclaredCredits { .. } => &[Registrations, Settings],
-            Self::ScheduledCourses { .. }
-            | Self::ExamCourses
-            | Self::ClassGroups { .. } => {
+            Self::ScheduledCourses { .. } | Self::ExamCourses | Self::ClassGroups { .. } => {
                 &[Courses, Registrations, Finder, Calendar, Plans, Settings]
             }
             Self::WorkspaceOverview { .. } => &[

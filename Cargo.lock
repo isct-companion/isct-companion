@@ -114,6 +114,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "futures-util",
+ "hmac",
  "httparse",
  "image",
  "ipnet",

@@ -86,6 +86,14 @@ It installs the supplied certificate and profile, then explicitly selects them
 for both archive and export. It does not create cloud-managed certificates or
 refresh profiles. Renew the existing secrets when their signing materials expire.
 
+Both the iOS and the Android release builds also read the floor photo upload
+key, the repository secret `ISCT_FLOOR_PHOTO_KEY` and variable
+`ISCT_FLOOR_PHOTO_KID`, which must match an entry of the Homepage project's
+`FLOOR_PHOTO_KEYS` (Homepage README, "楼层照片上传"). Core compiles the key in
+masked; a build without it simply offers no photo upload. To rotate, add the
+new `kid` to `FLOOR_PHOTO_KEYS`, update the secret and variable, release, and
+drop the oldest `kid` a release later.
+
 The app declares `ITSAppUsesNonExemptEncryption = NO` (only the system's
 HTTPS), so App Store Connect does not hold an upload for an export compliance
 answer.

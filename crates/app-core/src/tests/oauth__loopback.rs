@@ -47,17 +47,25 @@ async fn unrelated_requests_do_not_consume_a_callback_and_success_closes_the_soc
         response
     };
     let cancel = CancellationToken::new();
-    let (callback, ()) = tokio::join!(listener.authenticate(&Browser, &pending, &cancel, std::time::Duration::from_secs(5)), async {
-        assert!(request(format!("/wrong?state={state}&code=bad"))
-            .await
-            .starts_with("HTTP/1.1 400"));
-        assert!(request(format!("{PATH}?state=wrong&code=bad"))
-            .await
-            .starts_with("HTTP/1.1 400"));
-        assert!(request(format!("{PATH}?state={state}&code=good"))
-            .await
-            .starts_with("HTTP/1.1 200"));
-    });
+    let (callback, ()) = tokio::join!(
+        listener.authenticate(
+            &Browser,
+            &pending,
+            &cancel,
+            std::time::Duration::from_secs(5)
+        ),
+        async {
+            assert!(request(format!("/wrong?state={state}&code=bad"))
+                .await
+                .starts_with("HTTP/1.1 400"));
+            assert!(request(format!("{PATH}?state=wrong&code=bad"))
+                .await
+                .starts_with("HTTP/1.1 400"));
+            assert!(request(format!("{PATH}?state={state}&code=good"))
+                .await
+                .starts_with("HTTP/1.1 200"));
+        }
+    );
     assert!(callback
         .unwrap()
         .query_pairs()
