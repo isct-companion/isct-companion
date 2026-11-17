@@ -1,7 +1,7 @@
 {
  "version": 1,
- "compiledAt": "01M72005RRJFV1SQX4AN1SZ08T",
- "compiledTime": "2026-11-10T05:48:52.398Z",
+ "compiledAt": "01M7MAV0HPY5ENX2HXMH0QYAXB",
+ "compiledTime": "2026-11-17T08:44:21.692Z",
  "tables": [
   {
    "id": "t1",
@@ -10,10 +10,10 @@
     "assum/matrix-scan-success-definition",
     "approach/matrix-streaming-recognition",
     "approach/matrix-canonical-grid",
-    "approach/matrix-ocr-color-input",
     "approach/matrix-blur-rejection",
     "approach/matrix-locator-tuning",
-    "approach/matrix-inference-backends"
+    "approach/matrix-inference-backends",
+    "approach/desktop-camera-system-default"
    ],
    "names": [
     {
@@ -125,6 +125,16 @@
      "kind": "cond",
      "name": "平台",
      "def": "编译目标平台"
+    },
+    {
+     "kind": "object",
+     "name": "ONNX Runtime",
+     "def": "ONNX Runtime 推理库"
+    },
+    {
+     "kind": "object",
+     "name": "摄像头",
+     "def": "桌面扫描使用的摄像头"
     }
    ],
    "title": "Matrix OCR 识别",
@@ -259,7 +269,6 @@
   {
    "id": "t4",
    "members": [
-    "goal/cloud-any-provider-combination",
     "approach/cloud-remote-checks",
     "approach/cloud-drive-in-core",
     "approach/cloud-upload-queue",
@@ -267,7 +276,8 @@
     "approach/cloud-recovery-retention",
     "constraint/cloud-sync-scope",
     "approach/cloud-durable-queue",
-    "approach/workspace-snapshot-no-e2e"
+    "approach/workspace-snapshot-no-e2e",
+    "goal/cloud-any-provider-combination"
    ],
    "names": [
     {
@@ -508,7 +518,8 @@
     "env/native-sdk-floors",
     "env/icloud-cloudkit-setup",
     "env/google-oauth-registration",
-    "env/macos-minimum"
+    "env/macos-minimum",
+    "env/pc48-isct-shared-build-cache"
    ],
    "names": [
     {
@@ -555,6 +566,16 @@
      "kind": "cond",
      "name": "scope",
      "def": "OAuth 权限种类"
+    },
+    {
+     "kind": "object",
+     "name": "工作树 target",
+     "def": "当前工作树的 target 目录"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
     }
    ],
    "title": "开发与发布环境",
@@ -683,11 +704,11 @@
    "members": [
     "approach/page-overlay-layer",
     "approach/desktop-ui-primitives",
-    "approach/desktop-polish-native",
     "approach/frontend-query-cache",
     "approach/query-cache-consistency",
     "approach/desktop-no-plugin-scripts-in-school-views",
-    "approach/overlay-anchoring"
+    "approach/overlay-anchoring",
+    "approach/desktop-polish-native"
    ],
    "names": [
     {
@@ -814,6 +835,11 @@
      "kind": "cond",
      "name": "动画",
      "def": "动画关键帧形式"
+    },
+    {
+     "kind": "object",
+     "name": "motion",
+     "def": "motion（原 Framer Motion）动画库"
     }
    ],
    "title": "桌面端前端结构",
@@ -823,7 +849,11 @@
   {
    "id": "t8",
    "members": [
-    "approach/main-squash-integration"
+    "approach/main-squash-integration",
+    "approach/repo-triage-labels",
+    "approach/ci-on-branches-not-main",
+    "approach/native-sdk-cache-prewarm",
+    "d/wy3v7q"
    ],
    "names": [
     {
@@ -860,11 +890,91 @@
      "kind": "cond",
      "name": "作者",
      "def": "待合并提交的作者是否相同"
+    },
+    {
+     "kind": "object",
+     "name": "汇总分支",
+     "def": "合入多个功能分支、只开一个 PR 的分支（如 feat/x）"
+    },
+    {
+     "kind": "object",
+     "name": "try 分支",
+     "def": "只为一起试用而建的一次性 try/* 分支"
+    },
+    {
+     "kind": "object",
+     "name": "PR",
+     "def": "合入 main 的拉取请求"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "待合入改动的来源（分支、fork、Dependabot）"
+    },
+    {
+     "kind": "cond",
+     "name": "改动",
+     "def": "改动之间是否相关"
+    },
+    {
+     "kind": "cond",
+     "name": "意图",
+     "def": "开分支的目的"
+    },
+    {
+     "kind": "object",
+     "name": "仓库标签",
+     "def": "GitHub PR 与 issue 的标签"
+    },
+    {
+     "kind": "object",
+     "name": "CI",
+     "def": "常规 CI workflow"
+    },
+    {
+     "kind": "object",
+     "name": "定时预热",
+     "def": "main 上每周一次的缓存预热"
+    },
+    {
+     "kind": "object",
+     "name": "Platform checks",
+     "def": "平台检查 workflow"
+    },
+    {
+     "kind": "object",
+     "name": "Native Core SDK 检查",
+     "def": "Native Core SDK workflow"
+    },
+    {
+     "kind": "object",
+     "name": "缓存",
+     "def": "CI 构建缓存"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "触发 CI 的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "CI 运行结果"
+    },
+    {
+     "kind": "object",
+     "name": "平台检查",
+     "def": "按改动范围选出的平台检查"
+    },
+    {
+     "kind": "object",
+     "name": "合并门禁",
+     "def": "汇总所选检查的合并门禁"
     }
    ],
-   "title": "Git 分支与集成",
+   "title": "Git 分支、CI 与仓库流程",
    "kind": "process",
-   "desc": "开发分支、dev 汇总与推进 main 的流程"
+   "desc": "开发分支、PR 合入 main、CI 触发与缓存、仓库打标的流程"
   },
   {
    "id": "t9",
@@ -873,7 +983,8 @@
     "approach/exam-update-polling",
     "approach/exam-copilot-personal-billing",
     "approach/exam-pr-auth",
-    "approach/isct-public-data-workflows"
+    "approach/isct-public-data-workflows",
+    "goal/isct-data-reproducible-pipelines"
    ],
    "names": [
     {
@@ -960,6 +1071,26 @@
      "kind": "cond",
      "name": "workflow",
      "def": "公开数据 workflow 的种类"
+    },
+    {
+     "kind": "object",
+     "name": "数据生成路径",
+     "def": "写在仓库里、可由他人重跑的数据生成流程（skill/prompt + 工具或 MCP）"
+    },
+    {
+     "kind": "object",
+     "name": "数据来源记录",
+     "def": "每类数据上次使用的来源线索"
+    },
+    {
+     "kind": "cond",
+     "name": "数据",
+     "def": "数据的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
     }
    ],
    "title": "Isct-Data 自动更新",
@@ -1686,7 +1817,8 @@
     "approach/first-launch",
     "approach/mobile-gestures",
     "approach/today-phase-boundary-in-core",
-    "approach/android-orientation-by-size"
+    "approach/android-orientation-by-size",
+    "approach/mobile-shared-intent-native-details"
    ],
    "names": [
     {
@@ -1918,6 +2050,11 @@
      "kind": "object",
      "name": "授業 tab",
      "def": "tab bar 中的「授業」"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
     }
    ],
    "title": "移动端界面布局",
@@ -2376,9 +2513,10 @@
     "approach/school-provider-boundary",
     "goal/core-decides-shells-render",
     "approach/desktop-stays-tauri-react",
-    "approach/ocr-optional-crate",
     "approach/error-codes-shell-copy",
-    "approach/desktop-only-features-compiled-out"
+    "approach/ocr-optional-crate",
+    "approach/desktop-only-features-compiled-out",
+    "approach/matrix-executor-boundary"
    ],
    "names": [
     {
@@ -2460,6 +2598,11 @@
      "kind": "object",
      "name": "共用领域逻辑",
      "def": "作业工作区、ASSIGNMENT.md、错误码名称、持久化的设置字段"
+    },
+    {
+     "kind": "object",
+     "name": "平台模型句柄",
+     "def": "平台 OCR 运行时持有的模型句柄"
     }
    ],
    "title": "架构边界",
@@ -2950,8 +3093,9 @@
    "members": [
     "constraint/credential-custody",
     "approach/school-credentials-bundle",
+    "approach/desktop-keychain-old-paths-kept",
     "approach/otp-qr-import",
-    "approach/desktop-keychain-old-paths-kept"
+    "approach/otp-setup-guide"
    ],
    "names": [
     {
@@ -3026,28 +3170,8 @@
     },
     {
      "kind": "object",
-     "name": "OTP 导入",
-     "def": "从二维码导入 OTP 配置"
-    },
-    {
-     "kind": "object",
-     "name": "OTP 识别结果",
-     "def": "二维码识别出的 OTP 配置"
-    },
-    {
-     "kind": "object",
-     "name": "二维码数据",
-     "def": "OTP 二维码的原始数据"
-    },
-    {
-     "kind": "object",
      "name": "帮助文字",
      "def": "OTP 导入的帮助说明"
-    },
-    {
-     "kind": "cond",
-     "name": "时机",
-     "def": "发生的时刻"
     },
     {
      "kind": "cond",
@@ -3058,11 +3182,6 @@
      "kind": "cond",
      "name": "类型",
      "def": "OTP 的类型与参数"
-    },
-    {
-     "kind": "cond",
-     "name": "输入",
-     "def": "二维码输入的状态"
     },
     {
      "kind": "cond",
@@ -3093,6 +3212,51 @@
      "kind": "cond",
      "name": "操作",
      "def": "开发操作"
+    },
+    {
+     "kind": "object",
+     "name": "OTP 导入",
+     "def": "把二维码、链接或密钥识别为 OTP 配置的操作"
+    },
+    {
+     "kind": "object",
+     "name": "OTP 识别结果",
+     "def": "import_otp 识别出的 OTP 配置"
+    },
+    {
+     "kind": "object",
+     "name": "二维码数据",
+     "def": "扫描或粘贴得到的 OTP 二维码内容"
+    },
+    {
+     "kind": "cond",
+     "name": "输入",
+     "def": "交给识别的内容种类"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "触发识别或显示的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "格式",
+     "def": "输入内容的格式状况"
+    },
+    {
+     "kind": "object",
+     "name": "OTP 截图指引",
+     "def": "OTP 导入的截图指引与 Portal 入口"
+    },
+    {
+     "kind": "object",
+     "name": "帮我设置",
+     "def": "辅助注册 App OTP 的入口"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
     }
    ],
    "title": "凭据与敏感数据",
@@ -3102,11 +3266,12 @@
   {
    "id": "t26",
    "members": [
+    "approach/mcp-submit-confirmation",
+    "approach/mcp-reads-project-core-read-models",
     "approach/mcp-local-server",
     "approach/mcp-desktop-loopback-only",
-    "approach/mcp-submit-confirmation",
     "approach/agent-tool-registry",
-    "approach/mcp-reads-project-core-read-models"
+    "approach/mcp-dev-school-fetch"
    ],
    "names": [
     {
@@ -3238,6 +3403,26 @@
      "kind": "cond",
      "name": "字段",
      "def": "DTO 字段"
+    },
+    {
+     "kind": "object",
+     "name": "school_fetch 与 school_send",
+     "def": "dev 构建本机 MCP 的学校请求工具"
+    },
+    {
+     "kind": "object",
+     "name": "认证站点",
+     "def": "Extic、GetAccess 等身份认证站点"
+    },
+    {
+     "kind": "object",
+     "name": "敏感秘密",
+     "def": "密码、TOTP 密钥与当前码、Matrix 表、Cookie、LMS token、Google 令牌"
+    },
+    {
+     "kind": "cond",
+     "name": "构建",
+     "def": "构建类型"
     }
    ],
    "title": "本地 MCP 服务",
@@ -3252,7 +3437,10 @@
     "approach/day-source-precedence",
     "approach/calendar-actual-dates",
     "approach/credit-split-by-quarter",
-    "goal/weekly-commitments-only"
+    "goal/weekly-commitments-only",
+    "approach/physics-class-groups",
+    "assum/wellness-two-sections-one-grade",
+    "approach/timetable-lms-enrolled-only"
    ],
    "names": [
     {
@@ -3331,16 +3519,6 @@
      "def": "用户本地设置的校历例外"
     },
     {
-     "kind": "cond",
-     "name": "课程",
-     "def": "课程的授课形式"
-    },
-    {
-     "kind": "object",
-     "name": "学分",
-     "def": "课程学分"
-    },
-    {
      "kind": "object",
      "name": "已修学分",
      "def": "已修得的学分"
@@ -3384,6 +3562,41 @@
      "kind": "cond",
      "name": "页面",
      "def": "所在页面"
+    },
+    {
+     "kind": "object",
+     "name": "物理演習日程",
+     "def": "物理学演習・実験各班的红/白/全体/停课日程"
+    },
+    {
+     "kind": "object",
+     "name": "组选择",
+     "def": "用户在 classGroups 设置里选的组"
+    },
+    {
+     "kind": "object",
+     "name": "两学期课程",
+     "def": "由相邻两学期两个 LMS 班组成的课程"
+    },
+    {
+     "kind": "object",
+     "name": "学分",
+     "def": "课程的学分归属"
+    },
+    {
+     "kind": "object",
+     "name": "时间表",
+     "def": "课程时间表"
+    },
+    {
+     "kind": "cond",
+     "name": "班",
+     "def": "班的日程是否已收录"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程在 LMS 与教務Web 中的状态"
     }
    ],
    "title": "课程与日程规则",
@@ -3553,7 +3766,6 @@
   {
    "id": "t29",
    "members": [
-    "approach/school-browser-core-engine",
     "approach/school-browsing-vs-automation",
     "constraint/school-write-boundary",
     "approach/web-extensions-scope",
@@ -3565,7 +3777,9 @@
     "constraint/school-network-two-stacks",
     "approach/school-web-front-page",
     "approach/school-web-popup-sibling-views",
-    "approach/school-web-input-layer"
+    "approach/school-web-input-layer",
+    "approach/school-browser-core-engine",
+    "approach/lms-external-browser-deferred"
    ],
    "names": [
     {
@@ -3892,6 +4106,11 @@
      "kind": "cond",
      "name": "视图",
      "def": "学校视图的展示状态"
+    },
+    {
+     "kind": "object",
+     "name": "App OTP 注册",
+     "def": "桌面端在可见学校网页上辅助注册 App OTP 的操作"
     }
    ],
    "title": "学校网页与写入边界",
@@ -3902,15 +4121,11 @@
    "id": "t30",
    "members": [
     "approach/bilingual-storage",
+    "approach/i18n-semantic-keys",
     "approach/language-model",
-    "approach/i18n-semantic-keys"
+    "approach/content-language-in-core"
    ],
    "names": [
-    {
-     "kind": "object",
-     "name": "学校文本",
-     "def": "来自学校的文本"
-    },
     {
      "kind": "object",
      "name": "语言无关事实",
@@ -3933,18 +4148,8 @@
     },
     {
      "kind": "object",
-     "name": "学校网站语言",
-     "def": "LMS 或学校网站本身的语言"
-    },
-    {
-     "kind": "object",
      "name": "界面词条",
      "def": "界面文案的 i18next 词条"
-    },
-    {
-     "kind": "cond",
-     "name": "来源",
-     "def": "文本来源或来源语言数"
     },
     {
      "kind": "cond",
@@ -3990,6 +4195,36 @@
      "kind": "cond",
      "name": "键",
      "def": "词条键的状态或归属"
+    },
+    {
+     "kind": "cond",
+     "name": "学校内容语言",
+     "def": "学校内容语言设置（auto/ja/en）"
+    },
+    {
+     "kind": "cond",
+     "name": "界面语言",
+     "def": "当前界面语言（en/ja/zh）"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "学校内容来源提供的语言种数"
+    },
+    {
+     "kind": "object",
+     "name": "学校内容",
+     "def": "LMS 与学校数据中显示给用户的文本"
+    },
+    {
+     "kind": "object",
+     "name": "学校网站语言",
+     "def": "LMS 或学校网站自身的语言设置"
+    },
+    {
+     "kind": "object",
+     "name": "学校文本",
+     "def": "学校数据中的日英文本"
     }
    ],
    "title": "语言与多语内容",
@@ -4002,7 +4237,8 @@
     "approach/course-material-cache",
     "approach/material-download-lanes",
     "approach/lms-file-scheme",
-    "constraint/offline-file-integrity"
+    "constraint/offline-file-integrity",
+    "d/hvrgtz"
    ],
    "names": [
     {
@@ -4134,6 +4370,16 @@
      "kind": "cond",
      "name": "刷新",
      "def": "刷新结果"
+    },
+    {
+     "kind": "object",
+     "name": "LMS 条目",
+     "def": "LMS 中的条目和链接"
+    },
+    {
+     "kind": "cond",
+     "name": "模块",
+     "def": "LMS 模块是否认得出"
     }
    ],
    "title": "课程资料下载与缓存",
@@ -4221,9 +4467,10 @@
    "id": "t34",
    "members": [
     "goal/product-promise",
-    "goal/out-of-scope",
     "approach/course-editing-desktop-only",
-    "goal/school-owner-only"
+    "goal/school-owner-only",
+    "goal/out-of-scope",
+    "goal/product-targets"
    ],
    "names": [
     {
@@ -4300,6 +4547,11 @@
      "kind": "object",
      "name": "登录他人账号的后果",
      "def": "登录别人账号时的行为"
+    },
+    {
+     "kind": "object",
+     "name": "产品平台",
+     "def": "App 支持的系统与架构"
     }
    ],
    "title": "产品范围",
@@ -4310,7 +4562,8 @@
    "id": "t35",
    "members": [
     "approach/assignment-state-lms-only",
-    "approach/course-finder-rules"
+    "approach/course-finder-rules",
+    "approach/assignment-timeline-core"
    ],
    "names": [
     {
@@ -4367,6 +4620,26 @@
      "kind": "cond",
      "name": "代码",
      "def": "粘贴文字中课程代码的识别结果"
+    },
+    {
+     "kind": "object",
+     "name": "作业页面",
+     "def": "显示作业时间线的页面"
+    },
+    {
+     "kind": "object",
+     "name": "Today 作业速览",
+     "def": "今日页的作业速览"
+    },
+    {
+     "kind": "object",
+     "name": "跨学期作业",
+     "def": "跨学期课程的作业"
+    },
+    {
+     "kind": "object",
+     "name": "另一红白组的作业",
+     "def": "用户未选的另一红白组的作业"
     }
    ],
    "title": "作业与加课",
@@ -4447,7 +4720,8 @@
     "approach/settings-layering",
     "approach/desktop-tools-page",
     "approach/desktop-about-page",
-    "approach/desktop-about-page-design"
+    "approach/desktop-about-page-design",
+    "approach/feedback-google-form"
    ],
    "names": [
     {
@@ -4529,6 +4803,21 @@
      "kind": "cond",
      "name": "减少动态效果",
      "def": "系统减少动态效果设置"
+    },
+    {
+     "kind": "object",
+     "name": "反馈表单入口",
+     "def": "设置里的意见反馈入口"
+    },
+    {
+     "kind": "object",
+     "name": "反馈表单",
+     "def": "意见反馈 Google 表单"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
     }
    ],
    "title": "设置与页面结构",
@@ -4538,13 +4827,15 @@
   {
    "id": "t38",
    "members": [
-    "env/desktop-release-pipeline",
     "env/macos-signing-secrets",
     "approach/windows-artifact-signing",
     "env/updater-signing",
     "constraint/updater-download-and-exit",
     "env/android-release-signing",
-    "env/ios-signing-secrets"
+    "env/ios-signing-secrets",
+    "env/desktop-release-pipeline",
+    "constraint/android-single-abi-delivery",
+    "approach/android-r8-mapping-on-release"
    ],
    "names": [
     {
@@ -4711,6 +5002,11 @@
      "kind": "object",
      "name": "TestFlight 构建",
      "def": "上传到 TestFlight 的 iOS 构建"
+    },
+    {
+     "kind": "object",
+     "name": "R8 mapping",
+     "def": "Android 发布构建的 R8 mapping.txt"
     }
    ],
    "title": "构建、签名与更新",
@@ -5294,8 +5590,6 @@
     "approach/getaccess-cert-page-redirect",
     "approach/school-web-manual-sign-in-web-only",
     "approach/school-session-jar-persist",
-    "approach/school-second-factor-user-managed",
-    "approach/school-session-core-owned",
     "approach/school-mobile-background-sign-in",
     "approach/school-credential-change-discovery",
     "approach/school-sign-in-verification",
@@ -5304,7 +5598,11 @@
     "approach/school-web-status-split",
     "approach/school-web-write-owned-by-view",
     "approach/school-password-submission-limit",
-    "approach/school-web-recovery-outage"
+    "approach/school-web-recovery-outage",
+    "approach/school-second-factor-user-managed",
+    "approach/school-session-core-owned",
+    "approach/school-passkey-windows",
+    "approach/school-unsent-stop-pauses"
    ],
    "names": [
     {
@@ -5354,16 +5652,6 @@
     },
     {
      "kind": "object",
-     "name": "网页会话",
-     "def": "学校网页自己的会话"
-    },
-    {
-     "kind": "object",
-     "name": "网页 cookie",
-     "def": "学校网页 WebView 的 cookie"
-    },
-    {
-     "kind": "object",
      "name": "后台登录",
      "def": "Core 用保存凭据自动登录"
     },
@@ -5384,23 +5672,8 @@
     },
     {
      "kind": "object",
-     "name": "身份快照",
-     "def": "每个账号一份的身份快照"
-    },
-    {
-     "kind": "object",
      "name": "换账号",
      "def": "切换学校账号"
-    },
-    {
-     "kind": "object",
-     "name": "站点实例",
-     "def": "每个网站一个的站点会话实例"
-    },
-    {
-     "kind": "object",
-     "name": "学校读取",
-     "def": "对学校站点的读取操作"
     },
     {
      "kind": "object",
@@ -5489,11 +5762,6 @@
     },
     {
      "kind": "cond",
-     "name": "时机",
-     "def": "发生的时刻"
-    },
-    {
-     "kind": "cond",
      "name": "验证方式",
      "def": "用户选的第二步验证方式"
     },
@@ -5506,11 +5774,6 @@
      "kind": "cond",
      "name": "代际",
      "def": "写入所属的代际"
-    },
-    {
-     "kind": "cond",
-     "name": "平台",
-     "def": "运行平台"
     },
     {
      "kind": "cond",
@@ -5563,14 +5826,94 @@
      "def": "网页当前访问的状态"
     },
     {
+     "kind": "object",
+     "name": "App OTP 注册",
+     "def": "在学校网页上注册 App OTP 的操作"
+    },
+    {
+     "kind": "object",
+     "name": "学校网页交互",
+     "def": "学校网页上的登录、邮件码、OTP、通行密钥等交互"
+    },
+    {
+     "kind": "object",
+     "name": "登录",
+     "def": "学校账号登录"
+    },
+    {
+     "kind": "object",
+     "name": "身份快照",
+     "def": "每个账号登录后得到的身份数据"
+    },
+    {
+     "kind": "object",
+     "name": "账号切换",
+     "def": "换学校账号的过程"
+    },
+    {
+     "kind": "object",
+     "name": "站点实例",
+     "def": "每个学校网站各自的会话实例"
+    },
+    {
+     "kind": "object",
+     "name": "学校读取",
+     "def": "对学校站点的读取操作"
+    },
+    {
+     "kind": "object",
+     "name": "网页身份 cookie",
+     "def": "Core 写给学校网页的身份 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "网页 cookie",
+     "def": "学校网页 WebView 中的 cookie"
+    },
+    {
+     "kind": "object",
+     "name": "网页登录",
+     "def": "在学校网页上进行的登录"
+    },
+    {
+     "kind": "object",
+     "name": "网页会话",
+     "def": "学校网页自己的会话"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "用户同意",
+     "def": "用户是否明确同意"
+    },
+    {
      "kind": "cond",
      "name": "状态",
-     "def": "网页登录状态取值"
+     "def": "App OTP 是否已注册"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
     },
     {
      "kind": "cond",
      "name": "写入",
-     "def": "cookie 写入的种类"
+     "def": "身份写入所属的代际"
+    },
+    {
+     "kind": "object",
+     "name": "学校 passkey 登录",
+     "def": "学校登录中的 passkey 认证"
+    },
+    {
+     "kind": "object",
+     "name": "学校相关功能",
+     "def": "应用内学校网页、VPN 与打印"
     }
    ],
    "title": "学校登录与会话",
@@ -5580,10 +5923,12 @@
   {
    "id": "t46",
    "members": [
-    "assum/web-cookie-seed-cross-platform",
     "assum/school-identity-only-sso",
     "assum/school-sessions-independent",
-    "assum/school-identity-cookies-session-only"
+    "assum/school-identity-cookies-session-only",
+    "assum/web-cookie-seed-cross-platform",
+    "assum/webview2-webauthn-passthrough",
+    "assum/lms-mobile-launch-browser"
    ],
    "names": [
     {
@@ -5600,6 +5945,11 @@
      "kind": "object",
      "name": "平台人工检查",
      "def": "每个平台的人工检查"
+    },
+    {
+     "kind": "object",
+     "name": "身份 cookie",
+     "def": "写入网页的学校身份 cookie"
     }
    ],
    "title": "学校会话事实",
@@ -5610,15 +5960,20 @@
    "id": "t47",
    "members": [
     "approach/campus-vpn-layout",
-    "goal/campus-printer-desktop",
     "assum/portal-account-is-student-id",
     "approach/printer-student-id-from-verified-portal",
-    "approach/printer-macos-linux-cups-queue",
-    "approach/printer-windows-direct-lpd",
     "approach/printer-availability-probe",
-    "approach/campus-vpn-auto-continue",
+    "assum/campus-printer-network",
+    "goal/campus-printer-desktop",
+    "approach/printer-windows-direct-lpd",
     "approach/printer-compile-time-split",
-    "assum/campus-printer-network"
+    "approach/printer-macos-cups-queue",
+    "approach/printer-delivery-recovery",
+    "assum/cups-lpd-uri-user-bills",
+    "d/axcgvd",
+    "assum/campus-printer-billing-on-release",
+    "d/402cn8",
+    "d/a6r1vm"
    ],
    "names": [
     {
@@ -5743,11 +6098,6 @@
     },
     {
      "kind": "cond",
-     "name": "平台",
-     "def": "运行平台"
-    },
-    {
-     "kind": "cond",
      "name": "来源",
      "def": "学号来源"
     },
@@ -5765,6 +6115,156 @@
      "kind": "cond",
      "name": "探测",
      "def": "探测结果"
+    },
+    {
+     "kind": "object",
+     "name": "学校打印",
+     "def": "学校 Kyocera 打印功能"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "object",
+     "name": "Windows 打印队列",
+     "def": "Windows 上 IPP 通用驱动的系统打印队列"
+    },
+    {
+     "kind": "object",
+     "name": "本地 IPP 地址",
+     "def": "App 接收打印作业的本机固定地址"
+    },
+    {
+     "kind": "object",
+     "name": "安装状态",
+     "def": "打印队列是否已安装的状态"
+    },
+    {
+     "kind": "object",
+     "name": "旧注册表项",
+     "def": "已删除的 PDF 右键打印入口留下的注册表项"
+    },
+    {
+     "kind": "object",
+     "name": "共享打印代码",
+     "def": "共享的发送、结果分类与必要控制代码"
+    },
+    {
+     "kind": "object",
+     "name": "IPP 队列与恢复",
+     "def": "Windows 的 IPP 队列接收与恢复代码"
+    },
+    {
+     "kind": "object",
+     "name": "PrintService 任务关联与恢复",
+     "def": "Android PrintService 的任务关联与恢复代码"
+    },
+    {
+     "kind": "object",
+     "name": "未发布旧格式",
+     "def": "从未发布过的旧数据格式"
+    },
+    {
+     "kind": "object",
+     "name": "IPP 接收端",
+     "def": "Windows App 内接收打印作业的 IPP 端点"
+    },
+    {
+     "kind": "object",
+     "name": "打印作业",
+     "def": "一个待发送的打印作业"
+    },
+    {
+     "kind": "object",
+     "name": "打印公共定义",
+     "def": "结果文案、打印机能力、打印选项枚举与大小上限"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "发送结果"
+    },
+    {
+     "kind": "object",
+     "name": "待机 TUN",
+     "def": "helper 持有的按需待机 TUN 网卡与路由"
+    },
+    {
+     "kind": "object",
+     "name": "按需连接",
+     "def": "按需模式下的连接流程"
+    },
+    {
+     "kind": "object",
+     "name": "空闲断开",
+     "def": "隧道空闲断开规则"
+    },
+    {
+     "kind": "object",
+     "name": "自动登录",
+     "def": "按需模式下 App 的自动 VPN 登录"
+    },
+    {
+     "kind": "object",
+     "name": "按需开关",
+     "def": "按需连接的开关"
+    },
+    {
+     "kind": "object",
+     "name": "手动连接",
+     "def": "用户手动连接 VPN"
+    },
+    {
+     "kind": "cond",
+     "name": "模式",
+     "def": "VPN 连接模式"
+    },
+    {
+     "kind": "cond",
+     "name": "流量",
+     "def": "隧道上的实际流量"
+    },
+    {
+     "kind": "cond",
+     "name": "连接",
+     "def": "以隧道地址为本地地址的 TCP 连接情况"
+    },
+    {
+     "kind": "cond",
+     "name": "时长",
+     "def": "持续时间"
+    },
+    {
+     "kind": "object",
+     "name": "自动管理",
+     "def": "VPN 的待机路由与自动登录"
+    },
+    {
+     "kind": "object",
+     "name": "VPN 卡片",
+     "def": "校园 VPN 的卡片界面"
+    },
+    {
+     "kind": "object",
+     "name": "出版社名单",
+     "def": "走 VPN 隧道的出版社站点名单"
+    },
+    {
+     "kind": "object",
+     "name": "出版社 IPv6",
+     "def": "名单站点的 IPv6 地址"
+    },
+    {
+     "kind": "object",
+     "name": "出版社解析",
+     "def": "名单站点的 DNS 解析"
+    },
+    {
+     "kind": "cond",
+     "name": "网络位置",
+     "def": "设备是否在校园网内"
     }
    ],
    "title": "校园工具",
@@ -5775,11 +6275,11 @@
    "id": "t48",
    "members": [
     "approach/school-identity-derived-state",
-    "approach/school-account-state-fencing",
     "approach/school-app-otp-entry",
-    "approach/school-web-clear-all",
     "approach/school-person-turn-holds-sign-ins",
-    "approach/school-refusal-outlives-stuck-marker"
+    "approach/school-refusal-outlives-stuck-marker",
+    "approach/school-account-state-fencing",
+    "approach/school-web-clear-all"
    ],
    "names": [
     {
@@ -5819,58 +6319,13 @@
     },
     {
      "kind": "object",
-     "name": "状态版本",
-     "def": "保护某个判断的版本号"
-    },
-    {
-     "kind": "object",
-     "name": "账号门",
-     "def": "账号操作的准入门"
-    },
-    {
-     "kind": "object",
-     "name": "进行中操作",
-     "def": "账号上正在进行的操作"
-    },
-    {
-     "kind": "object",
-     "name": "账号许可",
-     "def": "账号操作许可"
-    },
-    {
-     "kind": "object",
      "name": "账号数据",
      "def": "凭据、会话和 token"
     },
     {
      "kind": "object",
-     "name": "退出",
-     "def": "学校账号退出或重置"
-    },
-    {
-     "kind": "object",
-     "name": "凭据恢复",
-     "def": "凭据备份恢复"
-    },
-    {
-     "kind": "object",
-     "name": "同步阻塞",
-     "def": "同步是否被账号阻塞的判断"
-    },
-    {
-     "kind": "object",
      "name": "学校门户",
      "def": "学校门户网页"
-    },
-    {
-     "kind": "object",
-     "name": "学校网页数据",
-     "def": "cookie、网页存储与缓存"
-    },
-    {
-     "kind": "object",
-     "name": "学校视图",
-     "def": "学校网页视图"
     },
     {
      "kind": "object",
@@ -5884,38 +6339,13 @@
     },
     {
      "kind": "cond",
-     "name": "操作",
-     "def": "用户或系统操作"
-    },
-    {
-     "kind": "cond",
      "name": "页面",
      "def": "学校返回的页面"
     },
     {
      "kind": "cond",
-     "name": "结果",
-     "def": "操作结果"
-    },
-    {
-     "kind": "cond",
      "name": "清理",
      "def": "退出清理的完成情况"
-    },
-    {
-     "kind": "cond",
-     "name": "时机",
-     "def": "发生的时刻"
-    },
-    {
-     "kind": "cond",
-     "name": "读取",
-     "def": "读取的新旧"
-    },
-    {
-     "kind": "cond",
-     "name": "平台",
-     "def": "运行平台"
     },
     {
      "kind": "object",
@@ -5941,11 +6371,1115 @@
      "kind": "cond",
      "name": "事件",
      "def": "发生的事件"
+    },
+    {
+     "kind": "object",
+     "name": "异步结果",
+     "def": "账号状态相关的异步操作结果"
+    },
+    {
+     "kind": "object",
+     "name": "状态版本",
+     "def": "保护某个账号状态判断的版本号"
+    },
+    {
+     "kind": "object",
+     "name": "账号门",
+     "def": "退出与重置时阻止新操作进入的门"
+    },
+    {
+     "kind": "object",
+     "name": "进行中操作",
+     "def": "账号上尚在进行的操作"
+    },
+    {
+     "kind": "object",
+     "name": "账号许可",
+     "def": "操作持有的账号许可"
+    },
+    {
+     "kind": "object",
+     "name": "凭据会话与 token",
+     "def": "账号的凭据、会话和 token"
+    },
+    {
+     "kind": "object",
+     "name": "退出",
+     "def": "学校账号退出"
+    },
+    {
+     "kind": "object",
+     "name": "账号凭据删除",
+     "def": "删除某个账号的凭据"
+    },
+    {
+     "kind": "object",
+     "name": "凭据恢复",
+     "def": "从备份恢复凭据"
+    },
+    {
+     "kind": "object",
+     "name": "同步阻塞",
+     "def": "账号是否被阻止同步的判定"
+    },
+    {
+     "kind": "object",
+     "name": "学校网页数据",
+     "def": "学校网页的 cookie、网页存储与缓存"
+    },
+    {
+     "kind": "object",
+     "name": "学校视图",
+     "def": "学校 WebView 视图"
+    },
+    {
+     "kind": "object",
+     "name": "网页身份",
+     "def": "写回学校网页的账号身份"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "清理结果"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户或系统的操作"
+    },
+    {
+     "kind": "cond",
+     "name": "读取",
+     "def": "读取的新旧"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
     }
    ],
    "title": "学校账号状态与退出",
    "kind": "behavior",
    "desc": "学校账号状态的推导与栅栏、Connect 结果、退出与重置清理"
+  },
+  {
+   "id": "t49",
+   "members": [
+    "goal/campus-map-ios",
+    "approach/campus-map-flat-floors",
+    "goal/campus-map-desktop"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "地图",
+     "def": "校园地图功能"
+    },
+    {
+     "kind": "object",
+     "name": "楼层选择",
+     "def": "当前显示的楼层"
+    },
+    {
+     "kind": "object",
+     "name": "教室高亮",
+     "def": "进入地图时对来时教室的高亮"
+    },
+    {
+     "kind": "object",
+     "name": "房间选择",
+     "def": "用户点选房间"
+    },
+    {
+     "kind": "object",
+     "name": "定位",
+     "def": "地图上的用户位置"
+    },
+    {
+     "kind": "object",
+     "name": "楼内路线",
+     "def": "楼内到入口的静态路线"
+    },
+    {
+     "kind": "object",
+     "name": "MapLibre 渲染器",
+     "def": "桌面与首页共用的 MapLibre GL JS 渲染器"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行端（iOS、Android、桌面、官网首页）"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "楼层",
+     "def": "新楼是否有同序号楼层"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "前提",
+     "def": "路线所需数据是否就绪"
+    }
+   ],
+   "title": "校园地图范围与平台",
+   "kind": "scope",
+   "desc": "校园地图在各端的提供范围、绘制方式和不做的功能"
+  },
+  {
+   "id": "t50",
+   "members": [
+    "dep/campus-map-data",
+    "approach/campus-map-pdf-pipeline",
+    "approach/campus-map-imdf-subset",
+    "approach/campus-map-isct-data-delivery",
+    "approach/campus-map-canonical-ids",
+    "approach/campus-map-incremental-updates",
+    "approach/campus-map-rest-rooms-import",
+    "approach/campus-map-old-room-aliases",
+    "approach/campus-map-generated-geometry-untracked",
+    "d/k534g6"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "地图数据",
+     "def": "校园地图导出数据"
+    },
+    {
+     "kind": "object",
+     "name": "地图数据精修",
+     "def": "对地图基线数据的精修步骤"
+    },
+    {
+     "kind": "object",
+     "name": "IMDF 必填项",
+     "def": "完整 IMDF 规范要求的必填字段"
+    },
+    {
+     "kind": "object",
+     "name": "地图按钮",
+     "def": "打开校园地图的按钮"
+    },
+    {
+     "kind": "object",
+     "name": "稳定 ID",
+     "def": "楼栋和房间的唯一身份标识"
+    },
+    {
+     "kind": "object",
+     "name": "规范编号",
+     "def": "楼栋和房间的统一可读编号"
+    },
+    {
+     "kind": "object",
+     "name": "学校写法",
+     "def": "学校对楼栋和房间的各种写法"
+    },
+    {
+     "kind": "object",
+     "name": "房间",
+     "def": "地图上的房间"
+    },
+    {
+     "kind": "object",
+     "name": "地图材料",
+     "def": "用于更新地图的事实材料"
+    },
+    {
+     "kind": "object",
+     "name": "地图修改",
+     "def": "限定范围的地图数据修改"
+    },
+    {
+     "kind": "object",
+     "name": "消失的房间",
+     "def": "新材料中不再存在的房间"
+    },
+    {
+     "kind": "object",
+     "name": "手工维护内容",
+     "def": "人工维护的地图内容"
+    },
+    {
+     "kind": "cond",
+     "name": "楼",
+     "def": "楼栋是否有楼层图"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "哈希",
+     "def": "导出文件哈希是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "网络",
+     "def": "网络类型或是否离线"
+    },
+    {
+     "kind": "cond",
+     "name": "本地数据",
+     "def": "本机是否已有地图数据"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "编译目标平台"
+    },
+    {
+     "kind": "cond",
+     "name": "学校编号",
+     "def": "学校是否已有编号"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "解析结果"
+    },
+    {
+     "kind": "object",
+     "name": "休养室数据",
+     "def": "楼栋是否有休养室的数据"
+    },
+    {
+     "kind": "object",
+     "name": "教室旧名",
+     "def": "教室改名前的旧编号"
+    },
+    {
+     "kind": "object",
+     "name": "地图导出成品",
+     "def": "给 App 用的地图导出文件（含基线派生几何）"
+    },
+    {
+     "kind": "object",
+     "name": "地图中间文件",
+     "def": "基线几何、官方源文件、维护层、精修工具、skill、MCP"
+    },
+    {
+     "kind": "cond",
+     "name": "输入",
+     "def": "输入的教室写法"
+    },
+    {
+     "kind": "object",
+     "name": "complete 标记",
+     "def": "楼栋的 complete 标记"
+    },
+    {
+     "kind": "object",
+     "name": "上传入口",
+     "def": "卡片上的上传楼层照片入口"
+    },
+    {
+     "kind": "object",
+     "name": "格式 2 读取器",
+     "def": "Core 中读取地图导出格式 2 的解析器"
+    },
+    {
+     "kind": "cond",
+     "name": "格式版本",
+     "def": "地图导出格式版本"
+    },
+    {
+     "kind": "cond",
+     "name": "楼栋",
+     "def": "楼栋是否已标记 complete"
+    }
+   ],
+   "title": "校园地图数据",
+   "kind": "structure",
+   "desc": "校园地图数据的来源、格式、标识、交付与更新方式"
+  },
+  {
+   "id": "t51",
+   "members": [
+    "approach/campus-map-geojson-in-core",
+    "approach/campus-map-entrances",
+    "approach/campus-map-room-matching",
+    "approach/campus-map-auto-focus",
+    "approach/campus-map-selection",
+    "approach/campus-map-external-maps",
+    "approach/campus-map-search",
+    "d/28r92c"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "地图导出文件",
+     "def": "Isct-Data 的地图导出文件"
+    },
+    {
+     "kind": "object",
+     "name": "壳层",
+     "def": "iOS、Android 等地图壳层"
+    },
+    {
+     "kind": "object",
+     "name": "scene",
+     "def": "Core 给壳层的地图画面快照"
+    },
+    {
+     "kind": "object",
+     "name": "楼栋入口",
+     "def": "楼栋的入口（IMDF opening）"
+    },
+    {
+     "kind": "object",
+     "name": "在地图中打开",
+     "def": "打开外部地图应用的按钮"
+    },
+    {
+     "kind": "object",
+     "name": "楼内路线",
+     "def": "楼内到入口的静态路线"
+    },
+    {
+     "kind": "object",
+     "name": "主入口",
+     "def": "楼栋主入口"
+    },
+    {
+     "kind": "object",
+     "name": "街面层",
+     "def": "楼栋主入口所在的楼层"
+    },
+    {
+     "kind": "object",
+     "name": "课程地点",
+     "def": "课程教室在地图上的对应位置"
+    },
+    {
+     "kind": "object",
+     "name": "地图按钮",
+     "def": "打开校园地图的按钮"
+    },
+    {
+     "kind": "object",
+     "name": "教室字符串",
+     "def": "课程数据中的教室文字"
+    },
+    {
+     "kind": "object",
+     "name": "教室",
+     "def": "地图上的教室"
+    },
+    {
+     "kind": "object",
+     "name": "地图入口",
+     "def": "进入地图页的位置"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "用途",
+     "def": "挑选入口的用途"
+    },
+    {
+     "kind": "cond",
+     "name": "匹配",
+     "def": "教室字符串的匹配程度"
+    },
+    {
+     "kind": "object",
+     "name": "自动选楼",
+     "def": "根据视口自动聚焦楼栋"
+    },
+    {
+     "kind": "object",
+     "name": "有效视口",
+     "def": "扣除搜索栏、卡片、楼层条与安全区后的视口"
+    },
+    {
+     "kind": "object",
+     "name": "自动选楼阈值",
+     "def": "自动选楼的进入与退出阈值"
+    },
+    {
+     "kind": "object",
+     "name": "点击邻近容错",
+     "def": "手动点击时的邻近命中容错"
+    },
+    {
+     "kind": "object",
+     "name": "地图选择",
+     "def": "地图页按稳定 ID 的选择"
+    },
+    {
+     "kind": "object",
+     "name": "取景",
+     "def": "Core 下发的 framing"
+    },
+    {
+     "kind": "object",
+     "name": "相机上报",
+     "def": "壳上报给 Core 的相机移动"
+    },
+    {
+     "kind": "object",
+     "name": "地图页",
+     "def": "校园地图页面"
+    },
+    {
+     "kind": "object",
+     "name": "首次取景",
+     "def": "打开地图时的首次定位"
+    },
+    {
+     "kind": "object",
+     "name": "外部地图链接",
+     "def": "打开外部地图应用的 https 链接"
+    },
+    {
+     "kind": "object",
+     "name": "楼编号查找",
+     "def": "搜索中对楼编号的识别"
+    },
+    {
+     "kind": "object",
+     "name": "地图搜索",
+     "def": "地图页的搜索"
+    },
+    {
+     "kind": "cond",
+     "name": "视口中心",
+     "def": "有效视口中心是否在楼轮廓内"
+    },
+    {
+     "kind": "cond",
+     "name": "占比",
+     "def": "楼外接框长边占有效视口对应边的比例"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "object",
+     "name": "房间",
+     "def": "地图上的房间"
+    },
+    {
+     "kind": "object",
+     "name": "地点卡片",
+     "def": "地图上的地点卡片"
+    },
+    {
+     "kind": "object",
+     "name": "双击判断",
+     "def": "地图上的双击手势判定"
+    }
+   ],
+   "title": "校园地图交互与渲染",
+   "kind": "behavior",
+   "desc": "校园地图页的 Core 规则、scene、入口、教室匹配与点击交互"
+  },
+  {
+   "id": "t52",
+   "members": [
+    "approach/matrix-model-manual-download",
+    "constraint/matrix-update-small-scope",
+    "approach/matrix-model-release-contract",
+    "approach/matrix-model-safe-replacement"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "生产模型",
+     "def": "用于正式识别的 Matrix OCR 模型"
+    },
+    {
+     "kind": "object",
+     "name": "模型下载",
+     "def": "下载生产模型"
+    },
+    {
+     "kind": "object",
+     "name": "模型检查",
+     "def": "检查远端是否有新模型"
+    },
+    {
+     "kind": "object",
+     "name": "模型更新",
+     "def": "模型下载更新的整体流程"
+    },
+    {
+     "kind": "object",
+     "name": "模型发布清单",
+     "def": "描述模型发布内容的轻量 JSON 清单"
+    },
+    {
+     "kind": "object",
+     "name": "模型发布",
+     "def": "开发者在 GitHub 发布模型"
+    },
+    {
+     "kind": "object",
+     "name": "模型更新界面",
+     "def": "用户看到的下载、更新入口与进度"
+    },
+    {
+     "kind": "object",
+     "name": "新模型",
+     "def": "正在下载和替换的模型"
+    },
+    {
+     "kind": "object",
+     "name": "当前模型",
+     "def": "本机当前可用的模型"
+    },
+    {
+     "kind": "object",
+     "name": "模型实例",
+     "def": "一次扫描使用的模型实例"
+    },
+    {
+     "kind": "cond",
+     "name": "本地模型",
+     "def": "本机是否已有模型"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "内容",
+     "def": "远端内容相对本机是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "更新步骤的结果"
+    }
+   ],
+   "title": "Matrix 模型分发与更新",
+   "kind": "behavior",
+   "desc": "Matrix OCR 生产模型的下载、发布清单、更新与替换规则"
+  },
+  {
+   "id": "t53",
+   "members": [
+    "approach/campus-map-icons",
+    "approach/campus-map-card",
+    "approach/campus-map-control-rail"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "地图图标",
+     "def": "校园地图自设计的 SVG 图标"
+    },
+    {
+     "kind": "object",
+     "name": "设施底块色",
+     "def": "设施标记底块的类别颜色"
+    },
+    {
+     "kind": "object",
+     "name": "楼梯电梯图标",
+     "def": "楼梯与电梯的地图标记"
+    },
+    {
+     "kind": "object",
+     "name": "男女分开的厕所图标",
+     "def": "单独的男厕、女厕图标"
+    },
+    {
+     "kind": "object",
+     "name": "搜索栏",
+     "def": "地图顶部的搜索栏"
+    },
+    {
+     "kind": "object",
+     "name": "地点卡片",
+     "def": "地图底部的地点卡片"
+    },
+    {
+     "kind": "object",
+     "name": "卡片拖动",
+     "def": "拖动地点卡片的手感"
+    },
+    {
+     "kind": "object",
+     "name": "定位按钮",
+     "def": "地图上的定位（准星）按钮"
+    },
+    {
+     "kind": "object",
+     "name": "定位选楼",
+     "def": "点定位后选中并取景的楼"
+    },
+    {
+     "kind": "object",
+     "name": "取景",
+     "def": "地图镜头对选中地点的取景"
+    },
+    {
+     "kind": "object",
+     "name": "Core 地图页",
+     "def": "Core 中的地图页面状态"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "数据",
+     "def": "数据是否已确认"
+    },
+    {
+     "kind": "cond",
+     "name": "窗口",
+     "def": "窗口宽窄"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    },
+    {
+     "kind": "cond",
+     "name": "位置",
+     "def": "用户位置是否在楼内"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "object",
+     "name": "楼层条与指南针",
+     "def": "地图右上方的楼层条与指南针"
+    },
+    {
+     "kind": "object",
+     "name": "楼层列表",
+     "def": "楼层条中的楼层列表"
+    },
+    {
+     "kind": "object",
+     "name": "MapKit 按钮",
+     "def": "MapKit 自带的地图按钮"
+    },
+    {
+     "kind": "object",
+     "name": "卡片几何回报",
+     "def": "卡片的异步几何回报"
+    }
+   ],
+   "title": "校园地图界面",
+   "kind": "design",
+   "desc": "校园地图的图标、搜索栏、地点卡片与定位按钮的样式和布局"
+  },
+  {
+   "id": "t54",
+   "members": [
+    "assum/campus-map-official-floorplans-schematic",
+    "assum/titechapp-floorplan-provenance"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "快照楼层几何",
+     "def": "来自 TitechApp 快照的楼层几何"
+    },
+    {
+     "kind": "cond",
+     "name": "来源",
+     "def": "楼层几何来源是否已确认"
+    },
+    {
+     "kind": "object",
+     "name": "地图导出成品",
+     "def": "经精修派生、给 App 用的地图导出文件"
+    }
+   ],
+   "title": "校园地图数据事实",
+   "kind": "facts",
+   "desc": "校园地图数据来源资料的性质、出处与可信度前提"
+  },
+  {
+   "id": "t55",
+   "members": [
+    "approach/campus-map-tests",
+    "approach/ios-device-verification",
+    "d/ar5t4y"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "纯几何测试",
+     "def": "不依赖导出内容的地图几何函数测试"
+    },
+    {
+     "kind": "object",
+     "name": "地图数据测试",
+     "def": "需要真实地图导出的测试"
+    },
+    {
+     "kind": "object",
+     "name": "地图测试 CI job",
+     "def": "只跑地图数据测试的独立 CI job"
+    },
+    {
+     "kind": "object",
+     "name": "测试数据文件",
+     "def": "放进仓库的测试数据"
+    },
+    {
+     "kind": "object",
+     "name": "iOS 验证",
+     "def": "本地 iOS/iPadOS 应用验证"
+    },
+    {
+     "kind": "object",
+     "name": "地图更新",
+     "def": "校园地图数据或页面的更新"
+    },
+    {
+     "kind": "cond",
+     "name": "改动",
+     "def": "本次改动涉及的路径"
+    },
+    {
+     "kind": "cond",
+     "name": "导出路径",
+     "def": "环境变量是否给出导出路径"
+    },
+    {
+     "kind": "cond",
+     "name": "用户要求",
+     "def": "用户对验证的要求"
+    },
+    {
+     "kind": "cond",
+     "name": "用户确认",
+     "def": "用户是否明确确认"
+    }
+   ],
+   "title": "测试与验证流程",
+   "kind": "process",
+   "desc": "自动化测试的数据来源与 CI 触发、真机验证和发布前本机验收"
+  },
+  {
+   "id": "t56",
+   "members": [
+    "goal/sciencetokyoexam-integration",
+    "approach/sciencetokyoexam-auth",
+    "assum/sciencetokyoexam-t0-agreed",
+    "approach/sciencetokyoexam-production-contract",
+    "approach/sciencetokyoexam-navigation",
+    "approach/sciencetokyoexam-my-courses",
+    "approach/sciencetokyoexam-web-handoff",
+    "d/ybhc3a",
+    "d/gdbs19",
+    "d/g50jt5",
+    "d/5qmwsx"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "ScienceTokyoExam 功能",
+     "def": "App 内接入的 ScienceTokyoExam 功能"
+    },
+    {
+     "kind": "object",
+     "name": "ScienceTokyoExam 登录",
+     "def": "App 登录 ScienceTokyoExam 的方式"
+    },
+    {
+     "kind": "object",
+     "name": "科目页跳转",
+     "def": "科目页上打开网站的跳转"
+    },
+    {
+     "kind": "object",
+     "name": "对方仓库改动",
+     "def": "需要改 ScienceTokyoExam 仓库的改动"
+    },
+    {
+     "kind": "object",
+     "name": "Google ID token",
+     "def": "本机取得的学校账号 Google ID token"
+    },
+    {
+     "kind": "object",
+     "name": "对方会话",
+     "def": "换得的 ScienceTokyoExam Firebase 会话"
+    },
+    {
+     "kind": "object",
+     "name": "refresh token",
+     "def": "对方会话的 refresh token"
+    },
+    {
+     "kind": "object",
+     "name": "科目代码接口",
+     "def": "ScienceTokyoExam 的科目代码接口"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    },
+    {
+     "kind": "cond",
+     "name": "账号",
+     "def": "要连接的账号种类"
+    },
+    {
+     "kind": "object",
+     "name": "过去问页面",
+     "def": "原生过去问功能的页面组织"
+    },
+    {
+     "kind": "object",
+     "name": "过去问入口",
+     "def": "桌面左侧栏的过去问入口"
+    },
+    {
+     "kind": "object",
+     "name": "上传流程",
+     "def": "过去问资料上传流程"
+    },
+    {
+     "kind": "object",
+     "name": "课程直达",
+     "def": "从课程详情直达科目"
+    },
+    {
+     "kind": "object",
+     "name": "探す列表",
+     "def": "「过去问 › 探す」页的课程列表"
+    },
+    {
+     "kind": "object",
+     "name": "网站履修登记",
+     "def": "网站上的「履修講義 / My courses」登记"
+    },
+    {
+     "kind": "object",
+     "name": "资料订阅通知",
+     "def": "新资料订阅通知"
+    },
+    {
+     "kind": "object",
+     "name": "过去问视图",
+     "def": "过去问的各个页签视图"
+    },
+    {
+     "kind": "object",
+     "name": "视图缓存",
+     "def": "过去问视图的缓存"
+    },
+    {
+     "kind": "object",
+     "name": "待确认上传",
+     "def": "发布结果不明的上传记录"
+    },
+    {
+     "kind": "object",
+     "name": "官方清理接口",
+     "def": "ScienceTokyoExam 的上传清理接口"
+    },
+    {
+     "kind": "object",
+     "name": "过去问副本",
+     "def": "已下载的过去问本机副本"
+    },
+    {
+     "kind": "object",
+     "name": "临时预览",
+     "def": "未保存的过去问临时预览"
+    },
+    {
+     "kind": "object",
+     "name": "过去问错误码",
+     "def": "过去问功能返回的错误码"
+    },
+    {
+     "kind": "object",
+     "name": "账号与上传进度",
+     "def": "过去问账号状态与上传进度"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "上传或发布的结果"
+    },
+    {
+     "kind": "cond",
+     "name": "时机",
+     "def": "发生的时刻"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "失败",
+     "def": "失败的种类"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    }
+   ],
+   "title": "ScienceTokyoExam 接入",
+   "kind": "behavior",
+   "desc": "ScienceTokyoExam 的接入范围、登录与会话、对方接口与协作前提"
+  },
+  {
+   "id": "t57",
+   "members": [
+    "goal/native-widgets",
+    "approach/native-widget-publication",
+    "dep/android-glance"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "小组件",
+     "def": "原生课程与待交作业小组件"
+    },
+    {
+     "kind": "object",
+     "name": "小组件时间线",
+     "def": "Core 输出的小组件展示时间线"
+    },
+    {
+     "kind": "object",
+     "name": "小组件发布",
+     "def": "把时间线发布给小组件"
+    },
+    {
+     "kind": "object",
+     "name": "Apple 小组件扩展",
+     "def": "Apple 平台的小组件扩展"
+    },
+    {
+     "kind": "object",
+     "name": "Android 小组件刷新",
+     "def": "Android 小组件的刷新机制"
+    },
+    {
+     "kind": "object",
+     "name": "小组件内容哈希",
+     "def": "每种小组件内容的哈希"
+    },
+    {
+     "kind": "cond",
+     "name": "平台",
+     "def": "运行平台"
+    }
+   ],
+   "title": "原生小组件",
+   "kind": "behavior",
+   "desc": "课程与待交作业小组件的范围、时间线发布、刷新与依赖"
+  },
+  {
+   "id": "t58",
+   "members": [
+    "d/mx4e0k",
+    "d/zgc8g8"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "上传楼层照片入口",
+     "def": "楼栋卡片上的「上传楼层照片」"
+    },
+    {
+     "kind": "object",
+     "name": "楼层照片",
+     "def": "用户拍摄的楼层照片"
+    },
+    {
+     "kind": "object",
+     "name": "楼层归属",
+     "def": "照片对应的楼层"
+    },
+    {
+     "kind": "object",
+     "name": "照片签名",
+     "def": "上传请求的 HMAC-SHA256 签名"
+    },
+    {
+     "kind": "object",
+     "name": "签名密钥",
+     "def": "编译进 release 构建的签名密钥"
+    },
+    {
+     "kind": "object",
+     "name": "上传接口",
+     "def": "官网首页的 /api/floor-photos"
+    },
+    {
+     "kind": "object",
+     "name": "照片收件箱",
+     "def": "私有 R2 bucket isct-floor-photos"
+    },
+    {
+     "kind": "object",
+     "name": "NAS",
+     "def": "维护者的 NAS"
+    },
+    {
+     "kind": "cond",
+     "name": "楼栋",
+     "def": "楼栋是否已标记 complete"
+    },
+    {
+     "kind": "cond",
+     "name": "操作",
+     "def": "用户操作"
+    }
+   ],
+   "title": "楼层照片上传",
+   "kind": "behavior",
+   "desc": "楼栋卡片上的楼层照片拍摄、处理、可见范围与上传通道"
   }
  ]
 }
