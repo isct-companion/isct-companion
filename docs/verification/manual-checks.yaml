@@ -5470,8 +5470,8 @@ checks:
           On 今日 in landscape, tap the next class card, then an assignment row,
           then the same assignment row again.
         reason: |
-          The class opens beside 今日, which narrows to its single column, as
-          desktop's TodayWorkbench; the assignment replaces it in the pane;
+          The class opens beside 今日, which narrows to its single column; the
+          assignment replaces it in the pane;
           tapping the open row again closes the pane and the dashboard returns. A push over
           the whole page means 今日's column lost its open-beside action.
       - action: |

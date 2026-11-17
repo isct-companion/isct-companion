@@ -192,7 +192,6 @@
 /* Core's notes about the page (popup, failed load) above the native view. */
 .lmsViewerBody > .webNotice { margin: 8px 8px 0; }
 
-.lmsNoteEditor .lmsSourceBar { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
 .lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
 .lmsLoading { padding: 40px 20px; text-align: center; }
 
@@ -453,8 +452,11 @@
 .lmsOutlineTools button { flex-shrink: 0; }
 .lmsOutlineScroll > h2:first-child { margin-top: 16px; }
 
+/* Here, not in styles.css: a keyframe defined later wins over an override
+   defined earlier, and this file loads after styles.css. */
 @media (prefers-reduced-motion: reduce) {
   .lmsImageCard [data-image-src][data-state="loading"] { animation: none; }
+  @keyframes lmsPopIn { from { opacity: 0; } }
 }
 
 /* ---------- Syllabus: the school's page, inside the reader ---------- */

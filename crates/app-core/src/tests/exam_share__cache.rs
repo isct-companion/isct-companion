@@ -11,19 +11,12 @@ async fn put_copy(owner: &Path, id: &str, downloaded: bool, modified: SystemTime
     let folder = owner.join(id);
     fs::create_dir_all(&folder).unwrap();
     let cached = Cached {
-        document: ExamDocument {
-            id: id.into(),
-            subjects: vec![],
-            teachers: vec![],
-            academic_year: None,
-            occasion: None,
-            occasion_number: 0,
-            variant: String::new(),
-            role: None,
-            note: None,
-            file_name: format!("{id}.txt"),
-            file_type: "text/plain".into(),
-        },
+        document: serde_json::from_value(serde_json::json!({
+            "id": id, "subjects": [], "teachers": [], "academicYear": null,
+            "occasion": null, "occasionNumber": 0, "variant": "", "role": null,
+            "note": null, "fileName": format!("{id}.txt"), "fileType": "text/plain",
+        }))
+        .unwrap(),
         updated_at: 0,
         downloaded,
         file: uuid::Uuid::new_v4(),
@@ -72,7 +65,7 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     fs::write(&upload, b"pending publication").unwrap();
 
     assert!(cache_file(stale.parent().unwrap()).await.unwrap().is_none());
-    let available = downloads(&owner).await.unwrap();
+    let available = downloads(&owner, ContentLanguage::En).await.unwrap();
     assert_eq!(
         available
             .iter()
@@ -83,7 +76,9 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
 
     let folder = current.parent().unwrap();
     let cached = cache_file(folder).await.unwrap().unwrap();
-    local(folder, cached, true, None).await.unwrap();
+    local(folder, cached, true, None, ContentLanguage::En)
+        .await
+        .unwrap();
     clean_root(&root.0, now + Duration::from_secs(2 * 86_400)).unwrap();
 
     assert!(

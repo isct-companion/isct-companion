@@ -74,7 +74,6 @@ import app.isctcompanion.core.ExamSubject
 import app.isctcompanion.core.ExamUploadPhase
 import app.isctcompanion.core.SdkException
 import app.isctcompanion.design.Card
-import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Tag
@@ -419,10 +418,6 @@ internal fun StatusTag(status: String) {
     Tag(t("examShare.requestStatus.$status"), color = ink, soft = soft)
 }
 
-/** A subject's name in the app's language: English when the site has one. */
-internal fun subjectName(subject: ExamSubject): String =
-    subject.nameEn?.takeIf { Localizer.language == "en" && it.isNotBlank() } ?: subject.name.ifBlank { subject.code }
-
 /** "2024 期末 2", the desktop's sitting label. */
 internal fun sittingLabel(year: UInt?, occasion: String?, number: UInt, variant: String): String = listOfNotNull(
     year?.toString(),
@@ -431,7 +426,7 @@ internal fun sittingLabel(year: UInt?, occasion: String?, number: UInt, variant:
 ).joinToString(" ")
 
 internal fun documentTitle(document: ExamDocument): String = listOfNotNull(
-    document.subjects.joinToString(" / ") { subjectName(it) }.ifBlank { null },
+    document.subjects.joinToString(" / ") { it.name }.ifBlank { null },
     sittingLabel(document.academicYear, document.occasion, document.occasionNumber, document.variant).ifBlank { null },
     document.role?.let { t("examShare.role.$it") },
 ).joinToString(" · ").ifEmpty { document.fileName }
@@ -474,7 +469,7 @@ private fun BrowseList(calls: ExamCalls, choices: ExamChoices?) {
             if (found != null) {
                 if (found.isEmpty()) item { Text(t("examShare.noItems"), color = Theme.colors.muted) }
                 else cardRows(found, { it.code }) { subject ->
-                    ExamRow(subjectName(subject), subject.code, onClick = { navigator.openExamSubject(subject.code) })
+                    ExamRow(subject.name, subject.code, onClick = { navigator.openExamSubject(subject.code) })
                 }
             }
         } else {
@@ -524,7 +519,7 @@ private fun RequestList(calls: ExamCalls) {
                 Text(t("examShare.noItems"), color = Theme.colors.muted)
             } else cardRows(page.items, { it.id }) { item ->
                 ExamRow(
-                    subjectName(item.subject),
+                    item.subject.name,
                     listOf(requestFacts(item), item.description).filter { it.isNotBlank() }.joinToString(" · "),
                     onClick = { navigator.openExamRequest(item.id, mine) },
                     trailing = if (item.status != "open") ({ StatusTag(item.status) }) else null,
@@ -570,7 +565,7 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) 
                 item(key = "label:$title") { SectionLabel(t(title)) }
                 cardRows(items, { "$title:${it.id}" }) { document ->
                     ExamRow(
-                        document.subjects.joinToString(" / ") { subjectName(it) }.ifBlank { document.fileName },
+                        document.subjects.joinToString(" / ") { it.name }.ifBlank { document.fileName },
                         listOfNotNull(
                             sittingLabel(document.academicYear, document.occasion, document.occasionNumber, document.variant).ifBlank { null },
                             document.role?.let { t("examShare.role.$it") },

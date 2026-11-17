@@ -32,10 +32,9 @@ import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
  *
  * The reading behaviours mount the real `LmsWorkspace` with the harness: the
  * legacy suite drove that component with props, and every guarantee here is
- * about what the workspace renders, not about which route reached it. The two
- * behaviours that are about the shell itself — an opened document surviving a
- * move to another lecture, and the Today workbench's retained readers — mount
- * the real shell or the real workbench.
+ * about what the workspace renders, not about which route reached it. The
+ * behaviour that is about the shell itself — an opened document surviving a
+ * move to another lecture — mounts the real shell.
  *
  * `pdfjs-dist` has no headless mode (it needs a worker and a canvas) and the
  * Milkdown/Crepe editor is driven through its real ProseMirror transactions, so

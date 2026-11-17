@@ -55,7 +55,7 @@ struct PageRail<Menu: View>: View {
     }
 }
 
-/// Desktop's TodayWorkbench: 今日 alone as the two-column dashboard, or
+/// 今日 alone as the two-column dashboard, or
 /// narrowed to one column with what it opened beside it. Opening the same row
 /// again, or Close, returns to the dashboard.
 struct TodayWorkbench: View {

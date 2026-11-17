@@ -1,7 +1,9 @@
 use super::cache::{
     cache_file, downloads, erase, file_path, local, save_metadata, Cached, TempFile,
 };
+use super::remote::{present_all, RemoteDocument, RemoteSubject};
 use super::*;
+use crate::locale::ContentLanguage;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashSet},
@@ -12,23 +14,27 @@ use std::{
 #[serde(rename_all = "camelCase")]
 struct RemoteExam {
     #[serde(flatten)]
-    document: ExamDocument,
+    document: RemoteDocument,
     storage_path: String,
     updated_at: u64,
 }
 
 #[derive(Deserialize)]
 struct RemotePage {
-    subject: ExamSubject,
+    subject: RemoteSubject,
     rows: Vec<ExamClass>,
-    exams: Vec<ExamDocument>,
+    exams: Vec<RemoteDocument>,
 }
 
 impl RemotePage {
     /// Materials naming a teacher of the course's own class come first. The
     /// class is matched by its exact ID in this subject's latest-year rows;
     /// teachers are matched by ID, since a name does not establish identity.
-    fn present(self, class_id: Option<u32>) -> Result<ExamSubjectPage, ExamError> {
+    fn present(
+        self,
+        class_id: Option<u32>,
+        language: ContentLanguage,
+    ) -> Result<ExamSubjectPage, ExamError> {
         let class_id = class_id.filter(|id| has_class(&self.rows, Some(*id)));
         let ours: HashSet<String> = self
             .rows
@@ -37,7 +43,7 @@ impl RemotePage {
             .flat_map(|row| &row.teachers)
             .map(|teacher| teacher.id.clone())
             .collect();
-        let mut exams = self.exams;
+        let mut exams = present_all(self.exams, language);
         exams.sort_by_key(|exam| !exam.teachers.iter().any(|t| ours.contains(&t.id)));
         let web_url = url::Url::parse_with_params(
             &format!("https://{}/search", client::Endpoint::Site.host()),
@@ -45,12 +51,10 @@ impl RemotePage {
         )
         .map_err(|_| ExamError::Response)?
         .into();
-        let sets = sets::group(&exams, &ours);
         Ok(ExamSubjectPage {
-            subject: self.subject,
+            subject: self.subject.present(language),
             rows: self.rows,
-            sets,
-            exams,
+            sets: sets::group(exams, &ours),
             class_id,
             web_url,
         })
@@ -88,7 +92,7 @@ struct RemoteRequest {
 #[serde(rename_all = "camelCase")]
 struct RequestRecord {
     id: String,
-    subject: ExamSubject,
+    subject: RemoteSubject,
     teachers: Vec<ExamTeacher>,
     academic_year: Option<u32>,
     occasion: Option<String>,
@@ -99,11 +103,11 @@ struct RequestRecord {
 }
 
 impl RemoteRequest {
-    fn model(self, uid: &str) -> ExamRequest {
+    fn model(self, uid: &str, language: ContentLanguage) -> ExamRequest {
         let r = self.request;
         ExamRequest {
             id: r.id,
-            subject: r.subject,
+            subject: r.subject.present(language),
             teachers: r.teachers,
             academic_year: r.academic_year,
             occasion: r.occasion,
@@ -118,7 +122,7 @@ impl RemoteRequest {
 
 #[derive(Deserialize)]
 struct Exams {
-    exams: Vec<ExamDocument>,
+    exams: Vec<RemoteDocument>,
 }
 #[derive(Deserialize)]
 struct OneExam {
@@ -132,12 +136,12 @@ struct Subjects {
 #[derive(Deserialize)]
 struct SubjectHit {
     #[serde(flatten)]
-    subject: ExamSubject,
+    subject: RemoteSubject,
     rows: Vec<ExamClass>,
 }
 
 struct SubjectCandidate {
-    subject: ExamSubject,
+    subject: RemoteSubject,
     class_matches: bool,
     page: Option<RemotePage>,
 }
@@ -241,6 +245,7 @@ impl ExamShare {
         session: &mut Session,
         codes: Vec<String>,
         class_id: Option<u32>,
+        language: ContentLanguage,
     ) -> Result<ExamAnswer, ExamError> {
         let mut candidates = BTreeMap::new();
         for code in codes {
@@ -286,12 +291,12 @@ impl ExamShare {
                         .page
                 }
             };
-            return page.present(class_id).map(ExamAnswer::Subject);
+            return page.present(class_id, language).map(ExamAnswer::Subject);
         }
         Ok(ExamAnswer::Subjects(
             candidates
                 .into_iter()
-                .map(|choice| choice.subject)
+                .map(|choice| choice.subject.present(language))
                 .collect(),
         ))
     }
@@ -300,6 +305,7 @@ impl ExamShare {
         &self,
         session: &mut Session,
         query: &str,
+        language: ContentLanguage,
     ) -> Result<Vec<ExamSubject>, ExamError> {
         let query = query.trim();
         if query.is_empty() {
@@ -309,18 +315,22 @@ impl ExamShare {
             return Err(ExamError::InvalidInput);
         }
         let matches = self.search_subjects(session, query, "20").await?;
-        Ok(matches.into_iter().map(|hit| hit.subject).collect())
+        Ok(matches
+            .into_iter()
+            .map(|hit| hit.subject.present(language))
+            .collect())
     }
 
     async fn upload_subject(
         &self,
         session: &mut Session,
         code: &str,
+        language: ContentLanguage,
     ) -> Result<ExamUploadSubject, ExamError> {
         let details = self.subject_details(session, code).await?;
         Ok(ExamUploadSubject {
             removable: false,
-            subject: details.page.subject,
+            subject: details.page.subject.present(language),
             teachers: form::distinct_teachers(
                 details
                     .current_teachers
@@ -334,6 +344,7 @@ impl ExamShare {
         &self,
         session: &mut Session,
         start: ExamUploadStart,
+        language: ContentLanguage,
     ) -> Result<ExamUploadForm, ExamError> {
         let (code, request) = match start {
             ExamUploadStart::Subject { code } => (code, None),
@@ -342,7 +353,7 @@ impl ExamShare {
             }
             ExamUploadStart::Request { .. } => return Err(ExamError::InvalidInput),
         };
-        let subject = self.upload_subject(session, &code).await?;
+        let subject = self.upload_subject(session, &code, language).await?;
         let role = form::role(
             request
                 .as_ref()
@@ -382,10 +393,11 @@ impl ExamShare {
         session: &mut Session,
         mut form: ExamUploadForm,
         edit: ExamUploadEdit,
+        language: ContentLanguage,
     ) -> Result<ExamUploadForm, ExamError> {
         match edit {
             ExamUploadEdit::AddSubject { code } => {
-                let subject = self.upload_subject(session, &code).await?;
+                let subject = self.upload_subject(session, &code, language).await?;
                 form::add_subject(&mut form, subject)?;
             }
             ExamUploadEdit::RemoveSubject { code } => form::remove_subject(&mut form, &code)?,
@@ -401,6 +413,7 @@ impl ExamShare {
         &self,
         session: &mut Session,
         id: &str,
+        language: ContentLanguage,
     ) -> Result<ExamLibrary, ExamError> {
         let uid = session
             .saved
@@ -409,7 +422,7 @@ impl ExamShare {
             .uid
             .clone();
         erase(&self.account_folder(&uid).join(key(id))).await?;
-        self.library(session).await
+        self.library(session, language).await
     }
 
     pub(super) async fn save(
@@ -432,6 +445,7 @@ impl ExamShare {
         &self,
         session: &mut Session,
         id: &str,
+        language: ContentLanguage,
     ) -> Result<ExamLibrary, ExamError> {
         let _: Value = self
             .call(
@@ -446,7 +460,7 @@ impl ExamShare {
             .uid
             .clone();
         erase(&self.account_folder(&uid).join(key(id))).await?;
-        self.library(session).await
+        self.library(session, language).await
     }
 
     pub(super) async fn report(
@@ -475,6 +489,7 @@ impl ExamShare {
         session: &mut Session,
         mine: bool,
         cursor: Option<ExamRequestCursor>,
+        language: ContentLanguage,
     ) -> Result<ExamRequestPage, ExamError> {
         let request = if mine {
             self.service(Method::GET, &["me", "requests"])?
@@ -494,7 +509,7 @@ impl ExamShare {
             items: answer
                 .items
                 .into_iter()
-                .map(|request| request.model(uid))
+                .map(|request| request.model(uid, language))
                 .collect(),
             cursor: answer.cursor,
             web_url: client::site_page("request"),
@@ -528,6 +543,7 @@ impl ExamShare {
         id: &str,
         open: bool,
         mine: bool,
+        language: ContentLanguage,
     ) -> Result<ExamRequestPage, ExamError> {
         let status = if open { "open" } else { "closed" };
         let _: Value = self
@@ -537,7 +553,7 @@ impl ExamShare {
                     .json(&json!({"status": status})),
             )
             .await?;
-        self.requests(session, mine, None).await
+        self.requests(session, mine, None, language).await
     }
 
     pub(super) async fn delete_request(
@@ -545,6 +561,7 @@ impl ExamShare {
         session: &mut Session,
         id: &str,
         mine: bool,
+        language: ContentLanguage,
     ) -> Result<ExamRequestPage, ExamError> {
         let _: Value = self
             .call(
@@ -552,10 +569,14 @@ impl ExamShare {
                 self.service(Method::POST, &["requests", id, "delete"])?,
             )
             .await?;
-        self.requests(session, mine, None).await
+        self.requests(session, mine, None, language).await
     }
 
-    pub(super) async fn library(&self, session: &mut Session) -> Result<ExamLibrary, ExamError> {
+    pub(super) async fn library(
+        &self,
+        session: &mut Session,
+        language: ContentLanguage,
+    ) -> Result<ExamLibrary, ExamError> {
         let remote = self.remote_library(session).await;
         let (saved, submitted, offline) = match remote {
             Ok((saved, submitted)) => (saved, submitted, false),
@@ -573,9 +594,9 @@ impl ExamShare {
         let uid = &session.saved.as_ref().ok_or(ExamError::SignedOut)?.uid;
         Ok(ExamLibrary {
             offline,
-            saved,
-            submitted,
-            downloaded: downloads(&self.account_folder(uid)).await?,
+            saved: present_all(saved, language),
+            submitted: present_all(submitted, language),
+            downloaded: downloads(&self.account_folder(uid), language).await?,
             web_url: client::site_page("library"),
         })
     }
@@ -583,7 +604,7 @@ impl ExamShare {
     async fn remote_library(
         &self,
         session: &mut Session,
-    ) -> Result<(Vec<ExamDocument>, Vec<ExamDocument>), ExamError> {
+    ) -> Result<(Vec<RemoteDocument>, Vec<RemoteDocument>), ExamError> {
         let saved: Saved = self
             .call(session, self.service(Method::GET, &["me", "saved-exams"])?)
             .await?;
@@ -610,6 +631,7 @@ impl ExamShare {
         session: &mut Session,
         id: &str,
         download: bool,
+        language: ContentLanguage,
     ) -> Result<ExamLocalDocument, ExamError> {
         let request = self.service(Method::GET, &["exams", id])?;
         let exam: Result<OneExam, _> = self.call(session, request).await;
@@ -628,7 +650,7 @@ impl ExamShare {
                 if cached.is_some() && registered && !download =>
             {
                 let cached = cached.ok_or(ExamError::Storage)?;
-                return local(&base, cached, true, None).await;
+                return local(&base, cached, true, None, language).await;
             }
             Err(error) => return Err(error),
         };
@@ -662,7 +684,7 @@ impl ExamShare {
                 }
                 Err(error) if error.temporarily_unavailable() && !download && registered => {
                     return match cached {
-                        Some(cached) => local(&base, cached, true, None).await,
+                        Some(cached) => local(&base, cached, true, None, language).await,
                         None => Err(error),
                     };
                 }
@@ -696,7 +718,7 @@ impl ExamShare {
                 }
                 Err(error) if error.temporarily_unavailable() && !download && registered => {
                     return match cached {
-                        Some(cached) => local(&base, cached, true, None).await,
+                        Some(cached) => local(&base, cached, true, None, language).await,
                         None => Err(error),
                     };
                 }
@@ -724,7 +746,7 @@ impl ExamShare {
         let _ = self
             .call::<Value>(session, self.service(Method::POST, &["me", "views", id])?)
             .await;
-        local(&base, metadata, false, saved).await
+        local(&base, metadata, false, saved, language).await
     }
 }
 

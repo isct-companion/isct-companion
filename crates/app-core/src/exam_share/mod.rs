@@ -6,6 +6,7 @@ mod google;
 mod identity;
 mod library;
 mod model;
+mod remote;
 mod sets;
 mod upload;
 mod upload_file;
@@ -291,7 +292,7 @@ impl ExamShare {
         cancel: CancellationToken,
         store: &DataStore,
     ) -> Result<ExamAnswer, ExamError> {
-        let mut answer = match action {
+        let answer = match action {
             // These answer without waiting for the session gate: the first
             // needs no account, the others stop work that holds the gate.
             ExamAction::Choices => ExamAnswer::Choices(form::choices()),
@@ -334,7 +335,6 @@ impl ExamShare {
                 }?
             }
         };
-        answer.localize_subject_names(store)?;
         Ok(answer)
     }
 
@@ -405,53 +405,59 @@ impl ExamShare {
             ExamAction::AcceptTerms => return interrupt(cancel, self.accept_terms(session)).await,
             action => action,
         };
+        let language = remote::content_language(store)?;
         interrupt(cancel, async {
             Ok(match answer {
                 ExamAction::Search { query } => {
-                    ExamAnswer::Subjects(self.search(session, &query).await?)
+                    ExamAnswer::Subjects(self.search(session, &query, language).await?)
                 }
                 ExamAction::Subject { code, class_id } => {
-                    self.resolve_subjects(session, vec![code], class_id).await?
+                    self.resolve_subjects(session, vec![code], class_id, language)
+                        .await?
                 }
                 ExamAction::CourseSubject { course_id } => {
                     let (codes, class_id) = course_subject(store, &course_id)?;
-                    self.resolve_subjects(session, codes, class_id).await?
+                    self.resolve_subjects(session, codes, class_id, language)
+                        .await?
                 }
                 ExamAction::Open { id, download } => {
-                    ExamAnswer::Document(self.open(session, &id, download).await?)
+                    ExamAnswer::Document(self.open(session, &id, download, language).await?)
                 }
-                ExamAction::Library => ExamAnswer::Library(self.library(session).await?),
+                ExamAction::Library => ExamAnswer::Library(self.library(session, language).await?),
                 ExamAction::Save { id, saved } => {
                     ExamAnswer::Saved(self.save(session, &id, saved).await?)
                 }
                 ExamAction::RemoveDownload { id } => {
-                    ExamAnswer::Library(self.remove_download(session, &id).await?)
+                    ExamAnswer::Library(self.remove_download(session, &id, language).await?)
                 }
                 ExamAction::DeleteSubmission { id } => {
-                    ExamAnswer::Library(self.delete_submission(session, &id).await?)
+                    ExamAnswer::Library(self.delete_submission(session, &id, language).await?)
                 }
                 ExamAction::Report { id, reason, detail } => {
                     self.report(session, &id, reason, &detail).await?;
                     ExamAnswer::Done
                 }
                 ExamAction::Requests { mine, cursor } => {
-                    ExamAnswer::Requests(self.requests(session, mine, cursor).await?)
+                    ExamAnswer::Requests(self.requests(session, mine, cursor, language).await?)
                 }
                 ExamAction::CreateRequest { draft } => {
                     self.create_request(session, draft).await?;
                     ExamAnswer::Done
                 }
                 ExamAction::SetRequestOpen { id, open, mine } => {
-                    ExamAnswer::Requests(self.set_request_open(session, &id, open, mine).await?)
+                    ExamAnswer::Requests(
+                    self.set_request_open(session, &id, open, mine, language)
+                        .await?,
+                )
                 }
                 ExamAction::DeleteRequest { id, mine } => {
-                    ExamAnswer::Requests(self.delete_request(session, &id, mine).await?)
+                    ExamAnswer::Requests(self.delete_request(session, &id, mine, language).await?)
                 }
                 ExamAction::UploadForm { start } => {
-                    ExamAnswer::UploadForm(self.upload_form(session, start).await?)
+                    ExamAnswer::UploadForm(self.upload_form(session, start, language).await?)
                 }
                 ExamAction::EditUpload { form, edit } => {
-                    ExamAnswer::UploadForm(self.edit_upload(session, form, edit).await?)
+                    ExamAnswer::UploadForm(self.edit_upload(session, form, edit, language).await?)
                 }
                 // `act` and `run` answer these before reaching here.
                 ExamAction::Choices

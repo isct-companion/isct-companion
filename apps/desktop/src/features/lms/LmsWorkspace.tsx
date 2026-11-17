@@ -202,6 +202,13 @@ export function LmsWorkspaceBody({
     courseId: course.id,
   }).value;
   const syllabus = courseDetail?.syllabusUrl;
+  // The course's own syllabus reads as it is now: Core's address follows the
+  // content language and its title the UI language. What was saved when it
+  // opened is only the fallback until the course detail arrives.
+  const shown =
+    opened?.id === "syllabus"
+      ? { ...opened, title: t("common.syllabus"), url: syllabus ?? opened.url }
+      : opened;
   const language =
     data.settings.lmsBilingualFilter && !original
       ? courseDetail?.contentLanguage
@@ -1414,8 +1421,8 @@ export function LmsWorkspaceBody({
               </button>
             )}
           </aside>
-          {opened && (
-            <ReaderPane title={opened.title} close={closeContent}>
+          {opened && shown && (
+            <ReaderPane title={shown.title} close={closeContent}>
               {/* Hidden readers release their documents; the official view keeps its webview. */}
               {!viewerActive &&
               opened.kind !== "official" ? null : opened.kind ===
@@ -1441,7 +1448,7 @@ export function LmsWorkspaceBody({
                 </div>
               ) : opened.kind === "syllabus" ? (
                 <div className="lmsDocument lmsSyllabus">
-                  <SyllabusFrame url={opened.url} />
+                  <SyllabusFrame url={shown.url} />
                 </div>
               ) : opened.kind === "note" ? (
                 <Suspense fallback={<p>{t("lms.loadingEditor")}</p>}>
