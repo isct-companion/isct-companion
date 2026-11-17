@@ -2065,16 +2065,23 @@ describe("the PDF viewer", () => {
       { workspace: workspaceFixture() },
       () => import("@app/features/lms/PdfDocument"),
     );
-    const view = await mount(
-      <>
-        <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
-      </>,
-    );
+    function RetainedPdf() {
+      const [visible, setVisible] = useState(true);
+      return (
+        <>
+          <button onClick={() => setVisible(!visible)}>Switch page</button>
+          <Activity mode={visible ? "visible" : "hidden"}>
+            <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
+          </Activity>
+        </>
+      );
+    }
+    const view = await mount(<RetainedPdf />);
     views.push(view);
     return { view, host: view.host };
   }
 
-  it("releases the document worker and cancels its active page when the viewer leaves", async () => {
+  it("releases the worker on hide and draws the retained PDF when the viewer returns", async () => {
     pdfjs.load.mockReset();
     pdfjs.destroy.mockReset();
     pdfjs.cancel.mockReset();
@@ -2086,17 +2093,36 @@ describe("the PDF viewer", () => {
       }),
       render: pdfjs.render,
       cleanup: vi.fn(),
+      streamTextContent: vi.fn(),
     };
-    pdfjs.render.mockReturnValue({
-      promise: new Promise(() => {}),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 20,
-        getPage: vi.fn().mockResolvedValue(sheet),
-      }),
-      destroy: pdfjs.destroy,
+    pdfjs.render
+      .mockReturnValueOnce({
+        promise: new Promise(() => {}),
+        cancel: pdfjs.cancel,
+      })
+      .mockReturnValue({
+        promise: Promise.resolve(),
+        cancel: pdfjs.cancel,
+      });
+    pdfjs.load.mockImplementation(() => {
+      let destroyed = false;
+      return {
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: () => {
+            // PDF.js throws synchronously when its destroyed transport is reused.
+            if (destroyed)
+              throw new TypeError(
+                "Cannot read properties of null (reading 'sendWithPromise')",
+              );
+            return Promise.resolve(sheet);
+          },
+        }),
+        destroy: async () => {
+          destroyed = true;
+          pdfjs.destroy();
+        },
+      };
     });
 
     const { view, host } = await openPdf();
@@ -2104,9 +2130,14 @@ describe("the PDF viewer", () => {
     await waitFor(() => expect(pdfjs.render).toHaveBeenCalled());
     expect(host.querySelectorAll("canvas")).toHaveLength(0);
 
-    await release(view);
+    await click(buttonByText(host, "Switch page"));
     expect(pdfjs.cancel).toHaveBeenCalledTimes(1);
     expect(pdfjs.destroy).toHaveBeenCalledTimes(1);
+
+    await click(buttonByText(host, "Switch page"));
+    await waitFor(() => expect(host.querySelector("canvas")).not.toBeNull());
+    await release(view);
+    expect(pdfjs.destroy).toHaveBeenCalledTimes(2);
   }, 30_000);
 
   it("finds text in a later page and zooms without mounting every canvas", async () => {
