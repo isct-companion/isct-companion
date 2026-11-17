@@ -39,8 +39,9 @@ mod key {
     pub(super) const KID: Option<&str> = option_env!("ISCT_FLOOR_PHOTO_KID");
     const LEN: usize = RAW.len();
 
-    const fn pad() -> [u8; LEN] {
-        let mut out = [0u8; LEN];
+    // Generic over the length, which is 0 in a build without the key.
+    const fn pad<const N: usize>() -> [u8; N] {
+        let mut out = [0u8; N];
         // xorshift64, seeded by the crate version so each release differs.
         let seed = env!("CARGO_PKG_VERSION").as_bytes();
         let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
@@ -50,7 +51,7 @@ mod key {
             index += 1;
         }
         let mut at = 0;
-        while at < LEN {
+        while at < N {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
@@ -60,16 +61,18 @@ mod key {
         out
     }
 
-    const PAD: [u8; LEN] = pad();
-    const MASKED: [u8; LEN] = {
-        let mut out = [0u8; LEN];
+    const fn mask<const N: usize>(raw: &[u8], pad: &[u8; N]) -> [u8; N] {
+        let mut out = [0u8; N];
         let mut at = 0;
-        while at < LEN {
-            out[at] = RAW[at] ^ PAD[at];
+        while at < N {
+            out[at] = raw[at] ^ pad[at];
             at += 1;
         }
         out
-    };
+    }
+
+    const PAD: [u8; LEN] = pad::<LEN>();
+    const MASKED: [u8; LEN] = mask::<LEN>(RAW, &PAD);
 
     /// The key id and key, in a build that carries one.
     pub(super) fn get() -> Option<(&'static str, Vec<u8>)> {
