@@ -965,6 +965,22 @@ function SetRow({
   withTeachers: boolean;
 }) {
   const current = set.documents.some((d) => d.id === reading);
+  const roleLabel = (role: string | null | undefined) =>
+    (role && lookup(`examShare.role.${role}`)) || t("examShare.file");
+  // Several files of one role (scanned pages, one per file) are numbered so
+  // their pills can be told apart.
+  const roleTotals = new Map<string, number>();
+  for (const { role } of set.documents) {
+    const key = roleLabel(role);
+    roleTotals.set(key, (roleTotals.get(key) ?? 0) + 1);
+  }
+  const roleSeen = new Map<string, number>();
+  const labels = set.documents.map(({ role }) => {
+    const key = roleLabel(role);
+    const n = (roleSeen.get(key) ?? 0) + 1;
+    roleSeen.set(key, n);
+    return (roleTotals.get(key) ?? 0) > 1 ? `${key} ${n}` : key;
+  });
   return (
     <li className="examSet" aria-current={current || undefined}>
       <div className="examSetMain">
@@ -978,7 +994,7 @@ function SetRow({
         </span>
       </div>
       <span className="examSetRoles">
-        {set.documents.map((document) => (
+        {set.documents.map((document, index) => (
           <button
             key={document.id}
             type="button"
@@ -997,8 +1013,7 @@ function SetRow({
                 aria-hidden
               />
             )}
-            {(document.role && lookup(`examShare.role.${document.role}`)) ||
-              t("examShare.file")}
+            {labels[index]}
           </button>
         ))}
       </span>

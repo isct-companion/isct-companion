@@ -263,6 +263,15 @@ summary,
     transform: translateY(3px);
   }
 }
+/* A reading pane opening beside a list: the course reader and the lectures
+   page's chosen course or exam. Defined before the reduced-motion block,
+   which replaces it with a fade. */
+@keyframes lmsPaneEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(14px, 0, 0);
+  }
+}
 .pageBar {
   min-height: 40px;
   display: flex;
@@ -1567,11 +1576,6 @@ summary,
     }
   }
   @keyframes lmsPaneEnter {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes todayPaneIn {
     from {
       opacity: 0;
     }

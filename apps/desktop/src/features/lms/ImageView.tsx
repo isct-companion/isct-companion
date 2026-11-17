@@ -1,6 +1,7 @@
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
+import "./reader.css";
 
 const MIN = 0.25;
 const MAX = 8;

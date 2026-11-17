@@ -9,6 +9,7 @@ import {
 } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
+import "./reader.css";
 import { t } from "../../i18n";
 import { LmsIcon } from "./LmsIcon";
 GlobalWorkerOptions.workerSrc = workerUrl;
