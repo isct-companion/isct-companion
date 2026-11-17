@@ -4,19 +4,21 @@ mod otp_enrollment;
 pub(crate) use otp_enrollment::EnrollmentError;
 mod otp_import;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
+mod totp;
+#[cfg(test)]
+use totp::current_otp_at;
+pub use totp::upcoming_otps;
+use totp::{otp_config, otp_setup_uri};
 
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
 use crate::school_session::SchoolSignInProblem;
 use crate::secret_parts;
-use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
 };
-use url::Url;
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum SchoolAuthError {
@@ -1321,136 +1323,6 @@ pub fn parse_matrix_text(text: &str) -> Result<MatrixPaste, SchoolAuthError> {
     Ok(MatrixPaste { cells, order })
 }
 
-struct OtpConfig {
-    secret: Vec<u8>,
-    digits: u32,
-    period: u64,
-    algorithm: OtpAlgorithm,
-}
-
-enum OtpAlgorithm {
-    Sha1,
-    Sha256,
-    Sha512,
-}
-
-fn decode_base32(raw: &str) -> Result<Vec<u8>, SchoolAuthError> {
-    let mut output = Vec::with_capacity(raw.len() * 5 / 8);
-    let mut buffer = 0u32;
-    let mut bits = 0u8;
-    for character in raw.chars().filter(|character| *character != '=') {
-        let value = match character.to_ascii_uppercase() {
-            'A'..='Z' => character.to_ascii_uppercase() as u8 - b'A',
-            '2'..='7' => character as u8 - b'2' + 26,
-            _ => return Err(SchoolAuthError::invalid("OTP secret is not valid Base32.")),
-        };
-        buffer = (buffer << 5) | u32::from(value);
-        bits += 5;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buffer >> bits) as u8);
-            buffer &= (1u32 << bits).saturating_sub(1);
-        }
-    }
-    if output.len() < 10 {
-        return Err(SchoolAuthError::invalid("OTP secret is too short."));
-    }
-    Ok(output)
-}
-
-fn otp_config(raw: &str) -> Result<OtpConfig, SchoolAuthError> {
-    let mut secret = raw.to_string();
-    let mut digits = 6;
-    let mut period = 30;
-    let mut algorithm = OtpAlgorithm::Sha1;
-    if raw.starts_with("otpauth://") {
-        let url = Url::parse(raw).map_err(|_| SchoolAuthError::invalid("OTP link is invalid."))?;
-        if url.scheme() != "otpauth" || url.host_str() != Some("totp") {
-            return Err(SchoolAuthError::invalid(
-                "Only TOTP setup links are supported.",
-            ));
-        }
-        let pairs: std::collections::HashMap<_, _> = url.query_pairs().collect();
-        secret = pairs
-            .get("secret")
-            .map(|value| value.to_string())
-            .ok_or_else(|| SchoolAuthError::invalid("OTP link has no secret."))?;
-        if let Some(value) = pairs.get("digits") {
-            digits = value
-                .parse()
-                .map_err(|_| SchoolAuthError::invalid("OTP digits are invalid."))?;
-        }
-        if let Some(value) = pairs.get("period") {
-            period = value
-                .parse()
-                .map_err(|_| SchoolAuthError::invalid("OTP period is invalid."))?;
-        }
-        if let Some(value) = pairs.get("algorithm") {
-            algorithm = match value.to_ascii_uppercase().as_str() {
-                "SHA1" => OtpAlgorithm::Sha1,
-                "SHA256" => OtpAlgorithm::Sha256,
-                "SHA512" => OtpAlgorithm::Sha512,
-                _ => return Err(SchoolAuthError::invalid("OTP algorithm is unsupported.")),
-            };
-        }
-    }
-    if !(6..=8).contains(&digits) || period == 0 || period > 300 {
-        return Err(SchoolAuthError::invalid("OTP parameters are invalid."));
-    }
-    Ok(OtpConfig {
-        secret: decode_base32(&secret.replace([' ', '-'], ""))?,
-        digits,
-        period,
-        algorithm,
-    })
-}
-
-const OTP_ISSUER: &str = "Science Tokyo";
-
-/// An `otpauth://` setup link passes through unchanged; a bare secret uses
-/// the TOTP defaults `otp_config` assumes for it.
-fn otp_setup_uri(setup: &str, account: &str) -> String {
-    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-    if setup.starts_with("otpauth://") {
-        return setup.to_string();
-    }
-    let issuer = utf8_percent_encode(OTP_ISSUER, NON_ALPHANUMERIC);
-    let label = if account.is_empty() {
-        issuer.to_string()
-    } else {
-        format!(
-            "{issuer}:{}",
-            utf8_percent_encode(account, NON_ALPHANUMERIC)
-        )
-    };
-    let secret = setup.replace([' ', '-', '='], "").to_ascii_uppercase();
-    format!("otpauth://totp/{label}?secret={secret}&issuer={issuer}")
-}
-
-fn otp_at(raw: &str, timestamp: u64) -> Result<String, SchoolAuthError> {
-    let config = otp_config(raw)?;
-    let counter = timestamp / config.period;
-    let algorithm = match config.algorithm {
-        OtpAlgorithm::Sha1 => hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
-        OtpAlgorithm::Sha256 => hmac::HMAC_SHA256,
-        OtpAlgorithm::Sha512 => hmac::HMAC_SHA512,
-    };
-    let key = hmac::Key::new(algorithm, &config.secret);
-    let digest = hmac::sign(&key, &counter.to_be_bytes());
-    let bytes = digest.as_ref();
-    let offset = usize::from(bytes[bytes.len() - 1] & 0x0f);
-    let binary = (u32::from(bytes[offset] & 0x7f) << 24)
-        | (u32::from(bytes[offset + 1]) << 16)
-        | (u32::from(bytes[offset + 2]) << 8)
-        | u32::from(bytes[offset + 3]);
-    let modulus = 10u32.pow(config.digits);
-    Ok(format!(
-        "{:0width$}",
-        binary % modulus,
-        width = config.digits as usize
-    ))
-}
-
 /// A code and the Unix second its time step starts.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct OtpWindow {
@@ -1458,25 +1330,12 @@ pub struct OtpWindow {
     pub code: String,
 }
 
-/// Codes for the current step and the next `ahead` steps, so a page that sits
-/// for a while before its code field appears can still submit a live code.
-pub fn upcoming_otps(raw: &str) -> Result<Vec<OtpWindow>, SchoolAuthError> {
-    let period = otp_config(raw)?.period;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| SchoolAuthError::storage("System time is unavailable."))?
-        .as_secs();
-    let start = now - now % period;
-    // The login flow waits across the current window and at most three successors.
-    (0..=3)
-        .map(|step| {
-            let from = start + step * period;
-            Ok(OtpWindow {
-                from,
-                code: otp_at(raw, from)?,
-            })
-        })
-        .collect()
+/// The current App OTP and its expiry as a Unix timestamp in seconds.
+#[derive(Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolOtpCode {
+    pub otp: String,
+    pub expires_at: u64,
 }
 
 #[cfg(test)]

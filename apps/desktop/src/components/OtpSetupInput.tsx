@@ -22,6 +22,7 @@ import {
 } from "../platform/otp-import";
 import { NativeError } from "../platform/native-error";
 import { OtpGuideButton } from "./OtpGuide";
+import { SchoolOtpCodeButton } from "./SchoolOtpCode";
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
@@ -76,6 +77,7 @@ export function OtpSetupInput({
   value,
   saved,
   otpOnly,
+  canShowCode,
   disabled,
   onChange,
   onScanState,
@@ -85,6 +87,7 @@ export function OtpSetupInput({
   value: string;
   saved: boolean;
   otpOnly: boolean;
+  canShowCode: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
@@ -293,6 +296,9 @@ export function OtpSetupInput({
                     : "settings.credentialImport.codesAreFilledInFor",
                 )}
           </Text>
+          {saved && !read && canShowCode && (
+            <SchoolOtpCodeButton disabled={busy} />
+          )}
           {exportButtons}
           <Button
             variant="subtle"

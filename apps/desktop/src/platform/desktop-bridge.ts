@@ -83,6 +83,8 @@ export type SchoolCredentials = {
   otpSecret: string;
   matrix: string;
 };
+export type SchoolOtpCode = { otp: string; expiresAt: number };
+
 export type SchoolCredentialStatus = {
   suggestedAdmissionYear?: number;
   science: {
@@ -621,6 +623,8 @@ export interface DesktopBridge {
   copySchoolOtp(setup?: string): Promise<boolean>;
   /** SVG QR code of the OTP setup, for another authenticator to scan. */
   schoolOtpQr(setup?: string): Promise<string>;
+  schoolOtpCode(): Promise<SchoolOtpCode | null>;
+  copySchoolOtpCode(otp: string): Promise<void>;
   /** Shows `site`'s view for `surface` (an id of the app page showing it). */
   openSchoolSite(
     site: SchoolSite,
@@ -1021,6 +1025,9 @@ export function createTauriDesktopBridge(
       booleanCommand("delete_school_credentials", { profile }),
     copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
     copySchoolOtp: (setup) => booleanCommand("copy_school_otp", { setup }),
+    schoolOtpCode: () => invokeCommand<SchoolOtpCode | null>("school_otp_code"),
+    copySchoolOtpCode: (otp) =>
+      invokeCommand<void>("copy_school_otp_code", { otp }),
     schoolOtpQr: async (setup) =>
       requireString(
         "school_otp_qr",

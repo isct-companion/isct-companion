@@ -2,7 +2,6 @@ import AVFoundation
 import IsctCore
 import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 import Vision
 import VisionKit
 
@@ -62,6 +61,7 @@ private struct TileLabel: LabelStyle {
 /// export QR (camera or a screenshot on this phone) and a pasted setup.
 struct OtpImportField: View {
     let saved: Bool
+    let canShowCode: Bool
     @Binding var setup: String
     let openManual: () -> Void
     @State private var changing = false
@@ -88,6 +88,9 @@ struct OtpImportField: View {
                     .foregroundStyle(Theme.ok, Theme.ink)
                 Spacer()
                 Button(t("settings.credentialImport.change")) { changing = true }
+            }
+            if canShowCode {
+                SchoolOtpCodeButton()
             }
             // A QR on this screen cannot be scanned by this phone, so the
             // `otpauth://` link goes straight to the installed authenticator.
@@ -271,9 +274,7 @@ struct OtpImportField: View {
         error = nil
         do {
             let link = try await model.otpSetupLink()
-            UIPasteboard.general.setItems(
-                [[UTType.utf8PlainText.identifier: link]],
-                options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+            copySensitiveOtp(link, expiresAt: Date().addingTimeInterval(120))
             copied = true
             try? await Task.sleep(for: .seconds(2))
             copied = false

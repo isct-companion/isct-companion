@@ -397,6 +397,14 @@ impl Session {
             })
         })
     }
+    /// Read the saved account's current App OTP for the settings dialog.
+    pub fn school_otp_code(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(|i| {
+            Ok(OperationResult::CurrentSchoolOtp {
+                snapshot: project(i.core.school_otp_code()?)?,
+            })
+        })
+    }
     /// The saved (or drafted) school OTP setup as an `otpauth://` link for
     /// the shell to open in an authenticator or copy. Only on explicit request.
     pub fn school_otp_link(&self, draft: Option<String>) -> Result<Arc<Operation>, SdkError> {

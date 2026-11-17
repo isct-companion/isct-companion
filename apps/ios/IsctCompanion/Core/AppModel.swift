@@ -841,6 +841,13 @@ final class AppModel {
         await refreshAccounts()
     }
 
+    func schoolOtpCode() async throws -> SchoolOtpCode? {
+        guard let session, case let .currentSchoolOtp(code) = try await session.schoolOtpCode().value() else {
+            return nil
+        }
+        return code
+    }
+
     /// The saved school OTP setup as an `otpauth://` link, read only when the
     /// person asks to add it to an authenticator or copy it.
     func otpSetupLink() async throws -> String {

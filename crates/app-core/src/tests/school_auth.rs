@@ -102,7 +102,10 @@ fn otp_export_prefers_a_valid_draft_without_mutating_saved_credentials() {
     assert_eq!(imported.len(), 1);
     assert_eq!(imported[0].issuer, "Science Tokyo");
     assert_eq!(imported[0].label, "Science Tokyo:user@example");
-    assert_eq!(otp_at(&uri, 59).unwrap(), otp_at(draft, 59).unwrap());
+    assert_eq!(
+        current_otp_at(&uri, 59).unwrap().otp,
+        current_otp_at(draft, 59).unwrap().otp
+    );
 }
 
 #[test]
@@ -184,6 +187,17 @@ fn titech_app_export_pastes_down_columns_and_bad_pastes_are_rejected() {
 }
 
 #[test]
+fn current_code_changes_at_expiry_and_preserves_leading_zeroes() {
+    let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    let ending = current_otp_at(secret, 59).unwrap();
+    assert_eq!((ending.otp.as_str(), ending.expires_at), ("287082", 60));
+    let next = current_otp_at(secret, ending.expires_at).unwrap();
+    assert_eq!((next.otp.as_str(), next.expires_at), ("359152", 90));
+    // RFC 6238's SHA-1 vector at this time ends in 081804.
+    assert_eq!(current_otp_at(secret, 1_111_111_109).unwrap().otp, "081804");
+}
+
+#[test]
 fn upcoming_codes_cover_consecutive_windows() {
     let windows = upcoming_otps("JBSWY3DPEHPK3PXP").unwrap();
     assert_eq!(windows.len(), 4);
@@ -193,7 +207,7 @@ fn upcoming_codes_cover_consecutive_windows() {
     for window in &windows {
         assert_eq!(
             window.code,
-            otp_at("JBSWY3DPEHPK3PXP", window.from).unwrap()
+            current_otp_at("JBSWY3DPEHPK3PXP", window.from).unwrap().otp
         );
     }
 }

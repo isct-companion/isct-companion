@@ -97,6 +97,31 @@ pub(crate) async fn copy_school_otp(
     Ok(true)
 }
 
+#[tauri::command]
+pub(crate) async fn school_otp_code(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<Option<app_core::school_auth::SchoolOtpCode>, CommandError> {
+    require_local_main(&webview)?;
+    let core = crate::core_ports::core(&app);
+    tauri::async_runtime::spawn_blocking(move || core.school_otp_code())
+        .await
+        .map_err(|_| "The credential operation stopped unexpectedly.".to_string())?
+        .map_err(coded)
+}
+
+#[tauri::command]
+pub(crate) fn copy_school_otp_code(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    otp: String,
+) -> Result<(), CommandError> {
+    require_local_main(&webview)?;
+    app.clipboard()
+        .write_text(otp)
+        .map_err(|_| "settings.otp.copyFailed".to_string().into())
+}
+
 /// The same export as a QR code. The WebView receives only the SVG, and
 /// only while the user has the QR dialog open.
 #[tauri::command]

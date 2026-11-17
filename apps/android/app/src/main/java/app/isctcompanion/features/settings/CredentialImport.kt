@@ -2,8 +2,6 @@ package app.isctcompanion.features.settings
 
 import android.Manifest
 import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -11,8 +9,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -141,25 +137,6 @@ private fun clipboardText(context: Context): String? =
     context.getSystemService(ClipboardManager::class.java)?.primaryClip
         ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
 
-/** Marked sensitive so the clipboard preview and keyboard suggestions hide
- * it, and cleared after two minutes as on iOS: the link is the second factor
- * itself. A later copy of something else is left alone; when the app is out
- * of front Android hides the clipboard, and the clip is cleared regardless. */
-private fun copySensitive(context: Context, text: String) {
-    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
-    val clip = ClipData.newPlainText(t("settings.credentialImport.otpSetup"), text)
-    clip.description.extras = android.os.PersistableBundle().apply {
-        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
-    }
-    clipboard.setPrimaryClip(clip)
-    // The description Android stored, stamped with the copy's time.
-    val copied = clipboard.primaryClipDescription?.timestamp
-    Handler(Looper.getMainLooper()).postDelayed({
-        val shown = clipboard.primaryClipDescription
-        if (shown == null || shown.timestamp == copied) clipboard.clearPrimaryClip()
-    }, 120_000)
-}
-
 // OTP
 
 /** The OTP setup, as the desktop's chooser: once saved, one line that says
@@ -170,6 +147,7 @@ private fun copySensitive(context: Context, text: String) {
 @Composable
 fun OtpImportField(
     saved: Boolean,
+    canShowCode: Boolean,
     setup: String,
     openManual: () -> Unit,
     onSetup: (String) -> Unit,
@@ -229,6 +207,7 @@ fun OtpImportField(
             Text(t("settings.credentialImport.codesAreFilledInFor"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
+        if (canShowCode) SchoolOtpCodeButton()
         // A QR on this screen cannot be scanned by this phone, so the
         // `otpauth://` link goes straight to the installed authenticator.
         ChipRow {
@@ -251,7 +230,7 @@ fun OtpImportField(
                     error = null
                     runCatching { model.otpSetupLink() }
                         .onSuccess { link ->
-                            copySensitive(context, link)
+                            copySensitiveOtp(context, t("settings.credentialImport.otpSetup"), link, 120_000)
                             copied = true
                             delay(2_000)
                             copied = false

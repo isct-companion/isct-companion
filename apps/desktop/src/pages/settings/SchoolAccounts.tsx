@@ -670,6 +670,7 @@ function Account({
             value={draft.otpSecret}
             saved={summary.hasOtp}
             otpOnly={!summary.saved}
+            canShowCode={!session?.signOutPending}
             disabled={busy}
             onScanState={setScanning}
             openSetup={() => {

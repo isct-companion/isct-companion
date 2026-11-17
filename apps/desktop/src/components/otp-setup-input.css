@@ -83,3 +83,10 @@
   height: 240px;
   background: #fff;
 }
+
+.schoolOtpCodeDigits {
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
