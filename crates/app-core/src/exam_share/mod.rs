@@ -444,12 +444,10 @@ impl ExamShare {
                     self.create_request(session, draft).await?;
                     ExamAnswer::Done
                 }
-                ExamAction::SetRequestOpen { id, open, mine } => {
-                    ExamAnswer::Requests(
+                ExamAction::SetRequestOpen { id, open, mine } => ExamAnswer::Requests(
                     self.set_request_open(session, &id, open, mine, language)
                         .await?,
-                )
-                }
+                ),
                 ExamAction::DeleteRequest { id, mine } => {
                     ExamAnswer::Requests(self.delete_request(session, &id, mine, language).await?)
                 }

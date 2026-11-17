@@ -24,6 +24,9 @@ fn document(id: &str, year: u32, occasion: &str, role: &str, teachers: &[&str]) 
     }
 }
 
+/// A row of documents (id, number) and whether it is the class's own.
+type Row<'a> = (Vec<(&'a str, Option<u32>)>, bool);
+
 /// A question and its answer from one sitting share a row, question first,
 /// whatever order the service lists them in; another year, occasion or
 /// teacher is another row. The class's own sittings come first, then newest
@@ -42,7 +45,7 @@ fn documents_of_one_sitting_share_a_row() {
     ];
     let ours = HashSet::from(["t1".to_string()]);
     let sets = group(exams.into(), &ours);
-    let rows: Vec<(Vec<(&str, Option<u32>)>, bool)> = sets
+    let rows: Vec<Row> = sets
         .iter()
         .map(|set| {
             (

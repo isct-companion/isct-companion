@@ -40,11 +40,9 @@ pub(super) fn group(exams: Vec<ExamDocument>, ours: &HashSet<String>) -> Vec<Exa
         }
     }
     for set in &mut sets {
-        set.documents
-            .sort_by(|a, b| {
-                (role_order(a.role.as_deref()), &a.role)
-                    .cmp(&(role_order(b.role.as_deref()), &b.role))
-            });
+        set.documents.sort_by(|a, b| {
+            (role_order(a.role.as_deref()), &a.role).cmp(&(role_order(b.role.as_deref()), &b.role))
+        });
         number_repeated_roles(&mut set.documents);
     }
     sets.sort_by_key(|set| {
