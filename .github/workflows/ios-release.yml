@@ -50,10 +50,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-apple-ios
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-          key: ios-release
       - name: Use the newest Xcode
         run: |
           # The app adopts iOS 26 APIs behind availability checks, so it needs
