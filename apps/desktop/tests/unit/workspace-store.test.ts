@@ -1194,6 +1194,30 @@ describe("Tauri bridge contract", () => {
     ]);
   });
 
+  it("returns selected exam upload files and treats picker cancellation as null", async () => {
+    const files = [
+      { path: "grant-1", name: "page-1.png" },
+      { path: "grant-2", name: "page-2.png" },
+    ];
+    const selected = createTauriDesktopBridge(
+      invokeSeam((command) =>
+        command === "exam_upload_pick_files" ? files : undefined,
+      ).invoke,
+      listenerSeam().listen,
+    );
+    const cancelled = createTauriDesktopBridge(
+      invokeSeam(() => null).invoke,
+      listenerSeam().listen,
+    );
+
+    await expect(selected.examUploadPickFiles!("Choose files")).resolves.toEqual(
+      files,
+    );
+    await expect(
+      cancelled.examUploadPickFiles!("Choose files"),
+    ).resolves.toBeNull();
+  });
+
   it("rejects a native answer that is not the promised shape", async () => {
     const { invoke } = invokeSeam((command) => {
       switch (command) {
@@ -1216,6 +1240,8 @@ describe("Tauri bridge contract", () => {
           };
         case "school_credential_status":
           return [];
+        case "exam_upload_pick_files":
+          return [{ name: "missing-grant.pdf" }];
         default:
           return undefined;
       }
@@ -1242,6 +1268,9 @@ describe("Tauri bridge contract", () => {
     );
     await expect(bridge.schoolCredentialStatus()).rejects.toThrow(
       "school_credential_status returned an invalid result",
+    );
+    await expect(bridge.examUploadPickFiles!("Choose files")).rejects.toThrow(
+      "exam_upload_pick_files returned an invalid result",
     );
   });
 
