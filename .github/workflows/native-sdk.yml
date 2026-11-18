@@ -18,6 +18,36 @@ env:
   ISCT_SDK_PROFILE: dev
 
 jobs:
+  rust-contracts:
+    name: Rust contracts and lint
+    # Keep the same selection as when these checks ran inside the iOS job.
+    # No SDK job needs this job's outputs; all run in parallel and gate CI.
+    if: github.event_name == 'workflow_dispatch' || inputs.ios
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: native-sdk-rust-contracts
+          # Each parallel job warms its own dependency/feature set on main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Rust contracts and lint
+        run: |
+          cargo test -p app-core -p app-ffi --locked -j 2
+          cargo test -p app-ffi --features ocr --locked -j 2
+          # The map's geometry tests; its rules over the published export run
+          # in campus-map.yml.
+          cargo test -p app-core --features campus-map --locked -j 2 campus_map
+          # The campus map is compiled into the phone SDKs only; its lint runs
+          # with the feature. Its data is checked in the map's own repository.
+          cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
+          cargo clippy -p app-core -p app-ffi --features campus-map --all-targets --locked -j 2 -- -D warnings
+
   ios:
     name: Swift SDK and iOS Simulator
     # A direct dispatch runs both platforms. The caller also dispatches both.
@@ -37,7 +67,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
-          components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
@@ -47,17 +76,6 @@ jobs:
       - name: Install host Kotlin compiler
         run: |
           if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
-      - name: Rust contracts and lint
-        run: |
-          cargo test -p app-core -p app-ffi --locked -j 2
-          cargo test -p app-ffi --features ocr --locked -j 2
-          # The map's geometry tests; its rules over the published export run
-          # in campus-map.yml.
-          cargo test -p app-core --features campus-map --locked -j 2 campus_map
-          # The campus map is compiled into the phone SDKs only; its lint runs
-          # with the feature. Its data is checked in the map's own repository.
-          cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
-          cargo clippy -p app-core -p app-ffi --features campus-map --all-targets --locked -j 2 -- -D warnings
       - name: Swift 6 and Kotlin host clients with OCR
         run: node scripts/bindings/host-smoke.mjs --ocr
       - name: Build device and simulator XCFramework
