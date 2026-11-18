@@ -1002,16 +1002,28 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
             key: first.clone(),
             mark: mark.into(),
         });
-        mutate(edit(&first, Some("2026-10-05"), None, Some("New room")));
+        mutate(edit(
+            &first,
+            Some("2026-10-05"),
+            Some(("10:45", "12:25")),
+            Some("New room"),
+        ));
         let exam = detail()
             .exams
             .into_iter()
             .find(|exam| exam.key == first)
             .unwrap();
         assert_eq!(
-            (exam.kind.as_str(), exam.date.as_str(), exam.room.as_str()),
-            (mark, "2026-10-05", "New room")
+            (
+                exam.kind.as_str(),
+                exam.date.as_str(),
+                exam.start_time.as_deref(),
+                exam.end_time.as_deref(),
+                exam.room.as_str(),
+            ),
+            (mark, "2026-10-05", Some("10:45"), Some("12:25"), "New room")
         );
+        assert!(exam.edited);
         mutate(edit(&first, None, None, None));
         let exam = detail()
             .exams
@@ -1019,9 +1031,16 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
             .find(|exam| exam.key == first)
             .unwrap();
         assert_eq!(
-            (exam.kind.as_str(), exam.date.as_str(), exam.room.as_str()),
-            (mark, "2026-04-20", "Studio")
+            (
+                exam.kind.as_str(),
+                exam.date.as_str(),
+                exam.start_time.as_deref(),
+                exam.end_time.as_deref(),
+                exam.room.as_str(),
+            ),
+            (mark, "2026-04-20", Some("08:50"), Some("10:30"), "Studio")
         );
+        assert!(!exam.edited);
     }
     // Two source quarters move into one reminder window. With no official
     // exams, scanning only the current/selected quarter necessarily misses one.

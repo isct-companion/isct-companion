@@ -172,6 +172,8 @@ fn corrected_session_override(
 ) -> Result<Option<Value>, ScheduleError> {
     let view = existing_override(workspace, key)
         .and_then(|change| {
+            // Missing historical calendars leave earlier terms as candidates;
+            // choose the term that actually contains the marked session.
             session_terms(workspace, change)
                 .into_iter()
                 .find_map(|term| {
