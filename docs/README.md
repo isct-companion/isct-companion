@@ -17,6 +17,7 @@ needs as a file.
 
 ## Building, releasing and providers
 
+- [Code quality](code-quality.md): design tokens, shared UI, where logic lives, and the review checklist.
 - [Native Core SDK](core-ffi.md): building and integrating the Swift and Kotlin bindings.
 - [Desktop release](desktop-release.md), [mobile release](mobile-release.md) and [distribution](distribution/README.md).
 - [Cloud provider setup](cloud-provider-setup.md).
