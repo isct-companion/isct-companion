@@ -55,9 +55,6 @@ jobs:
           node-version: 22
           cache: yarn
       - uses: dtolnay/rust-toolchain@1.99.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
       - run: yarn install --immutable
       - run: node scripts/desktop/desktop-release.mjs validate
       - run: yarn test
@@ -130,10 +127,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-          key: desktop-${{ matrix.target }}
       - run: yarn install --immutable
       - name: Apply optional OAuth overrides
         shell: bash

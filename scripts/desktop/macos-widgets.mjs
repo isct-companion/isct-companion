@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const projectTeam = "FB7AL944GK";
+const releaseHost = "app.isctcompanion";
 const extensionName = "IsctWidgetsExtension";
 const plistBuddy = "/usr/libexec/PlistBuddy";
 const set = (file, key, value) =>
@@ -10,7 +11,10 @@ const set = (file, key, value) =>
 
 // Stage the signed extension as a custom Contents file. Tauri copies it
 // before signing the containing .app and creating the DMG and update archive.
-export function macWidgets(root, args, macConfig, version) {
+// `host` is the containing app's identifier: the extension's identifier and
+// the widget group follow it, so a development bundle never shares the
+// release widgets' data.
+export function macWidgets(root, args, macConfig, version, host) {
   const requested =
     args.find((arg) => arg.startsWith("--target="))?.slice(9) ??
     args[args.indexOf("--target") + 1];
@@ -39,7 +43,7 @@ export function macWidgets(root, args, macConfig, version) {
   }
   const personal = developmentIdentity && (!signed || signed === "-");
   const team = personal ? developmentTeam : projectTeam;
-  const group = `${team}.app.isctcompanion.widgetkit`;
+  const group = `${team}.${host}.widgetkit`;
   const identity = personal ? developmentIdentity : (signed ?? "-");
   const run = (cmd, args) =>
     execFileSync(cmd, args, { cwd: widgets, stdio: "inherit" });
@@ -58,6 +62,7 @@ export function macWidgets(root, args, macConfig, version) {
     `ARCHS=${arch}`,
     "ONLY_ACTIVE_ARCH=NO",
     "CODE_SIGNING_ALLOWED=NO",
+    `PRODUCT_BUNDLE_IDENTIFIER=${host}.widgetkit`,
     `ISCT_WIDGET_GROUP=${group}`,
     `MARKETING_VERSION=${version}`,
     `CURRENT_PROJECT_VERSION=${version}`,
@@ -89,13 +94,16 @@ export function macWidgets(root, args, macConfig, version) {
   ]);
 
   const config = { ...macConfig?.bundle.macOS };
+  if (personal || host !== releaseHost) {
+    const hostInfo = path.join(output, "WidgetHostInfo.plist");
+    copyFileSync(path.join(desktop, "Info.plist"), hostInfo);
+    set(hostInfo, "IsctWidgetGroup", group);
+    config.infoPlist = hostInfo;
+  }
   if (personal) {
     // A locally signed bundle shares widget data within this development team.
     // Its profile does not grant the release team's iCloud entitlements.
-    const hostInfo = path.join(output, "WidgetHostInfo.plist");
     const hostEntitlements = path.join(output, "WidgetHostEntitlements.plist");
-    copyFileSync(path.join(desktop, "Info.plist"), hostInfo);
-    set(hostInfo, "IsctWidgetGroup", group);
     copyFileSync(entitlements, hostEntitlements);
     execFileSync(plistBuddy, [
       "-c",
@@ -104,7 +112,6 @@ export function macWidgets(root, args, macConfig, version) {
     ]);
     Object.assign(config, {
       signingIdentity: identity,
-      infoPlist: hostInfo,
       entitlements: hostEntitlements,
     });
   }

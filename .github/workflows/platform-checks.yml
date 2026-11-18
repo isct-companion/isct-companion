@@ -1,19 +1,16 @@
 name: Platform checks
 
 on:
+  # Checks every platform. On main this is what saves the shared caches
+  # (warm-caches.yml dispatches it).
   workflow_dispatch:
-  # Work branches and PRs check changed areas. Main warms caches weekly.
+  # Work branches and PRs check changed areas.
   push:
     branches-ignore: [main]
   # A fork's pushes happen outside this repository, so only this trigger sees
   # them. The pull request's run is the one main requires.
   pull_request:
     branches: [main]
-  # Branches can read only their own caches and the default branch's, and one
-  # set nearly fills the repository's 10 GB, so only main saves them. This run
-  # exists to save them: it gates nothing, and a failure needs no fix on main.
-  schedule:
-    - cron: '0 18 * * 0' # Monday 03:00 in Japan
 
 permissions:
   contents: read

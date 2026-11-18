@@ -28,6 +28,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: campus-map
+          # Platform checks warms the shared caches on main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download the pinned export
         run: |
           curl -fsSL --retry 3 --retry-all-errors "$EXPORT_URL" -o "$RUNNER_TEMP/campus-map.json.gz"

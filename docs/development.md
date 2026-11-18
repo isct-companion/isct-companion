@@ -41,6 +41,36 @@ If port 4173 is occupied, Vite selects another port. The native development
 configuration expects port 4173, so stop the old process before restarting the
 desktop app.
 
+### The development app
+
+`yarn desktop:dev`, and `yarn desktop:build --debug` without the team's
+provisioning profile, build a separate app, `app.isctcompanion.dev`
+("IsctCompanion Dev"). It has its own data folder, single-instance lock,
+credential-vault service, course folder (`~/Documents/IsctCompanion Dev`), MCP
+port (47833) and Windows print queue (port 24762), so it runs beside the
+installed release app and never reads, migrates or deletes the release app's
+credentials. It starts with an empty workspace: sign in to the school once
+(import an existing OTP seed in the sign-in sheet), and copy the release data
+folder into the development one by hand if you need its courses, deleting
+`course-files-root.json` from the copy. Turn on Google Drive only with a test
+Google account: the development app uses the same Drive app folder. A debug
+bundle signed with the team profile is the release app with iCloud
+(`app.isctcompanion`).
+
+On macOS each launch signs the development executable with your own Apple
+Development identity (a Personal Team works), so the keychain items it saves
+stay readable across rebuilds without prompts. Pick the identity once and keep
+it in your shell profile; `yarn desktop:dev` lists the valid ones when it is
+unset:
+
+```sh
+security find-identity -v -p codesigning   # pick an "Apple Development" SHA-1
+export ISCT_MACOS_DEV_SIGNING_IDENTITY=<SHA-1>
+```
+
+A debug binary started any other way (such as `cargo run`) would use the
+release app's data and credentials, so it refuses to start.
+
 ## Repository map
 
 ```text
