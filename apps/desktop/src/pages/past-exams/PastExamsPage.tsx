@@ -29,6 +29,7 @@ import {
   Menu,
   SegmentedControl,
   Skeleton,
+  Tag,
 } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { ExternalLink } from "../../components/ExternalLink";
