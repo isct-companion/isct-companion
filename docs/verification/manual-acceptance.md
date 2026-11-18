@@ -10153,13 +10153,11 @@ exercise the owner check. Keep working email access for resetting.
 
 1. With no saved Science Tokyo credentials, press Connect with the
    account ID and password and a blank OTP field. Check the emailed-code
-   verdict in Settings. Open Set it up myself, then return to Settings.
-   - *Why:* A blank OTP must reach Extic and report its real requirement. The
-     manual portal must let the person sign in and leave their settings
-     alone.
-2. Start Help me set up and continue. Sign in on the visible school
-   page. With the account that has only emailed codes, wait for the
-   App Authentication verdict and the saved notice. Open School
+   verdict in Settings.
+   - *Why:* A blank OTP must reach Extic and report its real requirement.
+2. Choose Help me set up, press Sign in and set up and confirm the
+   replacement warning. Sign in on the visible school page. With the account that has only emailed codes,
+   wait for the App Authentication verdict and the saved notice. Open School
    Accounts and check that adding to an authenticator is not offered
    before Connect. Relaunch and check the saved OTP still appears.
    Connect with the password and a blank OTP field, then add the saved
@@ -10170,18 +10168,21 @@ exercise the owner check. Keep working email access for resetting.
      external authenticator provisioning uses an account the school has
      accepted, never an enrollment-only seed or an unverified draft.
 3. Repeat Help me set up using the account with an existing
-   authenticator. At the reset choice, keep the existing setup and
-   confirm its code still works. Start again, confirm the reset
-   explicitly and verify the newly exported setup on the school page.
-   - *Why:* Detects deletion before reset consent or a successful-looking
-     rotation with the previous seed still saved.
+   authenticator. Cancel the replacement warning in Settings and
+   confirm the school page did not open and the existing code still
+   works. Start again, confirm the warning, and check that the school
+   page replaces the setup without asking again; verify the newly
+   exported setup on the school page.
+   - *Why:* The warning before the page opens is the only consent: cancelling
+     must leave the school untouched, and confirming must not end in a
+     successful-looking rotation with the previous seed still saved.
 4. Enter one account ID in Settings and sign in to the school page
    as the other account. Check the account mismatch notice and both
    accounts' App Authentication settings.
    - *Why:* The live portal can already hold an unrelated signed-in cookie.
      A mismatched page must never receive a reset or registration.
-5. Before confirming a reset, switch to another school site or leave
-   the web screen, then return. On each phone, also put the app in
+5. While the school page is checking the settings, switch to another
+   school site or leave the web screen, then return. On each phone, also put the app in
    the background while it is checking the settings, then resume.
    Check the school's settings before starting another enrollment.
    - *Why:* Native script execution is queued. A parked or background view,
@@ -10194,8 +10195,8 @@ The visible Extic page, its App Authentication status, and the School Accounts O
 
 **Expected**
 
-Only the authorized account is enrolled. Keeping an existing setup
-preserves its working authenticator. Confirmed rotation saves the new
+Only the authorized account is enrolled. Cancelling the warning
+preserves the working authenticator. Confirmed rotation saves the new
 seed on the device before Connect.
 
 **Why this is manual**

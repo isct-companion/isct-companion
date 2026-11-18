@@ -7,6 +7,7 @@ import {
   Group,
   Input,
   Modal,
+  SegmentedControl,
   Stack,
   Text,
   TextInput,
@@ -26,12 +27,16 @@ import { SchoolOtpCodeButton } from "./SchoolOtpCode";
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
-type OtpPathId = "export" | "paste";
+/** How the setup reaches the app: the app sets it up at school, or it is
+ * imported from where the person already has it. */
+type OtpBranch = "help" | "import";
+/** Where an imported setup comes from. */
+type OtpSource = "export" | "paste";
 
 /**
- * One way to give the app the school's OTP setup. The two are mutually
- * exclusive, so they read as radio cards; only the chosen one shows its
- * controls.
+ * One of the two ways to get school OTP into the app. They are mutually
+ * exclusive, so they read as radio cards; each says what it does, and only
+ * the chosen one shows its controls.
  */
 function OtpPath({
   value,
@@ -41,9 +46,9 @@ function OtpPath({
   hint,
   children,
 }: {
-  value: OtpPathId;
-  current: OtpPathId;
-  onSelect: (value: OtpPathId) => void;
+  value: OtpBranch;
+  current: OtpBranch;
+  onSelect: (value: OtpBranch) => void;
   title: string;
   hint: string;
   children: React.ReactNode;
@@ -59,16 +64,12 @@ function OtpPath({
         onClick={() => onSelect(value)}
       >
         <i aria-hidden="true" />
-        <b>{title}</b>
+        <span>
+          <b>{title}</b>
+          <small>{hint}</small>
+        </span>
       </button>
-      {selected && (
-        <div className="otpPathBody">
-          <Text size="xs" c="dimmed">
-            {hint}
-          </Text>
-          {children}
-        </div>
-      )}
+      {selected && <div className="otpPathBody">{children}</div>}
     </div>
   );
 }
@@ -82,7 +83,6 @@ export function OtpSetupInput({
   onChange,
   onScanState,
   openSetup,
-  openManual,
 }: {
   value: string;
   saved: boolean;
@@ -92,7 +92,6 @@ export function OtpSetupInput({
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
   openSetup: () => void;
-  openManual: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   useTimeout(() => setCopied(false), copied ? 2000 : null);
@@ -128,8 +127,9 @@ export function OtpSetupInput({
   // secret. `null` until something is read.
   const [label, setLabel] = useState<string | null>(null);
   const [changing, setChanging] = useState(false);
-  const [path, setPath] = useState<OtpPathId>("export");
-  const [consent, setConsent] = useState(false);
+  const [branch, setBranch] = useState<OtpBranch>("help");
+  const [source, setSource] = useState<OtpSource>("export");
+  const [confirm, setConfirm] = useState(false);
   // A newly saved setup closes the chooser again.
   useEffect(() => setChanging(false), [saved]);
   const generation = useRef(0);
@@ -151,7 +151,8 @@ export function OtpSetupInput({
   const choose = (account: OtpImportAccount, fold = true) => {
     onChange(account.setup);
     // What was read lands in the paste field, so Change shows it there.
-    setPath("paste");
+    setBranch("import");
+    setSource("paste");
     setLabel(account.label || account.issuer);
     setAccounts([]);
     setError("");
@@ -204,9 +205,12 @@ export function OtpSetupInput({
   // opens it again, to fix a wrong image or link.
   const choosing = changing || (value.trim() ? !read : !saved);
   const busy = disabled || reading || camera;
-  const readText = t("settings.credentialImport.readAccountReadyOnceConnected", {
-    account: label || t("settings.credentialImport.otpSecret"),
-  });
+  const readText = t(
+    "settings.credentialImport.readAccountReadyOnceConnected",
+    {
+      account: label || t("settings.credentialImport.otpSecret"),
+    },
+  );
   const copyButton = (
     <Button
       variant="default"
@@ -242,49 +246,6 @@ export function OtpSetupInput({
       label={t("settings.main.oneTimePassword")}
       id="school-otp-setup"
     >
-      {choosing && (
-        <Group gap="xs">
-          <Button size="xs" disabled={busy} onClick={() => setConsent(true)}>
-            {t("otpEnrollment.help")}
-          </Button>
-          <Button
-            size="xs"
-            variant="subtle"
-            disabled={busy}
-            onClick={openManual}
-          >
-            {t("otpEnrollment.manual")}
-          </Button>
-        </Group>
-      )}
-      <Modal
-        opened={consent}
-        onClose={() => setConsent(false)}
-        title={t("otpEnrollment.help")}
-      >
-        <Stack gap="sm">
-          <Text size="sm">{t("otpEnrollment.consent")}</Text>
-          <Group justify="end">
-            <Button
-              variant="default"
-              onClick={() => {
-                setConsent(false);
-                openManual();
-              }}
-            >
-              {t("otpEnrollment.manual")}
-            </Button>
-            <Button
-              onClick={() => {
-                setConsent(false);
-                openSetup();
-              }}
-            >
-              {t("otpEnrollment.continue")}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
       {!choosing ? (
         <div className="otpSaved" role="status">
           <Check size={16} strokeWidth={1.75} aria-hidden />
@@ -311,84 +272,130 @@ export function OtpSetupInput({
           </Button>
         </div>
       ) : (
-        <div className="otpPaths" role="radiogroup">
+        <div
+          className="otpPaths"
+          role="radiogroup"
+          aria-label={t("settings.main.oneTimePassword")}
+        >
           <OtpPath
-            value="export"
-            current={path}
-            onSelect={setPath}
-            title={t("settings.credentialImport.fromAnAuthenticatorApp")}
-            hint={t("settings.credentialImport.exportFromGoogleAuthenticator")}
+            value="help"
+            current={branch}
+            onSelect={setBranch}
+            title={t("otpEnrollment.help")}
+            hint={t("otpEnrollment.helpHint")}
           >
-            <Group gap="xs">
-              <Button
-                size="xs"
-                variant="default"
-                disabled={busy}
-                onClick={() => setCamera(true)}
-              >
-                {t("settings.credentialImport.scanQR")}
-              </Button>
-              <FileButton
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(file) => {
-                  if (file) void load(file);
-                }}
-              >
-                {(props) => (
+            <Button
+              variant="default"
+              disabled={busy}
+              onClick={() => setConfirm(true)}
+            >
+              {t("otpEnrollment.start")}
+            </Button>
+          </OtpPath>
+          <OtpPath
+            value="import"
+            current={branch}
+            onSelect={setBranch}
+            title={t("otpEnrollment.import")}
+            hint={t("otpEnrollment.importHint")}
+          >
+            <SegmentedControl
+              size="xs"
+              value={source}
+              onChange={(next) => setSource(next as OtpSource)}
+              data={[
+                {
+                  value: "export",
+                  label: t("settings.credentialImport.sourceAuthenticator"),
+                },
+                {
+                  value: "paste",
+                  label: t("settings.credentialImport.sourceTitechApp"),
+                },
+              ]}
+            />
+            {source === "export" ? (
+              <>
+                <Text size="xs" c="dimmed">
+                  {t("settings.credentialImport.exportFromGoogleAuthenticator")}
+                </Text>
+                <Group gap="xs">
                   <Button
-                    {...props}
                     size="xs"
                     variant="default"
                     disabled={busy}
-                    loading={reading}
+                    onClick={() => setCamera(true)}
                   >
-                    {t("settings.otp.selectImage")}
+                    {t("settings.credentialImport.scanQR")}
                   </Button>
-                )}
-              </FileButton>
-              <OtpGuideButton guide="google" />
-            </Group>
-          </OtpPath>
-          <OtpPath
-            value="paste"
-            current={path}
-            onSelect={setPath}
-            title={t("settings.otp.pasteASetupLinkOr")}
-            hint={t("settings.credentialImport.pasteFromTitechApp")}
-          >
-            <div className="otpSetupRow">
-              <TextInput
-                id="school-otp-setup"
-                type="password"
-                size="xs"
-                aria-label={t("settings.credentialImport.setupLinkOrSecret")}
-                value={value}
-                autoCapitalize="none"
-                autoComplete="off"
-                spellCheck={false}
-                disabled={disabled || reading}
-                placeholder={t("settings.credentialImport.otpauthOrSecretKey")}
-                onChange={(event) => {
-                  onChange(event.target.value);
-                  setLabel(null);
-                  setError("");
-                }}
-                // A paste or a finished entry is read at once; Connect is
-                // only for whether the school accepts it.
-                onPaste={(event) => {
-                  const text = event.clipboardData.getData("text");
-                  if (!text.trim()) return;
-                  event.preventDefault();
-                  void load(text, true);
-                }}
-                onBlur={() => {
-                  if (value.trim() && label === null && !error)
-                    void load(value, true, false);
-                }}
-              />
-              {exportButtons}
-            </div>
-            <OtpGuideButton guide="titechApp" />
+                  <FileButton
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(file) => {
+                      if (file) void load(file);
+                    }}
+                  >
+                    {(props) => (
+                      <Button
+                        {...props}
+                        size="xs"
+                        variant="default"
+                        disabled={busy}
+                        loading={reading}
+                      >
+                        {t("settings.otp.selectImage")}
+                      </Button>
+                    )}
+                  </FileButton>
+                  <OtpGuideButton guide="google" />
+                </Group>
+              </>
+            ) : (
+              <>
+                <Text size="xs" c="dimmed">
+                  {t("settings.credentialImport.pasteFromTitechApp")}
+                </Text>
+                <div className="otpSetupRow">
+                  <TextInput
+                    id="school-otp-setup"
+                    type="password"
+                    size="xs"
+                    aria-label={t(
+                      "settings.credentialImport.setupLinkOrSecret",
+                    )}
+                    value={value}
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={disabled || reading}
+                    placeholder={t(
+                      "settings.credentialImport.otpauthOrSecretKey",
+                    )}
+                    onChange={(event) => {
+                      onChange(event.target.value);
+                      setLabel(null);
+                      setError("");
+                    }}
+                    // A paste or a finished entry is read at once; Connect is
+                    // only for whether the school accepts it.
+                    onPaste={(event) => {
+                      const text = event.clipboardData.getData("text");
+                      if (!text.trim()) return;
+                      event.preventDefault();
+                      void load(text, true);
+                    }}
+                    onBlur={() => {
+                      if (value.trim() && label === null && !error)
+                        void load(value, true, false);
+                    }}
+                  />
+                  {exportButtons}
+                </div>
+                <OtpGuideButton guide="titechApp" />
+              </>
+            )}
+            <Text size="xs" c="dimmed">
+              {t("settings.credentialImport.readOnThisDevice")}
+            </Text>
           </OtpPath>
           {/* Opened with Change: fold back to the setup just read, or drop
               a wrong entry and keep the saved one. */}
@@ -423,11 +430,6 @@ export function OtpSetupInput({
           )}
         </div>
       )}
-      {choosing && (
-        <Text size="xs" c="dimmed">
-          {t("settings.credentialImport.readOnThisDevice")}
-        </Text>
-      )}
       {choosing && read && (
         <Text size="xs" c="green">
           {readText}
@@ -438,6 +440,32 @@ export function OtpSetupInput({
           {error}
         </Alert>
       )}
+      {/* Asked once, before the school page opens, whatever the school
+          has: Core then replaces an existing setup without asking again. */}
+      <Modal
+        opened={confirm}
+        onClose={() => setConfirm(false)}
+        title={t("otpEnrollment.help")}
+        centered
+      >
+        <Stack gap="sm">
+          <Text size="sm">{t("otpEnrollment.confirm")}</Text>
+          <Group justify="end">
+            <Button variant="default" onClick={() => setConfirm(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              color="red"
+              onClick={() => {
+                setConfirm(false);
+                openSetup();
+              }}
+            >
+              {t("otpEnrollment.start")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
       {camera && (
         <QrCamera
           onClose={() => setCamera(false)}

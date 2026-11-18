@@ -145,6 +145,7 @@ pub(super) fn current_otp_at(raw: &str, now: u64) -> Result<SchoolOtpCode, Schoo
     Ok(SchoolOtpCode {
         otp: otp_at(&config, start),
         expires_at: start + config.period,
+        period: config.period,
     })
 }
 

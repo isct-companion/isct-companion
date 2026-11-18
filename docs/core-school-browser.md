@@ -193,8 +193,9 @@ string result directly to `otpScriptResult(page, actionId, result)`, or
 returned by `evaluateJavascript`; WebKit already returns a string. Neither
 scripts nor results are logged or sent through a page-accessible app bridge.
 Core publishes credential-free `SchoolWebPage.otp`; the shell displays its
-stage and forwards reset, stop and retry-save intents. Resetting an existing
-authenticator always requires a separate explicit intent.
+stage and forwards stop and retry-save intents. The one consent is the
+shell's warning before it starts enrollment, given whatever the school has:
+an existing authenticator at school is then replaced without asking again.
 
 The app's commands act on the page in front: the last popup open over the
 view (hosts with `inlinePopups`), the view itself otherwise.

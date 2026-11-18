@@ -677,7 +677,6 @@ function Account({
               edit({ ...draft, otpSecret: "" });
               showLoginPage(profile, { otpUsername: draft.username });
             }}
-            openManual={() => showLoginPage(profile, { unsigned: true })}
             onChange={(otpSecret) => edit({ ...draft, otpSecret })}
           />
         )}

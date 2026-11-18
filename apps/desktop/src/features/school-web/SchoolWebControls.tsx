@@ -226,7 +226,6 @@ export function SchoolWebNotices({
 const otpMessages: Record<SchoolOtpEnrollment["stage"], MessageKey> = {
   "sign-in": "otpEnrollment.signIn",
   checking: "otpEnrollment.checking",
-  "confirm-reset": "otpEnrollment.confirmReset",
   "setting-up": "otpEnrollment.settingUp",
   saving: "otpEnrollment.saving",
   complete: "otpEnrollment.complete",
@@ -246,28 +245,12 @@ function OtpNotice({
   const routed = useInRouterContext();
   const send = (intent: SchoolOtpIntent) =>
     desktopBridge?.schoolOtpIntent?.(otp.id, intent).catch(onError);
-  const confirm = otp.stage === "confirm-reset";
-  const active = [
-    "sign-in",
-    "checking",
-    "setting-up",
-    "confirm-reset",
-  ].includes(otp.stage);
+  const active = ["sign-in", "checking", "setting-up"].includes(otp.stage);
   return (
     <div className="webNotice otpEnrollmentNotice" role="status">
       <span>{t(otpMessages[otp.stage], { account: otp.owner ?? "" })}</span>
-      {confirm && (
-        <UiButton type="button" onClick={() => void send("reset")}>
-          {t("otpEnrollment.reset")}
-        </UiButton>
-      )}
-      {routed && (confirm || otp.stage === "complete") && (
-        <OpenAccounts
-          label={confirm ? "otpEnrollment.import" : "otpEnrollment.settings"}
-          beforeOpen={() => {
-            if (confirm) void send("stop");
-          }}
-        />
+      {routed && otp.stage === "complete" && (
+        <OpenAccounts label="otpEnrollment.settings" />
       )}
       {otp.stage === "save-failed" && (
         <UiButton type="button" onClick={() => void send("retry-save")}>
@@ -276,13 +259,7 @@ function OtpNotice({
       )}
       {otp.stage !== "saving" && (
         <UiButton type="button" onClick={() => void send("stop")}>
-          {t(
-            confirm
-              ? "otpEnrollment.keep"
-              : active
-                ? "common.cancel"
-                : "common.done",
-          )}
+          {t(active ? "common.cancel" : "common.done")}
         </UiButton>
       )}
     </div>
@@ -293,19 +270,14 @@ function OtpNotice({
  * inside the app's routes has somewhere to go. */
 function OpenAccounts({
   label = "web.signIn.openSettings",
-  beforeOpen,
 }: {
   label?: MessageKey;
-  beforeOpen?: () => void;
 }) {
   const navigate = useAnimatedNavigate();
   return (
     <UiButton
       type="button"
-      onClick={() => {
-        beforeOpen?.();
-        void navigate(paths.settings("accounts"));
-      }}
+      onClick={() => void navigate(paths.settings("accounts"))}
     >
       {t(label)}
     </UiButton>

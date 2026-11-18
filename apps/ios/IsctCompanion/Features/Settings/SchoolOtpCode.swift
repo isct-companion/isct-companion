@@ -6,10 +6,11 @@ struct SchoolOtpCodeButton: View {
     @State private var opened = false
 
     var body: some View {
-        Button(t("settings.otp.showCode")) { opened = true }
+        Button(t("settings.otp.showCode"), systemImage: "123.rectangle") { opened = true }
             .sheet(isPresented: $opened) {
                 SchoolOtpCodeSheet()
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.medium])
+                    .presentationBackground(Theme.bg)
             }
     }
 }
@@ -25,19 +26,32 @@ private struct SchoolOtpCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 12) {
+            VStack(spacing: 20) {
                 if scenePhase == .active, let current, seconds > 0 {
-                    Text(current.otp)
-                        .font(.largeTitle.weight(.semibold).monospacedDigit())
-                        .tracking(4)
-                        .privacySensitive()
-                    Text(t("settings.otp.expiresIn", ["seconds": seconds]))
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    Button(t(copied ? "settings.credentialImport.copied" : "settings.otp.copyCode"), systemImage: "doc.on.doc") {
-                        copy(current)
+                    HStack(spacing: 16) {
+                        // The code is the copy target too, as in an authenticator.
+                        Button { copy(current) } label: { OtpDigits(otp: current.otp) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(current.otp), \(t("settings.otp.copyCode"))")
+                        Spacer(minLength: 0)
+                        OtpCountdown(
+                            expiresAt: Date(timeIntervalSince1970: TimeInterval(current.expiresAt)),
+                            period: TimeInterval(current.period),
+                            seconds: seconds)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusColumn, style: .continuous))
+                    Button {
+                        copy(current)
+                    } label: {
+                        Label(t(copied ? "settings.credentialImport.copied" : "settings.otp.copyCode"),
+                              systemImage: copied ? "checkmark" : "doc.on.doc")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(CapsuleButtonStyle())
                 } else if unavailable {
                     Text(t("settings.otp.codeUnavailable"))
                         .foregroundStyle(.secondary)
@@ -94,6 +108,52 @@ private struct SchoolOtpCodeSheet: View {
         guard expiry > .now else { return }
         copySensitiveOtp(code.otp, expiresAt: expiry)
         copied = true
+    }
+}
+
+/// Grouped as authenticators show it: 123 456.
+private struct OtpDigits: View {
+    let otp: String
+
+    var body: some View {
+        let half = otp.index(otp.startIndex, offsetBy: otp.count / 2)
+        HStack(spacing: 10) {
+            Text(otp[..<half])
+            Text(otp[half...])
+        }
+        .font(.system(size: 42, weight: .semibold, design: .rounded).monospacedDigit())
+        .foregroundStyle(Theme.ink)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .privacySensitive()
+    }
+}
+
+/// What is left of the time step: a ring that empties smoothly, the seconds
+/// inside it, both in the danger colour for the last five seconds.
+private struct OtpCountdown: View {
+    let expiresAt: Date
+    let period: TimeInterval
+    let seconds: Int
+
+    var body: some View {
+        let tint = seconds <= 5 ? Theme.danger : Theme.accent
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+            let left = max(0, min(1, expiresAt.timeIntervalSince(context.date) / period))
+            ZStack {
+                Circle().stroke(Theme.line, lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: left)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text("\(seconds)")
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(seconds <= 5 ? Theme.danger : Theme.muted)
+            }
+        }
+        .frame(width: 40, height: 40)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(t("settings.otp.expiresIn", ["seconds": seconds]))
     }
 }
 

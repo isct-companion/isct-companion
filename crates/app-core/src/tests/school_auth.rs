@@ -189,7 +189,10 @@ fn titech_app_export_pastes_down_columns_and_bad_pastes_are_rejected() {
 fn current_code_changes_at_expiry_and_preserves_leading_zeroes() {
     let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
     let ending = current_otp_at(secret, 59).unwrap();
-    assert_eq!((ending.otp.as_str(), ending.expires_at), ("287082", 60));
+    assert_eq!(
+        (ending.otp.as_str(), ending.expires_at, ending.period),
+        ("287082", 60, 30)
+    );
     let next = current_otp_at(secret, ending.expires_at).unwrap();
     assert_eq!((next.otp.as_str(), next.expires_at), ("359152", 90));
     // RFC 6238's SHA-1 vector at this time ends in 081804.

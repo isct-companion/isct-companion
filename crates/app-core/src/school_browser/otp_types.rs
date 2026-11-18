@@ -14,7 +14,6 @@ pub struct SchoolOtpEnrollment {
 pub enum SchoolOtpStage {
     SignIn,
     Checking,
-    ConfirmReset,
     SettingUp,
     Saving,
     Complete,
@@ -27,7 +26,6 @@ pub enum SchoolOtpStage {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SchoolOtpIntent {
-    Reset,
     Stop,
     RetrySave,
 }

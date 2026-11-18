@@ -1326,12 +1326,14 @@ pub struct OtpWindow {
     pub code: String,
 }
 
-/// The current App OTP and its expiry as a Unix timestamp in seconds.
+/// The current App OTP, its expiry as a Unix timestamp in seconds, and the
+/// length of its time step, so a shell can draw how much of it is left.
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolOtpCode {
     pub otp: String,
     pub expires_at: u64,
+    pub period: u64,
 }
 
 #[cfg(test)]

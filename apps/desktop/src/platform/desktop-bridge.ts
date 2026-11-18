@@ -83,7 +83,11 @@ export type SchoolCredentials = {
   otpSecret: string;
   matrix: string;
 };
-export type SchoolOtpCode = { otp: string; expiresAt: number };
+export type SchoolOtpCode = {
+  otp: string;
+  expiresAt: number;
+  period: number;
+};
 
 export type SchoolCredentialStatus = {
   suggestedAdmissionYear?: number;
@@ -371,7 +375,6 @@ export type SchoolOtpEnrollment = {
   stage:
     | "sign-in"
     | "checking"
-    | "confirm-reset"
     | "setting-up"
     | "saving"
     | "complete"
@@ -380,7 +383,7 @@ export type SchoolOtpEnrollment = {
     | "unknown"
     | "save-failed";
 };
-export type SchoolOtpIntent = "reset" | "stop" | "retry-save";
+export type SchoolOtpIntent = "stop" | "retry-save";
 
 /** How a surface brings a site's view on screen. Core resumes, goes to the
  * URL, or (for "return") resumes only when this surface showed it last. */
@@ -763,7 +766,6 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
         [
           "sign-in",
           "checking",
-          "confirm-reset",
           "setting-up",
           "saving",
           "complete",
@@ -1029,10 +1031,7 @@ export function createTauriDesktopBridge(
     copySchoolOtpCode: (otp) =>
       invokeCommand<void>("copy_school_otp_code", { otp }),
     schoolOtpQr: async () =>
-      requireString(
-        "school_otp_qr",
-        await invokeCommand("school_otp_qr"),
-      ),
+      requireString("school_otp_qr", await invokeCommand("school_otp_qr")),
     schoolSessionSnapshot: async () => {
       const snapshot = await invokeCommand("school_session_snapshot");
       if (!isSchoolSessionSnapshot(snapshot))
