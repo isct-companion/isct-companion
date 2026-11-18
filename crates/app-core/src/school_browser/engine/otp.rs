@@ -19,7 +19,6 @@ const DEADLINE: Duration = Duration::from_secs(600);
 enum Phase {
     Inspect,
     CheckOwner,
-    Confirm(PageId),
     Removing,
     ReadSecret,
     StageSecret,
@@ -43,7 +42,6 @@ pub(super) struct Enrollment {
     redirected: bool,
     /// The first load must be the navigation that opens the setup visit.
     first_page: u64,
-    authorizing: bool,
 }
 
 impl Enrollment {
@@ -168,7 +166,6 @@ impl SchoolBrowserEngine {
                 reset_removed: false,
                 redirected: false,
                 first_page,
-                authorizing: false,
             });
             true
         });
@@ -193,66 +190,24 @@ impl SchoolBrowserEngine {
         intent: SchoolOtpIntent,
     ) -> Result<bool, SchoolBrowserError> {
         let inner = &self.0;
-        if intent == SchoolOtpIntent::Stop {
-            inner.stop_otp(id);
-            return Ok(true);
-        }
-        let reset = inner.state.with(|state| {
-            let otp = state.otp.as_ref().filter(|otp| otp.view.id == id)?;
-            match (intent, otp.phase, otp.view.stage) {
-                (SchoolOtpIntent::Reset, Phase::Confirm(page), _) if state.otp_document(page) => {
-                    Some(Ok((page, otp.view.owner.clone()?)))
-                }
-                (SchoolOtpIntent::RetrySave, Phase::End, SchoolOtpStage::SaveFailed) => {
-                    Some(Err(()))
-                }
-                _ => None,
+        match intent {
+            SchoolOtpIntent::Stop => {
+                inner.stop_otp(id);
+                Ok(true)
             }
-        });
-        match reset {
-            Some(Ok((page, owner))) => {
-                let Some((generation, base)) = inner.state.with(|state| {
-                    let otp = state.otp.as_mut().filter(|otp| {
-                        otp.view.id == id && otp.phase == Phase::Confirm(page) && !otp.authorizing
-                    })?;
-                    otp.authorizing = true;
-                    Some((otp.account, otp.base.clone()))
-                }) else {
-                    return Ok(false);
-                };
-                let inner = inner.clone();
-                let work = inner.clone();
-                inner.tasks.spawn_on(&inner.runtime, async move {
-                    let inner = work;
-                    let actual = owner.clone();
-                    let checked = inner
-                        .sessions
-                        .otp_vault(generation, move |auth| {
-                            auth.enrollment_account(&owner, &owner)
-                        })
-                        .await;
-                    match checked {
-                        Ok(current) if current == base => {
-                            inner.otp_eval(
-                                id,
-                                page,
-                                SETTINGS,
-                                "remove",
-                                json!({ "owner": actual }),
-                                Some(Phase::Removing),
-                            );
-                        }
-                        Ok(_) => inner.fail_otp(id, EnrollmentError::Account),
-                        Err(error) => inner.fail_otp(id, error),
-                    }
+            SchoolOtpIntent::RetrySave => {
+                let failed = inner.state.with(|state| {
+                    state.otp.as_ref().is_some_and(|otp| {
+                        otp.view.id == id
+                            && otp.phase == Phase::End
+                            && otp.view.stage == SchoolOtpStage::SaveFailed
+                    })
                 });
-                Ok(true)
+                if failed {
+                    inner.save_otp(id);
+                }
+                Ok(failed)
             }
-            Some(Err(())) => {
-                inner.save_otp(id);
-                Ok(true)
-            }
-            None => Ok(false),
         }
     }
 }
@@ -320,10 +275,10 @@ impl Inner {
             else {
                 return false;
             };
-            // A removal can only come from the explicit intent on the
-            // inspected settings document; a submission needs a staged seed.
+            // A removal follows the owner check on the inspected settings
+            // document; a submission needs a staged seed.
             let expected = match mutation {
-                Some(Phase::Removing) => otp.phase == Phase::Confirm(page),
+                Some(Phase::Removing) => otp.phase == Phase::CheckOwner,
                 Some(Phase::Submitting) => otp.phase == Phase::StageSecret,
                 _ => true,
             };
@@ -336,7 +291,6 @@ impl Inner {
             otp.request = Some((page, action));
             if let Some(phase) = mutation {
                 otp.phase = phase;
-                otp.authorizing = false;
                 otp.mutation = true;
                 otp.view.stage = SchoolOtpStage::SettingUp;
             }
@@ -377,19 +331,12 @@ impl Inner {
             let otp = state.otp.as_mut().filter(|otp| {
                 otp.active() && otp.browser == page.browser && page.sequence > otp.first_page
             })?;
-            if let Phase::Confirm(old) = otp.phase {
-                if old != page {
-                    otp.phase = Phase::Inspect;
-                    otp.authorizing = false;
-                    otp.view.stage = SchoolOtpStage::Checking;
-                }
-            }
             if otp.request.is_some_and(|(old, _)| old != page) {
                 otp.request = None;
             }
             if matches!(
                 otp.phase,
-                Phase::CheckOwner | Phase::StageSecret | Phase::Saving | Phase::Confirm(_)
+                Phase::CheckOwner | Phase::StageSecret | Phase::Saving
             ) {
                 return None;
             }
@@ -524,36 +471,39 @@ impl Inner {
                 }
                 let inner = self.clone();
                 self.tasks.spawn_on(&self.runtime, async move {
+                    let account = owner.clone();
                     let checked = inner
                         .sessions
                         .otp_vault(generation, move |auth| {
-                            auth.enrollment_account(&username, &owner)
+                            auth.enrollment_account(&username, &account)
                         })
                         .await;
-                    match checked {
-                        Ok(base) => {
-                            let phase = if registered {
-                                Phase::Confirm(page)
-                            } else {
-                                Phase::ReadSecret
-                            };
-                            if inner.otp_phase(id, page, phase, |otp| {
-                                otp.base = base;
-                                otp.view.stage = if registered {
-                                    SchoolOtpStage::ConfirmReset
-                                } else {
-                                    SchoolOtpStage::SettingUp
-                                };
-                            }) && !registered
-                            {
-                                inner.otp_navigate(
-                                    id,
-                                    page,
-                                    "https://isct.ex-tic.com/idm/user/totp_setting/add",
-                                );
-                            }
+                    let base = match checked {
+                        Ok(base) => base,
+                        Err(error) => return inner.fail_otp(id, error),
+                    };
+                    if registered {
+                        // The person agreed in Settings, before the page
+                        // opened, to replace whatever setup the school has.
+                        if inner.otp_phase(id, page, Phase::CheckOwner, |otp| otp.base = base) {
+                            inner.otp_eval(
+                                id,
+                                page,
+                                SETTINGS,
+                                "remove",
+                                json!({ "owner": owner }),
+                                Some(Phase::Removing),
+                            );
                         }
-                        Err(error) => inner.fail_otp(id, error),
+                    } else if inner.otp_phase(id, page, Phase::ReadSecret, |otp| {
+                        otp.base = base;
+                        otp.view.stage = SchoolOtpStage::SettingUp;
+                    }) {
+                        inner.otp_navigate(
+                            id,
+                            page,
+                            "https://isct.ex-tic.com/idm/user/totp_setting/add",
+                        );
                     }
                 });
             }

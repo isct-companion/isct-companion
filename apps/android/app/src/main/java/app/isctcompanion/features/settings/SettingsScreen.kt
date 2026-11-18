@@ -678,8 +678,13 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 SectionLabel(t("settings.main.oneTimePassword"))
                 OtpImportField(
                     saved = summary?.hasOtp == true,
+                    verifiedAccount = summary?.saved == true,
+                    canShowCode = session?.signOutPending != true,
                     setup = otpSecret,
-                    openManual = openPortal,
+                    openSetup = {
+                        model.web.openOtpSetup(username)
+                        navigator.openTab("tab/web")
+                    },
                 ) { otpSecret = it }
             } else {
                 SectionLabel(t("settings.main.matrixCard"))

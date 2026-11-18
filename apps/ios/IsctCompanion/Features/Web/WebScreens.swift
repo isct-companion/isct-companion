@@ -320,6 +320,10 @@ private struct PageBars: View {
                 .padding(.vertical, 8)
                 Divider()
             }
+            if let otp = web.pages[site]?.otp {
+                OtpEnrollmentNotice(otp: otp)
+                Divider()
+            }
             if let access = web.pages[site]?.access {
                 signIn(access)
                 Divider()

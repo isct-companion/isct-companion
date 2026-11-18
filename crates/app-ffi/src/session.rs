@@ -397,12 +397,20 @@ impl Session {
             })
         })
     }
-    /// The saved (or drafted) school OTP setup as an `otpauth://` link for
-    /// the shell to open in an authenticator or copy. Only on explicit request.
-    pub fn school_otp_link(&self, draft: Option<String>) -> Result<Arc<Operation>, SdkError> {
+    /// Read the saved account's current App OTP for the settings dialog.
+    pub fn school_otp_code(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(|i| {
+            Ok(OperationResult::CurrentSchoolOtp {
+                snapshot: project(i.core.school_otp_code()?)?,
+            })
+        })
+    }
+    /// The verified saved school's OTP setup for another authenticator.
+    /// Enrollment-only seeds and unsaved drafts cannot be exported here.
+    pub fn school_otp_link(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Text {
-                value: i.core.auth.otp_setup_link(draft.as_deref())?,
+                value: i.core.auth.otp_setup_link()?,
             })
         })
     }
@@ -477,6 +485,37 @@ impl Session {
                         )
                         .await?,
                 )?,
+            })
+        })
+    }
+    /// Settings consent starts the shared visible OTP enrollment; sign-in stays manual.
+    pub fn open_school_otp_setup(&self, username: String) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            Ok(OperationResult::SchoolWeb {
+                result: project(
+                    i.core
+                        .school_browser()?
+                        .open(
+                            app_core::lifecycle::SchoolSite::SciencePortal,
+                            WEB_SURFACE,
+                            app_core::school_browser::SchoolWebEntry::OtpSetup { username },
+                        )
+                        .await?,
+                )?,
+            })
+        })
+    }
+    pub fn school_otp_intent(
+        &self,
+        id: u64,
+        intent: SchoolOtpIntent,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i
+                    .core
+                    .school_browser()?
+                    .school_otp_intent(id, project_input(intent)?)?,
             })
         })
     }

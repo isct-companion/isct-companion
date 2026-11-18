@@ -355,6 +355,8 @@ pub fn run() {
             commands::school_auth::copy_school_matrix,
             commands::school_auth::copy_school_otp,
             commands::school_auth::school_otp_qr,
+            commands::school_auth::school_otp_code,
+            commands::school_auth::copy_school_otp_code,
             commands::school_auth::import_school_otp,
             commands::school_auth::parse_school_matrix,
             commands::school_auth::school_session_snapshot,

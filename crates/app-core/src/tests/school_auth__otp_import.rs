@@ -36,12 +36,19 @@ fn standard_and_google_imports_preserve_accounts_and_real_totp_parameters() {
     assert_eq!(imported[0].label, "Science Tokyo:student");
     assert_eq!(imported[0].issuer, "Science Tokyo");
     assert_eq!(
-        super::super::otp_at(&imported[0].setup, 59).unwrap(),
+        super::super::current_otp_at(&imported[0].setup, 59)
+            .unwrap()
+            .otp,
         "287082"
     );
     // A bare secret (TitechApp's export), grouped as some apps display it.
     let bare = import_otp(" GEZD GNBV GY3T QOJQ GEZD GNBV GY3T QOJQ\n").unwrap();
-    assert_eq!(super::super::otp_at(&bare[0].setup, 59).unwrap(), "287082");
+    assert_eq!(
+        super::super::current_otp_at(&bare[0].setup, 59)
+            .unwrap()
+            .otp,
+        "287082"
+    );
     let mut second = school();
     second.name = "Other:student".into();
     second.issuer = "Other".into();
@@ -50,16 +57,22 @@ fn standard_and_google_imports_preserve_accounts_and_real_totp_parameters() {
     assert_eq!(imported.len(), 2);
     assert_eq!(imported[0].label, "Science Tokyo:student");
     assert_eq!(
-        super::super::otp_at(&imported[0].setup, 59).unwrap(),
+        super::super::current_otp_at(&imported[0].setup, 59)
+            .unwrap()
+            .otp,
         "287082"
     );
     assert_eq!(
-        super::super::otp_at(&imported[1].setup, 59).unwrap(),
+        super::super::current_otp_at(&imported[1].setup, 59)
+            .unwrap()
+            .otp,
         "94287082"
     ); // Current Google Authenticator exports are version 2 with the same fields.
     let current = import_otp(&export(vec![school()], 1, 2)).unwrap();
     assert_eq!(
-        super::super::otp_at(&current[0].setup, 59).unwrap(),
+        super::super::current_otp_at(&current[0].setup, 59)
+            .unwrap()
+            .otp,
         "287082"
     );
     assert!(import_otp(&export(vec![school()], 1, 3)).is_err());

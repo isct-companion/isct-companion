@@ -41,23 +41,41 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
 }
+/* The two ways in, as radio cards: a title and what the way does. */
 .otpPathHead {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 0;
   background: none;
   color: var(--ink);
   font: inherit;
-  font-size: calc(var(--type-row-size) * var(--text, 1));
   text-align: left;
   cursor: default;
+}
+.otpPathHead > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.otpPathHead b {
+  font-size: calc(var(--type-row-size) * var(--text, 1));
+  font-weight: 600;
+}
+.otpPathHead small {
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text, 1));
+  line-height: 1.35;
+}
+.otpPath:not([data-selected]):hover {
+  border-color: var(--line-strong);
 }
 .otpPathHead > i {
   width: 14px;
   height: 14px;
+  margin-top: 2px;
   flex-shrink: 0;
   border: 1.5px solid var(--line-strong);
   border-radius: 50%;
@@ -69,7 +87,7 @@
   display: grid;
   justify-items: start;
   gap: 8px;
-  padding: 0 10px 10px 32px;
+  padding: 2px 12px 12px 36px;
 }
 .otpPathBody .otpSetupRow {
   width: 100%;
@@ -82,4 +100,83 @@
   width: 240px;
   height: 240px;
   background: #fff;
+}
+
+.schoolOtpCode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+}
+/* The code is the copy target too, as in an authenticator. */
+.schoolOtpCodeDigits {
+  display: flex;
+  gap: 0.4em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 2.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  cursor: default;
+}
+.schoolOtpCodeDigits:is(button):hover {
+  color: var(--accent);
+}
+.schoolOtpCodeDigits[data-pending] {
+  color: var(--line-strong);
+}
+.schoolOtpCodeDigits:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.schoolOtpCountdown {
+  --ring: var(--accent);
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text, 1));
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.schoolOtpCountdown[data-ending] {
+  --ring: var(--danger);
+  color: var(--danger);
+}
+.schoolOtpCountdown > svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+.schoolOtpCountdown circle {
+  fill: none;
+  stroke-width: 3;
+}
+.schoolOtpCountdownTrack {
+  stroke: var(--line);
+}
+.schoolOtpCountdownLeft {
+  stroke: var(--ring);
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  animation-name: schoolOtpCountdown;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+  transition: stroke 0.2s;
+}
+@keyframes schoolOtpCountdown {
+  to {
+    stroke-dashoffset: 1;
+  }
 }

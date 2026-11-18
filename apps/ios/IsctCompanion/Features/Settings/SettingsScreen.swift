@@ -390,13 +390,18 @@ private struct AccountScreen: View {
                 // read the form as a sign-up and offer new credentials instead of
                 // the saved login. They stay out of screenshots and the app switcher.
                 if profile == .science {
-                    Section(t("settings.main.oneTimePassword")) {
-                        OtpImportField(
-                            saved: summary?.hasOtp == true,
-                            setup: $otpSecret,
-                            openManual: openPortal
-                        )
-                    }
+                    // Its own sections: the OTP state, and the import paths
+                    // while no setup is saved or read.
+                    OtpImportField(
+                        saved: summary?.hasOtp == true,
+                        verifiedAccount: summary?.saved == true,
+                        canShowCode: session?.signOutPending != true,
+                        setup: $otpSecret,
+                        openSetup: {
+                            web.showOtpSetup(username: username)
+                            navigator.tab = .web
+                        }
+                    )
                 } else {
                     MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
                 }

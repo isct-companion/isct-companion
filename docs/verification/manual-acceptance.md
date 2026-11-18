@@ -358,7 +358,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-ffi/src/ports.rs<br>crates/app-ffi/src/session.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
@@ -10144,7 +10144,7 @@ glance in the real app on three platforms.
 
 **Preconditions**
 
-Desktop builds for macOS and Windows. Use disposable
+Builds for macOS, Windows, iOS/iPadOS and Android. Use disposable
 school accounts authorized for changes: one with only emailed codes,
 one with existing App Authentication, and a different account to
 exercise the owner check. Keep working email access for resetting.
@@ -10153,30 +10153,41 @@ exercise the owner check. Keep working email access for resetting.
 
 1. With no saved Science Tokyo credentials, press Connect with the
    account ID and password and a blank OTP field. Check the emailed-code
-   verdict in Settings. Open Set it up myself, then return to Settings.
-   - *Why:* A blank OTP must reach Extic and report its real requirement. The
-     manual portal must let the person sign in and leave their settings
-     alone.
-2. Start Help me set up and continue. Sign in on the visible school
-   page. With the account that has only emailed codes, wait for the
-   App Authentication verdict and the saved notice. Open School
-   Accounts, export to an authenticator and verify a code against Extic.
-   Relaunch and check the saved OTP still appears. Then Connect with
-   the password and a blank OTP field.
+   verdict in Settings.
+   - *Why:* A blank OTP must reach Extic and report its real requirement.
+2. Choose Help me set up, press Sign in and set up and confirm the
+   replacement warning. Sign in on the visible school page. With the account that has only emailed codes,
+   wait for the App Authentication verdict and the saved notice. Open School
+   Accounts and check that adding to an authenticator is not offered
+   before Connect. Relaunch and check the saved OTP still appears.
+   Connect with the password and a blank OTP field, then add the saved
+   setup to an authenticator (scan the QR on desktop) and verify its
+   code against Extic.
    - *Why:* Detects changes to Extic's forms, a false success, or failure to
-     save the seed before Connect. A confirmed seed must be usable both
-     in another authenticator and in the later Connect.
+     save the seed before Connect. The seed must survive until Connect;
+     external authenticator provisioning uses an account the school has
+     accepted, never an enrollment-only seed or an unverified draft.
 3. Repeat Help me set up using the account with an existing
-   authenticator. At the reset choice, keep the existing setup and
-   confirm its code still works. Start again, confirm the reset
-   explicitly and verify the newly exported setup on the school page.
-   - *Why:* Detects deletion before reset consent or a successful-looking
-     rotation with the previous seed still saved.
+   authenticator. Cancel the replacement warning in Settings and
+   confirm the school page did not open and the existing code still
+   works. Start again, confirm the warning, and check that the school
+   page replaces the setup without asking again; verify the newly
+   exported setup on the school page.
+   - *Why:* The warning before the page opens is the only consent: cancelling
+     must leave the school untouched, and confirming must not end in a
+     successful-looking rotation with the previous seed still saved.
 4. Enter one account ID in Settings and sign in to the school page
    as the other account. Check the account mismatch notice and both
    accounts' App Authentication settings.
    - *Why:* The live portal can already hold an unrelated signed-in cookie.
      A mismatched page must never receive a reset or registration.
+5. While the school page is checking the settings, switch to another
+   school site or leave the web screen, then return. On each phone, also put the app in
+   the background while it is checking the settings, then resume.
+   Check the school's settings before starting another enrollment.
+   - *Why:* Native script execution is queued. A parked or background view,
+     replaced main document or expired authorization must not mutate
+     the school's authenticator settings through a delayed command.
 
 **Where to look**
 
@@ -10184,8 +10195,8 @@ The visible Extic page, its App Authentication status, and the School Accounts O
 
 **Expected**
 
-Only the authorized account is enrolled. Keeping an existing setup
-preserves its working authenticator. Confirmed rotation saves the new
+Only the authorized account is enrolled. Cancelling the warning
+preserves the working authenticator. Confirmed rotation saves the new
 seed on the device before Connect.
 
 **Why this is manual**
@@ -10200,6 +10211,16 @@ Offline tests cover only vault and authority checks.
 - `crates/app-core/src/school_browser/engine/otp.rs`
 - `crates/app-core/src/school_auth/otp_enrollment.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
+- `crates/app-ffi/src/ports.rs`
+- `crates/app-ffi/src/session.rs`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift`
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
 
 **Last recorded** never run
 

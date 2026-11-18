@@ -30,6 +30,9 @@ pub enum OperationResult {
     Credentials {
         status: SchoolCredentialStatus,
     },
+    CurrentSchoolOtp {
+        snapshot: Option<SchoolOtpCode>,
+    },
     SchoolSession {
         snapshot: SchoolSessionSnapshot,
     },
