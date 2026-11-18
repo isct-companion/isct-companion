@@ -564,6 +564,10 @@ export interface DesktopBridge {
   onExamAccount?(callback: (account: ExamAccount) => void): () => void;
   examUploadPickFiles?(title: string): Promise<ExamUploadFile[] | null>;
   examUploadClearFiles?(): Promise<void>;
+  /** Copies an opened past exam into Downloads under `name`; resolves its path. */
+  examShareSaveCopy?(path: string, name: string): Promise<string>;
+  /** Shows a copy `examShareSaveCopy` made in its folder. */
+  examShareReveal?(path: string): Promise<void>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -910,6 +914,12 @@ export function createTauriDesktopBridge(
       return files;
     },
     examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
+    examShareSaveCopy: async (path, name) =>
+      requireString(
+        "exam_share_save_copy",
+        await invokeCommand("exam_share_save_copy", { path, name }),
+      ),
+    examShareReveal: (path) => invokeCommand("exam_share_reveal", { path }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url, site) =>

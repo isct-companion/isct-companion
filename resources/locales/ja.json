@@ -572,6 +572,7 @@
   "examShare.unknownYear": "年度不明",
   "examShare.class": "クラス",
   "examShare.downloadedNotice": "この端末に保存しました",
+  "examShare.savedToDownloads": "「ダウンロード」フォルダに保存しました：{{name}}",
   "examShare.unknownTeacher": "教員不明",
   "examShare.account": "アカウント",
   "examShare.connectHint": "学校アカウントを連携すると過去問を見られます。",

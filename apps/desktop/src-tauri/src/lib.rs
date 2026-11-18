@@ -368,6 +368,8 @@ pub fn run() {
             exam_share::exam_share,
             exam_share::exam_upload_pick_files,
             exam_share::exam_upload_clear_files,
+            exam_share::exam_share_save_copy,
+            exam_share::exam_share_reveal,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,

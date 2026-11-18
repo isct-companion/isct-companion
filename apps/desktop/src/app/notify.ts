@@ -33,6 +33,9 @@ export const notify = {
     }, 600);
   },
   info: (message: string) => show(message),
+  /** A finished change with one follow-up, such as showing a saved file. */
+  withAction: (message: string, label: string, run: () => void) =>
+    show(message, { label, run }),
   /** A finished change with a button that reverses it. */
   undoable: (message: string, undo: () => void) =>
     show(message, { label: t("common.undo"), run: undo }),

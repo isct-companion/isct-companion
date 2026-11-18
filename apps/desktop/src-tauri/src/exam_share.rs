@@ -1,5 +1,6 @@
 use crate::{
-    coded, commands::cloud::SystemBrowser, require_local_main, secrets::OsSecretVault, CommandError,
+    coded, commands::cloud::SystemBrowser, require_local_main, secrets::OsSecretVault, shell,
+    CommandError,
 };
 use app_core::{
     exam_share::{ExamAction, ExamAnswer, ExamError, ExamSignIn, ExamUploadFile},
@@ -129,6 +130,105 @@ pub(crate) fn exam_upload_clear_files(
         .map_err(|_| coded(ExamError::Storage))?
         .clear();
     Ok(())
+}
+
+/// Saves a copy of an opened past exam in the Downloads folder under its
+/// uploaded name and returns where. Core keeps the reader's copy in its own
+/// folder under a generated name, which nobody can find, so a download
+/// needs this file too. Only a file Core opened this session, granted to
+/// the asset protocol for the reader, is copied.
+#[tauri::command]
+pub(crate) async fn exam_share_save_copy(
+    webview: Webview,
+    path: String,
+    name: String,
+) -> Result<String, CommandError> {
+    require_local_main(&webview)?;
+    let app = webview.app_handle();
+    let source = PathBuf::from(path);
+    if !source.is_file() || !app.asset_protocol_scope().is_allowed(&source) {
+        return Err(coded(ExamError::InvalidInput));
+    }
+    let folder = app.path().download_dir().map_err(shell)?;
+    let name = download_name(&name);
+    tauri::async_runtime::spawn_blocking(move || copy_new(&source, &folder, &name))
+        .await
+        .map_err(shell)?
+        .map(|saved| saved.to_string_lossy().into_owned())
+        .map_err(shell)
+}
+
+/// Shows a copy `exam_share_save_copy` made in the Downloads folder; any
+/// other path is refused.
+#[tauri::command]
+pub(crate) fn exam_share_reveal(webview: Webview, path: String) -> Result<(), CommandError> {
+    use tauri_plugin_opener::OpenerExt;
+    require_local_main(&webview)?;
+    let app = webview.app_handle();
+    let path = PathBuf::from(path);
+    let folder = app.path().download_dir().map_err(shell)?;
+    if path.parent() != Some(folder.as_path()) || !path.is_file() {
+        return Err(coded(ExamError::InvalidInput));
+    }
+    app.opener().reveal_item_in_dir(&path).map_err(shell)
+}
+
+/// The uploaded name as one file name every desktop system accepts.
+fn download_name(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    // Windows drops trailing dots and spaces; a leading dot hides the file.
+    let cleaned = cleaned.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    if cleaned.is_empty() {
+        "document".into()
+    } else {
+        cleaned.to_owned()
+    }
+}
+
+/// Copies `source` into `folder` as `name`, or `name (1)`, `name (2)`…
+/// when that is taken: an existing file is never replaced.
+fn copy_new(source: &Path, folder: &Path, name: &str) -> std::io::Result<PathBuf> {
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => (stem, Some(extension)),
+        _ => (name, None),
+    };
+    for attempt in 0..1000 {
+        let candidate = match (attempt, extension) {
+            (0, _) => name.to_owned(),
+            (_, Some(extension)) => format!("{stem} ({attempt}).{extension}"),
+            (_, None) => format!("{stem} ({attempt})"),
+        };
+        let target = folder.join(candidate);
+        let mut output = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let copied = std::fs::File::open(source)
+            .and_then(|mut input| std::io::copy(&mut input, &mut output));
+        drop(output);
+        if let Err(error) = copied {
+            let _ = std::fs::remove_file(&target);
+            return Err(error);
+        }
+        return Ok(target);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free file name",
+    ))
 }
 
 impl SelectedUploadFile {
@@ -268,4 +368,36 @@ fn convert_heic(source: &Path, destination: &Path) -> Result<(), ExamError> {
     };
     // Windows exposes HEIF decoding through the codecs installed on the device.
     convert().map_err(|_| ExamError::InvalidInput)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{copy_new, download_name};
+
+    #[test]
+    fn download_names_are_one_safe_file_name() {
+        assert_eq!(download_name("期末 2019.md"), "期末 2019.md");
+        assert_eq!(download_name("a/b\\c:d?.txt"), "a_b_c_d_.txt");
+        assert_eq!(download_name(" .hidden. "), "hidden");
+        assert_eq!(download_name("..."), "document");
+    }
+
+    #[test]
+    fn copies_never_replace_an_existing_file() {
+        let folder = std::env::temp_dir().join(format!("exam-save-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let source = folder.join("cached.txt");
+        std::fs::write(&source, "exam").unwrap();
+        std::fs::write(folder.join("notes.md"), "mine").unwrap();
+        let first = copy_new(&source, &folder, "notes.md").unwrap();
+        let second = copy_new(&source, &folder, "notes.md").unwrap();
+        assert_eq!(first.file_name().unwrap(), "notes (1).md");
+        assert_eq!(second.file_name().unwrap(), "notes (2).md");
+        assert_eq!(
+            std::fs::read_to_string(folder.join("notes.md")).unwrap(),
+            "mine"
+        );
+        assert_eq!(std::fs::read_to_string(first).unwrap(), "exam");
+        std::fs::remove_dir_all(folder).unwrap();
+    }
 }

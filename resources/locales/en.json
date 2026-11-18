@@ -572,6 +572,7 @@
   "examShare.unknownYear": "Year unknown",
   "examShare.class": "Class",
   "examShare.downloadedNotice": "Saved on this device",
+  "examShare.savedToDownloads": "Saved to Downloads: {{name}}",
   "examShare.unknownTeacher": "Teacher unknown",
   "examShare.account": "Account",
   "examShare.connectHint": "Connect your school account to browse past exams.",

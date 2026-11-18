@@ -572,6 +572,7 @@
   "examShare.unknownYear": "学年未知",
   "examShare.class": "班级",
   "examShare.downloadedNotice": "已保存到本机",
+  "examShare.savedToDownloads": "已保存到“下载”文件夹：{{name}}",
   "examShare.unknownTeacher": "教师未知",
   "examShare.account": "账号",
   "examShare.connectHint": "连接学校账号后即可查看过去问。",

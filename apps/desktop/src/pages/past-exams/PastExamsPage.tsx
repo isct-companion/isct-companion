@@ -41,6 +41,7 @@ import { confirmAction } from "../../components/confirm";
 import { ExternalLink } from "../../components/ExternalLink";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { desktopBridge } from "../../app/native";
+import { nativeOs } from "../../platform/desktop-bridge";
 import { notify } from "../../app/notify";
 import { errorCode } from "../../platform/native-error";
 import { useScheduleQuery } from "../../platform/core-query";
@@ -237,7 +238,7 @@ export function PastExams({
       setOpening(undefined);
       if (answer?.kind === "document") {
         setReader(answer.value);
-        if (download) notify.info(t("examShare.downloadedNotice"));
+        if (download) await saveCopy(answer.value);
       }
     },
     [call],
@@ -333,7 +334,13 @@ export function PastExams({
           file={reader}
           choices={choices}
           call={call}
-          download={() => void open(reader.document.id, true)}
+          download={() =>
+            // A kept or offline copy is already here: only the Downloads
+            // copy is made, with no request to the site.
+            void (reader.downloaded || reader.offline
+              ? saveCopy(reader)
+              : open(reader.document.id, true))
+          }
           downloading={opening === reader.document.id}
           setFile={setReader}
           close={closeReader}
@@ -1085,6 +1092,31 @@ function DocumentRow({
   );
 }
 
+/** Saves a copy of an opened document in Downloads under its uploaded name.
+ * Core's own copy, kept for the reader and offline use, has a generated
+ * name in the app's data folder, so it is not what a download means. */
+async function saveCopy(file: ExamLocalDocument) {
+  const bridge = desktopBridge;
+  if (!bridge?.examShareSaveCopy) {
+    notify.info(t("examShare.downloadedNotice"));
+    return;
+  }
+  try {
+    const saved = await bridge.examShareSaveCopy(
+      file.path,
+      file.document.fileName,
+    );
+    const name = saved.split(/[\\/]/).pop() || file.document.fileName;
+    notify.withAction(
+      t("examShare.savedToDownloads", { name }),
+      t(nativeOs() === "macos" ? "web.showInFinder" : "web.showInFolder"),
+      () => void bridge.examShareReveal?.(saved).catch(notify.error),
+    );
+  } catch (cause) {
+    notify.error(cause);
+  }
+}
+
 /** The opened document in the shared LMS reader frame, with its own tools. */
 function ExamReader({
   file,
@@ -1132,10 +1164,10 @@ function ExamReader({
       <div className="lmsFileActions">
         {file.offline && <Tag>{t("examShare.offline")}</Tag>}
         {tool(
-          t(file.downloaded ? "examShare.downloaded" : "examShare.download"),
+          t("examShare.download"),
           <Download size={15} strokeWidth={1.75} aria-hidden />,
           download,
-          { disabled: file.downloaded || file.offline || downloading },
+          { disabled: downloading },
         )}
         {file.saved !== null &&
           tool(
