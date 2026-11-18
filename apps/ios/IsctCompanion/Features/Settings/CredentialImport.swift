@@ -64,6 +64,7 @@ struct OtpImportField: View {
     let canShowCode: Bool
     @Binding var setup: String
     let openManual: () -> Void
+    let openSetup: () -> Void
     @State private var changing = false
     @State private var path = Path.export
     @State private var scanning = false
@@ -115,7 +116,7 @@ struct OtpImportField: View {
                 Button(t("settings.credentialImport.change")) { changing = true }
             }
         } else {
-            Button(t("otpEnrollment.manual"), action: openManual)
+            OtpEnrollmentStart(openManual: openManual, openSetup: openSetup)
             importing
         }
     }

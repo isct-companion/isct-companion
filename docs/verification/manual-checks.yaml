@@ -8788,7 +8788,7 @@ checks:
     title: Visible Extic App Authentication enrollment preserves the active account and saves the working seed
     persona: undergraduate-first-term
     preconditions: |
-      Desktop builds for macOS and Windows. Use disposable
+      Builds for macOS, Windows, iOS/iPadOS and Android. Use disposable
       school accounts authorized for changes: one with only emailed codes,
       one with existing App Authentication, and a different account to
       exercise the owner check. Keep working email access for resetting.
@@ -8827,6 +8827,15 @@ checks:
         reason: |
           The live portal can already hold an unrelated signed-in cookie.
           A mismatched page must never receive a reset or registration.
+      - action: |
+          Before confirming a reset, switch to another school site or leave
+          the web screen, then return. On each phone, also put the app in
+          the background while it is checking the settings, then resume.
+          Check the school's settings before starting another enrollment.
+        reason: |
+          Native script execution is queued. A parked or background view,
+          replaced main document or expired authorization must not mutate
+          the school's authenticator settings through a delayed command.
     observe: The visible Extic page, its App Authentication status, and the School Accounts OTP field.
     expected: |
       Only the authorized account is enrolled. Keeping an existing setup
@@ -8841,6 +8850,16 @@ checks:
       - crates/app-core/src/school_browser/engine/otp.rs
       - crates/app-core/src/school_auth/otp_enrollment.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
+      - crates/app-ffi/src/ports.rs
+      - crates/app-ffi/src/session.rs
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Core/WebRouter.swift
+      - apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift
+      - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
     verified: null
 
   - id: SCHOOL-ACCOUNT-STATES

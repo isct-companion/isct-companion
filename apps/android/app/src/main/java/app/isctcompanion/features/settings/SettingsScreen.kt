@@ -681,6 +681,10 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                     canShowCode = session?.signOutPending != true,
                     setup = otpSecret,
                     openManual = openPortal,
+                    openSetup = {
+                        model.web.openOtpSetup(username)
+                        navigator.openTab("tab/web")
+                    },
                 ) { otpSecret = it }
             } else {
                 SectionLabel(t("settings.main.matrixCard"))

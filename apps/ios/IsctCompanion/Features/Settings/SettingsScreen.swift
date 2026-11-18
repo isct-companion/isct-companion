@@ -395,7 +395,11 @@ private struct AccountScreen: View {
                             saved: summary?.hasOtp == true,
                             canShowCode: session?.signOutPending != true,
                             setup: $otpSecret,
-                            openManual: openPortal
+                            openManual: openPortal,
+                            openSetup: {
+                                web.showOtpSetup(username: username)
+                                navigator.tab = .web
+                            }
                         )
                     }
                 } else {

@@ -223,6 +223,7 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
             HorizontalDivider()
         }
+        page?.otp?.let { OtpEnrollmentNotice(it) }
         when (val access = page?.access) {
             is SchoolWebAccess.SigningIn -> NoticeBanner(t("web.signIn.signingIn"), Theme.colors.accentSoft) {
                 TextButton(onClick = { web.cancelSignIn(site) }) { Text(t("web.signIn.cancel")) }

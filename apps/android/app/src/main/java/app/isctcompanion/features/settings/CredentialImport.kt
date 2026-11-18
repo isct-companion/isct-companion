@@ -82,6 +82,7 @@ import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.MatrixCameraSession
 import app.isctcompanion.core.MatrixConfidence
 import app.isctcompanion.core.MatrixOrder
+import app.isctcompanion.features.web.OtpEnrollmentStart
 import app.isctcompanion.core.OtpImportAccount
 import app.isctcompanion.core.OtpImportException
 import app.isctcompanion.core.importOtp
@@ -142,14 +143,15 @@ private fun clipboardText(context: Context): String? =
 /** The OTP setup, as the desktop's chooser: once saved, one line that says
  * codes fill themselves in; otherwise a choice between an authenticator's
  * export QR (Google's code scanner, or a screenshot on this phone) and a
- * pasted setup. The app never registers an authenticator with the school;
- * it can also import one already registered. */
+ * pasted setup. Enrollment itself belongs to Core; this field offers
+ * the authorized setup entry or imports an existing authenticator. */
 @Composable
 fun OtpImportField(
     saved: Boolean,
     canShowCode: Boolean,
     setup: String,
     openManual: () -> Unit,
+    openSetup: () -> Unit,
     onSetup: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -255,7 +257,7 @@ fun OtpImportField(
         }
         return
     }
-    TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
+    OtpEnrollmentStart(openManual, openSetup)
     Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
     if (path == "export") {
         ChipRow {

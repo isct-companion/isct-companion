@@ -175,13 +175,26 @@ had a page, stays.
 ### Commands
 
 `dispatch(BrowserCommand)` with `Navigate { url }`, `GoBack`, `GoForward`,
-`Evaluate { script }` and `Stop { script }`, for a view or a popup. Back and
+`Evaluate { script }`, and the restricted `EvaluateOtp { page, script }`. Back and
 Forward are the engine's own history; Core keeps only what the host reported
 about it (`historyChanged`), never entries of its own. There is no reload
 command: the engine's reload of a POST result would send its form again.
-`Stop` goes only to views
-Core's hidden work used. `dispose(browser)` closes a view or popup; Core
+`dispose(browser)` closes a view or popup; Core
 disposes a view's popups before the view.
+
+OTP enrollment on every platform shares Core's state machine and
+`adpt-isct/assets/otp-enrollment.js`. Settings consent starts
+`openSchoolOtpSetup(username)`; the school sign-in stays manual. Before
+executing `EvaluateOtp` on the UI thread, the host checks that the exact
+main document is current, finished loading and visible in the foreground,
+then calls `otpScriptAllowed(page, actionId, url)`. It sends the script's
+string result directly to `otpScriptResult(page, actionId, result)`, or
+`null` on rejection or evaluation failure. Android unwraps the JSON string
+returned by `evaluateJavascript`; WebKit already returns a string. Neither
+scripts nor results are logged or sent through a page-accessible app bridge.
+Core publishes credential-free `SchoolWebPage.otp`; the shell displays its
+stage and forwards reset, stop and retry-save intents. Resetting an existing
+authenticator always requires a separate explicit intent.
 
 The app's commands act on the page in front: the last popup open over the
 view (hosts with `inlinePopups`), the view itself otherwise.

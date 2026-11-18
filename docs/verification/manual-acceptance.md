@@ -358,7 +358,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
+| `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-ffi/src/ports.rs<br>crates/app-ffi/src/session.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
@@ -10144,7 +10144,7 @@ glance in the real app on three platforms.
 
 **Preconditions**
 
-Desktop builds for macOS and Windows. Use disposable
+Builds for macOS, Windows, iOS/iPadOS and Android. Use disposable
 school accounts authorized for changes: one with only emailed codes,
 one with existing App Authentication, and a different account to
 exercise the owner check. Keep working email access for resetting.
@@ -10177,6 +10177,13 @@ exercise the owner check. Keep working email access for resetting.
    accounts' App Authentication settings.
    - *Why:* The live portal can already hold an unrelated signed-in cookie.
      A mismatched page must never receive a reset or registration.
+5. Before confirming a reset, switch to another school site or leave
+   the web screen, then return. On each phone, also put the app in
+   the background while it is checking the settings, then resume.
+   Check the school's settings before starting another enrollment.
+   - *Why:* Native script execution is queued. A parked or background view,
+     replaced main document or expired authorization must not mutate
+     the school's authenticator settings through a delayed command.
 
 **Where to look**
 
@@ -10200,6 +10207,16 @@ Offline tests cover only vault and authority checks.
 - `crates/app-core/src/school_browser/engine/otp.rs`
 - `crates/app-core/src/school_auth/otp_enrollment.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
+- `crates/app-ffi/src/ports.rs`
+- `crates/app-ffi/src/session.rs`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift`
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
 
 **Last recorded** never run
 

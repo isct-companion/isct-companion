@@ -156,6 +156,20 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         load(site) { it.openSchoolUnsigned(site) }
     }
 
+    /** Settings consent starts the shared Core enrollment on the visible portal. */
+    fun openOtpSetup(username: String) {
+        tabSite = SchoolSite.SCIENCE_PORTAL
+        load(tabSite) { it.openSchoolOtpSetup(username) }
+    }
+
+    fun otpIntent(otp: SchoolOtpEnrollment, intent: SchoolOtpIntent) {
+        val session = session ?: return
+        scope.launch {
+            runCatching { session.schoolOtpIntent(otp.id, intent).value() }
+                .onFailure { error = AppModel.describe(it) }
+        }
+    }
+
     /** Runs Core's opening of `site`, then re-attaches its view and reads
      * its page. */
     private fun load(site: SchoolSite, opening: (Session) -> Operation) {

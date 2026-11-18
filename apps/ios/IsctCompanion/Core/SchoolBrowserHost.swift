@@ -258,6 +258,22 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             webView.goBack()
         case .goForward:
             webView.goForward()
+        case let .evaluateOtp(expected, script):
+            guard let listener = listener() else { return }
+            // Check the native surface at execution time, after queued navigation or parking.
+            guard page.parent == nil, page.page == expected, !webView.isLoading,
+                !webView.isHidden, webView.isUserInteractionEnabled,
+                frontWebView(for: page.id.site) === webView, presenter(for: webView) != nil,
+                let url = webView.url?.absoluteString,
+                (try? listener.otpScriptAllowed(page: expected, actionId: command.actionId, url: url)) == true
+            else {
+                try? listener.otpScriptResult(page: expected, actionId: command.actionId, result: nil)
+                return
+            }
+            webView.evaluateJavaScript(script) { result, error in
+                try? listener.otpScriptResult(
+                    page: expected, actionId: command.actionId, result: error == nil ? result as? String : nil)
+            }
         case let .evaluate(script):
             webView.evaluateJavaScript(script) { [weak self] _, error in
                 // Only a script that could not run fails the page.

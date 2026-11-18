@@ -1,6 +1,4 @@
-#[cfg(feature = "desktop-otp-enrollment")]
 mod otp_enrollment;
-#[cfg(feature = "desktop-otp-enrollment")]
 pub(crate) use otp_enrollment::EnrollmentError;
 mod otp_import;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
@@ -460,7 +458,6 @@ impl SchoolAuthService {
             SchoolAuthProfile::TokyoTech => status.tokyo_tech.clone(),
         };
         let preserve_previous = availability == CredentialAvailability::AccessDenied;
-        #[cfg(feature = "desktop-otp-enrollment")]
         let preserve_previous = preserve_previous
             || (profile == SchoolAuthProfile::Science
                 && availability == CredentialAvailability::NotConfigured
@@ -795,7 +792,6 @@ impl SchoolAuthService {
             self.adopt(&mut accounts, Some(payload))?;
         }
         self.accepted(&mut accounts, profile)?;
-        #[cfg(feature = "desktop-otp-enrollment")]
         if profile == SchoolAuthProfile::Science {
             let _ = self.delete_enrollment();
         }
@@ -953,7 +949,6 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
-        #[cfg(feature = "desktop-otp-enrollment")]
         if profile == SchoolAuthProfile::Science && credentials.otp_secret.trim().is_empty() {
             if let Some((owner, secret)) = self.enrolled_otp()? {
                 if credentials.username.trim().is_empty() {
@@ -1005,7 +1000,6 @@ impl SchoolAuthService {
         self.unlock_accounts(&mut accounts)?;
         let mut verified = accounts.verified.clone();
         verified.remove(&profile);
-        #[cfg(feature = "desktop-otp-enrollment")]
         if profile == SchoolAuthProfile::Science {
             self.delete_enrollment()?;
             if let Some(mut status) = self.cached_status() {
@@ -1139,7 +1133,6 @@ impl SchoolAuthService {
             None => CredentialSummary::default(),
         };
         let science = summary(self.load(SchoolAuthProfile::Science)?);
-        #[cfg(feature = "desktop-otp-enrollment")]
         let science = match science {
             summary if summary.saved => summary,
             summary => self
@@ -1177,7 +1170,6 @@ impl SchoolAuthService {
         let saved = self
             .load(SchoolAuthProfile::Science)?
             .map(|credentials| (credentials.username, credentials.otp_secret));
-        #[cfg(feature = "desktop-otp-enrollment")]
         if saved.is_none() {
             return self.enrolled_otp();
         }

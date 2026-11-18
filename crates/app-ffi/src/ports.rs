@@ -46,7 +46,7 @@ impl core::SecretVault for Vault {
     }
 }
 
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum BrowserAction {
     /// Also the App's Reload, which opens the last page with a GET.
     Navigate {
@@ -57,6 +57,23 @@ pub enum BrowserAction {
     Evaluate {
         script: String,
     },
+    /// Evaluate only the authorized, visible main document and return its result.
+    EvaluateOtp {
+        page: PageId,
+        script: String,
+    },
+}
+// OTP scripts may contain the seed or a live code; never include them in diagnostics.
+impl std::fmt::Debug for BrowserAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Navigate { url } => f.debug_tuple("Navigate").field(url).finish(),
+            Self::GoBack => f.write_str("GoBack"),
+            Self::GoForward => f.write_str("GoForward"),
+            Self::Evaluate { .. } => f.write_str("Evaluate"),
+            Self::EvaluateOtp { page, .. } => f.debug_tuple("EvaluateOtp").field(page).finish(),
+        }
+    }
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct BrowserCommand {
@@ -213,6 +230,33 @@ impl BrowserEvents {
         });
         Ok(())
     }
+    /// Recheck Core's authorization immediately before native execution.
+    pub fn otp_script_allowed(
+        &self,
+        page: PageId,
+        action_id: u64,
+        url: String,
+    ) -> Result<bool, SdkError> {
+        Ok(self.listener()?.otp_script_allowed(
+            project_input(page)?,
+            browser::ActionId(action_id),
+            &parse_url(&url)?,
+        ))
+    }
+    /// The script's string result, or none if the document changed or evaluation failed.
+    pub fn otp_script_result(
+        &self,
+        page: PageId,
+        action_id: u64,
+        result: Option<String>,
+    ) -> Result<(), SdkError> {
+        self.listener()?.otp_script_result(
+            project_input(page)?,
+            browser::ActionId(action_id),
+            result,
+        );
+        Ok(())
+    }
     /// `reason` is `Cancelled` for loads the engine replaced or policy
     /// cancelled; Core never shows those.
     pub fn load_failed(
@@ -360,19 +404,15 @@ impl browser::SchoolBrowser for Browser {
             .map_err(dispatch_error)
     }
     fn dispatch(&self, command: browser::BrowserCommand) -> Result<(), browser::BrowserError> {
-        // A workspace build can unify Core's desktop features with the SDK's.
-        #[allow(unreachable_patterns)]
         let action = match command.command {
             browser::BrowserAction::Navigate(url) => BrowserAction::Navigate { url: url.into() },
             browser::BrowserAction::GoBack => BrowserAction::GoBack,
             browser::BrowserAction::GoForward => BrowserAction::GoForward,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
-            #[cfg(any(target_os = "macos", windows))]
-            _ => {
-                return Err(browser::BrowserError::Dispatch(
-                    "The mobile SDK does not evaluate OTP enrollment scripts.".into(),
-                ));
-            }
+            browser::BrowserAction::EvalOtp { page, script } => BrowserAction::EvaluateOtp {
+                page: project(page).map_err(dispatch_error)?,
+                script: script.0,
+            },
         };
         self.native
             .dispatch(BrowserCommand {
