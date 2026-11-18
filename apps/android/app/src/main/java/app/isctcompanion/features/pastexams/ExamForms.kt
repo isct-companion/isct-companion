@@ -388,7 +388,7 @@ internal fun UploadSheet(
                             selected = true,
                             enabled = canEdit && entry.removable,
                             onClick = { change(ExamUploadEdit.RemoveSubject(entry.subject.code)) },
-                            label = { Text(subjectName(entry.subject)) },
+                            label = { Text(entry.subject.name) },
                             trailingIcon = if (entry.removable) ({ Icon(Icons.Rounded.Close, t("common.remove"), Modifier.size(FilterChipDefaults.IconSize)) }) else null,
                         )
                     }
@@ -410,7 +410,7 @@ internal fun UploadSheet(
                                     selected = false,
                                     enabled = canEdit,
                                     onClick = { change(ExamUploadEdit.AddSubject(hit.code)) { query = "" } },
-                                    label = { Text("${subjectName(hit)} · ${hit.code}") },
+                                    label = { Text("${hit.name} · ${hit.code}") },
                                     leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(FilterChipDefaults.IconSize)) },
                                 )
                             }
@@ -606,7 +606,7 @@ internal fun RequestDialog(
         title = { Text(t("examShare.newRequest")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(subjectName(subject.subject), fontWeight = FontWeight.SemiBold)
+                Text(subject.subject.name, fontWeight = FontWeight.SemiBold)
                 if (subject.rows.size > 1) Choices(
                     t("examShare.class"),
                     listOf<Pair<UInt?, String>>(null to t("examShare.allClasses")) + subject.rows.mapNotNull { row ->

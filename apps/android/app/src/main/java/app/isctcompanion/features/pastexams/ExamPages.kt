@@ -146,7 +146,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
     val current = page
     ExamFrame(calls) {
         TabPage(
-            current?.let { subjectName(it.subject) }.orEmpty(),
+            current?.let { it.subject.name }.orEmpty(),
             navigationIcon = { BackButton() },
             actions = {
                 if (current != null && connected) Box {
@@ -239,7 +239,11 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
                     val answer = document.role == "answer"
                     val ink = if (answer) Theme.colors.ok else Theme.colors.accent
                     Text(
-                        document.role?.let { t("examShare.role.$it") } ?: document.fileName,
+                        // Core numbers several documents of one role in a sitting.
+                        listOfNotNull(
+                            document.role?.let { t("examShare.role.$it") } ?: document.fileName,
+                            document.number?.toString(),
+                        ).joinToString(" "),
                         color = ink,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
@@ -579,7 +583,7 @@ private fun RequestDetail(item: ExamRequest) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(item.subject.code, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-            Text(subjectName(item.subject), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(item.subject.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             StatusTag(item.status)
             requestFacts(item).ifBlank { null }?.let { Text(it, color = Theme.colors.muted) }
             if (item.teachers.isNotEmpty()) Text(item.teachers.joinToString(" / ") { it.name }, color = Theme.colors.muted)

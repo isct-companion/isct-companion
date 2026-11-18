@@ -137,7 +137,7 @@ final class Navigator {
     var timetableTerm: String?
     var timetableDate: String?
     /// The workstation is up: 今日 opens what its column points at beside
-    /// itself, as desktop's TodayWorkbench, instead of pushing it.
+    /// itself instead of pushing it.
     private(set) var workbench = false
     /// What 今日 opened beside itself, the root of its pane's stack.
     var bench: (any Hashable)?

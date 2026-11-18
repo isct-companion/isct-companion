@@ -5,10 +5,13 @@ use ts_rs::TS;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
+/// A subject as shells show it: its name already in the content language
+/// (`approach/content-language-in-core`). Core builds it only from the
+/// service's record (`remote::RemoteSubject::present`), so no answer can skip
+/// the choice.
 pub struct ExamSubject {
     pub code: String,
     pub name: String,
-    pub name_en: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -44,6 +47,10 @@ pub struct ExamDocument {
     pub note: Option<String>,
     pub file_name: String,
     pub file_type: String,
+    /// In a sitting (`ExamSet`) with several documents of this one role, its
+    /// place among them from 1, so they can be told apart ("Question 2");
+    /// otherwise none.
+    pub number: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -52,17 +59,14 @@ pub struct ExamDocument {
 pub struct ExamSubjectPage {
     pub subject: ExamSubject,
     pub rows: Vec<ExamClass>,
-    /// When the page was opened from a local course whose class is one of
-    /// `rows`, materials naming that class's teachers come first.
-    pub exams: Vec<ExamDocument>,
     /// The local course's class when one of `rows` lists it. Reopening the
     /// subject passes it back so the order survives a refresh.
     pub class_id: Option<u32>,
     /// This subject on the ScienceTokyoExam website.
     pub web_url: String,
-    /// `exams` by sitting: the class's own first, then newest first and in
-    /// the forms' occasion order. A question and its answer are one row on
-    /// every shell.
+    /// The subject's documents by sitting: the class's own first, then newest
+    /// first and in the forms' occasion order. A question and its answer are
+    /// one row on every shell.
     pub sets: Vec<ExamSet>,
 }
 
@@ -510,53 +514,4 @@ pub enum ExamAnswer {
     /// registered it lost the answer.
     Uploaded(Option<String>),
     Done,
-}
-
-impl ExamAnswer {
-    pub fn localize_subject_names(
-        &mut self,
-        store: &crate::data::DataStore,
-    ) -> Result<(), super::ExamError> {
-        use crate::locale::{ContentLanguage, Localized};
-
-        let subjects: Vec<&mut ExamSubject> = match self {
-            Self::Subjects(subjects) => subjects.iter_mut().collect(),
-            Self::Subject(page) => std::iter::once(&mut page.subject)
-                .chain(page.exams.iter_mut().flat_map(|exam| &mut exam.subjects))
-                .collect(),
-            Self::Document(file) => file.document.subjects.iter_mut().collect(),
-            Self::Library(library) => library
-                .saved
-                .iter_mut()
-                .chain(&mut library.downloaded)
-                .chain(&mut library.submitted)
-                .flat_map(|exam| &mut exam.subjects)
-                .collect(),
-            Self::Requests(page) => page
-                .items
-                .iter_mut()
-                .map(|request| &mut request.subject)
-                .collect(),
-            Self::UploadForm(form) => form
-                .subjects
-                .iter_mut()
-                .map(|entry| &mut entry.subject)
-                .chain(form.request.iter_mut().map(|request| &mut request.subject))
-                .collect(),
-            _ => return Ok(()),
-        };
-        let (workspace, _, _) = store
-            .view(&["settings"].into())
-            .map_err(|_| super::ExamError::Storage)?;
-        let language = ContentLanguage::of(&workspace);
-        for subject in subjects {
-            let names = Localized {
-                ja: Some(std::mem::take(&mut subject.name)),
-                en: subject.name_en.take(),
-            };
-            subject.name = names.pick(language).unwrap_or(&subject.code).to_owned();
-            subject.name_en = names.en;
-        }
-        Ok(())
-    }
 }

@@ -165,7 +165,9 @@ private struct ExamSetRow: View {
         // the whole row open and add a chevron.
         return Button { open(document.id) } label: {
             ZStack {
-                Text(document.role.map { t("examShare.role.\($0)") } ?? document.fileName)
+                // Core numbers several documents of one role in a sitting.
+                Text([document.role.map { t("examShare.role.\($0)") } ?? document.fileName, document.number.map(String.init)]
+                    .compactMap { $0 }.joined(separator: " "))
                     .opacity(opening == document.id ? 0 : 1)
                 if opening == document.id { ProgressView().controlSize(.small) }
             }

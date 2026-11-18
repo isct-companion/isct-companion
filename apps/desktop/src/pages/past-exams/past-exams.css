@@ -325,10 +325,14 @@ ol.examUploadFiles {
   padding: 0 0 0 4px;
   border-inline-start: 2px solid var(--line);
 }
+/* The sitting keeps at least 12rem; when its documents do not fit beside it
+   they move to their own row instead of squeezing the title (CJK text can
+   break between any two glyphs). */
 .examSet {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 0 8px;
   padding-inline-end: 6px;
   border-radius: var(--radius-control);
   transition: background var(--motion-duration-fast)
@@ -338,7 +342,7 @@ ol.examUploadFiles {
   background: var(--accent-soft);
 }
 .examSetMain {
-  flex: 1;
+  flex: 1 1 12rem;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -375,9 +379,12 @@ ol.examUploadFiles {
   white-space: nowrap;
 }
 .examSetRoles {
-  flex: none;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
+  margin-inline-start: auto;
+  padding-block: 2px;
 }
 /* The documents are the buttons: a bordered pill that tints on hover,
    spins while its file loads and stays outlined while it is open. */

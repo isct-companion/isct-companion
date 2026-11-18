@@ -8,11 +8,12 @@ use std::collections::{BTreeSet, HashSet};
 
 /// Groups `exams` by sitting: the course's own class's sittings first, then
 /// newest first, a year's sittings in the forms' occasion order, a sitting
-/// with no year last. `ours` holds the IDs of the class's teachers.
-pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamSet> {
+/// with no year last. `ours` holds the IDs of the class's teachers. Several
+/// documents of one role in a sitting are numbered in their order.
+pub(super) fn group(exams: Vec<ExamDocument>, ours: &HashSet<String>) -> Vec<ExamSet> {
     let mut sets: Vec<ExamSet> = Vec::new();
     for exam in exams {
-        let teachers = teacher_ids(exam);
+        let teachers = teacher_ids(&exam);
         let sitting = sets.iter_mut().find(|set| {
             set.academic_year == exam.academic_year
                 && set.occasion == exam.occasion
@@ -26,7 +27,7 @@ pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamS
                     == teachers
         });
         match sitting {
-            Some(set) => set.documents.push(exam.clone()),
+            Some(set) => set.documents.push(exam),
             None => sets.push(ExamSet {
                 academic_year: exam.academic_year,
                 occasion: exam.occasion.clone(),
@@ -34,13 +35,15 @@ pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamS
                 variant: exam.variant.clone(),
                 teachers: exam.teachers.clone(),
                 mine: exam.teachers.iter().any(|t| ours.contains(&t.id)),
-                documents: vec![exam.clone()],
+                documents: vec![exam],
             }),
         }
     }
     for set in &mut sets {
-        set.documents
-            .sort_by_key(|document| role_order(document.role.as_deref()));
+        set.documents.sort_by(|a, b| {
+            (role_order(a.role.as_deref()), &a.role).cmp(&(role_order(b.role.as_deref()), &b.role))
+        });
+        number_repeated_roles(&mut set.documents);
     }
     sets.sort_by_key(|set| {
         (
@@ -53,6 +56,17 @@ pub(super) fn group(exams: &[ExamDocument], ours: &HashSet<String>) -> Vec<ExamS
         )
     });
     sets
+}
+
+/// `documents` sorted by role: a role held by several gets 1, 2, … in order.
+fn number_repeated_roles(documents: &mut [ExamDocument]) {
+    for run in documents.chunk_by_mut(|a, b| a.role == b.role) {
+        if run.len() > 1 {
+            for (number, document) in (1..).zip(run.iter_mut()) {
+                document.number = Some(number);
+            }
+        }
+    }
 }
 
 fn teacher_ids(exam: &ExamDocument) -> BTreeSet<&str> {

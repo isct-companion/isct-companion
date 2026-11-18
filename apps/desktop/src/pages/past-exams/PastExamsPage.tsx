@@ -44,6 +44,7 @@ import { desktopBridge } from "../../app/native";
 import { notify } from "../../app/notify";
 import { errorCode } from "../../platform/native-error";
 import { useScheduleQuery } from "../../platform/core-query";
+import { useRecords } from "../../platform/records";
 import { localFileUrl } from "../../features/lms/files";
 import { ImageView } from "../../features/lms/ImageView";
 import { ReaderPane, ReaderTools } from "../../features/lms/ReaderPane";
@@ -131,6 +132,16 @@ const documentTitle = (document: ExamDocument) =>
   ]
     .filter(Boolean)
     .join(" · ");
+/** A document's role on its pill, with the number Core gives it when its
+ * sitting holds several of that role. */
+const roleLabel = (document: ExamDocument) =>
+  [
+    (document.role && lookup(`examShare.role.${document.role}`)) ||
+      t("examShare.file"),
+    document.number,
+  ]
+    .filter(Boolean)
+    .join(" ");
 const teacherNames = (teachers: { name: string }[]) =>
   teachers.map(({ name }) => name).join(" / ") || t("examShare.unknownTeacher");
 
@@ -231,6 +242,33 @@ export function PastExams({
     },
     [call],
   );
+  // Core names subjects in the content language, which these two settings
+  // decide (`approach/content-language-in-core`). When either changes, every
+  // view and the open document are read from Core again; the page keeps what
+  // it shows until the new answers arrive.
+  const settings = useRecords([])?.settings;
+  const language =
+    settings && `${settings.contentLanguage ?? "auto"}:${settings.locale}`;
+  const shownLanguage = useRef(language);
+  const rereadDocument = useEffectEvent(async () => {
+    if (!reader) return;
+    const seq = ++openSeq.current;
+    const answer = await call({
+      kind: "open",
+      id: reader.document.id,
+      download: false,
+    });
+    if (seq === openSeq.current && answer?.kind === "document")
+      setReader(answer.value);
+  });
+  useEffect(() => {
+    if (!language || shownLanguage.current === language) return;
+    const first = shownLanguage.current === undefined;
+    shownLanguage.current = language;
+    if (first || !connected) return;
+    setGeneration((value) => value + 1);
+    void rereadDocument();
+  }, [language, connected]);
   const closeReader = useCallback(() => {
     openSeq.current += 1;
     setOpening(undefined);
@@ -997,8 +1035,7 @@ function SetRow({
                 aria-hidden
               />
             )}
-            {(document.role && lookup(`examShare.role.${document.role}`)) ||
-              t("examShare.file")}
+            {roleLabel(document)}
           </button>
         ))}
       </span>
