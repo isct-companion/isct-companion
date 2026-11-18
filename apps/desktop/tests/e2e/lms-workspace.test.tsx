@@ -32,10 +32,9 @@ import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
  *
  * The reading behaviours mount the real `LmsWorkspace` with the harness: the
  * legacy suite drove that component with props, and every guarantee here is
- * about what the workspace renders, not about which route reached it. The two
- * behaviours that are about the shell itself — an opened document surviving a
- * move to another lecture, and the Today workbench's retained readers — mount
- * the real shell or the real workbench.
+ * about what the workspace renders, not about which route reached it. The
+ * behaviour that is about the shell itself — an opened document surviving a
+ * move to another lecture — mounts the real shell.
  *
  * `pdfjs-dist` has no headless mode (it needs a worker and a canvas) and the
  * Milkdown/Crepe editor is driven through its real ProseMirror transactions, so
@@ -1525,151 +1524,6 @@ describe("the reading workspace on its lecture route", () => {
   }, 40_000);
 });
 
-/** A course workspace stand-in that keeps local state, to prove it stays mounted. */
-function RetainedCourse({ id, active }: { id: string; active: boolean }) {
-  const [count, setCount] = useState(0);
-  return (
-    <button
-      data-course={id}
-      data-active={String(active)}
-      onClick={() => setCount((value) => value + 1)}
-    >
-      {id}:{count}
-    </button>
-  );
-}
-
-describe("the Today workbench's retained course workspaces", () => {
-  async function mountWorkbench() {
-    const { real } = await scriptedHost(
-      { workspace: workspaceFixture() },
-      () => import("@app/features/lms/TodayWorkbench"),
-    );
-    return real.TodayWorkbench;
-  }
-
-  it("keeps Today and two recent course workspaces, evicting the oldest", async () => {
-    const TodayWorkbench = await mountWorkbench();
-    const view = await mount(
-      <TodayWorkbench
-        entry={{ courseId: "A", request: 1 }}
-        renderWorkspace={(entry, active) => (
-          <RetainedCourse id={entry.courseId} active={active} />
-        )}
-      >
-        {(compact) => (
-          <input
-            aria-label="Today retained state"
-            data-compact={String(compact)}
-            defaultValue="Today"
-          />
-        )}
-      </TodayWorkbench>,
-    );
-    views.push(view);
-    const { host } = view;
-    const render = async (entry: CourseEntry | null) => {
-      await act(async () =>
-        view.root.render(
-          <TodayWorkbench
-            entry={entry}
-            renderWorkspace={(item, active) => (
-              <RetainedCourse id={item.courseId} active={active} />
-            )}
-          >
-            {(compact) => (
-              <input
-                aria-label="Today retained state"
-                data-compact={String(compact)}
-                defaultValue="Today"
-              />
-            )}
-          </TodayWorkbench>,
-        ),
-      );
-    };
-
-    await click(host.querySelector('[data-course="A"]'));
-    const today = host.querySelector("input")!;
-    today.value = "Retained";
-    expect(
-      host.querySelector(".todayRetained")?.classList.contains("compact"),
-    ).toBe(true);
-
-    await render(null);
-    expect(host.querySelector("input")).toBe(today);
-    expect(
-      host.querySelector(".todayRetained")?.classList.contains("compact"),
-    ).toBe(false);
-    expect(host.querySelector<HTMLInputElement>("input")!.value).toBe(
-      "Retained",
-    );
-
-    await render({ courseId: "A", request: 2 });
-    // The workspace was retained, not remounted: its local count survived.
-    expect(host.querySelector('[data-course="A"]')!.textContent).toBe("A:1");
-
-    await render({ courseId: "B", request: 3 });
-    await render({ courseId: "C", request: 4 });
-    expect(host.querySelectorAll(".todayCourseSlot")).toHaveLength(2);
-    expect(host.querySelector('[data-course="A"]')).toBeNull();
-  }, 30_000);
-
-  it("releases idle course DOMs after 45 seconds while keeping Today mounted", async () => {
-    vi.useFakeTimers();
-    const TodayWorkbench = await mountWorkbench();
-    const view = await mount(
-      <TodayWorkbench
-        active
-        entry={{ courseId: "idle-course", request: 1 }}
-        renderWorkspace={(entry) => (
-          <div data-course={entry.courseId}>Reader</div>
-        )}
-      >
-        {() => <input defaultValue="Today" />}
-      </TodayWorkbench>,
-    );
-    views.push(view);
-    const { host } = view;
-
-    expect(host.querySelectorAll("[data-course]")).toHaveLength(1);
-    const today = host.querySelector("input");
-    await act(async () => {
-      view.root.render(
-        <TodayWorkbench
-          active={false}
-          entry={{ courseId: "idle-course", request: 1 }}
-          renderWorkspace={(entry) => (
-            <div data-course={entry.courseId}>Reader</div>
-          )}
-        >
-          {() => <input defaultValue="Today" />}
-        </TodayWorkbench>,
-      );
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(45_000);
-    });
-    expect(host.querySelectorAll("[data-course]")).toHaveLength(0);
-    expect(host.querySelector("input")).toBe(today);
-
-    await act(async () => {
-      view.root.render(
-        <TodayWorkbench
-          active
-          entry={{ courseId: "idle-course", request: 1 }}
-          renderWorkspace={(entry) => (
-            <div data-course={entry.courseId}>Reader</div>
-          )}
-        >
-          {() => <input defaultValue="Today" />}
-        </TodayWorkbench>,
-      );
-    });
-    expect(host.querySelectorAll("[data-course]")).toHaveLength(1);
-  }, 30_000);
-});
-
 describe("the file preview pipeline", () => {
   async function openPreview(
     url: string,
@@ -2065,16 +1919,23 @@ describe("the PDF viewer", () => {
       { workspace: workspaceFixture() },
       () => import("@app/features/lms/PdfDocument"),
     );
-    const view = await mount(
-      <>
-        <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
-      </>,
-    );
+    function RetainedPdf() {
+      const [visible, setVisible] = useState(true);
+      return (
+        <>
+          <button onClick={() => setVisible(!visible)}>Switch page</button>
+          <Activity mode={visible ? "visible" : "hidden"}>
+            <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
+          </Activity>
+        </>
+      );
+    }
+    const view = await mount(<RetainedPdf />);
     views.push(view);
     return { view, host: view.host };
   }
 
-  it("releases the document worker and cancels its active page when the viewer leaves", async () => {
+  it("releases the worker on hide and draws the retained PDF when the viewer returns", async () => {
     pdfjs.load.mockReset();
     pdfjs.destroy.mockReset();
     pdfjs.cancel.mockReset();
@@ -2086,17 +1947,36 @@ describe("the PDF viewer", () => {
       }),
       render: pdfjs.render,
       cleanup: vi.fn(),
+      streamTextContent: vi.fn(),
     };
-    pdfjs.render.mockReturnValue({
-      promise: new Promise(() => {}),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 20,
-        getPage: vi.fn().mockResolvedValue(sheet),
-      }),
-      destroy: pdfjs.destroy,
+    pdfjs.render
+      .mockReturnValueOnce({
+        promise: new Promise(() => {}),
+        cancel: pdfjs.cancel,
+      })
+      .mockReturnValue({
+        promise: Promise.resolve(),
+        cancel: pdfjs.cancel,
+      });
+    pdfjs.load.mockImplementation(() => {
+      let destroyed = false;
+      return {
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: () => {
+            // PDF.js throws synchronously when its destroyed transport is reused.
+            if (destroyed)
+              throw new TypeError(
+                "Cannot read properties of null (reading 'sendWithPromise')",
+              );
+            return Promise.resolve(sheet);
+          },
+        }),
+        destroy: async () => {
+          destroyed = true;
+          pdfjs.destroy();
+        },
+      };
     });
 
     const { view, host } = await openPdf();
@@ -2104,9 +1984,14 @@ describe("the PDF viewer", () => {
     await waitFor(() => expect(pdfjs.render).toHaveBeenCalled());
     expect(host.querySelectorAll("canvas")).toHaveLength(0);
 
-    await release(view);
+    await click(buttonByText(host, "Switch page"));
     expect(pdfjs.cancel).toHaveBeenCalledTimes(1);
     expect(pdfjs.destroy).toHaveBeenCalledTimes(1);
+
+    await click(buttonByText(host, "Switch page"));
+    await waitFor(() => expect(host.querySelector("canvas")).not.toBeNull());
+    await release(view);
+    expect(pdfjs.destroy).toHaveBeenCalledTimes(2);
   }, 30_000);
 
   it("finds text in a later page and zooms without mounting every canvas", async () => {

@@ -253,9 +253,15 @@ export function CourseFinder({
   }, [conditionsKey]);
   const availableSuggestions = view?.suggestions ?? [];
   const suggestions: Suggestion[] = open ? availableSuggestions : [];
-  const chosen = [...selected.values()].filter(
-    (row) => !unavailable(row) && !placed(row),
-  );
+  // A pick reads as the finder has it now (credits and clashes follow the
+  // timetable); one that has left the results reads as it was picked.
+  const chosen = [...selected.values()]
+    .map(
+      (row) =>
+        finder.rows.find((current) => current.course.id === row.course.id) ??
+        row,
+    )
+    .filter((row) => !unavailable(row) && !placed(row));
   const chosenCredits = chosen.reduce((sum, row) => sum + row.credits, 0);
   const chosenClashes = chosen.filter((row) => row.clash).length;
   const commit = (key: string) => {

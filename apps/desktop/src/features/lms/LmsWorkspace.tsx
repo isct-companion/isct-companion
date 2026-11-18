@@ -202,6 +202,13 @@ export function LmsWorkspaceBody({
     courseId: course.id,
   }).value;
   const syllabus = courseDetail?.syllabusUrl;
+  // The course's own syllabus reads as it is now: Core's address follows the
+  // content language and its title the UI language. What was saved when it
+  // opened is only the fallback until the course detail arrives.
+  const shown =
+    opened?.id === "syllabus"
+      ? { ...opened, title: t("common.syllabus"), url: syllabus ?? opened.url }
+      : opened;
   const language =
     data.settings.lmsBilingualFilter && !original
       ? courseDetail?.contentLanguage
@@ -1152,73 +1159,81 @@ export function LmsWorkspaceBody({
           </button>
         )}
         <div className="lmsCourseIdentity">
-          <h1>{course.title}</h1>
+          <h1 title={course.title}>{course.title}</h1>
           <small>{course.code}</small>
         </div>
-        {entry.date && (
-          <span className="lmsEntryTime">
-            {entry.date}{" "}
-            {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
-          </span>
-        )}
-        {syllabus && (
-          <button
-            type="button"
-            className="lmsRefresh"
-            aria-pressed={selected === "syllabus"}
-            onClick={() =>
-              open({
-                id: "syllabus",
-                title: t("common.syllabus"),
-                kind: "syllabus",
-                url: syllabus,
-              })
-            }
-          >
-            <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
-          </button>
-        )}
-        {openPastExams && (
-          <button type="button" className="lmsRefresh" onClick={openPastExams}>
-            {t("examShare.openCourse")}
-          </button>
-        )}
-        {(progress != null || refresh) && (
-          <div className="lmsPullControls">
-            {progress != null && (
-              // Local data stays on screen; the whole course switches when
-              // Core commits it.
-              <span className="syncPageStatus" role="status">
-                <i className="schoolStatusSpinner" aria-hidden="true" />
-                {updatedAt
-                  ? `${t("lms.showingDataFromAge", {
-                      age: ageText(
-                        updatedAt,
-                        timelineNow,
-                        data.settings.locale,
-                      ),
-                    })} · `
-                  : null}
-                {progress.total !== null
-                  ? t("lms.updatingThisCourseDoneTotal", {
-                      done: progress.done,
-                      total: progress.total,
-                    })
-                  : t("lms.updatingThisCourse")}
-              </span>
-            )}
-            {refresh && (
-              <button
-                type="button"
-                className="lmsRefresh"
-                disabled={progress != null || opened?.kind === "official"}
-                onClick={refresh}
-              >
-                {t("lms.pullFromLMS")}
-              </button>
-            )}
-          </div>
-        )}
+        {/* One group, so the actions move to their own row together when
+            the title would otherwise get less than its minimum width. */}
+        <div className="lmsHeaderActions">
+          {entry.date && (
+            <span className="lmsEntryTime">
+              {entry.date}{" "}
+              {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
+            </span>
+          )}
+          {syllabus && (
+            <button
+              type="button"
+              className="lmsRefresh"
+              aria-pressed={selected === "syllabus"}
+              onClick={() =>
+                open({
+                  id: "syllabus",
+                  title: t("common.syllabus"),
+                  kind: "syllabus",
+                  url: syllabus,
+                })
+              }
+            >
+              <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
+            </button>
+          )}
+          {openPastExams && (
+            <button
+              type="button"
+              className="lmsRefresh"
+              onClick={openPastExams}
+            >
+              {t("examShare.openCourse")}
+            </button>
+          )}
+          {(progress != null || refresh) && (
+            <div className="lmsPullControls">
+              {progress != null && (
+                // Local data stays on screen; the whole course switches when
+                // Core commits it.
+                <span className="syncPageStatus" role="status">
+                  <i className="schoolStatusSpinner" aria-hidden="true" />
+                  {updatedAt
+                    ? `${t("lms.showingDataFromAge", {
+                        age: ageText(
+                          updatedAt,
+                          timelineNow,
+                          data.settings.locale,
+                        ),
+                      })} · `
+                    : null}
+                  {progress.total !== null
+                    ? t("lms.updatingThisCourseDoneTotal", {
+                        done: progress.done,
+                        total: progress.total,
+                      })
+                    : t("lms.updatingThisCourse")}
+                </span>
+              )}
+              {refresh && (
+                <button
+                  type="button"
+                  className="lmsRefresh"
+                  disabled={progress != null || opened?.kind === "official"}
+                  onClick={refresh}
+                >
+                  {t("lms.pullFromLMS")}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </header>
       <div className="lmsWorkspaceTools">
         {lessons.length > 0 && !query.trim() && (
@@ -1406,8 +1421,8 @@ export function LmsWorkspaceBody({
               </button>
             )}
           </aside>
-          {opened && (
-            <ReaderPane title={opened.title} close={closeContent}>
+          {opened && shown && (
+            <ReaderPane title={shown.title} close={closeContent}>
               {/* Hidden readers release their documents; the official view keeps its webview. */}
               {!viewerActive &&
               opened.kind !== "official" ? null : opened.kind ===
@@ -1433,7 +1448,7 @@ export function LmsWorkspaceBody({
                 </div>
               ) : opened.kind === "syllabus" ? (
                 <div className="lmsDocument lmsSyllabus">
-                  <SyllabusFrame url={opened.url} />
+                  <SyllabusFrame url={shown.url} />
                 </div>
               ) : opened.kind === "note" ? (
                 <Suspense fallback={<p>{t("lms.loadingEditor")}</p>}>

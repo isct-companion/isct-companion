@@ -735,7 +735,7 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
-export type ExamSubject = { code: string; name: string; nameEn: string | null };
+export type ExamSubject = { code: string; name: string };
 
 export type ExamTeacher = { id: string; name: string };
 
@@ -758,16 +758,17 @@ export type ExamDocument = {
   note: string | null;
   fileName: string;
   fileType: string;
+  /**
+   * In a sitting (`ExamSet`) with several documents of this one role, its
+   * place among them from 1, so they can be told apart ("Question 2");
+   * otherwise none.
+   */
+  number: number | null;
 };
 
 export type ExamSubjectPage = {
   subject: ExamSubject;
   rows: Array<ExamClass>;
-  /**
-   * When the page was opened from a local course whose class is one of
-   * `rows`, materials naming that class's teachers come first.
-   */
-  exams: Array<ExamDocument>;
   /**
    * The local course's class when one of `rows` lists it. Reopening the
    * subject passes it back so the order survives a refresh.
@@ -778,9 +779,9 @@ export type ExamSubjectPage = {
    */
   webUrl: string;
   /**
-   * `exams` by sitting: the class's own first, then newest first and in
-   * the forms' occasion order. A question and its answer are one row on
-   * every shell.
+   * The subject's documents by sitting: the class's own first, then newest
+   * first and in the forms' occasion order. A question and its answer are
+   * one row on every shell.
    */
   sets: Array<ExamSet>;
 };

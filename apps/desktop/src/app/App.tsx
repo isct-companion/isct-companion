@@ -521,6 +521,12 @@ export function WorkspaceApp() {
   const [offeringPanel, setOfferingPanel] = useState<FinderRowView | null>(
     null,
   );
+  // Shown as the finder has it now (a language change re-reads it); the row
+  // as clicked only once it has left the results.
+  const shownOffering =
+    offeringPanel &&
+    (finder.rows.find((row) => row.course.id === offeringPanel.course.id) ??
+      offeringPanel);
   const schoolRecords = data;
   const sync = useSync();
   // Pages only render Core's runs; the planner decides what is read.
@@ -1131,23 +1137,19 @@ export function WorkspaceApp() {
           />
         }
         leftPanel={
-          offeringPanel && (
+          shownOffering && (
             <OfferingPanel
-              key={offeringPanel.course.id}
-              course={offeringPanel.course}
-              placed={finder.placedCodes.has(offeringPanel.course.code)}
-              replaces={(
-                finder.rows.find(
-                  (row) => row.course.id === offeringPanel.course.id,
-                ) ?? offeringPanel
-              ).replaces.map(
+              key={shownOffering.course.id}
+              course={shownOffering.course}
+              placed={finder.placedCodes.has(shownOffering.course.code)}
+              replaces={shownOffering.replaces.map(
                 (id) =>
                   data.courses.find((course) => course.id === id)?.title ?? "",
               )}
               readOnly={readOnly}
               close={() => setOfferingPanel(null)}
               add={() => {
-                void addFinderCourses([offeringPanel.course]).catch(
+                void addFinderCourses([shownOffering.course]).catch(
                   notify.error,
                 );
               }}

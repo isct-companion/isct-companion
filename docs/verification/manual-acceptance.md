@@ -6319,8 +6319,8 @@ left and open assignments this quarter.
      the dashboard did not take over.
 3. On 今日 in landscape, tap the next class card, then an assignment row,
    then the same assignment row again.
-   - *Why:* The class opens beside 今日, which narrows to its single column, as
-     desktop's TodayWorkbench; the assignment replaces it in the pane;
+   - *Why:* The class opens beside 今日, which narrows to its single column; the
+     assignment replaces it in the pane;
      tapping the open row again closes the pane and the dashboard returns. A push over
      the whole page means 今日's column lost its open-beside action.
 4. With a course open beside 今日, open its LMS link, go back, then tap

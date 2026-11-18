@@ -22,7 +22,10 @@ For UI, the same applies to visual values: use the role tokens from
 `design/tokens`, not raw colours, radii or spacing, and one component per UI
 pattern. [docs/code-quality.md](docs/code-quality.md) spells out the token,
 shared-UI and logic-placement rules and the review checklist; follow it when
-writing code and when reviewing it.
+writing code and when reviewing it. Before reporting a change as done or
+committing it, go through that checklist against the change's diff (every
+shell, not only the desktop frontend) and name in the report what each item
+found, fixed or left.
 
 ## 3. Isolate native differences at compile time, not with runtime checks
 

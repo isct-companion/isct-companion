@@ -147,10 +147,13 @@ summary,
   gap: 4px;
   width: 100%;
 }
-.rail nav button {
+/* Page and utility buttons share one look. A label wider than the rail
+   (English "Past exams") wraps to a second line, centred under its icon. */
+.rail nav button,
+.railUtility {
   width: 100%;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: none;
   color: var(--muted);
   display: grid;
@@ -159,8 +162,11 @@ summary,
   padding: 8px 0 7px;
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
 }
 .rail nav button svg,
+.railUtility svg,
 .iconButton svg {
   width: 20px;
   height: 20px;
@@ -170,11 +176,13 @@ summary,
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.rail nav button:hover {
+.rail nav button:hover,
+.railUtility:hover {
   background: var(--surface-3);
   color: var(--ink);
 }
-.rail nav button.active {
+.rail nav button.active,
+.railUtility.active {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -183,36 +191,6 @@ summary,
   width: 100%;
   display: grid;
   gap: 4px;
-}
-.railUtility {
-  width: 100%;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  color: var(--muted);
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  padding: 8px 0 7px;
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-weight: 600;
-}
-.railUtility svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.75;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.railUtility:hover {
-  background: var(--surface-3);
-  color: var(--ink);
-}
-.railUtility.active {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 .workspaceMain {
   min-width: 0;
@@ -261,6 +239,15 @@ summary,
   from {
     opacity: 0.5;
     transform: translateY(3px);
+  }
+}
+/* A reading pane opening beside a list: the course reader and the lectures
+   page's chosen course or exam. Defined before the reduced-motion block,
+   which replaces it with a fade. */
+@keyframes paneEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(14px, 0, 0);
   }
 }
 .pageBar {
@@ -1561,17 +1548,7 @@ summary,
       opacity: 0;
     }
   }
-  @keyframes lmsPopIn {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes lmsPaneEnter {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes todayPaneIn {
+  @keyframes paneEnter {
     from {
       opacity: 0;
     }

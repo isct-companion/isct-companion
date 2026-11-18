@@ -1,4 +1,6 @@
+use super::remote::RemoteDocument;
 use super::{ExamDocument, ExamError, ExamLocalDocument};
+use crate::locale::ContentLanguage;
 use serde::Deserialize;
 use std::{
     fs, io,
@@ -13,7 +15,7 @@ const PREVIEW_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 #[derive(serde::Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Cached {
-    pub(super) document: ExamDocument,
+    pub(super) document: RemoteDocument,
     pub(super) updated_at: u64,
     pub(super) downloaded: bool,
     // A new download uses a different name, so replacing the manifest works
@@ -38,6 +40,7 @@ pub(super) async fn local(
     cached: Cached,
     offline: bool,
     saved: Option<bool>,
+    language: ContentLanguage,
 ) -> Result<ExamLocalDocument, ExamError> {
     let path = file_path(base, &cached)?;
     let path = blocking(move || {
@@ -53,7 +56,7 @@ pub(super) async fn local(
     .await?;
     Ok(ExamLocalDocument {
         web_url: super::client::site_page(&format!("view/{}", cached.document.id)),
-        document: cached.document,
+        document: cached.document.present(language),
         path,
         offline,
         downloaded: cached.downloaded,
@@ -138,7 +141,10 @@ fn remove_folder(base: &Path) -> Result<(), ExamError> {
     }
 }
 
-pub(super) async fn downloads(base: &Path) -> Result<Vec<ExamDocument>, ExamError> {
+pub(super) async fn downloads(
+    base: &Path,
+    language: ContentLanguage,
+) -> Result<Vec<ExamDocument>, ExamError> {
     let base = base.to_owned();
     blocking(move || {
         let now = SystemTime::now();
@@ -147,7 +153,7 @@ pub(super) async fn downloads(base: &Path) -> Result<Vec<ExamDocument>, ExamErro
             if let Some(entry) =
                 read_cache(&folder, now)?.filter(|entry| !entry.expired && entry.cached.downloaded)
             {
-                list.push(entry.cached.document);
+                list.push(entry.cached.document.present(language));
             }
         }
         list.sort_by(|a, b| a.file_name.cmp(&b.file_name).then_with(|| a.id.cmp(&b.id)));
