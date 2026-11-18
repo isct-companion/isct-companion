@@ -14,10 +14,8 @@ app-core = { path = "../app-core" }
 app-ocr = { path = "../app-ocr", default-features = false }
 
 [dev-dependencies]
-serde_json = "1"
-
-[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "windows", all(target_os = "android", target_arch = "aarch64")))'.dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+serde_json = "1"
 
 [[example]]
 name = "matrix_capture"

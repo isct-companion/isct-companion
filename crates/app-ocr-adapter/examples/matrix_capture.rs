@@ -1,13 +1,5 @@
 //! Real-time diagnostic camera/file replay through the production streaming scanner.
-#[cfg(all(
-    feature = "engine",
-    any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        all(target_os = "android", target_arch = "aarch64")
-    )
-))]
+#[cfg(matrix_ocr)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use app_core::matrix_scan::{
         MatrixCameraPhase, MatrixCameraScanner, MatrixCaptureFrame, MatrixCaptureGlyph,
@@ -203,15 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     Ok(())
 }
-#[cfg(not(all(
-    feature = "engine",
-    any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        all(target_os = "android", target_arch = "aarch64")
-    )
-)))]
+#[cfg(not(matrix_ocr))]
 fn main() {
     eprintln!("Matrix OCR unavailable for this target");
     std::process::exit(1);

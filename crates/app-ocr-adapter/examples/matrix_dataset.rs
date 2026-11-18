@@ -19,27 +19,11 @@
 //! `sharp` is Core's verdict on the whole keyframe (`matrix_frame_sharp`).
 //! The reading only lets the dataset check indexing and report the current
 //! model's errors; it never becomes a label. Outputs are card images.
-#[cfg(all(
-    feature = "engine",
-    any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        all(target_os = "android", target_arch = "aarch64")
-    )
-))]
+#[cfg(matrix_ocr)]
 #[path = "common/video.rs"]
 mod video;
 
-#[cfg(all(
-    feature = "engine",
-    any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        all(target_os = "android", target_arch = "aarch64")
-    )
-))]
+#[cfg(matrix_ocr)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use app_core::matrix_scan::{keyframe_ready, matrix_cell_admissible, matrix_frame_sharp};
     use serde_json::json;
@@ -116,15 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(
-    feature = "engine",
-    any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        all(target_os = "android", target_arch = "aarch64")
-    )
-)))]
+#[cfg(not(matrix_ocr))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     Err("Matrix OCR backend unavailable".into())
 }

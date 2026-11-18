@@ -170,19 +170,10 @@ pub fn matrix_vision() -> Arc<dyn MatrixVision> {
     Arc::new(Vision::default())
 }
 
-#[cfg(all(
-    test,
-    feature = "engine",
-    any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        all(target_os = "android", target_arch = "aarch64")
-    )
-))]
+#[cfg(all(test, matrix_ocr))]
 #[path = "tests/vision.rs"]
 mod tests;
 
-#[cfg(all(test, not(feature = "engine")))]
+#[cfg(all(test, not(matrix_ocr)))]
 #[path = "tests/unavailable.rs"]
 mod unavailable_tests;

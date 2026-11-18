@@ -4,7 +4,7 @@ version = "1.0.0-rc.1"
 edition = "2021"
 rust-version = "1.90"
 description = "Optional matrix-card OCR for IsctCompanion"
-# build.rs hands dependents the Windows LiteRT DLL it fetched (DEP_LITERT_DLL).
+# build.rs shares the backend cfg decision and the Windows LiteRT DLL path.
 links = "litert"
 
 [features]
