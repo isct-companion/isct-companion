@@ -75,13 +75,36 @@ final class WebRouter {
     /// Opens `site` in its resident view. A site already open, or still
     /// opening, keeps its page unless a target is given.
     func open(_ site: SchoolSite, target: String?, restore: Bool = false) {
-        guard let session else { return }
         if restore, target == nil, loading == site || (opened.contains(site) && browser.webView(for: site) != nil) { return }
+        load(site) { try $0.openSchool(site: site, target: target) }
+    }
+
+    /// Opens the portal unchanged, so the person sets up OTP themselves.
+    func showUnsigned(_ site: SchoolSite) {
+        tabSite = site
+        load(site) { try $0.openSchoolUnsigned(site: site) }
+    }
+
+    /// Runs the same Core enrollment as desktop after Settings consent.
+    func showOtpSetup(username: String) {
+        tabSite = .sciencePortal
+        load(.sciencePortal) { try $0.openSchoolOtpSetup(username: username) }
+    }
+
+    /// Reattach and read Core's page after any opening operation.
+    private func load(_ site: SchoolSite, opening: (Session) throws -> IsctCore.Operation) {
+        guard let session else { return }
+        let operation: IsctCore.Operation
+        do { operation = try opening(session) }
+        catch {
+            self.error = AppModel.describe(error)
+            return
+        }
         loading = site
         error = nil
         Task {
             do {
-                _ = try await session.openSchool(site: site, target: target).value()
+                _ = try await operation.value()
                 opened.insert(site)
                 attachRevision += 1
                 await readPage(site)
@@ -92,24 +115,11 @@ final class WebRouter {
         }
     }
 
-    /// The ウェブ tab shows `site`'s start page as it is
-    /// (`openSchoolUnsigned`): Core writes no sign-in and signs in nowhere,
-    /// so the person signs in there themselves.
-    func showUnsigned(_ site: SchoolSite) {
+    func otpIntent(_ otp: SchoolOtpEnrollment, _ intent: SchoolOtpIntent) {
         guard let session else { return }
-        tabSite = site
-        loading = site
-        error = nil
         Task {
-            do {
-                _ = try await session.openSchoolUnsigned(site: site).value()
-                opened.insert(site)
-                attachRevision += 1
-                await readPage(site)
-            } catch {
-                self.error = AppModel.describe(error)
-            }
-            if loading == site { loading = nil }
+            do { _ = try await session.schoolOtpIntent(id: otp.id, intent: intent).value() }
+            catch { self.error = AppModel.describe(error) }
         }
     }
 

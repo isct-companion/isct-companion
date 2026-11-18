@@ -2,8 +2,6 @@ package app.isctcompanion.features.settings
 
 import android.Manifest
 import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -11,8 +9,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -108,6 +104,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.RadioButton
+import app.isctcompanion.design.ActionButton
+import app.isctcompanion.design.ButtonLevel
 
 // Ways to bring a school second factor onto the phone. Parsing (authenticator
 // links and transfers) and recognition (Matrix OCR) are Core's; the shell only
@@ -141,43 +143,30 @@ private fun clipboardText(context: Context): String? =
     context.getSystemService(ClipboardManager::class.java)?.primaryClip
         ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
 
-/** Marked sensitive so the clipboard preview and keyboard suggestions hide
- * it, and cleared after two minutes as on iOS: the link is the second factor
- * itself. A later copy of something else is left alone; when the app is out
- * of front Android hides the clipboard, and the clip is cleared regardless. */
-private fun copySensitive(context: Context, text: String) {
-    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
-    val clip = ClipData.newPlainText(t("settings.credentialImport.otpSetup"), text)
-    clip.description.extras = android.os.PersistableBundle().apply {
-        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
-    }
-    clipboard.setPrimaryClip(clip)
-    // The description Android stored, stamped with the copy's time.
-    val copied = clipboard.primaryClipDescription?.timestamp
-    Handler(Looper.getMainLooper()).postDelayed({
-        val shown = clipboard.primaryClipDescription
-        if (shown == null || shown.timestamp == copied) clipboard.clearPrimaryClip()
-    }, 120_000)
-}
-
 // OTP
 
 /** The OTP setup, as the desktop's chooser: once saved, one line that says
  * codes fill themselves in; otherwise a choice between an authenticator's
  * export QR (Google's code scanner, or a screenshot on this phone) and a
- * pasted setup. The app never registers an authenticator with the school;
- * it can also import one already registered. */
+ * pasted setup. Enrollment itself belongs to Core; this field offers
+ * the authorized setup entry or imports an existing authenticator. */
 @Composable
 fun OtpImportField(
     saved: Boolean,
+    verifiedAccount: Boolean,
+    canShowCode: Boolean,
     setup: String,
-    openManual: () -> Unit,
+    openSetup: () -> Unit,
     onSetup: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     var changing by remember { mutableStateOf(false) }
+    // The app sets OTP up at school ("help"), or an existing setup is
+    // imported ("import") from an export QR or a pasted secret (`path`).
+    var branch by remember { mutableStateOf("help") }
+    var confirming by remember { mutableStateOf(false) }
     var path by remember { mutableStateOf("export") }
     var copied by remember { mutableStateOf(false) }
     var choices by remember { mutableStateOf<List<OtpImportAccount>>(emptyList()) }
@@ -194,6 +183,7 @@ fun OtpImportField(
         choices = emptyList()
         label = name(account)
         // What was read shows in the paste field when Change opens it again.
+        branch = "import"
         path = "paste"
         changing = !fold
     }
@@ -226,41 +216,44 @@ fun OtpImportField(
     if (saved && !changing && setup.isEmpty()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
-            Text(t("settings.credentialImport.codesAreFilledInFor"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+            Text(t(if (verifiedAccount) "settings.credentialImport.codesAreFilledInFor" else "otpEnrollment.savedOnDevice"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
+        if (canShowCode) SchoolOtpCodeButton()
         // A QR on this screen cannot be scanned by this phone, so the
         // `otpauth://` link goes straight to the installed authenticator.
-        ChipRow {
-            SourceChip(t("settings.credentialImport.addToAuthenticator"), Icons.Rounded.Key) {
-                scope.launch {
-                    error = null
-                    runCatching { model.otpSetupLink() }
-                        .onSuccess { link ->
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
-                            } catch (missing: ActivityNotFoundException) {
-                                error = t("settings.credentialImport.noAuthenticatorAppOnThis")
+        if (verifiedAccount && canShowCode) {
+            ChipRow {
+                SourceChip(t("settings.credentialImport.addToAuthenticator"), Icons.Rounded.Key) {
+                    scope.launch {
+                        error = null
+                        runCatching { model.otpSetupLink() }
+                            .onSuccess { link ->
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                                } catch (missing: ActivityNotFoundException) {
+                                    error = t("settings.credentialImport.noAuthenticatorAppOnThis")
+                                }
                             }
-                        }
-                        .onFailure { error = AppModel.describe(it) }
+                            .onFailure { error = AppModel.describe(it) }
+                    }
                 }
-            }
-            SourceChip(if (copied) t("settings.credentialImport.copied") else t("settings.credentialImport.copySetup"), Icons.Rounded.ContentCopy) {
-                scope.launch {
-                    error = null
-                    runCatching { model.otpSetupLink() }
-                        .onSuccess { link ->
-                            copySensitive(context, link)
-                            copied = true
-                            delay(2_000)
-                            copied = false
-                        }
-                        .onFailure { error = AppModel.describe(it) }
+                SourceChip(if (copied) t("settings.credentialImport.copied") else t("settings.credentialImport.copySetup"), Icons.Rounded.ContentCopy) {
+                    scope.launch {
+                        error = null
+                        runCatching { model.otpSetupLink() }
+                            .onSuccess { link ->
+                                copySensitiveOtp(context, t("settings.credentialImport.otpSetup"), link, 120_000)
+                                copied = true
+                                delay(2_000)
+                                copied = false
+                            }
+                            .onFailure { error = AppModel.describe(it) }
+                    }
                 }
             }
         }
-        Hint(t("settings.credentialImport.ifYouResetOTPAt"))
+        Hint(t(if (verifiedAccount) "settings.credentialImport.ifYouResetOTPAt" else "otpEnrollment.connectBeforeExport"))
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
@@ -276,50 +269,56 @@ fun OtpImportField(
         }
         return
     }
-    TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
-    Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
-    if (path == "export") {
-        ChipRow {
-            SourceChip(t("settings.credentialImport.scanQR"), Icons.Rounded.QrCodeScanner) {
-                scope.launch {
-                    when (val result = scanQr(context)) {
-                        null -> Unit
-                        else -> result.fold(::read) { error = t("settings.credentialImport.couldNotOpenTheScanner") }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OtpBranchCard(branch == "help", t("otpEnrollment.help"), t("otpEnrollment.helpHint"), { branch = "help" }) {
+            ActionButton(t("otpEnrollment.start"), { confirming = true }, level = ButtonLevel.Secondary)
+        }
+        OtpBranchCard(branch == "import", t("otpEnrollment.import"), t("otpEnrollment.importHint"), { branch = "import" }) {
+            Choices(listOf("export" to t("settings.credentialImport.sourceAuthenticator"), "paste" to t("settings.credentialImport.sourceTitechApp")), path) { path = it }
+            if (path == "export") {
+                ChipRow {
+                    SourceChip(t("settings.credentialImport.scanQR"), Icons.Rounded.QrCodeScanner) {
+                        scope.launch {
+                            when (val result = scanQr(context)) {
+                                null -> Unit
+                                else -> result.fold(::read) { error = t("settings.credentialImport.couldNotOpenTheScanner") }
+                            }
+                        }
+                    }
+                    SourceChip(t("settings.credentialImport.fromPhoto"), Icons.Rounded.Image) {
+                        photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
                 }
+                Hint(t("settings.credentialImport.exportFromGoogleAuthenticator"))
+                OtpGuideButton(OtpGuide.Google)
+            } else {
+                OutlinedTextField(
+                    setup, { onSetup(it); label = null; error = null }, singleLine = true,
+                    label = { Text(t("settings.credentialImport.otpauthOrSecretKey")) },
+                    // Masked like a password, but not typed as one: Autofill must not offer
+                    // the school login here.
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
+                        imeAction = ImeAction.Done,
+                    ),
+                    // A finished entry is read at once, like a paste; saving is only
+                    // for whether the school accepts it.
+                    keyboardActions = KeyboardActions(onDone = { if (setup.isNotBlank() && label == null && error == null) read(setup, pasted = true, fold = false) }),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { focus ->
+                        if (editing && !focus.isFocused && setup.isNotBlank() && label == null && error == null) read(setup, pasted = true, fold = false)
+                        editing = focus.isFocused
+                    },
+                )
+                SourceChip(t("settings.credentialImport.paste"), Icons.Rounded.ContentPaste) {
+                    clipboardText(context)?.let { read(it, pasted = true) } ?: run { error = t("settings.credentialImport.theClipboardIsEmpty") }
+                }
+                Hint(t("settings.credentialImport.pasteFromTitechApp"))
+                OtpGuideButton(OtpGuide.TitechApp)
             }
-            SourceChip(t("settings.credentialImport.fromPhoto"), Icons.Rounded.Image) {
-                photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }
+            Hint(t("settings.credentialImport.readOnThisDevice"))
         }
-        Hint(t("settings.credentialImport.exportFromGoogleAuthenticator"))
-        OtpGuideButton(OtpGuide.Google)
-    } else {
-        OutlinedTextField(
-            setup, { onSetup(it); label = null; error = null }, singleLine = true,
-            label = { Text(t("settings.credentialImport.otpauthOrSecretKey")) },
-            // Masked like a password, but not typed as one: Autofill must not offer
-            // the school login here.
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
-                imeAction = ImeAction.Done,
-            ),
-            // A finished entry is read at once, like a paste; saving is only
-            // for whether the school accepts it.
-            keyboardActions = KeyboardActions(onDone = { if (setup.isNotBlank() && label == null && error == null) read(setup, pasted = true, fold = false) }),
-            modifier = Modifier.fillMaxWidth().onFocusChanged { focus ->
-                if (editing && !focus.isFocused && setup.isNotBlank() && label == null && error == null) read(setup, pasted = true, fold = false)
-                editing = focus.isFocused
-            },
-        )
-        SourceChip(t("settings.credentialImport.paste"), Icons.Rounded.ContentPaste) {
-            clipboardText(context)?.let { read(it, pasted = true) } ?: run { error = t("settings.credentialImport.theClipboardIsEmpty") }
-        }
-        Hint(t("settings.credentialImport.pasteFromTitechApp"))
-        OtpGuideButton(OtpGuide.TitechApp)
     }
-    Hint(t("settings.credentialImport.readOnThisDevice"))
     read?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
     // Opened with Change: fold back to the setup just read, or drop a wrong
@@ -334,6 +333,21 @@ fun OtpImportField(
             error = null
             changing = false
         }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
+    }
+    // Asked once, before the school page opens, whatever the school has:
+    // Core then replaces an existing setup without asking again.
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text(t("otpEnrollment.help")) },
+            text = { Text(t("otpEnrollment.confirm")) },
+            confirmButton = {
+                TextButton(onClick = { confirming = false; openSetup() }) {
+                    Text(t("otpEnrollment.start"), color = Theme.colors.danger)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirming = false }) { Text(t("common.cancel")) } },
+        )
     }
     if (choices.isNotEmpty()) {
         AlertDialog(
@@ -352,6 +366,41 @@ fun OtpImportField(
             confirmButton = {},
             dismissButton = { TextButton(onClick = { choices = emptyList() }) { Text(t("common.cancel")) } },
         )
+    }
+}
+
+/** One of the two ways in, as a radio card: the title and what the way
+ * does; only the chosen one shows its controls. */
+@Composable
+private fun OtpBranchCard(selected: Boolean, title: String, hint: String, select: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val colors = Theme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Theme.radiusColumn))
+            .background(if (selected) colors.accentSoft else colors.surface),
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(selected, role = Role.RadioButton, onClick = select)
+                .padding(end = 14.dp, top = 2.dp, bottom = 12.dp),
+        ) {
+            RadioButton(selected, onClick = null, modifier = Modifier.padding(12.dp).size(20.dp))
+            Column(Modifier.weight(1f).padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = colors.ink, fontWeight = FontWeight.SemiBold)
+                Text(hint, style = MaterialTheme.typography.bodyMedium, color = colors.muted)
+            }
+        }
+        if (selected) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 14.dp, bottom = 14.dp),
+                content = content,
+            )
+        }
     }
 }
 

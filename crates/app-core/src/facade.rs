@@ -11,7 +11,9 @@ use crate::{
     ports::EventSink,
     runtime::{CoreRuntime, RuntimeError},
     scheduler::{ScheduledExporter, SchedulerError},
-    school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
+    school_auth::{
+        SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials, SchoolOtpCode,
+    },
     workspace::{WorkspaceError, WorkspaceService},
     workspace_changes::{self, Coalescer, WorkspaceChange, COALESCE_WINDOW},
 };
@@ -614,6 +616,15 @@ impl Core {
     /// again first.
     pub async fn retry_school(&self, profile: SchoolAuthProfile) -> SchoolSessionSnapshot {
         self.sessions.retry(profile).await
+    }
+
+    /// Local, foreground read of the saved Science Tokyo account's current App OTP.
+    pub fn school_otp_code(&self) -> Result<Option<SchoolOtpCode>, SchoolAuthError> {
+        let Some(permit) = self.sessions.permit(SchoolAuthProfile::Science) else {
+            return Ok(None);
+        };
+        let code = self.auth.current_otp()?;
+        Ok(code.filter(|_| !permit.is_cancelled()))
     }
 
     /// Both accounts' sessions as shells render them.

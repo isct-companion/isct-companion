@@ -670,13 +670,13 @@ function Account({
             value={draft.otpSecret}
             saved={summary.hasOtp}
             otpOnly={!summary.saved}
+            canShowCode={!session?.signOutPending}
             disabled={busy}
             onScanState={setScanning}
             openSetup={() => {
               edit({ ...draft, otpSecret: "" });
               showLoginPage(profile, { otpUsername: draft.username });
             }}
-            openManual={() => showLoginPage(profile, { unsigned: true })}
             onChange={(otpSecret) => edit({ ...draft, otpSecret })}
           />
         )}

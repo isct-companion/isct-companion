@@ -1,7 +1,5 @@
 mod engine;
-#[cfg(feature = "desktop-otp-enrollment")]
 mod otp_types;
-#[cfg(feature = "desktop-otp-enrollment")]
 pub use otp_types::*;
 mod policy;
 mod port;
@@ -92,7 +90,6 @@ pub struct SchoolWebPage {
     /// The page in front is a sign-in page Core could sign in with the saved
     /// credentials and is not signing in now: the manual way out (Reload).
     pub sign_in: bool,
-    #[cfg(feature = "desktop-otp-enrollment")]
     pub otp: Option<SchoolOtpEnrollment>,
 }
 
@@ -138,7 +135,6 @@ pub enum SchoolWebEntry {
     /// sends its one-time password by email, to set up App OTP there.
     Unsigned,
     /// The person authorized visible App Authentication setup in Settings.
-    #[cfg(feature = "desktop-otp-enrollment")]
     OtpSetup { username: String },
 }
 

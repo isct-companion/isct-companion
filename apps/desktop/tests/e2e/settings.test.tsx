@@ -212,6 +212,16 @@ async function mountAccounts(
   return mounted;
 }
 
+/** Picks one of the OTP setup paths, a radio card whose name starts with its
+ * title and goes on with its hint. */
+async function chooseOtpPath(card: HTMLElement, title: string): Promise<void> {
+  const path = [
+    ...card.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+  ].find((radio) => radio.textContent?.startsWith(title));
+  if (!path) throw new Error(`Missing the ${title} OTP path.`);
+  await click(path);
+}
+
 function cardButtons(card: HTMLElement): (string | undefined)[] {
   return [...card.querySelectorAll("button")].map((element) =>
     element.textContent?.trim(),
@@ -269,7 +279,7 @@ describe("School accounts", () => {
         }),
       );
       await clickButton(science, "Change");
-      await clickButton(science, "From an authenticator app");
+      await chooseOtpPath(science, "Import existing setup");
       await scanFile(science, PNG());
       await wait(() =>
         expect(document.body.textContent).toContain(
@@ -310,10 +320,7 @@ describe("School accounts", () => {
           }),
       );
       const mounted = await mountAccounts();
-      await clickButton(
-        account(mounted, "science"),
-        "From an authenticator app",
-      );
+      await chooseOtpPath(account(mounted, "science"), "Import existing setup");
       await clickButton(account(mounted, "science"), "Scan QR");
       await wait(() => expect(qrVideo).toHaveBeenCalled());
       const close = document.querySelector<HTMLButtonElement>(

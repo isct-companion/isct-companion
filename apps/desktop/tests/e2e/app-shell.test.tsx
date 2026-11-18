@@ -2047,7 +2047,7 @@ const LATIN_ALLOWED = new Set(
     "LMS Web Science Tokyo TokyoTech Tech Portal Mail TSUBAME ICS PDF URL ID OTP " +
     "AI Agent MCP Matrix Wi-Fi Google Drive Microsoft OAuth iCloud CSS " +
     "JavaScript HTTP Streamable Bearer IsctCompanion GPA GPT ZIP macOS session " +
-    "English https isct-companion Isct-Data test Placed CSC.T Q MB " +
+    "English https isct-companion Isct-Data TitechApp test Placed CSC.T Q MB " +
     "A B C D E F G H I J " +
     // Course-search operators in the planner's placeholder are typed as is.
     "teacher room W"

@@ -10,7 +10,6 @@ use super::{
     SchoolWebAccess, SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
     SchoolWebProblem, SchoolWebResult, SchoolWebStep,
 };
-#[cfg(feature = "desktop-otp-enrollment")]
 use super::{OtpScript, SchoolOtpEnrollment, SchoolOtpIntent, SchoolOtpStage};
 use crate::{
     events::CoreEvent,
@@ -31,7 +30,6 @@ use std::{
 use url::Url;
 
 mod operation;
-#[cfg(feature = "desktop-otp-enrollment")]
 mod otp;
 mod restore;
 
@@ -80,7 +78,6 @@ struct State {
     views: HashMap<SchoolSite, ViewState>,
     /// The site on screen; only its page is published.
     browsing: Option<SchoolSite>,
-    #[cfg(feature = "desktop-otp-enrollment")]
     otp: Option<otp::Enrollment>,
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
@@ -95,7 +92,6 @@ struct State {
 struct ViewState {
     id: BrowserId,
     last_page: u64,
-    #[cfg(feature = "desktop-otp-enrollment")]
     otp_loading: bool,
     url: String,
     navigation: Option<ActionId>,
@@ -207,7 +203,6 @@ impl State {
             notice: None,
             access: None,
             sign_in: false,
-            #[cfg(feature = "desktop-otp-enrollment")]
             otp: (site == SchoolSite::SciencePortal)
                 .then(|| self.otp.as_ref().map(|otp| otp.view.clone()))
                 .flatten(),
@@ -247,7 +242,6 @@ impl State {
                 page.sign_in = view.op.is_none() && view.visit.offer;
             }
         }
-        #[cfg(feature = "desktop-otp-enrollment")]
         if page
             .otp
             .as_ref()
@@ -331,7 +325,6 @@ pub(super) fn entry_target(
         SchoolWebEntry::Return { .. } if presenter == Some(surface) => None,
         SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
         SchoolWebEntry::Unsigned => Some(site.start_url().to_string()),
-        #[cfg(feature = "desktop-otp-enrollment")]
         SchoolWebEntry::OtpSetup { .. } => Some(otp::ENTRY.into()),
     }
 }
@@ -374,7 +367,6 @@ impl SchoolBrowserEngine {
                 return Ok(());
             }
             state.browsing = site;
-            #[cfg(feature = "desktop-otp-enrollment")]
             if site != Some(SchoolSite::SciencePortal) {
                 if let Some(otp) = state.otp.as_mut() {
                     otp.stop();
@@ -406,7 +398,6 @@ impl SchoolBrowserEngine {
             )
         };
         let already_open = view.is_some();
-        #[cfg(feature = "desktop-otp-enrollment")]
         let enrollment = match &entry {
             SchoolWebEntry::OtpSetup { username } if site == SchoolSite::SciencePortal => {
                 Some(username.clone())
@@ -419,10 +410,8 @@ impl SchoolBrowserEngine {
             _ => None,
         };
         let unsigned = entry == SchoolWebEntry::Unsigned;
-        #[cfg(feature = "desktop-otp-enrollment")]
         let unsigned = unsigned || enrollment.is_some();
         let target = entry_target(entry, presenter.as_deref(), surface, site);
-        #[cfg(feature = "desktop-otp-enrollment")]
         if enrollment.is_none() && site == SchoolSite::SciencePortal && target.is_some() {
             self.0.leave_otp();
         }
@@ -448,7 +437,6 @@ impl SchoolBrowserEngine {
         // store exists before the cookies are written, and its first page
         // loads after.
         let starts_blank = operation.is_some();
-        #[cfg(feature = "desktop-otp-enrollment")]
         let starts_blank = starts_blank || enrollment.is_some();
         let created = match view {
             Some(browser) => Ok(browser),
@@ -475,7 +463,6 @@ impl SchoolBrowserEngine {
             if already_open && explicit_target {
                 self.0.close_popups(site);
             }
-            #[cfg(feature = "desktop-otp-enrollment")]
             if let Some(username) = enrollment.as_ref() {
                 if self.start_otp(browser, username)? {
                     self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
@@ -543,7 +530,6 @@ impl SchoolBrowserEngine {
 
     /// Loads an address the person typed in the frontmost view or popup.
     pub fn navigate(&self, site: SchoolSite, raw: &str) -> Result<bool, SchoolBrowserError> {
-        #[cfg(feature = "desktop-otp-enrollment")]
         if site == SchoolSite::SciencePortal {
             self.0.leave_otp();
         }
@@ -564,7 +550,6 @@ impl SchoolBrowserEngine {
     /// page's `sign_in` button calls this too: the way out when the automatic
     /// recovery got stuck.
     pub fn reload(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        #[cfg(feature = "desktop-otp-enrollment")]
         if site == SchoolSite::SciencePortal {
             self.0.leave_otp();
         }
@@ -611,7 +596,6 @@ impl SchoolBrowserEngine {
     /// start of its history closes instead, as a browser closes a tab a page
     /// opened, and the page under it is in front again.
     pub fn back(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        #[cfg(feature = "desktop-otp-enrollment")]
         if site == SchoolSite::SciencePortal {
             self.0.leave_otp();
         }
@@ -633,7 +617,6 @@ impl SchoolBrowserEngine {
 
     /// The app's Forward, the counterpart of Back.
     pub fn forward(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        #[cfg(feature = "desktop-otp-enrollment")]
         if site == SchoolSite::SciencePortal {
             self.0.leave_otp();
         }
@@ -750,7 +733,6 @@ impl SchoolBrowserEngine {
                 ViewState {
                     id,
                     last_page: 0,
-                    #[cfg(feature = "desktop-otp-enrollment")]
                     otp_loading: false,
                     url: initial.to_string(),
                     navigation: None,
@@ -809,13 +791,11 @@ impl SchoolBrowserListener for Listener {
             });
         }
     }
-    #[cfg(feature = "desktop-otp-enrollment")]
     fn otp_script_allowed(&self, page: PageId, action: ActionId, url: &Url) -> bool {
         self.0
             .upgrade()
             .is_some_and(|inner| inner.otp_script_allowed(page, action, url))
     }
-    #[cfg(feature = "desktop-otp-enrollment")]
     fn otp_script_result(&self, page: PageId, action: ActionId, result: Option<String>) {
         if let Some(inner) = self.0.upgrade() {
             inner.otp_result(page, action, result);
@@ -941,7 +921,6 @@ impl Inner {
                 return;
             }
             view.last_page = event.page.sequence;
-            #[cfg(feature = "desktop-otp-enrollment")]
             {
                 view.otp_loading = false;
             }
@@ -971,7 +950,6 @@ impl Inner {
                 foreground,
             )
         };
-        #[cfg(feature = "desktop-otp-enrollment")]
         if event.page.browser.site == SchoolSite::SciencePortal
             && self
                 .state
@@ -1058,7 +1036,6 @@ impl Inner {
             view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
             view.failure = Some(failure);
-            #[cfg(feature = "desktop-otp-enrollment")]
             if browser.site == SchoolSite::SciencePortal {
                 if let Some(otp) = state.otp.as_mut() {
                     otp.stop();
@@ -1117,7 +1094,6 @@ impl Inner {
         match navigation_rule(&request) {
             Verdict::Allow | Verdict::Popup => {
                 self.state.with(|state| {
-                    #[cfg(feature = "desktop-otp-enrollment")]
                     if request.main_frame && browser.site == SchoolSite::SciencePortal {
                         if let Some(view) = state
                             .views
@@ -1327,7 +1303,6 @@ impl Inner {
             let mut state = self.state.guard();
             match state.views.get(&browser.site) {
                 Some(view) if view.id == browser => {
-                    #[cfg(feature = "desktop-otp-enrollment")]
                     if browser.site == SchoolSite::SciencePortal {
                         if let Some(otp) = state.otp.as_mut() {
                             otp.stop();

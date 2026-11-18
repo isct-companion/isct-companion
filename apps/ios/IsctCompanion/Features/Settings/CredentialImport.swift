@@ -2,7 +2,6 @@ import AVFoundation
 import IsctCore
 import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 import Vision
 import VisionKit
 
@@ -57,14 +56,45 @@ private struct TileLabel: LabelStyle {
 
 // MARK: OTP
 
+/// One of the two ways in, as a Form row that picks it: the title, what the
+/// way does, and a checkmark on the chosen one.
+private struct OtpBranchRow: View {
+    let title: String
+    let hint: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).foregroundStyle(Theme.ink)
+                    Text(hint).font(.footnote).foregroundStyle(Theme.muted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .opacity(selected ? 1 : 0)
+            }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 /// The OTP setup, as the desktop's chooser: once saved, one line that says
-/// codes fill themselves in; otherwise a choice between an authenticator's
-/// export QR (camera or a screenshot on this phone) and a pasted setup.
+/// codes fill themselves in; otherwise two ways in: the app sets OTP up at
+/// school, or the setup is imported from an authenticator's export QR
+/// (camera or a screenshot on this phone) or a pasted TitechApp secret.
 struct OtpImportField: View {
     let saved: Bool
+    let verifiedAccount: Bool
+    let canShowCode: Bool
     @Binding var setup: String
-    let openManual: () -> Void
+    let openSetup: () -> Void
     @State private var changing = false
+    @State private var branch = Branch.help
+    @State private var confirming = false
     @State private var path = Path.export
     @State private var scanning = false
     @State private var photo: PhotosPickerItem?
@@ -78,24 +108,69 @@ struct OtpImportField: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
 
+    /// The app sets OTP up at school, or an existing setup is imported.
+    private enum Branch: Hashable { case help, existing }
+    /// Where an imported setup comes from.
     private enum Path: Hashable { case export, paste }
 
+    /// The chooser is open: neither a saved setup nor a good read folds it.
+    private var choosing: Bool {
+        if saved && !changing && setup.isEmpty { return false }
+        if let read, read.setup == setup, !setup.isEmpty, !changing { return false }
+        return true
+    }
+
     var body: some View {
+        Section(t("settings.main.oneTimePassword")) {
+            if choosing {
+                OtpBranchRow(title: t("otpEnrollment.help"), hint: t("otpEnrollment.helpHint"), selected: branch == .help) { branch = .help }
+                OtpBranchRow(title: t("otpEnrollment.import"), hint: t("otpEnrollment.importHint"), selected: branch == .existing) { branch = .existing }
+            } else {
+                status
+            }
+        }
+        if choosing {
+            Section {
+                switch branch {
+                // Asked once, before the school page opens, whatever the
+                // school has: Core then replaces an existing setup.
+                case .help:
+                    Button(t("otpEnrollment.start")) { confirming = true }
+                        .alert(t("otpEnrollment.help"), isPresented: $confirming) {
+                            Button(t("otpEnrollment.start"), role: .destructive, action: openSetup)
+                            Button(t("common.cancel"), role: .cancel) {}
+                        } message: {
+                            Text(t("otpEnrollment.confirm"))
+                        }
+                case .existing: importing
+                }
+                leaveChange
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
         if saved && !changing && setup.isEmpty {
             HStack {
-                Label(t("settings.credentialImport.codesAreFilledInFor"), systemImage: "checkmark.circle.fill")
+                Label(t(verifiedAccount ? "settings.credentialImport.codesAreFilledInFor" : "otpEnrollment.savedOnDevice"), systemImage: "checkmark.circle.fill")
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(Theme.ok, Theme.ink)
                 Spacer()
                 Button(t("settings.credentialImport.change")) { changing = true }
             }
+            if canShowCode {
+                SchoolOtpCodeButton()
+            }
             // A QR on this screen cannot be scanned by this phone, so the
             // `otpauth://` link goes straight to the installed authenticator.
-            SourceTiles {
-                Button(t("settings.credentialImport.addToAuthenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
-                Button(t(copied ? "settings.credentialImport.copied" : "settings.credentialImport.copySetup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
+            if verifiedAccount && canShowCode {
+                SourceTiles {
+                    Button(t("settings.credentialImport.addToAuthenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
+                    Button(t(copied ? "settings.credentialImport.copied" : "settings.credentialImport.copySetup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
+                }
             }
-            Text(t("settings.credentialImport.ifYouResetOTPAt"))
+            Text(t(verifiedAccount ? "settings.credentialImport.ifYouResetOTPAt" : "otpEnrollment.connectBeforeExport"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
             if let error {
@@ -111,9 +186,6 @@ struct OtpImportField: View {
                 Spacer()
                 Button(t("settings.credentialImport.change")) { changing = true }
             }
-        } else {
-            Button(t("otpEnrollment.manual"), action: openManual)
-            importing
         }
     }
 
@@ -149,8 +221,8 @@ struct OtpImportField: View {
     private var importing: some View {
         presenters(
             Picker(t("settings.credentialImport.source"), selection: $path) {
-                Text(t("settings.credentialImport.fromAnAuthenticatorApp")).tag(Path.export)
-                Text(t("settings.credentialImport.setupLinkOrSecret")).tag(Path.paste)
+                Text(t("settings.credentialImport.sourceAuthenticator")).tag(Path.export)
+                Text(t("settings.credentialImport.sourceTitechApp")).tag(Path.paste)
             }
             .pickerStyle(.segmented)
         )
@@ -202,8 +274,12 @@ struct OtpImportField: View {
         if let error {
             Text(error).font(.footnote).foregroundStyle(Theme.danger)
         }
-        // Opened with Change: fold back to the setup just read, or drop a
-        // wrong entry and keep the saved one.
+    }
+
+    /// Opened with Change: fold back to the setup just read, or drop a wrong
+    /// entry and keep the saved one.
+    @ViewBuilder
+    private var leaveChange: some View {
         if changing, let read, read.setup == setup, !setup.isEmpty {
             Button(t("settings.credentialImport.collapse")) { changing = false }
         }
@@ -271,9 +347,7 @@ struct OtpImportField: View {
         error = nil
         do {
             let link = try await model.otpSetupLink()
-            UIPasteboard.general.setItems(
-                [[UTType.utf8PlainText.identifier: link]],
-                options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+            copySensitiveOtp(link, expiresAt: Date().addingTimeInterval(120))
             copied = true
             try? await Task.sleep(for: .seconds(2))
             copied = false
@@ -290,6 +364,7 @@ struct OtpImportField: View {
         choices = []
         read = (account.setup, Self.name(account))
         // What was read shows in the paste field when Change opens it again.
+        branch = .existing
         path = .paste
         changing = !fold
     }

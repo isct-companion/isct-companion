@@ -945,11 +945,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         (session.retrySchool(profile).value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }
     }
 
+    suspend fun schoolOtpCode(): SchoolOtpCode? {
+        val session = session ?: return null
+        return (session.schoolOtpCode().value() as? OperationResult.CurrentSchoolOtp)?.snapshot
+    }
+
     /** The saved school OTP setup as an `otpauth://` link, read only when the
      * person asks to add it to an authenticator or copy it. */
     suspend fun otpSetupLink(): String {
         val session = session ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-        return (session.schoolOtpLink(null).value() as? OperationResult.Text)?.value
+        return (session.schoolOtpLink().value() as? OperationResult.Text)?.value
             ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
     }
 

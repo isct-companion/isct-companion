@@ -43,7 +43,6 @@ mod walk;
 mod web;
 
 pub(crate) use identity::{Ended, SignInAdmission};
-#[cfg(feature = "desktop-otp-enrollment")]
 pub(crate) use login::fresh_otp;
 pub(crate) use owner::Permit;
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
@@ -798,7 +797,6 @@ impl SchoolSessions {
 
     /// Run enrollment vault I/O for the same account generation as the
     /// visible operation, ordered with Connect's credential commits.
-    #[cfg(feature = "desktop-otp-enrollment")]
     pub(crate) async fn otp_vault<T: Send + 'static>(
         &self,
         generation: u64,
@@ -822,7 +820,6 @@ impl SchoolSessions {
         .map_err(|_| EnrollmentError::Storage)?
     }
 
-    #[cfg(feature = "desktop-otp-enrollment")]
     pub(crate) async fn confirm_otp(
         &self,
         generation: u64,

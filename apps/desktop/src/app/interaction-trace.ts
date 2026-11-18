@@ -97,11 +97,14 @@ function describe(node: EventTarget | null) {
   const el = hit ?? node;
   const field = el.matches("input,textarea,select");
   // Text of a bare container (body, a panel) is noise, so only named controls get a label.
+  const sensitive = "[data-trace-sensitive]";
   const label =
     el.getAttribute("aria-label") ??
     (field
       ? (el.getAttribute("placeholder") ?? el.getAttribute("name"))
-      : hit?.textContent);
+      : el.matches(sensitive) || el.querySelector(sensitive)
+        ? undefined
+        : hit?.textContent);
   const path: string[] = [];
   for (
     let at: Element | null = el;

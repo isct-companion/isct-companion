@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import org.json.JSONTokener
 
 /** `NativeBrowser` over one resident WebView per school site and the popups
  * its pages open (docs/core-school-browser.md). Core decides every
@@ -275,6 +276,23 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             }
             is BrowserAction.GoBack -> webView.goBack()
             is BrowserAction.GoForward -> webView.goForward()
+            is BrowserAction.EvaluateOtp -> {
+                val events = listener() ?: return
+                // Recheck the visible main document after commands reach the UI thread.
+                val allowed = tab.opener == null && tab.page == action.page && !tab.loading && shown(tab)
+                    && webView.hasWindowFocus() && webView.windowVisibility == View.VISIBLE
+                    && runCatching {
+                        events.otpScriptAllowed(action.page, command.actionId, webView.url.orEmpty())
+                    }.getOrDefault(false)
+                if (!allowed) {
+                    runCatching { events.otpScriptResult(action.page, command.actionId, null) }
+                    return
+                }
+                webView.evaluateJavascript(action.script) { raw ->
+                    val result = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull()
+                    runCatching { events.otpScriptResult(action.page, command.actionId, result) }
+                }
+            }
             // Scripts report through navigation relays.
             is BrowserAction.Evaluate -> webView.evaluateJavascript(action.script, null)
         }
@@ -349,6 +367,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
          * page's start differently across versions. */
         private var failedUrl: String? = null
 
+        /** POST starts do not reach shouldOverrideUrlLoading. Keep the native
+         * loading fact so a queued OTP command cannot use the previous document. */
+        var loading = false
+            private set
+
         /** A page loaded here; a popup that never got one is empty. */
         private var loaded = false
 
@@ -402,10 +425,12 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                loading = true
                 if (url != failedUrl) failedUrl = null
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                loading = false
                 url ?: return
                 if (url == failedUrl) {
                     failedUrl = null
@@ -423,6 +448,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (!request.isForMainFrame) return
+                loading = false
                 val url = request.url.toString()
                 val detail = error.description.toString()
                 val reason = failure(error.errorCode, detail)

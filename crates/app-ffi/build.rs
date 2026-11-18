@@ -35,18 +35,6 @@ fn serde_skip(attr: &Attribute) -> bool {
     skip
 }
 
-// The mobile SDK also builds a host library for binding generation. Strip
-// desktop-only contract members from that projection on every host.
-fn desktop_only(attrs: &[Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        attr.path().is_ident("cfg")
-            && attr
-                .to_token_stream()
-                .to_string()
-                .contains("desktop-otp-enrollment")
-    })
-}
-
 struct ForeignTypes;
 impl VisitMut for ForeignTypes {
     fn visit_attribute_mut(&mut self, _: &mut Attribute) {}
@@ -183,6 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "school_session/mod.rs",
         "school_browser/mod.rs",
         "school_browser/port.rs",
+        "school_browser/otp_types.rs",
         "lifecycle.rs",
         "cloud_sync/mod.rs",
         "plan/mod.rs",
@@ -248,9 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let syn::Fields::Named(fields) = &mut item.fields {
                         fields.named = std::mem::take(&mut fields.named)
                             .into_iter()
-                            .filter(|field| {
-                                !desktop_only(&field.attrs) && !field.attrs.iter().any(serde_skip)
-                            })
+                            .filter(|field| !field.attrs.iter().any(serde_skip))
                             .collect();
                     }
                     for field in &mut item.fields {
@@ -289,10 +276,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if default {
                         item.attrs.insert(0, syn::parse_quote!(#[derive(Default)]));
                     }
-                    item.variants = std::mem::take(&mut item.variants)
-                        .into_iter()
-                        .filter(|variant| !desktop_only(&variant.attrs))
-                        .collect();
                     for variant in &mut item.variants {
                         attrs(&mut variant.attrs);
                         for field in &mut variant.fields {
