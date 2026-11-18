@@ -450,13 +450,15 @@ contract!(AgentAccess {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub lms_writes: Option<bool>,
 });
 contract!(Notifications {
+    /// Resolved by Core (`schedule::notification_preferences`); every field is
+    /// present in the workspace a shell reads.
     pub classes: bool, pub assignments: bool,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exams: Option<bool>,
-    /// Quizzes count as exams on Today and in exam reminders (default on).
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub quizzes: Option<bool>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exam_lead_minutes: Option<u32>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_lead_minutes: Option<u32>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub assignment_lead_minutes: Option<Vec<u32>>,
+    pub exams: bool,
+    /// Quizzes count as exams on Today and in exam reminders.
+    pub quizzes: bool,
+    pub exam_lead_minutes: u32,
+    pub class_lead_minutes: u32,
+    pub assignment_lead_minutes: Vec<u32>,
     #[cfg_attr(feature = "ts", ts(type = "NotificationPermission"))] pub local_permission: String,
 });
 contract!(CloudSettings {

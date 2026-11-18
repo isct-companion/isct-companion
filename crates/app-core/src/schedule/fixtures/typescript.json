@@ -276,7 +276,8 @@
         "startTime": "08:50",
         "endTime": "10:30",
         "color": "#5c7d93",
-        "dim": false
+        "dim": false,
+        "mark": "class"
       },
       {
         "key": "event-2026-04-20",

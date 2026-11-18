@@ -405,6 +405,7 @@
   "error.hand-in-too-large": "上传辅助最多支持 20 MiB。更大的文件请使用 LMS 的文件选择器。",
   "error.host-paused": "网站多次连接失败，应用稍后会重试。",
   "error.internal": "应用内部出错。请重试。",
+  "error.exam-unavailable": "此考试已不可用，请重新打开考试列表。",
   "error.invalid-input": "此操作无效。",
   "error.lms-not-enrolled": "你未加入该 LMS 课程。",
   "error.lms-writes-disabled": "已关闭写入 LMS。请在设置中打开「允许 AI 代理写入 LMS」。",

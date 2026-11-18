@@ -5,9 +5,7 @@ import { desktopBridge } from "../../app/native";
 import { resolveCapabilities } from "../../platform/capabilities";
 import {
   CLASS_LEAD_CHOICES,
-  DEFAULT_CLASS_LEAD,
   ASSIGNMENT_LEAD_CHOICES,
-  DEFAULT_ASSIGNMENT_LEADS,
 } from "../../platform/reminders";
 import { UiButton, UiSelect } from "../../components/ui";
 import {
@@ -30,8 +28,8 @@ export function NotificationSettings({
   notify: (message: string) => void;
 }) {
   const settings = data.settings.notifications;
-  const assignmentLeads =
-    settings.assignmentLeadMinutes ?? DEFAULT_ASSIGNMENT_LEADS;
+  // Core resolves every preference's default before the workspace arrives.
+  const assignmentLeads = settings.assignmentLeadMinutes;
   const leadLabel = (minutes: number) =>
     minutes % 1440 === 0
       ? minutes === 1440
@@ -130,7 +128,7 @@ export function NotificationSettings({
           >
             <Row id="class-lead" title="settings.main.remindMe">
               <UiSelect
-                value={settings.classLeadMinutes ?? DEFAULT_CLASS_LEAD}
+                value={settings.classLeadMinutes}
                 onChange={(value) => {
                   const minutes = Number(value);
                   set((n) => (n.classLeadMinutes = minutes));
@@ -145,11 +143,11 @@ export function NotificationSettings({
         )}
         <Row id="exams" title="settings.notification.examReminders">
           <Toggle
-            checked={settings.exams ?? settings.classes}
+            checked={settings.exams}
             onChange={(value) => set((n) => (n.exams = value))}
           />
         </Row>
-        {(settings.exams ?? settings.classes) && (
+        {settings.exams && (
           <div
             className="settingsSuboptions"
             role="group"
@@ -157,11 +155,7 @@ export function NotificationSettings({
           >
             <Row id="exam-lead" title="settings.main.remindMe">
               <UiSelect
-                value={
-                  settings.examLeadMinutes ??
-                  settings.classLeadMinutes ??
-                  DEFAULT_CLASS_LEAD
-                }
+                value={settings.examLeadMinutes}
                 onChange={(value) =>
                   set((n) => (n.examLeadMinutes = Number(value)))
                 }
@@ -172,9 +166,7 @@ export function NotificationSettings({
                     60,
                     1440,
                     2880,
-                    settings.examLeadMinutes ??
-                      settings.classLeadMinutes ??
-                      DEFAULT_CLASS_LEAD,
+                    settings.examLeadMinutes,
                   ]),
                 ]
                   .sort((a, b) => a - b)
@@ -192,7 +184,7 @@ export function NotificationSettings({
           hint={t("settings.main.quizzesAppearInUpcomingExams")}
         >
           <Toggle
-            checked={settings.quizzes ?? true}
+            checked={settings.quizzes}
             onChange={(value) => set((n) => (n.quizzes = value))}
           />
         </Row>

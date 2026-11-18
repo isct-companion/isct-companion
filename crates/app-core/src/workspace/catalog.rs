@@ -42,8 +42,7 @@ pub(super) fn add_catalog_courses(
     offerings: Vec<Value>,
 ) -> Result<CatalogAddReceipt, DataError> {
     validate_term(term_id)?;
-    let teaching_periods = crate::schedule::teaching_periods(current)
-        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    let teaching_periods = crate::schedule::teaching_periods(current)?;
     let offerings = offerings
         .iter()
         .map(|submitted| {

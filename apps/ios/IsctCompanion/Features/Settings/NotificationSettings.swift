@@ -6,11 +6,8 @@ import UserNotifications
 /// `settings.notifications`.
 enum ReminderLeads {
     static let classChoices = [5, 10, 15, 30]
-    static let defaultClass = 10
     static let examChoices = [10, 30, 60, 1440, 2880]
     static let assignmentChoices = [15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080]
-    /// Core's `DEFAULT_ASSIGNMENT_LEADS`, used while the key is absent.
-    static let defaultAssignment = [1440, 60]
     /// Core accepts one to eight distinct times.
     static let maxAssignment = 8
 
@@ -22,28 +19,27 @@ enum ReminderLeads {
         return t("settings.notification.minutesBefore", ["minutes": minutes])
     }
 
+    // Core resolves every preference's default (`notification_preferences`)
+    // before the settings arrive, so these only read the values.
     static func classLead(_ settings: [String: Any]) -> Int {
-        (settings["classLeadMinutes"] as? NSNumber)?.intValue ?? defaultClass
+        (settings["classLeadMinutes"] as? NSNumber)?.intValue ?? 0
     }
 
-    /// Exams follow the class switch and lead until set on their own (Core's
-    /// `notification_plan`).
     static func exams(_ settings: [String: Any]) -> Bool {
-        settings["exams"] as? Bool ?? (settings["classes"] as? Bool ?? false)
+        settings["exams"] as? Bool == true
     }
 
-    /// Quizzes count as exams (upcoming exams, exam reminders) until turned off.
+    /// Quizzes count as exams (upcoming exams, exam reminders).
     static func quizzes(_ settings: [String: Any]) -> Bool {
-        settings["quizzes"] as? Bool ?? true
+        settings["quizzes"] as? Bool == true
     }
 
     static func examLead(_ settings: [String: Any]) -> Int {
-        (settings["examLeadMinutes"] as? NSNumber)?.intValue ?? classLead(settings)
+        (settings["examLeadMinutes"] as? NSNumber)?.intValue ?? 0
     }
 
     static func assignmentLeads(_ settings: [String: Any]) -> [Int] {
-        let stored = (settings["assignmentLeadMinutes"] as? [NSNumber])?.map(\.intValue) ?? []
-        return stored.isEmpty ? defaultAssignment : stored
+        (settings["assignmentLeadMinutes"] as? [NSNumber])?.map(\.intValue) ?? []
     }
 }
 

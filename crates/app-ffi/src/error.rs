@@ -95,7 +95,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::MatrixScanEnded
         | C::AgentDisabled
         | C::LmsWritesDisabled
-        | C::SubmissionUnsupported => SdkError::Unavailable { detail },
+        | C::SubmissionUnsupported
+        | C::ExamUnavailable => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::ExamShareUploadFile
         | C::ExamShareUploadMixed
@@ -146,7 +147,6 @@ from_coded!(
     app_core::facade::CredentialMutationError,
     app_core::runtime::RuntimeError,
     app_core::data::DataError,
-    app_core::workspace::WorkspaceError,
     app_core::runtime_tasks::RuntimeTaskError,
     app_core::facade::ReadModelError,
     app_core::school_auth::SchoolAuthError,

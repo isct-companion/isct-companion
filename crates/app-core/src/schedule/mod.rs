@@ -14,7 +14,7 @@ mod lms_html;
 mod occurrence;
 mod range;
 mod reminders;
-pub(crate) use reminders::assignment_lead_minutes;
+pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};
 mod requests;
 mod school;
 mod search;
@@ -57,12 +57,10 @@ pub use course_detail::{
 pub use credits::declared_term_credits;
 pub use exam_courses::{ExamCourse, ExamCourseList};
 pub(crate) use exams::{
-    adopted_exam_override, corrected_exam_override, linked_exam_override, marked_session_override,
-    removed_exam_override, ExamCorrection,
+    adopted_exam_override, corrected_exam_override, exam_association, exam_views,
+    linked_exam_override, marked_session_override, removed_exam_override, ExamCorrection,
 };
-pub use exams::{
-    exam_association, exam_views, ExamAssociation, ExamConflict, ExamSchedule, ExamView,
-};
+pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
@@ -70,7 +68,7 @@ pub use occurrence::{
     resolve_day_agenda, schedule_problems, scheduled_courses, term_courses,
     validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline, EventCarryOver,
     GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek, ScheduleProblem,
-    ScheduleProblemKind,
+    ScheduleProblemKind, SessionMark,
 };
 pub use range::calendar_between;
 pub(crate) use reminders::ReminderChanges;
@@ -101,6 +99,8 @@ pub(crate) use today::{recent_key, recent_version, unseen_recent, RECENT_DAYS};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
+    #[error("Exam is no longer available.")]
+    ExamUnavailable,
     #[error("{0}")]
     InvalidInput(String),
     #[error("{0}")]
@@ -271,7 +271,6 @@ const AGENDA: &[WorkspaceChange] = &[
     Registrations,
     Finder,
     Calendar,
-    Exams,
     Plans,
     Events,
     Subscriptions,
@@ -289,7 +288,14 @@ impl WorkspaceQuery {
             named.extend(ALWAYS_RECORDS.map(str::to_owned));
             return crate::workspace_changes::feeding(&named);
         }
-        self.fixed_reads().to_vec()
+        let mut reads = self.fixed_reads().to_vec();
+        // The exam timetable lives in `SchoolReads` and loads no field, so no
+        // check can tell which answers it reaches. Every query that reads the
+        // workspace re-runs when it changes; it changes a few times a quarter.
+        if !reads.is_empty() {
+            reads.push(Exams);
+        }
+        reads
     }
 
     fn fixed_reads(&self) -> &'static [WorkspaceChange] {
@@ -317,7 +323,6 @@ impl WorkspaceQuery {
                 Finder,
                 Calendar,
                 Grades,
-                Exams,
                 Plans,
                 Settings,
             ],
@@ -327,7 +332,6 @@ impl WorkspaceQuery {
                 Finder,
                 Calendar,
                 Grades,
-                Exams,
                 Plans,
                 Events,
                 Subscriptions,
@@ -335,7 +339,7 @@ impl WorkspaceQuery {
             ],
             Self::PlanningWeek { .. } | Self::DayAgenda { .. } | Self::QuarterIcs { .. } => AGENDA,
             Self::ExamAssociation { .. } => {
-                &[Courses, Registrations, Finder, Calendar, Exams, Settings]
+                &[Courses, Registrations, Finder, Calendar, Plans, Settings]
             }
             Self::TaskView { .. } | Self::AssignmentBoard { .. } => &[
                 Courses,
@@ -343,15 +347,26 @@ impl WorkspaceQuery {
                 Finder,
                 Calendar,
                 Assignments,
+                Plans,
                 Settings,
             ],
-            Self::AssignmentDetail { .. } | Self::LectureSearch { .. } => &[
+            Self::AssignmentDetail { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
                 Calendar,
                 Materials,
                 Assignments,
+                Settings,
+            ],
+            Self::LectureSearch { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Materials,
+                Assignments,
+                Plans,
                 Settings,
             ],
             Self::CourseDetail { .. } => &[
@@ -361,7 +376,7 @@ impl WorkspaceQuery {
                 Calendar,
                 Materials,
                 Assignments,
-                Exams,
+                Plans,
                 Settings,
             ],
             Self::Today { .. }
@@ -374,7 +389,6 @@ impl WorkspaceQuery {
                 Calendar,
                 Materials,
                 Assignments,
-                Exams,
                 Plans,
                 Events,
                 Subscriptions,
@@ -795,8 +809,7 @@ fn workspace_overview(
     on_timetable_course_ids.sort();
     on_timetable_course_ids.dedup();
     let earned = credits::earned_credits_by_term(array(workspace, "grades"));
-    let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
-    all_terms.extend(exams::exam_terms(school));
+    let mut all_terms: Vec<String> = exams::exam_terms(workspace, school).into_iter().collect();
     all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")
@@ -983,6 +996,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ClassGroupSession::decl(cfg),
         ClassGroupChoice::decl(cfg),
         OccurrenceKind::decl(cfg),
+        SessionMark::decl(cfg),
         GridSlot::decl(cfg),
         Occurrence::decl(cfg),
         ScheduleProblemKind::decl(cfg),

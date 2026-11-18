@@ -202,6 +202,11 @@ export function LmsWorkspaceBody({
     courseId: course.id,
   }).value;
   const syllabus = courseDetail?.syllabusUrl;
+  // Exams first; the timetable's exam-week classes follow as their own group.
+  const courseExams = [
+    ...(courseDetail?.exams ?? []),
+    ...(courseDetail?.examClasses ?? []),
+  ];
   // The course's own syllabus reads as it is now: Core's address follows the
   // content language and its title the UI language. What was saved when it
   // opened is only the fallback until the course detail arrives.
@@ -1374,14 +1379,14 @@ export function LmsWorkspaceBody({
                   </button>
                 </div>
               )}
-              {(courseDetail?.exams?.length ?? 0) > 0 && (
+              {courseExams.length > 0 && (
                 <section
                   className="lmsCourseExams"
                   aria-label={t("common.exams")}
                 >
                   <h2>{t("common.exams")}</h2>
                   <ExamCards
-                    exams={courseDetail?.exams ?? []}
+                    exams={courseExams}
                     courses={data.courses.filter((row) => row.id === course.id)}
                   />
                 </section>

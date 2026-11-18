@@ -457,8 +457,7 @@ struct TimetableScreen: View {
                 content
             }
         }
-        // Planned courses have no sessions of their own to mark.
-        .sessionMarks(block, enabled: !planned)
+        .sessionMarks(block)
     }
 
     /// 計画, 休講, the real times of a block drawn over whole periods, or the
