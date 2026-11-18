@@ -292,7 +292,11 @@ try {{
  $name='{PRINTER_NAME}'
  if (Get-Printer -Name $name -ErrorAction SilentlyContinue) {{ Remove-Printer -Name $name }}
  # AppContainers need both the user and package access checks to pass.
- $permissions='G:SYD:(A;OIIO;GA;;;CO)(A;OIIO;GA;;;AC)(A;;SWRC;;;{sid})(A;;SWRC;;;AC)(A;CIIO;GX;;;AC)(A;;LCSWDTSDRCWDWO;;;BA)(A;OICIIO;GA;;;BA)(A;;LCSWDTSDRCWDWO;;;SY)(A;OICIIO;GA;;;SY)'
+ # Everyone may print, as on Windows' default for a local printer: the
+ # component that hands IPP jobs to the receiver opens the queue under its
+ # own identity, and a list without Everyone refuses it (access denied), so
+ # every job fails in the spooler before it reaches the receiver.
+ $permissions='G:SYD:(A;OIIO;GA;;;CO)(A;OIIO;GA;;;AC)(A;;SWRC;;;WD)(A;CIIO;GX;;;WD)(A;;SWRC;;;{sid})(A;;SWRC;;;AC)(A;CIIO;GX;;;AC)(A;;LCSWDTSDRCWDWO;;;BA)(A;OICIIO;GA;;;BA)(A;;LCSWDTSDRCWDWO;;;SY)(A;OICIIO;GA;;;SY)'
  Add-Printer -Name $name -IppURL 'http://{localhost}:{PORT}{IPP_PATH}' -PermissionSDDL $permissions
  Set-Printer -Name $name -Shared $false -KeepPrintedJobs $false
  Set-PrintConfiguration -PrinterName $name -Color $false -DuplexingMode TwoSidedLongEdge
