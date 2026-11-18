@@ -44,10 +44,15 @@ export function ImageView({
   }, []);
 
   // WebKit keeps a detached image decoded until GC; drop it on close.
+  // React can run this cleanup while the image stays mounted (StrictMode's
+  // extra effect pass in development, or a new src), so each run puts the
+  // source back: otherwise the image never loads and shows only its title.
   useEffect(() => {
     const current = image.current;
+    if (current && current.getAttribute("src") !== src)
+      current.setAttribute("src", src);
     return () => current?.removeAttribute("src");
-  }, []);
+  }, [src]);
 
   const zoomAt = (value: number, x?: number, y?: number) => {
     const element = stage.current;
