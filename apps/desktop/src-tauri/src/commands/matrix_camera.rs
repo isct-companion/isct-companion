@@ -15,7 +15,7 @@ use tauri::{Manager, State};
 pub(crate) struct MatrixScan(pub(crate) Arc<MatrixCameraDriver>);
 impl Default for MatrixScan {
     fn default() -> Self {
-        let driver = MatrixCameraDriver::new(app_ocr::matrix_vision());
+        let driver = MatrixCameraDriver::new(app_ocr_adapter::matrix_vision());
         #[cfg(debug_assertions)]
         let driver = driver.with_inspector(log_frame_quality);
         Self(Arc::new(driver))

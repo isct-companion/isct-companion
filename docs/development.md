@@ -88,6 +88,7 @@ apps/desktop/
 crates/app-core/           authoritative domain state, services and storage
 crates/adpt-isct/          stateless school parsers, page scripts and URLs
 crates/app-ocr/            independent optional OCR engine and model
+crates/app-ocr-adapter/    shared Core vision adapter and session replay tools
 crates/app-ffi/            native Core facade and generated contract bridge
 apps/ios/                  SwiftUI app over the native SDK
 apps/android/              Compose app over the native SDK
@@ -169,3 +170,17 @@ assignment's LMS draft area, which the user saves; it never submits
 assignments, changes enrollment, publishes official calendar data or provides a
 server-side polling service. Distribution signing, notarization and public
 hosting remain release configuration.
+
+Rust CI uses two caches: `Swatinem/rust-cache` retains external dependencies,
+and the shared `rust-compiler-cache` action uses sccache for workspace libraries.
+The latter keys compiled output by content, so checkout timestamps do not force
+unchanged OCR algorithms through code generation. Core owns Matrix sessions;
+`app-ocr-adapter` connects its vision port to the independent `app-ocr` engine.
+Core business code and unrelated Core feature changes therefore do not invalidate
+that engine.
+Compiler, target, profile, engine source/model and shared dependency changes
+still select different compiled output. Final linking and build scripts still
+run. Cargo may print `Compiling app-ocr` on a hit; the action's post-job sccache
+statistics show whether the compiler output was reused. Platform checks retain
+the existing policy that only main writes shared caches; new inputs need one
+main cache-warming run before other branches can reuse them.

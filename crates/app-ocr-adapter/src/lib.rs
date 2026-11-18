@@ -1,12 +1,16 @@
 //! Core's image capability, implemented by this crate. Desktop and the
 //! native SDK build their `MatrixCameraDriver` from `matrix_vision()`, so no
 //! shell wires the tracker, the cut or the model itself.
-use crate::{MatrixAlphabetService, MatrixAnalysisFrame, MatrixOcrError, MatrixTracker};
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
 use app_core::matrix_scan::{
     MatrixAnalysis, MatrixCaptureGlyph, MatrixCut, MatrixFullLuma, MatrixGridTrack,
     MatrixGridTracker, MatrixLuma, MatrixPicture, MatrixPlanes, MatrixPoint, MatrixReading,
     MatrixScanError, MatrixVision, MatrixYuvFrame,
 };
+use app_ocr::{MatrixAlphabetService, MatrixAnalysisFrame, MatrixOcrError, MatrixTracker};
 use std::sync::Arc;
 
 fn scan_error(error: MatrixOcrError) -> MatrixScanError {
@@ -21,6 +25,40 @@ fn scan_error(error: MatrixOcrError) -> MatrixScanError {
 }
 fn point([x, y]: [f64; 2]) -> MatrixPoint {
     MatrixPoint { x, y }
+}
+
+// Borrow camera planes and move output buffers: the boundary copies no pixels.
+fn yuv_frame<'a>(frame: &MatrixYuvFrame<'a>) -> app_ocr::MatrixYuvFrame<'a> {
+    app_ocr::MatrixYuvFrame {
+        width: frame.width,
+        height: frame.height,
+        y: frame.y,
+        y_row_stride: frame.y_row_stride,
+        u: frame.u,
+        v: frame.v,
+        uv_row_stride: frame.uv_row_stride,
+        uv_pixel_stride: frame.uv_pixel_stride,
+        matrix: match frame.matrix {
+            app_core::matrix_scan::MatrixYuvMatrix::Bt601 => app_ocr::MatrixYuvMatrix::Bt601,
+            app_core::matrix_scan::MatrixYuvMatrix::Bt709 => app_ocr::MatrixYuvMatrix::Bt709,
+        },
+        full_range: frame.full_range,
+    }
+}
+fn analysis(image: app_ocr::MatrixAnalysisImage) -> MatrixAnalysis {
+    MatrixAnalysis {
+        width: image.width,
+        height: image.height,
+        luma: image.luma,
+        chroma: image.chroma,
+    }
+}
+fn full_luma(image: app_ocr::MatrixFullLuma) -> MatrixFullLuma {
+    MatrixFullLuma {
+        width: image.width,
+        height: image.height,
+        luma: image.luma,
+    }
 }
 
 struct Tracker(MatrixTracker);
@@ -55,7 +93,7 @@ struct Vision {
 }
 impl MatrixVision for Vision {
     fn available(&self) -> bool {
-        crate::available()
+        app_ocr::available()
     }
     fn warm_up(&self) -> Result<(), MatrixScanError> {
         // A blank cell still runs the model once, so the session is resident.
@@ -68,20 +106,28 @@ impl MatrixVision for Vision {
         Box::new(Tracker(MatrixTracker::default()))
     }
     fn decode(&self, encoded: &[u8]) -> Result<MatrixPicture, MatrixScanError> {
-        crate::matrix_picture(encoded).map_err(scan_error)
+        let picture = app_ocr::matrix_picture(encoded).map_err(scan_error)?;
+        Ok(MatrixPicture {
+            analysis: analysis(picture.analysis),
+            full: full_luma(picture.full),
+        })
     }
     fn analyse(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixAnalysis, MatrixScanError> {
-        crate::matrix_analysis_from_yuv(frame).map_err(scan_error)
+        app_ocr::matrix_analysis_from_yuv(&yuv_frame(frame))
+            .map(analysis)
+            .map_err(scan_error)
     }
     fn full_luma(&self, frame: &MatrixYuvFrame<'_>) -> Result<MatrixFullLuma, MatrixScanError> {
-        crate::matrix_full_luma_from_yuv(frame).map_err(scan_error)
+        app_ocr::matrix_full_luma_from_yuv(&yuv_frame(frame))
+            .map(full_luma)
+            .map_err(scan_error)
     }
     fn cut(
         &self,
         luma: MatrixLuma<'_>,
         body: [MatrixPoint; 4],
     ) -> Result<MatrixCut, MatrixScanError> {
-        let cut = crate::capture_matrix_keyframe(
+        let cut = app_ocr::capture_matrix_keyframe(
             luma.luma,
             luma.width,
             luma.height,
@@ -124,6 +170,19 @@ pub fn matrix_vision() -> Arc<dyn MatrixVision> {
     Arc::new(Vision::default())
 }
 
-#[cfg(all(test, matrix_ocr))]
+#[cfg(all(
+    test,
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+))]
 #[path = "tests/vision.rs"]
 mod tests;
+
+#[cfg(all(test, not(feature = "engine")))]
+#[path = "tests/unavailable.rs"]
+mod unavailable_tests;

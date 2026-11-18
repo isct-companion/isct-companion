@@ -14,10 +14,26 @@
 //! comparisons); Core reads a clock that follows the recording. `OUT` receives
 //! `frames.yuv` (decoded once, reused) and `windows.json`. Frames, truth and
 //! outputs are card images or derived from them: keep them local.
-#[cfg(matrix_ocr)]
+#[cfg(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+))]
 #[path = "common/video.rs"]
 mod video;
-#[cfg(matrix_ocr)]
+#[cfg(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+))]
 mod replay {
     use super::video::Video;
     use app_core::matrix_scan::{
@@ -235,7 +251,7 @@ mod replay {
         std::fs::create_dir_all(&out)?;
         let cache = flag("--cache").map_or_else(|| out.join("frames.yuv"), PathBuf::from);
         let mut video = Video::open(Path::new(&video_path), &cache)?;
-        let vision = app_ocr::matrix_vision();
+        let vision = app_ocr_adapter::matrix_vision();
         let warm = Instant::now();
         vision.warm_up()?;
         let warm_ms = warm.elapsed().as_secs_f64() * 1000.;
@@ -286,11 +302,27 @@ mod replay {
         Ok(())
     }
 }
-#[cfg(matrix_ocr)]
+#[cfg(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     replay::main()
 }
-#[cfg(not(matrix_ocr))]
+#[cfg(not(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+)))]
 fn main() {
     eprintln!("Matrix OCR unavailable for this target");
     std::process::exit(1);

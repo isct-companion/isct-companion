@@ -2,7 +2,7 @@ use super::*;
 use app_core::matrix_scan::{MatrixCameraDriver, MatrixCameraPhase, MatrixYuvMatrix};
 use std::time::Duration;
 
-const CARD: &[u8] = include_bytes!("fixtures/matrix-card.jpg");
+const CARD: &[u8] = include_bytes!("../../../app-ocr/src/tests/fixtures/matrix-card.jpg");
 
 /// The fixture as a phone would deliver it: BT.601 full-range NV12 with
 /// 2×2-averaged chroma, the subsampling a real camera applies.
@@ -66,9 +66,9 @@ fn a_photo_and_live_frames_of_one_card_read_the_same_letters() {
     let rgb = image::load_from_memory(CARD).unwrap().to_rgb8();
     let (y, uv) = nv12(&rgb);
     let yuv = frame(rgb.width(), rgb.height(), &y, &uv);
-    let decoded = crate::matrix_picture(CARD).unwrap();
-    let analysis = crate::matrix_analysis_from_yuv(&yuv).unwrap();
-    let full = crate::matrix_full_luma_from_yuv(&yuv).unwrap();
+    let decoded = app_ocr::matrix_picture(CARD).unwrap();
+    let analysis = app_ocr::matrix_analysis_from_yuv(&yuv_frame(&yuv)).unwrap();
+    let full = app_ocr::matrix_full_luma_from_yuv(&yuv_frame(&yuv)).unwrap();
     assert_eq!(
         (
             decoded.full.width,
@@ -193,7 +193,7 @@ fn camera_full_luma_matches_the_per_pixel_conversion_exactly() {
                 (255. / 219., 16., 255. / 224.)
             };
             let clamp = |v: f64| v.round().clamp(0., 255.) as u8;
-            let full = crate::matrix_full_luma_from_yuv(&yuv).unwrap();
+            let full = app_ocr::matrix_full_luma_from_yuv(&yuv_frame(&yuv)).unwrap();
             for (i, &actual) in full.luma.iter().enumerate() {
                 let (px, py) = (i % w, i / w);
                 let c = (py / 2) * w + (px / 2) * 2;

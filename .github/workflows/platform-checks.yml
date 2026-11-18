@@ -138,6 +138,9 @@ jobs:
           workspaces: . -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
+      - uses: ./.github/actions/rust-compiler-cache
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The same lint as the Mac job: each OS compiles code the other never sees.
       - name: Desktop lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -175,13 +178,18 @@ jobs:
           key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
+      - uses: ./.github/actions/rust-compiler-cache
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check -p isct-companion --locked --target ${{ matrix.target }}
       - name: Desktop Rust contracts
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo test --workspace --locked
       - name: OCR disabled-backend contracts
         if: matrix.target == 'aarch64-apple-darwin'
-        run: cargo test -p app-ocr --no-default-features --locked
+        run: |
+          cargo test -p app-ocr --no-default-features --locked
+          cargo test -p app-ocr-adapter --no-default-features --locked
       - name: Desktop lint
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

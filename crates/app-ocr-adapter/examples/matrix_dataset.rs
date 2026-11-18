@@ -19,11 +19,27 @@
 //! `sharp` is Core's verdict on the whole keyframe (`matrix_frame_sharp`).
 //! The reading only lets the dataset check indexing and report the current
 //! model's errors; it never becomes a label. Outputs are card images.
-#[cfg(matrix_ocr)]
+#[cfg(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+))]
 #[path = "common/video.rs"]
 mod video;
 
-#[cfg(matrix_ocr)]
+#[cfg(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use app_core::matrix_scan::{keyframe_ready, matrix_cell_admissible, matrix_frame_sharp};
     use serde_json::json;
@@ -40,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|i| args.get(i + 1))
         .map_or_else(|| out.join("frames.yuv"), PathBuf::from);
     let mut video = video::Video::open(source.as_ref(), &cache)?;
-    let vision = app_ocr::matrix_vision();
+    let vision = app_ocr_adapter::matrix_vision();
     let mut tracker = vision.tracker();
     let mut glyphs = std::io::BufWriter::new(std::fs::File::create(out.join("glyphs.u8"))?);
     let mut lines = std::io::BufWriter::new(std::fs::File::create(out.join("frames.jsonl"))?);
@@ -100,7 +116,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(matrix_ocr))]
+#[cfg(not(all(
+    feature = "engine",
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "android", target_arch = "aarch64")
+    )
+)))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     Err("Matrix OCR backend unavailable".into())
 }

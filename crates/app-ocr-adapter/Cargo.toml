@@ -1,0 +1,32 @@
+[package]
+name = "app-ocr-adapter"
+version = "1.0.0-rc.1"
+edition = "2021"
+rust-version = "1.90"
+description = "Shared Matrix vision adapter between Core and the independent OCR engine"
+
+[features]
+default = ["engine"]
+engine = ["app-ocr/engine"]
+
+[dependencies]
+app-core = { path = "../app-core" }
+app-ocr = { path = "../app-ocr", default-features = false }
+
+[dev-dependencies]
+serde_json = "1"
+
+[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "windows", all(target_os = "android", target_arch = "aarch64")))'.dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+[[example]]
+name = "matrix_capture"
+required-features = ["engine"]
+
+[[example]]
+name = "matrix_dataset"
+required-features = ["engine"]
+
+[[example]]
+name = "matrix_session_replay"
+required-features = ["engine"]

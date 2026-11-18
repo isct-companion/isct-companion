@@ -857,7 +857,7 @@ async fn initialize(
         browser_shutdown_error,
         #[cfg(feature = "ocr")]
         matrix: Arc::new(app_core::matrix_scan::MatrixCameraDriver::new(
-            app_ocr::matrix_vision(),
+            app_ocr_adapter::matrix_vision(),
         )),
     });
     inner.core.runtime.notes.at(inner.files.clone());

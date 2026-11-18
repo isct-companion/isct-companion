@@ -1,8 +1,9 @@
 # app-ocr
 
 `app-ocr` is the optional, UI-independent matrix-card recognition library and
-Core's image capability: `matrix_vision()` gives every shell the tracker, cell
-cut and letter model that `app_core::matrix_scan::MatrixCameraDriver` drives.
+The engine has no dependency on Core. `app_ocr_adapter::matrix_vision()`
+implements Core's image capability with its tracker, cell cut and letter model;
+every shell injects it into `app_core::matrix_scan::MatrixCameraDriver`.
 Its default `engine` feature embeds the alphabet classifier (`models/alphabet/`)
 and its runtime, chosen per target at compile time (`engine/letters`): LiteRT
 with the float16 export on Android arm64 and Windows (the app's bundled
@@ -118,7 +119,7 @@ pixel loops do not dominate live tracking.
 Replay the two-stage camera flow (the input files are `capture-*.jpg`):
 
 ```sh
-cargo run -p app-ocr --release --example matrix_capture -- FRAME_DIRECTORY EXPECTED_TEXT CAPTURE_FPS
+cargo run -p app-ocr-adapter --release --example matrix_capture -- FRAME_DIRECTORY EXPECTED_TEXT CAPTURE_FPS
 ```
 
 The reported capture duration follows the recording timestamps; it is not a
@@ -131,7 +132,7 @@ Replay a recorded video as camera sessions through Core's driver (the phone
 path, one fresh session per second, on the recording's clock):
 
 ```sh
-cargo run -p app-ocr --release --example matrix_session_replay -- VIDEO EXPECTED OUT
+cargo run -p app-ocr-adapter --release --example matrix_session_replay -- VIDEO EXPECTED OUT
 ```
 
 Each window reports whether the session completed, whether all 70 cells were
@@ -209,7 +210,7 @@ the diagnostic-only example changes. Keep it outside `target/` so later builds
 do not replace it.
 
 ```sh
-cargo build -p app-ocr --example matrix_capture --release --locked
+cargo build -p app-ocr-adapter --example matrix_capture --release --locked
 python scripts/ocr/matrix_lighting.py --directory .cache/ocr-lighting \
   --generate crates/app-ocr/src/tests/fixtures/matrix-card.jpg
 python scripts/ocr/matrix_lighting.py --directory .cache/ocr-lighting \

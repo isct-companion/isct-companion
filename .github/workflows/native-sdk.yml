@@ -73,6 +73,9 @@ jobs:
           key: native-sdk-ios
           # Platform checks warms the shared caches on main.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/rust-compiler-cache
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install host Kotlin compiler
         run: |
           if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
@@ -131,6 +134,9 @@ jobs:
           workspaces: . -> target
           key: native-sdk-android
           # Platform checks warms the shared caches on main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/rust-compiler-cache
+        with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: corepack enable
       # The same Yarn cache as platform checks' frontend job, keyed on yarn.lock.

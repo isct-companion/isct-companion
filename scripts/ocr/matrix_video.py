@@ -105,9 +105,10 @@ def binary(target, name):
 
 def export(args):
     manifest = load_manifest(args.manifest)
-    subprocess.run(["cargo", "build", "-p", "app-ocr", "--release", "--features",
-                    "training-tools", "--example", "matrix_dataset", "--example",
-                    "alphabet_prepare", "--target-dir", str(args.target)], cwd=ROOT, check=True)
+    subprocess.run(["cargo", "build", "-p", "app-ocr", "-p", "app-ocr-adapter",
+                    "--release", "--features", "app-ocr/training-tools",
+                    "--example", "matrix_dataset", "--example", "alphabet_prepare",
+                    "--target-dir", str(args.target)], cwd=ROOT, check=True)
     tool = binary(args.target, "matrix_dataset")
     tool_hash = digest(tool)
     for recording in manifest["recordings"]:
