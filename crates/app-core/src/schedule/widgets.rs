@@ -31,6 +31,7 @@ pub(crate) const READS: &[WorkspaceChange] = &[
     WorkspaceChange::Registrations,
     WorkspaceChange::Calendar,
     WorkspaceChange::Exams,
+    WorkspaceChange::Plans,
     WorkspaceChange::Assignments,
     WorkspaceChange::Events,
     WorkspaceChange::Freshness,

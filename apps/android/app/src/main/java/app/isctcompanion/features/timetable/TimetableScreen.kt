@@ -91,6 +91,7 @@ import app.isctcompanion.core.DatedAgenda
 import app.isctcompanion.core.Occurrence
 import app.isctcompanion.core.OccurrenceKind
 import app.isctcompanion.core.ScheduleView
+import app.isctcompanion.core.SessionMark
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.core.TimetableYear
@@ -532,13 +533,9 @@ private fun Block(
     val surface = Theme.colors.surface
     val shape = RoundedCornerShape(Theme.radiusBlock)
     val id = block.courseId
-    // The current mark, checked in the long-press menu.
-    val state = when {
-        block.cancelled == true -> "cancelled"
-        block.kind != OccurrenceKind.EXAM -> "class"
-        block.quiz == true -> "quiz"
-        else -> "exam"
-    }
+    // Core's current mark, checked in the long-press menu; none when the
+    // block takes no mark.
+    val state = block.mark
     val ink = when {
         cancelled -> Theme.colors.muted
         else -> courseMix(tint, Theme.tintInk, Theme.colors.ink)
@@ -574,8 +571,7 @@ private fun Block(
                 .combinedClickable(
                     enabled = id != null || !planned,
                     onClick = { id?.let { navigator.openCourse(it, block.key) } },
-                    // Planned courses have no sessions of their own to mark.
-                    onLongClick = if (planned) null else ({
+                    onLongClick = if (state == null) null else ({
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         menu = true
                     }),
@@ -624,14 +620,18 @@ private fun Block(
             HorizontalDivider()
             // Choosing the checked mark again sends `class`; Core decides
             // whether that clears the mark.
-            for ((value, label) in listOf("exam" to t("common.markAsExam"), "quiz" to t("common.markAsQuiz"), "cancelled" to t("common.markAsCancelled"))) {
+            for ((mark, value, label) in listOf(
+                Triple(SessionMark.EXAM, "exam", t("common.markAsExam")),
+                Triple(SessionMark.QUIZ, "quiz", t("common.markAsQuiz")),
+                Triple(SessionMark.CANCELLED, "cancelled", t("common.markAsCancelled")),
+            )) {
                 DropdownMenuItem(
                     text = { Text(label) },
-                    trailingIcon = { if (value == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
+                    trailingIcon = { if (mark == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
                     onClick = {
                         menu = false
                         scope.launch {
-                            model.markSession(block.key, if (value == state) "class" else value)
+                            model.markSession(block.key, if (mark == state) "class" else value)
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         }
                     },

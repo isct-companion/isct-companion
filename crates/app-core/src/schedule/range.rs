@@ -2,7 +2,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::SchoolReads;
-use std::collections::{BTreeSet, HashSet};
 
 use serde_json::Value;
 
@@ -11,8 +10,8 @@ use super::occurrence::{
     finalize_agenda, personal_occurrences, resolve_day_agenda_with, scheduled_courses,
 };
 use super::{
-    array, parse_civil_date, placement_terms, teaching_periods, text, visible, AgendaOptions,
-    DatedAgenda, OccurrenceKind, ScheduleError, Term,
+    array, parse_civil_date, teaching_periods, text, visible, AgendaOptions, DatedAgenda,
+    OccurrenceKind, ScheduleError, Term,
 };
 use crate::locale::ContentLanguage;
 
@@ -33,13 +32,12 @@ pub fn calendar_between(
         ));
     }
     let periods = teaching_periods(workspace)?;
-    let mut terms: BTreeSet<String> = placement_terms(workspace).map(str::to_owned).collect();
+    let mut terms = super::exams::exam_terms(workspace, school);
     for event in array(workspace, "events").iter().filter(|row| visible(row)) {
         if let Some(term) = text(event, "termId") {
             terms.insert(term.into());
         }
     }
-    terms.extend(school.exams.terms().map(str::to_owned));
     for year in academic_year_of(from)?..=academic_year_of(to)? {
         for quarter in 1..=4 {
             terms.insert(format!("{year}-{quarter}Q"));
@@ -125,11 +123,6 @@ pub fn calendar_between(
             .cloned()
             .collect();
         blocks.extend(personal_occurrences(&date, &events)?);
-        // A course may have placements in overlapping configured quarters.
-        // Keep its effective occurrence once, preferring a class that runs.
-        blocks.sort_by_key(|block| block.cancelled == Some(true));
-        let mut seen = HashSet::new();
-        blocks.retain(|block| seen.insert(block.key.clone()));
         let important_dates: Vec<_> = array(workspace, "importantDates")
             .iter()
             .filter(|row| {

@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
-use thiserror::Error;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 use uuid::Uuid;
@@ -297,29 +296,6 @@ pub struct CourseBatchChanges {
     pub credits: Option<f64>,
 }
 
-#[derive(Debug, Error)]
-pub enum WorkspaceError {
-    #[error("{0}")]
-    InvalidIntent(String),
-    #[error("{0}")]
-    Conflict(String),
-    #[error("{0}")]
-    Storage(String),
-}
-
-impl From<DataError> for WorkspaceError {
-    fn from(error: DataError) -> Self {
-        match error {
-            DataError::InvalidInput(message) | DataError::Compatibility(message) => {
-                Self::InvalidIntent(message)
-            }
-            DataError::Conflict(message) => Self::Conflict(message),
-            DataError::Storage(message) => Self::Storage(message),
-            DataError::Open(error) => Self::Storage(error.to_string()),
-        }
-    }
-}
-
 #[cfg(feature = "ts")]
 pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![
@@ -360,16 +336,13 @@ impl WorkspaceService {
     }
 
     /// The revision the next mutation is made against.
-    pub fn revision(&self) -> Result<String, WorkspaceError> {
-        Ok(self.store.intent_revision()?)
+    pub fn revision(&self) -> Result<String, DataError> {
+        self.store.intent_revision()
     }
 
     /// Applies `mutation` and returns what it changed, for a shell that
     /// queries again what reads those changes.
-    pub fn mutate_commit(
-        &self,
-        mutation: WorkspaceMutation,
-    ) -> Result<WorkspaceCommit, WorkspaceError> {
+    pub fn mutate_commit(&self, mutation: WorkspaceMutation) -> Result<WorkspaceCommit, DataError> {
         // The receipt and database change are one operation. A second caller
         // can read the new database revision before this call returns; keep
         // it from copying the preceding receipt or overwriting the new one.
@@ -674,13 +647,11 @@ fn apply_intent(
                     end_time,
                     room,
                 },
-            )
-            .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            )?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::MarkSession { key, mark } => {
-            let row = crate::schedule::marked_session_override(current, school, &key, &mark)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            let row = crate::schedule::marked_session_override(current, school, &key, &mark)?;
             save_exam_override(write, current, school, &key, row)
         }
         WorkspaceIntent::LinkExam {
@@ -692,13 +663,11 @@ fn apply_intent(
                 school,
                 &exam_key,
                 course_id.as_deref().filter(|id| !id.is_empty()),
-            )
-            .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            )?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::RemoveExam { exam_key } => {
-            let row = crate::schedule::removed_exam_override(current, school, &exam_key)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            let row = crate::schedule::removed_exam_override(current, school, &exam_key)?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::DeleteScheduleOverride { override_id } => delete_visible(
@@ -772,8 +741,7 @@ fn apply_intent(
             save_recent_seen(write, current, crate::schedule::unseen_recent(current, now))
         }
         WorkspaceIntent::SetClassGroup { semester, group } => {
-            crate::schedule::validate_semester(&semester)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            crate::schedule::validate_semester(&semester)?;
             let mut groups = current
                 .get("classGroups")
                 .cloned()

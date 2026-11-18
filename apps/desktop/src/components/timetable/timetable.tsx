@@ -12,7 +12,11 @@ import {
 } from "../../lib/timetable-layout";
 import { jstMinutes } from "../../lib/civil-date";
 import { useScheduleQuery } from "../../platform/core-query";
-import type { GridSlot, TimetableAxis } from "../../generated/persistence";
+import type {
+  GridSlot,
+  SessionMark,
+  TimetableAxis,
+} from "../../generated/persistence";
 
 export const dayNames: MessageKey[] = [
   "common.weekdayLong.monday",
@@ -66,6 +70,8 @@ export type Block = {
   planned?: boolean | null;
   /** Core's place for the block on the period grid (`GridSlot`). */
   grid?: GridSlot | null;
+  /** Core's current mark for the session menu; absent when it takes none. */
+  mark?: SessionMark | null;
 };
 
 /** One entry of a block's right-click menu; `current` when the block

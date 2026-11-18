@@ -57,6 +57,7 @@ impl From<String> for AgentError {
 impl From<DataError> for AgentError {
     fn from(error: DataError) -> Self {
         match error {
+            DataError::ExamUnavailable => Self::Unavailable(error.to_string()),
             DataError::InvalidInput(message) => Self::InvalidInput(message),
             DataError::Conflict(message) => Self::Conflict(message),
             DataError::Compatibility(message) => Self::Compatibility(message),
@@ -68,6 +69,7 @@ impl From<DataError> for AgentError {
 impl From<crate::schedule::ScheduleError> for AgentError {
     fn from(error: crate::schedule::ScheduleError) -> Self {
         match error {
+            crate::schedule::ScheduleError::ExamUnavailable => Self::Unavailable(error.to_string()),
             crate::schedule::ScheduleError::InvalidInput(message) => Self::InvalidInput(message),
             crate::schedule::ScheduleError::Compatibility(message) => Self::Compatibility(message),
         }

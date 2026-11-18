@@ -37,6 +37,7 @@ macro_rules! codes {
 
 codes! {
     InvalidInput => "invalid-input",
+    ExamUnavailable => "exam-unavailable",
     Conflict => "conflict",
     Storage => "storage",
     Compatibility => "compatibility",
@@ -219,7 +220,6 @@ use crate::{
     storage::StorageError,
     study_profile::StudyProfileError,
     subscriptions::SubscriptionError,
-    workspace::WorkspaceError,
 };
 use ErrorCode as C;
 
@@ -288,6 +288,7 @@ coded!(crate::campus_map::CampusMapError, |e| {
 });
 
 coded!(DataError, |e| match e {
+    DataError::ExamUnavailable => C::ExamUnavailable,
     DataError::InvalidInput(_) => C::InvalidInput,
     DataError::Conflict(_) => C::Conflict,
     DataError::Compatibility(_) => C::Compatibility,
@@ -301,11 +302,6 @@ coded!(crate::data::StoreOpenError, |e| {
         E::UnsupportedFormat { .. } => C::Compatibility,
         E::RecoveryRequired { .. } | E::Io(_) => C::Storage,
     }
-});
-coded!(WorkspaceError, |e| match e {
-    WorkspaceError::InvalidIntent(_) => C::InvalidInput,
-    WorkspaceError::Conflict(_) => C::Conflict,
-    WorkspaceError::Storage(_) => C::Storage,
 });
 coded!(crate::workspaces::WorkspaceError, |e| {
     use crate::workspaces::WorkspaceError as E;
@@ -326,6 +322,7 @@ coded!(crate::workspaces::HandInError, |e| {
     }
 });
 coded!(ScheduleError, |e| match e {
+    ScheduleError::ExamUnavailable => C::ExamUnavailable,
     ScheduleError::InvalidInput(_) => C::InvalidInput,
     ScheduleError::Compatibility(_) => C::Compatibility,
 });
@@ -341,7 +338,7 @@ coded!(CatalogError, |e| match e {
     CatalogError::InvalidInput(_) => C::InvalidInput,
 });
 coded!(ReadModelError, |e| match e {
-    ReadModelError::Workspace(e) => e.code(),
+    ReadModelError::Data(e) => e.code(),
     ReadModelError::Schedule(e) => e.code(),
     ReadModelError::Finder(e) => e.code(),
     ReadModelError::Catalog(e) => e.code(),

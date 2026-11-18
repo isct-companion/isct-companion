@@ -110,8 +110,9 @@ pub(super) fn validate_choices(
 
 /// Checks the values present in whole settings or in one stored part of them.
 pub(super) fn validate_preference_values(settings: &Value) -> Result<(), DataError> {
-    crate::schedule::assignment_lead_minutes(settings.get("notifications").unwrap_or(&Value::Null))
-        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    crate::schedule::assignment_lead_minutes(
+        settings.get("notifications").unwrap_or(&Value::Null),
+    )?;
 
     if let Some(lead) = settings
         .pointer("/notifications/examLeadMinutes")
@@ -189,8 +190,7 @@ pub(super) fn validate_setting(key: &str, value: &Value) -> Result<(), DataError
     match key {
         "userPreferences" | "devicePreferences" => validate_preference_values(value),
         "cloud" => validate_choices(value, CLOUD_CHOICES),
-        "classGroups" => crate::schedule::validate_class_groups(value)
-            .map_err(|error| DataError::InvalidInput(error.to_string())),
+        "classGroups" => Ok(crate::schedule::validate_class_groups(value)?),
         "academicProfile" => {
             validate_admission_year(value)?;
             validate_study_enrollments(value)?;
@@ -202,8 +202,7 @@ pub(super) fn validate_setting(key: &str, value: &Value) -> Result<(), DataError
                     serde_json::from_value(periods.clone()).map_err(|error| {
                         DataError::InvalidInput(format!("teaching periods are invalid: {error}"))
                     })?;
-                crate::schedule::validate_teaching_periods(&periods)
-                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                crate::schedule::validate_teaching_periods(&periods)?;
             }
             Ok(())
         }

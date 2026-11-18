@@ -1,5 +1,6 @@
 import { Button, Select, TextInput } from "../ui";
 import { useState } from "react";
+import { useSubmissionGuard } from "../use-submission-guard";
 import type { ExamAssociation, ExamView } from "../../generated/persistence";
 import type { Course } from "../../lib/model";
 import { useScheduleQuery } from "../../platform/core-query";
@@ -25,8 +26,7 @@ export function ExamEditor({
   onSaved?: () => void;
   onRemoved?: () => void;
 }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const { busy: saving, error, run: submit } = useSubmissionGuard();
   const [saved, setSaved] = useState(false);
   // A session marked on the calendar is its own course's; it has no link.
   const published = exam.origin === "published";
@@ -38,22 +38,16 @@ export function ExamEditor({
     },
     published && Boolean(exam.courseId),
   );
-  const run = async (
+  const run = (
     intent: Parameters<typeof workspaceActions.mutate>[0],
     done?: () => void,
   ) => {
-    setSaving(true);
-    setError("");
     setSaved(false);
-    try {
+    return submit(async () => {
       await workspaceActions.mutate(intent);
       setSaved(true);
       done?.();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setSaving(false);
-    }
+    });
   };
   const edit = (values?: FormData) => {
     const field = (name: string) =>

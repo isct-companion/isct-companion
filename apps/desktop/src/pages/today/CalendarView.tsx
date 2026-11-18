@@ -31,21 +31,16 @@ function CalendarViewBody({
   /** Marks one session; absent when the workspace is read-only. */
   mark?: (block: Block, as: "exam" | "quiz" | "cancelled" | "class") => void;
 }) {
-  // Classes and exams take a mark; personal items open their own editor,
-  // exactly as a click does. The marks are exclusive: choosing the checked
+  // Personal items open their own editor, exactly as a click does; a session
+  // Core gives a mark takes one. The marks are exclusive: choosing the checked
   // one again makes the session a plain class, and Core keeps no mark when
   // its sources already say so.
   const actionsFor = (block: Block): BlockAction[] => {
     if (!mark) return [];
     if (block.kind === "event")
       return [{ label: t("common.edit"), run: () => open(block) }];
-    const state = block.cancelled
-      ? "cancelled"
-      : block.kind === "exam"
-        ? block.quiz
-          ? "quiz"
-          : "exam"
-        : "class";
+    const state = block.mark;
+    if (!state) return [];
     return (
       [
         ["exam", t("common.markAsExam")],

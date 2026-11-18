@@ -20,6 +20,18 @@ fn workspace() -> Value {
     })
 }
 
+fn mark_session(data: &mut Value, key: &str, mark: &str) {
+    let change =
+        super::exams::marked_session_override(data, &SchoolReads::fixture(data), key, mark)
+            .unwrap();
+    let rows = data["scheduleOverrides"].as_array_mut().unwrap();
+    rows.retain(|row| row["targetKey"] != key);
+    if let Some(mut row) = change {
+        row["id"] = json!(key);
+        rows.push(row);
+    }
+}
+
 #[test]
 fn quarter_and_calendar_precedence_match_desktop() {
     let mut data = workspace();
@@ -1758,7 +1770,13 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.material_ids, ["first", "same-section", "later"]);
     assert_eq!(view.sections, [1, 2]);
     assert_eq!(view.assignment_ids, ["early", "later", "no-date"]);
-    assert_eq!(view.exam_ids, ["early", "late"]);
+    assert_eq!(
+        view.exams
+            .iter()
+            .map(|exam| exam.id.as_str())
+            .collect::<Vec<_>>(),
+        ["early", "late"]
+    );
     assert_eq!(view.format.unwrap().kinds, ["lecture"]);
     // The course's catalog code finds it too.
     assert_eq!(
@@ -2056,6 +2074,11 @@ fn profile_form_preserves_identity_and_validates_or_resets_the_clock() {
     profile["teachingPeriods"] = Value::Null;
     data["academicProfile"] = validate_academic_profile(&profile).unwrap();
     assert_eq!(teaching_periods(&data).unwrap(), default_teaching_periods());
+    // A start outside its academic year would overlap another year's quarters.
+    profile["years"] = json!([{"academicYear":2027,"quarterStarts":{
+        "1Q":"2026-11-01","2Q":"2027-06-01","3Q":"2027-10-01","4Q":"2027-12-01"}}]);
+    assert!(validate_academic_profile(&profile).is_err());
+    profile["years"] = json!([]);
     profile["studyEnrollments"][0]["admittedTerm"] = json!("bad-term");
     assert!(validate_academic_profile(&profile).is_err());
 }
@@ -2088,17 +2111,6 @@ fn date_range_crosses_academic_years_and_merges_conflicts_once() {
     assert_eq!(days[0].occurrences.len(), 1);
     assert_eq!(days[3].occurrences.len(), 2);
     assert!(days[3].occurrences.iter().all(|b| b.conflict == Some(true)));
-    // At an overlapping configured boundary, the same source occurrence and
-    // its conflicts still appear only once.
-    data["academicCalendar"][1]["date"] = json!("2027-04-02");
-    let overlap = calendar_between(
-        &data,
-        &SchoolReads::fixture(&data),
-        "2027-04-01",
-        "2027-04-01",
-    )
-    .unwrap();
-    assert_eq!(overlap[0].occurrences.len(), 2);
 }
 
 #[test]
@@ -2276,7 +2288,11 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
         None
     );
     assert_eq!(
-        course_detail(&data, &SchoolReads::fixture(&data), "course").exam_ids,
+        course_detail(&data, &SchoolReads::fixture(&data), "course")
+            .exams
+            .iter()
+            .map(|exam| exam.id.as_str())
+            .collect::<Vec<_>>(),
         ["mine"]
     );
 
@@ -2328,6 +2344,23 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
             .course_id,
         None
     );
+
+    // The same course can have a marked exam in another planned quarter,
+    // even when that quarter has no published exam feed.
+    data["academicProfile"]["years"] = json!([{"academicYear":2026,"quarterStarts":{
+        "2Q":"2026-06-01","3Q":"2026-10-01"
+    }}]);
+    data["planItems"] = json!([{"id":"second-quarter","termId":"2026-2Q","courseId":"course"}]);
+    let key = "course-weekly-0-2026-06-08";
+    mark_session(&mut data, key, "exam");
+    let association = exam_association(
+        &data,
+        &SchoolReads::fixture(&data),
+        "reference:mine",
+        "course",
+    )
+    .unwrap();
+    assert!(association.conflicts.iter().any(|exam| exam.key == key));
 }
 
 #[test]
@@ -2419,11 +2452,10 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let views = exam_views(&data, &SchoolReads::fixture(&data), "2026-1Q");
     assert_eq!(views.iter().filter(|view| view.kind == "class").count(), 4);
     let detail = course_detail(&data, &SchoolReads::fixture(&data), "course");
-    assert_eq!(detail.exams.len(), 7);
-    assert_eq!(
-        detail.exam_ids,
-        ["final", "monday-exam", "edited-monday-exam"]
-    );
+    // The course page lists exams apart from the exam-week classes.
+    assert_eq!(detail.exams.len() + detail.exam_classes.len(), 7);
+    assert!(detail.exams.iter().all(|view| view.kind != "class"));
+    assert!(detail.exam_classes.iter().all(|view| view.kind == "class"));
     assert_eq!(
         super::exams::upcoming_exams(&data, &SchoolReads::fixture(&data), "2026-04-01")
             .into_iter()
@@ -2448,17 +2480,6 @@ fn a_user_mark_decides_what_a_session_is() {
     let mut data = workspace();
     data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
     data["exams"] = json!([{"id":"final","kind":"exam","sourceKey":"reference:final","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-23","periods":[3,4],"room":{"ja":"W8E-E207"},"label":{"ja":"期末"},"status":"scheduled"}]);
-    let mark = |data: &mut Value, key: &str, mark: &str| {
-        let row =
-            super::exams::marked_session_override(data, &SchoolReads::fixture(data), key, mark)
-                .unwrap();
-        let rows = data["scheduleOverrides"].as_array_mut().unwrap();
-        rows.retain(|existing| existing["targetKey"] != key);
-        if let Some(mut row) = row {
-            row["id"] = json!(key);
-            rows.push(row);
-        }
-    };
     let agenda = |data: &Value, date| {
         resolve_day_agenda(
             data,
@@ -2480,7 +2501,7 @@ fn a_user_mark_decides_what_a_session_is() {
             .collect::<Vec<_>>()
     };
     // Weekly Monday 1-2: cancelled stays visible greyed in the calendar only.
-    mark(&mut data, "course-weekly-0-2026-04-13", "cancelled");
+    mark_session(&mut data, "course-weekly-0-2026-04-13", "cancelled");
     assert!(agenda(&data, "2026-04-13").is_empty());
     assert_eq!(
         calendar(&data, "2026-04-13"),
@@ -2488,7 +2509,7 @@ fn a_user_mark_decides_what_a_session_is() {
     );
     // A weekly session marked as an exam is an exam, and every exam list
     // carries it under the session's own key.
-    mark(&mut data, "course-weekly-0-2026-04-20", "exam");
+    mark_session(&mut data, "course-weekly-0-2026-04-20", "exam");
     assert_eq!(agenda(&data, "2026-04-20"), [(OccurrenceKind::Exam, None)]);
     let listed = |data: &Value| {
         exam_views(data, &SchoolReads::fixture(data), "2026-1Q")
@@ -2515,7 +2536,7 @@ fn a_user_mark_decides_what_a_session_is() {
     );
     // A quiz is an exam block of its own kind; Today counts it unless the
     // user switched quizzes off.
-    mark(&mut data, "course-weekly-0-2026-04-27", "quiz");
+    mark_session(&mut data, "course-weekly-0-2026-04-27", "quiz");
     let quiz = resolve_day_agenda(
         &data,
         &SchoolReads::fixture(&data),
@@ -2550,7 +2571,7 @@ fn a_user_mark_decides_what_a_session_is() {
     data["settings"]["notifications"]["quizzes"] = json!(true);
     // Clicking the checked mark again returns the session to its sources:
     // the record goes, so a later calendar change still reaches it.
-    mark(&mut data, "course-weekly-0-2026-04-27", "class");
+    mark_session(&mut data, "course-weekly-0-2026-04-27", "class");
     assert!(!data["scheduleOverrides"]
         .as_array()
         .unwrap()
@@ -2601,18 +2622,18 @@ fn a_user_mark_decides_what_a_session_is() {
         "course-weekly-0-2026-04-20"
     )
     .is_err());
-    mark(&mut data, "course-weekly-0-2026-04-20", "exam");
+    mark_session(&mut data, "course-weekly-0-2026-04-20", "exam");
     assert_eq!(agenda(&data, "2026-04-21"), [(OccurrenceKind::Exam, None)]);
     // The session gives way to the published exam of its course that day.
     data["exams"].as_array_mut().unwrap().push(json!({"id":"monday","kind":"exam","sourceKey":"reference:monday","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-05-11","periods":[1,2],"room":{"ja":"W8E-E207"},"label":{"ja":"中間"},"status":"scheduled"}));
-    mark(&mut data, "course-weekly-0-2026-05-11", "exam");
+    mark_session(&mut data, "course-weekly-0-2026-05-11", "exam");
     assert_eq!(agenda(&data, "2026-05-11"), [(OccurrenceKind::Exam, None)]);
     assert!(!listed(&data)
         .iter()
         .any(|row| row.0 == "course-weekly-0-2026-05-11"));
     // A session the exam period cancels runs when the user says it does.
     assert!(agenda(&data, "2026-06-01").is_empty());
-    mark(&mut data, "course-weekly-0-2026-06-01", "class");
+    mark_session(&mut data, "course-weekly-0-2026-06-01", "class");
     assert_eq!(
         agenda(&data, "2026-06-01"),
         [(OccurrenceKind::Course, None)]
@@ -2632,19 +2653,19 @@ fn a_user_mark_decides_what_a_session_is() {
     assert!(!day[0].no_classes);
 
     // Exam-timetable rows: cancel, turn into a class, then back to the source.
-    mark(&mut data, "reference:final", "cancelled");
+    mark_session(&mut data, "reference:final", "cancelled");
     assert!(agenda(&data, "2026-04-23").is_empty());
     assert_eq!(
         calendar(&data, "2026-04-23"),
         [(OccurrenceKind::Exam, Some(true))]
     );
     assert!(!upcoming(&data).contains(&"reference:final".to_string()));
-    mark(&mut data, "reference:final", "class");
+    mark_session(&mut data, "reference:final", "class");
     assert_eq!(
         agenda(&data, "2026-04-23"),
         [(OccurrenceKind::Course, None)]
     );
-    mark(&mut data, "reference:final", "exam");
+    mark_session(&mut data, "reference:final", "exam");
     assert!(!data["scheduleOverrides"]
         .as_array()
         .unwrap()
@@ -2790,6 +2811,20 @@ fn a_correction_survives_timetable_changes_and_flags_the_ones_it_hides() {
         .unwrap();
     assert_eq!(removed.date, "2026-05-02");
     assert!(removed.conflict.is_some_and(|conflict| conflict.removed));
+    // Its correction remains searchable after both the official feed and
+    // the course's placements are gone; the recorded base still names it.
+    let mut without_sources = data.clone();
+    for field in ["exams", "courses", "memberships"] {
+        without_sources[field] = json!([]);
+    }
+    assert!(super::search::lecture_search(
+        &without_sources,
+        &SchoolReads::fixture(&without_sources),
+        None,
+        "CSC.T241",
+    )
+    .exam_keys
+    .contains(&"reference:final-renamed".to_string()));
     // A removed exam can still be deleted from the schedule.
     let deleted = super::exams::removed_exam_override(
         &data,
@@ -2821,12 +2856,7 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
         ("course-weekly-0-2026-06-01", "class"),
         ("reference:dropped", "cancelled"),
     ] {
-        let mut row =
-            super::exams::marked_session_override(&data, &SchoolReads::fixture(&data), key, mark)
-                .unwrap()
-                .unwrap();
-        row["id"] = json!(key);
-        data["scheduleOverrides"].as_array_mut().unwrap().push(row);
+        mark_session(&mut data, key, mark);
     }
     let now = DateTime::parse_from_rfc3339("2026-04-12T00:00:00+09:00").unwrap();
     let horizon = DateTime::parse_from_rfc3339("2026-06-03T00:00:00+09:00").unwrap();

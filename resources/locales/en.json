@@ -405,6 +405,7 @@
   "error.hand-in-too-large": "Upload assistance supports at most 20 MiB. Use the LMS file picker for larger files.",
   "error.host-paused": "The site failed several times; the app will try again later.",
   "error.internal": "Something went wrong in the app. Try again.",
+  "error.exam-unavailable": "This exam is no longer available. Reopen the exam list.",
   "error.invalid-input": "This request is not valid.",
   "error.lms-not-enrolled": "You are not enrolled in this LMS course.",
   "error.lms-writes-disabled": "Writing to the LMS is turned off. Turn on Allow AI agents to write to LMS in Settings.",

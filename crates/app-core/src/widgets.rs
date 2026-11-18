@@ -12,7 +12,6 @@ use crate::{
         widgets::{self, WidgetDestination, WidgetHashes, WidgetKind, WidgetPublication},
         ScheduleError,
     },
-    workspace::WorkspaceError,
     workspace_changes, Core,
 };
 use chrono::{DateTime, Utc};
@@ -26,7 +25,7 @@ pub enum WidgetError {
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
     #[error(transparent)]
-    Workspace(#[from] WorkspaceError),
+    Data(#[from] crate::data::DataError),
     #[error(transparent)]
     Runtime(#[from] RuntimeTaskError),
     #[error("Widget storage: {0}")]
@@ -88,7 +87,7 @@ impl Core {
         use WidgetDestination::*;
         let view = || {
             let fields = workspace_changes::loaded_fields(widgets::READS.iter().copied());
-            self.store.view(&fields).map_err(WorkspaceError::from)
+            self.store.view(&fields)
         };
         Ok(match destination {
             Course { key, date } => {
@@ -136,7 +135,7 @@ impl Core {
 
 fn publication(store: &DataStore, now: DateTime<Utc>) -> Result<WidgetPublication, WidgetError> {
     let fields = workspace_changes::loaded_fields(widgets::READS.iter().copied());
-    let (workspace, school, _) = store.view(&fields).map_err(WorkspaceError::from)?;
+    let (workspace, school, _) = store.view(&fields)?;
     widgets::project(&workspace, &school, now)
 }
 

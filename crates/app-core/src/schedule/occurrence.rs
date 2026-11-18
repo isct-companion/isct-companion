@@ -25,6 +25,18 @@ pub enum OccurrenceKind {
     Exam,
 }
 
+/// What one session is, as `MarkSession` sets it: a normal class, an exam, a
+/// quiz (小テスト) or cancelled (休講).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum SessionMark {
+    Class,
+    Exam,
+    Quiz,
+    Cancelled,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +89,11 @@ pub struct Occurrence {
     /// own times or it shares the time with another block.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid: Option<GridSlot>,
+    /// The session's current mark, for the menu that changes it; none on a
+    /// block the person cannot mark: an event, or a planned course's session
+    /// that has no mark to clear (it has no sessions of its own yet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark: Option<SessionMark>,
 }
 
 /// A timetable block's place on the period grid. A block whose times fall
@@ -298,6 +315,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 quiz: None,
                 source_changed: None,
                 grid: None,
+                mark: None,
             });
         }
         for left in 0..blocks.len() {
@@ -746,6 +764,7 @@ pub(crate) fn personal_occurrences(
             quiz: None,
             source_changed: None,
             grid: None,
+            mark: None,
         });
     }
     Ok(blocks)
@@ -843,6 +862,7 @@ fn course_occurrence(
         quiz: None,
         source_changed: None,
         grid: None,
+        mark: None,
     }
 }
 
@@ -1050,6 +1070,7 @@ pub(crate) fn resolve_day_agenda_with(
             quiz: (exam.kind == "quiz").then_some(true),
             source_changed: exam.conflict.is_some().then_some(true),
             grid: None,
+            mark: None,
         });
     }
     blocks.extend(exams);
@@ -1127,7 +1148,21 @@ pub(crate) fn finalize_agenda(
             .then(a.key.cmp(&b.key))
     });
     place_on_grid(&mut blocks, periods);
+    for block in &mut blocks {
+        block.mark = session_mark(block);
+    }
     Ok(blocks)
+}
+
+fn session_mark(block: &Occurrence) -> Option<SessionMark> {
+    let mark = match (block.kind, block.cancelled, block.quiz) {
+        (OccurrenceKind::Event, ..) => return None,
+        (_, Some(true), _) => SessionMark::Cancelled,
+        (OccurrenceKind::Exam, _, Some(true)) => SessionMark::Quiz,
+        (OccurrenceKind::Exam, ..) => SessionMark::Exam,
+        (OccurrenceKind::Course, ..) => SessionMark::Class,
+    };
+    (block.planned != Some(true) || mark != SessionMark::Class).then_some(mark)
 }
 
 /// The grid a timetable draws: a class or exam whose times fall inside
@@ -1468,6 +1503,19 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
         if values.windows(2).any(|w| w[1] <= w[0]) {
             return Err(ScheduleError::InvalidInput(format!(
                 "Configured year {} quarter starts must be chronological",
+                index + 1
+            )));
+        }
+        // Like the published calendars: a year's quarters start within that
+        // academic year, so quarters of different years never overlap.
+        let (first, next) = (format!("{year}-04-01"), format!("{}-04-01", year + 1));
+        if values
+            .iter()
+            .flatten()
+            .any(|v| *v < first.as_str() || *v >= next.as_str())
+        {
+            return Err(ScheduleError::InvalidInput(format!(
+                "Configured year {} quarter starts must fall within academic year {year}",
                 index + 1
             )));
         }

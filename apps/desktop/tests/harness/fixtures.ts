@@ -204,6 +204,7 @@ export function planningWeekFor(
         startTime: meeting.startTime ?? "15:25",
         endTime: meeting.endTime ?? "17:05",
         color: row.color,
+        mark: "class" as const,
         day,
       })),
     ),
