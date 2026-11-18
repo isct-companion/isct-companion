@@ -10,7 +10,7 @@
 **[isctcomp.app](https://isctcomp.app/)** ·
 [ダウンロード](https://isctcomp.app/#download) ·
 [試験と校暦](https://isctcomp.app/data/) ·
-[不具合を報告](https://github.com/isct-companion/isct-companion/issues) ·
+[フィードバック](https://docs.google.com/forms/d/e/1FAIpQLSdv-AVezMP1aiFZWsOBHIlZErWGUVLniKB53Lr5V1afq4l5mA/viewform) ·
 [開発に参加](CONTRIBUTING.md) ·
 [爱发电 Afdian](https://afdian.com/a/gliese129)
 
@@ -29,11 +29,12 @@
 - **時間割：** LMS の時間割をそのまま表示し、演習・実験のまとまりや教室も整理。自分の予定も同じ画面に。休講日や振替授業日は校暦どおり。
 - **Lecture Desk：** 授業ごとに教材・課題・メモをまとめて扱えます。PDF はアプリ内で読め、ダウンロードした資料は授業別のフォルダに整理。
 - **試験：** 公開された期末試験を履修中の授業と自動で照合し、試験期間中の補講も反映。見つからない試験は検索してひもづけるだけ。自分で直した日時や教室は更新後も残ります。
+- **過去問：** 履修中の授業の過去問と解答を、[ScienceTokyoExam](https://sciencetokyoexam.com/) から年度・担当教員ごとに。アプリ内でプレビュー・ダウンロードでき、自分の資料の共有や足りない資料のリクエストも。
 - **履修計画・成績・卒業要件：** 全科目を検索して時限ごとに候補を比較。教務Web から成績・GPA・取得単位を読み込み、卒業要件の進み具合を一覧。
+- **AI エージェント連携：** Claude Code や Codex、Cursor から、自分の時間割・試験・課題・成績をたずねられます。履修計画への追加や予定の登録も任せられます（ローカル MCP サーバー）。
 - **通知：** 授業・試験・課題それぞれに自分のタイミングで。
 - **ログインに時間をかけない：** マトリクス表はカメラで読み取るだけ。ワンタイムパスワードもアプリが登録し、ポータル・LMS・教務Web を入力なしで開けます。
 - **端末をまたいで：** パソコンで整理、スマホでさっと確認。共有シートから PDF やリンクを取り込み、iPad ではドラッグ＆ドロップも。同期は自分のクラウドで。
-- **AI エージェント連携：** Claude Code や Codex、Cursor から自分の時間割や課題をたずねられます（ローカル MCP サーバー）。
 
 ## ダウンロード
 
@@ -92,7 +93,7 @@
 
 誰でも GitHub から参加できます。サークルへの加入や選考はありません。
 
-- **不具合・提案：** [Issue](https://github.com/isct-companion/isct-companion/issues) へ。アプリのバージョン、OS、再現手順、期待した動作を書き、スクリーンショットのアカウント情報は隠してください。日本語で構いません。
+- **不具合・提案：** [フィードバックフォーム](https://docs.google.com/forms/d/e/1FAIpQLSdv-AVezMP1aiFZWsOBHIlZErWGUVLniKB53Lr5V1afq4l5mA/viewform)から送れます。GitHub のアカウントは要らず、内容は公開されません。アプリの設定（パソコン版は「このアプリについて」）から開くと、バージョンと端末が自動で入ります。公開の場で話したいときは [Issue](https://github.com/isct-companion/isct-companion/issues) へ。アプリのバージョン、OS、再現手順、期待した動作を書き、スクリーンショットのアカウント情報は隠してください。日本語で構いません。
 - **コード：** 何を変えたか、どう確認したかを書いた Pull Request を送ってください。先に [CONTRIBUTING.md](CONTRIBUTING.md)（英語）と[テストガイド](apps/desktop/tests/README.md)を読んでください。
 - **試験日程や校暦の誤り：** [Isct-Data の Issue](https://github.com/isct-companion/Isct-Data/issues) で教えてください。
 
@@ -110,6 +111,8 @@ IsctCompanion は大学とは関係のない独立したプロジェクトです
 コア開発者：[@Gliese129](https://github.com/Gliese129)、[@OHNope](https://github.com/OHNope)。
 コントリビューター：Windows 版を実機で検証し、見つかった不具合を報告してくれた
 [@ticofei-isct](https://github.com/ticofei-isct)。
+[ScienceTokyoExam](https://sciencetokyoexam.com/) を運営し、アプリから過去問を閲覧・共有できるよう
+連携を開いてくれた [@teduryu](https://github.com/teduryu)。
 
 IsctCompanion は学生が授業の合間に開発しています。役に立ったら、
 [応援](https://isctcomp.app/sponsor/)をご検討ください。App Store の登録料や署名証明書などの費用にあてます。

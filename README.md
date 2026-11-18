@@ -10,7 +10,7 @@ Free · Open source · No ads · No account
 **[isctcomp.app](https://isctcomp.app/en/)** ·
 [Download](https://isctcomp.app/en/#download) ·
 [Exams & calendar](https://isctcomp.app/en/data/) ·
-[Report an issue](https://github.com/isct-companion/isct-companion/issues) ·
+[Send feedback](https://docs.google.com/forms/d/e/1FAIpQLSdv-AVezMP1aiFZWsOBHIlZErWGUVLniKB53Lr5V1afq4l5mA/viewform) ·
 [Contribute](CONTRIBUTING.md) ·
 [爱发电 Afdian](https://afdian.com/a/gliese129)
 
@@ -32,15 +32,19 @@ Free · Open source · No ads · No account
   Read PDFs in the app; downloads are filed into a folder per course.
 - **Exams:** published finals matched to your courses, with make-up classes in
   exam week. Link unmatched exams yourself; your corrections survive every refresh.
+- **Past exams:** past exams and answers for the courses you take, from
+  [ScienceTokyoExam](https://sciencetokyoexam.com/), by year and instructor.
+  Preview and download them in the app, share your own or request missing ones.
 - **Course planning, grades and requirements:** search courses and compare time
   slots, then check grades, GPA, credits and graduation progress from 教務Web.
+- **AI agents:** ask Claude Code, Codex or Cursor about your timetable, exams,
+  assignments and grades through a local MCP server, and let them add courses to
+  your plan or events to your calendar.
 - **Reminders:** separate timing for classes, exams and assignments.
 - **Faster sign-in:** scan your Matrix card with the camera and the app registers
   the one-time password; the portal, LMS and 教務Web open already signed in.
 - **Across devices:** organise on your laptop, check on your phone. Share a PDF or
   link into the app, drag files in on iPad, and sync through your own cloud.
-- **AI agents:** ask Claude Code, Codex or Cursor about your timetable and
-  assignments through a local MCP server.
 
 ## Download
 
@@ -103,9 +107,12 @@ the [release workflow](docs/desktop-release.md).
 
 Anyone can take part on GitHub; there is no club to join.
 
-- **Bugs and ideas:** open an [issue](https://github.com/isct-companion/isct-companion/issues)
-  with the app version, your OS, steps to reproduce and what you expected.
-  Hide account details in screenshots. Japanese is fine.
+- **Bugs and ideas:** send them through the [feedback form](https://docs.google.com/forms/d/e/1FAIpQLSdv-AVezMP1aiFZWsOBHIlZErWGUVLniKB53Lr5V1afq4l5mA/viewform):
+  no GitHub account needed, and what you send stays private. Opened from the
+  app's Settings (About on desktop), it fills in your version and device. To
+  discuss in public, open an [issue](https://github.com/isct-companion/isct-companion/issues)
+  with the app version, your OS, steps to reproduce and what you expected, and
+  hide account details in screenshots. Japanese is fine.
 - **Code:** send a pull request that says what changed and how you checked it.
   Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [test guide](apps/desktop/tests/README.md) first.
 - **Wrong exam date or calendar entry:** open an issue on
@@ -125,7 +132,10 @@ app-store distribution is allowed, and modified versions must use another name.
 
 Core developers: [@Gliese129](https://github.com/Gliese129), [@OHNope](https://github.com/OHNope).
 Contributors: [@ticofei-isct](https://github.com/ticofei-isct), who tested the
-Windows app on real hardware and reported the bugs found there.
+Windows app on real hardware and reported the bugs found there;
+[@teduryu](https://github.com/teduryu), who runs
+[ScienceTokyoExam](https://sciencetokyoexam.com/) and opened it to IsctCompanion,
+so past exams can be browsed and shared in the app.
 
 IsctCompanion is built by students between classes. If it helps you, consider
 [supporting the project](https://isctcomp.app/en/sponsor/): it pays for things

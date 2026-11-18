@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Private feedback form / 非公開のフィードバックフォーム
+    url: https://docs.google.com/forms/d/e/1FAIpQLSdv-AVezMP1aiFZWsOBHIlZErWGUVLniKB53Lr5V1afq4l5mA/viewform
+    about: Bugs and ideas without a public issue; sign in with any Google account. / 公開せずに不具合や要望を送れます（Google アカウントでログイン）。
   - name: Data error / データの誤り
     url: https://github.com/isct-companion/Isct-Data/issues
     about: Wrong or missing calendar, exam, department or important-date data. Isct-Data is updated by an AI workflow that checks the official pages daily. / 校暦・試験・学系・重要日程の誤りや欠落。
