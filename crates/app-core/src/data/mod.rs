@@ -1124,8 +1124,7 @@ impl DataStore {
 }
 
 fn normalize_meeting_clocks(workspace: &mut Value) -> Result<(), DataError> {
-    let teaching_periods = crate::schedule::teaching_periods(workspace)
-        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    let teaching_periods = crate::schedule::teaching_periods(workspace)?;
     let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) else {
         return Ok(());
     };

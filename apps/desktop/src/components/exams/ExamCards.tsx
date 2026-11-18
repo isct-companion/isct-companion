@@ -46,16 +46,12 @@ export function ExamCards({
   open?: (courseId: string) => void;
   openExam?: (key: string, term: string) => void;
 }) {
-  const [editing, setEditing] = useState<ExamView | null>(null);
-  // Exams first; the timetable's exam-week classes form their own group.
-  const classes = exams.filter((exam) => exam.kind === "class");
-  const ordered = [
-    ...exams.filter((exam) => exam.kind !== "class"),
-    ...classes,
-  ];
+  // The key, not a copy: an editor left open shows the exam as it is now.
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const editing = exams.find((exam) => exam.key === editingKey);
   return (
     <div className="examCards">
-      {ordered.map((exam) => (
+      {exams.map((exam) => (
         <article
           key={exam.key}
           className={`examCard${exam.kind === "class" ? " examWeekClass" : ""}`}
@@ -77,7 +73,7 @@ export function ExamCards({
             <UiButton
               className="textButton"
               onClick={() => {
-                setEditing(exam);
+                setEditingKey(exam.key);
               }}
             >
               {t("common.edit")}
@@ -110,7 +106,7 @@ export function ExamCards({
       ))}
       <Modal
         opened={Boolean(editing)}
-        onClose={() => setEditing(null)}
+        onClose={() => setEditingKey(null)}
         title={t("exam.editExam")}
       >
         {editing && (
@@ -118,8 +114,8 @@ export function ExamCards({
             key={editing.key}
             exam={editing}
             courses={courses}
-            onSaved={() => setEditing(null)}
-            onRemoved={() => setEditing(null)}
+            onSaved={() => setEditingKey(null)}
+            onRemoved={() => setEditingKey(null)}
           />
         )}
       </Modal>

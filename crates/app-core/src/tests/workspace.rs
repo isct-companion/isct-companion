@@ -23,7 +23,7 @@ impl std::fmt::Debug for ReadBack {
 }
 
 impl WorkspaceService {
-    pub(crate) fn read_back(&self) -> Result<ReadBack, WorkspaceError> {
+    pub(crate) fn read_back(&self) -> Result<ReadBack, DataError> {
         let revision = self.revision()?;
         let (workspace, school) = self.store.load_reads()?;
         Ok(ReadBack {
@@ -35,7 +35,7 @@ impl WorkspaceService {
     }
 
     /// Commits `mutation`, then reads back what it left.
-    pub(crate) fn apply(&self, mutation: WorkspaceMutation) -> Result<ReadBack, WorkspaceError> {
+    pub(crate) fn apply(&self, mutation: WorkspaceMutation) -> Result<ReadBack, DataError> {
         self.mutate_commit(mutation)?;
         self.read_back()
     }
@@ -80,7 +80,7 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::Conflict(_)));
+    assert!(matches!(error, DataError::Conflict(_)));
     assert_eq!(
         service.read_back().unwrap().workspace["settings"]["density"],
         changed.workspace["settings"]["density"]
@@ -165,10 +165,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
                 },
             })
             .unwrap_err();
-        assert!(
-            matches!(error, WorkspaceError::InvalidIntent(_)),
-            "{pointer}"
-        );
+        assert!(matches!(error, DataError::InvalidInput(_)), "{pointer}");
     }
     for intent in [
         WorkspaceIntent::SetAdmissionYear {
@@ -185,7 +182,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
                 intent,
             })
             .unwrap_err();
-        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert!(matches!(error, DataError::InvalidInput(_)));
     }
     assert!(matches!(
         service
@@ -207,7 +204,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
     assert_eq!(service.read_back().unwrap().revision, before.revision);
     let year = mutate(
         &service,
@@ -245,7 +242,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
 }
 
 #[test]
@@ -363,7 +360,7 @@ fn invalid_study_history_is_rejected_atomically() {
                 },
             })
             .unwrap_err();
-        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert!(matches!(error, DataError::InvalidInput(_)));
         let after = service.read_back().unwrap();
         assert_eq!(after.revision, before.revision);
         assert_eq!(
@@ -387,7 +384,7 @@ fn invalid_record_rolls_back_the_whole_intent() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
     let after = service.read_back().unwrap();
     assert_eq!(after.revision, original.revision);
     assert!(after.workspace["events"].as_array().unwrap().is_empty());
@@ -443,7 +440,7 @@ fn weekly_events_are_normalized_validated_atomically_and_copied() {
                 },
             })
             .unwrap_err();
-        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert!(matches!(error, DataError::InvalidInput(_)));
         assert_eq!(service.read_back().unwrap().revision, before.revision);
     }
 
@@ -479,7 +476,7 @@ fn weekly_events_are_normalized_validated_atomically_and_copied() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
 }
 
 #[test]
@@ -500,7 +497,7 @@ fn schedule_override_periods_must_name_a_class_slot() {
                 },
             })
             .unwrap_err();
-        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert!(matches!(error, DataError::InvalidInput(_)));
         assert_eq!(service.read_back().unwrap().revision, original.revision);
     }
 }
@@ -580,7 +577,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     assert!(!exam.auto_linked && !exam.edited);
     assert_eq!(
         crate::schedule::course_detail(&linked.workspace, &linked.school, &course_id)
-            .exam_ids
+            .exams
             .len(),
         2
     );
@@ -759,7 +756,7 @@ fn course_batch_validation_happens_before_any_row_is_changed() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
     assert_eq!(service.read_back().unwrap().revision, original.revision);
 }
 
@@ -1112,7 +1109,7 @@ fn subscription_toggle_and_reset_are_one_revision_checked_intent() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
 }
 
 #[test]
@@ -1181,7 +1178,7 @@ fn scheduled_task_run_is_committed_with_the_workspace_revision() {
                 },
             })
             .unwrap_err();
-        assert!(matches!(error, WorkspaceError::InvalidIntent(_)), "{task}");
+        assert!(matches!(error, DataError::InvalidInput(_)), "{task}");
         let after = service.read_back().unwrap();
         assert_eq!(after.revision, before.revision);
         assert_eq!(after.seq, before.seq);
@@ -1263,7 +1260,7 @@ fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::Conflict(_)));
+    assert!(matches!(error, DataError::Conflict(_)));
 }
 
 #[test]
@@ -1293,11 +1290,11 @@ fn calendar_exception_metadata_and_unique_date_are_core_owned() {
             },
         })
         .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
     assert_eq!(service.read_back().unwrap().revision, created.revision);
 }
 
-fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, WorkspaceError> {
+fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, DataError> {
     if let WorkspaceIntent::AddCatalogCourses { offerings, .. } = &intent {
         service.store.catalog_upsert_offerings(offerings).unwrap();
     }
@@ -1357,7 +1354,7 @@ fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing
         },
     )
     .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+    assert!(matches!(error, DataError::InvalidInput(_)));
     let rejected = service.read_back().unwrap();
     assert_eq!(rejected.revision, before.revision);
     assert!(rows(&rejected.workspace, "courses")
@@ -1555,7 +1552,7 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
                 offering_ids: vec!["202630020".into()],
             },
         ),
-        Err(WorkspaceError::InvalidIntent(_))
+        Err(DataError::InvalidInput(_))
     ));
 
     // Off the timetable means off every quarter.

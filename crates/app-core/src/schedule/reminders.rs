@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::BTreeMap,
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
@@ -510,6 +510,36 @@ pub fn glance(
     })
 }
 
+/// The reminder switches and times in `settings.notifications`, each with its
+/// one default. The workspace projection writes these back, so every shell
+/// reads plain values.
+pub(crate) struct NotificationPreferences {
+    pub classes: bool,
+    pub class_lead_minutes: i64,
+    /// Older installations delivered exams with class reminders; an unset
+    /// exam switch and time follow the class ones.
+    pub exams: bool,
+    pub exam_lead_minutes: i64,
+    /// Quizzes count as exams on Today and in exam reminders.
+    pub quizzes: bool,
+    pub assignments: bool,
+}
+
+pub(crate) fn notification_preferences(notifications: &Value) -> NotificationPreferences {
+    let flag = |name: &str| notifications.get(name).and_then(Value::as_bool);
+    let minutes = |name: &str| notifications.get(name).and_then(Value::as_i64);
+    let classes = flag("classes").unwrap_or(false);
+    let class_lead_minutes = minutes("classLeadMinutes").unwrap_or(10);
+    NotificationPreferences {
+        classes,
+        class_lead_minutes,
+        exams: flag("exams").unwrap_or(classes),
+        exam_lead_minutes: minutes("examLeadMinutes").unwrap_or(class_lead_minutes),
+        quizzes: flag("quizzes").unwrap_or(true),
+        assignments: flag("assignments").unwrap_or(false),
+    }
+}
+
 pub(crate) fn assignment_lead_minutes(settings: &Value) -> Result<Vec<i64>, ScheduleError> {
     let Some(value) = settings
         .get("assignmentLeadMinutes")
@@ -569,30 +599,18 @@ pub fn notification_plan(
         .unwrap_or(&Value::Null);
     let assignment_leads = assignment_lead_minutes(settings)?;
     let mut items = Vec::new();
-    let classes = settings
-        .get("classes")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    // Older installations delivered exams with class reminders; keep that
-    // preference until the user sets the independent exam switch.
-    let exams = settings
-        .get("exams")
-        .and_then(Value::as_bool)
-        .unwrap_or(classes);
-    let class_lead = settings
-        .get("classLeadMinutes")
-        .and_then(Value::as_i64)
-        .unwrap_or(10);
-    let exam_lead = settings
-        .get("examLeadMinutes")
-        .and_then(Value::as_i64)
-        .unwrap_or(class_lead);
+    let preferences = notification_preferences(settings);
+    let (classes, exams) = (preferences.classes, preferences.exams);
+    let (class_lead, exam_lead) = (
+        preferences.class_lead_minutes,
+        preferences.exam_lead_minutes,
+    );
     if !(1..=10080).contains(&exam_lead) {
         return Err(ScheduleError::InvalidInput(
             "Exam reminder time must be between 1 minute and 7 days.".into(),
         ));
     }
-    let quizzes = super::exams::quizzes_count(workspace);
+    let quizzes = preferences.quizzes;
     if classes || exams {
         let term = reminder_term(workspace);
         let mut terms = std::collections::BTreeSet::from([term.clone()]);
@@ -682,11 +700,7 @@ pub fn notification_plan(
             }
         }
     }
-    if settings
-        .get("assignments")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+    if preferences.assignments {
         for assignment in array(workspace, "assignments")
             .iter()
             .filter(|row| open_assignment(row))
@@ -752,8 +766,6 @@ pub fn notification_plan(
         }
     }
     items.sort_by(|a, b| a.at.cmp(&b.at).then(a.key.cmp(&b.key)));
-    let mut seen = HashSet::new();
-    items.retain(|item| seen.insert(item.key.clone()));
     Ok(NotificationPlan {
         from: now.to_rfc3339(),
         through: horizon.to_rfc3339(),

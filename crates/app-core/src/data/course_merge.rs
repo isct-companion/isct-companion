@@ -233,8 +233,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
     workspace["terms"] = json!([]);
     workspace["courses"] = Value::Array(timetable.iter().chain(&manual).cloned().collect());
     let mut pushed = Vec::new();
-    let teaching = crate::schedule::teaching_periods(&workspace)
-        .map_err(|e| DataError::InvalidInput(e.to_string()))?;
+    let teaching = crate::schedule::teaching_periods(&workspace)?;
     let mut lms_links = HashMap::new();
     for lms in lms_courses {
         if let (Some(lms_id), Some(id)) = (lms["lmsId"].as_u64(), lms_course_id(transaction, lms)?)

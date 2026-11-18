@@ -41,41 +41,39 @@ struct ExamTag: View {
 }
 
 /// Long press on a class or exam: mark this one session as an exam, a quiz
-/// or 休講 (Core's `MarkSession`). The current mark is checked; choosing it
-/// again sends `class`, and Core decides whether that clears the mark.
+/// or 休講 (Core's `MarkSession`). Core's `Occurrence.mark` is checked;
+/// choosing it again sends `class`, and Core decides whether that clears the
+/// mark.
 private struct SessionMarks: ViewModifier {
     let block: Occurrence
     @Environment(AppModel.self) private var model
 
-    private var marks: [(String, String)] {
-        [("exam", t("common.markAsExam")), ("quiz", t("common.markAsQuiz")), ("cancelled", t("common.markAsCancelled"))]
+    private var marks: [(SessionMark, String, String)] {
+        [(.exam, "exam", t("common.markAsExam")), (.quiz, "quiz", t("common.markAsQuiz")),
+         (.cancelled, "cancelled", t("common.markAsCancelled"))]
     }
 
     func body(content: Content) -> some View {
         content.contextMenu {
             Section(t("timetable.thisLesson")) {
-                ForEach(marks, id: \.0) { value, label in
-                    Toggle(label, isOn: Binding(get: { state == value }, set: { _ in mark(value) }))
+                ForEach(marks, id: \.1) { mark, value, label in
+                    Toggle(label, isOn: Binding(
+                        get: { block.mark == mark },
+                        set: { _ in
+                            let next = block.mark == mark ? "class" : value
+                            Task { await model.markSession(block.key, next) }
+                        }
+                    ))
                 }
             }
         }
-    }
-
-    private var state: String {
-        if block.cancelled == true { return "cancelled" }
-        guard block.kind == .exam else { return "class" }
-        return block.quiz == true ? "quiz" : "exam"
-    }
-
-    private func mark(_ value: String) {
-        let next = value == state ? "class" : value
-        Task { await model.markSession(block.key, next) }
     }
 }
 
 extension View {
     @ViewBuilder
-    func sessionMarks(_ block: Occurrence, enabled: Bool) -> some View {
-        if enabled { modifier(SessionMarks(block: block)) } else { self }
+    /// Core leaves `mark` empty on a block that takes none.
+    func sessionMarks(_ block: Occurrence) -> some View {
+        if block.mark != nil { modifier(SessionMarks(block: block)) } else { self }
     }
 }

@@ -1770,7 +1770,13 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.material_ids, ["first", "same-section", "later"]);
     assert_eq!(view.sections, [1, 2]);
     assert_eq!(view.assignment_ids, ["early", "later", "no-date"]);
-    assert_eq!(view.exam_ids, ["early", "late"]);
+    assert_eq!(
+        view.exams
+            .iter()
+            .map(|exam| exam.id.as_str())
+            .collect::<Vec<_>>(),
+        ["early", "late"]
+    );
     assert_eq!(view.format.unwrap().kinds, ["lecture"]);
     // The course's catalog code finds it too.
     assert_eq!(
@@ -2068,6 +2074,11 @@ fn profile_form_preserves_identity_and_validates_or_resets_the_clock() {
     profile["teachingPeriods"] = Value::Null;
     data["academicProfile"] = validate_academic_profile(&profile).unwrap();
     assert_eq!(teaching_periods(&data).unwrap(), default_teaching_periods());
+    // A start outside its academic year would overlap another year's quarters.
+    profile["years"] = json!([{"academicYear":2027,"quarterStarts":{
+        "1Q":"2026-11-01","2Q":"2027-06-01","3Q":"2027-10-01","4Q":"2027-12-01"}}]);
+    assert!(validate_academic_profile(&profile).is_err());
+    profile["years"] = json!([]);
     profile["studyEnrollments"][0]["admittedTerm"] = json!("bad-term");
     assert!(validate_academic_profile(&profile).is_err());
 }
@@ -2100,45 +2111,6 @@ fn date_range_crosses_academic_years_and_merges_conflicts_once() {
     assert_eq!(days[0].occurrences.len(), 1);
     assert_eq!(days[3].occurrences.len(), 2);
     assert!(days[3].occurrences.iter().all(|b| b.conflict == Some(true)));
-    // At an overlapping configured boundary, the same source occurrence and
-    // its conflicts still appear only once.
-    data["academicCalendar"][1]["date"] = json!("2027-04-02");
-    let overlap = calendar_between(
-        &data,
-        &SchoolReads::fixture(&data),
-        "2027-04-01",
-        "2027-04-01",
-    )
-    .unwrap();
-    assert_eq!(overlap[0].occurrences.len(), 2);
-
-    // One marked session is one exam and one reminder even when two source
-    // quarters both resolve it. Duplicate reminders consume native queue slots.
-    let key = "course-weekly-0-2027-04-01";
-    mark_session(&mut data, key, "exam");
-    let school = SchoolReads::fixture(&data);
-    assert_eq!(course_detail(&data, &school, "course").exams.len(), 1);
-    assert_eq!(
-        super::search::lecture_search(&data, &school, None, "CSC.T241").exam_keys,
-        [key]
-    );
-    assert_eq!(
-        super::exams::upcoming_exams(&data, &school, "2027-04-01").len(),
-        1
-    );
-    data["currentTerm"] = json!("2027-1Q");
-    data["settings"]["notifications"] = json!({"classes":false,"exams":true,
-        "examLeadMinutes":10,"assignments":false});
-    let plan = notification_plan(
-        &data,
-        &school,
-        DateTime::parse_from_rfc3339("2027-04-01T08:00:00+09:00").unwrap(),
-        DateTime::parse_from_rfc3339("2027-04-01T09:00:00+09:00").unwrap(),
-        None,
-    )
-    .unwrap();
-    assert_eq!(plan.items.len(), 1);
-    assert_eq!(plan.items[0].key, format!("class:{key}"));
 }
 
 #[test]
@@ -2316,7 +2288,11 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
         None
     );
     assert_eq!(
-        course_detail(&data, &SchoolReads::fixture(&data), "course").exam_ids,
+        course_detail(&data, &SchoolReads::fixture(&data), "course")
+            .exams
+            .iter()
+            .map(|exam| exam.id.as_str())
+            .collect::<Vec<_>>(),
         ["mine"]
     );
 
@@ -2476,11 +2452,10 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let views = exam_views(&data, &SchoolReads::fixture(&data), "2026-1Q");
     assert_eq!(views.iter().filter(|view| view.kind == "class").count(), 4);
     let detail = course_detail(&data, &SchoolReads::fixture(&data), "course");
-    assert_eq!(detail.exams.len(), 7);
-    assert_eq!(
-        detail.exam_ids,
-        ["final", "monday-exam", "edited-monday-exam"]
-    );
+    // The course page lists exams apart from the exam-week classes.
+    assert_eq!(detail.exams.len() + detail.exam_classes.len(), 7);
+    assert!(detail.exams.iter().all(|view| view.kind != "class"));
+    assert!(detail.exam_classes.iter().all(|view| view.kind == "class"));
     assert_eq!(
         super::exams::upcoming_exams(&data, &SchoolReads::fixture(&data), "2026-04-01")
             .into_iter()

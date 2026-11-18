@@ -2,7 +2,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::SchoolReads;
-use std::collections::HashSet;
 
 use serde_json::Value;
 
@@ -124,11 +123,6 @@ pub fn calendar_between(
             .cloned()
             .collect();
         blocks.extend(personal_occurrences(&date, &events)?);
-        // A course may have placements in overlapping configured quarters.
-        // Keep its effective occurrence once, preferring a class that runs.
-        blocks.sort_by_key(|block| block.cancelled == Some(true));
-        let mut seen = HashSet::new();
-        blocks.retain(|block| seen.insert(block.key.clone()));
         let important_dates: Vec<_> = array(workspace, "importantDates")
             .iter()
             .filter(|row| {

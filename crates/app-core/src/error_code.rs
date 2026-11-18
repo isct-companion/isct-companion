@@ -220,7 +220,6 @@ use crate::{
     storage::StorageError,
     study_profile::StudyProfileError,
     subscriptions::SubscriptionError,
-    workspace::WorkspaceError,
 };
 use ErrorCode as C;
 
@@ -304,12 +303,6 @@ coded!(crate::data::StoreOpenError, |e| {
         E::RecoveryRequired { .. } | E::Io(_) => C::Storage,
     }
 });
-coded!(WorkspaceError, |e| match e {
-    WorkspaceError::ExamUnavailable => C::ExamUnavailable,
-    WorkspaceError::InvalidIntent(_) => C::InvalidInput,
-    WorkspaceError::Conflict(_) => C::Conflict,
-    WorkspaceError::Storage(_) => C::Storage,
-});
 coded!(crate::workspaces::WorkspaceError, |e| {
     use crate::workspaces::WorkspaceError as E;
     match e {
@@ -345,7 +338,7 @@ coded!(CatalogError, |e| match e {
     CatalogError::InvalidInput(_) => C::InvalidInput,
 });
 coded!(ReadModelError, |e| match e {
-    ReadModelError::Workspace(e) => e.code(),
+    ReadModelError::Data(e) => e.code(),
     ReadModelError::Schedule(e) => e.code(),
     ReadModelError::Finder(e) => e.code(),
     ReadModelError::Catalog(e) => e.code(),

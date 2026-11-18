@@ -14,8 +14,10 @@ pub struct CourseDetail {
     pub material_ids: Vec<String>,
     pub sections: Vec<i32>,
     pub assignment_ids: Vec<String>,
-    pub exam_ids: Vec<String>,
+    /// The course's exams and quizzes.
     pub exams: Vec<ExamView>,
+    /// The exam timetable's exam-week rows that hold an ordinary class.
+    pub exam_classes: Vec<ExamView>,
     /// The class format of the catalog offering the course names, when the
     /// catalog holds it.
     pub format: Option<crate::contracts::ClassFormat>,
@@ -125,13 +127,11 @@ pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -
         })
         .collect();
     assignments.sort_by_key(|row| text(row, "dueAt").unwrap_or("~"));
-    let exams: Vec<_> = super::exams::exam_views_in_terms(
-        workspace,
-        school,
-        super::course_terms(workspace, course).into_iter(),
-    )
-    .filter(|exam| exam.course_id.as_deref() == Some(course_id))
-    .collect();
+    let (exam_classes, exams) = super::course_terms(workspace, course)
+        .iter()
+        .flat_map(|term| super::exam_views(workspace, school, term))
+        .filter(|exam| exam.course_id.as_deref() == Some(course_id))
+        .partition(|exam| exam.kind == "class");
     let ids = |rows: Vec<&Value>| {
         rows.iter()
             .filter_map(|row| text(row, "id").map(str::to_owned))
@@ -141,12 +141,8 @@ pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -
         material_ids: ids(materials),
         sections,
         assignment_ids: ids(assignments),
-        exam_ids: exams
-            .iter()
-            .filter(|exam| exam.kind == "exam" && exam.status == "scheduled")
-            .map(|exam| exam.id.clone())
-            .collect(),
         exams,
+        exam_classes,
         format: text(course, "offeringId")
             .and_then(|id| school.offering(id))
             .map(|offering| offering.format.clone()),

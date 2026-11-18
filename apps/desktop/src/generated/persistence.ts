@@ -472,16 +472,20 @@ export type AgentAccess = {
 };
 
 export type Notifications = {
+  /**
+   * Resolved by Core (`schedule::notification_preferences`); every field is
+   * present in the workspace a shell reads.
+   */
   classes: boolean;
   assignments: boolean;
-  exams?: boolean;
+  exams: boolean;
   /**
-   * Quizzes count as exams on Today and in exam reminders (default on).
+   * Quizzes count as exams on Today and in exam reminders.
    */
-  quizzes?: boolean;
-  examLeadMinutes?: number;
-  classLeadMinutes?: number;
-  assignmentLeadMinutes?: Array<number>;
+  quizzes: boolean;
+  examLeadMinutes: number;
+  classLeadMinutes: number;
+  assignmentLeadMinutes: Array<number>;
   localPermission: NotificationPermission;
 };
 
@@ -1242,6 +1246,8 @@ export type ClassGroupChoice = {
 
 export type OccurrenceKind = "course" | "event" | "exam";
 
+export type SessionMark = "class" | "exam" | "quiz" | "cancelled";
+
 export type GridSlot = {
   startTime: string;
   endTime: string;
@@ -1299,6 +1305,12 @@ export type Occurrence = {
    * own times or it shares the time with another block.
    */
   grid?: GridSlot | null;
+  /**
+   * The session's current mark, for the menu that changes it; none on a
+   * block the person cannot mark: an event, or a planned course's session
+   * that has no mark to clear (it has no sessions of its own yet).
+   */
+  mark?: SessionMark | null;
 };
 
 export type ScheduleProblemKind = "courseMeeting" | "scheduleOverride";
@@ -1405,8 +1417,14 @@ export type CourseDetail = {
   materialIds: Array<string>;
   sections: Array<number>;
   assignmentIds: Array<string>;
-  examIds: Array<string>;
+  /**
+   * The course's exams and quizzes.
+   */
   exams: Array<ExamView>;
+  /**
+   * The exam timetable's exam-week rows that hold an ordinary class.
+   */
+  examClasses: Array<ExamView>;
   /**
    * The class format of the catalog offering the course names, when the
    * catalog holds it.
@@ -2578,11 +2596,14 @@ export const EMPTY_WORKSPACE: Workspace = {
     density: "comfortable",
     locale: "en",
     notifications: {
+      assignmentLeadMinutes: [1440, 60],
       assignments: true,
+      classLeadMinutes: 10,
       classes: true,
       examLeadMinutes: 60,
       exams: true,
       localPermission: "default",
+      quizzes: true,
     },
     restoreSchoolPage: false,
     schoolWebZoom: 1,

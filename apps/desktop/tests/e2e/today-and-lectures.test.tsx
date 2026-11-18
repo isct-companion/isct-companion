@@ -525,6 +525,8 @@ function lectureBlock(
     startTime,
     endTime,
     color: "#556b8d",
+    // Core marks every running class "class" (`Occurrence.mark`).
+    mark: "class" as const,
   };
 }
 
@@ -953,9 +955,11 @@ describe("the lecture desk", () => {
       ];
       return found.length ? found : null;
     }, "the session menu");
-    expect(
-      items.map((item) => item.textContent?.trim()),
-    ).toEqual(["Mark as exam", "Mark as quiz", "Mark as cancelled"]);
+    expect(items.map((item) => item.textContent?.trim())).toEqual([
+      "Mark as exam",
+      "Mark as quiz",
+      "Mark as cancelled",
+    ]);
     // A running class carries no mark.
     expect(items.some((item) => item.textContent?.includes("✓"))).toBe(false);
     await click(items[2]);

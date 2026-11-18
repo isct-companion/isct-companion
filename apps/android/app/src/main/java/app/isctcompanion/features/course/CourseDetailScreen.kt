@@ -131,7 +131,7 @@ fun CourseDetailScreen(courseId: String) {
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageSubtitle(subtitle(course))
-                for (exam in detail?.exams.orEmpty().filter { it.kind == "exam" || it.kind == "quiz" }) {
+                for (exam in detail?.exams.orEmpty()) {
                     Text(
                         examLine(exam), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
                         color = Theme.colors.warn,

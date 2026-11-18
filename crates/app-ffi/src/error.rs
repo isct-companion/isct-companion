@@ -147,7 +147,6 @@ from_coded!(
     app_core::facade::CredentialMutationError,
     app_core::runtime::RuntimeError,
     app_core::data::DataError,
-    app_core::workspace::WorkspaceError,
     app_core::runtime_tasks::RuntimeTaskError,
     app_core::facade::ReadModelError,
     app_core::school_auth::SchoolAuthError,

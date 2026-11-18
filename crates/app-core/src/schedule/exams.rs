@@ -103,7 +103,7 @@ pub(crate) struct ExamCorrection {
     pub room: Option<String>,
 }
 
-pub fn exam_association(
+pub(crate) fn exam_association(
     workspace: &Value,
     school: &SchoolReads,
     key: &str,
@@ -111,14 +111,15 @@ pub fn exam_association(
 ) -> Result<ExamAssociation, ScheduleError> {
     let source = published_source(workspace, school, key)?;
     require_term_course(workspace, &source.term, course_id)?;
-    let conflicts =
-        exam_views_in_terms(workspace, school, exam_terms(workspace, school).into_iter())
-            .filter(|other| {
-                other.key != key
-                    && other.kind == "exam"
-                    && other.course_id.as_deref() == Some(course_id)
-            })
-            .collect();
+    let conflicts = exam_terms(workspace, school)
+        .iter()
+        .flat_map(|term| exam_views(workspace, school, term))
+        .filter(|other| {
+            other.key != key
+                && other.kind == "exam"
+                && other.course_id.as_deref() == Some(course_id)
+        })
+        .collect();
     Ok(ExamAssociation { conflicts })
 }
 
@@ -171,20 +172,15 @@ fn corrected_session_override(
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
     let view = existing_override(workspace, key)
-        .and_then(|change| {
-            // Missing historical calendars leave earlier terms as candidates;
-            // choose the term that actually contains the marked session.
-            session_terms(workspace, change)
-                .into_iter()
-                .find_map(|term| {
-                    session_exam_views(
-                        workspace,
-                        &term,
-                        &published_exam_views(workspace, school, &term),
-                    )
-                    .into_iter()
-                    .find(|view| view.key == key)
-                })
+        .and_then(|change| session_term(workspace, change))
+        .and_then(|term| {
+            session_exam_views(
+                workspace,
+                &term,
+                &published_exam_views(workspace, school, &term),
+            )
+            .into_iter()
+            .find(|view| view.key == key)
         })
         .ok_or(ScheduleError::ExamUnavailable)?;
     let source = &view.source;
@@ -227,7 +223,7 @@ fn filled(value: Option<String>) -> Option<String> {
 /// The stored correction after the user marks this exam-timetable row as an
 /// exam, a quiz, a class or cancelled. A kind mark equal to the published
 /// kind is dropped, so the row follows its source again.
-pub(crate) fn marked_exam_override(
+fn marked_exam_override(
     workspace: &Value,
     school: &SchoolReads,
     key: &str,
@@ -413,45 +409,35 @@ pub(super) fn exam_terms(
         .collect()
 }
 
-/// Whether quizzes count as exams for Today and reminders (on by default).
-pub(crate) fn quizzes_count(workspace: &Value) -> bool {
-    workspace
-        .pointer("/settings/notifications/quizzes")
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
+/// Whether quizzes count as exams for Today and reminders.
+pub(super) fn quizzes_count(workspace: &Value) -> bool {
+    super::reminders::notification_preferences(
+        workspace
+            .pointer("/settings/notifications")
+            .unwrap_or(&Value::Null),
+    )
+    .quizzes
 }
 
 pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str) -> Vec<ExamView> {
     let quizzes = quizzes_count(workspace);
-    let mut exams: Vec<_> =
-        exam_views_in_terms(workspace, school, exam_terms(workspace, school).into_iter())
-            .filter(|exam| {
-                (exam.kind == "exam" || (quizzes && exam.kind == "quiz"))
-                    && exam.course_id.is_some()
-                    && exam.status == "scheduled"
-                    && exam.date.as_str() >= from
-            })
-            .collect();
+    let mut exams: Vec<_> = exam_terms(workspace, school)
+        .iter()
+        .flat_map(|term| exam_views(workspace, school, term))
+        .filter(|exam| {
+            (exam.kind == "exam" || (quizzes && exam.kind == "quiz"))
+                && exam.course_id.is_some()
+                && exam.status == "scheduled"
+                && exam.date.as_str() >= from
+        })
+        .collect();
     sort_views(&mut exams);
     exams
 }
 
-/// Placements can put the same marked session in overlapping quarters. Its
-/// stable key names one exam on every surface, regardless of source quarter.
-pub(super) fn exam_views_in_terms<'a>(
-    workspace: &'a Value,
-    school: &'a SchoolReads,
-    terms: impl Iterator<Item = String> + 'a,
-) -> impl Iterator<Item = ExamView> + 'a {
-    let mut seen = std::collections::HashSet::new();
-    terms
-        .flat_map(move |term| exam_views(workspace, school, &term))
-        .filter(move |exam| seen.insert(exam.key.clone()))
-}
-
 /// Every exam of the quarter: the exam timetable with the user's corrections,
 /// and the class sessions the user marked as an exam or a quiz.
-pub fn exam_views(workspace: &Value, school: &SchoolReads, term: &str) -> Vec<ExamView> {
+pub(crate) fn exam_views(workspace: &Value, school: &SchoolReads, term: &str) -> Vec<ExamView> {
     let mut result = published_exam_views(workspace, school, term);
     let sessions = session_exam_views(workspace, term, &result);
     result.extend(sessions);
@@ -462,7 +448,7 @@ pub fn exam_views(workspace: &Value, school: &SchoolReads, term: &str) -> Vec<Ex
 /// The exam timetable's rows of `term` with the user's corrections, and the
 /// corrections whose exam left the timetable. Agendas draw these; a marked
 /// class session is drawn from the class itself.
-pub(crate) fn published_exam_views(
+pub(super) fn published_exam_views(
     workspace: &Value,
     school: &SchoolReads,
     term: &str,
@@ -581,22 +567,19 @@ fn session_exam_views(workspace: &Value, term: &str, published: &[ExamView]) -> 
     result
 }
 
-/// The quarters a marked session may belong to: those whose dates hold it.
-fn session_terms(workspace: &Value, change: &Value) -> Vec<String> {
-    let Some(date) = text(change, "targetKey").and_then(key_date) else {
-        return Vec::new();
-    };
+/// The quarter a marked session belongs to: the one whose dates hold it.
+/// A quarter ends before the next one starts, and one without known dates
+/// schedules nothing.
+fn session_term(workspace: &Value, change: &Value) -> Option<String> {
+    let date = text(change, "targetKey").and_then(key_date)?;
     super::placement_terms(workspace)
-        .map(str::to_owned)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .filter(|term| {
+        .find(|term| {
             super::calendar::quarter_range(workspace, term)
                 .ok()
                 .flatten()
-                .is_none_or(|range| date >= range.from.as_str() && date <= range.to.as_str())
+                .is_some_and(|range| date >= range.from.as_str() && date <= range.to.as_str())
         })
-        .collect()
+        .map(str::to_owned)
 }
 
 /// Corrections of published exams whose row is gone. The exam timetable names

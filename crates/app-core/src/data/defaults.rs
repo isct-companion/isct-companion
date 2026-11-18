@@ -117,9 +117,12 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
             "locale": "en",
             "notifications": {
                 "classes": true,
+                "classLeadMinutes": 10,
                 "exams": true,
                 "examLeadMinutes": 60,
+                "quizzes": true,
                 "assignments": true,
+                "assignmentLeadMinutes": crate::schedule::DEFAULT_ASSIGNMENT_LEADS,
                 "localPermission": "default"
             },
             "cloud": {

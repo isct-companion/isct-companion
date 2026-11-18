@@ -14,7 +14,7 @@ use crate::{
     school_auth::{
         SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials, SchoolOtpCode,
     },
-    workspace::{WorkspaceError, WorkspaceService},
+    workspace::WorkspaceService,
     workspace_changes::{self, Coalescer, WorkspaceChange, COALESCE_WINDOW},
 };
 use std::collections::BTreeSet;
@@ -666,7 +666,7 @@ impl Core {
         let reads = crate::schedule::reads_of(&queries);
         // Only the tables the queries read (`WorkspaceQuery::reads`).
         let fields = workspace_changes::loaded_fields(reads.iter().copied());
-        let (workspace, school, _) = self.store.view(&fields).map_err(WorkspaceError::from)?;
+        let (workspace, school, _) = self.store.view(&fields)?;
         let values = queries
             .into_iter()
             .map(|query| crate::schedule::query(&workspace, &school, query))
@@ -683,8 +683,7 @@ impl Core {
         // keystroke reads the same view.
         let fields =
             workspace_changes::loaded_fields(crate::course_query::FINDER_READS.iter().copied());
-        let (workspace, _, content_revision) =
-            self.store.view(&fields).map_err(WorkspaceError::from)?;
+        let (workspace, _, content_revision) = self.store.view(&fields)?;
         let options = self
             .store
             .kyomu_search_options(request.year)
@@ -744,7 +743,7 @@ pub struct PlatformPorts {
 #[derive(Debug, thiserror::Error)]
 pub enum ReadModelError {
     #[error(transparent)]
-    Workspace(#[from] WorkspaceError),
+    Data(#[from] crate::data::DataError),
     #[error(transparent)]
     Schedule(#[from] crate::schedule::ScheduleError),
     #[error(transparent)]

@@ -321,6 +321,7 @@ impl From<crate::schedule::Occurrence> for Occurrence {
             quiz,
             source_changed,
             grid: _,
+            mark: _,
         } = occurrence;
         Self {
             key,

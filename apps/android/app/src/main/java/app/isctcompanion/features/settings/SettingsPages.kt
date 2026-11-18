@@ -66,11 +66,8 @@ import org.json.JSONObject
  * `settings.notifications`. */
 internal object ReminderLeads {
     val classChoices = listOf(5, 10, 15, 30)
-    const val DEFAULT_CLASS = 10
     val examChoices = listOf(10, 30, 60, 1440, 2880)
     val assignmentChoices = listOf(15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080)
-    /** Core's `DEFAULT_ASSIGNMENT_LEADS`, used while the key is absent. */
-    val defaultAssignment = listOf(1440, 60)
     /** Core accepts one to eight distinct times. */
     const val MAX_ASSIGNMENT = 8
 
@@ -82,23 +79,20 @@ internal object ReminderLeads {
         else -> t("settings.notification.minutesBefore", "minutes" to minutes)
     }
 
-    fun classLead(settings: JSONObject?): Int = settings?.optInt("classLeadMinutes", DEFAULT_CLASS) ?: DEFAULT_CLASS
+    // Core resolves every preference's default (`notification_preferences`)
+    // before the settings arrive, so these only read the values.
+    fun classLead(settings: JSONObject?): Int = settings?.optInt("classLeadMinutes") ?: 0
 
-    /** Exams follow the class switch and lead until set on their own (Core's
-     * `notification_plan`). */
-    fun exams(settings: JSONObject?): Boolean =
-        if (settings?.has("exams") == true) settings.optBoolean("exams") else settings?.optBoolean("classes") == true
+    fun exams(settings: JSONObject?): Boolean = settings?.optBoolean("exams") == true
 
-    /** Quizzes count as exams (upcoming exams, exam reminders) until turned off. */
-    fun quizzes(settings: JSONObject?): Boolean = settings?.optBoolean("quizzes", true) ?: true
+    /** Quizzes count as exams (upcoming exams, exam reminders). */
+    fun quizzes(settings: JSONObject?): Boolean = settings?.optBoolean("quizzes") == true
 
-    fun examLead(settings: JSONObject?): Int =
-        if (settings?.has("examLeadMinutes") == true) settings.optInt("examLeadMinutes") else classLead(settings)
+    fun examLead(settings: JSONObject?): Int = settings?.optInt("examLeadMinutes") ?: 0
 
     fun assignmentLeads(settings: JSONObject?): List<Int> {
         val stored = settings?.optJSONArray("assignmentLeadMinutes")
-        val leads = (0 until (stored?.length() ?: 0)).map { stored!!.optInt(it) }
-        return leads.ifEmpty { defaultAssignment }
+        return (0 until (stored?.length() ?: 0)).map { stored!!.optInt(it) }
     }
 
     fun summary(settings: JSONObject?): String {

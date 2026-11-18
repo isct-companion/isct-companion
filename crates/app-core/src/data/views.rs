@@ -577,6 +577,22 @@ impl DataStore {
                 apply_preferences(&mut workspace["settings"], value);
             }
         }
+        // Shells and reminders read one resolved value per preference.
+        if let Some(notifications) = workspace.pointer_mut("/settings/notifications") {
+            let resolved = crate::schedule::notification_preferences(notifications);
+            let leads = crate::schedule::assignment_lead_minutes(notifications)?;
+            for (name, value) in [
+                ("classes", json!(resolved.classes)),
+                ("classLeadMinutes", json!(resolved.class_lead_minutes)),
+                ("exams", json!(resolved.exams)),
+                ("examLeadMinutes", json!(resolved.exam_lead_minutes)),
+                ("quizzes", json!(resolved.quizzes)),
+                ("assignments", json!(resolved.assignments)),
+                ("assignmentLeadMinutes", json!(leads)),
+            ] {
+                notifications[name] = value;
+            }
+        }
         if let Some(value) = read_setting(connection, "cloud")? {
             workspace["settings"]["cloud"] = super::settings::retire_providers(&value);
         }

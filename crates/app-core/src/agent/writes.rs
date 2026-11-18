@@ -108,8 +108,7 @@ impl Tool for PlanAdd {
                 &canonical,
                 term,
                 crate::locale::ContentLanguage::of(latest_workspace),
-                &crate::schedule::teaching_periods(latest_workspace)
-                    .map_err(|error| DataError::InvalidInput(error.to_string()))?,
+                &crate::schedule::teaching_periods(latest_workspace).map_err(DataError::from)?,
             )?;
             let stored_course = write
                 .rows("manual_courses")?
