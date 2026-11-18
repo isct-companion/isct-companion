@@ -189,19 +189,6 @@ pub(crate) fn close_school_web_popup(
     Ok(controller.close_popup(site)?)
 }
 
-/// Shows a file a school page saved this session in Finder; other paths are
-/// refused.
-#[tauri::command]
-pub(crate) fn reveal_school_download(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    controller: tauri::State<'_, SchoolWebController>,
-    path: String,
-) -> Result<bool, CommandError> {
-    require_local_main(&webview)?;
-    Ok(controller.reveal_download(&app, &path)?)
-}
-
 #[tauri::command]
 pub(crate) fn set_school_web_zoom(
     webview: tauri::Webview,

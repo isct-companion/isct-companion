@@ -820,9 +820,6 @@ impl SchoolWebController {
     pub fn close_popup(&self, site: SchoolSite) -> Result<bool, String> {
         self.engine.close_popup(site).map_err(|e| e.to_string())
     }
-    pub fn reveal_download(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
-        self.native.downloads.reveal(app, path)
-    }
     pub fn set_zoom(&self, site: SchoolSite, scale: f64) -> Result<bool, String> {
         if !scale.is_finite() {
             return Err("School view scale must be finite.".into());

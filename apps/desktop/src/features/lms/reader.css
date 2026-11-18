@@ -119,18 +119,6 @@
 /* ---------- Image ---------- */
 /* White under a transparent scan, as on paper, in either theme. */
 .lmsImagePreview { display: block; max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; border-radius: var(--radius-control); background: white; box-shadow: var(--shadow); cursor: zoom-in; }
-/* Zooming image reader (ImageView.tsx): the stage scrolls; margin:auto
-   centres a small image without clipping a large one. Scoped to its own
-   frame so the course-file preview keeps its own stage. */
-.lmsImageViewer { position: relative; display: flex; flex: 1; min-height: 0; background: var(--surface-2); }
-.lmsImageViewer .lmsImageStage { display: flex; flex: 1; min-width: 0; min-height: 0; padding: var(--workspace-gutter); overflow: auto; cursor: grab; user-select: none; }
-.lmsImageViewer .lmsImageStage[data-dragging] { cursor: grabbing; }
-.lmsImageViewer .lmsImagePreview { flex: none; margin: auto; max-width: none; max-height: none; cursor: inherit; }
-.lmsImageZoom { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); }
-.lmsImageZoom button { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
-.lmsImageZoom button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
-.lmsImageZoom button:disabled { opacity: .3; }
-
 /* ---------- PDF ---------- */
 .lmsPdfReader { background: var(--surface-2); }
 .lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--workspace-gutter); padding: 7px var(--workspace-gutter); border-bottom: 1px solid var(--line); background: var(--surface); }

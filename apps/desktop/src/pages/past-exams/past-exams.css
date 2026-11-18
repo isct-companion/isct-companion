@@ -472,13 +472,6 @@ ol.examUploadFiles {
   background: var(--danger-soft);
 }
 
-.examDocumentText {
-  margin: 0;
-  padding: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 /* The header says whose service this is and opens the same page there. */
 .examPartner {
   color: var(--muted);

@@ -1153,9 +1153,9 @@ describe("Tauri bridge contract", () => {
     const bridge = createTauriDesktopBridge(invoke, seam.listen);
     const path = "/Users/student/Downloads/LAIIAssignment1.pdf";
 
-    await expect(bridge.revealSchoolDownload?.(path)).resolves.toBe(true);
+    await expect(bridge.revealDownload?.(path)).resolves.toBe(true);
     expect(calls).toEqual([
-      { command: "reveal_school_download", payload: { path } },
+      { command: "reveal_download", payload: { path } },
     ]);
 
     const received: SchoolDownloadEvent[] = [];

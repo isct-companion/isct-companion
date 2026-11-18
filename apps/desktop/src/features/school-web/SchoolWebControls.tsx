@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useInRouterContext } from "react-router";
+import { DownloadNotice } from "../../components/DownloadNotice";
 import { UiButton } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import { useAnimatedNavigate } from "../../app/navigation";
 import { paths } from "../../app/routes";
 import {
-  nativeOs,
   type SchoolDownloadEvent,
   type SchoolLoadFailure,
   type SchoolOtpEnrollment,
@@ -40,15 +40,6 @@ const failureText: Record<SchoolLoadFailure, MessageKey> = {
   cleartext: "web.thisPageUsesAnUnencrypted",
   other: "web.thisPageCouldNotBeOpened2",
 };
-
-/** What the line says about a file the page is saving to Downloads. */
-const downloadText: Record<SchoolDownloadEvent["state"], MessageKey> = {
-  started: "web.downloadingName",
-  done: "web.savedNameToDownloads",
-  failed: "web.downloadFailedName",
-};
-const revealLabel: MessageKey =
-  nativeOs() === "macos" ? "web.showInFinder" : "web.showInFolder";
 
 /**
  * The lines between a surface's toolbar and the school page: the popup in
@@ -84,10 +75,7 @@ export function SchoolWebNotices({
       setNotice(undefined);
     };
   }, [site]);
-  /** The last file this site saved; `missing` once Reveal no longer finds it. */
-  const [download, setDownload] = useState<
-    SchoolDownloadEvent & { missing?: boolean }
-  >();
+  const [download, setDownload] = useState<SchoolDownloadEvent>();
   useEffect(() => {
     let clear: number | undefined;
     const dispose = desktopBridge?.onSchoolDownload?.((event) => {
@@ -103,14 +91,6 @@ export function SchoolWebNotices({
       setDownload(undefined);
     };
   }, [site]);
-  const reveal = async (path: string) => {
-    try {
-      if (!(await desktopBridge?.revealSchoolDownload?.(path)))
-        setDownload((shown) => shown && { ...shown, missing: true });
-    } catch (error) {
-      onError(error);
-    }
-  };
   const routed = useInRouterContext();
   const failure = page?.notice;
   const access = page?.access;
@@ -196,29 +176,7 @@ export function SchoolWebNotices({
           <span>{t(noticeText[notice])}</span>
         </div>
       )}
-      {download && (
-        <div
-          className={`webNotice${download.state === "failed" ? " warning" : ""}`}
-          role="status"
-          aria-busy={download.state === "started"}
-        >
-          <span>
-            {download.missing
-              ? t("web.thatFileCanNoLonger")
-              : t(downloadText[download.state], { name: download.name })}
-          </span>
-          {download.path &&
-            !download.missing &&
-            desktopBridge?.revealSchoolDownload && (
-              <UiButton
-                type="button"
-                onClick={() => void reveal(download.path!)}
-              >
-                {t(revealLabel)}
-              </UiButton>
-            )}
-        </div>
-      )}
+      {download && <DownloadNotice download={download} onError={onError} />}
     </>
   );
 }

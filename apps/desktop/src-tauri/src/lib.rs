@@ -14,6 +14,8 @@ mod agent_server;
 mod cloud;
 mod cloud_sync;
 mod command_error;
+mod downloads;
+mod exam_files;
 mod exam_share;
 pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
@@ -277,6 +279,8 @@ pub fn run() {
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
         .manage(exam_share::UploadSelection::default())
+        .manage(exam_files::ExamFiles::default())
+        .manage(downloads::Downloads::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
     let builder = plugins::register(builder);
@@ -343,7 +347,7 @@ pub fn run() {
             commands::school::school_web_back,
             commands::school::school_web_forward,
             commands::school::close_school_web_popup,
-            commands::school::reveal_school_download,
+            downloads::reveal_download,
             commands::school::set_school_web_zoom,
             commands::school::set_kyomu_guide,
             commands::sync::sync_hint,
@@ -368,8 +372,8 @@ pub fn run() {
             exam_share::exam_share,
             exam_share::exam_upload_pick_files,
             exam_share::exam_upload_clear_files,
-            exam_share::exam_share_save_copy,
-            exam_share::exam_share_reveal,
+            exam_files::exam_open_file,
+            exam_files::exam_save_copy,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,
