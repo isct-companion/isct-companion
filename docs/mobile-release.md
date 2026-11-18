@@ -1,6 +1,6 @@
 # Mobile distribution
 
-A pushed `v<version>` tag starts two workflows beside the Desktop release:
+Merging a verified `release/X.Y.Z` into `main` creates `vX.Y.Z` and starts two workflows beside the Desktop release:
 
 | Workflow | Output | Where it goes |
 |---|---|---|
@@ -9,11 +9,13 @@ A pushed `v<version>` tag starts two workflows beside the Desktop release:
 
 Both build the Core SDK with the release profile from the tagged commit, take
 the version from `package.json`, and can be started by hand (workflow dispatch)
-to build without a tag. The iOS workflow builds only the device SDK for its IPA.
+to build without a tag. Publishing requires a tag backed by successful Release
+checks for the same source. The iOS workflow builds only the device SDK for its IPA.
 
 When `IOS_TESTFLIGHT_ENABLED` is true, a manual iOS run signs, archives and
-exports the IPA. Select `upload_testflight` to upload that run. Version tags
-upload automatically when this variable is enabled.
+exports the IPA. To upload on a manual run, select the verified release tag
+and enable `upload_testflight`. Automatic release dispatches enable the
+TestFlight upload when this variable is enabled.
 
 If a mobile upload fails, rerun the failed upload job while its run artifact
 is still available (14 days). It downloads the existing APK or IPA. Android
@@ -157,7 +159,8 @@ Once the first listing is ready, enable automatic submissions:
 gh variable set IOS_APP_STORE_ENABLED --body true
 ```
 
-Successful tag-triggered **iOS release** runs then start **App Store release**.
+Successful **iOS release** runs that upload the verified tag build to
+TestFlight then start **App Store release**.
 It waits up to 30 minutes for Apple to process the matching marketing version,
 reuses the checked-in screenshots, applies `docs/releases/<version>.md` as
 What's New for updates, and submits for review with automatic release after

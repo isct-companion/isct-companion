@@ -5,7 +5,6 @@ name: Campus map rules
 # repository does not hold, so they run only when the map's code changes,
 # against one pinned export (slotledger `approach/campus-map-tests`).
 on:
-  workflow_dispatch:
   workflow_call:
 
 permissions:

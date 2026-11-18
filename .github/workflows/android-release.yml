@@ -18,6 +18,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -36,6 +38,15 @@ jobs:
       SIGNED: ${{ secrets.ANDROID_KEYSTORE != '' }}
     steps:
       - uses: actions/checkout@v7
+      - name: Verify publish eligibility
+        if: github.ref_type == 'tag' || inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          tag="${RELEASE_TAG_INPUT:-$GITHUB_REF_NAME}"
+          bash scripts/release/verify-candidate.sh tag "$tag" "$GITHUB_SHA"
       - uses: actions/setup-node@v7
         with:
           node-version: 22
