@@ -7,14 +7,20 @@ impl Drop for TestCache {
     }
 }
 
-async fn put_copy(owner: &Path, id: &str, downloaded: bool, modified: SystemTime) -> PathBuf {
+async fn put_copy(
+    owner: &Path,
+    id: &str,
+    file_name: &str,
+    downloaded: bool,
+    modified: SystemTime,
+) -> PathBuf {
     let folder = owner.join(id);
     fs::create_dir_all(&folder).unwrap();
     let cached = Cached {
         document: serde_json::from_value(serde_json::json!({
             "id": id, "subjects": [], "teachers": [], "academicYear": null,
             "occasion": null, "occasionNumber": 0, "variant": "", "role": null,
-            "note": null, "fileName": format!("{id}.txt"), "fileType": "text/plain",
+            "note": null, "fileName": file_name, "fileType": "text/plain",
         }))
         .unwrap(),
         updated_at: 0,
@@ -37,6 +43,7 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     let stale = put_copy(
         &owner,
         "stale",
+        "stale.txt",
         true,
         now - Duration::from_secs(31 * 86_400),
     )
@@ -44,6 +51,7 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     let current = put_copy(
         &owner,
         "current",
+        "current.MD",
         true,
         now - Duration::from_secs(29 * 86_400),
     )
@@ -51,6 +59,7 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     let preview = put_copy(
         &owner,
         "preview",
+        "preview.txt",
         false,
         now - Duration::from_secs(25 * 3_600),
     )
@@ -58,6 +67,7 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     let opened = put_copy(
         &owner,
         "retained",
+        "retained.bat",
         false,
         now - Duration::from_secs(23 * 3_600),
     )
@@ -86,10 +96,21 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
         retain(opened_folder, &current).await,
         Err(ExamError::NotFound)
     ));
+    assert!(matches!(
+        export_name(opened_folder, &current).await,
+        Err(ExamError::NotFound)
+    ));
     assert!(retain(opened_folder, &opened).await.unwrap());
     assert!(!retain(opened_folder, &opened).await.unwrap());
+    // The uploader names the file; only its validated type picks what an
+    // exported copy may run as.
+    assert_eq!(
+        export_name(opened_folder, &opened).await.unwrap(),
+        "retained.bat.txt"
+    );
 
     let folder = current.parent().unwrap();
+    assert_eq!(export_name(folder, &current).await.unwrap(), "current.MD");
     let cached = cache_file(folder).await.unwrap().unwrap();
     local(folder, cached, true, None, ContentLanguage::En)
         .await

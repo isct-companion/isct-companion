@@ -1,10 +1,12 @@
-//! System actions for Core's past-exam files. Course-file grants do not apply.
+//! System actions for Core's past-exam files, on top of the reader's
+//! asset-protocol grant.
 use crate::{coded, downloads, CommandError};
 use app_core::{exam_share::ExamError, storage};
 use std::{collections::HashSet, path::PathBuf, sync::Mutex};
 use tauri::{Manager, Webview};
 
-/// Native file grants, separate from the asset protocol's course-file grants.
+/// Native file grants: the asset protocol only lets the reader load a file,
+/// these let the shell open, retain or export it.
 #[derive(Default)]
 pub(crate) struct ExamFiles(Mutex<HashSet<PathBuf>>);
 
@@ -52,12 +54,18 @@ pub(crate) async fn exam_retain_file(
         .map_err(coded)
 }
 
+/// Core names the copy from the document's validated type, not the webview.
 #[tauri::command]
 pub(crate) async fn exam_save_copy(
     webview: Webview,
+    id: String,
     path: String,
-    name: String,
 ) -> Result<downloads::SavedDownload, CommandError> {
-    let path = source(&webview, &path)?;
-    downloads::save_copy(webview.app_handle().clone(), path, name).await
+    let source = source(&webview, &path)?;
+    let core = crate::core_ports::core(webview.app_handle());
+    let name = core
+        .open_exam_export_name(&id, std::path::Path::new(&path))
+        .await
+        .map_err(coded)?;
+    downloads::save_copy(webview.app_handle().clone(), source, name).await
 }

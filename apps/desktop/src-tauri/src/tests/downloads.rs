@@ -1,4 +1,5 @@
 use super::*;
+use app_core::download_names::safe_name;
 
 #[test]
 fn saved_files_keep_their_contents_and_extension_without_overwriting() {

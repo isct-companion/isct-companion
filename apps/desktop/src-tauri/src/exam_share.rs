@@ -41,11 +41,14 @@ pub(crate) async fn exam_share(
     let _guard = cancel.clone().drop_guard();
     let core = crate::core_ports::core(webview.app_handle());
     let answer = core.exam_share(action, cancel).await.map_err(coded)?;
+    // The reader loads the document through the asset protocol; the native
+    // actions (default app, offline copy, export) check `ExamFiles`.
     if let ExamAnswer::Document(file) = &answer {
-        webview
-            .app_handle()
-            .state::<crate::exam_files::ExamFiles>()
-            .allow(&file.path)?;
+        let app = webview.app_handle();
+        app.asset_protocol_scope()
+            .allow_file(&file.path)
+            .map_err(|_| coded(ExamError::Storage))?;
+        app.state::<crate::exam_files::ExamFiles>().allow(&file.path)?;
     }
     Ok(answer)
 }

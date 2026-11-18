@@ -473,6 +473,21 @@ impl Core {
         service.retain_open_copy(id, path).await
     }
 
+    /// The file name a copy of the opened exam version is exported under:
+    /// the uploader's name, with the validated type's suffix when its own
+    /// extension is not one that type allows.
+    pub async fn open_exam_export_name(
+        &self,
+        id: &str,
+        path: &std::path::Path,
+    ) -> Result<String, crate::exam_share::ExamError> {
+        let service = self
+            .exam_share
+            .get()
+            .ok_or(crate::exam_share::ExamError::Unavailable)?;
+        service.open_copy_export_name(id, path).await
+    }
+
     /// Stop every ScienceTokyoExam action in flight, for shutdown.
     pub fn cancel_exam_share(&self) {
         if let Some(service) = self.exam_share.get() {

@@ -570,8 +570,9 @@ export interface DesktopBridge {
   examOpenFile?(path: string): Promise<void>;
   /** Keeps the opened version for offline use, returning whether the library changed. */
   examRetainFile?(id: string, path: string): Promise<boolean>;
-  /** Copies a Core past-exam file into Downloads under its uploaded name. */
-  examSaveCopy?(path: string, name: string): Promise<SavedDownload>;
+  /** Copies the opened past-exam version into Downloads under the name Core
+   * gives it (the uploaded name, suffixed to match its validated type). */
+  examSaveCopy?(id: string, path: string): Promise<SavedDownload>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -921,7 +922,7 @@ export function createTauriDesktopBridge(
     examOpenFile: (path) => invokeCommand("exam_open_file", { path }),
     examRetainFile: (id, path) =>
       booleanCommand("exam_retain_file", { id, path }),
-    examSaveCopy: (path, name) => result("exam_save_copy", { path, name }),
+    examSaveCopy: (id, path) => result("exam_save_copy", { id, path }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url, site) =>

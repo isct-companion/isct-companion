@@ -34,14 +34,12 @@ fn a_disposition_names_the_file_whatever_its_type() {
         ),
         "été.txt"
     );
-    // Quoted strings keep escaped quotes and semicolons.
+    // Quoted strings keep escaped quotes and semicolons. Asserted on the
+    // header's name, before `safe_name` makes it a path component for the
+    // target system.
     assert_eq!(
-        named(
-            Some(r#"attachment; filename="a\"b;c.pdf"; size=3"#),
-            page,
-            pdf
-        ),
-        "a\"b;c.pdf"
+        disposition_name(br#"attachment; filename="a\"b;c.pdf"; size=3"#),
+        Some("a\"b;c.pdf".to_owned())
     );
     assert_eq!(
         named(Some("attachment; filename=\"%E8%AC%9B.pdf\""), page, pdf),

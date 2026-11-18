@@ -1,6 +1,6 @@
 //! Desktop file saves and system handoff. Callers validate their own sources.
 use crate::{shell, CommandError};
-use app_core::download_names::{name_candidates, safe_name};
+use app_core::download_names::name_candidates;
 use serde::Serialize;
 use std::{
     collections::HashSet,
@@ -35,7 +35,8 @@ impl Downloads {
     }
 }
 
-/// Copy an already validated source. Core's owned runtime drains the save at exit.
+/// Copy an already validated source under a name Core made safe. Core's
+/// owned runtime drains the save at exit.
 pub(crate) async fn save_copy(
     app: AppHandle,
     source: PathBuf,
@@ -46,7 +47,7 @@ pub(crate) async fn save_copy(
         .run(async move {
             let path = tauri::async_runtime::spawn_blocking(move || {
                 let source = fs::File::open(source)?;
-                write_unique(&directory, &safe_name(&name, ""), source)
+                write_unique(&directory, &name, source)
             })
             .await
             .map_err(shell)?

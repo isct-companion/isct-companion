@@ -64,7 +64,7 @@ import {
   UploadProgress,
   UploadRecovery,
 } from "./ExamDialogs";
-import { ExamDocumentPanel, openExamFile } from "./ExamDocumentPanel";
+import { ExamReader } from "./ExamReader";
 import { useExamLibrary } from "./useExamLibrary";
 import "./past-exams.css";
 
@@ -194,20 +194,21 @@ export function PastExams({
     },
     [applyAccount, call],
   );
+  // Every bump of `generation` reads the library again too. The first
+  // activation bumps nothing, so the library's own first read is the only one.
+  useReload(generation, refreshLibrary);
   // Back in the foreground: read the account, then the views again.
-  const returnToForeground = useEffectEvent(async (foreground: boolean) => {
+  const returnToForeground = useEffectEvent(async () => {
     if (inFlight.current > 0 || document.visibilityState === "hidden") return;
     const was = account?.status;
-    if ((await accountAction("account"))?.status === "connected" && was) {
+    if ((await accountAction("account"))?.status === "connected" && was)
       setGeneration((value) => value + 1);
-      if (foreground) refreshLibrary();
-    }
   });
   useEffect(() => {
     if (!active) return;
     const stop = desktopBridge?.onExamAccount?.(applyAccount);
-    const refresh = () => void returnToForeground(true);
-    void returnToForeground(false);
+    const refresh = () => void returnToForeground();
+    refresh();
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -230,16 +231,14 @@ export function PastExams({
       const answer = await call({ kind: "open", id, download: false });
       if (seq !== openSeq.current) return;
       setOpening(undefined);
-      if (answer?.kind === "document") {
-        setReader(answer.value);
-        await openExamFile(answer.value).catch(notify.error);
-      }
+      if (answer?.kind === "document") setReader(answer.value);
     },
     [call],
   );
   // Core names subjects in the content language, which these two settings
   // decide (`approach/content-language-in-core`). When either changes, every
-  // browse/request view and the open document are read again.
+  // view and the open document are read from Core again; the page keeps what
+  // it shows until the new answers arrive.
   const settings = useRecords([])?.settings;
   const language =
     settings && `${settings.contentLanguage ?? "auto"}:${settings.locale}`;
@@ -290,11 +289,8 @@ export function PastExams({
     try {
       const answer = await call(action);
       if (answer?.kind !== "uploaded" && answer?.kind !== "done") return;
-      if (answer.kind === "uploaded") {
-        closeUpload();
-        refreshLibrary();
-      }
-      // Refresh the browse and request views after upload recovery or publication.
+      if (answer.kind === "uploaded") closeUpload();
+      // The upload changed what every view lists.
       setGeneration((value) => value + 1);
       notify.info(
         t(
@@ -310,7 +306,8 @@ export function PastExams({
     }
   };
 
-  // Core loads the document actions; the system application shows its contents.
+  // Opening another document shows that it is coming; the one on screen
+  // stays while its own tools act on it.
   const readerPane =
     opening && opening !== reader?.document.id ? (
       <div className="examOpening" role="status">
@@ -324,7 +321,7 @@ export function PastExams({
       </div>
     ) : (
       reader && (
-        <ExamDocumentPanel
+        <ExamReader
           key={reader.document.id}
           file={reader}
           title={documentTitle(reader.document)}
