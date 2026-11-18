@@ -20,6 +20,7 @@ on:
       - .github/workflows/platform-checks.yml
       - .github/workflows/native-sdk.yml
       - .github/workflows/campus-map.yml
+      - .github/actions/rust-compiler-cache/**
   schedule:
     - cron: '0 18 * * 0' # Monday 03:00 in Japan
 

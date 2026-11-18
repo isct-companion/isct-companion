@@ -1,9 +1,9 @@
 # app-ocr
 
-`app-ocr` is the optional, UI-independent matrix-card recognition library and
-The engine has no dependency on Core. `app_ocr_adapter::matrix_vision()`
-implements Core's image capability with its tracker, cell cut and letter model;
-every shell injects it into `app_core::matrix_scan::MatrixCameraDriver`.
+`app-ocr` is the optional, UI-independent matrix-card recognition library.
+The engine has no dependency on Core: `app_ocr_adapter::matrix_vision()`
+implements Core's image capability with its tracker, cell cut and letter model,
+and every shell injects it into `app_core::matrix_scan::MatrixCameraDriver`.
 Its default `engine` feature embeds the alphabet classifier (`models/alphabet/`)
 and its runtime, chosen per target at compile time (`engine/letters`): LiteRT
 with the float16 export on Android arm64 and Windows (the app's bundled

@@ -298,3 +298,7 @@ pub fn matrix_full_luma_from_yuv(
         luma,
     })
 }
+
+#[cfg(test)]
+#[path = "../tests/engine__picture.rs"]
+mod tests;
