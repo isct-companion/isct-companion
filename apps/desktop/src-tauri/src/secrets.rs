@@ -1,9 +1,12 @@
-use app_core::ports::{vault_item, vault_key, SecretError, SecretVault};
+use app_core::ports::{vault_item, SecretError, SecretVault};
 use tauri::AppHandle;
 use tauri_plugin_secure_storage::{OptionsRequest, SecureStorageExt};
 
+#[cfg(not(isolated_dev))]
 const LEGACY_SERVICES: &[&str] = &["app.isctcompanion.legacy", "jp.ac.isct.workstation.cloud"];
+#[cfg(not(isolated_dev))]
 const PREVIOUS_APP_ID: &str = "app.campuslife.sciencetokyo";
+#[cfg(not(isolated_dev))]
 const PREVIOUS_PRODUCT_NAME: &str = "Campus Life";
 #[cfg(target_os = "macos")]
 const APP_ID: &str = app_core::ports::VAULT_SERVICE;
@@ -34,8 +37,9 @@ fn secure_key(account: &str) -> Result<String, SecretError> {
     vault_item(account).map(|item| item.key)
 }
 
+#[cfg(not(isolated_dev))]
 fn secure_key_for(app_id: &str, account: &str) -> Result<String, SecretError> {
-    vault_key(app_id, account)
+    app_core::ports::vault_key(app_id, account)
 }
 
 fn request(account: &str, data: Option<String>) -> Result<OptionsRequest, SecretError> {
@@ -49,27 +53,17 @@ fn request(account: &str, data: Option<String>) -> Result<OptionsRequest, Secret
     })
 }
 
-// macOS debug builds (`tauri dev`) are unsigned, so they lack the
-// keychain-access-groups entitlement the data-protection keychain requires
-// (errSecMissingEntitlement, -34018). They keep school logins in the login
-// keychain instead; only release builds use the synchronized keychain.
+// The data-protection keychain needs the keychain-access-groups entitlement
+// (errSecMissingEntitlement, -34018), which only builds signed with the team
+// profile carry (`icloud`): release builds and team-signed debug bundles.
+// Development builds keep school logins in the login keychain, under their own
+// service (productName).
 fn apple_keychain_sync(account: &str) -> bool {
-    cfg!(all(target_os = "macos", not(debug_assertions)))
-        && vault_item(account).is_ok_and(|item| item.synchronized)
+    cfg!(icloud) && vault_item(account).is_ok_and(|item| item.synchronized)
 }
 
-/// The school credentials' status metadata, in the data folder. It says
-/// which accounts this build's credentials item holds, and a macOS debug
-/// build's is not the release build's (`apple_keychain_sync`) while both share
-/// the data folder: with one status, each build would take the other's saved
-/// accounts for its own, find none, and mark them gone for both. The markers
-/// beside it stay shared, as the device-local items they guard (refusals,
-/// sessions, the LMS token) are.
-pub const SCHOOL_STATUS_FILE: &str = if cfg!(all(target_os = "macos", debug_assertions)) {
-    "school-credential-status-debug.json"
-} else {
-    "school-credential-status.json"
-};
+/// The school credentials' status metadata, in the data folder.
+pub const SCHOOL_STATUS_FILE: &str = "school-credential-status.json";
 
 impl SecretVault for OsSecretVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
@@ -87,26 +81,11 @@ impl SecretVault for OsSecretVault {
 
     fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
         let stored = self.load_current(account)?;
-        if stored.is_some() {
-            return Ok(stored);
+        #[cfg(not(isolated_dev))]
+        if stored.is_none() {
+            return self.load_moved(account);
         }
-        #[cfg(target_os = "macos")]
-        if apple_keychain_sync(account) {
-            if let Some(secret) = self.load_local_current(account)? {
-                migrate_secret(self, account, &secret)?;
-                // Keep the source if cleanup is denied; the synchronized item
-                // takes precedence from now on.
-                let _ = self.delete_local_current(account);
-                return Ok(Some(secret));
-            }
-        }
-        if let Some(secret) = self.load_previous(account)? {
-            migrate_secret(self, account, &secret)?;
-            // A failed cleanup is harmless: the new entry takes precedence.
-            let _ = self.delete_previous(account);
-            return Ok(Some(secret));
-        }
-        self.load_legacy(account)
+        Ok(stored)
     }
 
     fn delete(&self, account: &str) -> Result<(), SecretError> {
@@ -114,16 +93,13 @@ impl SecretVault for OsSecretVault {
         if apple_keychain_sync(account) {
             delete_apple_synced(account)?;
             self.delete_local_current(account)?;
-            self.delete_previous(account)?;
-            self.delete_legacy(account)?;
-            return Ok(());
+            return self.delete_moved(account);
         }
         let removed = self
             .app
             .secure_storage()
             .remove_item(self.app.clone(), request(account, None)?);
-        self.delete_previous(account)?;
-        self.delete_legacy(account)?;
+        self.delete_moved(account)?;
         if removed.is_ok() {
             return Ok(());
         }
@@ -144,6 +120,7 @@ impl SecretVault for OsSecretVault {
 
 // Read back through the destination, never through load()'s migration fallback.
 // Keep the source untouched if writing or verification fails.
+#[cfg(not(isolated_dev))]
 fn migrate_secret(vault: &OsSecretVault, account: &str, secret: &str) -> Result<(), SecretError> {
     copy_verified(
         secret,
@@ -152,6 +129,7 @@ fn migrate_secret(vault: &OsSecretVault, account: &str, secret: &str) -> Result<
     )
 }
 
+#[cfg(not(isolated_dev))]
 fn copy_verified(
     secret: &str,
     write: impl FnOnce() -> Result<(), SecretError>,
@@ -214,6 +192,38 @@ impl OsSecretVault {
             .map_err(|_| access("OS credential vault is unavailable."))?;
         read_entry(&entry)
     }
+}
+
+/// The places the release app moves credentials from: the login keychain
+/// (into the synchronized keychain), the previous product's service and the
+/// legacy services. They belong to the release app, so a development build
+/// (`isolated_dev`) neither reads nor deletes them.
+#[cfg(not(isolated_dev))]
+impl OsSecretVault {
+    fn load_moved(&self, account: &str) -> Result<Option<String>, SecretError> {
+        #[cfg(target_os = "macos")]
+        if apple_keychain_sync(account) {
+            if let Some(secret) = self.load_local_current(account)? {
+                migrate_secret(self, account, &secret)?;
+                // Keep the source if cleanup is denied; the synchronized item
+                // takes precedence from now on.
+                let _ = self.delete_local_current(account);
+                return Ok(Some(secret));
+            }
+        }
+        if let Some(secret) = self.load_previous(account)? {
+            migrate_secret(self, account, &secret)?;
+            // A failed cleanup is harmless: the new entry takes precedence.
+            let _ = self.delete_previous(account);
+            return Ok(Some(secret));
+        }
+        self.load_legacy(account)
+    }
+
+    fn delete_moved(&self, account: &str) -> Result<(), SecretError> {
+        self.delete_previous(account)?;
+        self.delete_legacy(account)
+    }
 
     // Desktop secure-storage uses productName as the service, independently of
     // the key prefix. Changing just the prefix cannot find the old item.
@@ -252,6 +262,13 @@ impl OsSecretVault {
                 .map_err(|_| access("Legacy credential vault is unavailable."))?;
             delete_entry(&entry)?;
         }
+        Ok(())
+    }
+}
+
+#[cfg(isolated_dev)]
+impl OsSecretVault {
+    fn delete_moved(&self, _account: &str) -> Result<(), SecretError> {
         Ok(())
     }
 }

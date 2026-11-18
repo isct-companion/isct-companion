@@ -8,6 +8,7 @@ import {
   macSigningConfig,
 } from "./macos-signing.mjs";
 import { macWidgets } from "./macos-widgets.mjs";
+import { macDevSigningIdentity } from "./macos-dev-signing.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -20,7 +21,9 @@ const version = development
   ? (process.env.ISCT_DEV_VERSION ?? developmentVersion(packageVersion))
   : undefined;
 const shouldSignMac =
-  process.platform === "darwin" && Boolean(process.env.APPLE_SIGNING_IDENTITY);
+  process.platform === "darwin" &&
+  command[0] === "build" &&
+  Boolean(process.env.APPLE_SIGNING_IDENTITY);
 // A linker-only signature identifies the executable by its Rust target name.
 // UserNotifications then cannot associate the debug .app with its bundle ID,
 // so local debug bundles are always signed. With an Apple Development identity
@@ -42,6 +45,19 @@ if (shouldSignLocalMac) {
       : "Debug bundle: ad-hoc signed; no Apple Development profile for this Mac, so iCloud is off.",
   );
 }
+// Development builds (`dev`, and a debug bundle without the team profile) get
+// their own identifier and productName, so their data folder, single-instance
+// lock and credential service are not the release app's. build.rs reads the
+// identifier back to compile out what would touch the release app's state. A
+// debug bundle signed with the team profile tests iCloud as the release app.
+const isolated =
+  command[0] === "dev" ||
+  (command.includes("--debug") && !shouldSignMac && !macDevelopmentConfig);
+const host = isolated ? "app.isctcompanion.dev" : "app.isctcompanion";
+const isolatedApp = isolated
+  ? { identifier: host, productName: "IsctCompanion Dev" }
+  : undefined;
+if (isolated) console.log(`Development app: ${host}, separate from the release app.`);
 const macSigning = shouldSignMac
   ? (() => {
       const signed = macSigningConfig({ required: true });
@@ -65,7 +81,7 @@ const macConfig =
   command[0] === "build" &&
   !command.includes("--no-bundle") &&
   !command.includes("--no-sign")
-    ? macWidgets(root, command, macSigning, packageVersion)
+    ? macWidgets(root, command, macSigning, packageVersion, host)
     : macSigning;
 // Azure Artifact Signing signs the app binary and the NSIS installer on
 // Windows; without a trusted signature Smart App Control blocks the installer
@@ -131,7 +147,7 @@ const vpnBundle = vpnPayload
   : undefined;
 if (vpnPayload) console.log("Campus VPN payload: included.");
 const tauriCommand = [...process.argv.slice(2)];
-if (macConfig || windowsConfig || version || vpnBundle) {
+if (macConfig || windowsConfig || version || vpnBundle || isolatedApp) {
   // Keep Tauri options before the separator for additional Cargo arguments.
   const separator = tauriCommand.indexOf("--");
   tauriCommand.splice(
@@ -144,8 +160,26 @@ if (macConfig || windowsConfig || version || vpnBundle) {
         ? { bundle: { ...macConfig?.bundle, ...windowsConfig, ...vpnBundle } }
         : {}),
       ...(version ? { version } : {}),
+      ...isolatedApp,
     }),
   );
+}
+// `tauri dev` runs the bare executable Cargo built. On macOS it is signed
+// with the developer's own Apple Development identity before each launch
+// (macos-dev-runner.sh), so its keychain items stay readable across rebuilds.
+const devSigningIdentity =
+  process.platform === "darwin" && command[0] === "dev"
+    ? macDevSigningIdentity()
+    : undefined;
+if (devSigningIdentity) {
+  const runner = path.join(root, "scripts/desktop/macos-dev-runner.sh");
+  const separator = tauriCommand.indexOf("--");
+  // Arguments after `--` go to Cargo; an array keeps spaces in the path.
+  const runnerConfig = ["aarch64-apple-darwin", "x86_64-apple-darwin"].flatMap(
+    (target) => ["--config", `target.${target}.runner=${JSON.stringify([runner])}`],
+  );
+  if (separator < 0) tauriCommand.push("--", ...runnerConfig);
+  else tauriCommand.splice(separator + 1, 0, ...runnerConfig);
 }
 if (version) console.log(`Development build: ${version}`);
 const child = spawn(
@@ -162,6 +196,7 @@ const child = spawn(
       // build.rs compiles iCloud into a macOS debug build only when it will be
       // signed with the entitlements; always set, so a stale value cannot leak.
       ISCT_APPLE_ENTITLED: shouldSignMac || macDevelopmentConfig ? "1" : "",
+      ISCT_MACOS_DEV_SIGNING_IDENTITY: devSigningIdentity ?? "",
       TAURI_APP_PATH: path.join(root, "apps/desktop/src-tauri"),
       TAURI_FRONTEND_PATH: path.join(root, "apps/desktop"),
     },
