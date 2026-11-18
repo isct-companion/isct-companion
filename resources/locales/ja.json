@@ -832,6 +832,7 @@
   "otpEnrollment.unknown": "学校側の OTP 設定が変わった可能性があります。やり直す前に学校の設定を確認してください。",
   "otpEnrollment.saveFailed": "学校側で OTP の設定は完了しましたが、この端末に保存できませんでした。ここから保存をやり直せます。",
   "otpEnrollment.retrySave": "保存をやり直す",
+  "otpEnrollment.connectBeforeExport": "この OTP を別の認証アプリに追加するには、先に学校アカウントの接続を完了してください。",
   "otpEnrollment.savedOnDevice": "OTP 設定はこの端末に保存されています。",
   "otpEnrollment.settings": "学校アカウントの設定",
   "schoolSession.connect.connected": "ログインしました。この認証情報を保存し、ほかのデバイスとも同期します。",

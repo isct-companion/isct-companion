@@ -61,6 +61,7 @@ private struct TileLabel: LabelStyle {
 /// export QR (camera or a screenshot on this phone) and a pasted setup.
 struct OtpImportField: View {
     let saved: Bool
+    let verifiedAccount: Bool
     let canShowCode: Bool
     @Binding var setup: String
     let openManual: () -> Void
@@ -84,7 +85,7 @@ struct OtpImportField: View {
     var body: some View {
         if saved && !changing && setup.isEmpty {
             HStack {
-                Label(t("settings.credentialImport.codesAreFilledInFor"), systemImage: "checkmark.circle.fill")
+                Label(t(verifiedAccount ? "settings.credentialImport.codesAreFilledInFor" : "otpEnrollment.savedOnDevice"), systemImage: "checkmark.circle.fill")
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(Theme.ok, Theme.ink)
                 Spacer()
@@ -95,11 +96,13 @@ struct OtpImportField: View {
             }
             // A QR on this screen cannot be scanned by this phone, so the
             // `otpauth://` link goes straight to the installed authenticator.
-            SourceTiles {
-                Button(t("settings.credentialImport.addToAuthenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
-                Button(t(copied ? "settings.credentialImport.copied" : "settings.credentialImport.copySetup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
+            if verifiedAccount && canShowCode {
+                SourceTiles {
+                    Button(t("settings.credentialImport.addToAuthenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
+                    Button(t(copied ? "settings.credentialImport.copied" : "settings.credentialImport.copySetup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
+                }
             }
-            Text(t("settings.credentialImport.ifYouResetOTPAt"))
+            Text(t(verifiedAccount ? "settings.credentialImport.ifYouResetOTPAt" : "otpEnrollment.connectBeforeExport"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
             if let error {

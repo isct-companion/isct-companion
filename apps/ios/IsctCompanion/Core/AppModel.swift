@@ -851,7 +851,7 @@ final class AppModel {
     /// The saved school OTP setup as an `otpauth://` link, read only when the
     /// person asks to add it to an authenticator or copy it.
     func otpSetupLink() async throws -> String {
-        guard let session, case let .text(value) = try await session.schoolOtpLink(draft: nil).value() else {
+        guard let session, case let .text(value) = try await session.schoolOtpLink().value() else {
             throw CancellationError()
         }
         return value

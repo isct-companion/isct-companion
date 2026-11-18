@@ -8805,13 +8805,16 @@ checks:
           Start Help me set up and continue. Sign in on the visible school
           page. With the account that has only emailed codes, wait for the
           App Authentication verdict and the saved notice. Open School
-          Accounts, export to an authenticator and verify a code against Extic.
-          Relaunch and check the saved OTP still appears. Then Connect with
-          the password and a blank OTP field.
+          Accounts and check that adding to an authenticator is not offered
+          before Connect. Relaunch and check the saved OTP still appears.
+          Connect with the password and a blank OTP field, then add the saved
+          setup to an authenticator (scan the QR on desktop) and verify its
+          code against Extic.
         reason: |
           Detects changes to Extic's forms, a false success, or failure to
-          save the seed before Connect. A confirmed seed must be usable both
-          in another authenticator and in the later Connect.
+          save the seed before Connect. The seed must survive until Connect;
+          external authenticator provisioning uses an account the school has
+          accepted, never an enrollment-only seed or an unverified draft.
       - action: |
           Repeat Help me set up using the account with an existing
           authenticator. At the reset choice, keep the existing setup and

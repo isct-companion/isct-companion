@@ -622,7 +622,7 @@ export interface DesktopBridge {
   copySchoolMatrix(): Promise<boolean>;
   copySchoolOtp(setup?: string): Promise<boolean>;
   /** SVG QR code of the OTP setup, for another authenticator to scan. */
-  schoolOtpQr(setup?: string): Promise<string>;
+  schoolOtpQr(): Promise<string>;
   schoolOtpCode(): Promise<SchoolOtpCode | null>;
   copySchoolOtpCode(otp: string): Promise<void>;
   /** Shows `site`'s view for `surface` (an id of the app page showing it). */
@@ -1028,10 +1028,10 @@ export function createTauriDesktopBridge(
     schoolOtpCode: () => invokeCommand<SchoolOtpCode | null>("school_otp_code"),
     copySchoolOtpCode: (otp) =>
       invokeCommand<void>("copy_school_otp_code", { otp }),
-    schoolOtpQr: async (setup) =>
+    schoolOtpQr: async () =>
       requireString(
         "school_otp_qr",
-        await invokeCommand("school_otp_qr", { setup }),
+        await invokeCommand("school_otp_qr"),
       ),
     schoolSessionSnapshot: async () => {
       const snapshot = await invokeCommand("school_session_snapshot");

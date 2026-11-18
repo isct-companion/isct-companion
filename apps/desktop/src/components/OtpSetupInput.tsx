@@ -115,7 +115,7 @@ export function OtpSetupInput({
     setError("");
     try {
       if (!desktopBridge) throw new Error(t("settings.otp.copyFailed"));
-      setQr(await desktopBridge.schoolOtpQr(value.trim() || undefined));
+      setQr(await desktopBridge.schoolOtpQr());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -228,7 +228,8 @@ export function OtpSetupInput({
       <Button
         variant="default"
         size="xs"
-        disabled={busy || (!value.trim() && !saved) || !desktopBridge}
+        disabled={busy || otpOnly || !canShowCode || !desktopBridge}
+        title={otpOnly ? t("otpEnrollment.connectBeforeExport") : undefined}
         onClick={() => void showQr()}
       >
         {t("settings.otp.showQRCode")}

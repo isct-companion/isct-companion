@@ -405,12 +405,12 @@ impl Session {
             })
         })
     }
-    /// The saved (or drafted) school OTP setup as an `otpauth://` link for
-    /// the shell to open in an authenticator or copy. Only on explicit request.
-    pub fn school_otp_link(&self, draft: Option<String>) -> Result<Arc<Operation>, SdkError> {
+    /// The verified saved school's OTP setup for another authenticator.
+    /// Enrollment-only seeds and unsaved drafts cannot be exported here.
+    pub fn school_otp_link(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Text {
-                value: i.core.auth.otp_setup_link(draft.as_deref())?,
+                value: i.core.auth.otp_setup_link()?,
             })
         })
     }

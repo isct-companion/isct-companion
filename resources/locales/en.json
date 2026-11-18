@@ -832,6 +832,7 @@
   "otpEnrollment.unknown": "The school’s OTP settings may have changed. Check them before trying again.",
   "otpEnrollment.saveFailed": "The school confirmed OTP setup, but this device could not save it. Retry saving it here.",
   "otpEnrollment.retrySave": "Retry saving",
+  "otpEnrollment.connectBeforeExport": "Connect the school account successfully before adding this OTP to another authenticator.",
   "otpEnrollment.savedOnDevice": "OTP setup is saved on this device.",
   "otpEnrollment.settings": "School account settings",
   "schoolSession.connect.connected": "Signed in. These credentials are saved and sync to your other devices.",

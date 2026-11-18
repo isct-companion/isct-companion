@@ -832,6 +832,7 @@
   "otpEnrollment.unknown": "学校的 OTP 设置可能已变更。请先检查学校设置，再决定下一步。",
   "otpEnrollment.saveFailed": "学校已确认 OTP 设置，但此设备未能保存。可以在此重试保存。",
   "otpEnrollment.retrySave": "重试保存",
+  "otpEnrollment.connectBeforeExport": "成功连接学校账号后，即可将此 OTP 添加到其他验证器。",
   "otpEnrollment.savedOnDevice": "OTP 设置已保存到此设备。",
   "otpEnrollment.settings": "学校账号设置",
   "schoolSession.connect.connected": "已登录。这些凭据已保存，并会同步到你的其他设备。",

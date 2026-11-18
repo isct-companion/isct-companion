@@ -393,6 +393,7 @@ private struct AccountScreen: View {
                     Section(t("settings.main.oneTimePassword")) {
                         OtpImportField(
                             saved: summary?.hasOtp == true,
+                            verifiedAccount: summary?.saved == true,
                             canShowCode: session?.signOutPending != true,
                             setup: $otpSecret,
                             openManual: openPortal,

@@ -954,7 +954,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * person asks to add it to an authenticator or copy it. */
     suspend fun otpSetupLink(): String {
         val session = session ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-        return (session.schoolOtpLink(null).value() as? OperationResult.Text)?.value
+        return (session.schoolOtpLink().value() as? OperationResult.Text)?.value
             ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
     }
 

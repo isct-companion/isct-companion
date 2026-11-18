@@ -128,13 +128,9 @@ pub(crate) fn copy_school_otp_code(
 pub(crate) async fn school_otp_qr(
     webview: tauri::Webview,
     auth: tauri::State<'_, Arc<SchoolAuthService>>,
-    setup: Option<String>,
 ) -> Result<String, CommandError> {
     require_local_main(&webview)?;
-    with_credentials(auth.inner().clone(), move |auth| {
-        auth.otp_setup_qr(setup.as_deref())
-    })
-    .await
+    with_credentials(auth.inner().clone(), |auth| auth.otp_setup_qr()).await
 }
 
 /// Copies the saved Matrix directly from the vault to the system clipboard,

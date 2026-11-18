@@ -148,6 +148,7 @@ private fun clipboardText(context: Context): String? =
 @Composable
 fun OtpImportField(
     saved: Boolean,
+    verifiedAccount: Boolean,
     canShowCode: Boolean,
     setup: String,
     openManual: () -> Unit,
@@ -206,42 +207,44 @@ fun OtpImportField(
     if (saved && !changing && setup.isEmpty()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
-            Text(t("settings.credentialImport.codesAreFilledInFor"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+            Text(t(if (verifiedAccount) "settings.credentialImport.codesAreFilledInFor" else "otpEnrollment.savedOnDevice"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
         if (canShowCode) SchoolOtpCodeButton()
         // A QR on this screen cannot be scanned by this phone, so the
         // `otpauth://` link goes straight to the installed authenticator.
-        ChipRow {
-            SourceChip(t("settings.credentialImport.addToAuthenticator"), Icons.Rounded.Key) {
-                scope.launch {
-                    error = null
-                    runCatching { model.otpSetupLink() }
-                        .onSuccess { link ->
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
-                            } catch (missing: ActivityNotFoundException) {
-                                error = t("settings.credentialImport.noAuthenticatorAppOnThis")
+        if (verifiedAccount && canShowCode) {
+            ChipRow {
+                SourceChip(t("settings.credentialImport.addToAuthenticator"), Icons.Rounded.Key) {
+                    scope.launch {
+                        error = null
+                        runCatching { model.otpSetupLink() }
+                            .onSuccess { link ->
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                                } catch (missing: ActivityNotFoundException) {
+                                    error = t("settings.credentialImport.noAuthenticatorAppOnThis")
+                                }
                             }
-                        }
-                        .onFailure { error = AppModel.describe(it) }
+                            .onFailure { error = AppModel.describe(it) }
+                    }
                 }
-            }
-            SourceChip(if (copied) t("settings.credentialImport.copied") else t("settings.credentialImport.copySetup"), Icons.Rounded.ContentCopy) {
-                scope.launch {
-                    error = null
-                    runCatching { model.otpSetupLink() }
-                        .onSuccess { link ->
-                            copySensitiveOtp(context, t("settings.credentialImport.otpSetup"), link, 120_000)
-                            copied = true
-                            delay(2_000)
-                            copied = false
-                        }
-                        .onFailure { error = AppModel.describe(it) }
+                SourceChip(if (copied) t("settings.credentialImport.copied") else t("settings.credentialImport.copySetup"), Icons.Rounded.ContentCopy) {
+                    scope.launch {
+                        error = null
+                        runCatching { model.otpSetupLink() }
+                            .onSuccess { link ->
+                                copySensitiveOtp(context, t("settings.credentialImport.otpSetup"), link, 120_000)
+                                copied = true
+                                delay(2_000)
+                                copied = false
+                            }
+                            .onFailure { error = AppModel.describe(it) }
+                    }
                 }
             }
         }
-        Hint(t("settings.credentialImport.ifYouResetOTPAt"))
+        Hint(t(if (verifiedAccount) "settings.credentialImport.ifYouResetOTPAt" else "otpEnrollment.connectBeforeExport"))
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
