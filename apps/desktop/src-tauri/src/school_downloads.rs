@@ -3,13 +3,15 @@
 
 use crate::downloads::file_name;
 #[cfg(target_os = "macos")]
-use crate::downloads::{download_candidates, download_file_name, write_unique};
+use crate::downloads::write_unique;
+#[cfg(target_os = "macos")]
+use app_core::download_names::{name_candidates, safe_name};
 use app_core::{
     events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_browser::{download_permitted, restore_record},
+    school_browser::download_permitted,
 };
 use std::{
     path::{Path, PathBuf},
@@ -56,14 +58,7 @@ impl SchoolDownloads {
                     return false;
                 }
                 let name = file_name(destination);
-                emit_download(
-                    app,
-                    site,
-                    SchoolDownloadState::Started,
-                    name,
-                    restore_record(url.as_str()),
-                    None,
-                );
+                emit_download(app, site, SchoolDownloadState::Started, name, None);
                 true
             }
             DownloadEvent::Finished { url, success, .. } => {
@@ -100,21 +95,14 @@ impl SchoolDownloads {
             return;
         }
 
-        let name = download_file_name(&saved.suggested_name, &saved.mime_type);
+        let name = safe_name(&saved.suggested_name, &saved.mime_type);
         let Ok(directory) = app.path().download_dir() else {
-            emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
+            emit_download(app, site, SchoolDownloadState::Failed, name, None);
             return;
         };
         // The viewer hands the bytes over at once; the write is still a save
         // the person started, announced like any other.
-        emit_download(
-            app,
-            site,
-            SchoolDownloadState::Started,
-            name.clone(),
-            None,
-            None,
-        );
+        emit_download(app, site, SchoolDownloadState::Started, name.clone(), None);
         let app = app.clone();
         let failed_app = app.clone();
         let downloads = self.clone();
@@ -152,7 +140,6 @@ impl SchoolDownloads {
                 SchoolDownloadState::Failed,
                 failed_name,
                 None,
-                None,
             );
         }
     }
@@ -172,8 +159,8 @@ impl SchoolDownloads {
             return None;
         }
         let directory = app.path().download_dir().ok()?;
-        let name = download_file_name(suggested, "");
-        let path = download_candidates(&name)
+        let name = safe_name(suggested, "");
+        let path = name_candidates(&name)
             .map(|candidate| directory.join(candidate))
             .find(|path| !path.exists())?;
         emit_download(
@@ -181,7 +168,6 @@ impl SchoolDownloads {
             site,
             SchoolDownloadState::Started,
             file_name(&path),
-            url.and_then(|url| restore_record(url.as_str())),
             None,
         );
         Some(path)
@@ -215,19 +201,12 @@ impl SchoolDownloads {
                     .finished(path.clone())
                 {
                     log::error!("[school-download] could not register saved file: {error:?}");
-                    emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
+                    emit_download(app, site, SchoolDownloadState::Failed, name, None);
                     return;
                 }
-                emit_download(
-                    app,
-                    site,
-                    SchoolDownloadState::Done,
-                    name,
-                    None,
-                    Some(&path),
-                );
+                emit_download(app, site, SchoolDownloadState::Done, name, Some(&path));
             }
-            None => emit_download(app, site, SchoolDownloadState::Failed, name, None, None),
+            None => emit_download(app, site, SchoolDownloadState::Failed, name, None),
         }
     }
 }
@@ -237,7 +216,6 @@ fn emit_download(
     site: SchoolSite,
     state: SchoolDownloadState,
     name: String,
-    url: Option<String>,
     path: Option<&Path>,
 ) {
     match state {
@@ -251,7 +229,6 @@ fn emit_download(
             site,
             state,
             name,
-            url,
             path: path.and_then(Path::to_str).map(str::to_string),
         },
     ));

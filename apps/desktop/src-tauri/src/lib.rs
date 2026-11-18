@@ -373,6 +373,7 @@ pub fn run() {
             exam_share::exam_upload_pick_files,
             exam_share::exam_upload_clear_files,
             exam_files::exam_open_file,
+            exam_files::exam_retain_file,
             exam_files::exam_save_copy,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,

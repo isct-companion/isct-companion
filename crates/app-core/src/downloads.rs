@@ -1002,7 +1002,7 @@ async fn publish(
     name: &str,
     mime_type: String,
 ) -> Result<SchoolFile, FetchError> {
-    for candidate in school_files::name_candidates(name) {
+    for candidate in crate::download_names::name_candidates(name) {
         let path = directory.join(&candidate);
         if tokio::fs::try_exists(&path).await.map_err(write_error)? {
             continue;

@@ -40,6 +40,19 @@ pub(crate) fn exam_open_file(webview: Webview, path: String) -> Result<(), Comma
 }
 
 #[tauri::command]
+pub(crate) async fn exam_retain_file(
+    webview: Webview,
+    id: String,
+    path: String,
+) -> Result<bool, CommandError> {
+    source(&webview, &path)?;
+    let core = crate::core_ports::core(webview.app_handle());
+    core.retain_open_exam(&id, std::path::Path::new(&path))
+        .await
+        .map_err(coded)
+}
+
+#[tauri::command]
 pub(crate) async fn exam_save_copy(
     webview: Webview,
     path: String,

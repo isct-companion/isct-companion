@@ -26,6 +26,7 @@ export function ExamDocumentPanel({
   choices,
   call,
   setFile,
+  onLibraryChanged,
   close,
 }: {
   file: ExamLocalDocument;
@@ -33,6 +34,7 @@ export function ExamDocumentPanel({
   choices?: ExamChoices;
   call: (action: ExamAction) => Promise<ExamAnswer | undefined>;
   setFile: (update: (current: ExamLocalDocument) => ExamLocalDocument) => void;
+  onLibraryChanged: () => void;
   close: () => void;
 }) {
   const [reporting, setReporting] = useState(false);
@@ -41,23 +43,25 @@ export function ExamDocumentPanel({
   const download = async () => {
     setDownloading(true);
     try {
-      let local = file;
-      if (!local.downloaded && !local.offline) {
-        const answer = await call({
-          kind: "open",
-          id: local.document.id,
-          download: true,
-        });
-        if (answer?.kind !== "document") return;
-        local = answer.value;
-        const opened = local;
-        setFile((current) => ({ ...opened, saved: current.saved }));
+      if (!file.downloaded && !file.offline) {
+        if (!desktopBridge?.examRetainFile)
+          throw new Error(t("error.unavailable"));
+        const changed = await desktopBridge.examRetainFile(
+          file.document.id,
+          file.path,
+        );
+        setFile((current) =>
+          current.path === file.path
+            ? { ...current, downloaded: true }
+            : current,
+        );
+        if (changed) onLibraryChanged();
       }
       if (!desktopBridge?.examSaveCopy) throw new Error(t("error.unavailable"));
       // This save belongs to the click, even if its panel has since closed.
       const saved = await desktopBridge.examSaveCopy(
-        local.path,
-        local.document.fileName,
+        file.path,
+        file.document.fileName,
       );
       notifyDownload(saved);
     } catch (error) {
@@ -98,8 +102,10 @@ export function ExamDocumentPanel({
                   id: file.document.id,
                 });
                 setSaving(false);
-                if (answer?.kind === "saved")
+                if (answer?.kind === "saved") {
                   setFile((current) => ({ ...current, saved: answer.value }));
+                  if (answer.value !== file.saved) onLibraryChanged();
+                }
               }}
             >
               {file.saved ? (

@@ -1,7 +1,8 @@
 use super::remote::RemoteDocument;
-use super::{ExamDocument, ExamError, ExamLocalDocument};
+use super::{ExamAccountStatus, ExamDocument, ExamError, ExamLocalDocument, ExamShare};
 use crate::locale::ContentLanguage;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -21,6 +22,39 @@ pub(super) struct Cached {
     // A new download uses a different name, so replacing the manifest works
     // while a native preview still holds the previous file open.
     pub(super) file: uuid::Uuid,
+}
+
+pub(super) fn account_folder(folder: &Path, uid: &str) -> PathBuf {
+    folder.join(key(uid))
+}
+
+fn key(value: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(value.as_bytes()))
+}
+
+impl ExamShare {
+    pub(super) fn account_folder(&self, uid: &str) -> PathBuf {
+        account_folder(&self.folder, uid)
+    }
+
+    pub(super) fn document_folder(&self, uid: &str, id: &str) -> PathBuf {
+        self.account_folder(uid).join(key(id))
+    }
+
+    pub(crate) async fn retain_open_copy(
+        &self,
+        id: &str,
+        opened_path: &Path,
+    ) -> Result<bool, ExamError> {
+        let session = self.session.lock().await;
+        let saved = session.saved.as_ref().ok_or(ExamError::SignedOut)?;
+        if session.status != ExamAccountStatus::Connected || !saved.registered {
+            return Err(ExamError::SignedOut);
+        }
+        let base = self.document_folder(&saved.uid, id);
+        retain(&base, opened_path).await
+    }
 }
 
 pub(super) fn file_path(base: &Path, cached: &Cached) -> Result<PathBuf, ExamError> {
@@ -44,11 +78,7 @@ pub(super) async fn local(
 ) -> Result<ExamLocalDocument, ExamError> {
     let path = file_path(base, &cached)?;
     let path = blocking(move || {
-        fs::OpenOptions::new()
-            .write(true)
-            .open(&path)
-            .and_then(|file| file.set_modified(SystemTime::now()))
-            .map_err(storage)?;
+        touch(&path)?;
         path.into_os_string()
             .into_string()
             .map_err(|_| ExamError::Storage)
@@ -62,6 +92,31 @@ pub(super) async fn local(
         downloaded: cached.downloaded,
         saved,
     })
+}
+
+fn touch(path: &Path) -> Result<(), ExamError> {
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(SystemTime::now()))
+        .map_err(storage)
+}
+
+/// Retain exactly the version the caller opened. The session gate serializes
+/// this with new versions, sign-out, and cache maintenance.
+async fn retain(base: &Path, opened_path: &Path) -> Result<bool, ExamError> {
+    let mut cached = cache_file(base).await?.ok_or(ExamError::NotFound)?;
+    let path = file_path(base, &cached)?;
+    if path.as_path() != opened_path {
+        return Err(ExamError::NotFound);
+    }
+    if cached.downloaded {
+        return Ok(false);
+    }
+    blocking(move || touch(&path)).await?;
+    cached.downloaded = true;
+    save_metadata(base, &cached).await?;
+    Ok(true)
 }
 
 struct CacheEntry {

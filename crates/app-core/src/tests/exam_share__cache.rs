@@ -55,6 +55,13 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
         now - Duration::from_secs(25 * 3_600),
     )
     .await;
+    let opened = put_copy(
+        &owner,
+        "retained",
+        false,
+        now - Duration::from_secs(23 * 3_600),
+    )
+    .await;
     let orphan = owner.join("interrupted").join("partial.txt");
     fs::create_dir_all(orphan.parent().unwrap()).unwrap();
     let file = fs::File::create(&orphan).unwrap();
@@ -74,6 +81,14 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
         ["current"]
     );
 
+    let opened_folder = opened.parent().unwrap();
+    assert!(matches!(
+        retain(opened_folder, &current).await,
+        Err(ExamError::NotFound)
+    ));
+    assert!(retain(opened_folder, &opened).await.unwrap());
+    assert!(!retain(opened_folder, &opened).await.unwrap());
+
     let folder = current.parent().unwrap();
     let cached = cache_file(folder).await.unwrap().unwrap();
     local(folder, cached, true, None, ContentLanguage::En)
@@ -84,6 +99,19 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     assert!(
         current.is_file(),
         "opening a surviving download renews its lifetime"
+    );
+    assert!(
+        opened.is_file(),
+        "retaining an open preview keeps its bytes"
+    );
+    assert_eq!(
+        downloads(&owner, ContentLanguage::En)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|document| document.id)
+            .collect::<Vec<_>>(),
+        ["current", "retained"]
     );
     assert_eq!(
         fs::read(&upload).unwrap(),

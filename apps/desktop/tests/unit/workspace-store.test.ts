@@ -1163,7 +1163,7 @@ describe("Tauri bridge contract", () => {
     await settle();
 
     const site = "science-lms";
-    seam.deliver({ site, state: "started", name: "a.docx", url: "https://x" });
+    seam.deliver({ site, state: "started", name: "a.docx" });
     seam.deliver({ site, state: "done", name: "a.docx", path });
     seam.deliver({ site, state: "failed", name: "a.docx" });
     seam.deliver({ site, state: "done", name: "a.docx" });

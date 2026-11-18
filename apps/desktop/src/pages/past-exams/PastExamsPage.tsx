@@ -65,6 +65,7 @@ import {
   UploadRecovery,
 } from "./ExamDialogs";
 import { ExamDocumentPanel, openExamFile } from "./ExamDocumentPanel";
+import { useExamLibrary } from "./useExamLibrary";
 import "./past-exams.css";
 
 const tabs = ["browse", "requests", "library"] as const;
@@ -154,6 +155,13 @@ export function PastExams({
   const [viewUrl, setViewUrl] = useState<string>();
   const [upload, setUpload] = useState<ExamUploadForm>();
   const [uploadRunning, setUploadRunning] = useState(false);
+  const connected = account?.status === "connected";
+  const {
+    library,
+    failed: libraryFailed,
+    refresh: refreshLibrary,
+    replace: replaceLibrary,
+  } = useExamLibrary(call, active && connected && tab === "library");
   const courseOpened = useRef(false);
   // The last document clicked wins: an earlier one still loading is
   // dropped when it arrives, so a slow file cannot replace the new one.
@@ -171,9 +179,10 @@ export function PastExams({
       openSeq.current += 1;
       setOpening(undefined);
       setReader(undefined);
+      replaceLibrary(undefined);
       closeUpload();
     },
-    [closeUpload],
+    [closeUpload, replaceLibrary],
   );
   const accountAction = useCallback(
     async (kind: "account" | "connect" | "disconnect" | "acceptTerms") => {
@@ -185,20 +194,20 @@ export function PastExams({
     },
     [applyAccount, call],
   );
-  const connected = account?.status === "connected";
-
   // Back in the foreground: read the account, then the views again.
-  const returnToForeground = useEffectEvent(async () => {
+  const returnToForeground = useEffectEvent(async (foreground: boolean) => {
     if (inFlight.current > 0 || document.visibilityState === "hidden") return;
     const was = account?.status;
-    if ((await accountAction("account"))?.status === "connected" && was)
+    if ((await accountAction("account"))?.status === "connected" && was) {
       setGeneration((value) => value + 1);
+      if (foreground) refreshLibrary();
+    }
   });
   useEffect(() => {
     if (!active) return;
     const stop = desktopBridge?.onExamAccount?.(applyAccount);
-    const refresh = () => void returnToForeground();
-    refresh();
+    const refresh = () => void returnToForeground(true);
+    void returnToForeground(false);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -230,8 +239,7 @@ export function PastExams({
   );
   // Core names subjects in the content language, which these two settings
   // decide (`approach/content-language-in-core`). When either changes, every
-  // view and the open document are read from Core again; the page keeps what
-  // it shows until the new answers arrive.
+  // browse/request view and the open document are read again.
   const settings = useRecords([])?.settings;
   const language =
     settings && `${settings.contentLanguage ?? "auto"}:${settings.locale}`;
@@ -282,8 +290,11 @@ export function PastExams({
     try {
       const answer = await call(action);
       if (answer?.kind !== "uploaded" && answer?.kind !== "done") return;
-      if (answer.kind === "uploaded") closeUpload();
-      // The upload changed what every view lists.
+      if (answer.kind === "uploaded") {
+        closeUpload();
+        refreshLibrary();
+      }
+      // Refresh the browse and request views after upload recovery or publication.
       setGeneration((value) => value + 1);
       notify.info(
         t(
@@ -326,6 +337,7 @@ export function PastExams({
                 : current,
             )
           }
+          onLibraryChanged={refreshLibrary}
           close={closeReader}
         />
       )
@@ -430,7 +442,10 @@ export function PastExams({
       ) : (
         <LibraryList
           {...shared}
-          refreshKey={reader}
+          library={library}
+          failed={libraryFailed}
+          refresh={refreshLibrary}
+          replace={replaceLibrary}
           closeReader={(id) => {
             if (reader?.document.id === id) closeReader();
           }}
@@ -1333,27 +1348,19 @@ function LibraryList({
   opening,
   reading,
   pane,
-  generation,
   setViewUrl,
-  refreshKey,
+  library,
+  failed,
+  refresh,
+  replace,
   closeReader,
-}: ViewProps & {
-  /** Reloads when the reader changes what is saved or downloaded. */
-  refreshKey: unknown;
+}: Omit<ViewProps, "generation"> & {
+  library?: ExamLibrary;
+  failed: boolean;
+  refresh: () => void;
+  replace: (value: ExamLibrary) => void;
   closeReader: (id: string) => void;
 }) {
-  const [library, setLibrary] = useState<ExamLibrary>();
-  const [failed, setFailed] = useState(false);
-  const load = useCallback(async () => {
-    setFailed(false);
-    const answer = await call({ kind: "library" });
-    if (answer?.kind === "library") setLibrary(answer.value);
-    else setFailed(true);
-  }, [call]);
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
-  useReload(generation, () => void load());
   const shownUrl = library?.webUrl;
   useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
 
@@ -1376,7 +1383,7 @@ function LibraryList({
           const answer = await call({ kind, id });
           if (answer?.kind === "library") {
             closeReader(id);
-            setLibrary(answer.value);
+            replace(answer.value);
           }
         }}
       >
@@ -1417,7 +1424,7 @@ function LibraryList({
       <div className="examPane">
         <div className="scroll">
           {failed && !library ? (
-            <ErrorBanner onRetry={() => void load()}>
+            <ErrorBanner onRetry={refresh}>
               {t("examShare.loadFailed")}
             </ErrorBanner>
           ) : !library ? (
@@ -1425,7 +1432,7 @@ function LibraryList({
           ) : (
             <>
               {library.offline && (
-                <ErrorBanner onRetry={() => void load()}>
+                <ErrorBanner onRetry={refresh}>
                   {t("examShare.libraryUnavailable")}
                 </ErrorBanner>
               )}

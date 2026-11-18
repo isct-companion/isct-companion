@@ -459,6 +459,20 @@ impl Core {
         service.act(action, cancel, &self.store).await
     }
 
+    /// Keep the already opened exam version for offline use, without contacting
+    /// the service. Returns whether the download list changed.
+    pub async fn retain_open_exam(
+        &self,
+        id: &str,
+        path: &std::path::Path,
+    ) -> Result<bool, crate::exam_share::ExamError> {
+        let service = self
+            .exam_share
+            .get()
+            .ok_or(crate::exam_share::ExamError::Unavailable)?;
+        service.retain_open_copy(id, path).await
+    }
+
     /// Stop every ScienceTokyoExam action in flight, for shutdown.
     pub fn cancel_exam_share(&self) {
         if let Some(service) = self.exam_share.get() {

@@ -568,6 +568,8 @@ export interface DesktopBridge {
   examUploadClearFiles?(): Promise<void>;
   /** Opens a Core past-exam file in the system default application. */
   examOpenFile?(path: string): Promise<void>;
+  /** Keeps the opened version for offline use, returning whether the library changed. */
+  examRetainFile?(id: string, path: string): Promise<boolean>;
   /** Copies a Core past-exam file into Downloads under its uploaded name. */
   examSaveCopy?(path: string, name: string): Promise<SavedDownload>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
@@ -917,6 +919,8 @@ export function createTauriDesktopBridge(
     },
     examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
     examOpenFile: (path) => invokeCommand("exam_open_file", { path }),
+    examRetainFile: (id, path) =>
+      booleanCommand("exam_retain_file", { id, path }),
     examSaveCopy: (path, name) => result("exam_save_copy", { path, name }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),

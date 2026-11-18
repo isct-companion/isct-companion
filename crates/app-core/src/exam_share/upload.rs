@@ -85,7 +85,7 @@ impl Drop for UploadRun<'_> {
 }
 
 fn journal(folder: &Path, uid: &str) -> PathBuf {
-    super::library::account_folder(folder, uid).with_extension("upload.json")
+    super::cache::account_folder(folder, uid).with_extension("upload.json")
 }
 
 /// Whether the session's account left an upload to recover.
