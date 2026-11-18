@@ -299,6 +299,8 @@ pub struct CourseBatchChanges {
 
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
+    #[error("Exam is no longer available.")]
+    ExamUnavailable,
     #[error("{0}")]
     InvalidIntent(String),
     #[error("{0}")]
@@ -310,6 +312,7 @@ pub enum WorkspaceError {
 impl From<DataError> for WorkspaceError {
     fn from(error: DataError) -> Self {
         match error {
+            DataError::ExamUnavailable => Self::ExamUnavailable,
             DataError::InvalidInput(message) | DataError::Compatibility(message) => {
                 Self::InvalidIntent(message)
             }
@@ -675,12 +678,12 @@ fn apply_intent(
                     room,
                 },
             )
-            .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            .map_err(DataError::from)?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::MarkSession { key, mark } => {
             let row = crate::schedule::marked_session_override(current, school, &key, &mark)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                .map_err(DataError::from)?;
             save_exam_override(write, current, school, &key, row)
         }
         WorkspaceIntent::LinkExam {
@@ -693,12 +696,12 @@ fn apply_intent(
                 &exam_key,
                 course_id.as_deref().filter(|id| !id.is_empty()),
             )
-            .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            .map_err(DataError::from)?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::RemoveExam { exam_key } => {
             let row = crate::schedule::removed_exam_override(current, school, &exam_key)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                .map_err(DataError::from)?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::DeleteScheduleOverride { override_id } => delete_visible(

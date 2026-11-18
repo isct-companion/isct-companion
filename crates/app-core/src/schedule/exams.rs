@@ -111,15 +111,14 @@ pub fn exam_association(
 ) -> Result<ExamAssociation, ScheduleError> {
     let source = published_source(workspace, school, key)?;
     require_term_course(workspace, &source.term, course_id)?;
-    let conflicts = exam_terms(school)
-        .into_iter()
-        .flat_map(|term| exam_views(workspace, school, &term))
-        .filter(|other| {
-            other.key != key
-                && other.kind == "exam"
-                && other.course_id.as_deref() == Some(course_id)
-        })
-        .collect();
+    let conflicts =
+        exam_views_in_terms(workspace, school, exam_terms(workspace, school).into_iter())
+            .filter(|other| {
+                other.key != key
+                    && other.kind == "exam"
+                    && other.course_id.as_deref() == Some(course_id)
+            })
+            .collect();
     Ok(ExamAssociation { conflicts })
 }
 
@@ -172,19 +171,23 @@ fn corrected_session_override(
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
     let view = existing_override(workspace, key)
-        .and_then(|change| session_terms(workspace, change).into_iter().next())
-        .and_then(|term| {
-            session_exam_views(
-                workspace,
-                &term,
-                &published_exam_views(workspace, school, &term),
-            )
-            .into_iter()
-            .find(|view| view.key == key)
+        .and_then(|change| {
+            session_terms(workspace, change)
+                .into_iter()
+                .find_map(|term| {
+                    session_exam_views(
+                        workspace,
+                        &term,
+                        &published_exam_views(workspace, school, &term),
+                    )
+                    .into_iter()
+                    .find(|view| view.key == key)
+                })
         })
-        .ok_or_else(|| ScheduleError::InvalidInput("Exam is no longer available.".into()))?;
+        .ok_or(ScheduleError::ExamUnavailable)?;
     let source = &view.source;
     let mut row = session_override_base(workspace, key);
+    row.insert("mark".into(), view.kind.into());
     for field in ["date", "periods", "startTime", "endTime", "room"] {
         row.remove(field);
     }
@@ -287,9 +290,7 @@ pub(crate) fn removed_exam_override(
         .and_then(|row| text(row, "mark"))
         .is_none()
     {
-        return Err(ScheduleError::InvalidInput(
-            "Exam is no longer available.".into(),
-        ));
+        return Err(ScheduleError::ExamUnavailable);
     }
     Ok(unmarked(session_override_base(workspace, key)))
 }
@@ -390,8 +391,24 @@ pub(crate) fn linked_exam_override(
     finish_override(row)
 }
 
-pub(super) fn exam_terms(school: &SchoolReads) -> std::collections::BTreeSet<String> {
-    school.exams.terms().map(str::to_owned).collect()
+/// Source quarters, including marked classes and corrections whose published
+/// exam left the feed. Each consumer applies its own date and kind filters.
+pub(super) fn exam_terms(
+    workspace: &Value,
+    school: &SchoolReads,
+) -> std::collections::BTreeSet<String> {
+    school
+        .exams
+        .terms()
+        .chain(super::placement_terms(workspace))
+        .chain(
+            array(workspace, "scheduleOverrides")
+                .iter()
+                .filter(|row| visible(row) && text(row, "targetKind") == Some("exam"))
+                .filter_map(|row| row.pointer("/base/term").and_then(Value::as_str)),
+        )
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether quizzes count as exams for Today and reminders (on by default).
@@ -404,20 +421,30 @@ pub(crate) fn quizzes_count(workspace: &Value) -> bool {
 
 pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str) -> Vec<ExamView> {
     let quizzes = quizzes_count(workspace);
-    let mut terms = exam_terms(school);
-    terms.extend(super::placement_terms(workspace).map(str::to_owned));
-    let mut exams: Vec<_> = terms
-        .into_iter()
-        .flat_map(|term| exam_views(workspace, school, &term))
-        .filter(|exam| {
-            (exam.kind == "exam" || (quizzes && exam.kind == "quiz"))
-                && exam.course_id.is_some()
-                && exam.status == "scheduled"
-                && exam.date.as_str() >= from
-        })
-        .collect();
+    let mut exams: Vec<_> =
+        exam_views_in_terms(workspace, school, exam_terms(workspace, school).into_iter())
+            .filter(|exam| {
+                (exam.kind == "exam" || (quizzes && exam.kind == "quiz"))
+                    && exam.course_id.is_some()
+                    && exam.status == "scheduled"
+                    && exam.date.as_str() >= from
+            })
+            .collect();
     sort_views(&mut exams);
     exams
+}
+
+/// Placements can put the same marked session in overlapping quarters. Its
+/// stable key names one exam on every surface, regardless of source quarter.
+pub(super) fn exam_views_in_terms<'a>(
+    workspace: &'a Value,
+    school: &'a SchoolReads,
+    terms: impl Iterator<Item = String> + 'a,
+) -> impl Iterator<Item = ExamView> + 'a {
+    let mut seen = std::collections::HashSet::new();
+    terms
+        .flat_map(move |term| exam_views(workspace, school, &term))
+        .filter(move |exam| seen.insert(exam.key.clone()))
 }
 
 /// Every exam of the quarter: the exam timetable with the user's corrections,
@@ -748,7 +775,7 @@ fn published_source(
             let term = row.pointer("/base/term").and_then(Value::as_str)?;
             removed_view(row, term, &term_courses(workspace, term))
         })
-        .ok_or_else(|| ScheduleError::InvalidInput("Exam is no longer available.".into()))
+        .ok_or(ScheduleError::ExamUnavailable)
 }
 
 fn source_view(workspace: &Value, exam: &Value, term: &str) -> ExamView {

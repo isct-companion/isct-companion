@@ -101,6 +101,8 @@ pub(crate) use today::{recent_key, recent_version, unseen_recent, RECENT_DAYS};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
+    #[error("Exam is no longer available.")]
+    ExamUnavailable,
     #[error("{0}")]
     InvalidInput(String),
     #[error("{0}")]
@@ -334,24 +336,42 @@ impl WorkspaceQuery {
                 Settings,
             ],
             Self::PlanningWeek { .. } | Self::DayAgenda { .. } | Self::QuarterIcs { .. } => AGENDA,
-            Self::ExamAssociation { .. } => {
-                &[Courses, Registrations, Finder, Calendar, Exams, Settings]
-            }
+            Self::ExamAssociation { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Exams,
+                Plans,
+                Settings,
+            ],
             Self::TaskView { .. } | Self::AssignmentBoard { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
                 Calendar,
                 Assignments,
+                Plans,
                 Settings,
             ],
-            Self::AssignmentDetail { .. } | Self::LectureSearch { .. } => &[
+            Self::AssignmentDetail { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
                 Calendar,
                 Materials,
                 Assignments,
+                Settings,
+            ],
+            Self::LectureSearch { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Materials,
+                Assignments,
+                Exams,
+                Plans,
                 Settings,
             ],
             Self::CourseDetail { .. } => &[
@@ -362,6 +382,7 @@ impl WorkspaceQuery {
                 Materials,
                 Assignments,
                 Exams,
+                Plans,
                 Settings,
             ],
             Self::Today { .. }
@@ -795,8 +816,7 @@ fn workspace_overview(
     on_timetable_course_ids.sort();
     on_timetable_course_ids.dedup();
     let earned = credits::earned_credits_by_term(array(workspace, "grades"));
-    let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
-    all_terms.extend(exams::exam_terms(school));
+    let mut all_terms: Vec<String> = exams::exam_terms(workspace, school).into_iter().collect();
     all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")

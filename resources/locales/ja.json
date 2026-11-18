@@ -405,6 +405,7 @@
   "error.hand-in-too-large": "提出の補助は 20 MiB までです。大きなファイルは LMS のファイル選択を使ってください。",
   "error.host-paused": "サイトへの接続が続けて失敗したため、しばらくしてから再試行します。",
   "error.internal": "アプリ内部でエラーが発生しました。もう一度お試しください。",
+  "error.exam-unavailable": "この試験は利用できなくなりました。試験一覧を開き直してください。",
   "error.invalid-input": "この操作は受け付けられませんでした。",
   "error.lms-not-enrolled": "この LMS コースには登録されていません。",
   "error.lms-writes-disabled": "LMS への書き込みはオフです。設定で「AI エージェントによる LMS への書き込みを許可」をオンにしてください。",

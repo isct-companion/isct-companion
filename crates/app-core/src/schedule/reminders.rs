@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
@@ -597,7 +597,7 @@ pub fn notification_plan(
         let term = reminder_term(workspace);
         let mut terms = std::collections::BTreeSet::from([term.clone()]);
         if exams {
-            terms.extend(super::exams::exam_terms(school));
+            terms.extend(super::exams::exam_terms(workspace, school));
         }
         for source_term in terms {
             let courses: std::sync::Arc<[Value]> =
@@ -752,6 +752,8 @@ pub fn notification_plan(
         }
     }
     items.sort_by(|a, b| a.at.cmp(&b.at).then(a.key.cmp(&b.key)));
+    let mut seen = HashSet::new();
+    items.retain(|item| seen.insert(item.key.clone()));
     Ok(NotificationPlan {
         from: now.to_rfc3339(),
         through: horizon.to_rfc3339(),

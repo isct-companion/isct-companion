@@ -37,6 +37,7 @@ macro_rules! codes {
 
 codes! {
     InvalidInput => "invalid-input",
+    ExamUnavailable => "exam-unavailable",
     Conflict => "conflict",
     Storage => "storage",
     Compatibility => "compatibility",
@@ -288,6 +289,7 @@ coded!(crate::campus_map::CampusMapError, |e| {
 });
 
 coded!(DataError, |e| match e {
+    DataError::ExamUnavailable => C::ExamUnavailable,
     DataError::InvalidInput(_) => C::InvalidInput,
     DataError::Conflict(_) => C::Conflict,
     DataError::Compatibility(_) => C::Compatibility,
@@ -303,6 +305,7 @@ coded!(crate::data::StoreOpenError, |e| {
     }
 });
 coded!(WorkspaceError, |e| match e {
+    WorkspaceError::ExamUnavailable => C::ExamUnavailable,
     WorkspaceError::InvalidIntent(_) => C::InvalidInput,
     WorkspaceError::Conflict(_) => C::Conflict,
     WorkspaceError::Storage(_) => C::Storage,
@@ -326,6 +329,7 @@ coded!(crate::workspaces::HandInError, |e| {
     }
 });
 coded!(ScheduleError, |e| match e {
+    ScheduleError::ExamUnavailable => C::ExamUnavailable,
     ScheduleError::InvalidInput(_) => C::InvalidInput,
     ScheduleError::Compatibility(_) => C::Compatibility,
 });

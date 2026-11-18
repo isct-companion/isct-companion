@@ -50,7 +50,7 @@ export function ExamEditor({
       setSaved(true);
       done?.();
     } catch (cause) {
-      setError(String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSaving(false);
     }

@@ -2327,6 +2327,7 @@ export type MatrixCameraSnapshot = {
 
 export type ErrorCode =
   | "invalid-input"
+  | "exam-unavailable"
   | "conflict"
   | "storage"
   | "compatibility"

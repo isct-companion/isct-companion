@@ -838,6 +838,21 @@ fn seeded_store(name: &str) -> DataStore {
 #[test]
 fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
     let store = seeded_store("views");
+    let course = store.load_workspace().unwrap()["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|course| course["lmsCourseId"] == 42)
+        .unwrap()["id"]
+        .clone();
+    // A second quarter exists only through the person's plan. Standalone
+    // queries must see its coursework just as a full workspace does.
+    store
+        .put_user_record(
+            "plan_items",
+            json!({"kind":"plan-item","termId":"2026-4Q","courseId":course,"state":"planned"}),
+        )
+        .unwrap();
     let core = Core::new(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
@@ -898,5 +913,206 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
             "{request:?}"
         );
     }
+    let _ = std::fs::remove_dir_all(store.directory());
+}
+
+/// Personal courses need no school feed. Editing their marked sessions must
+/// preserve identity, even with an earlier quarter whose calendar is unknown.
+#[test]
+fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
+    use crate::schedule::{WorkspaceQuery, WorkspaceQueryResult};
+    let store = store("marked-exams");
+    let core = Core::new(
+        store.clone(),
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+    );
+    let mutate = |intent| {
+        core.workspace
+            .apply(WorkspaceMutation {
+                expected_revision: core.workspace.revision().unwrap(),
+                intent,
+            })
+            .unwrap()
+    };
+    let mut profile = core.workspace.read_back().unwrap().workspace["academicProfile"].clone();
+    profile["years"] = json!([{"academicYear":2026,"quarterStarts":{
+        "1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-10-01","4Q":"2026-12-01"
+    }}]);
+    store
+        .put_workspace_setting("academicProfile", profile)
+        .unwrap();
+    mutate(WorkspaceIntent::SaveCourse {
+        draft: json!({"title":"Old personal course","meetings":[]}),
+        term_id: "2025-1Q".into(),
+        existing_id: None,
+    });
+    let added = mutate(WorkspaceIntent::SaveCourse {
+        draft: json!({"title":"Personal seminar","meetings":[{
+            "days":[1],"periods":[],"startTime":"08:50","endTime":"10:30","room":"Studio"
+        }]}),
+        term_id: "2026-1Q".into(),
+        existing_id: None,
+    });
+    let course = added.workspace["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|course| course["title"] == "Personal seminar")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    store
+        .put_user_record(
+            "plan_items",
+            json!({
+                "kind":"plan-item","termId":"2026-2Q","courseId":course,"state":"planned"
+            }),
+        )
+        .unwrap();
+    mutate(WorkspaceIntent::SelectTerm {
+        term_id: "2026-3Q".into(),
+    });
+    let mut settings = core.workspace.read_back().unwrap().workspace["settings"].clone();
+    for (name, value) in [
+        ("classes", json!(false)),
+        ("exams", json!(true)),
+        ("quizzes", json!(true)),
+        ("examLeadMinutes", json!(10)),
+        ("assignments", json!(false)),
+    ] {
+        settings["notifications"][name] = value;
+    }
+    mutate(WorkspaceIntent::ReplaceSettings { settings });
+    let first = format!("{course}-weekly-0-2026-04-20");
+    let second = format!("{course}-weekly-0-2026-06-08");
+    let detail = || {
+        let answer = core
+            .schedule_query(vec![WorkspaceQuery::CourseDetail {
+                course_id: course.clone(),
+            }])
+            .unwrap();
+        let WorkspaceQueryResult::CourseDetail(view) = &answer.values[0] else {
+            panic!("expected course detail");
+        };
+        view.clone()
+    };
+    // Both marks survive schedule edits; clearing a correction follows the
+    // source again without turning the exam back into a normal class.
+    for mark in ["exam", "quiz"] {
+        mutate(WorkspaceIntent::MarkSession {
+            key: first.clone(),
+            mark: mark.into(),
+        });
+        mutate(WorkspaceIntent::EditExam {
+            exam_key: first.clone(),
+            date: Some("2026-10-05".into()),
+            start_time: None,
+            end_time: None,
+            room: Some("New room".into()),
+        });
+        let exam = detail()
+            .exams
+            .into_iter()
+            .find(|exam| exam.key == first)
+            .unwrap();
+        assert_eq!(
+            (exam.kind.as_str(), exam.date.as_str(), exam.room.as_str()),
+            (mark, "2026-10-05", "New room")
+        );
+        mutate(WorkspaceIntent::EditExam {
+            exam_key: first.clone(),
+            date: None,
+            start_time: None,
+            end_time: None,
+            room: None,
+        });
+        let exam = detail()
+            .exams
+            .into_iter()
+            .find(|exam| exam.key == first)
+            .unwrap();
+        assert_eq!(
+            (exam.kind.as_str(), exam.date.as_str(), exam.room.as_str()),
+            (mark, "2026-04-20", "Studio")
+        );
+    }
+    // Two source quarters move into one reminder window. With no official
+    // exams, scanning only the current/selected quarter necessarily misses one.
+    for (key, start, end) in [(&first, "08:50", "10:30"), (&second, "10:45", "12:25")] {
+        mutate(WorkspaceIntent::MarkSession {
+            key: key.clone(),
+            mark: "exam".into(),
+        });
+        mutate(WorkspaceIntent::EditExam {
+            exam_key: key.clone(),
+            date: Some("2026-10-05".into()),
+            start_time: Some(start.into()),
+            end_time: Some(end.into()),
+            room: Some("New room".into()),
+        });
+    }
+    let exams = detail().exams;
+    assert!(exams.iter().any(|exam| exam.key == first));
+    assert!(exams.iter().any(|exam| exam.key == second));
+    for term in [None, Some("2026-2Q".into())] {
+        let answer = core
+            .schedule_query(vec![WorkspaceQuery::LectureSearch {
+                term: term.clone(),
+                query: "Personal seminar".into(),
+            }])
+            .unwrap();
+        let WorkspaceQueryResult::LectureSearch(found) = &answer.values[0] else {
+            panic!("expected search results");
+        };
+        assert!(found.exam_keys.contains(&second));
+        if term.is_none() {
+            assert!(found.exam_keys.contains(&first));
+        }
+        // Official updates may suppress a marked session. The cache's public
+        // subscription must therefore refresh this result on an Exams commit.
+        assert!(answer.reads.contains(&WorkspaceChange::Exams));
+    }
+    let answer = core
+        .schedule_query(vec![WorkspaceQuery::NotificationPlan {
+            now: "2026-10-05T08:00:00+09:00".into(),
+            horizon: "2026-10-05T11:00:00+09:00".into(),
+            locale: None,
+        }])
+        .unwrap();
+    let WorkspaceQueryResult::NotificationPlan(plan) = &answer.values[0] else {
+        panic!("expected notifications");
+    };
+    assert_eq!(plan.items.len(), 2);
+    for key in [&first, &second] {
+        assert!(plan
+            .items
+            .iter()
+            .any(|item| item.key == format!("class:{key}")));
+    }
+    mutate(WorkspaceIntent::RemoveExam {
+        exam_key: second.clone(),
+    });
+    let revision = core.workspace.revision().unwrap();
+    let error = core
+        .workspace
+        .mutate_commit(WorkspaceMutation {
+            expected_revision: revision.clone(),
+            intent: WorkspaceIntent::EditExam {
+                exam_key: second,
+                date: None,
+                start_time: None,
+                end_time: None,
+                room: None,
+            },
+        })
+        .unwrap_err();
+    // A disappeared mark is a specific domain failure, with no partial write.
+    assert_eq!(
+        crate::error_code::CoreFailure::of(&error).code,
+        crate::error_code::ErrorCode::ExamUnavailable,
+    );
+    assert_eq!(core.workspace.revision().unwrap(), revision);
+    drop(core);
     let _ = std::fs::remove_dir_all(store.directory());
 }

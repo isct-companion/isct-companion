@@ -2099,6 +2099,39 @@ fn date_range_crosses_academic_years_and_merges_conflicts_once() {
     )
     .unwrap();
     assert_eq!(overlap[0].occurrences.len(), 2);
+
+    // One marked session is one exam and one reminder even when two source
+    // quarters both resolve it. Duplicate reminders consume native queue slots.
+    let key = "course-weekly-0-2027-04-01";
+    let mut marked =
+        super::exams::marked_session_override(&data, &SchoolReads::fixture(&data), key, "exam")
+            .unwrap()
+            .unwrap();
+    marked["id"] = json!("overlap-exam");
+    data["scheduleOverrides"] = json!([marked]);
+    let school = SchoolReads::fixture(&data);
+    assert_eq!(course_detail(&data, &school, "course").exams.len(), 1);
+    assert_eq!(
+        super::search::lecture_search(&data, &school, None, "CSC.T241").exam_keys,
+        [key]
+    );
+    assert_eq!(
+        super::exams::upcoming_exams(&data, &school, "2027-04-01").len(),
+        1
+    );
+    data["currentTerm"] = json!("2027-1Q");
+    data["settings"]["notifications"] = json!({"classes":false,"exams":true,
+        "examLeadMinutes":10,"assignments":false});
+    let plan = notification_plan(
+        &data,
+        &school,
+        DateTime::parse_from_rfc3339("2027-04-01T08:00:00+09:00").unwrap(),
+        DateTime::parse_from_rfc3339("2027-04-01T09:00:00+09:00").unwrap(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].key, format!("class:{key}"));
 }
 
 #[test]
@@ -2328,6 +2361,31 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
             .course_id,
         None
     );
+
+    // The same course can have a marked exam in another planned quarter,
+    // even when that quarter has no published exam feed.
+    data["academicProfile"]["years"] = json!([{"academicYear":2026,"quarterStarts":{
+        "2Q":"2026-06-01","3Q":"2026-10-01"
+    }}]);
+    data["planItems"] = json!([{"id":"second-quarter","termId":"2026-2Q","courseId":"course"}]);
+    let key = "course-weekly-0-2026-06-08";
+    let mut marked =
+        super::exams::marked_session_override(&data, &SchoolReads::fixture(&data), key, "exam")
+            .unwrap()
+            .unwrap();
+    marked["id"] = json!("marked-second-quarter");
+    data["scheduleOverrides"]
+        .as_array_mut()
+        .unwrap()
+        .push(marked);
+    let association = exam_association(
+        &data,
+        &SchoolReads::fixture(&data),
+        "reference:mine",
+        "course",
+    )
+    .unwrap();
+    assert!(association.conflicts.iter().any(|exam| exam.key == key));
 }
 
 #[test]
@@ -2790,6 +2848,20 @@ fn a_correction_survives_timetable_changes_and_flags_the_ones_it_hides() {
         .unwrap();
     assert_eq!(removed.date, "2026-05-02");
     assert!(removed.conflict.is_some_and(|conflict| conflict.removed));
+    // Its correction remains searchable after both the official feed and
+    // the course's placements are gone; the recorded base still names it.
+    let mut without_sources = data.clone();
+    for field in ["exams", "courses", "memberships"] {
+        without_sources[field] = json!([]);
+    }
+    assert!(super::search::lecture_search(
+        &without_sources,
+        &SchoolReads::fixture(&without_sources),
+        None,
+        "CSC.T241",
+    )
+    .exam_keys
+    .contains(&"reference:final-renamed".to_string()));
     // A removed exam can still be deleted from the schedule.
     let deleted = super::exams::removed_exam_override(
         &data,

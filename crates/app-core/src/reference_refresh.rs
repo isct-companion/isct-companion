@@ -141,6 +141,7 @@ pub enum ReferenceError {
 impl From<DataError> for ReferenceError {
     fn from(error: DataError) -> Self {
         match error {
+            DataError::ExamUnavailable => Self::InvalidInput(error.to_string()),
             DataError::InvalidInput(message) => Self::InvalidInput(message),
             DataError::Conflict(message) => Self::Conflict(message),
             DataError::Compatibility(message) => Self::Compatibility(message),

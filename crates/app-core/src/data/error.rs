@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DataError {
+    #[error("Exam is no longer available.")]
+    ExamUnavailable,
     #[error("{0}")]
     InvalidInput(String),
     #[error("{0}")]
@@ -13,6 +15,17 @@ pub enum DataError {
     /// The data folder could not be taken or its stores read.
     #[error(transparent)]
     Open(#[from] super::StoreOpenError),
+}
+
+impl From<crate::schedule::ScheduleError> for DataError {
+    fn from(error: crate::schedule::ScheduleError) -> Self {
+        use crate::schedule::ScheduleError;
+        match error {
+            ScheduleError::ExamUnavailable => Self::ExamUnavailable,
+            ScheduleError::InvalidInput(message) => Self::InvalidInput(message),
+            ScheduleError::Compatibility(message) => Self::Compatibility(message),
+        }
+    }
 }
 
 impl DataError {

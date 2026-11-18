@@ -1,6 +1,6 @@
 //! One lookup policy for lecture, assignment and published-exam filters.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use super::{array, exam_views, text, visible, SchoolReads};
+use super::{array, text, visible, SchoolReads};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -199,11 +199,8 @@ pub(super) fn lecture_search(
     }
     let terms = term
         .map(|term| [term.to_string()].into_iter().collect())
-        .unwrap_or_else(|| super::exams::exam_terms(school));
-    for exam in terms
-        .iter()
-        .flat_map(|term| exam_views(workspace, school, term))
-    {
+        .unwrap_or_else(|| super::exams::exam_terms(workspace, school));
+    for exam in super::exams::exam_views_in_terms(workspace, school, terms.into_iter()) {
         let raw = school
             .exams
             .rows()

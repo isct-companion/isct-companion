@@ -95,7 +95,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::MatrixScanEnded
         | C::AgentDisabled
         | C::LmsWritesDisabled
-        | C::SubmissionUnsupported => SdkError::Unavailable { detail },
+        | C::SubmissionUnsupported
+        | C::ExamUnavailable => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::ExamShareUploadFile
         | C::ExamShareUploadMixed
