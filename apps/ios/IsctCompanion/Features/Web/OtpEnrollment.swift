@@ -30,7 +30,7 @@ struct OtpEnrollmentNotice: View {
     @Environment(Navigator.self) private var navigator
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.rowGap) {
             Text(t(message, ["account": otp.owner ?? ""]))
                 .font(.subheadline)
             ViewThatFits(in: .horizontal) {
@@ -41,8 +41,8 @@ struct OtpEnrollmentNotice: View {
             .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.rowX)
+        .padding(.vertical, Theme.rowY)
     }
 
     @ViewBuilder private var actions: some View {

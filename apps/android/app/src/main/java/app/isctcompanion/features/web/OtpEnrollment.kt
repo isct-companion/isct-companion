@@ -17,7 +17,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.SchoolAuthProfile
@@ -32,7 +31,7 @@ import app.isctcompanion.design.t
 @Composable
 fun OtpEnrollmentStart(openManual: () -> Unit, openSetup: () -> Unit) {
     var consent by remember { mutableStateOf(false) }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.rowGap)) {
         TextButton(onClick = { consent = true }) { Text(t("otpEnrollment.help")) }
         TextButton(onClick = openManual) { Text(t("otpEnrollment.manual")) }
     }
@@ -58,9 +57,9 @@ fun OtpEnrollmentNotice(otp: SchoolOtpEnrollment) {
     val web = LocalModel.current.web
     val navigator = LocalNavigator.current
     val confirm = otp.stage == SchoolOtpStage.CONFIRM_RESET
-    Column(Modifier.fillMaxWidth().background(Theme.colors.surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().background(Theme.colors.surface).padding(horizontal = Theme.rowX, vertical = Theme.rowY)) {
         Text(t(message(otp.stage), "account" to otp.owner.orEmpty()), style = MaterialTheme.typography.bodyMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.rowGap)) {
             if (confirm) {
                 TextButton(onClick = { web.otpIntent(otp, SchoolOtpIntent.RESET) }) {
                     Text(t("otpEnrollment.reset"), color = Theme.colors.danger)
