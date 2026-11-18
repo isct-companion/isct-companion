@@ -2661,6 +2661,72 @@ fn a_user_mark_decides_what_a_session_is() {
 }
 
 #[test]
+fn marked_session_edits_find_the_matching_term_without_historical_calendars() {
+    let key = "course-weekly-0-2026-04-20";
+    for mark in ["exam", "quiz"] {
+        let mut data = workspace();
+        // A retained personal course adds an earlier candidate term, even
+        // when only the current academic year's calendar is available.
+        let mut historical = data["courses"][0].clone();
+        historical["id"] = json!("historical-course");
+        historical["termId"] = json!("2025-1Q");
+        data["courses"].as_array_mut().unwrap().push(historical);
+        let mut row =
+            super::exams::marked_session_override(&data, &SchoolReads::fixture(&data), key, mark)
+                .unwrap()
+                .unwrap();
+        row["id"] = json!(key);
+        data["scheduleOverrides"] = json!([row]);
+        assert!(quarter_range(&data, "2025-1Q").unwrap().is_none());
+
+        let save = |data: &mut Value, correction| {
+            let mut row = super::exams::corrected_exam_override(
+                data,
+                &SchoolReads::fixture(data),
+                key,
+                correction,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(row["targetKey"], key);
+            assert_eq!(row["targetKind"], "course");
+            assert_eq!(row["mark"], mark);
+            row["id"] = json!(key);
+            data["scheduleOverrides"] = json!([row]);
+            exam_views(data, &SchoolReads::fixture(data), "2026-1Q")
+                .into_iter()
+                .find(|view| view.key == key)
+                .unwrap()
+        };
+        let edited = save(
+            &mut data,
+            super::exams::ExamCorrection {
+                date: Some("2026-04-21".into()),
+                start_time: Some("10:45".into()),
+                end_time: Some("12:25".into()),
+                room: Some("W2-401".into()),
+            },
+        );
+        assert_eq!(edited.kind, mark);
+        assert_eq!(edited.course_id.as_deref(), Some("course"));
+        assert_eq!(edited.date, "2026-04-21");
+        assert_eq!(edited.start_time.as_deref(), Some("10:45"));
+        assert_eq!(edited.end_time.as_deref(), Some("12:25"));
+        assert_eq!(edited.room, "W2-401");
+        assert!(edited.edited);
+        // A later save must also find the moved session, and resetting its
+        // corrections must preserve the exam/quiz mark and original source.
+        let reset = save(&mut data, Default::default());
+        assert_eq!(reset.kind, mark);
+        assert_eq!(reset.date, "2026-04-20");
+        assert_eq!(reset.start_time.as_deref(), Some("08:50"));
+        assert_eq!(reset.end_time.as_deref(), Some("10:30"));
+        assert_eq!(reset.room, "M-101");
+        assert!(!reset.edited);
+    }
+}
+
+#[test]
 fn a_correction_survives_timetable_changes_and_flags_the_ones_it_hides() {
     let mut data = workspace();
     let row = |key: &str, date: &str| json!({"id":key,"kind":"exam","sourceKey":key,"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":[3,4],"room":{"ja":"W8E-E207"},"label":{"ja":"期末"},"status":"scheduled"});

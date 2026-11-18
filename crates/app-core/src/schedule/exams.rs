@@ -172,19 +172,25 @@ fn corrected_session_override(
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
     let view = existing_override(workspace, key)
-        .and_then(|change| session_terms(workspace, change).into_iter().next())
-        .and_then(|term| {
-            session_exam_views(
-                workspace,
-                &term,
-                &published_exam_views(workspace, school, &term),
-            )
-            .into_iter()
-            .find(|view| view.key == key)
+        .and_then(|change| {
+            // Missing historical calendars leave earlier terms as candidates;
+            // choose the term that actually contains the marked session.
+            session_terms(workspace, change)
+                .into_iter()
+                .find_map(|term| {
+                    session_exam_views(
+                        workspace,
+                        &term,
+                        &published_exam_views(workspace, school, &term),
+                    )
+                    .into_iter()
+                    .find(|view| view.key == key)
+                })
         })
         .ok_or_else(|| ScheduleError::InvalidInput("Exam is no longer available.".into()))?;
     let source = &view.source;
     let mut row = session_override_base(workspace, key);
+    row.insert("mark".into(), view.kind.clone().into());
     for field in ["date", "periods", "startTime", "endTime", "room"] {
         row.remove(field);
     }
