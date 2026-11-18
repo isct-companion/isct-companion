@@ -858,15 +858,6 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
     let snapshot = core.workspace.read_back().unwrap();
-    let course = snapshot.workspace["courses"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|course| course["lmsCourseId"] == 42)
-        .unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
     assert!(snapshot.workspace["materials"]
         .as_array()
         .is_some_and(|rows| !rows.is_empty()));
@@ -921,19 +912,26 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
 #[test]
 fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
     use crate::schedule::{WorkspaceQuery, WorkspaceQueryResult};
+    fn edit(
+        key: &str,
+        date: Option<&str>,
+        times: Option<(&str, &str)>,
+        room: Option<&str>,
+    ) -> WorkspaceIntent {
+        WorkspaceIntent::EditExam {
+            exam_key: key.into(),
+            date: date.map(str::to_owned),
+            start_time: times.map(|(start, _)| start.into()),
+            end_time: times.map(|(_, end)| end.into()),
+            room: room.map(str::to_owned),
+        }
+    }
     let store = store("marked-exams");
     let core = Core::new(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
-    let mutate = |intent| {
-        core.workspace
-            .apply(WorkspaceMutation {
-                expected_revision: core.workspace.revision().unwrap(),
-                intent,
-            })
-            .unwrap()
-    };
+    let mutate = |intent| crate::workspace::tests::mutate(&core.workspace, intent);
     let mut profile = core.workspace.read_back().unwrap().workspace["academicProfile"].clone();
     profile["years"] = json!([{"academicYear":2026,"quarterStarts":{
         "1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-10-01","4Q":"2026-12-01"
@@ -1004,13 +1002,7 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
             key: first.clone(),
             mark: mark.into(),
         });
-        mutate(WorkspaceIntent::EditExam {
-            exam_key: first.clone(),
-            date: Some("2026-10-05".into()),
-            start_time: None,
-            end_time: None,
-            room: Some("New room".into()),
-        });
+        mutate(edit(&first, Some("2026-10-05"), None, Some("New room")));
         let exam = detail()
             .exams
             .into_iter()
@@ -1020,13 +1012,7 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
             (exam.kind.as_str(), exam.date.as_str(), exam.room.as_str()),
             (mark, "2026-10-05", "New room")
         );
-        mutate(WorkspaceIntent::EditExam {
-            exam_key: first.clone(),
-            date: None,
-            start_time: None,
-            end_time: None,
-            room: None,
-        });
+        mutate(edit(&first, None, None, None));
         let exam = detail()
             .exams
             .into_iter()
@@ -1044,13 +1030,12 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
             key: key.clone(),
             mark: "exam".into(),
         });
-        mutate(WorkspaceIntent::EditExam {
-            exam_key: key.clone(),
-            date: Some("2026-10-05".into()),
-            start_time: Some(start.into()),
-            end_time: Some(end.into()),
-            room: Some("New room".into()),
-        });
+        mutate(edit(
+            key,
+            Some("2026-10-05"),
+            Some((start, end)),
+            Some("New room"),
+        ));
     }
     let exams = detail().exams;
     assert!(exams.iter().any(|exam| exam.key == first));
@@ -1098,13 +1083,7 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
         .workspace
         .mutate_commit(WorkspaceMutation {
             expected_revision: revision.clone(),
-            intent: WorkspaceIntent::EditExam {
-                exam_key: second,
-                date: None,
-                start_time: None,
-                end_time: None,
-                room: None,
-            },
+            intent: edit(&second, None, None, None),
         })
         .unwrap_err();
     // A disappeared mark is a specific domain failure, with no partial write.

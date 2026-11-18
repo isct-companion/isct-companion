@@ -763,7 +763,7 @@ fn course_batch_validation_happens_before_any_row_is_changed() {
     assert_eq!(service.read_back().unwrap().revision, original.revision);
 }
 
-fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> ReadBack {
+pub(crate) fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> ReadBack {
     if let WorkspaceIntent::AddCatalogCourses { offerings, .. } = &intent {
         service.store.catalog_upsert_offerings(offerings).unwrap();
     }
