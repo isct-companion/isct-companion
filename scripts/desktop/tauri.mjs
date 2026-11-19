@@ -17,8 +17,7 @@ const cargoSeparator = command.indexOf("--");
 const flags =
   cargoSeparator === -1 ? command : command.slice(0, cargoSeparator);
 const dev = command[0] === "dev";
-const debug =
-  command[0] === "build" && (flags.includes("--debug") || flags.includes("-d"));
+const debug = flags.includes("--debug") || flags.includes("-d");
 const packageVersion = JSON.parse(
   readFileSync(path.join(root, "package.json"), "utf8"),
 ).version;
@@ -181,10 +180,9 @@ if (runMacDev) {
 }
 if (version) console.log(`Development build: ${version}`);
 const childEnv = { ...process.env, ...nativeOAuthEnv() };
-if (process.platform === "darwin") {
+if (process.platform === "darwin" && !releaseSigningIdentity) {
   // Tauri checks this variable before its bundle config, even if it is empty.
   delete childEnv.APPLE_SIGNING_IDENTITY;
-  if (signMacRelease) childEnv.APPLE_SIGNING_IDENTITY = releaseSigningIdentity;
 }
 const child = spawn(
   process.execPath,
