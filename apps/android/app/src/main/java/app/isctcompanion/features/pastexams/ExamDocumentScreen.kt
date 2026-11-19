@@ -2,8 +2,6 @@ package app.isctcompanion.features.pastexams
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
-import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -46,11 +44,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.pdf.ExperimentalPdfApi
-import androidx.pdf.PdfDocument
-import androidx.pdf.SandboxedPdfLoader
-import androidx.pdf.compose.PdfViewer
-import androidx.pdf.compose.rememberPdfViewerState
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
 import app.isctcompanion.core.ExamLocalDocument
@@ -61,13 +54,10 @@ import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import java.io.File
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import app.isctcompanion.design.PdfReader
 
 @Composable
 fun ExamDocumentScreen(id: String) {
@@ -198,13 +188,13 @@ private fun ExamDocumentPreview(file: ExamLocalDocument) {
                 )
                 TextButton(onClick = {
                     externalFailed = !openLocalFile(context, source, file.document.fileType, file.exportName)
-                }) { Text(t("examShare.openInAnotherApp")) }
+                }) { Text(t("common.openInAnotherApp")) }
             }
         }
     }
     key(source, attempt) {
         when (file.document.fileType) {
-            "application/pdf" -> DocumentPdf(source, failure)
+            "application/pdf" -> PdfReader(source, failure)
             "text/plain" -> PreviewContent(readPreviewFile(source) { it.readText() }, failure) { text ->
                 SelectionContainer {
                     Text(
@@ -216,34 +206,6 @@ private fun ExamDocumentPreview(file: ExamLocalDocument) {
             }
             else -> PreviewContent(readPreviewFile(source, ::decodeDocumentImage), failure) { DocumentImage(it) }
         }
-    }
-}
-
-@OptIn(ExperimentalPdfApi::class)
-@Composable
-private fun DocumentPdf(file: File, failure: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val result by produceState<Result<PdfDocument>?>(null, file) {
-        // The attempt owns the document, including when cancellation races with loading.
-        var opened: PdfDocument? = null
-        try {
-            try {
-                val document = withTimeout(8_000) {
-                    SandboxedPdfLoader(context).openDocument(Uri.fromFile(file)).also { opened = it }
-                }
-                value = Result.success(document)
-            } catch (error: Exception) {
-                if (error is CancellationException && error !is TimeoutCancellationException) throw error
-                Log.w("PastExams", "Could not open PDF", error)
-                value = Result.failure(error)
-            }
-            if (value?.isSuccess == true) awaitCancellation()
-        } finally {
-            opened?.close()
-        }
-    }
-    PreviewContent(result, failure) {
-        PdfViewer(it, rememberPdfViewerState(), Modifier.fillMaxSize().background(Theme.colors.surface2))
     }
 }
 

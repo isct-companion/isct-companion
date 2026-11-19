@@ -117,9 +117,9 @@ fun materialIcon(kind: LessonItemKind): ImageVector = when (kind) {
 class MaterialOpening(val busy: Boolean, val open: (courseId: String, source: String, title: String) -> Unit)
 
 /** Opens an item or link as Core decides (`open_material`): a file Core
- * fetches with the signed-in LMS session (or from the course folder) goes to
- * the system viewer, a school page opens in its in-app view, any other page
- * in the browser. When the file is not shown, the dialog offers the LMS page
+ * fetches with the signed-in LMS session (or from the course folder) opens in
+ * the app's PDF reader when it is a PDF and in the system viewer otherwise,
+ * a school page opens in its in-app view, any other page in the browser. When the file is not shown, the dialog offers the LMS page
  * Core names for it. A download that only failed this time asks instead of
  * showing the LMS page: silently doing so made Share hand out a link where it
  * had handed out the file. */
@@ -145,7 +145,11 @@ fun rememberMaterialOpening(): MaterialOpening {
             }
             try {
                 when (val material = model.openMaterial(courseId, source)) {
-                    is Material.Ready -> if (!openLocalFile(context, File(material.file.path))) show(material.page, title)
+                    is Material.Ready -> {
+                        val file = File(material.file.path)
+                        if (file.extension.equals("pdf", ignoreCase = true)) navigator.openPdf(file.path, title)
+                        else if (!openLocalFile(context, file)) show(material.page, title)
+                    }
                     is Material.Page -> navigator.openPage(WebRouter.PushedPage(material.site, material.url, title))
                     is Material.External ->
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, material.url.toUri())) }
