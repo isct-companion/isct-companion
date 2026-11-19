@@ -577,6 +577,12 @@ export function LmsWorkspaceBody({
       openWeb?.(url);
     }
   };
+  /**
+   * A page outside the school sites, in the reader's web view: the LMS view,
+   * where a link out of an LMS page lands as well.
+   */
+  const openWebPage = (url: string, title: string) =>
+    open({ id: `official:${url}`, title, kind: "official", url });
   const openAssignment = useCallback((a: Assignment) => {
     setViewing(false);
     requestAnimationFrame(() => revealAssignment(a.id));
@@ -933,8 +939,14 @@ export function LmsWorkspaceBody({
     const url = m.resourceUrl || m.url || "";
     const family = fileFamily(m.resourceUrl || "", m.module);
     const ext = extension(m.resourceUrl || "");
-    // A folder opens in place: its files list under its row.
-    if (m.module === "folder" && safeUrl(m.url)) {
+    // A folder or a ZIP opens in place: its files list under its row.
+    const listed =
+      m.module === "folder"
+        ? safeUrl(m.url)
+        : family === "archive"
+          ? safeUrl(m.resourceUrl)
+          : undefined;
+    if (listed) {
       const isOpen = openFolders.includes(m.id);
       return (
         <div className={`lmsFolder${isOpen ? " open" : ""}`} key={m.id}>
@@ -944,10 +956,12 @@ export function LmsWorkspaceBody({
             aria-expanded={isOpen}
             onClick={() => setOpenFolders((list) => flip(list, m.id))}
           >
-            <FileTile family="folder" />
+            <FileTile family={family} />
             <span>
               <b>{m.title}</b>
-              <small>{t("lms.folder")}</small>
+              <small>
+                {family === "folder" ? t("lms.folder") : ext.toUpperCase()}
+              </small>
             </span>
             <LmsIcon name="chevron" className="lmsRowAction lmsFolderChevron" />
           </button>
@@ -958,7 +972,7 @@ export function LmsWorkspaceBody({
               }
             >
               <InlineFolder
-                url={safeUrl(m.url)!}
+                url={listed}
                 courseId={course.id}
                 limit={limit}
                 openFile={(fileUrl, name, anchor) =>
@@ -1519,6 +1533,7 @@ export function LmsWorkspaceBody({
                           limit={limit}
                           inline={Boolean(material?.bodyHtml)}
                           openPage={(page) => openPage(page, opened.title)}
+                          openWeb={(page) => openWebPage(page, opened.title)}
                           openFile={(fileUrl, name) =>
                             open({
                               id: `link:${fileUrl}`,

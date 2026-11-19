@@ -26,6 +26,7 @@ pub mod facade;
 pub use facade::Core;
 pub mod cloud_sync;
 pub mod contracts;
+pub mod course_archive;
 pub mod course_materials;
 pub mod course_query;
 pub mod data;

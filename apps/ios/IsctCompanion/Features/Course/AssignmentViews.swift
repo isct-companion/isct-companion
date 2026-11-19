@@ -238,7 +238,8 @@ final class MaterialOpening {
         busy = true
         defer { busy = false }
         switch await place.model.openMaterial(courseId: course, source: source) {
-        case let .ready(file, _)?:
+        // A ZIP Core lists as its files still opens whole in Quick Look here.
+        case let .ready(file, _)?, let .archive(file, _, _)?:
             preview = URL(fileURLWithPath: file.path)
         case let .page(site, url)?:
             place.push(WebRouter.PushedPage(site: site, target: url, title: title))

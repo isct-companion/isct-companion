@@ -618,6 +618,89 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
+  it("opens a ZIP in the outline with its files, each opening like an item", async () => {
+    const f = lectureFixture();
+    const zip =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/7/mod_resource/content/1/OOP-2A-problem.zip";
+    const readme = `${zip}#entry=OOP-2A/README.md`;
+    const report = `${zip}#entry=OOP-2A/report.docx`;
+    f.workspace.materials = [
+      material({ bodyHtml: undefined, title: "OOP 2A", resourceUrl: zip }),
+    ];
+    const { core, host } = await openWorkspace(f, {
+      entry: { request: 97 },
+      handle: (command, args) => {
+        if (command !== "open_course_material") return undefined;
+        const page = { site: "science-lms", url: zip };
+        if (args.url === readme)
+          return {
+            state: "ready",
+            file: {
+              id: readme,
+              name: "README-1a2b3c4d.md",
+              section: "",
+              path: "/course/README-1a2b3c4d.md",
+              bytes: 6,
+              cached: true,
+              text: "# Task",
+            },
+            page,
+          };
+        if (args.url === report) return { state: "missing", page };
+        return {
+          state: "archive",
+          file: {
+            id: zip,
+            name: "OOP-2A-problem-0011aabb.zip",
+            section: "",
+            path: "/course/OOP-2A-problem-0011aabb.zip",
+            bytes: 4096,
+            cached: true,
+          },
+          files: [
+            { name: "OOP-2A/README.md", url: readme, bytes: 6 },
+            { name: "OOP-2A/report.docx", url: report, bytes: 9000 },
+          ],
+          page,
+        };
+      },
+    });
+
+    await click(
+      host.querySelector<HTMLButtonElement>(
+        '.lmsFolder > [aria-expanded="false"]',
+      )!,
+    );
+    await waitFor(() =>
+      expect(host.querySelectorAll(".lmsFolderFile")).toHaveLength(2),
+    );
+    // The archive is downloaded to read its files, within the automatic limit.
+    expect(core.commands("open_course_material")[0].args).toMatchObject({
+      url: zip,
+      download: true,
+      limit: LIMIT,
+    });
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+
+    // A file the reader cannot show is its card at the row…
+    const [readmeRow, reportRow] =
+      host.querySelectorAll<HTMLButtonElement>(".lmsFolderFile");
+    await click(reportRow);
+    await waitFor(() =>
+      expect(
+        host.querySelector(".lmsFilePopover .lmsFileCard h3")?.textContent,
+      ).toBe("OOP-2A/report.docx"),
+    );
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    // …and one it can opens in the reader.
+    await click(readmeRow);
+    await waitFor(() =>
+      expect(host.querySelector(".lmsViewer h1")?.textContent).toBe("Task"),
+    );
+  }, 30_000);
+
   it("shows a label's own text without the name Moodle derives from it, keeping Core's schedule marks", async () => {
     const f = lectureFixture();
     Object.assign(f.workspace.materials[0], {
@@ -777,6 +860,7 @@ describe("the LMS reading workspace", () => {
       notice: null,
       access: null,
       signIn: false,
+      outside: false,
       otp: null,
     };
     let snapshot: unknown = page;
@@ -815,6 +899,10 @@ describe("the LMS reading workspace", () => {
         "/2025/mod/forum/view.php",
       ),
     );
+    const openInBrowser = () =>
+      host.querySelector('.lmsWebToolbar a[aria-label="Open in browser"]');
+    // On a school page Open in browser is an icon…
+    expect(openInBrowser()?.textContent).toBe("");
     const back = () =>
       host.querySelector<HTMLButtonElement>(
         '.lmsWebToolbar button[aria-label="Previous page"]',
@@ -834,6 +922,7 @@ describe("the LMS reading workspace", () => {
         revision: 5,
         url: form,
         back: "yes",
+        outside: true,
       });
       core.emit("school-web-page", { ...page, revision: 4 });
     });
@@ -843,11 +932,10 @@ describe("the LMS reading workspace", () => {
       ),
     );
     expect(back()?.disabled).toBe(false);
-    expect(
-      host
-        .querySelector('.lmsWebToolbar a[aria-label="Open in browser"]')
-        ?.getAttribute("href"),
-    ).toBe(form);
+    expect(openInBrowser()?.getAttribute("href")).toBe(form);
+    // …and named outside the school, where the view has none of the
+    // person's own accounts.
+    expect(openInBrowser()?.textContent).toBe("Open in browser");
 
     // Covered and shown again, the reader returns to its activity; Core
     // decides whether that leaves the view as it is.
@@ -911,8 +999,8 @@ describe("the LMS reading workspace", () => {
   it("keeps an unpreviewable attachment in the outline as a popover card", async () => {
     const f = lectureFixture();
     const url =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.zip?forcedownload=1";
-    f.record.sections![0].bodyHtml = `<p><a href="${url}">Report ZIP</a></p>`;
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.rar?forcedownload=1";
+    f.record.sections![0].bodyHtml = `<p><a href="${url}">Report RAR</a></p>`;
     const popup = vi.spyOn(window, "open").mockReturnValue(null);
     const { host } = await openWorkspace(f, { entry: { request: 601 } });
 
@@ -920,14 +1008,14 @@ describe("the LMS reading workspace", () => {
       [...host.querySelectorAll("a")].find(
         (link) =>
           link.querySelector(".lmsAttachmentName")?.textContent ===
-          "Report ZIP",
+          "Report RAR",
       )!,
     );
     await waitFor(() =>
       expect(
         host.querySelector(".lmsOutline .lmsFilePopover .lmsFileCard h3")
           ?.textContent,
-      ).toBe("Report ZIP"),
+      ).toBe("Report RAR"),
     );
     expect(popup).not.toHaveBeenCalled();
     expect(host.querySelector(".lmsViewer")).toBeNull();
@@ -1528,7 +1616,12 @@ describe("the file preview pipeline", () => {
   async function openPreview(
     url: string,
     handle: (command: string, args: Record<string, unknown>) => unknown,
-    props: { title?: string; openPage?: (page: unknown) => void } = {},
+    props: {
+      title?: string;
+      openPage?: (page: unknown) => void;
+      openWeb?: (url: string) => void;
+      openFile?: (url: string, name: string) => void;
+    } = {},
   ) {
     const { core, real } = await scriptedHost(
       {
@@ -1547,6 +1640,8 @@ describe("the file preview pipeline", () => {
         courseId={COURSE_ID}
         limit={LIMIT}
         openPage={props.openPage ?? (() => undefined)}
+        openWeb={props.openWeb ?? (() => undefined)}
+        openFile={props.openFile}
       />,
     );
     views.push(view);
@@ -1624,6 +1719,87 @@ describe("the file preview pipeline", () => {
     ).toContain("/course/pic.png");
   }, 30_000);
 
+  it("lists a ZIP's files and opens each as a course file of its own", async () => {
+    const zip =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/OOP-2A-problem.zip";
+    const makefile = `${zip}#entry=OOP-2A/Makefile`;
+    const openFile = vi.fn();
+    const { core, host } = await openPreview(
+      zip,
+      (command, args) => {
+        if (command !== "open_course_material") return undefined;
+        if (args.url === makefile)
+          return {
+            state: "ready",
+            file: {
+              id: makefile,
+              name: "Makefile-1a2b3c4d",
+              section: "",
+              path: "/course/Makefile-1a2b3c4d",
+              bytes: 4,
+              cached: true,
+              text: "all:",
+            },
+            page: { site: "science-lms", url: zip },
+          };
+        return {
+          state: "archive",
+          file: {
+            id: zip,
+            name: "OOP-2A-problem-0011aabb.zip",
+            section: "",
+            path: "/course/OOP-2A-problem-0011aabb.zip",
+            bytes: 4096,
+            cached: true,
+          },
+          files: [
+            {
+              name: "OOP-2A/README.md",
+              url: `${zip}#entry=OOP-2A/README.md`,
+              bytes: 2048,
+            },
+            { name: "OOP-2A/Makefile", url: makefile, bytes: 4 },
+          ],
+          page: { site: "science-lms", url: zip },
+        };
+      },
+      { title: "Problem", openFile },
+    );
+
+    await waitFor(() => expect(host.textContent).toContain("README.md"));
+    expect(host.textContent).toContain("OOP-2A · MD · 2 KB");
+    await click(itemRow(host, "Makefile"));
+    expect(openFile).toHaveBeenCalledWith(makefile, "OOP-2A/Makefile");
+    // The archive itself keeps its file actions.
+    await click(buttonByText(host, "Show in folder"));
+    await waitFor(() =>
+      expect(core.commands("open_course_file")[0]?.args).toMatchObject({
+        path: "/course/OOP-2A-problem-0011aabb.zip",
+        reveal: true,
+      }),
+    );
+
+    // A file of no known type that reads as text shows as text.
+    const entry = await openPreview(makefile, (command, args) =>
+      command === "open_course_material" && args.url === makefile
+        ? {
+            state: "ready",
+            file: {
+              id: makefile,
+              name: "Makefile-1a2b3c4d",
+              section: "",
+              path: "/course/Makefile-1a2b3c4d",
+              bytes: 4,
+              cached: true,
+              text: "all:",
+            },
+            page: { site: "science-lms", url: zip },
+          }
+        : undefined,
+    );
+    await waitFor(() => expect(entry.host.textContent).toContain("all:"));
+  }, 30_000);
+
   it("shows an oversized file's size and previews it explicitly on request", async () => {
     let attempts = 0;
     const { core, host } = await openPreview(
@@ -1684,6 +1860,31 @@ describe("the file preview pipeline", () => {
         "opens the signed-in LMS here",
       ),
     );
+  }, 30_000);
+
+  it("opens a page outside the school sites in the reader's web view", async () => {
+    const f = lectureFixture();
+    const outside = "https://example.org/lecture-video";
+    f.workspace.materials = [
+      material({ bodyHtml: undefined, module: "url", resourceUrl: outside }),
+    ];
+    const popup = vi.spyOn(window, "open").mockReturnValue(null);
+    const { host } = await openWorkspace(f, {
+      entry: { request: 605 },
+      handle: (command) =>
+        command === "open_course_material"
+          ? { state: "external", url: outside }
+          : undefined,
+    });
+
+    await click(itemRow(host, "Lecture file"));
+    await waitFor(() =>
+      expect(host.querySelector(".lmsWebAddress")?.textContent).toContain(
+        "example.org",
+      ),
+    );
+    expect(host.querySelector(".lmsOfficialHost")).not.toBeNull();
+    expect(popup).not.toHaveBeenCalled();
   }, 30_000);
 
   it.each([

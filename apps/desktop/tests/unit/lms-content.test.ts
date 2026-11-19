@@ -131,13 +131,15 @@ describe("LMS file classification", () => {
     expect(previewKind(lms("main.cpp"))).toBe("text");
     expect(previewKind(lms("slides.pdf"))).toBe("pdf");
     expect(previewKind("notes.md")).toBe("markdown");
+    expect(previewKind(lms("code.zip"))).toBe("archive");
   });
 
   it("downloads formats it cannot preview rather than showing them as text", () => {
     expect(previewKind(lms("slides.pptx"))).toBeUndefined();
     expect(previewKind(lms("notebook.ipynb"))).toBeUndefined();
     expect(previewKind(lms("page.html"))).toBeUndefined();
-    expect(previewKind(lms("code.zip"))).toBeUndefined();
+    // Core reads ZIP only; other archives download.
+    expect(previewKind(lms("code.7z"))).toBeUndefined();
   });
 
   it("recognizes school code attachments and names their language", () => {

@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ArrowLeft,
   ChevronRight,
   Code,
@@ -42,6 +43,7 @@ const glyphs: Record<
   | "back"
   | "download"
   | "external"
+  | "open"
   | "copy"
   | "share"
   | "trash"
@@ -75,6 +77,7 @@ const glyphs: Record<
   trash: Trash2,
   code: Code,
   external: ExternalLink,
+  open: AppWindow,
   copy: Copy,
   share: Share,
 };

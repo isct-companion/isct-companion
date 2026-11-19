@@ -111,12 +111,16 @@ export function OfficialLmsView({
                 onError={failed}
               />
             )}
+            {/* Outside the school the view has none of the person's own
+                accounts (Google, Box…): the browser, where they are signed
+                in, is named rather than an icon. */}
             <ExternalLink
               href={location}
               title={t("common.openInBrowser")}
               aria-label={t("common.openInBrowser")}
             >
               <LmsIcon name="external" size={15} />
+              {page?.outside && <span>{t("common.openInBrowser")}</span>}
             </ExternalLink>
           </div>
         </div>

@@ -964,7 +964,7 @@ fn default_zip_name(dir: &Path) -> String {
     )
 }
 
-fn is_junk(name: &str) -> bool {
+pub(crate) fn is_junk(name: &str) -> bool {
     name == ".DS_Store" || name == "__MACOSX" || name == "Thumbs.db"
 }
 

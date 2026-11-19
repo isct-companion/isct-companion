@@ -149,6 +149,8 @@ fun rememberMaterialOpening(): MaterialOpening {
             try {
                 when (val material = model.openMaterial(courseId, source)) {
                     is Material.Ready -> if (!view(context, File(material.file.path))) show(material.page, title)
+                    // A ZIP Core lists as its files still goes whole to the app that opens it here.
+                    is Material.Archive -> if (!view(context, File(material.file.path))) show(material.page, title)
                     is Material.Page -> navigator.openPage(WebRouter.PushedPage(material.site, material.url, title))
                     is Material.External ->
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, material.url.toUri())) }

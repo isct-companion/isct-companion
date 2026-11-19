@@ -11,6 +11,20 @@ pub(crate) fn school_domains() -> impl Iterator<Item = &'static str> {
         .copied()
 }
 
+/// A web page whose host is neither under the school domains nor a school
+/// sign-in host: a page the person reached out of a school site, or an
+/// outside course link the reader shows.
+pub(crate) fn outside_school(raw: &str) -> bool {
+    Url::parse(raw)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "https" | "http"))
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .is_some_and(|host| {
+            !school_domains().any(|school| domain_under(&host, school))
+                && SchoolAuthProfile::for_auth_host(&host).is_none()
+        })
+}
+
 /// Whether a cookie or website-data domain (`.lms.s.isct.ac.jp`,
 /// `isct.ac.jp`) is `registrable` or under it.
 pub(crate) fn domain_under(domain: &str, registrable: &str) -> bool {

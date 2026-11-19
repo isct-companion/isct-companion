@@ -1,8 +1,9 @@
-export type PreviewKind = "pdf" | "markdown" | "text" | "image" | "video" | "audio";
+export type PreviewKind =
+  | "pdf" | "markdown" | "text" | "image" | "video" | "audio" | "archive";
 /** Visual family of an LMS item; drives the row icon and its tint. */
 export type FileFamily =
   | PreviewKind
-  | "doc" | "slides" | "sheet" | "archive" | "file"
+  | "doc" | "slides" | "sheet" | "file"
   | "link" | "folder" | "forum" | "page" | "note";
 
 const families: [FileFamily, RegExp][] = [
@@ -21,10 +22,17 @@ const families: [FileFamily, RegExp][] = [
 // raw text previews; they download instead.
 const noPreview = new Set(["ipynb", "html", "htm"]);
 
+/** What follows a ZIP's source to name one of its files (Core's
+ * `archive_entry_source`). */
+const ENTRY_MARK = "#entry=";
+
 export function extension(url: string): string {
   let path: string;
+  const entry = url.indexOf(ENTRY_MARK);
   try {
-    path = new URL(url).pathname;
+    path = entry >= 0
+      ? url.slice(entry + ENTRY_MARK.length)
+      : new URL(url).pathname;
   } catch {
     path = url;
   }
@@ -49,6 +57,8 @@ export function fileFamily(url: string, module?: string): FileFamily {
 export function previewKind(url: string): PreviewKind | undefined {
   const ext = extension(url);
   if (noPreview.has(ext)) return undefined;
+  // Core lists a ZIP's files (`Material::Archive`); other archives download.
+  if (ext === "zip") return "archive";
   const family = families.find(([, pattern]) => pattern.test(ext))?.[0];
   return family === "pdf" || family === "markdown" || family === "text" || family === "image" || family === "video" || family === "audio"
     ? family
