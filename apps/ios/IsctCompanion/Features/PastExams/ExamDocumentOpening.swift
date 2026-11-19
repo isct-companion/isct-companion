@@ -13,6 +13,7 @@ final class ExamDocumentOpening {
     var reportID: String?
     var uploadedID: String?
     private var opened: ExamLocalDocument?
+    private var generation = 0
     private(set) var savedByID: [String: Bool] = [:]
 
     func document(_ id: String) -> ExamLocalDocument? {
@@ -20,43 +21,19 @@ final class ExamDocumentOpening {
     }
 
     func preview(_ id: String, model: AppModel, page: ExamPage) async {
-        guard opening == nil else { return }
-        opening = id
-        defer { opening = nil }
-        guard let file = await read(id, model: model, page: page) else { return }
-        do {
-            previewURL = try await namedCopy(file)
-        } catch {
-            page.problem = t("share.copyFailed")
-        }
+        _ = await prepare(id, for: .preview, model: model, page: page)
     }
 
     func download(_ id: String, model: AppModel, page: ExamPage) async -> Bool {
-        guard opening == nil else { return false }
-        opening = id
-        defer { opening = nil }
-        // Export the same version the user just saw, including an offline copy.
-        let file = if let file = document(id) { file } else { await read(id, model: model, page: page) }
-        guard var file else { return false }
-        let needsRetention = !file.downloaded && !file.offline
-        if needsRetention {
-            guard case .done? = await page.call(model, .retainOpen(id: id, path: file.path)) else { return false }
-            file.downloaded = true
-            opened = file
-        }
-        do {
-            downloadURL = try await namedCopy(file)
-        } catch {
-            forget(id)
-            page.problem = t("lmsFile.theFileCouldNotBeDownloaded")
-        }
-        return needsRetention
+        await prepare(id, for: .download, model: model, page: page)
     }
 
     func setSaved(_ id: String, _ saved: Bool, model: AppModel, page: ExamPage) async -> Bool {
-        guard case let .saved(value)? = await page.call(model, .save(id: id, saved: saved)) else { return false }
+        let session = generation
+        guard case let .saved(value)? = await page.call(model, .save(id: id, saved: saved)),
+              isCurrent(session, model: model) else { return false }
         savedByID[id] = value
-        if value { page.notice = t("examShare.saved") }
+        page.notice = value ? t("examShare.saved") : nil
         return true
     }
 
@@ -73,10 +50,12 @@ final class ExamDocumentOpening {
     func dismissPreview() {
         guard let previewURL else { return }
         self.previewURL = nil
-        try? FileManager.default.removeItem(at: previewURL.deletingLastPathComponent())
+        removeCopy(previewURL)
     }
 
     func clear() {
+        generation += 1
+        opening = nil
         opened = nil
         savedByID.removeAll()
         downloadURL = nil
@@ -85,11 +64,61 @@ final class ExamDocumentOpening {
         dismissPreview()
     }
 
-    private func read(_ id: String, model: AppModel, page: ExamPage) async -> ExamLocalDocument? {
-        guard case let .document(file)? = await page.call(model, .open(id: id)) else { return nil }
-        opened = file
-        savedByID[id] = file.saved
-        return file
+    private enum Destination: Equatable { case preview, download }
+
+    private func isCurrent(_ session: Int, model: AppModel) -> Bool {
+        session == generation && model.examAccount?.status == .connected
+    }
+
+    private func prepare(_ id: String, for destination: Destination, model: AppModel, page: ExamPage) async -> Bool {
+        guard opening == nil else { return false }
+        let session = generation
+        opening = id
+        defer { if session == generation { opening = nil } }
+
+        var file: ExamLocalDocument
+        if destination == .download, let lastOpened = document(id) {
+            file = lastOpened
+        } else {
+            guard case let .document(current)? = await page.call(model, .open(id: id)),
+                  isCurrent(session, model: model) else { return false }
+            file = current
+            opened = current
+            savedByID[id] = current.saved
+        }
+
+        let needsRetention = destination == .download && !file.downloaded && !file.offline
+        if needsRetention {
+            let result = await page.call(model, .retainOpen(id: id, path: file.path))
+            guard isCurrent(session, model: model) else { return false }
+            guard case .done? = result else {
+                forget(id)
+                return false
+            }
+            file.downloaded = true
+            opened = file
+        }
+
+        do {
+            let copy = try await namedCopy(file)
+            guard isCurrent(session, model: model) else {
+                removeCopy(copy)
+                return false
+            }
+            switch destination {
+            case .preview: previewURL = copy
+            case .download: downloadURL = copy
+            }
+        } catch {
+            guard isCurrent(session, model: model) else { return false }
+            forget(id)
+            page.problem = t(destination == .preview ? "share.copyFailed" : "lmsFile.theFileCouldNotBeDownloaded")
+        }
+        return needsRetention
+    }
+
+    private func removeCopy(_ url: URL) {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     private func namedCopy(_ file: ExamLocalDocument) async throws -> URL {
@@ -125,17 +154,27 @@ struct ExamDocumentMenu: View {
 
     var body: some View {
         let file = documents.document(id)
-        let isSaved = saved ?? documents.savedByID[id] ?? false
         let isOffline = offline || file?.offline == true
         Button(t("examShare.download"), systemImage: "arrow.down.circle") {
             Task {
-                if await documents.download(id, model: model, page: page) { await libraryChanged(nil) }
+                if await documents.download(id, model: model, page: page) {
+                    let exportProblem = page.problem
+                    await libraryChanged(nil)
+                    if let exportProblem { page.problem = exportProblem }
+                }
             }
         }
         .disabled(documents.opening != nil)
-        Button(t(isSaved ? "examShare.unsave" : "examShare.save"), systemImage: isSaved ? "bookmark.fill" : "bookmark") {
-            Task {
-                if await documents.setSaved(id, !isSaved, model: model, page: page) { await libraryChanged(nil) }
+        Group {
+            if let isSaved = saved ?? documents.savedByID[id] {
+                bookmarkAction(!isSaved)
+            } else {
+                Menu {
+                    bookmarkAction(true)
+                    bookmarkAction(false)
+                } label: {
+                    Label(t("examShare.bookmarkActions"), systemImage: "bookmark")
+                }
             }
         }
         .disabled(isOffline)
@@ -152,6 +191,14 @@ struct ExamDocumentMenu: View {
                         await libraryChanged(library)
                     }
                 }
+            }
+        }
+    }
+
+    private func bookmarkAction(_ save: Bool) -> some View {
+        Button(t(save ? "examShare.save" : "examShare.unsave"), systemImage: save ? "bookmark" : "bookmark.slash") {
+            Task {
+                if await documents.setSaved(id, save, model: model, page: page) { await libraryChanged(nil) }
             }
         }
     }

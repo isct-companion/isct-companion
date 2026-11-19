@@ -624,16 +624,6 @@ func examSitting(year: UInt32?, occasion: String?, number: UInt32, variant: Stri
         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
 }
 
-/// "Subject · 2024 Final · Questions", a document's title.
-func examName(_ exam: ExamDocument) -> String {
-    let fields = [
-        exam.subjects.map(\.name).joined(separator: " / "),
-        examSitting(year: exam.academicYear, occasion: exam.occasion, number: exam.occasionNumber, variant: exam.variant),
-        exam.role.map { t("examShare.role.\($0)") },
-    ].compactMap { $0 }.filter { !$0.isEmpty }
-    return fields.isEmpty ? exam.fileName : fields.joined(separator: " · ")
-}
-
 /// The 過去問 tab's title sits at the content's gutter, as the other tabs'
 /// do, with the site's page beside it; opened from a course it is a pushed
 /// page with the bar's title.
