@@ -426,7 +426,8 @@ private fun DayHeader(day: LocalDate, today: Boolean, modifier: Modifier) {
     }
 }
 
-/** Period numbers at their rows; each block's start time under its first. */
+/** Period numbers at their rows; each block's start time under its first
+ * period and its end time under its last. */
 @Composable
 private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier) {
     Box(modifier) {
@@ -434,32 +435,36 @@ private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier
             val periods = row.periods ?: continue
             if (periods.size != 2) continue
             val first = periods[0].toInt()
-            for (period in first..maxOf(first, periods[1].toInt())) {
+            val last = maxOf(first, periods[1].toInt())
+            for (period in first..last) {
                 Column(
                     Modifier.fillMaxWidth().offset(y = rowHeight * (row.top + (period - first)).toFloat()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("$period", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-                    if (period == first) {
-                        // A time of five characters is wider than the column:
-                        // it shrinks to fit, as iOS's minimumScaleFactor(0.8).
-                        // The floor is in dp because the column is: a floor in
-                        // sp would grow past it with the system font size.
-                        val style = MaterialTheme.typography.labelSmall.tabular()
-                        Text(
-                            row.startTime.removePrefix("0"), style = style,
-                            color = Theme.colors.muted, maxLines = 1,
-                            autoSize = TextAutoSize.StepBased(
-                                minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
-                                maxFontSize = style.fontSize,
-                                stepSize = 0.25.sp,
-                            ),
-                        )
-                    }
+                    if (period == first) PeriodTime(row.startTime)
+                    if (period == last) PeriodTime(row.endTime)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PeriodTime(time: String) {
+    // A time of five characters is wider than the column: it shrinks to
+    // fit, as iOS's minimumScaleFactor(0.8). The floor is in dp because the
+    // column is: a floor in sp would grow past it with the system font size.
+    val style = MaterialTheme.typography.labelSmall.tabular()
+    Text(
+        time.removePrefix("0"), style = style,
+        color = Theme.colors.muted, maxLines = 1,
+        autoSize = TextAutoSize.StepBased(
+            minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
+            maxFontSize = style.fontSize,
+            stepSize = 0.25.sp,
+        ),
+    )
 }
 
 @Composable

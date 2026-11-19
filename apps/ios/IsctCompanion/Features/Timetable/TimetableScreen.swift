@@ -295,14 +295,16 @@ struct TimetableScreen: View {
         }
     }
 
-    /// Period numbers at their rows; each block's start time under its first.
+    /// Period numbers at their rows; each block's start time under its first
+    /// period and its end time under its last.
     private var periodColumn: some View {
         ZStack(alignment: .top) {
             ForEach(axis?.rows ?? [], id: \.top) { row in
                 if let periods = row.periods, periods.count == 2 {
                     let first = Int(periods[0])
-                    ForEach(first...max(first, Int(periods[1])), id: \.self) { period in
-                        periodLabel(period, row: row, first: period == first)
+                    let last = max(first, Int(periods[1]))
+                    ForEach(first...last, id: \.self) { period in
+                        periodLabel(period, row: row, first: period == first, last: period == last)
                             .padding(.top, (row.top + Double(period - first)) * rowHeight)
                             .frame(maxHeight: .infinity, alignment: .top)
                     }
@@ -311,18 +313,21 @@ struct TimetableScreen: View {
         }
     }
 
-    private func periodLabel(_ period: Int, row: AxisRow, first: Bool) -> some View {
+    private func periodLabel(_ period: Int, row: AxisRow, first: Bool, last: Bool) -> some View {
         VStack(spacing: 0) {
             Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
-            if first {
-                Text(row.startTime.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
-                    .font(.tick.monospacedDigit())
-                    .foregroundStyle(Theme.muted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
+            if first { periodTime(row.startTime) }
+            if last { periodTime(row.endTime) }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func periodTime(_ time: String) -> some View {
+        Text(time.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
+            .font(.tick.monospacedDigit())
+            .foregroundStyle(Theme.muted)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 
     private func agenda(_ day: Date, in week: ScheduleView?) -> DatedAgenda? {

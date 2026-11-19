@@ -82,6 +82,8 @@ caller is a finding too; inline it back.
 5. A file that changes for unrelated reasons?
 6. Unused files, exports or dependencies left behind?
 7. Is each merge of duplicates the same concept (§4)?
+8. A UI change made in one shell only, without a decision that keeps the
+   feature there (AGENTS.md §2)?
 
 A finding names the place, the rule above it breaks and the owner it should
 move to.
