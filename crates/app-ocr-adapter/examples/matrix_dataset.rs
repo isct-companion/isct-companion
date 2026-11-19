@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|i| args.get(i + 1))
         .map_or_else(|| out.join("frames.yuv"), PathBuf::from);
     let mut video = video::Video::open(source.as_ref(), &cache)?;
-    let vision = app_ocr::matrix_vision();
+    let vision = app_ocr_adapter::matrix_vision();
     let mut tracker = vision.tracker();
     let mut glyphs = std::io::BufWriter::new(std::fs::File::create(out.join("glyphs.u8"))?);
     let mut lines = std::io::BufWriter::new(std::fs::File::create(out.join("frames.jsonl"))?);

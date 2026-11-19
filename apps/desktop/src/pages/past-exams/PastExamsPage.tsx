@@ -1,6 +1,4 @@
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -9,14 +7,10 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Bookmark,
-  BookmarkCheck,
   BookOpen,
   ChevronDown,
   ChevronRight,
-  Download,
   FileText,
-  Flag,
   Globe,
   Inbox,
   Library,
@@ -45,9 +39,6 @@ import { notify } from "../../app/notify";
 import { errorCode } from "../../platform/native-error";
 import { useScheduleQuery } from "../../platform/core-query";
 import { useRecords } from "../../platform/records";
-import { localFileUrl } from "../../features/lms/files";
-import { ImageView } from "../../features/lms/ImageView";
-import { ReaderPane, ReaderTools } from "../../features/lms/ReaderPane";
 import { lookup, t } from "../../i18n";
 import type {
   ExamAccount,
@@ -68,19 +59,15 @@ import type {
   ExamUploadStart,
 } from "../../generated/persistence";
 import {
-  ReportDialog,
   RequestDialog,
   UploadDialog,
   UploadProgress,
   UploadRecovery,
 } from "./ExamDialogs";
+import { ExamReader } from "./ExamReader";
+import { useExamLibrary } from "./useExamLibrary";
 import "./past-exams.css";
 
-const Pdf = lazy(() =>
-  import("../../features/lms/PdfDocument").then((m) => ({
-    default: m.PdfDocument,
-  })),
-);
 const tabs = ["browse", "requests", "library"] as const;
 type Tab = (typeof tabs)[number];
 type Call = (action: ExamAction) => Promise<ExamAnswer | undefined>;
@@ -168,6 +155,13 @@ export function PastExams({
   const [viewUrl, setViewUrl] = useState<string>();
   const [upload, setUpload] = useState<ExamUploadForm>();
   const [uploadRunning, setUploadRunning] = useState(false);
+  const connected = account?.status === "connected";
+  const {
+    library,
+    failed: libraryFailed,
+    refresh: refreshLibrary,
+    replace: replaceLibrary,
+  } = useExamLibrary(call, active && connected && tab === "library");
   const courseOpened = useRef(false);
   // The last document clicked wins: an earlier one still loading is
   // dropped when it arrives, so a slow file cannot replace the new one.
@@ -185,9 +179,10 @@ export function PastExams({
       openSeq.current += 1;
       setOpening(undefined);
       setReader(undefined);
+      replaceLibrary(undefined);
       closeUpload();
     },
-    [closeUpload],
+    [closeUpload, replaceLibrary],
   );
   const accountAction = useCallback(
     async (kind: "account" | "connect" | "disconnect" | "acceptTerms") => {
@@ -199,8 +194,9 @@ export function PastExams({
     },
     [applyAccount, call],
   );
-  const connected = account?.status === "connected";
-
+  // Every bump of `generation` reads the library again too. The first
+  // activation bumps nothing, so the library's own first read is the only one.
+  useReload(generation, refreshLibrary);
   // Back in the foreground: read the account, then the views again.
   const returnToForeground = useEffectEvent(async () => {
     if (inFlight.current > 0 || document.visibilityState === "hidden") return;
@@ -229,16 +225,13 @@ export function PastExams({
   }, [active, connected, choices, call]);
 
   const open = useCallback(
-    async (id: string, download = false) => {
+    async (id: string) => {
       const seq = ++openSeq.current;
       setOpening(id);
-      const answer = await call({ kind: "open", id, download });
+      const answer = await call({ kind: "open", id, download: false });
       if (seq !== openSeq.current) return;
       setOpening(undefined);
-      if (answer?.kind === "document") {
-        setReader(answer.value);
-        if (download) notify.info(t("examShare.downloadedNotice"));
-      }
+      if (answer?.kind === "document") setReader(answer.value);
     },
     [call],
   );
@@ -313,8 +306,8 @@ export function PastExams({
     }
   };
 
-  // Opening another document shows that it is coming; a download of the
-  // one on screen keeps it there.
+  // Opening another document shows that it is coming; the one on screen
+  // stays while its own tools act on it.
   const readerPane =
     opening && opening !== reader?.document.id ? (
       <div className="examOpening" role="status">
@@ -331,11 +324,17 @@ export function PastExams({
         <ExamReader
           key={reader.document.id}
           file={reader}
+          title={documentTitle(reader.document)}
           choices={choices}
           call={call}
-          download={() => void open(reader.document.id, true)}
-          downloading={opening === reader.document.id}
-          setFile={setReader}
+          setFile={(update) =>
+            setReader((current) =>
+              current?.document.id === reader.document.id
+                ? update(current)
+                : current,
+            )
+          }
+          onLibraryChanged={refreshLibrary}
           close={closeReader}
         />
       )
@@ -440,7 +439,10 @@ export function PastExams({
       ) : (
         <LibraryList
           {...shared}
-          refreshKey={reader}
+          library={library}
+          failed={libraryFailed}
+          refresh={refreshLibrary}
+          replace={replaceLibrary}
           closeReader={(id) => {
             if (reader?.document.id === id) closeReader();
           }}
@@ -882,9 +884,7 @@ function SubjectSets({
   const [othersOpen, setOthersOpen] = useState(false);
   if (state?.failed)
     return (
-      <ErrorBanner onRetry={retry}>
-        {t("examShare.loadFailed")}
-      </ErrorBanner>
+      <ErrorBanner onRetry={retry}>{t("examShare.loadFailed")}</ErrorBanner>
     );
   if (state?.subjects)
     return state.subjects.length ? (
@@ -1082,123 +1082,6 @@ function DocumentRow({
       onClick={() => open(document.id)}
       trailing={trailing}
     />
-  );
-}
-
-/** The opened document in the shared LMS reader frame, with its own tools. */
-function ExamReader({
-  file,
-  choices,
-  call,
-  download,
-  downloading,
-  setFile,
-  close,
-}: {
-  file: ExamLocalDocument;
-  choices?: ExamChoices;
-  call: Call;
-  download: () => void;
-  downloading: boolean;
-  setFile: (file: ExamLocalDocument) => void;
-  close: () => void;
-}) {
-  const [reporting, setReporting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const { document } = file;
-  const title = documentTitle(document);
-  const pdf = document.fileType === "application/pdf";
-  // The LMS reader's own toolbar shape, so these sit in one row with the
-  // PDF page and zoom controls (workspace-chrome.css, .lmsReaderToolSlot).
-  const tool = (
-    label: string,
-    icon: ReactNode,
-    onClick: () => void,
-    { disabled = false, pressed = undefined as boolean | undefined } = {},
-  ) => (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {icon}
-    </button>
-  );
-  const toolbar = (
-    <div className="lmsSourceBar lmsFileToolbar">
-      <div className="lmsFileActions">
-        {file.offline && <Tag>{t("examShare.offline")}</Tag>}
-        {tool(
-          t(file.downloaded ? "examShare.downloaded" : "examShare.download"),
-          <Download size={15} strokeWidth={1.75} aria-hidden />,
-          download,
-          { disabled: file.downloaded || file.offline || downloading },
-        )}
-        {file.saved !== null &&
-          tool(
-            t(file.saved ? "examShare.unsave" : "examShare.save"),
-            file.saved ? (
-              <BookmarkCheck size={15} strokeWidth={1.75} aria-hidden />
-            ) : (
-              <Bookmark size={15} strokeWidth={1.75} aria-hidden />
-            ),
-            async () => {
-              setSaving(true);
-              const answer = await call({
-                kind: "save",
-                saved: !file.saved,
-                id: document.id,
-              });
-              setSaving(false);
-              if (answer?.kind === "saved")
-                setFile({ ...file, saved: answer.value });
-            },
-            { disabled: file.offline || saving, pressed: file.saved },
-          )}
-        {tool(
-          t("examShare.report"),
-          <Flag size={15} strokeWidth={1.75} aria-hidden />,
-          () => setReporting(true),
-          { disabled: file.offline || !choices },
-        )}
-      </div>
-    </div>
-  );
-  return (
-    <ReaderPane title={title} close={close}>
-      {!pdf && <ReaderTools>{toolbar}</ReaderTools>}
-      {pdf ? (
-        <Suspense fallback={<Skeleton count={6} />}>
-          <Pdf
-            src={localFileUrl(file.path)}
-            title={title}
-            fileToolbar={toolbar}
-          />
-        </Suspense>
-      ) : document.fileType === "text/plain" ? (
-        <PlainTextPreview key={file.path} path={file.path} />
-      ) : (
-        <ImageView src={localFileUrl(file.path)} title={title} />
-      )}
-      {choices && (
-        <ReportDialog
-          opened={reporting}
-          choices={choices}
-          close={() => setReporting(false)}
-          submit={async (reason, detail) => {
-            if (
-              await call({ kind: "report", id: document.id, reason, detail })
-            ) {
-              setReporting(false);
-              notify.info(t("examShare.reported"));
-            }
-          }}
-        />
-      )}
-    </ReaderPane>
   );
 }
 
@@ -1462,27 +1345,19 @@ function LibraryList({
   opening,
   reading,
   pane,
-  generation,
   setViewUrl,
-  refreshKey,
+  library,
+  failed,
+  refresh,
+  replace,
   closeReader,
-}: ViewProps & {
-  /** Reloads when the reader changes what is saved or downloaded. */
-  refreshKey: unknown;
+}: Omit<ViewProps, "generation"> & {
+  library?: ExamLibrary;
+  failed: boolean;
+  refresh: () => void;
+  replace: (value: ExamLibrary) => void;
   closeReader: (id: string) => void;
 }) {
-  const [library, setLibrary] = useState<ExamLibrary>();
-  const [failed, setFailed] = useState(false);
-  const load = useCallback(async () => {
-    setFailed(false);
-    const answer = await call({ kind: "library" });
-    if (answer?.kind === "library") setLibrary(answer.value);
-    else setFailed(true);
-  }, [call]);
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
-  useReload(generation, () => void load());
   const shownUrl = library?.webUrl;
   useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
 
@@ -1505,7 +1380,7 @@ function LibraryList({
           const answer = await call({ kind, id });
           if (answer?.kind === "library") {
             closeReader(id);
-            setLibrary(answer.value);
+            replace(answer.value);
           }
         }}
       >
@@ -1546,7 +1421,7 @@ function LibraryList({
       <div className="examPane">
         <div className="scroll">
           {failed && !library ? (
-            <ErrorBanner onRetry={() => void load()}>
+            <ErrorBanner onRetry={refresh}>
               {t("examShare.loadFailed")}
             </ErrorBanner>
           ) : !library ? (
@@ -1554,7 +1429,7 @@ function LibraryList({
           ) : (
             <>
               {library.offline && (
-                <ErrorBanner onRetry={() => void load()}>
+                <ErrorBanner onRetry={refresh}>
                   {t("examShare.libraryUnavailable")}
                 </ErrorBanner>
               )}
@@ -1579,28 +1454,5 @@ function LibraryList({
         )}
       </div>
     </Workspace>
-  );
-}
-
-function PlainTextPreview({ path }: { path: string }) {
-  const [text, setText] = useState<string>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch(localFileUrl(path), { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error();
-        return response.text();
-      })
-      .then(setText, () => {
-        if (!controller.signal.aborted) setFailed(true);
-      });
-    return () => controller.abort();
-  }, [path]);
-  if (failed) return <ErrorBanner>{t("error.storage")}</ErrorBanner>;
-  return text === undefined ? (
-    <Skeleton count={6} />
-  ) : (
-    <pre className="examDocumentText">{text}</pre>
   );
 }

@@ -1137,6 +1137,7 @@ checks:
       - apps/android/app/src/main/AndroidManifest.xml
       - apps/desktop/src-tauri/src/commands/platform.rs
       - crates/app-ocr/**
+      - crates/app-ocr-adapter/**
       - apps/desktop/src/lib/matrix-ocr.ts
       - crates/app-core/src/matrix_scan.rs
       - crates/app-core/src/matrix_scan/**

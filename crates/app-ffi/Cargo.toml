@@ -11,7 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = []
 bindgen = ["uniffi/cli"]
-ocr = ["dep:app-ocr"]
+ocr = ["dep:app-ocr", "dep:app-ocr-adapter"]
 # The campus map's reads; the iOS and Android bindings build it.
 campus-map = ["app-core/campus-map"]
 
@@ -19,6 +19,7 @@ campus-map = ["app-core/campus-map"]
 adpt-isct = { path = "../adpt-isct" }
 app-core = { path = "../app-core" }
 app-ocr = { path = "../app-ocr", optional = true }
+app-ocr-adapter = { path = "../app-ocr-adapter", optional = true }
 uniffi = { version = "=0.32.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

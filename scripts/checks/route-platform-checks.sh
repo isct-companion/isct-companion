@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Read NUL-separated git paths. Shared and unclassified inputs conservatively
-# select the full suite, so newly introduced build inputs cannot bypass CI.
+# Read NUL-separated git paths and print one `<job>=true|false` line for every
+# Platform checks job, so the workflow and its result gate read one decision.
+# Shared and unclassified inputs conservatively select every area, so newly
+# introduced build inputs cannot bypass CI.
+#   --all   select every area without reading paths
+#   --full  the release suite: native SDKs and campus map replace the quick
+#           Rust, Swift and Gradle checks
+all=false full=false
+for arg; do
+  case "$arg" in
+    --all) all=true ;;
+    --full) full=true ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
 selected=' '
-jobs=(frontend apple windows rust ios android campus-map app-store-tools)
+areas=(frontend apple windows rust ios android campus-map app-store-tools)
 select_jobs() {
   selected+="$* "
 }
 
-if [[ ${1:-} == --all ]]; then
-  select_jobs "${jobs[@]}"
+if [[ $all == true ]]; then
+  select_jobs "${areas[@]}"
 else
   while IFS= read -r -d '' path; do
     case "$path" in
@@ -33,15 +47,32 @@ else
       crates/app-core/src/campus_map/*|crates/app-core/src/tests/campus_map__*.rs|.github/workflows/campus-map.yml)
         select_jobs rust ios android campus-map ;;
       *)
-        select_jobs "${jobs[@]}" ;;
+        select_jobs "${areas[@]}" ;;
     esac
   done
 fi
 
-for job in "${jobs[@]}"; do
-  if [[ "$selected" == *" $job "* ]]; then
-    printf '%s=true\n' "$job"
-  else
-    printf '%s=false\n' "$job"
-  fi
-done
+has() {
+  [[ "$selected" == *" $1 "* ]] && echo true || echo false
+}
+quick() {
+  [[ $full == false ]] && has "$1" || echo false
+}
+release() {
+  [[ $full == true ]] && has "$1" || echo false
+}
+native_sdk=false
+if [[ $(release ios) == true || $(release android) == true ]]; then native_sdk=true; fi
+
+printf '%s=%s\n' \
+  frontend "$(has frontend)" \
+  apple "$(has apple)" \
+  windows "$(has windows)" \
+  app-store-tools "$(has app-store-tools)" \
+  rust "$(quick rust)" \
+  ios-syntax "$(quick ios)" \
+  android-config "$(quick android)" \
+  native-sdk "$native_sdk" \
+  native-ios "$(release ios)" \
+  native-android "$(release android)" \
+  campus-map "$(release campus-map)"

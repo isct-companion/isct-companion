@@ -27,11 +27,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-caches
         with:
-          workspaces: . -> target
           key: native-sdk-rust-contracts
-          save-if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
       - name: Rust contracts and lint
         run: |
           cargo test -p app-core -p app-ffi --locked -j 2
@@ -62,11 +60,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-caches
         with:
-          workspaces: . -> target
           key: native-sdk-ios
-          save-if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+          compiler-cache: true
       - name: Install host Kotlin compiler
         run: |
           if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
@@ -120,11 +117,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-linux-android,x86_64-linux-android
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-caches
         with:
-          workspaces: . -> target
           key: native-sdk-android
-          save-if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+          compiler-cache: true
       - run: corepack enable
       # The same Yarn cache as platform checks' frontend job, keyed on yarn.lock.
       - name: Set up Yarn cache

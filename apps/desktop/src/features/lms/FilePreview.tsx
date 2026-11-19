@@ -13,7 +13,9 @@ import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t, type MessageKey } from "../../i18n";
 import { downloadOnly, extension, fileFamily } from "./file-types";
+import { ImageView } from "./ImageView";
 import { FileTile, LmsIcon } from "./LmsIcon";
+import { useReleaseSource } from "./useReleaseSource";
 import {
   localFileUrl,
   copyStoredFile,
@@ -640,54 +642,8 @@ function Toolbar({
   return inline ? tools : <ReaderTools>{tools}</ReaderTools>;
 }
 
-/**
- * WebKit keeps a detached element's decoded image or media player until its
- * garbage collector runs, which can be long after the viewer closed. Dropping
- * the source on unmount releases them at once, like the PDF canvases.
- */
-function useReleaseSource<T extends HTMLImageElement | HTMLMediaElement>() {
-  const element = useRef<T>(null);
-  useEffect(() => {
-    const current = element.current;
-    return () => {
-      if (!current) return;
-      if (current instanceof HTMLMediaElement) current.pause();
-      current.removeAttribute("src");
-      if (current instanceof HTMLMediaElement) current.load();
-    };
-  }, []);
-  return element;
-}
-
-/** Fit to the pane; click toggles actual size for large scans. */
-function ImageView({
-  src,
-  title,
-  onBroken,
-}: {
-  src: string;
-  title: string;
-  onBroken: () => void;
-}) {
-  const [actual, setActual] = useState(false);
-  const image = useReleaseSource<HTMLImageElement>();
-  return (
-    <div className={`lmsImageStage${actual ? " actual" : ""}`}>
-      <img
-        ref={image}
-        className="lmsImagePreview"
-        src={src}
-        alt={title}
-        title={t(actual ? "lms.fitToWindow" : "lms.actualSize")}
-        onClick={() => setActual((value) => !value)}
-        onError={onBroken}
-      />
-    </div>
-  );
-}
-
 function MediaView({ kind, src }: { kind: "video" | "audio"; src: string }) {
-  const media = useReleaseSource<HTMLMediaElement>();
+  const media = useReleaseSource<HTMLMediaElement>(src);
   return kind === "video" ? (
     <video
       ref={media as React.RefObject<HTMLVideoElement>}

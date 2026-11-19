@@ -1,7 +1,8 @@
 use super::remote::RemoteDocument;
-use super::{ExamDocument, ExamError, ExamLocalDocument};
+use super::{ExamAccountStatus, ExamDocument, ExamError, ExamLocalDocument, ExamShare};
 use crate::locale::ContentLanguage;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -23,15 +24,73 @@ pub(super) struct Cached {
     pub(super) file: uuid::Uuid,
 }
 
-pub(super) fn file_path(base: &Path, cached: &Cached) -> Result<PathBuf, ExamError> {
-    let suffix = match cached.document.file_type.as_str() {
-        "application/pdf" => "pdf",
-        "image/jpeg" => "jpg",
-        "image/png" => "png",
-        "image/webp" => "webp",
-        "text/plain" => "txt",
+pub(super) fn account_folder(folder: &Path, uid: &str) -> PathBuf {
+    folder.join(key(uid))
+}
+
+fn key(value: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(value.as_bytes()))
+}
+
+impl ExamShare {
+    pub(super) fn account_folder(&self, uid: &str) -> PathBuf {
+        account_folder(&self.folder, uid)
+    }
+
+    pub(super) fn document_folder(&self, uid: &str, id: &str) -> PathBuf {
+        self.account_folder(uid).join(key(id))
+    }
+
+    /// The cache folder of `id` for the connected account. The returned
+    /// session gate serializes the caller with new versions, sign-out and
+    /// cache maintenance.
+    async fn connected_document(
+        &self,
+        id: &str,
+    ) -> Result<(tokio::sync::MutexGuard<'_, super::Session>, PathBuf), ExamError> {
+        let session = self.session.lock().await;
+        let saved = session.saved.as_ref().ok_or(ExamError::SignedOut)?;
+        if session.status != ExamAccountStatus::Connected || !saved.registered {
+            return Err(ExamError::SignedOut);
+        }
+        let base = self.document_folder(&saved.uid, id);
+        Ok((session, base))
+    }
+
+    pub(crate) async fn retain_open_copy(
+        &self,
+        id: &str,
+        opened_path: &Path,
+    ) -> Result<bool, ExamError> {
+        let (_session, base) = self.connected_document(id).await?;
+        retain(&base, opened_path).await
+    }
+
+    pub(crate) async fn open_copy_export_name(
+        &self,
+        id: &str,
+        opened_path: &Path,
+    ) -> Result<String, ExamError> {
+        let (_session, base) = self.connected_document(id).await?;
+        export_name(&base, opened_path).await
+    }
+}
+
+/// The extensions a validated type may carry, the cache file's own first.
+fn extensions(file_type: &str) -> Result<&'static [&'static str], ExamError> {
+    Ok(match file_type {
+        "application/pdf" => &["pdf"],
+        "image/jpeg" => &["jpg", "jpeg"],
+        "image/png" => &["png"],
+        "image/webp" => &["webp"],
+        "text/plain" => &["txt", "md"],
         _ => return Err(ExamError::Response),
-    };
+    })
+}
+
+pub(super) fn file_path(base: &Path, cached: &Cached) -> Result<PathBuf, ExamError> {
+    let suffix = extensions(&cached.document.file_type)?[0];
     Ok(base.join(format!("{}.{suffix}", cached.file)))
 }
 
@@ -44,11 +103,7 @@ pub(super) async fn local(
 ) -> Result<ExamLocalDocument, ExamError> {
     let path = file_path(base, &cached)?;
     let path = blocking(move || {
-        fs::OpenOptions::new()
-            .write(true)
-            .open(&path)
-            .and_then(|file| file.set_modified(SystemTime::now()))
-            .map_err(storage)?;
+        touch(&path)?;
         path.into_os_string()
             .into_string()
             .map_err(|_| ExamError::Storage)
@@ -62,6 +117,56 @@ pub(super) async fn local(
         downloaded: cached.downloaded,
         saved,
     })
+}
+
+fn touch(path: &Path) -> Result<(), ExamError> {
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(SystemTime::now()))
+        .map_err(storage)
+}
+
+/// The cached version, provided it is exactly the one the caller opened.
+async fn opened(base: &Path, opened_path: &Path) -> Result<(Cached, PathBuf), ExamError> {
+    let cached = cache_file(base).await?.ok_or(ExamError::NotFound)?;
+    let path = file_path(base, &cached)?;
+    if path.as_path() != opened_path {
+        return Err(ExamError::NotFound);
+    }
+    Ok((cached, path))
+}
+
+/// Retain exactly the version the caller opened.
+async fn retain(base: &Path, opened_path: &Path) -> Result<bool, ExamError> {
+    let (mut cached, path) = opened(base, opened_path).await?;
+    if cached.downloaded {
+        return Ok(false);
+    }
+    blocking(move || touch(&path)).await?;
+    cached.downloaded = true;
+    save_metadata(base, &cached).await?;
+    Ok(true)
+}
+
+/// The name a copy of the opened version is exported under. The uploader
+/// chose the name, so an extension its validated type does not allow (a
+/// `text/plain` upload named `answers.bat`) gets the type's own suffix.
+async fn export_name(base: &Path, opened_path: &Path) -> Result<String, ExamError> {
+    let (cached, _) = opened(base, opened_path).await?;
+    let document = &cached.document;
+    let allowed = extensions(&document.file_type)?;
+    let name = crate::download_names::safe_name(&document.file_name, &document.file_type);
+    let (_, extension) = crate::download_names::split_extension(&name);
+    let extension = extension.trim_start_matches('.');
+    if allowed
+        .iter()
+        .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+    {
+        Ok(name)
+    } else {
+        Ok(format!("{name}.{}", allowed[0]))
+    }
 }
 
 struct CacheEntry {

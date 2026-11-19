@@ -1,6 +1,7 @@
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
+import { useReleaseSource } from "./useReleaseSource";
 import "./reader.css";
 
 const MIN = 0.25;
@@ -24,7 +25,7 @@ export function ImageView({
   onBroken?: () => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
-  const image = useRef<HTMLImageElement>(null);
+  const image = useReleaseSource<HTMLImageElement>(src);
   const [natural, setNatural] = useState<{ width: number; height: number }>();
   const [room, setRoom] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -41,12 +42,6 @@ export function ImageView({
     const observer = new ResizeObserver(() => setRoom(element.clientWidth));
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
-
-  // WebKit keeps a detached image decoded until GC; drop it on close.
-  useEffect(() => {
-    const current = image.current;
-    return () => current?.removeAttribute("src");
   }, []);
 
   const zoomAt = (value: number, x?: number, y?: number) => {

@@ -68,12 +68,14 @@ export type SchoolSite =
   | "tsubame"
   | "syllabus"
   | "study-guide";
-/** A file a school page saved to Downloads (download or PDF viewer ↓). */
-export type SchoolDownloadEvent = {
-  site: SchoolSite;
+/** A file saved to Downloads by any desktop source. */
+export type SavedDownload = { name: string; path: string };
+/** School-webview download progress stays associated with its own surface. */
+export type SchoolDownloadEvent = DownloadEvent & { site: SchoolSite };
+export type DownloadEvent = {
   state: "started" | "done" | "failed";
   name: string;
-  /** Set on `done`: the saved file, accepted by `revealSchoolDownload`. */
+  /** Set on `done`: the saved file, accepted by `revealDownload`. */
   path?: string;
 };
 export type SchoolAuthProfile = "science" | "tokyo-tech";
@@ -564,6 +566,13 @@ export interface DesktopBridge {
   onExamAccount?(callback: (account: ExamAccount) => void): () => void;
   examUploadPickFiles?(title: string): Promise<ExamUploadFile[] | null>;
   examUploadClearFiles?(): Promise<void>;
+  /** Opens a Core past-exam file in the system default application. */
+  examOpenFile?(path: string): Promise<void>;
+  /** Keeps the opened version for offline use, returning whether the library changed. */
+  examRetainFile?(id: string, path: string): Promise<boolean>;
+  /** Copies the opened past-exam version into Downloads under the name Core
+   * gives it (the uploaded name, suffixed to match its validated type). */
+  examSaveCopy?(id: string, path: string): Promise<SavedDownload>;
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -702,8 +711,8 @@ export interface DesktopBridge {
    * prompt, which shows `prompt` on macOS. */
   installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
-  /** Shows a file saved from a school page this session in Finder; false for any other path. */
-  revealSchoolDownload?(path: string): Promise<boolean>;
+  /** Locates a file saved to Downloads this session; false for unknown or moved files. */
+  revealDownload?(path: string): Promise<boolean>;
   schoolSessionSnapshot(): Promise<SchoolSessionSnapshot>;
   /** One foreground sign-in with the saved credentials, read again from the
    * synced store; the credentials themselves do not change. */
@@ -910,6 +919,10 @@ export function createTauriDesktopBridge(
       return files;
     },
     examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
+    examOpenFile: (path) => invokeCommand("exam_open_file", { path }),
+    examRetainFile: (id, path) =>
+      booleanCommand("exam_retain_file", { id, path }),
+    examSaveCopy: (id, path) => result("exam_save_copy", { id, path }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url, site) =>
@@ -1146,8 +1159,7 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    revealSchoolDownload: (path) =>
-      booleanCommand("reveal_school_download", { path }),
+    revealDownload: (path) => booleanCommand("reveal_download", { path }),
     syncHint: async (hint) => {
       await invokeCommand("sync_hint", { hint });
     },

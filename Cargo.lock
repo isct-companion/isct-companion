@@ -157,6 +157,7 @@ dependencies = [
  "adpt-isct",
  "app-core",
  "app-ocr",
+ "app-ocr-adapter",
  "async-trait",
  "chrono",
  "futures-util",
@@ -177,7 +178,6 @@ dependencies = [
 name = "app-ocr"
 version = "1.0.0-rc.1"
 dependencies = [
- "app-core",
  "block2",
  "fast_image_resize",
  "image",
@@ -193,6 +193,16 @@ dependencies = [
  "sha2 0.11.1",
  "thiserror 2.0.21",
  "ureq",
+]
+
+[[package]]
+name = "app-ocr-adapter"
+version = "1.0.0-rc.1"
+dependencies = [
+ "app-core",
+ "app-ocr",
+ "image",
+ "serde_json",
 ]
 
 [[package]]
@@ -2989,6 +2999,7 @@ dependencies = [
  "adpt-isct",
  "app-core",
  "app-ocr",
+ "app-ocr-adapter",
  "axum",
  "base64 0.23.1",
  "block2",

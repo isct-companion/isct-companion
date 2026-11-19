@@ -34,14 +34,12 @@ fn a_disposition_names_the_file_whatever_its_type() {
         ),
         "été.txt"
     );
-    // Quoted strings keep escaped quotes and semicolons.
+    // Quoted strings keep escaped quotes and semicolons. Asserted on the
+    // header's name, before `safe_name` makes it a path component for the
+    // target system.
     assert_eq!(
-        named(
-            Some(r#"attachment; filename="a\"b;c.pdf"; size=3"#),
-            page,
-            pdf
-        ),
-        "a\"b;c.pdf"
+        disposition_name(br#"attachment; filename="a\"b;c.pdf"; size=3"#),
+        Some("a\"b;c.pdf".to_owned())
     );
     assert_eq!(
         named(Some("attachment; filename=\"%E8%AC%9B.pdf\""), page, pdf),
@@ -121,44 +119,5 @@ fn without_a_disposition_the_url_and_type_name_the_file() {
             Some("application/octet-stream")
         ),
         "data.bin"
-    );
-}
-
-#[test]
-fn names_are_plain_and_bounded() {
-    let pdf = "application/pdf";
-    assert_eq!(
-        plain_name("LAIIAssignment1.pdf", pdf),
-        "LAIIAssignment1.pdf"
-    );
-    assert_eq!(plain_name("../../etc/passwd", pdf), "_.._etc_passwd.pdf");
-    assert_eq!(plain_name("..hidden.pdf", pdf), "hidden.pdf");
-    assert_eq!(plain_name("a\u{0}b\nc.pdf", pdf), "abc.pdf");
-    assert_eq!(plain_name("C:\\x\\講義.pdf", pdf), "C__x_講義.pdf");
-    assert_eq!(plain_name("Slides", pdf), "Slides.pdf");
-    assert_eq!(plain_name("Slides.PDF", pdf), "Slides.PDF");
-    assert_eq!(plain_name(" .. ", pdf), "download.pdf");
-    assert_eq!(plain_name("", "application/zip"), "download");
-    assert_eq!(plain_name("notes.txt", "text/plain"), "notes.txt");
-    let long = plain_name(&format!("{}.pdf", "講".repeat(400)), pdf);
-    assert!(long.len() <= NAME_LIMIT, "{}", long.len());
-    assert!(long.ends_with("講.pdf"));
-}
-
-#[test]
-fn unique_names_number_before_the_extension() {
-    assert_eq!(
-        name_candidates("Report.final.pdf")
-            .take(3)
-            .collect::<Vec<_>>(),
-        [
-            "Report.final.pdf",
-            "Report.final (1).pdf",
-            "Report.final (2).pdf"
-        ]
-    );
-    assert_eq!(
-        name_candidates("README").nth(1).as_deref(),
-        Some("README (1)")
     );
 }
