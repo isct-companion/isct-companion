@@ -193,6 +193,9 @@
 .lmsViewerBody > .webNotice { margin: 8px 8px 0; }
 
 .lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
+/* Leave room to scroll and zoom when the image follows a long description. */
+.lmsFileDocument:has(> .lmsAttachmentPreview > .lmsImageViewer) { height: 100%; }
+.lmsAttachmentPreview:has(> .lmsImageViewer) { flex: 1; min-height: 50%; }
 .lmsLoading { padding: 40px 20px; text-align: center; }
 
 /* Files the pane cannot show: one panel, one primary action. */
@@ -228,8 +231,6 @@
 .lmsFileActions[data-layout="menu"] > .uiMenuItem:hover { color: var(--accent) !important; background: var(--accent-soft); }
 .lmsFileActions[data-layout="menu"] .lmsToolLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lmsFileActions[data-layout="menu"] svg { flex: 0 0 auto; }
-.lmsImageStage.actual { display: block; overflow: auto; }
-.lmsImageStage.actual .lmsImagePreview { max-width: none; max-height: none; cursor: zoom-out; }
 .lmsMediaPreview { display: block; width: 100%; max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; border-radius: var(--radius-control); background: black; box-shadow: var(--shadow); }
 .lmsAudioStage { padding: 32px 24px; }
 .lmsAudioStage audio { width: 100%; }

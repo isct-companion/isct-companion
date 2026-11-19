@@ -4,11 +4,7 @@ use super::cache::{
 use super::remote::{present_all, RemoteDocument, RemoteSubject};
 use super::*;
 use crate::locale::ContentLanguage;
-use sha2::{Digest, Sha256};
-use std::{
-    collections::{BTreeMap, HashSet},
-    path::{Path, PathBuf},
-};
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,20 +177,7 @@ struct ReadUrl {
     url: String,
 }
 
-pub(super) fn account_folder(folder: &Path, uid: &str) -> PathBuf {
-    folder.join(key(uid))
-}
-
-fn key(value: &str) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(value.as_bytes()))
-}
-
 impl ExamShare {
-    pub(super) fn account_folder(&self, uid: &str) -> PathBuf {
-        account_folder(&self.folder, uid)
-    }
-
     async fn subject_details(
         &self,
         session: &mut Session,
@@ -421,7 +404,7 @@ impl ExamShare {
             .ok_or(ExamError::SignedOut)?
             .uid
             .clone();
-        erase(&self.account_folder(&uid).join(key(id))).await?;
+        erase(&self.document_folder(&uid, id)).await?;
         self.library(session, language).await
     }
 
@@ -459,7 +442,7 @@ impl ExamShare {
             .ok_or(ExamError::SignedOut)?
             .uid
             .clone();
-        erase(&self.account_folder(&uid).join(key(id))).await?;
+        erase(&self.document_folder(&uid, id)).await?;
         self.library(session, language).await
     }
 
@@ -637,7 +620,7 @@ impl ExamShare {
         let exam: Result<OneExam, _> = self.call(session, request).await;
         let saved = session.saved.as_ref().ok_or(ExamError::SignedOut)?;
         let registered = saved.registered;
-        let base = self.account_folder(&saved.uid).join(key(id));
+        let base = self.document_folder(&saved.uid, id);
         let cached = cache_file(&base).await?;
         let remote = match exam {
             Ok(OneExam { exam: Some(remote) }) if remote.document.id == id => remote,

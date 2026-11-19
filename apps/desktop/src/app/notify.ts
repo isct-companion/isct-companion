@@ -32,7 +32,8 @@ export const notify = {
       changedItems = 0;
     }, 600);
   },
-  info: (message: string) => show(message),
+  info: (message: string, action?: { label: string; run: () => void }) =>
+    show(message, action),
   /** A finished change with a button that reverses it. */
   undoable: (message: string, undo: () => void) =>
     show(message, { label: t("common.undo"), run: undo }),

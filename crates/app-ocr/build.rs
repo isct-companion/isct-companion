@@ -25,6 +25,8 @@ fn main() {
     };
     if let Some((format, file)) = backend.filter(|_| engine) {
         println!("cargo::rustc-cfg=matrix_ocr");
+        // The adapter uses this decision for its tests and examples too.
+        println!("cargo::metadata=matrix_ocr=1");
         println!("cargo::rerun-if-env-changed=ISCT_MATRIX_ALPHABET_MODEL");
         let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo output"));
         let model = std::env::var_os("ISCT_MATRIX_ALPHABET_MODEL")

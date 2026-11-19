@@ -144,7 +144,6 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                 site: SchoolSite::ScienceLms,
                 state: SchoolDownloadState::Done,
                 name: "notes.pdf".into(),
-                url: None,
                 path: Some("/Downloads/notes.pdf".into()),
             }),
             "school-download",

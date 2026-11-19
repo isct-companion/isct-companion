@@ -474,7 +474,7 @@ ol.examUploadFiles {
 
 .examDocumentText {
   margin: 0;
-  padding: 12px;
+  padding: var(--workspace-gutter);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

@@ -271,16 +271,9 @@ pub async fn open_course_file(
     path: String,
     reveal: bool,
 ) -> Result<(), CommandError> {
-    use tauri_plugin_opener::OpenerExt;
     crate::require_local_main(&webview)?;
     let path = stored_file(&app, &path)?;
-    if reveal {
-        app.opener().reveal_item_in_dir(&path).map_err(shell)
-    } else {
-        app.opener()
-            .open_path(path.to_string_lossy(), None::<&str>)
-            .map_err(shell)
-    }
+    crate::downloads::show_file(&app, &path, reveal)
 }
 /// Remove downloaded course files not opened for `days` days. Notes are kept.
 #[tauri::command]

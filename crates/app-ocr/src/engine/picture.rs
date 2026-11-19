@@ -6,9 +6,7 @@
 //! keyframes Core asks for.
 use super::{decode_image, grid};
 use crate::MatrixOcrError;
-use app_core::matrix_scan::{
-    MatrixAnalysis, MatrixFullLuma, MatrixPicture, MatrixYuvFrame, MatrixYuvMatrix,
-};
+use crate::{MatrixAnalysisImage, MatrixFullLuma, MatrixPicture, MatrixYuvFrame, MatrixYuvMatrix};
 use image::{imageops::FilterType, GrayImage, Luma, RgbImage};
 
 /// Long side of the luma the cells are cut from (`KEYFRAME_SIDE` in the
@@ -30,8 +28,8 @@ fn scaled(image: &RgbImage, side: u32) -> Option<RgbImage> {
         .map(|(w, h)| image::imageops::resize(image, w, h, FilterType::Triangle))
 }
 
-fn analysis(image: &RgbImage) -> MatrixAnalysis {
-    MatrixAnalysis {
+fn analysis(image: &RgbImage) -> MatrixAnalysisImage {
+    MatrixAnalysisImage {
         width: image.width(),
         height: image.height(),
         luma: image
@@ -239,7 +237,7 @@ fn resample(
 /// sign of R−G, which this order preserves up to rounding.
 pub fn matrix_analysis_from_yuv(
     frame: &MatrixYuvFrame<'_>,
-) -> Result<MatrixAnalysis, MatrixOcrError> {
+) -> Result<MatrixAnalysisImage, MatrixOcrError> {
     let yuv = Yuv::new(frame)?;
     let (w, h) = (frame.width, frame.height);
     let (cw, ch) = scaled_size(w, h, KEYFRAME_SIDE).unwrap_or((w, h));
@@ -259,7 +257,7 @@ pub fn matrix_analysis_from_yuv(
         analysis_luma.push(grid::luma(r, g, b));
         chroma.push(grid::chroma(r, g));
     }
-    Ok(MatrixAnalysis {
+    Ok(MatrixAnalysisImage {
         width: size.0,
         height: size.1,
         luma: analysis_luma,
@@ -300,3 +298,7 @@ pub fn matrix_full_luma_from_yuv(
         luma,
     })
 }
+
+#[cfg(test)]
+#[path = "../tests/engine__picture.rs"]
+mod tests;

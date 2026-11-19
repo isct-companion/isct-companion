@@ -31,6 +31,7 @@ pub mod course_query;
 pub mod data;
 pub mod deadlines;
 pub mod diagnostics;
+pub mod download_names;
 pub mod downloads;
 pub mod error_code;
 pub mod events;

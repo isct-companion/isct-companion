@@ -11,9 +11,9 @@
     )
 )]
 
+mod picture;
 mod recognition;
-mod vision;
-pub use vision::matrix_vision;
+pub use picture::{MatrixFullLuma, MatrixPicture, MatrixYuvFrame, MatrixYuvMatrix};
 
 #[cfg(matrix_ocr)]
 mod engine;
@@ -168,21 +168,19 @@ pub fn capture_matrix_keyframe(
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
-pub fn matrix_picture(
-    _bytes: &[u8],
-) -> Result<app_core::matrix_scan::MatrixPicture, MatrixOcrError> {
+pub fn matrix_picture(_bytes: &[u8]) -> Result<MatrixPicture, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
 pub fn matrix_analysis_from_yuv(
-    _frame: &app_core::matrix_scan::MatrixYuvFrame<'_>,
-) -> Result<app_core::matrix_scan::MatrixAnalysis, MatrixOcrError> {
+    _frame: &MatrixYuvFrame<'_>,
+) -> Result<MatrixAnalysisImage, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
 pub fn matrix_full_luma_from_yuv(
-    _frame: &app_core::matrix_scan::MatrixYuvFrame<'_>,
-) -> Result<app_core::matrix_scan::MatrixFullLuma, MatrixOcrError> {
+    _frame: &MatrixYuvFrame<'_>,
+) -> Result<MatrixFullLuma, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]

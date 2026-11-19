@@ -50,7 +50,7 @@ pub(super) struct RemoteDocument {
     variant: String,
     role: Option<String>,
     note: Option<String>,
-    file_name: String,
+    pub(super) file_name: String,
     pub(super) file_type: String,
 }
 

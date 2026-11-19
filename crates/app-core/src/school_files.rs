@@ -2,6 +2,7 @@
 //! Core answers, and the name the file is saved under. The download itself is
 //! `Downloader::save_school_file`.
 
+use crate::download_names::{safe_name, split_extension};
 use percent_encoding::percent_decode;
 use std::{
     path::{Path, PathBuf},
@@ -9,7 +10,6 @@ use std::{
 };
 use url::Url;
 
-const NAME_LIMIT: usize = 200;
 /// A staged file the shell never collected (the app was killed between
 /// Core's save and the shell's move) is removed after this long.
 const STALE_STAGED: Duration = Duration::from_secs(24 * 60 * 60);
@@ -48,7 +48,7 @@ pub fn file_name(disposition: Option<&[u8]>, url: &Url, mime_type: Option<&str>)
         .map(|value| value.trim().to_ascii_lowercase())
         .unwrap_or_default();
     if let Some(name) = disposition.and_then(disposition_name) {
-        return plain_name(&name, &mime);
+        return safe_name(&name, &mime);
     }
     let segment = url
         .path_segments()
@@ -72,7 +72,7 @@ pub fn file_name(disposition: Option<&[u8]>, url: &Url, mime_type: Option<&str>)
         }
         None => decoded.into_owned(),
     };
-    plain_name(&name, &mime)
+    safe_name(&name, &mime)
 }
 
 /// The filename a `Content-Disposition` value gives, if any. Header bytes
@@ -195,56 +195,6 @@ fn extensions(mime: &str) -> Option<&'static [&'static str]> {
         "video/mp4" => &["mp4"],
         _ => return None,
     })
-}
-
-/// A file name with no path, control characters or leading dots, at most 200
-/// bytes, and a PDF ending in `.pdf`.
-fn plain_name(suggested: &str, mime_type: &str) -> String {
-    let cleaned = suggested
-        .chars()
-        .filter(|character| !character.is_control())
-        .map(|character| {
-            if matches!(character, '/' | '\\' | ':') {
-                '_'
-            } else {
-                character
-            }
-        })
-        .collect::<String>();
-    let cleaned = cleaned.trim().trim_start_matches('.').trim_start();
-    let pdf = mime_type.eq_ignore_ascii_case("application/pdf");
-    let mut name = match cleaned {
-        "" if pdf => "download.pdf".to_string(),
-        "" => "download".to_string(),
-        cleaned => cleaned.to_string(),
-    };
-    if pdf && !name.to_ascii_lowercase().ends_with(".pdf") {
-        name.push_str(".pdf");
-    }
-    if name.len() <= NAME_LIMIT {
-        return name;
-    }
-    let (stem, extension) = split_extension(&name);
-    let mut keep = NAME_LIMIT.saturating_sub(extension.len());
-    while !stem.is_char_boundary(keep) {
-        keep -= 1;
-    }
-    format!("{}{extension}", stem[..keep].trim_end())
-}
-
-fn split_extension(name: &str) -> (&str, &str) {
-    match name.rfind('.') {
-        Some(index) if index > 0 && name.len() - index <= 16 => name.split_at(index),
-        _ => (name, ""),
-    }
-}
-
-/// `name`, then `name (1)`, `name (2)`, … before the extension, for a folder
-/// that already holds a file of that name.
-pub(crate) fn name_candidates(name: &str) -> impl Iterator<Item = String> + '_ {
-    let (stem, extension) = split_extension(name);
-    std::iter::once(name.to_string())
-        .chain((1..1000).map(move |number| format!("{stem} ({number}){extension}")))
 }
 
 /// Removes what an earlier process left in the staging directory: files the

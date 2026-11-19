@@ -1,36 +1,28 @@
 //! Desktop school-download handling: what school pages hand over, saved to
 //! Downloads and announced to the app.
 
+use crate::downloads::file_name;
+#[cfg(target_os = "macos")]
+use crate::downloads::write_unique;
+#[cfg(target_os = "macos")]
+use app_core::download_names::{name_candidates, safe_name};
 use app_core::{
     events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_browser::{download_permitted, restore_record},
+    school_browser::download_permitted,
 };
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-#[cfg(any(test, target_os = "macos"))]
-use std::{
-    fs::{self, OpenOptions},
-    io::{self, Write},
-};
 use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_opener::OpenerExt;
-
-// Naming and writing a file the app saves itself, which only WebKit's PDF
-// viewer and popups hand over; elsewhere the webview saves its own downloads.
-#[cfg(any(test, target_os = "macos"))]
-const DOWNLOAD_NAME_LIMIT: usize = 200;
 
 #[derive(Default)]
 struct DownloadState {
     pending: Vec<(String, PathBuf)>,
-    saved: HashSet<PathBuf>,
 }
 
 #[derive(Default)]
@@ -66,14 +58,7 @@ impl SchoolDownloads {
                     return false;
                 }
                 let name = file_name(destination);
-                emit_download(
-                    app,
-                    site,
-                    SchoolDownloadState::Started,
-                    name,
-                    restore_record(url.as_str()),
-                    None,
-                );
+                emit_download(app, site, SchoolDownloadState::Started, name, None);
                 true
             }
             DownloadEvent::Finished { url, success, .. } => {
@@ -110,21 +95,14 @@ impl SchoolDownloads {
             return;
         }
 
-        let name = download_file_name(&saved.suggested_name, &saved.mime_type);
+        let name = safe_name(&saved.suggested_name, &saved.mime_type);
         let Ok(directory) = app.path().download_dir() else {
-            emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
+            emit_download(app, site, SchoolDownloadState::Failed, name, None);
             return;
         };
         // The viewer hands the bytes over at once; the write is still a save
         // the person started, announced like any other.
-        emit_download(
-            app,
-            site,
-            SchoolDownloadState::Started,
-            name.clone(),
-            None,
-            None,
-        );
+        emit_download(app, site, SchoolDownloadState::Started, name.clone(), None);
         let app = app.clone();
         let failed_app = app.clone();
         let downloads = self.clone();
@@ -134,7 +112,7 @@ impl SchoolDownloads {
         let _runtime_guard = runtime.inner().enter();
         let spawned = self.0.tasks.spawn(async move {
             let written = match tokio::task::spawn_blocking(move || {
-                write_unique(&directory, &name, &saved.bytes)
+                write_unique(&directory, &name, saved.bytes.as_slice())
             })
             .await
             {
@@ -162,7 +140,6 @@ impl SchoolDownloads {
                 SchoolDownloadState::Failed,
                 failed_name,
                 None,
-                None,
             );
         }
     }
@@ -182,8 +159,8 @@ impl SchoolDownloads {
             return None;
         }
         let directory = app.path().download_dir().ok()?;
-        let name = download_file_name(suggested, "");
-        let path = download_candidates(&name)
+        let name = safe_name(suggested, "");
+        let path = name_candidates(&name)
             .map(|candidate| directory.join(candidate))
             .find(|path| !path.exists())?;
         emit_download(
@@ -191,7 +168,6 @@ impl SchoolDownloads {
             site,
             SchoolDownloadState::Started,
             file_name(&path),
-            url.and_then(|url| restore_record(url.as_str())),
             None,
         );
         Some(path)
@@ -209,26 +185,6 @@ impl SchoolDownloads {
         self.finish(app, site, name, saved.then_some(path));
     }
 
-    /// Shows a file saved from a school page this session in Finder. Unknown
-    /// paths are refused.
-    pub(crate) fn reveal(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
-        let path = PathBuf::from(path);
-        let known = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| "School download state is unavailable.")?
-            .saved
-            .contains(&path);
-        if !known {
-            return Ok(false);
-        }
-        app.opener()
-            .reveal_item_in_dir(&path)
-            .map(|_| true)
-            .map_err(|_| "The file could not be shown. It may have been moved.".into())
-    }
-
     pub(crate) async fn shutdown(&self) {
         self.0.tasks.close();
         self.0.tasks.wait().await;
@@ -240,21 +196,17 @@ impl SchoolDownloads {
     fn finish(&self, app: &AppHandle, site: SchoolSite, name: String, saved: Option<PathBuf>) {
         match saved {
             Some(path) => {
-                if let Ok(mut state) = self.0.state.lock() {
-                    state.saved.insert(path.clone());
+                if let Err(error) = app
+                    .state::<crate::downloads::Downloads>()
+                    .finished(path.clone())
+                {
+                    log::error!("[school-download] could not register saved file: {error:?}");
+                    emit_download(app, site, SchoolDownloadState::Failed, name, None);
+                    return;
                 }
-                #[cfg(target_os = "macos")]
-                bounce_downloads_stack(&path);
-                emit_download(
-                    app,
-                    site,
-                    SchoolDownloadState::Done,
-                    name,
-                    None,
-                    Some(&path),
-                );
+                emit_download(app, site, SchoolDownloadState::Done, name, Some(&path));
             }
-            None => emit_download(app, site, SchoolDownloadState::Failed, name, None, None),
+            None => emit_download(app, site, SchoolDownloadState::Failed, name, None),
         }
     }
 }
@@ -264,7 +216,6 @@ fn emit_download(
     site: SchoolSite,
     state: SchoolDownloadState,
     name: String,
-    url: Option<String>,
     path: Option<&Path>,
 ) {
     match state {
@@ -278,23 +229,9 @@ fn emit_download(
             site,
             state,
             name,
-            url,
             path: path.and_then(Path::to_str).map(str::to_string),
         },
     ));
-}
-
-/// The system's own sign that a download finished: the Downloads stack in
-/// the Dock bounces, as it does for Safari and other browsers.
-#[cfg(target_os = "macos")]
-fn bounce_downloads_stack(path: &Path) {
-    use objc2_foundation::{NSDistributedNotificationCenter, NSString};
-    let name = NSString::from_str("com.apple.DownloadFileFinished");
-    let file = NSString::from_str(&path.to_string_lossy());
-    unsafe {
-        NSDistributedNotificationCenter::defaultCenter()
-            .postNotificationName_object(&name, Some(&file));
-    }
 }
 
 fn safe_file_name(name: &str) -> bool {
@@ -313,83 +250,6 @@ fn download_destination_ok(destination: &Path, download_dir: &Path) -> bool {
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(safe_file_name)
-}
-
-#[cfg(any(test, target_os = "macos"))]
-fn split_extension(name: &str) -> (&str, &str) {
-    match name.rfind('.') {
-        Some(index) if index > 0 && name.len() - index <= 16 => name.split_at(index),
-        _ => (name, ""),
-    }
-}
-
-#[cfg(any(test, target_os = "macos"))]
-fn download_file_name(suggested: &str, mime_type: &str) -> String {
-    let cleaned = suggested
-        .chars()
-        .filter(|character| !character.is_control())
-        .map(|character| {
-            if matches!(character, '/' | '\\' | ':') {
-                '_'
-            } else {
-                character
-            }
-        })
-        .collect::<String>();
-    let cleaned = cleaned.trim().trim_start_matches('.').trim_start();
-    let pdf = mime_type.eq_ignore_ascii_case("application/pdf");
-    let mut name = match cleaned {
-        "" if pdf => "download.pdf".to_string(),
-        "" => "download".to_string(),
-        cleaned => cleaned.to_string(),
-    };
-    if pdf && !name.to_ascii_lowercase().ends_with(".pdf") {
-        name.push_str(".pdf");
-    }
-    if name.len() <= DOWNLOAD_NAME_LIMIT {
-        return name;
-    }
-    let (stem, extension) = split_extension(&name);
-    let mut keep = DOWNLOAD_NAME_LIMIT.saturating_sub(extension.len());
-    while !stem.is_char_boundary(keep) {
-        keep -= 1;
-    }
-    format!("{}{extension}", stem[..keep].trim_end())
-}
-
-#[cfg(any(test, target_os = "macos"))]
-fn download_candidates(name: &str) -> impl Iterator<Item = String> + '_ {
-    let (stem, extension) = split_extension(name);
-    std::iter::once(name.to_string())
-        .chain((1..1000).map(move |number| format!("{stem} ({number}){extension}")))
-}
-
-#[cfg(any(test, target_os = "macos"))]
-fn write_unique(directory: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
-    for candidate in download_candidates(name) {
-        let path = directory.join(candidate);
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut file) => {
-                if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
-                    let _ = fs::remove_file(&path);
-                    return Err(error);
-                }
-                return Ok(path);
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "no free file name",
-    ))
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

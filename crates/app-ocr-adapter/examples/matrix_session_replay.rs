@@ -235,7 +235,7 @@ mod replay {
         std::fs::create_dir_all(&out)?;
         let cache = flag("--cache").map_or_else(|| out.join("frames.yuv"), PathBuf::from);
         let mut video = Video::open(Path::new(&video_path), &cache)?;
-        let vision = app_ocr::matrix_vision();
+        let vision = app_ocr_adapter::matrix_vision();
         let warm = Instant::now();
         vision.warm_up()?;
         let warm_ms = warm.elapsed().as_secs_f64() * 1000.;
