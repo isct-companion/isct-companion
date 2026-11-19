@@ -846,6 +846,12 @@ export type ExamLocalDocument = {
    * This document on the ScienceTokyoExam website.
    */
   webUrl: string;
+  /**
+   * The file name a saved or shared copy takes: the uploader's name, with
+   * the validated type's suffix when its own extension is not one that
+   * type allows. The cached file at `path` has a generated name.
+   */
+  exportName: string;
 };
 
 export type ExamLibrary = {

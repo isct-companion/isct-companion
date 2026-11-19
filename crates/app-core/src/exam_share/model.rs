@@ -144,6 +144,10 @@ pub struct ExamLocalDocument {
     pub offline: bool,
     /// This document on the ScienceTokyoExam website.
     pub web_url: String,
+    /// The file name a saved or shared copy takes: the uploader's name, with
+    /// the validated type's suffix when its own extension is not one that
+    /// type allows. The cached file at `path` has a generated name.
+    pub export_name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

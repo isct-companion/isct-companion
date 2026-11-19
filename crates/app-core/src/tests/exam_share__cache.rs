@@ -112,9 +112,11 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     let folder = current.parent().unwrap();
     assert_eq!(export_name(folder, &current).await.unwrap(), "current.MD");
     let cached = cache_file(folder).await.unwrap().unwrap();
-    local(folder, cached, true, None, ContentLanguage::En)
+    // Every shell saves or shares the opened copy under the same name.
+    let opened_copy = local(folder, cached, true, None, ContentLanguage::En)
         .await
         .unwrap();
+    assert_eq!(opened_copy.export_name, "current.MD");
     clean_root(&root.0, now + Duration::from_secs(2 * 86_400)).unwrap();
 
     assert!(
