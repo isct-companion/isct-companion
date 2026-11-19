@@ -54,28 +54,34 @@ class SchoolDownloads(private val context: Context) {
     }
 
     /** Copies a staged file into Downloads and removes it from staging. */
-    private fun publish(file: File, name: String, mimeType: String): Boolean {
-        val resolver = context.contentResolver
-        val pending = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, name)
-            put(MediaStore.Downloads.MIME_TYPE, mimeType)
-            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }
+    private fun publish(file: File, name: String, mimeType: String): Boolean =
         try {
-            val uri = runCatching { resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, pending) }.getOrNull()
-                ?: return false
-            val copied = runCatching {
-                resolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
-                    ?: error("no output stream")
-                resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
-            }.isSuccess
-            if (!copied) resolver.delete(uri, null, null)
-            return copied
+            copyToDownloads(context, file, name, mimeType)
         } finally {
             file.delete()
         }
-    }
 
     private fun notice(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+}
+
+/** Copies `file` into the public Downloads folder as `name`, leaving the
+ * source alone; MediaStore numbers a name that is taken. Call off the main
+ * thread. */
+fun copyToDownloads(context: Context, file: File, name: String, mimeType: String): Boolean {
+    val resolver = context.contentResolver
+    val pending = ContentValues().apply {
+        put(MediaStore.Downloads.DISPLAY_NAME, name)
+        put(MediaStore.Downloads.MIME_TYPE, mimeType)
+        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        put(MediaStore.Downloads.IS_PENDING, 1)
+    }
+    val uri = runCatching { resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, pending) }.getOrNull()
+        ?: return false
+    val copied = runCatching {
+        resolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
+            ?: error("no output stream")
+        resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+    }.isSuccess
+    if (!copied) resolver.delete(uri, null, null)
+    return copied
 }

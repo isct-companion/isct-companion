@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.webkit.MimeTypeMap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,6 +81,7 @@ import app.isctcompanion.core.ExamSet
 import app.isctcompanion.core.ExamSubjectPage
 import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadStart
+import app.isctcompanion.core.copyToDownloads
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
@@ -271,11 +273,27 @@ fun ExamDocumentScreen(id: String) {
     var file by remember(id) { mutableStateOf<ExamLocalDocument?>(null) }
     var menu by remember { mutableStateOf(false) }
     var reporting by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    /** Core's own copy, kept for the reader and offline use, has a generated
+     * name in app storage; a download is a copy in Downloads under the
+     * uploader's name. MIME follows that name's extension so MediaStore keeps
+     * it (a Markdown upload is text/plain on the site). */
+    suspend fun saveCopy(opened: ExamLocalDocument) {
+        val extension = opened.exportName.substringAfterLast('.', "").lowercase()
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?: opened.document.fileType
+        val saved = withContext(Dispatchers.IO) {
+            copyToDownloads(context, File(opened.path), opened.exportName, mimeType)
+        }
+        ExamViews.notice = if (saved) t("app.savedName", "name" to opened.exportName)
+        else t("lmsFile.theFileCouldNotBeDownloaded")
+    }
 
     suspend fun open(download: Boolean = false) {
         (calls.call(ExamAction.Open(id, download)) as? ExamAnswer.Document)?.v1?.let {
             file = it
-            if (download) ExamViews.notice = t("examShare.downloaded")
+            if (download) saveCopy(it)
         }
     }
     LaunchedEffect(id) { open() }
@@ -290,9 +308,17 @@ fun ExamDocumentScreen(id: String) {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, t("examShare.more")) }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem(
-                            { Text(t(if (current.downloaded) "examShare.downloaded" else "examShare.download")) },
-                            { menu = false; scope.launch { open(download = true) } },
-                            enabled = !calls.busy && !current.downloaded && !current.offline,
+                            { Text(t("examShare.download")) },
+                            {
+                                menu = false
+                                // A kept or offline copy is already here: only
+                                // the Downloads copy is made, without the site.
+                                scope.launch {
+                                    if (current.downloaded || current.offline) saveCopy(current)
+                                    else open(download = true)
+                                }
+                            },
+                            enabled = !calls.busy,
                         )
                         current.saved?.let { saved ->
                             DropdownMenuItem(
