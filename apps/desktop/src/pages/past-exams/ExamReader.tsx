@@ -11,7 +11,6 @@ import { notify } from "../../app/notify";
 import { notifyDownload } from "../../components/DownloadNotice";
 import { ErrorBanner, Skeleton, Tag } from "../../components/ui";
 import { localFileUrl } from "../../features/lms/files";
-import { normalizeMathDelimiters } from "../../features/lms/markdown-math";
 import { ImageView } from "../../features/lms/ImageView";
 import { ReaderPane, ReaderTools } from "../../features/lms/ReaderPane";
 import type {
@@ -23,10 +22,8 @@ import type {
 import { t } from "../../i18n";
 import { ReportDialog } from "./ExamDialogs";
 
-const MarkdownDocument = lazy(() =>
-  import("../../features/lms/MarkdownDocument").then((m) => ({
-    default: m.MarkdownDocument,
-  })),
+const ExamMarkdown = lazy(() =>
+  import("./ExamMarkdown").then((m) => ({ default: m.ExamMarkdown })),
 );
 /** The site stores Markdown as text/plain; the uploaded name tells it apart. */
 const isMarkdown = (fileName: string) => /\.(md|markdown)$/i.test(fileName);
@@ -231,7 +228,7 @@ function PlainTextPreview({
   if (text === undefined) return <Skeleton count={6} />;
   return markdown ? (
     <Suspense fallback={<Skeleton count={6} />}>
-      <MarkdownDocument value={normalizeMathDelimiters(text)} />
+      <ExamMarkdown text={text} />
     </Suspense>
   ) : (
     <pre className="examDocumentText">{text}</pre>

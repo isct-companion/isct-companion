@@ -936,9 +936,9 @@ describe("Live Matrix camera ownership", () => {
 
 describe("math delimiters in a read-only Markdown document", () => {
   async function normalize(lines: string[]) {
-    const { normalizeMathDelimiters } =
+    const { readableMarkdown } =
       await import("@app/features/lms/markdown-math");
-    return normalizeMathDelimiters(lines.join("\n")).split("\n");
+    return readableMarkdown(lines.join("\n")).split("\n");
   }
 
   it("turns \\( \\) into inline math and \\[ \\] into a display block", async () => {
@@ -993,8 +993,10 @@ describe("math delimiters in a read-only Markdown document", () => {
       "$$",
       "",
       "$$",
+      "\\begin{gathered}",
       "x \\rightarrow x^{\\prime} \\\\",
       "v \\rightarrow v^{\\prime}",
+      "\\end{gathered}",
       "$$",
       "",
       "where $\\alpha$ and $\\beta_0$ are constants.",
@@ -1002,6 +1004,49 @@ describe("math delimiters in a read-only Markdown document", () => {
       "$$",
       "\\frac{a}{b}",
       "$$",
+    ]);
+  });
+
+  it("keeps a doubled \\\\ that starts a line as the line break it lays out", async () => {
+    expect(
+      await normalize([
+        "$$",
+        "t \\\\rightarrow t^{\\\\prime} := t",
+        "\\\\x \\\\rightarrow x^{\\\\prime}(t^{\\\\prime}) := x(t) + x_0",
+        "\\\\v \\\\rightarrow v^{\\\\prime}(t^{\\\\prime}) := v(t)",
+        "$$",
+      ]),
+    ).toEqual([
+      "$$",
+      "\\begin{gathered}",
+      "t \\rightarrow t^{\\prime} := t",
+      "\\\\ x \\rightarrow x^{\\prime}(t^{\\prime}) := x(t) + x_0",
+      "\\\\ v \\rightarrow v^{\\prime}(t^{\\prime}) := v(t)",
+      "\\end{gathered}",
+      "$$",
+    ]);
+  });
+
+  it("drops a page's MathJax script and reads its doubled inline math", async () => {
+    expect(
+      await normalize([
+        '<script type="text/javascript" async src="https://example.test/mathjax.js">',
+        "</script>",
+        '<script type="text/x-mathjax-config">',
+        "MathJax.Hub.Config({ tex2jax: { inlineMath: [['$', '$']] } });",
+        "</script>",
+        "",
+        "**Final 2026**",
+        "",
+        "* (4) is $$\\\\frac{d^2 x}{dt^2}-2a\\\\frac{dx}{dt}=te^{at}$$ now.",
+        "* $\\\\bold{F_2}(\\\\bold{r})$ and $U_i$ swapped.",
+      ]),
+    ).toEqual([
+      "",
+      "**Final 2026**",
+      "",
+      "* (4) is $$\\frac{d^2 x}{dt^2}-2a\\frac{dx}{dt}=te^{at}$$ now.",
+      "* $\\bold{F_2}(\\bold{r})$ and $U_i$ swapped.",
     ]);
   });
 

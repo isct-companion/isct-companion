@@ -1,25 +1,30 @@
+import katex from "katex";
+
 /**
- * Rewrites a Markdown document's math into the `$…$` / `$$…$$` forms the
- * Markdown viewer renders with KaTeX.
+ * Prepares a shared Markdown document for reading: its math in the `$…$` /
+ * `$$…$$` forms the Markdown viewer renders with KaTeX, and nothing that only
+ * a web page would run.
  *
  * Shared documents (past exams above all) are often written for a page that
- * runs Markdown first and MathJax after it, so they use `\(…\)` and `\[…\]`,
- * or double every backslash (`\\(`, `\\rightarrow`) for Markdown to halve.
- * Read as standard Markdown, the first show as raw source and the second set
- * `\\` as a line break and the command name as italic letters. Both are
- * rewritten here: the delimiters become `$` math, and a formula whose every
- * command is written with a doubled backslash gets its backslashes halved.
+ * runs Markdown first and MathJax after it. They use `\(…\)` and `\[…\]`,
+ * double backslashes for Markdown to halve (`\\rightarrow`), and may start
+ * with a `<script>` that loads MathJax. Read as standard Markdown, the
+ * delimiters show as raw source, KaTeX sets `\\` as a line break and the
+ * command name as italic letters, and the script shows as text. Here the
+ * delimiters become `$` math, a formula written with doubled backslashes is
+ * undoubled (see `undoubleBackslashes`), and `<script>`/`<style>` blocks are
+ * dropped.
  *
- * A display formula on lines of its own, whether `\[…\]`, `$$…$$` on one line,
- * or a `$$` fence inside a paragraph, becomes a fenced `$$` block set apart by
- * blank lines, so it is set as a centred block instead of inline text. Fenced
- * code, indented code and inline code are left as written.
+ * A display formula on lines of its own, whether `\[…\]`, `$$…$$` on one
+ * line, or a `$$` fence inside a paragraph, becomes a fenced `$$` block set
+ * apart by blank lines, so it is set as a centred block instead of inline
+ * text. Fenced code, indented code and inline code are left as written.
  *
  * Meant for documents shown read-only: an editor would save the rewritten
- * math back into the user's file.
+ * text back into the user's file.
  */
-export function normalizeMathDelimiters(markdown: string): string {
-  if (!/\\[([]|\$/.test(markdown)) return markdown;
+export function readableMarkdown(markdown: string): string {
+  if (!/\\[([]|\$|<(?:script|style)\b/i.test(markdown)) return markdown;
   const lines = markdown.split(/\r?\n/);
   const out: string[] = [];
   let chunk: string[] = [];
@@ -38,7 +43,9 @@ export function normalizeMathDelimiters(markdown: string): string {
   const block = (indent: string, body: string[]) => {
     flush();
     if (out.length && out[out.length - 1].trim() !== "") out.push("");
-    const formula = undoubleBackslashes(body.map((l) => l.trim()).join("\n"));
+    const formula = stackLines(
+      undoubleBackslashes(body.map((l) => l.trim()).join("\n")),
+    );
     out.push(
       `${indent}$$`,
       ...formula.split("\n").map((line) => indent + line),
@@ -68,6 +75,18 @@ export function normalizeMathDelimiters(markdown: string): string {
       flush();
       push(line);
       continue;
+    }
+    // A page's own <script> or <style> (MathJax's loader) is not content.
+    const tag = /^\s*<(script|style)\b/i.exec(line);
+    if (tag) {
+      const close = new RegExp(`</${tag[1]}\\s*>`, "i");
+      const end = lines.findIndex((l, i) => i >= index && close.test(l));
+      if (end >= index) {
+        flush();
+        index = end;
+        spaceAfter = out.length > 0;
+        continue;
+      }
     }
     const indent = /^\s*/.exec(line)![0];
     const text = line.trim();
@@ -130,10 +149,16 @@ export function normalizeMathDelimiters(markdown: string): string {
 }
 
 /**
- * Halves the backslashes of a formula written for Markdown to unescape:
- * every command has an even run of backslashes (`\\alpha`) and at least one
- * has exactly two. A formula with any single-backslash command is standard
- * LaTeX and stays as written, its `\\` line breaks included.
+ * Undoubles a formula written for Markdown to unescape: one whose every
+ * command has an even run of backslashes (`\\alpha`), at least one of exactly
+ * two. A formula with any single-backslash command is standard LaTeX and stays
+ * as written.
+ *
+ * In an undoubled formula `\\name` is the command `\name` when KaTeX knows
+ * it. Otherwise, or when a later line starts with it and the name is one
+ * letter (`\\v` there is not the caron accent), it is the line break `\\`
+ * before `name`, as the author laid the lines out. Other runs are halved,
+ * except that `\\` before a space or the end stays a line break.
  */
 export function undoubleBackslashes(formula: string): string {
   const commands = formula.match(/\\+(?=[A-Za-z])/g);
@@ -142,9 +167,49 @@ export function undoubleBackslashes(formula: string): string {
     commands.some((run) => run.length % 2 === 1)
   )
     return formula;
-  return formula.replace(/\\+/g, (run) =>
-    "\\".repeat(Math.ceil(run.length / 2)),
+  return formula.replace(
+    /(\\+)([A-Za-z]+)?/g,
+    (all: string, run: string, name: string | undefined, offset: number) => {
+      const half = "\\".repeat(Math.ceil(run.length / 2));
+      if (run.length !== 2) return half + (name ?? "");
+      if (!name) {
+        const after = formula[offset + 2];
+        return after === undefined || /\s/.test(after) ? run : half;
+      }
+      const lineStart =
+        offset > 0 && /\n[ \t]*$/.test(formula.slice(0, offset));
+      return knownCommand(name) && !(lineStart && name.length === 1)
+        ? `\\${name}`
+        : `\\\\ ${name}`;
+    },
   );
+}
+
+/**
+ * KaTeX sets a bare `\\` in a display formula but warns that LaTeX would
+ * ignore it; lines broken that way are stacked in `gathered`, centred as
+ * they were laid out.
+ */
+function stackLines(formula: string): string {
+  if (!/(?<!\\)\\\\(?!\\)/.test(formula) || /\\begin\{/.test(formula))
+    return formula;
+  return `\\begin{gathered}\n${formula}\n\\end{gathered}`;
+}
+
+const commandCache = new Map<string, boolean>();
+/** Whether KaTeX defines `\name`; one that only lacks its argument counts. */
+function knownCommand(name: string): boolean {
+  let known = commandCache.get(name);
+  if (known === undefined) {
+    try {
+      katex.renderToString(`\\${name}`, { throwOnError: true });
+      known = true;
+    } catch (error) {
+      known = !String(error).includes("Undefined control sequence");
+    }
+    commandCache.set(name, known);
+  }
+  return known;
 }
 
 /** `\(…\)` → `$…$` and `\[…\]` → `$$…$$` inside running text (also with
