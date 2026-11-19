@@ -121,6 +121,7 @@ import app.isctcompanion.features.web.WebPageScreen
 import app.isctcompanion.features.web.WebTabScreen
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import app.isctcompanion.design.PdfScreen
 
 /** Holds the one `AppModel` for the process, so it outlives activities. */
 class IsctApplication : Application() {
@@ -254,6 +255,10 @@ class Navigator(private val controller: NavHostController) {
     /** One request of the board, `mine` naming which board it was listed on. */
     fun openExamRequest(id: String, mine: Boolean) =
         controller.navigate("past-exams/request/${Uri.encode(id)}?mine=$mine")
+
+    /** A downloaded PDF in the app's reader. */
+    fun openPdf(path: String, title: String) =
+        controller.navigate("pdf?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
 
     /** Opens the campus map full screen, on a room string or on none to browse. */
     fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
@@ -525,6 +530,15 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 }
                 destination("assignments") { AssignmentListScreen() }
                 destination("record") { RecordScreen() }
+                destination(
+                    "pdf?path={path}&title={title}",
+                    listOf(
+                        navArgument("path") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) {
+                    PdfScreen(it.arguments?.getString("path").orEmpty(), it.arguments?.getString("title").orEmpty())
+                }
                 destination("map?room={room}", listOf(navArgument("room") { type = NavType.StringType; defaultValue = "" })) {
                     CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
                 }

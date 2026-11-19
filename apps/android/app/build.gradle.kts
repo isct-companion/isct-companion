@@ -126,8 +126,8 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.navigation:navigation-compose:2.10.2")
-    // Past exams: PDFs in the system's sandboxed renderer, with continuous
-    // scrolling, zoom and selection; PdfRenderer stays as the fallback.
+    // Every PDF the app shows (past exams, LMS files, hand-in thumbnails):
+    // a sandboxed renderer with continuous scrolling, zoom and selection.
     implementation("androidx.pdf:pdf-compose:1.0.0-beta01")
     implementation("androidx.pdf:pdf-document-service:1.0.0-beta01")
     // Photographing a paper exam: edge finding and straightening, run by

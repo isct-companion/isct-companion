@@ -4,10 +4,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.app.Activity
 import android.graphics.Bitmap
-import android.graphics.pdf.PdfRenderer
 import android.media.ThumbnailUtils
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -91,6 +89,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.isctcompanion.design.pdfFirstPage
 
 // The phones' hand-in (slotledger `approach/share-entry-points`), as on iOS: what was shared
 // into the app waits in `SharedInbox`; the person gives it to an assignment,
@@ -334,8 +333,10 @@ private fun copyOut(context: android.content.Context, uris: List<Uri>): List<Fil
  * type's icon. Drawn off the main thread. */
 @Composable
 fun Thumbnail(file: File, modifier: Modifier = Modifier, corner: Dp = 8.dp) {
+    val context = LocalContext.current
     val bitmap by produceState<Bitmap?>(null, file) {
-        value = withContext(Dispatchers.IO) { thumbnail(file) }
+        value = if (file.extension.equals("pdf", ignoreCase = true)) pdfFirstPage(context, file, THUMBNAIL.width)
+        else withContext(Dispatchers.IO) { thumbnail(file) }
     }
     Box(
         modifier.clip(RoundedCornerShape(corner)).background(Theme.colors.surface2),
@@ -347,21 +348,13 @@ fun Thumbnail(file: File, modifier: Modifier = Modifier, corner: Dp = 8.dp) {
     }
 }
 
+private val THUMBNAIL = Size(256, 320)
+
+/** An image's or a video's thumbnail; PDFs go through [pdfFirstPage]. */
 private fun thumbnail(file: File): Bitmap? = runCatching {
-    val size = Size(256, 320)
     when (file.extension.lowercase()) {
-        "jpg", "jpeg", "png", "heic", "heif", "webp", "gif" -> ThumbnailUtils.createImageThumbnail(file, size, null)
-        "mp4", "mov", "m4v" -> ThumbnailUtils.createVideoThumbnail(file, size, null)
-        "pdf" -> ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-            PdfRenderer(descriptor).use { pdf ->
-                pdf.openPage(0).use { page ->
-                    Bitmap.createBitmap(size.width, size.width * page.height / page.width, Bitmap.Config.ARGB_8888).also {
-                        it.eraseColor(android.graphics.Color.WHITE)
-                        page.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    }
-                }
-            }
-        }
+        "jpg", "jpeg", "png", "heic", "heif", "webp", "gif" -> ThumbnailUtils.createImageThumbnail(file, THUMBNAIL, null)
+        "mp4", "mov", "m4v" -> ThumbnailUtils.createVideoThumbnail(file, THUMBNAIL, null)
         else -> null
     }
 }.getOrNull()
