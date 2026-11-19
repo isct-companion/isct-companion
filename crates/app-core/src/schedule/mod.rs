@@ -1,5 +1,6 @@
 //! Calendar and schedule read models shared by every application shell.
 
+mod agenda_layout;
 pub mod alternation;
 mod calendar;
 mod civil;
@@ -62,13 +63,14 @@ pub(crate) use exams::{
 };
 pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
+#[cfg(test)]
+pub(crate) use occurrence::occurrences_on_date;
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
-    course_terms, course_timeline, intensive_days, occurrences_on_date, planning_week,
-    resolve_day_agenda, schedule_problems, scheduled_courses, term_courses,
-    validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline, EventCarryOver,
-    GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek, ScheduleProblem,
-    ScheduleProblemKind, SessionMark,
+    course_terms, course_timeline, intensive_days, planning_week, resolve_day_agenda,
+    schedule_problems, scheduled_courses, term_courses, validate_academic_profile, AgendaOptions,
+    CourseConflict, CourseTimeline, EventCarryOver, GridSlot, Occurrence, OccurrenceKind,
+    PlanningDay, PlanningWeek, ScheduleProblem, ScheduleProblemKind, SessionMark,
 };
 pub use range::calendar_between;
 pub(crate) use reminders::ReminderChanges;
@@ -638,19 +640,13 @@ pub fn query(
             let term_id = term.to_string();
             let overview = workspace_overview(workspace, school, &term_id)?;
             let courses = overview.courses.clone();
-            let mut agendas = calendar_between(workspace, school, &from, &to)?;
-            if !include_personal {
-                let periods = teaching_periods(workspace)?;
-                for agenda in &mut agendas {
-                    agenda.occurrences.retain(|block| {
-                        matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
-                    });
-                    agenda.occurrences = occurrence::finalize_agenda(
-                        std::mem::take(&mut agenda.occurrences),
-                        &periods,
-                    )?;
-                }
-            }
+            let agendas = range::calendar_between_with_personal(
+                workspace,
+                school,
+                &from,
+                &to,
+                include_personal,
+            )?;
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
                 term: term.to_string(),
                 range: overview.range,

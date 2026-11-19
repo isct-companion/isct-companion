@@ -4,6 +4,7 @@
 //! record, so a later source correction still reaches every field the user did
 //! not change. The course link is stored beside those fields but edited apart.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use super::occurrence::{key_date, CourseSessions};
 use super::SchoolReads;
 use super::{
     array, clock_for_periods, display_color, teaching_periods, term_courses, text, visible,
@@ -12,6 +13,7 @@ use super::{
 use crate::locale::{pick, ContentLanguage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use std::collections::{BTreeSet, HashMap};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
@@ -133,7 +135,7 @@ pub(crate) fn corrected_exam_override(
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
     let Ok(view) = published_source(workspace, school, key) else {
-        return corrected_session_override(workspace, school, key, correction);
+        return corrected_session_override(workspace, key, correction);
     };
     let source = &view.source;
     let mut row = override_base(workspace, school, key, &view);
@@ -167,20 +169,14 @@ pub(crate) fn corrected_exam_override(
 /// fields move that session, and the mark stays.
 fn corrected_session_override(
     workspace: &Value,
-    school: &SchoolReads,
     key: &str,
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
     let view = existing_override(workspace, key)
-        .and_then(|change| session_term(workspace, change))
-        .and_then(|term| {
-            session_exam_views(
-                workspace,
-                &term,
-                &published_exam_views(workspace, school, &term),
-            )
-            .into_iter()
-            .find(|view| view.key == key)
+        .and_then(|change| {
+            let term = session_term(workspace, change)?;
+            let sessions = CourseSessions::new(workspace, &term, None).ok()?;
+            session_exam_view(&sessions, &term, key, change)
         })
         .ok_or(ScheduleError::ExamUnavailable)?;
     let source = &view.source;
@@ -332,39 +328,12 @@ fn session_override_base(workspace: &Value, key: &str) -> Map<String, Value> {
 /// Whether the published sources alone (calendar closures, 休講, the 演習
 /// rotation) cancel this session, judged without the user's own record.
 fn source_cancels_session(workspace: &Value, key: &str) -> Result<bool, ScheduleError> {
-    let Some(date) = key_date(key) else {
-        return Ok(false);
-    };
-    let mut without = workspace.clone();
-    if let Some(rows) = without
-        .get_mut("scheduleOverrides")
-        .and_then(Value::as_array_mut)
-    {
-        rows.retain(|row| text(row, "targetKey") != Some(key));
-    }
-    for term in super::placement_terms(&without)
-        .map(str::to_owned)
-        .collect::<std::collections::BTreeSet<_>>()
-    {
-        let options = super::AgendaOptions {
-            include_personal: false,
-            include_cancelled_courses: true,
-            ..super::AgendaOptions::default()
-        };
-        if let Some(block) = super::occurrence::occurrences_on_date(&without, &term, date, options)?
-            .into_iter()
-            .find(|block| block.key == key)
-        {
+    for term in super::placement_terms(workspace).collect::<BTreeSet<_>>() {
+        if let Some(block) = CourseSessions::new(workspace, term, None)?.original(key)? {
             return Ok(block.cancelled == Some(true));
         }
     }
     Ok(false)
-}
-
-/// The civil date a class session key ends with.
-fn key_date(key: &str) -> Option<&str> {
-    key.get(key.len().saturating_sub(10)..)
-        .filter(|value| super::parse_civil_date(value).is_ok())
 }
 
 /// The stored correction after linking the exam to `course_id`, or to no
@@ -439,7 +408,7 @@ pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str
 /// and the class sessions the user marked as an exam or a quiz.
 pub(crate) fn exam_views(workspace: &Value, school: &SchoolReads, term: &str) -> Vec<ExamView> {
     let mut result = published_exam_views(workspace, school, term);
-    let sessions = session_exam_views(workspace, term, &result);
+    let sessions = session_exam_views(workspace, term);
     result.extend(sessions);
     sort_views(&mut result);
     result
@@ -479,92 +448,77 @@ pub(super) fn published_exam_views(
     result
 }
 
-/// Class sessions of `term` the user marked as an exam or a quiz, read from
-/// the day agenda so they show the session's own corrections. A session whose
-/// course has a published exam that day gives way to it.
-fn session_exam_views(workspace: &Value, term: &str, published: &[ExamView]) -> Vec<ExamView> {
-    let range = super::calendar::quarter_range(workspace, term)
-        .ok()
-        .flatten();
-    let options = || super::AgendaOptions {
-        include_personal: false,
-        include_cancelled_courses: true,
-        ..super::AgendaOptions::default()
-    };
-    let mut result = Vec::new();
-    for change in array(workspace, "scheduleOverrides").iter().filter(|row| {
-        visible(row)
-            && text(row, "targetKind") == Some("course")
-            && matches!(text(row, "mark"), Some("exam" | "quiz"))
-            && row.get("hidden").and_then(Value::as_bool) != Some(true)
-    }) {
-        let key = text(change, "targetKey").unwrap_or_default();
-        let Some(source_date) = key_date(key) else {
-            continue;
-        };
-        let date = text(change, "date").unwrap_or(source_date);
-        if range.as_ref().is_some_and(|range| {
-            source_date < range.from.as_str() || source_date > range.to.as_str()
-        }) {
-            continue;
-        }
-        let Some(block) =
-            super::occurrence::resolve_day_agenda_with(workspace, term, date, options(), published)
-                .ok()
-                .and_then(|blocks| {
-                    blocks
-                        .into_iter()
-                        .find(|block| block.key == key && block.kind == OccurrenceKind::Exam)
-                })
-        else {
-            continue;
-        };
-        let source =
-            super::occurrence::occurrences_on_date(workspace, term, source_date, options())
-                .ok()
-                .and_then(|blocks| blocks.into_iter().find(|row| row.key == key))
-                .map(|row| ExamSchedule {
-                    date: row.date,
-                    start_time: Some(row.start_time),
-                    end_time: Some(row.end_time),
-                    room: row.room,
-                })
-                .unwrap_or_else(|| ExamSchedule {
-                    date: block.date.clone(),
-                    start_time: Some(block.start_time.clone()),
-                    end_time: Some(block.end_time.clone()),
-                    room: block.room.clone(),
-                });
-        let edited = block.date != source.date
-            || Some(&block.start_time) != source.start_time.as_ref()
-            || Some(&block.end_time) != source.end_time.as_ref()
-            || block.room != source.room;
-        let mark = text(change, "mark").unwrap_or("exam");
-        result.push(ExamView {
-            id: key.into(),
-            key: key.into(),
-            kind: mark.into(),
-            origin: "session".into(),
-            term: term.into(),
-            course_id: block.course_id,
-            auto_linked: false,
-            code: super::search::course_code_key(block.subtitle.as_deref().unwrap_or_default()),
-            title: block.title,
-            date: block.date,
-            start_time: Some(block.start_time),
-            end_time: Some(block.end_time),
-            periods: None,
-            room: block.room,
-            notes: None,
-            color: block.color,
-            status: "scheduled".into(),
-            source,
-            edited,
-            mark: Some(mark.into()),
-            conflict: None,
-        });
+/// A range or notification plan can reuse the term's dated rows.
+pub(super) fn published_sessions_by_date(
+    workspace: &Value,
+    school: &SchoolReads,
+    term: &str,
+) -> HashMap<String, Vec<ExamView>> {
+    let mut dates: HashMap<_, Vec<_>> = HashMap::new();
+    for view in published_exam_views(workspace, school, term) {
+        dates.entry(view.date.clone()).or_default().push(view);
     }
-    result
+    dates
+}
+
+/// Class sessions marked as exams or quizzes use the same source and
+/// correction as the agenda, without laying out a day of unrelated sessions.
+fn session_exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
+    let Ok(sessions) = CourseSessions::new(workspace, term, None) else {
+        return Vec::new();
+    };
+    array(workspace, "scheduleOverrides")
+        .iter()
+        .filter(|row| visible(row) && text(row, "targetKind") == Some("course"))
+        .filter_map(|row| session_exam_view(&sessions, term, text(row, "targetKey")?, row))
+        .collect()
+}
+
+fn session_exam_view(
+    sessions: &CourseSessions<'_>,
+    term: &str,
+    key: &str,
+    change: &Value,
+) -> Option<ExamView> {
+    let mark = text(change, "mark").filter(|mark| matches!(*mark, "exam" | "quiz"))?;
+    let original = sessions.original(key).ok()??;
+    let source = ExamSchedule {
+        date: original.date.clone(),
+        start_time: Some(original.start_time.clone()),
+        end_time: Some(original.end_time.clone()),
+        room: original.room.clone(),
+    };
+    let block = sessions.edited(original, change)?;
+    if block.kind != OccurrenceKind::Exam {
+        return None;
+    }
+    let edited = block.date != source.date
+        || Some(&block.start_time) != source.start_time.as_ref()
+        || Some(&block.end_time) != source.end_time.as_ref()
+        || block.room != source.room;
+    Some(ExamView {
+        id: key.into(),
+        key: key.into(),
+        kind: mark.into(),
+        origin: "session".into(),
+        term: term.into(),
+        course_id: block.course_id,
+        auto_linked: false,
+        code: super::search::course_code_key(block.subtitle.as_deref().unwrap_or_default()),
+        title: block.title,
+        date: block.date,
+        start_time: Some(block.start_time),
+        end_time: Some(block.end_time),
+        periods: None,
+        room: block.room,
+        notes: None,
+        color: block.color,
+        status: "scheduled".into(),
+        source,
+        edited,
+        mark: Some(mark.into()),
+        conflict: None,
+    })
 }
 
 /// The quarter a marked session belongs to: the one whose dates hold it.
@@ -577,7 +531,7 @@ fn session_term(workspace: &Value, change: &Value) -> Option<String> {
             super::calendar::quarter_range(workspace, term)
                 .ok()
                 .flatten()
-                .is_some_and(|range| date >= range.from.as_str() && date <= range.to.as_str())
+                .is_some_and(|range| range.contains(date))
         })
         .map(str::to_owned)
 }

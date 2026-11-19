@@ -5,13 +5,12 @@ use super::SchoolReads;
 
 use serde_json::Value;
 
-use super::calendar::{academic_year_of, calendar_state, quarter_range, shown_label};
-use super::occurrence::{
-    finalize_agenda, personal_occurrences, resolve_day_agenda_with, scheduled_courses,
-};
+use super::agenda_layout::finalize_agenda;
+use super::calendar::{academic_year_of, calendar_state, shown_label};
+use super::occurrence::{personal_occurrences, CourseSessions};
 use super::{
-    array, parse_civil_date, teaching_periods, text, visible, AgendaOptions, DatedAgenda,
-    OccurrenceKind, ScheduleError, Term,
+    array, parse_civil_date, teaching_periods, text, visible, DatedAgenda, OccurrenceKind,
+    ScheduleError, Term,
 };
 use crate::locale::ContentLanguage;
 
@@ -22,6 +21,16 @@ pub fn calendar_between(
     school: &SchoolReads,
     from: &str,
     to: &str,
+) -> Result<Vec<DatedAgenda>, ScheduleError> {
+    calendar_between_with_personal(workspace, school, from, to, true)
+}
+
+pub(super) fn calendar_between_with_personal(
+    workspace: &Value,
+    school: &SchoolReads,
+    from: &str,
+    to: &str,
+    include_personal: bool,
 ) -> Result<Vec<DatedAgenda>, ScheduleError> {
     let start = parse_civil_date(from)?;
     let end = parse_civil_date(to)?;
@@ -45,45 +54,32 @@ pub fn calendar_between(
     }
     // Keep source terms even when their ranges do not overlap the request:
     // an explicit override can move a class across a quarter or year boundary.
-    let ranges: Vec<_> = terms
+    let sources = terms
         .iter()
         .filter(|term| Term::parse(term).is_ok())
-        .map(|term| Ok((term.clone(), quarter_range(workspace, term)?)))
-        .collect::<Result<_, ScheduleError>>()?;
-    // What a term puts on the timetable does not depend on the day, so it is
-    // read once per term rather than once per day. A term with no course and
-    // no exam adds nothing on any day, moved classes included.
-    let sources: Vec<_> = ranges
-        .iter()
-        .map(|(term, _)| {
-            (
-                term,
-                std::sync::Arc::<[Value]>::from(scheduled_courses(workspace, term)),
-                super::exams::published_exam_views(workspace, school, term),
-            )
+        .map(|term| {
+            Ok((
+                CourseSessions::new(workspace, term, None)?,
+                super::exams::published_sessions_by_date(workspace, school, term),
+            ))
         })
-        .filter(|(_, courses, exams)| !courses.is_empty() || !exams.is_empty())
-        .collect();
+        .collect::<Result<Vec<_>, ScheduleError>>()?;
     let language = ContentLanguage::of(workspace);
     let mut agendas = Vec::with_capacity((days + 1) as usize);
     for offset in 0..=days {
         let date = (start + chrono::Duration::days(offset)).to_string();
         let state = calendar_state(workspace, &date);
         let state_kind = state.as_ref().and_then(|row| text(row, "type"));
-        let active_ranges: Vec<_> = ranges
+        let active_ranges: Vec<_> = sources
             .iter()
-            .filter_map(|(_, range)| range.as_ref())
-            .filter(|range| date >= range.from && date <= range.to)
+            .filter_map(|(sessions, _)| sessions.range.as_ref())
+            .filter(|range| range.contains(&date))
             .collect();
         let outside_teaching = !active_ranges.is_empty()
             && state_kind != Some("replacement")
-            && active_ranges.iter().all(|range| {
-                range.teaching_ranges.as_ref().is_some_and(|ranges| {
-                    !ranges
-                        .iter()
-                        .any(|range| date >= range.start && date <= range.end)
-                })
-            });
+            && active_ranges
+                .iter()
+                .all(|range| range.outside_teaching(&date));
         let exam_period = active_ranges.iter().any(|range| {
             range.exam_ranges.as_ref().is_some_and(|ranges| {
                 ranges
@@ -94,35 +90,30 @@ pub fn calendar_between(
         let weekly_classes_stop =
             outside_teaching || matches!(state_kind, Some("holiday" | "no-class" | "break"));
         let mut blocks = Vec::new();
-        for (term, courses, exams) in &sources {
-            blocks.extend(resolve_day_agenda_with(
-                workspace,
-                term,
+        for (sessions, exams) in &sources {
+            blocks.extend(sessions.blocks_on(
                 &date,
-                AgendaOptions {
-                    include_personal: false,
-                    include_cancelled_courses: true,
-                    courses: Some(courses.clone()),
-                    ..AgendaOptions::default()
-                },
-                exams,
+                exams.get(&date).map(Vec::as_slice).unwrap_or_default(),
+                true,
             )?);
         }
-        // Weekly events follow their term's range.
-        let events: Vec<_> = array(workspace, "events")
-            .iter()
-            .filter(|event| {
-                visible(event)
-                    && ranges.iter().any(|(term, range)| {
-                        text(event, "termId") == Some(term.as_str())
-                            && range
-                                .as_ref()
-                                .is_some_and(|range| date >= range.from && date <= range.to)
-                    })
-            })
-            .cloned()
-            .collect();
-        blocks.extend(personal_occurrences(&date, &events)?);
+        if include_personal {
+            let events: Vec<_> = array(workspace, "events")
+                .iter()
+                .filter(|event| {
+                    visible(event)
+                        && sources.iter().any(|(sessions, _)| {
+                            text(event, "termId") == Some(sessions.term)
+                                && sessions
+                                    .range
+                                    .as_ref()
+                                    .is_some_and(|range| range.contains(&date))
+                        })
+                })
+                .cloned()
+                .collect();
+            blocks.extend(personal_occurrences(&date, &events)?);
+        }
         let important_dates: Vec<_> = array(workspace, "importantDates")
             .iter()
             .filter(|row| {
