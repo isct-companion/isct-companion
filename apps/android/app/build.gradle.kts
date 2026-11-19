@@ -92,12 +92,14 @@ android {
     buildFeatures {
         compose = true
     }
-    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`, and the
-    // OTP setup guides' screenshots and step list.
+    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`, the
+    // OTP setup guides' screenshots and step list, and the read-only Markdown
+    // page (`MarkdownView`, built by `yarn markdown-viewer`).
     sourceSets {
         getByName("main") {
             assets.directories.add("../../../resources/locales")
             assets.directories.add("../../../resources/otp-guide")
+            assets.directories.add("../../../resources/markdown-viewer")
         }
     }
     packaging {

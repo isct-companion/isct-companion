@@ -32,6 +32,9 @@ targets:
       # The OTP setup guides' screenshots and step list, shared with the desktop.
       - path: ../../resources/otp-guide
         buildPhase: resources
+      # The read-only Markdown page (`MarkdownView`), built by `yarn markdown-viewer`.
+      - path: ../../resources/markdown-viewer
+        buildPhase: resources
     dependencies:
       - package: IsctWidgets
       - package: IsctCore

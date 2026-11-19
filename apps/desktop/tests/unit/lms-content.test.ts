@@ -1068,3 +1068,39 @@ describe("math delimiters in a read-only Markdown document", () => {
     expect(await normalize(source)).toEqual(source);
   });
 });
+
+describe("the mobile Markdown page", () => {
+  it("renders a shared note's math with KaTeX and shows its raw HTML as text", async () => {
+    const { renderMarkdown } =
+      await import("@app/features/markdown-viewer/viewer");
+    const html = renderMarkdown(
+      [
+        "<script>alert(1)</script>",
+        "",
+        "# Note",
+        "",
+        "Speed \\\\(v\\\\) and $\\\\Delta t$; <b>bold?</b>",
+        "",
+        "$$",
+        "t \\\\rightarrow t^{\\\\prime}",
+        "\\\\x \\\\rightarrow x^{\\\\prime}",
+        "$$",
+        "",
+        "| a | b |",
+        "| - | - |",
+        "| 1 | 2 |",
+      ].join("\n"),
+    );
+    const page = new DOMParser().parseFromString(html, "text/html");
+    expect(page.querySelector("script")).toBeNull();
+    expect(page.querySelector("b")).toBeNull();
+    expect(page.body.textContent).toContain("<b>bold?</b>");
+    expect(page.querySelector("h1")?.textContent).toBe("Note");
+    expect(page.querySelectorAll(".katex")).toHaveLength(3);
+    expect(page.querySelectorAll(".katex-error")).toHaveLength(0);
+    expect(
+      page.querySelector(".katex-display annotation")?.textContent,
+    ).toContain("x \\rightarrow x^{\\prime}");
+    expect(page.querySelectorAll("td")).toHaveLength(2);
+  });
+});

@@ -1,0 +1,149 @@
+/* The mobile Markdown reader. The app sets the --md-* colours from its theme;
+   these defaults follow the system's light or dark appearance. */
+:root {
+  --md-background: #ffffff;
+  --md-text: #1d1d1f;
+  --md-muted: #6e6e73;
+  --md-line: #d9d9de;
+  --md-accent: #2f6fdf;
+  --md-surface: #f3f3f6;
+  --md-size: 16px;
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --md-background: #1c1c1e;
+    --md-text: #ececf0;
+    --md-muted: #9a9aa2;
+    --md-line: #3a3a3f;
+    --md-accent: #7aa7ff;
+    --md-surface: #2a2a2e;
+  }
+}
+html,
+body {
+  margin: 0;
+  background: var(--md-background);
+  color: var(--md-text);
+}
+body {
+  font:
+    var(--md-size) / 1.75 -apple-system,
+    BlinkMacSystemFont,
+    "Hiragino Sans",
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    Roboto,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+#document {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 20px 18px 64px;
+}
+#document > :first-child {
+  margin-top: 0;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.35;
+}
+h1 {
+  font-size: 1.55em;
+}
+h2 {
+  font-size: 1.3em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--md-line);
+}
+h3 {
+  font-size: 1.12em;
+}
+p,
+ul,
+ol,
+blockquote,
+pre,
+.md-table {
+  margin: 0.7em 0;
+}
+ul,
+ol {
+  padding-left: 1.5em;
+}
+li + li {
+  margin-top: 0.2em;
+}
+li > input[type="checkbox"] {
+  margin: 0 0.4em 0 -1.3em;
+}
+a {
+  color: var(--md-accent);
+}
+blockquote {
+  padding: 0 0 0 1em;
+  border-left: 3px solid var(--md-line);
+  color: var(--md-muted);
+}
+hr {
+  margin: 1.6em 0;
+  border: 0;
+  border-top: 1px solid var(--md-line);
+}
+code {
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: var(--md-surface);
+  font:
+    0.9em / 1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    "Roboto Mono",
+    monospace;
+}
+pre {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--md-surface);
+  overflow-x: auto;
+}
+pre code {
+  padding: 0;
+  background: none;
+}
+img {
+  max-width: 100%;
+  height: auto;
+}
+.md-table {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: 6px 10px;
+  border: 1px solid var(--md-line);
+  vertical-align: top;
+}
+th {
+  background: var(--md-surface);
+}
+/* A wide formula scrolls sideways rather than overflowing the page. */
+.katex-display {
+  margin: 0.9em 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.katex {
+  font-size: 1.1em;
+}

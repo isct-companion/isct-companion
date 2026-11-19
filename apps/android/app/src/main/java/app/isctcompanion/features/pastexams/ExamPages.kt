@@ -81,8 +81,10 @@ import app.isctcompanion.core.ExamSubjectPage
 import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadStart
 import app.isctcompanion.design.Card
+import app.isctcompanion.design.MarkdownView
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.isMarkdownName
 import app.isctcompanion.design.t
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -354,16 +356,20 @@ private fun DocumentView(file: ExamLocalDocument) {
     when (file.document.fileType) {
         "application/pdf" -> PdfView(file.path)
         "text/plain" -> {
-            val text by produceState<String?>(null, file.path) {
-                value = withContext(Dispatchers.IO) {
-                    runCatching { File(file.path).readText() }.getOrElse { t("error.storage") }
-                }
+            val text by produceState<Result<String>?>(null, file.path) {
+                value = withContext(Dispatchers.IO) { runCatching { File(file.path).readText() } }
             }
-            Text(
-                text ?: t("common.loading"),
-                color = Theme.colors.ink,
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter),
-            )
+            val loaded = text?.getOrNull()
+            // The site stores Markdown as text/plain; the uploaded name tells it apart.
+            if (loaded != null && isMarkdownName(file.document.fileName)) {
+                MarkdownView(loaded, Modifier.fillMaxSize())
+            } else {
+                Text(
+                    loaded ?: if (text == null) t("common.loading") else t("error.storage"),
+                    color = Theme.colors.ink,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter),
+                )
+            }
         }
         else -> ImageView(file.path)
     }
