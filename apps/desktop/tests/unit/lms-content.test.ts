@@ -971,6 +971,40 @@ describe("math delimiters in a read-only Markdown document", () => {
     ]);
   });
 
+  it("halves the backslashes of a formula written for Markdown to unescape", async () => {
+    expect(
+      await normalize([
+        "$$t \\\\rightarrow t^{\\\\prime} := t$$",
+        "",
+        "$$",
+        "x \\\\rightarrow x^{\\\\prime} \\\\\\\\",
+        "v \\\\rightarrow v^{\\\\prime}",
+        "$$",
+        "",
+        "where \\\\(\\\\alpha\\\\) and $\\\\beta_0$ are constants.",
+        "",
+        "\\\\[",
+        "\\\\frac{a}{b}",
+        "\\\\]",
+      ]),
+    ).toEqual([
+      "$$",
+      "t \\rightarrow t^{\\prime} := t",
+      "$$",
+      "",
+      "$$",
+      "x \\rightarrow x^{\\prime} \\\\",
+      "v \\rightarrow v^{\\prime}",
+      "$$",
+      "",
+      "where $\\alpha$ and $\\beta_0$ are constants.",
+      "",
+      "$$",
+      "\\frac{a}{b}",
+      "$$",
+    ]);
+  });
+
   it("leaves code, inline code, prices and existing math alone", async () => {
     const source = [
       "Inline $a \\(b\\)$ and `\\(code\\)`; it costs $5 and $10.",

@@ -2170,6 +2170,9 @@ describe("a past exam's Markdown document", () => {
       "\\[",
       "\\int_0^1 x\\,dx",
       "\\]",
+      "",
+      // Written for Markdown to unescape: every backslash doubled.
+      "Velocity \\\\(v^{\\\\prime} \\\\rightarrow v\\\\).",
     ].join("\n");
     const fetch = vi
       .spyOn(globalThis, "fetch")
@@ -2216,7 +2219,13 @@ describe("a past exam's Markdown document", () => {
     expect(fetch).toHaveBeenCalled();
     expect(prose.querySelector("h1")?.textContent).toBe("問1");
     // Both inline forms render; the display formula is a LaTeX block.
-    expect(prose.querySelectorAll("p .katex")).toHaveLength(2);
+    expect(prose.querySelectorAll("p .katex")).toHaveLength(3);
+    // KaTeX set the arrow, not the command's name as italic letters.
+    const doubled = [...prose.querySelectorAll("p")].at(-1)!;
+    expect(doubled.querySelector(".katex-mathml annotation")?.textContent).toBe(
+      "v^{\\prime} \\rightarrow v",
+    );
+    expect(doubled.querySelector(".katex-html")?.textContent).toContain("→");
     expect(prose.querySelector(".milkdown-code-block")?.textContent).toContain(
       "\\int_0^1 x\\,dx",
     );

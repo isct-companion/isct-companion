@@ -1,20 +1,25 @@
 /**
- * Rewrites the LaTeX math delimiters that Markdown readers don't parse into the
- * `$…$` / `$$…$$` forms the Markdown viewer renders with KaTeX.
+ * Rewrites a Markdown document's math into the `$…$` / `$$…$$` forms the
+ * Markdown viewer renders with KaTeX.
  *
- * Shared documents (past exams above all) are often written or exported with
- * `\(…\)` and `\[…\]`, which CommonMark reads as escaped brackets, so the
- * formula showed as raw source. A display formula on lines of its own, whether
- * `\[…\]`, `$$…$$` on one line, or a `$$` fence inside a paragraph, becomes a
- * fenced `$$` block set apart by blank lines, so it is set as a centred block
- * instead of inline text. Fenced code, indented code, inline code and existing
- * inline math are left as written.
+ * Shared documents (past exams above all) are often written for a page that
+ * runs Markdown first and MathJax after it, so they use `\(…\)` and `\[…\]`,
+ * or double every backslash (`\\(`, `\\rightarrow`) for Markdown to halve.
+ * Read as standard Markdown, the first show as raw source and the second set
+ * `\\` as a line break and the command name as italic letters. Both are
+ * rewritten here: the delimiters become `$` math, and a formula whose every
+ * command is written with a doubled backslash gets its backslashes halved.
+ *
+ * A display formula on lines of its own, whether `\[…\]`, `$$…$$` on one line,
+ * or a `$$` fence inside a paragraph, becomes a fenced `$$` block set apart by
+ * blank lines, so it is set as a centred block instead of inline text. Fenced
+ * code, indented code and inline code are left as written.
  *
  * Meant for documents shown read-only: an editor would save the rewritten
- * delimiters back into the user's file.
+ * math back into the user's file.
  */
 export function normalizeMathDelimiters(markdown: string): string {
-  if (!/\\[([]|\$\$/.test(markdown)) return markdown;
+  if (!/\\[([]|\$/.test(markdown)) return markdown;
   const lines = markdown.split(/\r?\n/);
   const out: string[] = [];
   let chunk: string[] = [];
@@ -33,9 +38,10 @@ export function normalizeMathDelimiters(markdown: string): string {
   const block = (indent: string, body: string[]) => {
     flush();
     if (out.length && out[out.length - 1].trim() !== "") out.push("");
+    const formula = undoubleBackslashes(body.map((l) => l.trim()).join("\n"));
     out.push(
       `${indent}$$`,
-      ...body.map((line) => indent + line.trim()),
+      ...formula.split("\n").map((line) => indent + line),
       `${indent}$$`,
     );
     spaceAfter = true;
@@ -65,8 +71,8 @@ export function normalizeMathDelimiters(markdown: string): string {
     }
     const indent = /^\s*/.exec(line)![0];
     const text = line.trim();
-    // `$$` alone (or with text after it) opens a math fence: keep its body
-    // as written up to the line that closes it.
+    // `$$` alone (or with text after it) opens a math fence that runs to the
+    // line ending in `$$`.
     if (/^\$\$[^$]*$/.test(text)) {
       const end = lines.findIndex((l, i) => i > index && /\$\$\s*$/.test(l));
       if (end > index) {
@@ -88,26 +94,26 @@ export function normalizeMathDelimiters(markdown: string): string {
       block(indent, [single[1]]);
       continue;
     }
-    // `\[` opening a line, closed by `\]` ending a line.
-    if (text.startsWith("\\[")) {
+    // `\[` (or `\\[`) opening a line, closed by `\]` (`\\]`) ending a line.
+    const opener = /^(\\{1,2})\[/.exec(text);
+    if (opener) {
+      const slashes = opener[1];
+      const closer = new RegExp(
+        `(?<!\\\\)${slashes.replace(/\\/g, "\\\\")}\\]\\s*$`,
+      );
+      const start = text.slice(opener[0].length);
       const end = lines.findIndex(
-        (l, i) =>
-          i >= index &&
-          /\\\]\s*$/.test(i === index ? l.trimStart().slice(2) : l),
+        (l, i) => i >= index && closer.test(i === index ? start : l),
       );
       const between = end > index ? lines.slice(index + 1, end) : [];
       const body =
         end === index
-          ? [text.slice(2).replace(/\\\]\s*$/, "")]
-          : [
-              text.slice(2),
-              ...between,
-              (lines[end] ?? "").replace(/\\\]\s*$/, ""),
-            ];
+          ? [start.replace(closer, "")]
+          : [start, ...between, (lines[end] ?? "").replace(closer, "")];
       if (
         end >= index &&
         !between.some((l) => l.trim() === "") &&
-        !body.some((l) => l.includes("\\]"))
+        !body.some((l) => l.includes(`${slashes}]`))
       ) {
         block(
           indent,
@@ -123,37 +129,70 @@ export function normalizeMathDelimiters(markdown: string): string {
   return out.join("\n");
 }
 
-/** `\(…\)` → `$…$` and `\[…\]` → `$$…$$` inside running text. */
+/**
+ * Halves the backslashes of a formula written for Markdown to unescape:
+ * every command has an even run of backslashes (`\\alpha`) and at least one
+ * has exactly two. A formula with any single-backslash command is standard
+ * LaTeX and stays as written, its `\\` line breaks included.
+ */
+export function undoubleBackslashes(formula: string): string {
+  const commands = formula.match(/\\+(?=[A-Za-z])/g);
+  if (
+    !commands?.some((run) => run.length === 2) ||
+    commands.some((run) => run.length % 2 === 1)
+  )
+    return formula;
+  return formula.replace(/\\+/g, (run) =>
+    "\\".repeat(Math.ceil(run.length / 2)),
+  );
+}
+
+/** `\(…\)` → `$…$` and `\[…\]` → `$$…$$` inside running text (also with
+ * doubled backslashes); existing `$` math has its backslashes undoubled. */
 function rewriteInline(text: string): string {
   let result = "";
   let i = 0;
   while (i < text.length) {
     const char = text[i];
     if (char === "\\") {
-      const next = text[i + 1];
-      if (next === "(" || next === "[") {
-        const end = text.indexOf(next === "(" ? "\\)" : "\\]", i + 2);
-        const body = end < 0 ? "" : text.slice(i + 2, end).trim();
+      let run = 1;
+      while (text[i + run] === "\\") run++;
+      const next = text[i + run];
+      if (run <= 2 && (next === "(" || next === "[")) {
+        const slashes = "\\".repeat(run);
+        const closer = slashes + (next === "(" ? ")" : "]");
+        const end = text.indexOf(closer, i + run + 1);
+        const body =
+          end < 0
+            ? ""
+            : undoubleBackslashes(text.slice(i + run + 1, end).trim());
         if (body) {
           result += next === "(" ? `$${body}$` : `$$${body}$$`;
-          i = end + 2;
+          i = end + closer.length;
           continue;
         }
       }
-      // Any other escape, an escaped backslash included, stays as written.
-      result += text.slice(i, i + 2);
-      i += 2;
+      // An odd run escapes the next character; both stay as written.
+      const stop = i + run + (run % 2 === 1 && next !== undefined ? 1 : 0);
+      result += text.slice(i, stop);
+      i = stop;
       continue;
     }
     if (char === "`" || char === "$") {
-      // Inline code and existing math pass through to their matching closer.
+      // Inline code passes through to its matching closer; math is undoubled.
       let run = 1;
       while (text[i + run] === char) run++;
       const marker = char.repeat(run);
       const end = text.indexOf(marker, i + run);
-      const stop = end > 0 ? end + run : i + run;
-      result += text.slice(i, stop);
-      i = stop;
+      if (end > 0) {
+        const inner = text.slice(i + run, end);
+        result +=
+          marker + (char === "$" ? undoubleBackslashes(inner) : inner) + marker;
+        i = end + run;
+      } else {
+        result += marker;
+        i += run;
+      }
       continue;
     }
     result += char;
