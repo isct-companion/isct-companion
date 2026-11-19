@@ -1,24 +1,13 @@
 package app.isctcompanion.features.pastexams
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.net.Uri
-import android.os.ParcelFileDescriptor
-import android.util.Log
-import android.webkit.MimeTypeMap
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,7 +22,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -45,55 +33,32 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import androidx.pdf.ExperimentalPdfApi
-import androidx.pdf.PdfDocument
-import androidx.pdf.SandboxedPdfLoader
-import androidx.pdf.compose.PdfViewer
-import androidx.pdf.compose.rememberPdfViewerState
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAccountStatus
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
-import app.isctcompanion.core.ExamLocalDocument
 import app.isctcompanion.core.ExamRequest
 import app.isctcompanion.core.ExamSet
 import app.isctcompanion.core.ExamSubjectPage
 import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadStart
-import app.isctcompanion.core.copyToDownloads
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
-import java.io.File
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 
 /** How a subject page was reached: from a course (Core finds its subject and
  * class) or by a subject code. */
@@ -103,13 +68,13 @@ sealed interface ExamSubjectEntry {
 }
 
 @Composable
-private fun BackButton() {
+internal fun BackButton() {
     val navigator = LocalNavigator.current
     IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
 }
 
 @Composable
-private fun Loading() {
+internal fun Loading() {
     Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
 }
 
@@ -264,279 +229,6 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
             }
         },
     )
-}
-
-/** A past exam full screen: PDFs in androidx.pdf (zoom, select and search
- * built in), photos zoomable, text as text; actions in the menu. */
-@Composable
-fun ExamDocumentScreen(id: String) {
-    val scope = rememberCoroutineScope()
-    val links = rememberExamLinks()
-    val calls = rememberExamCalls()
-    val choices by rememberExamChoices(calls)
-    var file by remember(id) { mutableStateOf<ExamLocalDocument?>(null) }
-    var menu by remember { mutableStateOf(false) }
-    var reporting by rememberSaveable { mutableStateOf(false) }
-    var downloading by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-
-    /** Core's own copy, kept for the reader and offline use, has a generated
-     * name in app storage; a download is a copy in Downloads under the
-     * uploader's name. MIME follows that name's extension so MediaStore keeps
-     * it (a Markdown upload is text/plain on the site). */
-    suspend fun saveCopy(opened: ExamLocalDocument) {
-        val extension = opened.exportName.substringAfterLast('.', "").lowercase()
-        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
-            ?: opened.document.fileType
-        val saved = withContext(Dispatchers.IO) {
-            copyToDownloads(context, File(opened.path), opened.exportName, mimeType)
-        }
-        ExamViews.notice = if (saved) t("app.savedName", "name" to opened.exportName)
-        else t("lmsFile.theFileCouldNotBeDownloaded")
-    }
-
-    suspend fun download(opened: ExamLocalDocument) {
-        if (downloading) return
-        downloading = true
-        try {
-            if (!opened.downloaded && !opened.offline) {
-                calls.call(ExamAction.RetainOpen(opened.document.id, opened.path)) ?: return
-                file?.let { if (it.path == opened.path) file = it.copy(downloaded = true) }
-            }
-            saveCopy(opened)
-        } finally {
-            downloading = false
-        }
-    }
-
-    suspend fun open() {
-        (calls.call(ExamAction.Open(id)) as? ExamAnswer.Document)?.v1?.let { file = it }
-    }
-    LaunchedEffect(id) { open() }
-
-    val current = file
-    ExamFrame(calls) {
-        TabPage(
-            current?.let { documentTitle(it.document) }.orEmpty(),
-            navigationIcon = { BackButton() },
-            actions = {
-                if (current != null) Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, t("examShare.more")) }
-                    DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem(
-                            { Text(t("examShare.download")) },
-                            {
-                                menu = false
-                                scope.launch { download(current) }
-                            },
-                            enabled = !calls.busy && !downloading,
-                        )
-                        current.saved?.let { saved ->
-                            DropdownMenuItem(
-                                { Text(t(if (saved) "examShare.unsave" else "examShare.save")) },
-                                {
-                                    menu = false
-                                    scope.launch {
-                                        (calls.call(ExamAction.Save(id, !saved)) as? ExamAnswer.Saved)?.v1?.let {
-                                            file = current.copy(saved = it)
-                                        }
-                                    }
-                                },
-                                enabled = !calls.busy && !current.offline,
-                            )
-                        }
-                        DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, { menu = false; links.open(current.webUrl) })
-                        DropdownMenuItem(
-                            { Text(t("examShare.report"), color = Theme.colors.danger) },
-                            { menu = false; reporting = true },
-                            enabled = !calls.busy && !current.offline && choices != null,
-                        )
-                    }
-                }
-            },
-        ) {
-            when {
-                current != null -> Column(Modifier.fillMaxSize()) {
-                    // A downloaded copy shown without the site.
-                    if (current.offline) Text(
-                        t("examShare.offline"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Theme.colors.muted,
-                        modifier = Modifier.padding(horizontal = Theme.gutter, vertical = 4.dp),
-                    )
-                    Box(Modifier.weight(1f).fillMaxWidth()) { DocumentView(current) }
-                }
-                calls.busy -> Loading()
-                else -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    TextButton(onClick = { scope.launch { open() } }) { Text(t("common.retry")) }
-                }
-            }
-        }
-    }
-    val reasons = choices
-    if (reporting && current != null && reasons != null) {
-        ReportDialog(reasons.reportReasons, reasons.limits.reportDetail.toInt(), calls.busy, calls.error, dismiss = { reporting = false }) { reason, detail ->
-            scope.launch {
-                if (calls.call(ExamAction.Report(id, reason, detail)) != null) {
-                    reporting = false
-                    ExamViews.notice = t("examShare.reported")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DocumentView(file: ExamLocalDocument) {
-    when (file.document.fileType) {
-        "application/pdf" -> PdfView(file.path)
-        "text/plain" -> {
-            val text by produceState<String?>(null, file.path) {
-                value = withContext(Dispatchers.IO) {
-                    runCatching { File(file.path).readText() }.getOrElse { t("error.storage") }
-                }
-            }
-            Text(
-                text ?: t("common.loading"),
-                color = Theme.colors.ink,
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter),
-            )
-        }
-        else -> ImageView(file.path)
-    }
-}
-
-/** androidx.pdf renders in its own sandboxed process, page by page as they
- * scroll in, with selection and zoom. It is a beta: when it cannot open the
- * file, the platform's PdfRenderer shows it a page at a time. */
-@OptIn(ExperimentalPdfApi::class)
-@Composable
-private fun PdfView(path: String) {
-    val context = LocalContext.current
-    val document by produceState<Result<PdfDocument>?>(null, path) {
-        value = openSandboxed(context, path)
-    }
-    // Close the document this effect saw: `document` read inside onDispose
-    // would be the newly loaded one, closed the moment it arrived.
-    val opened = document
-    DisposableEffect(opened) { onDispose { opened?.getOrNull()?.close() } }
-    when (val loaded = opened) {
-        null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-        else -> loaded.getOrNull()?.let {
-            PdfViewer(it, rememberPdfViewerState(), Modifier.fillMaxSize().background(Theme.colors.surface2))
-        } ?: RendererPdfView(path)
-    }
-}
-
-/** Set once the sandboxed reader failed in this process; later PDFs go
- * straight to PdfRenderer instead of waiting again. */
-@Volatile
-private var sandboxUnavailable = false
-
-/** Opens `path` in androidx.pdf's sandboxed service. When that service's
- * process cannot start (it crashed in IsctApplication once), binding waits
- * without an error and the reader would spin forever, so it gets a time
- * limit. A failure is logged and leaves the PDF to PdfRenderer. */
-private suspend fun openSandboxed(context: android.content.Context, path: String): Result<PdfDocument> {
-    if (sandboxUnavailable) return Result.failure(IllegalStateException("PDF sandbox unavailable"))
-    return try {
-        Result.success(withTimeout(8_000) { SandboxedPdfLoader(context).openDocument(Uri.fromFile(File(path))) })
-    } catch (timeout: TimeoutCancellationException) {
-        sandboxUnavailable = true
-        Log.w("PastExams", "Sandboxed PDF reader did not open in time; using PdfRenderer", timeout)
-        Result.failure(timeout)
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (failure: Exception) {
-        sandboxUnavailable = true
-        Log.w("PastExams", "Sandboxed PDF reader failed; using PdfRenderer", failure)
-        Result.failure(failure)
-    }
-}
-
-/** The fallback reader: one page rendered by PdfRenderer, with page steps. */
-@Composable
-private fun RendererPdfView(path: String) {
-    var page by rememberSaveable(path) { mutableStateOf(0) }
-    val result by produceState<Result<Pair<Bitmap, Int>>?>(null, path, page) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                    PdfRenderer(descriptor).use { pdf ->
-                        pdf.openPage(page).use { source ->
-                            val scale = (1400f / maxOf(source.width, source.height)).coerceAtMost(2f)
-                            val bitmap = Bitmap.createBitmap((source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-                            bitmap.eraseColor(Color.WHITE)
-                            source.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            bitmap to pdf.pageCount
-                        }
-                    }
-                }
-            }
-        }
-    }
-    val preview = result
-    val shown = preview?.getOrNull()
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter)) {
-        if (shown == null) {
-            Text(t(if (preview == null) "common.loading" else "error.unavailable"), color = Theme.colors.muted)
-        } else {
-            val (bitmap, pages) = shown
-            if (pages > 1) Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(enabled = page > 0, onClick = { page-- }) { Text(t("common.previousPage")) }
-                Text("${page + 1} / $pages")
-                TextButton(enabled = page + 1 < pages, onClick = { page++ }) { Text(t("common.nextPage")) }
-            }
-            Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height))
-        }
-    }
-}
-
-/** A photo fitted to the screen; pinch zooms, drag pans while zoomed. */
-@Composable
-private fun ImageView(path: String) {
-    val bitmap by produceState<Result<Bitmap>?>(null, path) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(path, bounds)
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 3000)
-                }
-                checkNotNull(BitmapFactory.decodeFile(path, options))
-            }
-        }
-    }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    val loaded = bitmap ?: return Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-    val shown = loaded.getOrNull() ?: return Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Text(t("error.unavailable"), color = Theme.colors.muted)
-    }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Theme.colors.surface2)
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 8f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
-                }
-            },
-    ) {
-        Image(
-            shown.asImageBitmap(), null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offset.x
-                    translationY = offset.y
-                },
-        )
-    }
 }
 
 /** One request in full, then the one thing to do with it: share a file for

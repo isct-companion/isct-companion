@@ -2,11 +2,8 @@ package app.isctcompanion.design
 
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
-import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
 import android.text.format.Formatter
-import android.webkit.MimeTypeMap
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -42,7 +39,6 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
@@ -51,6 +47,7 @@ import app.isctcompanion.core.Material
 import app.isctcompanion.core.MaterialFailure
 import app.isctcompanion.core.SchoolWebTarget
 import app.isctcompanion.core.WebRouter
+import app.isctcompanion.core.openLocalFile
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -148,7 +145,7 @@ fun rememberMaterialOpening(): MaterialOpening {
             }
             try {
                 when (val material = model.openMaterial(courseId, source)) {
-                    is Material.Ready -> if (!view(context, File(material.file.path))) show(material.page, title)
+                    is Material.Ready -> if (!openLocalFile(context, File(material.file.path))) show(material.page, title)
                     is Material.Page -> navigator.openPage(WebRouter.PushedPage(material.site, material.url, title))
                     is Material.External ->
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, material.url.toUri())) }
@@ -216,16 +213,4 @@ fun rememberMaterialOpening(): MaterialOpening {
         )
     }
     return MaterialOpening(busy, open)
-}
-
-/** Hands a downloaded file to the app that views its type. */
-private fun view(context: Context, file: File): Boolean {
-    val uri = runCatching { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }.getOrNull() ?: return false
-    val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
-    return try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-        true
-    } catch (error: ActivityNotFoundException) {
-        false
-    }
 }

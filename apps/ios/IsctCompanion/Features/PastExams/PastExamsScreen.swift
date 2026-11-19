@@ -26,8 +26,8 @@ struct ExamSubjectRoute: Hashable {
     }
 }
 
-/// What a document opened from the library can also remove.
-enum ExamRemoval: Hashable {
+/// What the library can remove for a document.
+enum ExamRemoval {
     case download, submission
 
     var key: String {
@@ -42,20 +42,6 @@ enum ExamRemoval: Hashable {
         case .download: .removeDownload(id: id)
         case .submission: .deleteSubmission(id: id)
         }
-    }
-}
-
-/// One document. `file` is the copy the opening page already read, so the
-/// pushed page shows it at once.
-struct ExamDocumentRoute: Hashable {
-    let id: String
-    var file: ExamLocalDocument?
-    var removal: ExamRemoval?
-
-    static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.removal == b.removal }
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(removal)
     }
 }
 
@@ -167,14 +153,13 @@ private struct ExamPageFeedback: ViewModifier {
 }
 
 /// ScienceTokyoExam: this quarter's courses (or a search), requests and the
-/// person's own documents, each a list that pushes its subject, request or
-/// document. Opened from a course, it is that course's subject.
+/// person's own documents. A course opens directly on its subject.
 struct PastExamsScreen: View {
     let courseId: String?
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.push) private var push
     @State private var page = ExamPage()
+    @State private var documents = ExamDocumentOpening()
     @State private var tab: Tab = .browse
     @State private var query = ""
     @State private var hits: (query: String, subjects: [ExamSubject])?
@@ -269,17 +254,20 @@ struct PastExamsScreen: View {
             uploadEntry = nil
             if status == .unsupported { page.confirmation = nil }
         }
-        .sheet(item: $uploadEntry) { entry in
+        .sheet(item: $uploadEntry, onDismiss: {
+            documents.previewUploadAfterDismissal(model: model, page: page)
+        }) { entry in
             if let choices = page.choices {
                 ExamUploadSheet(entry: entry, choices: choices) { outcome in
+                    documents.uploadedID = outcome.documentId
                     requestPages.removeAll()
                     library = nil
                     await loadVisible(reload: true)
                     page.notice = outcome.notice
-                    if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
                 }
             }
         }
+        .examDocumentPresentation(documents, page: page)
         .examPageFeedback(page)
     }
 
@@ -393,14 +381,16 @@ struct PastExamsScreen: View {
                 }
             }
             if let library {
+                let savedIDs = Set(library.saved.map(\.id))
                 if library.offline {
                     Text(t("examShare.libraryUnavailable")).foregroundStyle(Theme.muted)
                 } else {
-                    documents("examShare.saved", library.saved)
+                    documentRows("examShare.saved", library.saved, savedIDs: savedIDs)
                 }
-                documents("examShare.downloaded", library.downloaded, removal: .download)
+                documentRows("examShare.downloaded", library.downloaded, savedIDs: savedIDs,
+                             offline: library.offline, removal: .download)
                 if !library.offline {
-                    documents("examShare.submitted", library.submitted, removal: .submission)
+                    documentRows("examShare.submitted", library.submitted, savedIDs: savedIDs, removal: .submission)
                 }
                 if !library.offline && library.saved.isEmpty && library.downloaded.isEmpty && library.submitted.isEmpty {
                     Text(t("examShare.noItems")).foregroundStyle(Theme.muted)
@@ -426,26 +416,25 @@ struct PastExamsScreen: View {
     }
 
     @ViewBuilder
-    private func documents(_ title: String, _ items: [ExamDocument], removal: ExamRemoval? = nil) -> some View {
+    private func documentRows(_ title: String, _ items: [ExamDocument], savedIDs: Set<String>,
+                              offline: Bool = false, removal: ExamRemoval? = nil) -> some View {
         if !items.isEmpty {
             Section(t(title)) {
                 ForEach(items, id: \.id) { item in
-                    NavigationLink(value: ExamDocumentRoute(id: item.id, removal: removal)) {
+                    Button {
+                        Task { await documents.preview(item.id, model: model, page: page) }
+                    } label: {
                         ExamListRow(title: item.subjects.map(\.name).joined(separator: " / "), meta: [
                             examSitting(year: item.academicYear, occasion: item.occasion,
                                         number: item.occasionNumber, variant: item.variant),
                             item.role.map { t("examShare.role.\($0)") },
                         ])
                     }
-                    .swipeActions {
-                        if let removal {
-                            Button(t(removal.key), role: .destructive) {
-                                page.confirm(removal.key) {
-                                    if case let .library(value)? = await page.call(model, removal.action(item.id)) {
-                                        library = value
-                                    }
-                                }
-                            }
+                    .disabled(documents.opening != nil)
+                    .contextMenu {
+                        ExamDocumentMenu(id: item.id, documents: documents, page: page,
+                                         saved: savedIDs.contains(item.id), offline: offline, removal: removal) { updated in
+                            if let updated { library = updated } else { await loadVisible(reload: true) }
                         }
                     }
                 }

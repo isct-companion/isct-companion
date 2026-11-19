@@ -6,14 +6,13 @@ import SwiftUI
 /// narrows the sittings, and uploads, requests or opens the site.
 struct ExamSubjectScreen: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.push) private var push
     let route: ExamSubjectRoute
     @State private var page = ExamPage()
     @State private var subject: ExamSubjectPage?
     /// The route named several subjects (a course listing more than one).
     @State private var candidates: [ExamSubject]?
     @State private var failed = false
-    @State private var opening: String?
+    @State private var documents = ExamDocumentOpening()
     @State private var othersOpen = false
     @State private var showsRequest = false
     @State private var uploadEntry: ExamUploadEntry?
@@ -88,20 +87,23 @@ struct ExamSubjectScreen: View {
                 }
             }
         }
-        .sheet(item: $uploadEntry) { entry in
+        .sheet(item: $uploadEntry, onDismiss: {
+            documents.previewUploadAfterDismissal(model: model, page: page)
+        }) { entry in
             if let choices = page.choices {
                 ExamUploadSheet(entry: entry, choices: choices) { outcome in
+                    documents.uploadedID = outcome.documentId
                     await load()
                     page.notice = outcome.notice
-                    if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
                 }
             }
         }
+        .examDocumentPresentation(documents, page: page)
         .examPageFeedback(page)
     }
 
     private func row(_ set: ExamSet, withTeachers: Bool) -> some View {
-        ExamSetRow(set: set, withTeachers: withTeachers, opening: opening) { id in Task { await open(id) } }
+        ExamSetRow(set: set, withTeachers: withTeachers, documents: documents, page: page)
     }
 
     private func load() async {
@@ -118,16 +120,6 @@ struct ExamSubjectScreen: View {
             failed = subject == nil && candidates == nil
         }
     }
-
-    /// Reads the document here, the tapped pill spinning, then pushes it.
-    private func open(_ id: String) async {
-        guard opening == nil else { return }
-        opening = id
-        defer { opening = nil }
-        if case let .document(file)? = await page.call(model, .open(id: id)) {
-            push(ExamDocumentRoute(id: id, file: file))
-        }
-    }
 }
 
 /// One sitting: a label, its teachers when they are not the course's own,
@@ -135,8 +127,9 @@ struct ExamSubjectScreen: View {
 private struct ExamSetRow: View {
     let set: ExamSet
     let withTeachers: Bool
-    let opening: String?
-    let open: (String) -> Void
+    @Environment(AppModel.self) private var model
+    let documents: ExamDocumentOpening
+    let page: ExamPage
 
     var body: some View {
         HStack(spacing: 10) {
@@ -163,13 +156,15 @@ private struct ExamSetRow: View {
         let tint = answer ? Theme.ok : Theme.accent
         // A borderless button answers only its own tap; a link would make
         // the whole row open and add a chevron.
-        return Button { open(document.id) } label: {
+        return Button {
+            Task { await documents.preview(document.id, model: model, page: page) }
+        } label: {
             ZStack {
                 // Core numbers several documents of one role in a sitting.
                 Text([document.role.map { t("examShare.role.\($0)") } ?? document.fileName, document.number.map(String.init)]
                     .compactMap { $0 }.joined(separator: " "))
-                    .opacity(opening == document.id ? 0 : 1)
-                if opening == document.id { ProgressView().controlSize(.small) }
+                    .opacity(documents.opening == document.id ? 0 : 1)
+                if documents.opening == document.id { ProgressView().controlSize(.small) }
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(tint)
@@ -179,6 +174,7 @@ private struct ExamSetRow: View {
             .overlay { Capsule().strokeBorder(tint.opacity(0.35)) }
         }
         .buttonStyle(.borderless)
-        .disabled(opening != nil)
+        .disabled(documents.opening != nil)
+        .contextMenu { ExamDocumentMenu(id: document.id, documents: documents, page: page) }
     }
 }
