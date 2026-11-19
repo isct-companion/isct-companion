@@ -618,14 +618,27 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
-  it("opens a ZIP in the outline with its files, each opening like an item", async () => {
+  it("opens every ZIP in the outline with its files, each opening like an item", async () => {
     const f = lectureFixture();
     const zip =
       "https://lms.s.isct.ac.jp/2025/pluginfile.php/7/mod_resource/content/1/OOP-2A-problem.zip";
     const readme = `${zip}#entry=OOP-2A/README.md`;
     const report = `${zip}#entry=OOP-2A/report.docx`;
+    // An assignment's attachment in the section text, and a resource whose
+    // address does not say it is a ZIP until Core opens it.
+    const attached =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/OOP-1B-problem.zip";
+    const resource =
+      "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=55";
+    f.record.sections![0].bodyHtml = `<p><a href="${attached}">OOP 1B problem</a></p>`;
     f.workspace.materials = [
       material({ bodyHtml: undefined, title: "OOP 2A", resourceUrl: zip }),
+      material({
+        id: "m2",
+        bodyHtml: undefined,
+        title: "Day 3 handout",
+        resourceUrl: resource,
+      }),
     ];
     const { core, host } = await openWorkspace(f, {
       entry: { request: 97 },
@@ -665,6 +678,8 @@ describe("the LMS reading workspace", () => {
         };
       },
     });
+    const listed = (within: Element | null) =>
+      within?.querySelectorAll(".lmsFolderFile").length ?? 0;
 
     await click(
       host.querySelector<HTMLButtonElement>(
@@ -672,7 +687,7 @@ describe("the LMS reading workspace", () => {
       )!,
     );
     await waitFor(() =>
-      expect(host.querySelectorAll(".lmsFolderFile")).toHaveLength(2),
+      expect(listed(host.querySelector(".lmsFolder"))).toBe(2),
     );
     // The archive is downloaded to read its files, within the automatic limit.
     expect(core.commands("open_course_material")[0].args).toMatchObject({
@@ -698,6 +713,41 @@ describe("the LMS reading workspace", () => {
     await click(readmeRow);
     await waitFor(() =>
       expect(host.querySelector(".lmsViewer h1")?.textContent).toBe("Task"),
+    );
+    await click(host.querySelector<HTMLButtonElement>(".lmsViewerClose")!);
+    await waitFor(() => expect(host.querySelector(".lmsViewer")).toBeNull());
+
+    // A ZIP linked in the section text lists under its paragraph, and a
+    // second click folds it away.
+    const link = [...host.querySelectorAll("a")].find(
+      (a) => a.getAttribute("href") === attached,
+    )!;
+    await click(link);
+    await waitFor(() =>
+      expect(listed(link.closest("p")?.nextElementSibling ?? null)).toBe(2),
+    );
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+    expect(
+      core
+        .commands("open_course_material")
+        .some(({ args }) => args.url === attached && args.download === true),
+    ).toBe(true);
+    await click(link);
+    expect(host.querySelector(".lmsLinkFolder")).toBeNull();
+
+    // A resource Core answers as a ZIP leaves the reader for its row, which
+    // now opens and folds like a folder.
+    await click(itemRow(host, "Day 3 handout"));
+    await waitFor(() =>
+      expect(
+        host
+          .querySelectorAll<HTMLButtonElement>(".lmsFolder > .lmsItemRow")[1]
+          ?.getAttribute("aria-expanded"),
+      ).toBe("true"),
+    );
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+    await waitFor(() =>
+      expect(listed(host.querySelectorAll(".lmsFolder")[1])).toBe(2),
     );
   }, 30_000);
 

@@ -1,5 +1,6 @@
 import { ReaderTools } from "./ReaderPane";
 import {
+  Fragment,
   lazy,
   Suspense,
   useEffect,
@@ -16,6 +17,7 @@ import {
   downloadOnly,
   extension,
   fileFamily,
+  listsAsFolder,
   type FileFamily,
 } from "./file-types";
 import { ImageView } from "./ImageView";
@@ -200,6 +202,7 @@ export function FilePreview({
   openPage,
   openWeb,
   openFile,
+  onArchive,
 }: {
   url: string;
   title: string;
@@ -213,6 +216,9 @@ export function FilePreview({
   openWeb: (url: string) => void;
   /** Opens one file of a folder or a ZIP in the reader. */
   openFile?: (url: string, name: string) => void;
+  /** Core answered a ZIP whose address did not say so: its files belong in
+   * the outline, as a folder's do. True when the outline took it. */
+  onArchive?: () => boolean;
 }) {
   const expected = previewKind(url);
   // A file of a type the reader cannot show waits for Download.
@@ -223,13 +229,16 @@ export function FilePreview({
   const { view } = course;
   const page = view.state === "page" ? view : undefined;
   const web = view.state === "external" ? view.url : undefined;
+  const archive = view.state === "archive";
+  const [handedOff, setHandedOff] = useState(false);
   useEffect(() => {
     if (inline) return;
     if (page) openPage(page);
     else if (web) openWeb(web);
+    else if (archive && onArchive?.()) setHandedOff(true);
     // Opening replaces this preview; it runs once per answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page?.site, page?.url, web, inline]);
+  }, [page?.site, page?.url, web, archive, inline]);
   const ready = view.state === "ready" ? view : undefined;
   const kind = ready?.kind ?? expected;
   const src = ready?.src;
@@ -246,6 +255,7 @@ export function FilePreview({
       </div>
     );
   }
+  if (view.state === "archive" && handedOff) return null;
   if (view.state === "folder" || view.state === "archive") {
     const rows = view.files.map((file) => ({
       key: file.url,
@@ -800,18 +810,21 @@ export function InlineFolder({
   limit,
   openFile,
   openPage,
+  archive = false,
 }: {
   url: string;
   courseId: string;
   limit: number;
   openFile: (url: string, name: string, anchor: Element) => void;
   openPage: OpenPage;
+  /** A ZIP rather than an LMS folder: downloaded to read its files, within
+   * the automatic limit. A folder lists what Core kept or reads from the LMS. */
+  archive?: boolean;
 }) {
-  // A ZIP is downloaded to read its files, within the automatic limit.
-  const course = useCourseFile(url, courseId, limit, {
-    download: fileFamily(url) === "archive",
-  });
+  const course = useCourseFile(url, courseId, limit, { download: archive });
   const { view } = course;
+  /** ZIPs of a folder opened under their own row. */
+  const [openZips, setOpenZips] = useState<string[]>([]);
   if (view.state === "loading")
     return <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>;
   if (view.state === "tooLarge")
@@ -861,22 +874,44 @@ export function InlineFolder({
     );
   return (
     <div className="lmsFolderFiles">
-      {view.files.map((file) => (
-        <button
-          type="button"
-          className="lmsFolderFile"
-          key={file.url}
-          onClick={(event) =>
-            openFile(file.url, file.name, event.currentTarget)
-          }
-        >
-          <FileTile family={fileFamily(byName(file.name))} />
-          <FileName
-            name={file.name}
-            detail={"bytes" in file ? fileSize(file.bytes) : undefined}
-          />
-        </button>
-      ))}
+      {view.files.map((file) => {
+        const zip = listsAsFolder(file.url);
+        const opened = zip && openZips.includes(file.url);
+        return (
+          <Fragment key={file.url}>
+            <button
+              type="button"
+              className="lmsFolderFile"
+              aria-expanded={zip ? opened : undefined}
+              onClick={(event) =>
+                zip
+                  ? setOpenZips((list) =>
+                      opened
+                        ? list.filter((open) => open !== file.url)
+                        : [...list, file.url],
+                    )
+                  : openFile(file.url, file.name, event.currentTarget)
+              }
+            >
+              <FileTile family={fileFamily(byName(file.name))} />
+              <FileName
+                name={file.name}
+                detail={"bytes" in file ? fileSize(file.bytes) : undefined}
+              />
+            </button>
+            {opened && (
+              <InlineFolder
+                url={file.url}
+                courseId={courseId}
+                limit={limit}
+                openFile={openFile}
+                openPage={openPage}
+                archive
+              />
+            )}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

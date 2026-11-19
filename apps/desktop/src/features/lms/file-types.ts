@@ -57,13 +57,18 @@ export function fileFamily(url: string, module?: string): FileFamily {
 export function previewKind(url: string): PreviewKind | undefined {
   const ext = extension(url);
   if (noPreview.has(ext)) return undefined;
-  // Core lists a ZIP's files (`Material::Archive`); other archives download.
-  if (ext === "zip") return "archive";
+  // Core lists a ZIP's files (`Material::Archive`); other archives, and a
+  // ZIP inside a ZIP, download.
+  if (ext === "zip") return url.includes(ENTRY_MARK) ? undefined : "archive";
   const family = families.find(([, pattern]) => pattern.test(ext))?.[0];
   return family === "pdf" || family === "markdown" || family === "text" || family === "image" || family === "video" || family === "audio"
     ? family
     : undefined;
 }
+
+/** A ZIP: wherever it is listed or linked, its files open in place as a
+ * folder's do, in the outline and never in the reader. */
+export const listsAsFolder = (url: string) => previewKind(url) === "archive";
 
 /**
  * A file of a known type the reader cannot show (an archive, a slide deck):
