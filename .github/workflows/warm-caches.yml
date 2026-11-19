@@ -1,14 +1,7 @@
 name: Warm caches
 
-# Branches can read only their own caches and the default branch's, and one
-# set nearly fills the repository's 10 GB, so only main saves them. A full
-# Platform checks run on main saves them; it gates nothing, and a failure
-# needs no fix on main.
-#
-# rust-cache keys on these files, and a changed profile or toolchain makes
-# every cached artifact stale, so main warms again whenever one changes
-# instead of leaving every branch cold until the weekly run. The weekly run
-# keeps the caches from expiring after 7 days unused.
+# A quick Platform checks run on main saves caches that work branches can read.
+# Warm again when Rust build inputs change, and weekly before unused caches expire.
 on:
   push:
     branches: [main]
@@ -18,8 +11,6 @@ on:
       - rust-toolchain.toml
       - .cargo/**
       - .github/workflows/platform-checks.yml
-      - .github/workflows/native-sdk.yml
-      - .github/workflows/campus-map.yml
       - .github/actions/rust-compiler-cache/**
   schedule:
     - cron: '0 18 * * 0' # Monday 03:00 in Japan
@@ -35,8 +26,6 @@ jobs:
     permissions:
       actions: write
     steps:
-      # A dispatched run checks every platform (see its route job), so every
-      # job saves its cache.
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

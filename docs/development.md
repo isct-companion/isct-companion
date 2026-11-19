@@ -183,7 +183,8 @@ still select different compiled output. Final linking and build scripts still
 run. Cargo may print `Compiling app-ocr` on a hit; the action's post-job sccache
 statistics show whether the compiler output was reused. `cargo clippy` replaces
 `RUSTC_WORKSPACE_WRAPPER` with clippy-driver, so lint steps do not use the
-compiler cache; the reuse is in `cargo test` and `cargo check` steps. Platform
-checks retain the existing policy that only main writes shared caches; new
-inputs need one main cache-warming run before other branches can reuse them.
-Release workflows use neither cache.
+compiler cache; the reuse is in `cargo test` and `cargo check` steps. The quick
+Platform checks write both caches only on main; new inputs need one main
+cache-warming run before other branches can reuse them. The native SDK jobs run
+only in Release checks, so they write their caches on `release/X.Y.Z`. The
+desktop, Android and iOS release builds use neither cache.

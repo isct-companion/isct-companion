@@ -1,16 +1,13 @@
 ---
 name: release
-description: Release a new IsctCompanion desktop version - bump the version in every place, write the release notes, pass the release gate, commit, tag v<version> and push. Use when the user asks to release, cut, tag or mark a version ("发布 1.1.8", "标记为 1.1.8", "release a patch").
+description: Release a new IsctCompanion version by passing Release checks on release/X.Y.Z and merging it to main for automatic tagging. Use when the user asks to release, cut, tag or mark a version ("发布 1.1.8", "标记为 1.1.8", "release a patch").
 ---
 
 # Release a desktop version
 
-A pushed `v<version>` tag starts the Desktop release workflow
-(`.github/workflows/desktop-release.yml`). Its first job, "Verify release
-source", fails the whole release on any red check, before a single build. So
-everything that job runs is run here first.
-
-The desktop version only. iOS and Android versions are not part of this.
+Merge a verified `release/X.Y.Z` to `main` to publish a new IsctCompanion
+version. GitHub tags the squash commit and starts the desktop and mobile
+release workflows after it verifies the candidate.
 
 ## 1. Start from an up-to-date main
 
@@ -53,26 +50,15 @@ two previous files first and match them:
 Build them from the commits the bump printed, reading a commit's body when its
 subject is not enough. Show the user the notes before committing.
 
-## 4. Pass the release gate
-
-The JS half of the "Verify release source" job, unfiltered. This is the one
-place where the full JS suites are run, not targeted tests:
+## 4. Validate the version and notes locally
 
 ```bash
-node scripts/desktop/desktop-release.mjs validate
-yarn test
-yarn test:types
+GITHUB_REF=refs/tags/v<version> node scripts/desktop/desktop-release.mjs validate
 ```
 
-`cargo test -p app-core` is not run here: every commit on `main` already passed
-it in Platform checks, and the verify job runs it again before any build.
-
 If `docs/verification/manual-checks.yaml` changed since the last tag, run
-`node scripts/checks/manual-acceptance.mjs render` first and include the
-regenerated `docs/verification/manual-acceptance.md`; `yarn test` fails when it
-is stale (this is what broke the first push of 1.1.7).
-
-Fix any failure before going on. Never tag a red gate.
+`node scripts/checks/manual-acceptance.mjs render` and include the regenerated
+`docs/verification/manual-acceptance.md`. The full tests run in Release checks.
 
 ## 5. Commit
 
@@ -86,48 +72,28 @@ git commit -m "Release IsctCompanion <version>"
 The commit carries the user's name only: no `Co-Authored-By` or other AI
 attribution line.
 
-## 6. Merge, tag and push
-
-`main` takes a commit only from a squashed pull request whose `Platform checks`
-passed on a branch level with `main`. Opening the pull request needs the user's
-approval, each time.
+## 6. Verify the release branch and merge
 
 ```bash
 git push -u origin release/<version>
+gh workflow run release-checks.yml --ref release/<version>
+```
+
+Wait for **Release checks** on the release branch commit. After it passes,
+open the release PR to `main` with the user's approval.
+
+```bash
 gh pr create --base main --head release/<version> \
   --title "Release IsctCompanion <version>" --body-file docs/releases/<version>.md
 ```
 
-Once the check has passed, squash the pull request. The squash creates the
-commit to release, so tag `main` only after it. Before tagging, confirm the tip
-of `origin/main` is the release commit.
+If the PR already exists, rerun the failed Route job after Release checks
+passes. If the branch content changes, run Release checks again on the updated
+commit. Squash merge only after the required PR checks pass.
 
-```bash
-gh pr merge release/<version> --squash
-git switch main
-git pull --ff-only origin main
-git log -1 --format=%s
-git tag -a v<version> -m "IsctCompanion <version>"
-git push origin v<version>
-git branch -D release/<version>
-```
+## 7. Watch automatic tagging and publishing
 
-The merge and the tag push need no further approval. The branch needs `-D`:
-after a squash its own commits are not in `main`.
-
-## 7. Watch the verify job
-
-```bash
-gh run list --workflow "Desktop release" --branch v<version> --limit 1
-gh run view <run-id> --json jobs --jq '.jobs[] | "\(.name): \(.status)/\(.conclusion)"'
-```
-
-Wait for "Verify release source" (a few minutes) and report it. The platform
-builds take much longer; report that they are running and give the run link.
-
-## If the release fails after the push
-
-Read the failed step with `gh run view <run-id> --log-failed`, fix the cause,
-and run the gate again. `main` refuses a force push, so the release commit cannot
-be amended: land the fix through a pull request and ship it as the next patch
-version.
+Check **Tag merged release** first, then the three platform release workflows
+it starts on `v<version>`. Report the run links and any failed check. Retry a
+failed build or upload job on the same version. If source needs to change
+after the tag is created, ship the change in the next patch version.

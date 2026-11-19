@@ -4,7 +4,7 @@ set -euo pipefail
 # Read NUL-separated git paths. Shared and unclassified inputs conservatively
 # select the full suite, so newly introduced build inputs cannot bypass CI.
 selected=' '
-jobs=(frontend apple windows ios android campus-map app-store-tools)
+jobs=(frontend apple windows rust ios android campus-map app-store-tools)
 select_jobs() {
   selected+="$* "
 }
@@ -15,7 +15,7 @@ else
   while IFS= read -r -d '' path; do
     case "$path" in
       docs/verification/*) select_jobs frontend ;;
-      docs/*.md|README.md|README.ja.md|CONTRIBUTING.md) ;;
+      docs/*.md|README.md|README.ja.md|CONTRIBUTING.md|AGENTS.md|CLAUDE.md|STATUS.md|.mcp.json|.project/events.jsonl|.project/compiled.json|.project/layout.json) ;;
       apps/desktop/src/*|apps/desktop/tests/*|apps/desktop/public/*|apps/desktop/index.html)
         select_jobs frontend ;;
       apps/desktop/*|scripts/desktop/*|.github/workflows/desktop-release.yml)
@@ -31,7 +31,7 @@ else
       apps/apple-widgets/*)
         select_jobs apple ios ;;
       crates/app-core/src/campus_map/*|crates/app-core/src/tests/campus_map__*.rs|.github/workflows/campus-map.yml)
-        select_jobs ios android campus-map ;;
+        select_jobs rust ios android campus-map ;;
       *)
         select_jobs "${jobs[@]}" ;;
     esac

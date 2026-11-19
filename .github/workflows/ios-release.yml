@@ -17,6 +17,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -43,6 +45,14 @@ jobs:
       APP_GROUP: group.app.isctcompanion
     steps:
       - uses: actions/checkout@v7
+      - name: Verify publish eligibility
+        if: github.ref_type == 'tag' || inputs.upload_testflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          test "$GITHUB_REF_TYPE" = tag || { echo 'Select the vX.Y.Z release tag to upload.' >&2; exit 1; }
+          bash scripts/release/verify-candidate.sh tag "$GITHUB_REF_NAME" "$GITHUB_SHA"
       - uses: actions/setup-node@v7
         with:
           node-version: 22

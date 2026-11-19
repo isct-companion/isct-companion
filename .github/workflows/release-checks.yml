@@ -1,0 +1,38 @@
+name: Release checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: release-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    name: Validate release candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Match branch, version, and release notes
+        run: |
+          test "$GITHUB_REF_TYPE" = branch
+          version=$(bash scripts/release/verify-candidate.sh version "$GITHUB_REF_NAME")
+          GITHUB_REF="refs/tags/v$version" node scripts/desktop/desktop-release.mjs validate
+
+  suite:
+    name: Full release suite
+    needs: candidate
+    uses: ./.github/workflows/platform-checks.yml
+    with:
+      full: true

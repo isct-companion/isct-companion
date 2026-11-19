@@ -1,0 +1,75 @@
+name: Tag merged release
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Tag verified release
+    if: >-
+      github.event.pull_request.merged &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          sparse-checkout: scripts/release
+          persist-credentials: false
+      - name: Verify the candidate and create the tag
+        id: tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGED_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          verify=scripts/release/verify-candidate.sh
+          version=$(bash "$verify" version "$RELEASE_BRANCH")
+          bash "$verify" candidate "$RELEASE_BRANCH" "$CANDIDATE_SHA" "$MERGED_SHA"
+          tag="v$version"
+          if ! gh api "repos/$GH_REPO/git/ref/tags/$tag" >/dev/null 2>&1; then
+            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$MERGED_SHA" >/dev/null
+          fi
+          test "$(bash "$verify" tag-commit "$tag")" = "$MERGED_SHA" ||
+            { echo "$tag already points to another commit." >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  start:
+    name: Start ${{ matrix.workflow }}
+    needs: tag
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workflow: desktop-release.yml
+            inputs: '{"publish":true}'
+          - workflow: android-release.yml
+            inputs: '{}'
+          - workflow: ios-release.yml
+            inputs: '{"upload_testflight":true}'
+    steps:
+      # Tags created using GITHUB_TOKEN do not trigger push workflows.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ matrix.workflow }}
+          INPUTS: ${{ matrix.inputs }}
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: gh workflow run "$WORKFLOW" --ref "$RELEASE_TAG" --json <<< "$INPUTS"

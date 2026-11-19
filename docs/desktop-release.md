@@ -10,47 +10,40 @@ version tag also starts the Android and iOS release workflows; see
 CI uses the Yarn version pinned in `package.json`, enabled through Corepack,
 and installs dependencies with `yarn install --immutable`.
 
-The Desktop release workflow runs on version tag pushes and by manual dispatch.
-`yarn release:bump <version>` moves the version in every place the workflow
-validates (`scripts/release/versions.mjs` lists them) and prints the commits since
-the last tag. Add user-facing notes in `docs/releases/<version>.md`, then run the
-JS checks of the workflow's verify job: `node scripts/desktop/desktop-release.mjs validate`,
-`yarn test` and `yarn test:types` (the job also runs `cargo test -p app-core`,
-which `main` already passed in Platform checks). After review,
-commit and push the changes, then push a matching version tag:
+Work on a `release/X.Y.Z` branch from `main` and use
+`yarn release:bump X.Y.Z` to update the version files and print the changes
+since the previous tag. Add `docs/releases/X.Y.Z.md` with the release notes.
+
+Push the branch and manually run **Release checks** on it in Actions:
 
 ```sh
-git tag -a v1.1.3 -m "IsctCompanion 1.1.3"
-git push origin v1.1.3
+gh workflow run release-checks.yml --ref release/X.Y.Z
 ```
 
-Claude Code runs these steps through the `release` skill (`.claude/skills/release`).
+This checks the version and notes and runs the full desktop, iOS, and Android
+suite. After it passes, open the release PR to `main` and squash merge once
+`Platform checks` passes. If the PR was already open, rerun its failed Route
+job after **Release checks** completes. If the branch content needs to change
+to catch up with `main`, rerun **Release checks** on the resulting commit.
 
-Any maintainer with permission to push that tag can start a release. Actions uses
-repository secrets for signing and its scoped `GITHUB_TOKEN` for publication;
-maintainers do not need the owner's local credentials. Existing repository tag
-rules still apply. A tag must match the application version. Tests and type checks
-run before the three installer builds; every build must succeed before publication.
-Tags pushed by another workflow's `GITHUB_TOKEN` do not trigger this workflow;
-use a human maintainer's normal Git authentication or a GitHub App token.
+**Tag merged release** compares the squash commit's source tree with the
+tested candidate, creates `vX.Y.Z` on the squash commit, and starts Desktop,
+Android and iOS release jobs on that tag. Each publishing workflow verifies
+the tag and successful candidate run before it signs or uploads anything.
+Claude Code follows the same flow through the `release` skill.
 
-Manual dispatch remains available with `publish=true`. Leave
-`replace_existing=false` for new versions. To prepare a review build, dispatch
-with `publish=false` and push the version tag only after approval.
-
-To build without publishing, leave `publish=false`. To publish an existing successful
-Desktop release build without rebuilding, set `source_run_id` to its Actions run ID.
-The workflow validates that run before using its artifacts.
+For a build without publishing, dispatch **Desktop release** with
+`publish=false`. To retry publishing select the existing `vX.Y.Z` tag with
+`publish=true`. Supply `source_run_id` to reuse a successful Desktop release
+build for the same tagged commit.
 
 All three desktop builds must succeed before publication. Publication uses the source
-repository's `GITHUB_TOKEN`. A tag push opens the version's draft release at once,
-before tests and builds, so the iOS and Android workflows can attach their builds
+repository's `GITHUB_TOKEN`. The Desktop workflow opens the version's draft after validating the source,
+while the desktop builds run, so the iOS and Android workflows can attach their builds
 whatever happens to the desktop runners; a desktop failure then needs only a desktop
 rerun. Publication writes the notes on that draft (or creates it for a manual
 dispatch), uploads installers and signed updater bundles, then publishes the
-complete release. Stable versions are marked Latest;
-versions with a prerelease suffix remain prereleases. Release notes record the source
-commit. Existing published releases require explicit `replace_existing=true`.
+complete release. The published version is marked Latest. Release notes record the source commit. Existing published releases require explicit `replace_existing=true`.
 
 When `ISCT_UPDATER_PUBLIC_KEY` is configured, every platform must supply a signed
 update bundle using `TAURI_SIGNING_PRIVATE_KEY`. The complete set produces
