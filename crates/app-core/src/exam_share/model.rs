@@ -447,7 +447,11 @@ pub enum ExamAction {
     },
     Open {
         id: String,
-        download: bool,
+    },
+    /// Keep the exact opened version for offline use without contacting the site.
+    RetainOpen {
+        id: String,
+        path: String,
     },
     Library,
     Save {

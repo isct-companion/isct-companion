@@ -613,7 +613,6 @@ impl ExamShare {
         &self,
         session: &mut Session,
         id: &str,
-        download: bool,
         language: ContentLanguage,
     ) -> Result<ExamLocalDocument, ExamError> {
         let request = self.service(Method::GET, &["exams", id])?;
@@ -630,14 +629,14 @@ impl ExamShare {
             }
             Ok(_) => return Err(ExamError::Response),
             Err(ExamError::Unavailable | ExamError::Network | ExamError::Timeout)
-                if cached.is_some() && registered && !download =>
+                if cached.is_some() && registered =>
             {
                 let cached = cached.ok_or(ExamError::Storage)?;
                 return local(&base, cached, true, None, language).await;
             }
             Err(error) => return Err(error),
         };
-        let mut metadata;
+        let metadata;
         if let Some(existing) = cached
             .as_ref()
             .filter(|existing| existing.updated_at == remote.updated_at)
@@ -648,10 +647,6 @@ impl ExamShare {
                 downloaded: existing.downloaded,
                 file: existing.file,
             };
-            if download && !metadata.downloaded {
-                metadata.downloaded = true;
-                save_metadata(&base, &metadata).await?;
-            }
         } else {
             let url: Result<ReadUrl, _> = self
                 .call(
@@ -665,7 +660,7 @@ impl ExamShare {
                     erase(&base).await?;
                     return Err(ExamError::NotFound);
                 }
-                Err(error) if error.temporarily_unavailable() && !download && registered => {
+                Err(error) if error.temporarily_unavailable() && registered => {
                     return match cached {
                         Some(cached) => local(&base, cached, true, None, language).await,
                         None => Err(error),
@@ -673,8 +668,7 @@ impl ExamShare {
                 }
                 result => result?,
             };
-            let downloaded =
-                download || cached.as_ref().is_some_and(|existing| existing.downloaded);
+            let downloaded = cached.as_ref().is_some_and(|existing| existing.downloaded);
             let file = uuid::Uuid::new_v4();
             metadata = Cached {
                 document: remote.document,
@@ -699,7 +693,7 @@ impl ExamShare {
                     erase(&base).await?;
                     return Err(ExamError::NotFound);
                 }
-                Err(error) if error.temporarily_unavailable() && !download && registered => {
+                Err(error) if error.temporarily_unavailable() && registered => {
                     return match cached {
                         Some(cached) => local(&base, cached, true, None, language).await,
                         None => Err(error),

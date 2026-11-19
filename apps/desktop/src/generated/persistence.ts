@@ -1029,7 +1029,8 @@ export type ExamAction =
       classId: number | null;
     }
   | { kind: "courseSubject"; courseId: string }
-  | { kind: "open"; id: string; download: boolean }
+  | { kind: "open"; id: string }
+  | { kind: "retainOpen"; id: string; path: string }
   | { kind: "library" }
   | { kind: "save"; id: string; saved: boolean }
   | { kind: "removeDownload"; id: string }

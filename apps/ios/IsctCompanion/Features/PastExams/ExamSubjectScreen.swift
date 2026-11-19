@@ -124,7 +124,7 @@ struct ExamSubjectScreen: View {
         guard opening == nil else { return }
         opening = id
         defer { opening = nil }
-        if case let .document(file)? = await page.call(model, .open(id: id, download: false)) {
+        if case let .document(file)? = await page.call(model, .open(id: id)) {
             push(ExamDocumentRoute(id: id, file: file))
         }
     }

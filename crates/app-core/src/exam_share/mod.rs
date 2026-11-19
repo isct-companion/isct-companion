@@ -315,6 +315,11 @@ impl ExamShare {
                 outcome?;
                 ExamAnswer::Account(self.publisher.current())
             }
+            ExamAction::RetainOpen { id, path } => {
+                let path = std::path::Path::new(&path);
+                interrupt(&cancel, self.retain_open_copy(&id, path)).await?;
+                ExamAnswer::Done
+            }
             action => {
                 let generation = self
                     .generation
@@ -420,8 +425,8 @@ impl ExamShare {
                     self.resolve_subjects(session, codes, class_id, language)
                         .await?
                 }
-                ExamAction::Open { id, download } => {
-                    ExamAnswer::Document(self.open(session, &id, download, language).await?)
+                ExamAction::Open { id } => {
+                    ExamAnswer::Document(self.open(session, &id, language).await?)
                 }
                 ExamAction::Library => ExamAnswer::Library(self.library(session, language).await?),
                 ExamAction::Save { id, saved } => {
@@ -459,6 +464,7 @@ impl ExamShare {
                 }
                 // `act` and `run` answer these before reaching here.
                 ExamAction::Choices
+                | ExamAction::RetainOpen { .. }
                 | ExamAction::CancelUpload
                 | ExamAction::CancelConnect
                 | ExamAction::Disconnect

@@ -228,7 +228,7 @@ export function PastExams({
     async (id: string) => {
       const seq = ++openSeq.current;
       setOpening(id);
-      const answer = await call({ kind: "open", id, download: false });
+      const answer = await call({ kind: "open", id });
       if (seq !== openSeq.current) return;
       setOpening(undefined);
       if (answer?.kind === "document") setReader(answer.value);
@@ -249,7 +249,6 @@ export function PastExams({
     const answer = await call({
       kind: "open",
       id: reader.document.id,
-      download: false,
     });
     if (seq === openSeq.current && answer?.kind === "document")
       setReader(answer.value);

@@ -13,11 +13,8 @@ struct ExamDocumentScreen: View {
     @State private var file: ExamLocalDocument?
     @State private var failed = false
     @State private var showsReport = false
-    /// A copy under the uploader's name for the share sheet; Core's own
-    /// file has a generated name.
+    @State private var preparingExport = false
     @State private var shareCopy: URL?
-    /// A copy under the uploader's name waiting for the person to choose
-    /// where in Files it goes.
     @State private var download: URL?
 
     var body: some View {
@@ -48,11 +45,18 @@ struct ExamDocumentScreen: View {
                 if let preloaded = route.file { file = preloaded } else { await open() }
             }
         }
-        .task(id: file?.path) { shareCopy = file.flatMap(namedCopy) }
         .fileMover(isPresented: Binding(get: { download != nil }, set: { if !$0 { download = nil } }),
                    file: download) { result in
-            if case let .success(saved) = result {
+            switch result {
+            case let .success(saved):
                 page.notice = t("app.savedName", ["name": saved.lastPathComponent])
+            case .failure:
+                page.problem = t("lmsFile.theFileCouldNotBeDownloaded")
+            }
+        }
+        .sheet(isPresented: Binding(get: { shareCopy != nil }, set: { if !$0 { shareCopy = nil } })) {
+            if let shareCopy {
+                ShareSheet(url: shareCopy).presentationDetents([.medium, .large])
             }
         }
         .sheet(isPresented: $showsReport) {
@@ -71,14 +75,8 @@ struct ExamDocumentScreen: View {
 
     private func actions(_ file: ExamLocalDocument) -> some View {
         Menu {
-            // Core keeps its copy for the reader and offline use; a download
-            // is also a file the person places in Files under its own name.
-            // A kept or offline copy needs no request to the site.
             Button(t("examShare.download"), systemImage: "arrow.down.circle") {
-                Task {
-                    if !(file.downloaded || file.offline) { await open(download: true) }
-                    download = self.file.flatMap(namedCopy)
-                }
+                Task { await export(file, sharing: false) }
             }
             if let saved = file.saved {
                 Button(t(saved ? "examShare.unsave" : "examShare.save"), systemImage: saved ? "bookmark.fill" : "bookmark") {
@@ -86,8 +84,8 @@ struct ExamDocumentScreen: View {
                 }
                 .disabled(file.offline)
             }
-            ShareLink(item: shareCopy ?? URL(fileURLWithPath: file.path)) {
-                Label(t("common.share"), systemImage: "square.and.arrow.up")
+            Button(t("common.share"), systemImage: "square.and.arrow.up") {
+                Task { await export(file, sharing: true) }
             }
             if let web = URL(string: file.webUrl) {
                 Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
@@ -104,7 +102,7 @@ struct ExamDocumentScreen: View {
         } label: {
             Label(t("examShare.more"), systemImage: "ellipsis.circle")
         }
-        .disabled(page.busy)
+        .disabled(page.busy || preparingExport)
     }
 
     /// The library's removal, or removing the download of one opened elsewhere.
@@ -112,12 +110,37 @@ struct ExamDocumentScreen: View {
         route.removal ?? (file?.downloaded == true ? .download : nil)
     }
 
-    private func open(download: Bool = false) async {
+    private func open() async {
         failed = false
-        if case let .document(value)? = await page.call(model, .open(id: route.id, download: download)) {
+        if case let .document(value)? = await page.call(model, .open(id: route.id)) {
             file = value
         } else {
             failed = file == nil
+        }
+    }
+
+    private func export(_ opened: ExamLocalDocument, sharing: Bool) async {
+        guard !preparingExport else { return }
+        preparingExport = true
+        page.problem = nil
+        page.notice = nil
+        defer { preparingExport = false }
+
+        if !sharing && !opened.downloaded && !opened.offline {
+            guard case .done? = await page.call(model, .retainOpen(id: opened.document.id, path: opened.path))
+            else { return }
+            if file?.path == opened.path { file?.downloaded = true }
+        }
+
+        let source = URL(fileURLWithPath: opened.path)
+        let name = opened.exportName
+        do {
+            let copy = try await Task.detached(priority: .userInitiated) {
+                try namedCopy(from: source, as: name)
+            }.value
+            if sharing { shareCopy = copy } else { download = copy }
+        } catch {
+            page.problem = t(sharing ? "share.copyFailed" : "lmsFile.theFileCouldNotBeDownloaded")
         }
     }
 
@@ -132,17 +155,18 @@ struct ExamDocumentScreen: View {
 
 /// A copy of the opened file named `exportName`, in a folder of its own
 /// under the temporary directory, which the system clears.
-private func namedCopy(_ file: ExamLocalDocument) -> URL? {
+private func namedCopy(from source: URL, as name: String) throws -> URL {
     let folder = FileManager.default.temporaryDirectory
         .appendingPathComponent("exam-export", isDirectory: true)
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let copy = folder.appendingPathComponent(file.exportName)
+    let copy = folder.appendingPathComponent(name)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     do {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: file.path), to: copy)
+        try FileManager.default.copyItem(at: source, to: copy)
         return copy
     } catch {
-        return nil
+        try? FileManager.default.removeItem(at: folder)
+        throw error
     }
 }
 

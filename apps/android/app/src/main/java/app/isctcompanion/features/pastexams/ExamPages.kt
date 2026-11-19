@@ -273,6 +273,7 @@ fun ExamDocumentScreen(id: String) {
     var file by remember(id) { mutableStateOf<ExamLocalDocument?>(null) }
     var menu by remember { mutableStateOf(false) }
     var reporting by rememberSaveable { mutableStateOf(false) }
+    var downloading by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     /** Core's own copy, kept for the reader and offline use, has a generated
@@ -290,11 +291,22 @@ fun ExamDocumentScreen(id: String) {
         else t("lmsFile.theFileCouldNotBeDownloaded")
     }
 
-    suspend fun open(download: Boolean = false) {
-        (calls.call(ExamAction.Open(id, download)) as? ExamAnswer.Document)?.v1?.let {
-            file = it
-            if (download) saveCopy(it)
+    suspend fun download(opened: ExamLocalDocument) {
+        if (downloading) return
+        downloading = true
+        try {
+            if (!opened.downloaded && !opened.offline) {
+                calls.call(ExamAction.RetainOpen(opened.document.id, opened.path)) ?: return
+                file?.let { if (it.path == opened.path) file = it.copy(downloaded = true) }
+            }
+            saveCopy(opened)
+        } finally {
+            downloading = false
         }
+    }
+
+    suspend fun open() {
+        (calls.call(ExamAction.Open(id)) as? ExamAnswer.Document)?.v1?.let { file = it }
     }
     LaunchedEffect(id) { open() }
 
@@ -311,14 +323,9 @@ fun ExamDocumentScreen(id: String) {
                             { Text(t("examShare.download")) },
                             {
                                 menu = false
-                                // A kept or offline copy is already here: only
-                                // the Downloads copy is made, without the site.
-                                scope.launch {
-                                    if (current.downloaded || current.offline) saveCopy(current)
-                                    else open(download = true)
-                                }
+                                scope.launch { download(current) }
                             },
-                            enabled = !calls.busy,
+                            enabled = !calls.busy && !downloading,
                         )
                         current.saved?.let { saved ->
                             DropdownMenuItem(
