@@ -379,8 +379,11 @@ private fun PdfView(path: String) {
     val document by produceState<Result<PdfDocument>?>(null, path) {
         value = runCatching { SandboxedPdfLoader(context).openDocument(Uri.fromFile(File(path))) }
     }
-    DisposableEffect(document) { onDispose { document?.getOrNull()?.close() } }
-    when (val loaded = document) {
+    // Close the document this effect saw: `document` read inside onDispose
+    // would be the newly loaded one, closed the moment it arrived.
+    val opened = document
+    DisposableEffect(opened) { onDispose { opened?.getOrNull()?.close() } }
+    when (val loaded = opened) {
         null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
         else -> loaded.getOrNull()?.let {
             PdfViewer(it, rememberPdfViewerState(), Modifier.fillMaxSize().background(Theme.colors.surface2))
