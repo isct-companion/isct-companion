@@ -129,6 +129,12 @@ class IsctApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // androidx.pdf runs its PDF service in an isolated process of this
+        // app, which creates this Application too. That process may not
+        // touch SharedPreferences (Guide.attach threw, killing the service so
+        // every past-exam PDF waited forever) or start WorkManager; it needs
+        // none of the app's setup.
+        if (android.os.Process.isIsolated()) return
         Localizer.attach(this)
         Guide.attach(this)
         // The periodic wake of earlier releases; Core's directive schedules
