@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -87,9 +88,12 @@ import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /** How a subject page was reached: from a course (Core finds its subject and
  * class) or by a subject code. */
@@ -410,7 +414,7 @@ private fun DocumentView(file: ExamLocalDocument) {
 private fun PdfView(path: String) {
     val context = LocalContext.current
     val document by produceState<Result<PdfDocument>?>(null, path) {
-        value = runCatching { SandboxedPdfLoader(context).openDocument(Uri.fromFile(File(path))) }
+        value = openSandboxed(context, path)
     }
     // Close the document this effect saw: `document` read inside onDispose
     // would be the newly loaded one, closed the moment it arrived.
@@ -421,6 +425,32 @@ private fun PdfView(path: String) {
         else -> loaded.getOrNull()?.let {
             PdfViewer(it, rememberPdfViewerState(), Modifier.fillMaxSize().background(Theme.colors.surface2))
         } ?: RendererPdfView(path)
+    }
+}
+
+/** Set once the sandboxed reader failed in this process; later PDFs go
+ * straight to PdfRenderer instead of waiting again. */
+@Volatile
+private var sandboxUnavailable = false
+
+/** Opens `path` in androidx.pdf's sandboxed service. When that service's
+ * process cannot start (it crashed in IsctApplication once), binding waits
+ * without an error and the reader would spin forever, so it gets a time
+ * limit. A failure is logged and leaves the PDF to PdfRenderer. */
+private suspend fun openSandboxed(context: android.content.Context, path: String): Result<PdfDocument> {
+    if (sandboxUnavailable) return Result.failure(IllegalStateException("PDF sandbox unavailable"))
+    return try {
+        Result.success(withTimeout(8_000) { SandboxedPdfLoader(context).openDocument(Uri.fromFile(File(path))) })
+    } catch (timeout: TimeoutCancellationException) {
+        sandboxUnavailable = true
+        Log.w("PastExams", "Sandboxed PDF reader did not open in time; using PdfRenderer", timeout)
+        Result.failure(timeout)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        sandboxUnavailable = true
+        Log.w("PastExams", "Sandboxed PDF reader failed; using PdfRenderer", failure)
+        Result.failure(failure)
     }
 }
 
