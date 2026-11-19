@@ -326,6 +326,8 @@
 .lmsFolderFile b { display: block; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; overflow-wrap: anywhere; }
 .lmsFolderFile small { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsFolderNote { margin-left: 34px; }
+/* A ZIP linked in course text is its folder row; in a card grid it spans the row. */
+.lmsFileList > .lmsLinkedFolder { grid-column: 1 / -1; }
 .lmsTextLink { padding: 0; border: 0; background: none; color: var(--accent) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; }
 .lmsTextLink:hover { text-decoration: underline; }
 

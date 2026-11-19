@@ -678,17 +678,35 @@ describe("the LMS reading workspace", () => {
         };
       },
     });
-    const listed = (within: Element | null) =>
-      within?.querySelectorAll(".lmsFolderFile").length ?? 0;
+    const folder = (title: string) =>
+      [...host.querySelectorAll(".lmsFolder")].find(
+        (row) => row.querySelector(":scope > button b")?.textContent === title,
+      );
+    const toggle = (title: string) =>
+      click(
+        folder(title)!.querySelector<HTMLButtonElement>(":scope > button")!,
+      );
+    const listed = (title: string) =>
+      folder(title)?.querySelectorAll(".lmsFolderFiles > .lmsFolderFile")
+        .length ?? 0;
 
-    await click(
-      host.querySelector<HTMLButtonElement>(
-        '.lmsFolder > [aria-expanded="false"]',
-      )!,
-    );
-    await waitFor(() =>
-      expect(listed(host.querySelector(".lmsFolder"))).toBe(2),
-    );
+    // Every ZIP is a folder row: the resource, and the attachment linked in
+    // the section text in place of its card.
+    for (const title of ["OOP 2A", "OOP 1B problem"])
+      expect(
+        folder(title)
+          ?.querySelector(".lmsFileTile")
+          ?.getAttribute("data-family"),
+        title,
+      ).toBe("folder");
+    expect(
+      [...host.querySelectorAll("a")].some(
+        (a) => a.getAttribute("href") === attached,
+      ),
+    ).toBe(false);
+
+    await toggle("OOP 2A");
+    await waitFor(() => expect(listed("OOP 2A")).toBe(2));
     // The archive is downloaded to read its files, within the automatic limit.
     expect(core.commands("open_course_material")[0].args).toMatchObject({
       url: zip,
@@ -698,8 +716,9 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
 
     // A file the reader cannot show is its card at the row…
-    const [readmeRow, reportRow] =
-      host.querySelectorAll<HTMLButtonElement>(".lmsFolderFile");
+    const [readmeRow, reportRow] = folder(
+      "OOP 2A",
+    )!.querySelectorAll<HTMLButtonElement>(".lmsFolderFiles > .lmsFolderFile");
     await click(reportRow);
     await waitFor(() =>
       expect(
@@ -717,38 +736,30 @@ describe("the LMS reading workspace", () => {
     await click(host.querySelector<HTMLButtonElement>(".lmsViewerClose")!);
     await waitFor(() => expect(host.querySelector(".lmsViewer")).toBeNull());
 
-    // A ZIP linked in the section text lists under its paragraph, and a
-    // second click folds it away.
-    const link = [...host.querySelectorAll("a")].find(
-      (a) => a.getAttribute("href") === attached,
-    )!;
-    await click(link);
-    await waitFor(() =>
-      expect(listed(link.closest("p")?.nextElementSibling ?? null)).toBe(2),
-    );
+    // The linked ZIP opens and folds like the folder it is.
+    await toggle("OOP 1B problem");
+    await waitFor(() => expect(listed("OOP 1B problem")).toBe(2));
     expect(host.querySelector(".lmsViewer")).toBeNull();
     expect(
       core
         .commands("open_course_material")
         .some(({ args }) => args.url === attached && args.download === true),
     ).toBe(true);
-    await click(link);
-    expect(host.querySelector(".lmsLinkFolder")).toBeNull();
+    await toggle("OOP 1B problem");
+    expect(listed("OOP 1B problem")).toBe(0);
 
     // A resource Core answers as a ZIP leaves the reader for its row, which
     // now opens and folds like a folder.
     await click(itemRow(host, "Day 3 handout"));
     await waitFor(() =>
       expect(
-        host
-          .querySelectorAll<HTMLButtonElement>(".lmsFolder > .lmsItemRow")[1]
+        folder("Day 3 handout")
+          ?.querySelector(":scope > button")
           ?.getAttribute("aria-expanded"),
       ).toBe("true"),
     );
     expect(host.querySelector(".lmsViewer")).toBeNull();
-    await waitFor(() =>
-      expect(listed(host.querySelectorAll(".lmsFolder")[1])).toBe(2),
-    );
+    await waitFor(() => expect(listed("Day 3 handout")).toBe(2));
   }, 30_000);
 
   it("shows a label's own text without the name Moodle derives from it, keeping Core's schedule marks", async () => {

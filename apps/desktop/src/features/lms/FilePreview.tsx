@@ -1,6 +1,5 @@
 import { ReaderTools } from "./ReaderPane";
 import {
-  Fragment,
   lazy,
   Suspense,
   useEffect,
@@ -22,6 +21,7 @@ import {
 } from "./file-types";
 import { ImageView } from "./ImageView";
 import { FileTile, LmsIcon } from "./LmsIcon";
+import { FolderRow } from "./FolderRow";
 import { useReleaseSource } from "./useReleaseSource";
 import {
   localFileUrl,
@@ -823,8 +823,6 @@ export function InlineFolder({
 }) {
   const course = useCourseFile(url, courseId, limit, { download: archive });
   const { view } = course;
-  /** ZIPs of a folder opened under their own row. */
-  const [openZips, setOpenZips] = useState<string[]>([]);
   if (view.state === "loading")
     return <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>;
   if (view.state === "tooLarge")
@@ -874,44 +872,36 @@ export function InlineFolder({
     );
   return (
     <div className="lmsFolderFiles">
-      {view.files.map((file) => {
-        const zip = listsAsFolder(file.url);
-        const opened = zip && openZips.includes(file.url);
-        return (
-          <Fragment key={file.url}>
-            <button
-              type="button"
-              className="lmsFolderFile"
-              aria-expanded={zip ? opened : undefined}
-              onClick={(event) =>
-                zip
-                  ? setOpenZips((list) =>
-                      opened
-                        ? list.filter((open) => open !== file.url)
-                        : [...list, file.url],
-                    )
-                  : openFile(file.url, file.name, event.currentTarget)
-              }
-            >
-              <FileTile family={fileFamily(byName(file.name))} />
-              <FileName
-                name={file.name}
-                detail={"bytes" in file ? fileSize(file.bytes) : undefined}
-              />
-            </button>
-            {opened && (
-              <InlineFolder
-                url={file.url}
-                courseId={courseId}
-                limit={limit}
-                openFile={openFile}
-                openPage={openPage}
-                archive
-              />
-            )}
-          </Fragment>
-        );
-      })}
+      {view.files.map((file) =>
+        listsAsFolder(file.url) ? (
+          <FolderRow
+            key={file.url}
+            title={file.name}
+            url={file.url}
+            archive
+            courseId={courseId}
+            limit={limit}
+            openFile={openFile}
+            openPage={openPage}
+            compact
+          />
+        ) : (
+          <button
+            type="button"
+            className="lmsFolderFile"
+            key={file.url}
+            onClick={(event) =>
+              openFile(file.url, file.name, event.currentTarget)
+            }
+          >
+            <FileTile family={fileFamily(byName(file.name))} />
+            <FileName
+              name={file.name}
+              detail={"bytes" in file ? fileSize(file.bytes) : undefined}
+            />
+          </button>
+        ),
+      )}
     </div>
   );
 }
