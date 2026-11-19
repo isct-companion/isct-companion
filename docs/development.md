@@ -57,16 +57,20 @@ Google account: the development app uses the same Drive app folder. A debug
 bundle signed with the team profile is the release app with iCloud
 (`app.isctcompanion`).
 
-On macOS each launch signs the development executable with your own Apple
-Development identity (a Personal Team works), so the keychain items it saves
-stay readable across rebuilds without prompts. Pick the identity once and keep
-it in your shell profile; `yarn desktop:dev` lists the valid ones when it is
-unset:
+On macOS both `yarn desktop:dev` and the standalone development bundle from
+`yarn desktop:build --debug --bundles app` sign with the same Apple Development
+identity (a Personal Team works), which keeps their Keychain access stable
+across rebuilds. Both commands use the only valid Apple Development identity
+automatically. With multiple identities, select one in your shell profile:
 
 ```sh
 security find-identity -v -p codesigning   # pick an "Apple Development" SHA-1
 export ISCT_MACOS_DEV_SIGNING_IDENTITY=<SHA-1>
 ```
+
+This setting selects the signer for the independent development app. A valid
+project-team profile on this Mac still takes precedence for debug bundles
+that exercise release behavior.
 
 A debug binary started any other way (such as `cargo run`) would use the
 release app's data and credentials, so it refuses to start.
