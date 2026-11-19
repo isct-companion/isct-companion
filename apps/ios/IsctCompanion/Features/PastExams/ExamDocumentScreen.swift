@@ -13,6 +13,12 @@ struct ExamDocumentScreen: View {
     @State private var file: ExamLocalDocument?
     @State private var failed = false
     @State private var showsReport = false
+    /// A copy under the uploader's name for the share sheet; Core's own
+    /// file has a generated name.
+    @State private var shareCopy: URL?
+    /// A copy under the uploader's name waiting for the person to choose
+    /// where in Files it goes.
+    @State private var download: URL?
 
     var body: some View {
         Group {
@@ -42,6 +48,13 @@ struct ExamDocumentScreen: View {
                 if let preloaded = route.file { file = preloaded } else { await open() }
             }
         }
+        .task(id: file?.path) { shareCopy = file.flatMap(namedCopy) }
+        .fileMover(isPresented: Binding(get: { download != nil }, set: { if !$0 { download = nil } }),
+                   file: download) { result in
+            if case let .success(saved) = result {
+                page.notice = t("app.savedName", ["name": saved.lastPathComponent])
+            }
+        }
         .sheet(isPresented: $showsReport) {
             if let file, let choices = page.choices {
                 ExamReportForm(reasons: choices.reportReasons, maxDetail: choices.limits.reportDetail,
@@ -58,17 +71,22 @@ struct ExamDocumentScreen: View {
 
     private func actions(_ file: ExamLocalDocument) -> some View {
         Menu {
-            Button(t(file.downloaded ? "examShare.downloaded" : "examShare.download"), systemImage: "arrow.down.circle") {
-                Task { await open(download: true) }
+            // Core keeps its copy for the reader and offline use; a download
+            // is also a file the person places in Files under its own name.
+            // A kept or offline copy needs no request to the site.
+            Button(t("examShare.download"), systemImage: "arrow.down.circle") {
+                Task {
+                    if !(file.downloaded || file.offline) { await open(download: true) }
+                    download = self.file.flatMap(namedCopy)
+                }
             }
-            .disabled(file.downloaded || file.offline)
             if let saved = file.saved {
                 Button(t(saved ? "examShare.unsave" : "examShare.save"), systemImage: saved ? "bookmark.fill" : "bookmark") {
                     Task { await save(!saved) }
                 }
                 .disabled(file.offline)
             }
-            ShareLink(item: URL(fileURLWithPath: file.path)) {
+            ShareLink(item: shareCopy ?? URL(fileURLWithPath: file.path)) {
                 Label(t("common.share"), systemImage: "square.and.arrow.up")
             }
             if let web = URL(string: file.webUrl) {
@@ -98,7 +116,6 @@ struct ExamDocumentScreen: View {
         failed = false
         if case let .document(value)? = await page.call(model, .open(id: route.id, download: download)) {
             file = value
-            if download { page.notice = t("examShare.downloadedNotice") }
         } else {
             failed = file == nil
         }
@@ -110,6 +127,22 @@ struct ExamDocumentScreen: View {
         var refreshed = current
         refreshed.saved = updated
         file = refreshed
+    }
+}
+
+/// A copy of the opened file named `exportName`, in a folder of its own
+/// under the temporary directory, which the system clears.
+private func namedCopy(_ file: ExamLocalDocument) -> URL? {
+    let folder = FileManager.default.temporaryDirectory
+        .appendingPathComponent("exam-export", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let copy = folder.appendingPathComponent(file.exportName)
+    do {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: file.path), to: copy)
+        return copy
+    } catch {
+        return nil
     }
 }
 
