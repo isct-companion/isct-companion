@@ -242,11 +242,19 @@ describe("manual acceptance table", () => {
 });
 
 describe("desktop release publication", () => {
-  // A tag push opens the draft early so the mobile workflows can attach to
-  // it; a manual dispatch has none, and publication creates it.
+  it("rejects a prerelease tag at the stable release gate", () => {
+    const result = spawnSync(
+      "bash",
+      ["scripts/release/verify-candidate.sh", "tag-commit", "v1.0.0-rc.4"],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain("Expected an existing vX.Y.Z release tag");
+  });
+
+  // Publication reuses the early draft, or creates it if it is missing.
   it.each([
     ["v1.0.0", "--prerelease=false", "--latest=true", false],
-    ["v1.0.0-rc.4", "--prerelease", "--latest=false", false],
     ["v1.0.0", "--prerelease=false", "--latest=true", true],
   ])(
     "publishes %s as %s %s (early draft: %s)",

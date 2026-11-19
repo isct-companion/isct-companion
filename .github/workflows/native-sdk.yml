@@ -1,7 +1,6 @@
 name: Native Core SDK
 
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       ios:
@@ -20,9 +19,7 @@ env:
 jobs:
   rust-contracts:
     name: Rust contracts and lint
-    # Keep the same selection as when these checks ran inside the iOS job.
-    # No SDK job needs this job's outputs; all run in parallel and gate CI.
-    if: github.event_name == 'workflow_dispatch' || inputs.ios
+    if: inputs.ios
     runs-on: macos-15
     timeout-minutes: 50
     steps:
@@ -34,8 +31,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-rust-contracts
-          # Each parallel job warms its own dependency/feature set on main.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
       - name: Rust contracts and lint
         run: |
           cargo test -p app-core -p app-ffi --locked -j 2
@@ -50,8 +46,7 @@ jobs:
 
   ios:
     name: Swift SDK and iOS Simulator
-    # A direct dispatch runs both platforms. The caller also dispatches both.
-    if: github.event_name == 'workflow_dispatch' || inputs.ios
+    if: inputs.ios
     runs-on: macos-15
     timeout-minutes: 50
     steps:
@@ -71,8 +66,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-ios
-          # Platform checks warms the shared caches on main.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
       - name: Install host Kotlin compiler
         run: |
           if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
@@ -106,7 +100,7 @@ jobs:
 
   android:
     name: Android AAR and emulator
-    if: github.event_name == 'workflow_dispatch' || inputs.android
+    if: inputs.android
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -130,8 +124,7 @@ jobs:
         with:
           workspaces: . -> target
           key: native-sdk-android
-          # Platform checks warms the shared caches on main.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
       - run: corepack enable
       # The same Yarn cache as platform checks' frontend job, keyed on yarn.lock.
       - name: Set up Yarn cache

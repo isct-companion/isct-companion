@@ -1,23 +1,27 @@
 name: Platform checks
 
 on:
-  # Checks every platform. On main this is what saves the shared caches
-  # (warm-caches.yml dispatches it).
+  # Warm caches dispatches the quick suite on main.
   workflow_dispatch:
-  # Work branches and PRs check changed areas.
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
+  # Work branches and PRs run the quick checks.
   push:
     branches-ignore: [main]
   # A fork's pushes happen outside this repository, so only this trigger sees
   # them. The pull request's run is the one main requires.
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
 
 permissions:
   contents: read
 
 # A newer commit supersedes the run still in progress.
 concurrency:
-  group: platform-checks-${{ github.ref }}
+  group: platform-checks-${{ inputs.full && 'full' || 'quick' }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,10 +32,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
       frontend: ${{ steps.route.outputs.frontend }}
       apple: ${{ steps.route.outputs.apple }}
       windows: ${{ steps.route.outputs.windows }}
+      rust: ${{ steps.route.outputs.rust }}
       ios: ${{ steps.route.outputs.ios }}
       android: ${{ steps.route.outputs.android }}
       campus-map: ${{ steps.route.outputs.campus-map }}
@@ -40,7 +46,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
-          sparse-checkout: scripts/checks
+          sparse-checkout: |
+            scripts/checks
+            scripts/release
           persist-credentials: false
       - id: route
         shell: bash
@@ -49,21 +57,40 @@ jobs:
           GH_REPO: ${{ github.repository }}
           OWNER: ${{ github.repository_owner }}
           BRANCH: ${{ github.ref_name }}
+          PR_HEAD: ${{ github.head_ref }}
+          PR_BASE: ${{ github.base_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
           route=scripts/checks/route-platform-checks.sh
+          for branch in "$BRANCH" "$PR_HEAD" "$PR_BASE"; do
+            if [[ "$branch" == release/* ]]; then
+              bash scripts/release/verify-candidate.sh version "$branch"
+            fi
+          done
           case "$GITHUB_EVENT_NAME" in
             pull_request)
+              if [[ "$PR_BASE" == main && "$PR_HEAD" == release/* ]]; then
+                test "$PR_HEAD_REPO" = "$GH_REPO" || { echo "Open release PRs from this repository." >&2; exit 1; }
+                bash scripts/release/verify-candidate.sh candidate "$PR_HEAD" "$PR_HEAD_SHA" "$GITHUB_SHA"
+              fi
               # Jobs build this same merge commit. Its first parent is the base.
               range=(HEAD^1 HEAD)
               ;;
             push)
-              open=$(gh api "repos/$GH_REPO/pulls" --method GET -f head="$OWNER:$BRANCH" -f base=main -f state=open --jq length)
+              open=$(gh api "repos/$GH_REPO/pulls" --method GET -f head="$OWNER:$BRANCH" -f state=open \
+                --jq '[.[] | select(.base.ref == "main" or (.base.ref | startswith("release/")))] | length')
               if [[ "$open" != 0 ]]; then
                 echo "The open pull request's run covers this commit."
                 bash "$route" </dev/null | tee -a "$GITHUB_OUTPUT"
                 exit 0
               fi
-              range=(origin/main...HEAD)
+              if [[ "$BRANCH" == release/* ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                range=("$BEFORE" HEAD)
+              else
+                range=(origin/main...HEAD)
+              fi
               ;;
             *)
               bash "$route" --all | tee -a "$GITHUB_OUTPUT"
@@ -139,16 +166,22 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
       # The same lint as the Mac job: each OS compiles code the other never sees.
+      - name: Check desktop
+        if: '!inputs.full'
+        run: cargo check -p isct-companion --locked
       - name: Desktop lint
+        if: inputs.full
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # GitHub's Windows Server image cannot start the Tauri GUI test host
       # (STATUS_ENTRYPOINT_NOT_FOUND), so the shell's tests only compile and link.
-      - run: cargo test -p isct-companion --locked --no-run
+      - if: inputs.full
+        run: cargo test -p isct-companion --locked --no-run
       # Everything else runs: Unix accepts what Windows refuses, so a compile
       # alone misses it (1.3.0 could not open its data folder on Windows). The
       # features are the shell's, which leaving it out would otherwise turn off.
       # app-ffi only serves the phones; Native Core SDK runs its tests.
       - name: Core and adapter tests
+        if: inputs.full
         run: >-
           cargo test --workspace --exclude isct-companion --exclude app-ffi --locked --no-fail-fast
           --features app-core/ts,app-core/workspace-archives,app-core/agent,app-core/campus-printer
@@ -161,9 +194,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
+        target: ${{ fromJSON(inputs.full && '["aarch64-apple-darwin","x86_64-apple-darwin"]' || '["aarch64-apple-darwin"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
@@ -177,19 +208,57 @@ jobs:
           cache-on-failure: true
       - run: cargo check -p isct-companion --locked --target ${{ matrix.target }}
       - name: Desktop Rust contracts
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: inputs.full && matrix.target == 'aarch64-apple-darwin'
         run: cargo test --workspace --locked
       - name: OCR disabled-backend contracts
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: inputs.full && matrix.target == 'aarch64-apple-darwin'
         run: cargo test -p app-ocr --no-default-features --locked
       - name: Desktop lint
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: inputs.full && matrix.target == 'aarch64-apple-darwin'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  rust:
+    name: Portable Rust and FFI
+    needs: route
+    if: ${{ !inputs.full && needs.route.outputs.rust == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo check -p app-ffi --features campus-map --locked
+
+  ios-syntax:
+    name: Swift syntax
+    needs: route
+    if: ${{ !inputs.full && needs.route.outputs.ios == 'true' }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse Swift sources
+        run: git ls-files -z -- 'apps/ios/*.swift' 'apps/apple-widgets/*.swift' | xargs -0 swiftc -frontend -parse
+
+  android-config:
+    name: Android Gradle configuration
+    needs: route
+    if: ${{ !inputs.full && needs.route.outputs.android == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - run: ./gradlew :app:help --no-daemon
+        working-directory: apps/android
 
   native-sdk:
     name: Native Core SDK
     needs: route
-    if: needs.route.outputs.ios == 'true' || needs.route.outputs.android == 'true'
+    if: inputs.full && (needs.route.outputs.ios == 'true' || needs.route.outputs.android == 'true')
     uses: ./.github/workflows/native-sdk.yml
     with:
       ios: ${{ needs.route.outputs.ios == 'true' }}
@@ -197,27 +266,36 @@ jobs:
 
   campus-map:
     needs: route
-    if: needs.route.outputs.campus-map == 'true'
+    if: inputs.full && needs.route.outputs.campus-map == 'true'
     uses: ./.github/workflows/campus-map.yml
 
   # Match the branch ruleset's check name only for PRs.
   result:
     name: ${{ github.event_name == 'pull_request' && 'Platform checks' || 'Platform checks (branch)' }}
     if: always()
-    needs: [route, app-store-tools, frontend, windows, apple, native-sdk, campus-map]
+    needs: [route, app-store-tools, frontend, windows, apple, rust, ios-syntax, android-config, native-sdk, campus-map]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - env:
           CHECKS: ${{ toJSON(needs) }}
+          FULL: ${{ inputs.full }}
         run: |
-          jq -e '
+          jq -e --arg full "$FULL" '
             .route as $route |
             $route.result == "success" and
             (del(.route) | to_entries | all(
               . as $job |
               (if $job.key == "native-sdk" then
-                [$route.outputs.ios, $route.outputs.android]
+                if $full == "true" then [$route.outputs.ios, $route.outputs.android] else ["false"] end
+              elif $job.key == "campus-map" then
+                if $full == "true" then [$route.outputs["campus-map"]] else ["false"] end
+              elif $job.key == "ios-syntax" then
+                if $full == "true" then ["false"] else [$route.outputs.ios] end
+              elif $job.key == "android-config" then
+                if $full == "true" then ["false"] else [$route.outputs.android] end
+              elif $job.key == "rust" and $full == "true" then
+                ["false"]
               else
                 [$route.outputs[$job.key]]
               end) as $selected |
