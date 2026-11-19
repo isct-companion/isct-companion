@@ -1,8 +1,13 @@
 name: Platform checks
 
 on:
-  # Warm caches dispatches the quick suite on main.
+  # Warm caches dispatches both suites on main, the only branch that saves
+  # caches.
   workflow_dispatch:
+    inputs:
+      full:
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       full:
@@ -33,15 +38,20 @@ jobs:
       contents: read
       pull-requests: read
       actions: read
+    # One output per job below; the route script folds in the suite mode, so
+    # each job and the result gate read only these.
     outputs:
       frontend: ${{ steps.route.outputs.frontend }}
       apple: ${{ steps.route.outputs.apple }}
       windows: ${{ steps.route.outputs.windows }}
-      rust: ${{ steps.route.outputs.rust }}
-      ios: ${{ steps.route.outputs.ios }}
-      android: ${{ steps.route.outputs.android }}
-      campus-map: ${{ steps.route.outputs.campus-map }}
       app-store-tools: ${{ steps.route.outputs.app-store-tools }}
+      rust: ${{ steps.route.outputs.rust }}
+      ios-syntax: ${{ steps.route.outputs.ios-syntax }}
+      android-config: ${{ steps.route.outputs.android-config }}
+      native-sdk: ${{ steps.route.outputs.native-sdk }}
+      native-ios: ${{ steps.route.outputs.native-ios }}
+      native-android: ${{ steps.route.outputs.native-android }}
+      campus-map: ${{ steps.route.outputs.campus-map }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,8 +72,11 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BEFORE: ${{ github.event.before }}
+          FULL: ${{ inputs.full }}
         run: |
           route=scripts/checks/route-platform-checks.sh
+          mode=()
+          if [[ "$FULL" == true ]]; then mode=(--full); fi
           for branch in "$BRANCH" "$PR_HEAD" "$PR_BASE"; do
             if [[ "$branch" == release/* ]]; then
               bash scripts/release/verify-candidate.sh version "$branch"
@@ -83,7 +96,7 @@ jobs:
                 --jq '[.[] | select(.base.ref == "main" or (.base.ref | startswith("release/")))] | length')
               if [[ "$open" != 0 ]]; then
                 echo "The open pull request's run covers this commit."
-                bash "$route" </dev/null | tee -a "$GITHUB_OUTPUT"
+                bash "$route" "${mode[@]}" </dev/null | tee -a "$GITHUB_OUTPUT"
                 exit 0
               fi
               if [[ "$BRANCH" == release/* ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
@@ -93,16 +106,16 @@ jobs:
               fi
               ;;
             *)
-              bash "$route" --all | tee -a "$GITHUB_OUTPUT"
+              bash "$route" "${mode[@]}" --all | tee -a "$GITHUB_OUTPUT"
               exit 0
               ;;
           esac
           paths="$RUNNER_TEMP/ci-changes"
           if git diff --name-only --no-renames -z "${range[@]}" > "$paths"; then
-            bash "$route" < "$paths" | tee -a "$GITHUB_OUTPUT"
+            bash "$route" "${mode[@]}" < "$paths" | tee -a "$GITHUB_OUTPUT"
           else
             echo "Could not compare changes. Running all checks."
-            bash "$route" --all | tee -a "$GITHUB_OUTPUT"
+            bash "$route" "${mode[@]}" --all | tee -a "$GITHUB_OUTPUT"
           fi
 
   app-store-tools:
@@ -160,14 +173,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      # The release suite lints and tests instead of checking: its own key.
+      - uses: ./.github/actions/rust-caches
         with:
-          workspaces: . -> target
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ inputs.full && 'full' || '' }}
           cache-on-failure: true
-      - uses: ./.github/actions/rust-compiler-cache
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          compiler-cache: true
       # The same lint as the Mac job: each OS compiles code the other never sees.
       - name: Check desktop
         if: '!inputs.full'
@@ -203,15 +214,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-caches
         with:
-          workspaces: . -> target
-          key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ matrix.target }}${{ inputs.full && '-full' || '' }}
           cache-on-failure: true
-      - uses: ./.github/actions/rust-compiler-cache
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          compiler-cache: true
       - run: cargo check -p isct-companion --locked --target ${{ matrix.target }}
       - name: Desktop Rust contracts
         if: inputs.full && matrix.target == 'aarch64-apple-darwin'
@@ -228,20 +235,18 @@ jobs:
   rust:
     name: Portable Rust and FFI
     needs: route
-    if: ${{ !inputs.full && needs.route.outputs.rust == 'true' }}
+    if: needs.route.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/rust-caches
       - run: cargo check -p app-ffi --features campus-map --locked
 
   ios-syntax:
     name: Swift syntax
     needs: route
-    if: ${{ !inputs.full && needs.route.outputs.ios == 'true' }}
+    if: needs.route.outputs.ios-syntax == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -251,7 +256,7 @@ jobs:
   android-config:
     name: Android Gradle configuration
     needs: route
-    if: ${{ !inputs.full && needs.route.outputs.android == 'true' }}
+    if: needs.route.outputs.android-config == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -266,15 +271,15 @@ jobs:
   native-sdk:
     name: Native Core SDK
     needs: route
-    if: inputs.full && (needs.route.outputs.ios == 'true' || needs.route.outputs.android == 'true')
+    if: needs.route.outputs.native-sdk == 'true'
     uses: ./.github/workflows/native-sdk.yml
     with:
-      ios: ${{ needs.route.outputs.ios == 'true' }}
-      android: ${{ needs.route.outputs.android == 'true' }}
+      ios: ${{ needs.route.outputs.native-ios == 'true' }}
+      android: ${{ needs.route.outputs.native-android == 'true' }}
 
   campus-map:
     needs: route
-    if: inputs.full && needs.route.outputs.campus-map == 'true'
+    if: needs.route.outputs.campus-map == 'true'
     uses: ./.github/workflows/campus-map.yml
 
   # Match the branch ruleset's check name only for PRs.
@@ -287,28 +292,16 @@ jobs:
     steps:
       - env:
           CHECKS: ${{ toJSON(needs) }}
-          FULL: ${{ inputs.full }}
         run: |
-          jq -e --arg full "$FULL" '
+          # Route names every job: a selected job must succeed and any other
+          # must skip. A job route does not name fails the gate.
+          jq -e '
             .route as $route |
             $route.result == "success" and
             (del(.route) | to_entries | all(
-              . as $job |
-              (if $job.key == "native-sdk" then
-                if $full == "true" then [$route.outputs.ios, $route.outputs.android] else ["false"] end
-              elif $job.key == "campus-map" then
-                if $full == "true" then [$route.outputs["campus-map"]] else ["false"] end
-              elif $job.key == "ios-syntax" then
-                if $full == "true" then ["false"] else [$route.outputs.ios] end
-              elif $job.key == "android-config" then
-                if $full == "true" then ["false"] else [$route.outputs.android] end
-              elif $job.key == "rust" and $full == "true" then
-                ["false"]
-              else
-                [$route.outputs[$job.key]]
-              end) as $selected |
-              ($selected | all(. == "true" or . == "false")) and
-              $job.value.result == (if $selected | any(. == "true") then "success" else "skipped" end)
+              . as $job | $route.outputs[$job.key] as $selected |
+              ($selected == "true" or $selected == "false") and
+              $job.value.result == (if $selected == "true" then "success" else "skipped" end)
             ))
           ' <<< "$CHECKS" || {
             jq 'map_values(.result)' <<< "$CHECKS" >&2

@@ -171,9 +171,9 @@ assignments, changes enrollment, publishes official calendar data or provides a
 server-side polling service. Distribution signing, notarization and public
 hosting remain release configuration.
 
-Rust CI uses two caches: `Swatinem/rust-cache` retains external dependencies,
-and the shared `rust-compiler-cache` action uses sccache for workspace libraries.
-The latter keys compiled output by content, so checkout timestamps do not force
+Rust CI uses two caches through the shared `rust-caches` action:
+`Swatinem/rust-cache` retains external dependencies, and jobs that opt in also
+use sccache for workspace libraries. The latter keys compiled output by content, so checkout timestamps do not force
 unchanged OCR algorithms through code generation. Core owns Matrix sessions;
 `app-ocr-adapter` connects its vision port to the independent `app-ocr` engine.
 Core business code and unrelated Core feature changes therefore do not invalidate
@@ -183,8 +183,16 @@ still select different compiled output. Final linking and build scripts still
 run. Cargo may print `Compiling app-ocr` on a hit; the action's post-job sccache
 statistics show whether the compiler output was reused. `cargo clippy` replaces
 `RUSTC_WORKSPACE_WRAPPER` with clippy-driver, so lint steps do not use the
-compiler cache; the reuse is in `cargo test` and `cargo check` steps. The quick
-Platform checks write both caches only on main; new inputs need one main
-cache-warming run before other branches can reuse them. The native SDK jobs run
-only in Release checks, so they write their caches on `release/X.Y.Z`. The
-desktop, Android and iOS release builds use neither cache.
+compiler cache; the reuse is in `cargo test` and `cargo check` steps.
+
+Only main writes either cache; the action makes that decision for every job.
+Warm caches runs the quick suite on main whenever Rust build inputs change, and
+both suites weekly. The release suite keys its Windows and macOS jobs apart from
+the quick ones because it lints and tests instead of checking. Release checks on
+`release/X.Y.Z` read main's release-suite caches, falling back to the closest
+older entry after a dependency change. The desktop, Android and iOS release
+builds use neither cache.
+
+Platform checks' route job (`scripts/checks/route-platform-checks.sh`) prints
+one `<job>=true|false` line per job for the changed paths and the suite mode
+(`--full` for Release checks). Jobs and the result gate read only those lines.

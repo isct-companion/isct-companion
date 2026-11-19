@@ -1,7 +1,10 @@
 name: Warm caches
 
-# A quick Platform checks run on main saves caches that work branches can read.
-# Warm again when Rust build inputs change, and weekly before unused caches expire.
+# Only main saves caches (see the rust-caches action). The quick suite's caches
+# serve every work branch and PR, so main warms them again whenever Rust build
+# inputs change. The release suite's caches serve Release checks; they warm
+# weekly, and a release in between restores the closest older entry. The weekly
+# run also keeps both sets from expiring after 7 days unused.
 on:
   push:
     branches: [main]
@@ -11,7 +14,7 @@ on:
       - rust-toolchain.toml
       - .cargo/**
       - .github/workflows/platform-checks.yml
-      - .github/actions/rust-compiler-cache/**
+      - .github/actions/rust-caches/**
   schedule:
     - cron: '0 18 * * 0' # Monday 03:00 in Japan
 
@@ -26,7 +29,14 @@ jobs:
     permissions:
       actions: write
     steps:
-      - env:
+      - name: Quick suite
+        env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh workflow run platform-checks.yml --ref main
+      - name: Release suite
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run platform-checks.yml --ref main -f full=true

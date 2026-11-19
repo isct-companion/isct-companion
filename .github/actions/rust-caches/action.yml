@@ -1,0 +1,40 @@
+name: Rust caches
+description: Restore Rust build caches on every branch and save them only on main
+# Branches can read only their own caches and the default branch's, and one set
+# nearly fills the repository's 10 GB, so this is the one place that decides who
+# writes: main. Warm caches runs both suites there.
+inputs:
+  key:
+    description: Extra dependency-cache key, for jobs that share an OS but build different output
+    default: ''
+  cache-on-failure:
+    description: Save the dependency cache even when the job fails
+    default: 'false'
+  compiler-cache:
+    description: Also cache workspace crates by compiler input (sccache)
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    # External dependencies.
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: . -> target
+        key: ${{ inputs.key }}
+        cache-on-failure: ${{ inputs.cache-on-failure }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    # Workspace libraries, keyed by content so a fresh checkout's mtimes do not
+    # force unchanged crates through code generation.
+    - if: inputs.compiler-cache == 'true'
+      uses: Mozilla-Actions/sccache-action@v0.0.11
+      with:
+        version: v0.16.0
+    - name: Cache workspace crates by compiler input
+      if: inputs.compiler-cache == 'true'
+      shell: bash
+      env:
+        CACHE_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "SCCACHE_GHA_RW_MODE=$CACHE_MODE" >> "$GITHUB_ENV"
+        echo "RUSTC_WORKSPACE_WRAPPER=sccache" >> "$GITHUB_ENV"
