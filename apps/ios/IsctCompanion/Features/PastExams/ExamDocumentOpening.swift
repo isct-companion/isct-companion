@@ -1,4 +1,5 @@
 import IsctCore
+import QuickLook
 import SwiftUI
 
 /// One file presentation per list. Quick Look and Files receive named copies
