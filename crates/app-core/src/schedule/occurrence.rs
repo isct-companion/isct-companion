@@ -1027,11 +1027,12 @@ pub(crate) fn resolve_day_agenda_with(
         else {
             continue;
         };
-        // The exam timetable's own class row replaces the weekly pattern for
-        // that course and day; a session the user changed by hand stays.
         let class = exam.kind == "class";
+        let quiz = exam.kind == "quiz";
         let cancelled = exam.status != "scheduled";
-        if class && !cancelled {
+        // A published class still replaces the weekly pattern when marked
+        // as a quiz. Sessions the user changed by hand stay.
+        if (class || quiz) && !cancelled {
             blocks.retain(|block| {
                 block.kind != OccurrenceKind::Course
                     || block.course_id.as_deref() != Some(id.as_str())
@@ -1067,7 +1068,7 @@ pub(crate) fn resolve_day_agenda_with(
             overridden: exam.edited.then_some(true),
             alternation: None,
             planned: None,
-            quiz: (exam.kind == "quiz").then_some(true),
+            quiz: quiz.then_some(true),
             source_changed: exam.conflict.is_some().then_some(true),
             grid: None,
             mark: None,
@@ -1102,7 +1103,8 @@ pub(crate) fn finalize_agenda(
         .filter_map(|e| e.course_id.clone())
         .collect();
     // An exam replaces its course's classes that day, except a session the
-    // user changed by hand. A quiz is part of one class and replaces nothing.
+    // user changed by hand. A quiz marked on a weekly class stays part of
+    // that session.
     blocks.retain(|b| {
         b.kind != OccurrenceKind::Course
             || b.overridden == Some(true)

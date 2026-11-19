@@ -2367,6 +2367,7 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
 fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let mut data = workspace();
     data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    let exam_week_monday = "2026-06-01";
     let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
     data["exams"] = json!([
         // The weekly class meets Mondays 1-2.
@@ -2374,7 +2375,7 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
         row("extra", "class", "2026-04-15", [5, 6]),
         row("final", "exam", "2026-04-16", [3, 4]),
         row("kept", "class", "2026-04-20", [7, 8]),
-        row("exam-week", "class", "2026-05-28", [1, 2]),
+        row("exam-week", "class", exam_week_monday, [1, 2]),
         row("monday-exam", "exam", "2026-04-27", [5, 6]),
         row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
     ]);
@@ -2438,8 +2439,8 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let days = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
-        "2026-05-28",
-        "2026-05-29",
+        exam_week_monday,
+        "2026-06-02",
     )
     .unwrap();
     assert_eq!(
@@ -2473,6 +2474,25 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     .conflicts
     .iter()
     .all(|view| view.kind == "exam"));
+
+    // Marking the published class as a quiz must not bring back the
+    // cancelled weekly session at the same time.
+    mark_session(&mut data, "reference:exam-week", "quiz");
+    let days = calendar_between(
+        &data,
+        &SchoolReads::fixture(&data),
+        exam_week_monday,
+        exam_week_monday,
+    )
+    .unwrap();
+    assert_eq!(
+        days[0]
+            .occurrences
+            .iter()
+            .map(|block| (block.key.as_str(), block.mark))
+            .collect::<Vec<_>>(),
+        [("reference:exam-week", Some(SessionMark::Quiz))]
+    );
 }
 
 #[test]
