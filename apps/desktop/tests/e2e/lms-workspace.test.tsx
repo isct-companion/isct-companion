@@ -2156,6 +2156,76 @@ describe("the PDF viewer", () => {
   }, 30_000);
 });
 
+describe("a past exam's Markdown document", () => {
+  it("opens formatted, read-only, with every formula set by KaTeX", async () => {
+    await scriptedHost(
+      { workspace: workspaceFixture() },
+      async () => undefined,
+    );
+    const source = [
+      "# 問1",
+      "",
+      "Inline $E=mc^2$ and \\(x^2\\).",
+      "",
+      "\\[",
+      "\\int_0^1 x\\,dx",
+      "\\]",
+    ].join("\n");
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(source));
+    const { ExamReader } = await import("@app/pages/past-exams/ExamReader");
+    const view = await mount(
+      <ExamReader
+        file={{
+          document: {
+            id: "exam-1",
+            subjects: [],
+            teachers: [],
+            academicYear: 2025,
+            occasion: null,
+            occasionNumber: 1,
+            variant: "",
+            role: null,
+            note: null,
+            fileName: "midterm.md",
+            fileType: "text/plain",
+            number: null,
+          },
+          path: "/cache/exam-1",
+          downloaded: false,
+          saved: null,
+          offline: true,
+          webUrl: "https://example.test/exam-1",
+        }}
+        title="Midterm"
+        call={async () => undefined}
+        setFile={() => undefined}
+        onLibraryChanged={() => undefined}
+        close={() => undefined}
+      />,
+    );
+    views.push(view);
+    const prose = await waitFor(() => {
+      const found = view.host.querySelector(
+        ".lmsMarkdownDocument .ProseMirror",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(fetch).toHaveBeenCalled();
+    expect(prose.querySelector("h1")?.textContent).toBe("問1");
+    // Both inline forms render; the display formula is a LaTeX block.
+    expect(prose.querySelectorAll("p .katex")).toHaveLength(2);
+    expect(prose.querySelector(".milkdown-code-block")?.textContent).toContain(
+      "\\int_0^1 x\\,dx",
+    );
+    expect(prose.getAttribute("contenteditable")).toBe("false");
+    expect(view.host.querySelector(".examDocumentText")).toBeNull();
+    fetch.mockRestore();
+  }, 40_000);
+});
+
 describe("the markdown editor", () => {
   async function openMarkdown(
     value: string,

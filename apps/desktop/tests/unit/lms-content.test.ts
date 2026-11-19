@@ -933,3 +933,59 @@ describe("Live Matrix camera ownership", () => {
     expect(core.commands("stop_matrix_camera")).toHaveLength(1);
   });
 });
+
+describe("math delimiters in a read-only Markdown document", () => {
+  async function normalize(lines: string[]) {
+    const { normalizeMathDelimiters } =
+      await import("@app/features/lms/markdown-math");
+    return normalizeMathDelimiters(lines.join("\n")).split("\n");
+  }
+
+  it("turns \\( \\) into inline math and \\[ \\] into a display block", async () => {
+    expect(
+      await normalize([
+        "The integral is",
+        "\\[",
+        "\\int_a^b f(x)\\,dx",
+        "\\]",
+        "so we get \\( F(b)-F(a) \\).",
+      ]),
+    ).toEqual([
+      "The integral is",
+      "",
+      "$$",
+      "\\int_a^b f(x)\\,dx",
+      "$$",
+      "",
+      "so we get $F(b)-F(a)$.",
+    ]);
+  });
+
+  it("sets a one-line $$…$$ as a block, indented inside a list item", async () => {
+    expect(await normalize(["1. Solve", "   $$x^2 = 4$$"])).toEqual([
+      "1. Solve",
+      "",
+      "   $$",
+      "   x^2 = 4",
+      "   $$",
+    ]);
+  });
+
+  it("leaves code, inline code, prices and existing math alone", async () => {
+    const source = [
+      "Inline $a \\(b\\)$ and `\\(code\\)`; it costs $5 and $10.",
+      "",
+      "```",
+      "\\(in a fence\\)",
+      "$$x$$",
+      "```",
+      "",
+      "$$",
+      "\\begin{aligned} a &= b \\\\[2pt] c &= d \\end{aligned}",
+      "$$",
+      "",
+      "A literal \\\\(not math).",
+    ];
+    expect(await normalize(source)).toEqual(source);
+  });
+});
