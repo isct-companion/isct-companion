@@ -78,22 +78,40 @@ fn connect_error(error: std::io::Error) -> VpnError {
 /// plist, so `_resources` is only the shared signature.
 pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     let service = daemon();
+    // Registering an enabled daemon again changes nothing: launchd keeps the
+    // code requirement it took from the helper the first time. A helper that
+    // no longer meets it (an ad hoc one is pinned to its cdhash) never starts
+    // ("needs LWCR update", EX_CONFIG) and the old one keeps answering, so an
+    // update registers the daemon afresh from this bundle.
+    if unsafe { service.status() } == SMAppServiceStatus::Enabled {
+        let _ = unsafe { service.unregisterAndReturnError() };
+    }
     // A daemon that still needs approval in Login Items is registered all
     // the same, yet register fails with EPERM ("Operation not permitted");
     // an already registered one fails too. The status says where it stands.
-    let registered = unsafe { service.registerAndReturnError() };
-    match unsafe { service.status() } {
-        SMAppServiceStatus::Enabled => Ok(Install::Ready),
-        SMAppServiceStatus::RequiresApproval => {
-            unsafe { SMAppService::openSystemSettingsLoginItems() };
-            Ok(Install::NeedsApproval)
+    // Right after an unregister the system is still removing the daemon, and
+    // register fails with EPERM while the status reads not registered; it
+    // settles within a few seconds, so register again until it does.
+    let mut registered = Ok(());
+    for _ in 0..REGISTER_ATTEMPTS {
+        registered = unsafe { service.registerAndReturnError() };
+        match unsafe { service.status() } {
+            SMAppServiceStatus::Enabled => return Ok(Install::Ready),
+            SMAppServiceStatus::RequiresApproval => {
+                unsafe { SMAppService::openSystemSettingsLoginItems() };
+                return Ok(Install::NeedsApproval);
+            }
+            _ => std::thread::sleep(Duration::from_millis(500)),
         }
-        _ => Err(match registered {
-            Err(error) => format!(
-                "the campus VPN helper could not be registered: {}",
-                error.localizedDescription()
-            ),
-            Ok(()) => "the campus VPN helper could not be registered".into(),
-        }),
     }
+    Err(match registered {
+        Err(error) => format!(
+            "the campus VPN helper could not be registered: {}",
+            error.localizedDescription()
+        ),
+        Ok(()) => "the campus VPN helper could not be registered".into(),
+    })
 }
+
+/// Register attempts, half a second apart, while an unregister settles.
+const REGISTER_ATTEMPTS: usize = 10;

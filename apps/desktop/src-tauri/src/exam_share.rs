@@ -48,7 +48,8 @@ pub(crate) async fn exam_share(
         app.asset_protocol_scope()
             .allow_file(&file.path)
             .map_err(|_| coded(ExamError::Storage))?;
-        app.state::<crate::exam_files::ExamFiles>().allow(&file.path)?;
+        app.state::<crate::exam_files::ExamFiles>()
+            .allow(&file.path)?;
     }
     Ok(answer)
 }

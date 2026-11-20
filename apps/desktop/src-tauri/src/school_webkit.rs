@@ -60,12 +60,15 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSApplication, NSDragOperation, NSDraggingInfo, NSEvent,
-    NSModalResponse, NSModalResponseOK, NSOpenPanel, NSPrintInfo, NSResponder, NSTextField, NSView,
-    NSWindowOrderingMode,
+    NSEventModifierFlags, NSModalResponse, NSModalResponseOK, NSOpenPanel, NSPrintInfo,
+    NSResponder, NSSecureTextField, NSTextField, NSView, NSWindowOrderingMode,
 };
 use objc2_foundation::{
     ns_string, NSArray, NSData, NSError, NSHTTPURLResponse, NSPoint, NSRect, NSSize, NSString,
-    NSURLRequest, NSURLResponse, NSURL,
+    NSURLAuthenticationChallenge, NSURLAuthenticationMethodHTTPBasic,
+    NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodNTLM, NSURLCredential,
+    NSURLCredentialPersistence, NSURLRequest, NSURLResponse, NSURLSessionAuthChallengeDisposition,
+    NSURL,
 };
 use objc2_web_kit::{
     WKBackForwardListItem, WKDownload, WKDownloadDelegate, WKFrameInfo, WKNavigation,
@@ -95,6 +98,8 @@ pub struct Request {
     pub main_frame: bool,
     pub kind: NavigationKind,
     pub user_gesture: bool,
+    /// A link ⌘-clicked or middle-clicked, which a browser opens in a new tab.
+    pub elsewhere: bool,
 }
 
 /// The shell side of one school view and the popups its pages open. Every
@@ -117,6 +122,8 @@ pub trait Host {
     fn popup_closed(&self, popup: BrowserId);
     fn save(&self, data: SavedData);
     fn open_external(&self, url: Url);
+    /// The sign-in sheet's words, in the app's language.
+    fn sign_in_text(&self) -> &'static crate::native_text::SignInText;
     /// Where a file a popup downloads is written; `None` refuses it.
     fn download_destination(&self, url: Option<Url>, suggested: &str) -> Option<PathBuf>;
     fn download_finished(&self, path: PathBuf, saved: bool);
@@ -234,11 +241,16 @@ fn request(
     let gesture_selector = sel!(_isUserInitiated);
     let user_gesture =
         responds(action, gesture_selector) && unsafe { msg_send![action, _isUserInitiated] };
+    // NSEvent numbers the middle button 2.
+    let elsewhere = kind == NavigationKind::Link
+        && (unsafe { action.modifierFlags() }.contains(NSEventModifierFlags::Command)
+            || unsafe { action.buttonNumber() } == 2);
     Some(Request {
         url,
         main_frame,
         kind,
         user_gesture,
+        elsewhere,
     })
 }
 
@@ -909,6 +921,39 @@ define_class!(
     }
 
     impl SchoolNavigationDelegate {
+        /// A server asking for a user name and password (HTTP Basic, Digest,
+        /// NTLM) gets the sign-in sheet a browser shows; every other challenge
+        /// (server trust, client certificates) is WebKit's to handle.
+        #[unsafe(method(webView:didReceiveAuthenticationChallenge:completionHandler:))]
+        fn did_receive_challenge(
+            &self,
+            web_view: &WKWebView,
+            challenge: &NSURLAuthenticationChallenge,
+            handler: &DynBlock<dyn Fn(NSURLSessionAuthChallengeDisposition, *mut NSURLCredential)>,
+        ) {
+            let handler = handler.copy();
+            if !asks_for_password(challenge) {
+                handler.call((NSURLSessionAuthChallengeDisposition::PerformDefaultHandling, null_mut()));
+                return;
+            }
+            let space = challenge.protectionSpace();
+            let host = space.host();
+            let retry = challenge.previousFailureCount() > 0;
+            let reply = Reply::new(move |credential: Option<&NSURLCredential>| match credential {
+                Some(credential) => handler.call((
+                    NSURLSessionAuthChallengeDisposition::UseCredential,
+                    credential as *const _ as *mut _,
+                )),
+                // Without a credential the server's own 401 page shows, as in
+                // a browser after Cancel.
+                None => handler.call((
+                    NSURLSessionAuthChallengeDisposition::PerformDefaultHandling,
+                    null_mut(),
+                )),
+            });
+            self.ask_credentials(web_view, &host, retry, reply);
+        }
+
         #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
         fn decide_policy_for_action(
             &self,
@@ -1138,7 +1183,84 @@ define_class!(
     }
 );
 
+/// Whether a challenge asks for a user name and password.
+fn asks_for_password(challenge: &NSURLAuthenticationChallenge) -> bool {
+    let method = challenge.protectionSpace().authenticationMethod();
+    unsafe {
+        [
+            NSURLAuthenticationMethodHTTPBasic,
+            NSURLAuthenticationMethodHTTPDigest,
+            NSURLAuthenticationMethodNTLM,
+        ]
+    }
+    .iter()
+    .any(|known| method.isEqualToString(known))
+}
+
 impl SchoolNavigationDelegate {
+    /// The sign-in sheet on the window hosting the view, for the school view
+    /// the person is looking at, as page dialogs are (`present`); a hidden
+    /// view answers without a credential. The credential lasts for this
+    /// session and is never stored.
+    fn ask_credentials(
+        &self,
+        web_view: &WKWebView,
+        host: &NSString,
+        retry: bool,
+        reply: Rc<Reply<NSURLCredential>>,
+    ) {
+        let mtm = self.mtm();
+        if !self.ivars().host.foreground() {
+            return reply.send(None);
+        }
+        let Some(window) = web_view.window().filter(|window| window.isVisible()) else {
+            return reply.send(None);
+        };
+        let text = self.ivars().host.sign_in_text();
+        let alert = NSAlert::new(mtm);
+        alert.setMessageText(&NSString::from_str(
+            &text.title.replace("{{host}}", &host.to_string()),
+        ));
+        if retry {
+            alert.setInformativeText(&NSString::from_str(text.retry));
+        }
+        alert.addButtonWithTitle(&NSString::from_str(text.sign_in));
+        alert.addButtonWithTitle(&NSString::from_str(text.cancel));
+        let frame = |y: f64| NSRect::new(NSPoint::new(0., y), NSSize::new(260., 24.));
+        let user = NSTextField::initWithFrame(mtm.alloc(), frame(32.));
+        user.setPlaceholderString(Some(&NSString::from_str(text.user)));
+        let password: Retained<NSTextField> =
+            Retained::into_super(NSSecureTextField::initWithFrame(mtm.alloc(), frame(0.)));
+        password.setPlaceholderString(Some(&NSString::from_str(text.password)));
+        let fields = NSView::initWithFrame(
+            mtm.alloc(),
+            NSRect::new(NSPoint::new(0., 0.), NSSize::new(260., 56.)),
+        );
+        fields.addSubview(&user);
+        fields.addSubview(&password);
+        // Tab moves from the name to the password.
+        unsafe { user.setNextKeyView(Some(&password)) };
+        alert.setAccessoryView(Some(&fields));
+        let web_view = Weak::new(web_view);
+        let (typed_user, typed_password) = (user.clone(), password.clone());
+        let done = RcBlock::new(move |response: NSModalResponse| {
+            // A view closed or detached meanwhile has no page left to answer.
+            let attached = web_view.load().is_some_and(|view| view.window().is_some());
+            if response != NSAlertFirstButtonReturn || !attached {
+                return reply.send(None);
+            }
+            let credential = NSURLCredential::credentialWithUser_password_persistence(
+                &typed_user.stringValue(),
+                &typed_password.stringValue(),
+                NSURLCredentialPersistence::ForSession,
+            );
+            reply.send(Some(&credential));
+        });
+        alert.beginSheetModalForWindow_completionHandler(&window, Some(&done));
+        let responder: &NSResponder = &user;
+        alert.window().makeFirstResponder(Some(responder));
+    }
+
     fn new(
         mtm: MainThreadMarker,
         original: Option<Retained<ProtocolObject<dyn WKNavigationDelegate>>>,

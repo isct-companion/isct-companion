@@ -8,6 +8,7 @@ use crate::{
     course_materials::{course_folder, CourseKey, CourseMaterials, Material},
     data::DataStore,
     downloads::Downloader,
+    file_preview::archive::is_junk,
     notes::NoteStore,
     schedule::AssignmentDetail,
     storage::{self, LocalFile, StorageError},
@@ -962,10 +963,6 @@ fn default_zip_name(dir: &Path) -> String {
         "{}.zip",
         dir.file_name().unwrap_or_default().to_string_lossy()
     )
-}
-
-fn is_junk(name: &str) -> bool {
-    name == ".DS_Store" || name == "__MACOSX" || name == "Thumbs.db"
 }
 
 fn safe_name(raw: &str, fallback: &str) -> String {

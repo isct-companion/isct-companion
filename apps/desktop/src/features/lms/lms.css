@@ -255,27 +255,6 @@
 .lmsCodeSearch button:hover { background: var(--accent-soft); color: var(--accent); }
 .lmsTextDocument .cm-searchMatch { background: var(--warn-soft); }
 .lmsTextDocument .cm-searchMatch-selected { background: var(--accent-soft); outline: 1px solid var(--accent); }
-.lmsMarkdownDocument { flex: 1; min-height: 0; overflow: auto; background: var(--surface); }
-.lmsMarkdownDocument .milkdown {
-  --crepe-color-background: var(--surface);
-  --crepe-color-on-background: var(--ink);
-  --crepe-color-surface: var(--surface);
-  --crepe-color-on-surface: var(--ink);
-  --crepe-color-on-surface-variant: var(--muted);
-  --crepe-color-outline: var(--line);
-  --crepe-color-primary: var(--ink);
-  --crepe-color-surface-low: var(--surface-2);
-  --crepe-color-hover: var(--surface-2);
-  --crepe-color-selected: var(--surface-2);
-  --crepe-font-title: inherit;
-  --crepe-font-default: inherit;
-  --crepe-base-font-size: 15px;
-  min-height: 100%;
-}
-.lmsMarkdownDocument .milkdown > .ProseMirror { min-height: 380px; padding: 28px 40px 120px; line-height: 1.8; }
-.lmsMarkdownDocument .milkdown > .ProseMirror h1 { font-size: 25px; }
-.lmsMarkdownDocument .milkdown > .ProseMirror h2 { font-size: 21px; }
-.lmsMarkdownDocument .milkdown button:focus-visible { outline: 2px solid var(--accent); }
 .lmsNoteEditor { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .lmsNoteEditor > div:not(.lmsSourceBar) { flex: 1; min-height: 0; }
 .lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror { max-width: 760px; margin: 0 auto; padding: 36px clamp(24px, 4vw, 54px) 120px; line-height: 1.85; }
@@ -326,6 +305,8 @@
 .lmsFolderFile b { display: block; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; overflow-wrap: anywhere; }
 .lmsFolderFile small { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsFolderNote { margin-left: 34px; }
+/* A ZIP linked in course text is its folder row; in a card grid it spans the row. */
+.lmsFileList > .lmsLinkedFolder { grid-column: 1 / -1; }
 .lmsTextLink { padding: 0; border: 0; background: none; color: var(--accent) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; }
 .lmsTextLink:hover { text-decoration: underline; }
 

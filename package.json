@@ -19,6 +19,7 @@
     "release:bump": "node scripts/release/bump.mjs",
     "format": "yarn workspace @isct/desktop format",
     "design:tokens": "node design/build.mjs",
+    "markdown-viewer": "vite build --config apps/desktop/vite.markdown-viewer.config.ts",
     "icons:desktop": "node scripts/desktop/generate-desktop-icons.mjs",
     "core:types": "cargo run -p app-core --features ts --example export-types && prettier --write apps/desktop/src/generated/persistence.ts",
     "backend:test": "cargo test --workspace --locked",

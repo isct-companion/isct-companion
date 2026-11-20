@@ -203,6 +203,7 @@ impl State {
             notice: None,
             access: None,
             sign_in: false,
+            outside: false,
             otp: (site == SchoolSite::SciencePortal)
                 .then(|| self.otp.as_ref().map(|otp| otp.view.clone()))
                 .flatten(),
@@ -242,6 +243,7 @@ impl State {
                 page.sign_in = view.op.is_none() && view.visit.offer;
             }
         }
+        page.outside = page.url.as_deref().is_some_and(super::outside_school);
         if page
             .otp
             .as_ref()

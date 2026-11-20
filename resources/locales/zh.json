@@ -728,6 +728,8 @@
   "lms.openFolder": "打开文件夹",
   "lms.openInVSCode": "在 VS Code 中打开",
   "lms.openLMSInBrowser": "在浏览器中打开 LMS",
+  "lms.openPage": "打开网页",
+  "lms.openWithDefaultApp": "用默认应用打开",
   "lms.openedContent": "已打开的内容",
   "lms.openingLMS": "正在打开 LMS…",
   "lms.page": "页",
@@ -754,6 +756,7 @@
   "lms.theDesktopAppOpensThe": "桌面端应用会在这里显示已登录的 LMS。浏览器预览无法嵌入 LMS。",
   "lms.theSystemBlockedSavingTo": "系统阻止了向课程文件夹保存文件。请检查文件夹权限，或在设置中选择其他课程文件夹。",
   "lms.theWorkspaceFolderNameIs": "工作区文件夹“{{name}}”已不存在。可以重新创建，或在 LMS 中打开作业并在那里选择文件。",
+  "lms.thisArchiveIsTooLarge": "此压缩包文件过多或过大，无法在这里列出。",
   "lms.thisFileTypeCantBe": "此文件类型无法在这里预览。",
   "lms.thisFolderCouldNotBe": "无法读取此文件夹。",
   "lms.thisFolderIsEmpty": "此文件夹为空。",
@@ -1696,5 +1699,14 @@
   "tools.campusWifi.vpnOnCampusTitle": "你在校园网内",
   "tools.campusWifi.vpnDemandStoppedTitle": "校园 VPN 已停止自动连接",
   "tools.campusWifi.vpnUnusedBody": "仍经由它的连接（如 SSH）已被断开。需要时请重新连接。",
-  "tools.campusWifi.vpnUnusedTitle": "校园 VPN 闲置 30 分钟，已断开"
+  "tools.campusWifi.vpnUnusedTitle": "校园 VPN 闲置 30 分钟，已断开",
+  "lms.openPdf": "打开",
+  "lms.pdfNeedsPassword": "此 PDF 受密码保护，请输入密码后打开。",
+  "lms.pdfPassword": "PDF 密码",
+  "lms.pdfPasswordWrong": "密码不正确，请重新输入。",
+  "schoolWeb.signIn.title": "登录 {{host}}",
+  "schoolWeb.signIn.retry": "用户名或密码不正确。",
+  "schoolWeb.signIn.user": "用户名",
+  "schoolWeb.signIn.password": "密码",
+  "schoolWeb.signIn.button": "登录"
 }

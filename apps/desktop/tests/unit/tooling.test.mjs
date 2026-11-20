@@ -159,6 +159,52 @@ describe("design tokens", () => {
   }, 30_000);
 });
 
+describe("mobile Markdown page", () => {
+  it("keeps the committed resources/markdown-viewer in step with its source", async () => {
+    const { build } = await import("vite");
+    const root = repositoryRoot;
+    const out = mkdtempSync(path.join(os.tmpdir(), "isct-markdown-viewer-"));
+    const previous = process.env.ISCT_MARKDOWN_VIEWER_OUT;
+    process.env.ISCT_MARKDOWN_VIEWER_OUT = out;
+    try {
+      await build({
+        configFile: path.join(
+          root,
+          "apps/desktop/vite.markdown-viewer.config.ts",
+        ),
+        logLevel: "silent",
+      });
+      const names = [
+        "markdown-viewer.html",
+        "markdown-viewer.js",
+        "markdown-viewer.css",
+      ];
+      const stale = [];
+      for (const name of names) {
+        const fresh = readFileSync(path.join(out, name), "utf8");
+        const committedPath = path.join(
+          root,
+          "resources/markdown-viewer",
+          name,
+        );
+        const committed = existsSync(committedPath)
+          ? readFileSync(committedPath, "utf8")
+          : null;
+        if (
+          fresh.replaceAll("\r\n", "\n") !== committed?.replaceAll("\r\n", "\n")
+        )
+          stale.push(name);
+      }
+      // Run `yarn markdown-viewer` and commit the result.
+      expect(stale).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.ISCT_MARKDOWN_VIEWER_OUT;
+      else process.env.ISCT_MARKDOWN_VIEWER_OUT = previous;
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 // The manual acceptance table records behaviour CI cannot reach. Its results
 // are supplied by a person or an agent, so what is enforced here is the
 // structure: that the table is well formed, that the rendered document matches

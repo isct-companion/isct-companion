@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { t } from "../../i18n";
 import { safeContent, safeUrl } from "./content";
 import { LmsIcon } from "./LmsIcon";
@@ -6,6 +14,16 @@ import { onSignedIn, thumbnailUrl } from "./thumbnails";
 
 /** The course whose files a page's pictures come from. */
 export type FileAccess = { courseId: string };
+
+/**
+ * Links that are folders in the outline (a ZIP): `of` names the folder a
+ * link's address is, `render` draws it. Such a link's card is replaced in
+ * place by that folder.
+ */
+export type LinkedFolders = {
+  of: (url: string) => string | undefined;
+  render: (url: string, title: string) => ReactNode;
+};
 
 export const ImageThumbnail = memo(function ImageThumbnail({
   url,
@@ -84,15 +102,51 @@ export const RichContent = memo(function RichContent({
   language,
   openLink,
   files,
+  folders,
 }: {
   files: FileAccess;
   html: string;
   language?: "ja" | "en";
   openLink: (url: string, title: string, anchor?: Element) => void;
+  folders?: LinkedFolders;
 }) {
   const content = useMemo(() => safeContent(html, language), [html, language]);
   const renderedHtml = useMemo(() => ({ __html: content }), [content]);
   const element = useRef<HTMLDivElement>(null);
+  const foldersNow = useRef(folders);
+  foldersNow.current = folders;
+  /** Where each folder link's row renders. The text is set as HTML, so the
+   * rows render there through portals. */
+  const [hosts, setHosts] = useState<
+    { host: HTMLElement; url: string; title: string }[]
+  >([]);
+  useEffect(() => {
+    const root = element.current;
+    const of = foldersNow.current?.of;
+    if (!root || !of) return;
+    for (const link of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      const folder = of(safeUrl(link.getAttribute("href")) ?? "");
+      if (!folder) continue;
+      const host = document.createElement("div");
+      host.className = "lmsLinkedFolder";
+      host.dataset.url = folder;
+      host.dataset.title =
+        link.querySelector(".lmsAttachmentName")?.textContent ||
+        link.textContent ||
+        folder;
+      link.replaceWith(host);
+    }
+    // Hosts placed before (a remount keeps the DOM) are taken as they are.
+    setHosts(
+      [...root.querySelectorAll<HTMLElement>(".lmsLinkedFolder")].map(
+        (host) => ({
+          host,
+          url: host.dataset.url!,
+          title: host.dataset.title!,
+        }),
+      ),
+    );
+  }, [content]);
   useEffect(() => {
     const load = (placeholder: HTMLElement) => {
       placeholder.dataset.state = "loading";
@@ -139,20 +193,28 @@ export const RichContent = memo(function RichContent({
     };
   }, [content, files]);
   return (
-    <div
-      ref={element}
-      className="lmsRichContent"
-      dangerouslySetInnerHTML={renderedHtml}
-      onClick={(event) => {
-        const link = (event.target as Element).closest("a");
-        if (!link) return;
-        event.preventDefault();
-        const url = safeUrl(link.getAttribute("href"));
-        const name =
-          link.querySelector<HTMLElement>("[data-image-alt]")?.dataset
-            .imageAlt || link.querySelector(".lmsAttachmentName")?.textContent;
-        if (url) openLink(url, name || link.textContent || t("lms.link"), link);
-      }}
-    />
+    <>
+      {folders &&
+        hosts.map(({ host, url, title }, index) =>
+          createPortal(folders.render(url, title), host, `${index}:${url}`),
+        )}
+      <div
+        ref={element}
+        className="lmsRichContent"
+        dangerouslySetInnerHTML={renderedHtml}
+        onClick={(event) => {
+          const link = (event.target as Element).closest("a");
+          if (!link) return;
+          event.preventDefault();
+          const url = safeUrl(link.getAttribute("href"));
+          const name =
+            link.querySelector<HTMLElement>("[data-image-alt]")?.dataset
+              .imageAlt ||
+            link.querySelector(".lmsAttachmentName")?.textContent;
+          if (url)
+            openLink(url, name || link.textContent || t("lms.link"), link);
+        }}
+      />
+    </>
   );
 });

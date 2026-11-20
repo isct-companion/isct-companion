@@ -23,6 +23,7 @@ pub mod campus_printer;
 pub mod catalog;
 pub mod cloud_credentials;
 pub mod facade;
+pub mod file_preview;
 pub use facade::Core;
 pub mod cloud_sync;
 pub mod contracts;

@@ -131,13 +131,15 @@ describe("LMS file classification", () => {
     expect(previewKind(lms("main.cpp"))).toBe("text");
     expect(previewKind(lms("slides.pdf"))).toBe("pdf");
     expect(previewKind("notes.md")).toBe("markdown");
+    expect(previewKind(lms("code.zip"))).toBe("archive");
   });
 
   it("downloads formats it cannot preview rather than showing them as text", () => {
     expect(previewKind(lms("slides.pptx"))).toBeUndefined();
     expect(previewKind(lms("notebook.ipynb"))).toBeUndefined();
     expect(previewKind(lms("page.html"))).toBeUndefined();
-    expect(previewKind(lms("code.zip"))).toBeUndefined();
+    // Core reads ZIP only; other archives download.
+    expect(previewKind(lms("code.7z"))).toBeUndefined();
   });
 
   it("recognizes school code attachments and names their language", () => {
@@ -151,13 +153,14 @@ describe("LMS file classification", () => {
     ] as const) {
       const url = `https://lms.s.isct.ac.jp/2025/pluginfile.php/1/lecture.${ext}?forcedownload=1`;
       expect(previewKind(url), ext).toBe("text");
-      expect(textLanguage(url).name, ext).toBe(name);
+      // The reader names the language from the downloaded file's name.
+      expect(textLanguage(`lecture-1a2b3c4d.${ext}`).name, ext).toBe(name);
     }
     for (const ext of ["tex", "rs", "json", "ts", "sh", "sql", "yaml", "go"]) {
       expect(previewKind(lms(`file.${ext}`)), ext).toBe("text");
     }
     expect(previewKind("https://lms.s.isct.ac.jp/1/notes.md")).toBe("markdown");
-    expect(textLanguage("https://lms.s.isct.ac.jp/1/notes.md").name).toBe(
+    expect(textLanguage("notes-1a2b3c4d.md").name).toBe(
       "Plain text",
     );
   });
@@ -931,5 +934,176 @@ describe("Live Matrix camera ownership", () => {
       "Camera access was denied",
     );
     expect(core.commands("stop_matrix_camera")).toHaveLength(1);
+  });
+});
+
+describe("math delimiters in a read-only Markdown document", () => {
+  async function normalize(lines: string[]) {
+    const { readableMarkdown } =
+      await import("@app/features/lms/markdown-math");
+    return readableMarkdown(lines.join("\n")).split("\n");
+  }
+
+  it("turns \\( \\) into inline math and \\[ \\] into a display block", async () => {
+    expect(
+      await normalize([
+        "The integral is",
+        "\\[",
+        "\\int_a^b f(x)\\,dx",
+        "\\]",
+        "so we get \\( F(b)-F(a) \\).",
+      ]),
+    ).toEqual([
+      "The integral is",
+      "",
+      "$$",
+      "\\int_a^b f(x)\\,dx",
+      "$$",
+      "",
+      "so we get $F(b)-F(a)$.",
+    ]);
+  });
+
+  it("sets a one-line $$…$$ as a block, indented inside a list item", async () => {
+    expect(await normalize(["1. Solve", "   $$x^2 = 4$$"])).toEqual([
+      "1. Solve",
+      "",
+      "   $$",
+      "   x^2 = 4",
+      "   $$",
+    ]);
+  });
+
+  it("halves the backslashes of a formula written for Markdown to unescape", async () => {
+    expect(
+      await normalize([
+        "$$t \\\\rightarrow t^{\\\\prime} := t$$",
+        "",
+        "$$",
+        "x \\\\rightarrow x^{\\\\prime} \\\\\\\\",
+        "v \\\\rightarrow v^{\\\\prime}",
+        "$$",
+        "",
+        "where \\\\(\\\\alpha\\\\) and $\\\\beta_0$ are constants.",
+        "",
+        "\\\\[",
+        "\\\\frac{a}{b}",
+        "\\\\]",
+      ]),
+    ).toEqual([
+      "$$",
+      "t \\rightarrow t^{\\prime} := t",
+      "$$",
+      "",
+      "$$",
+      "\\begin{gathered}",
+      "x \\rightarrow x^{\\prime} \\\\",
+      "v \\rightarrow v^{\\prime}",
+      "\\end{gathered}",
+      "$$",
+      "",
+      "where $\\alpha$ and $\\beta_0$ are constants.",
+      "",
+      "$$",
+      "\\frac{a}{b}",
+      "$$",
+    ]);
+  });
+
+  it("keeps a doubled \\\\ that starts a line as the line break it lays out", async () => {
+    expect(
+      await normalize([
+        "$$",
+        "t \\\\rightarrow t^{\\\\prime} := t",
+        "\\\\x \\\\rightarrow x^{\\\\prime}(t^{\\\\prime}) := x(t) + x_0",
+        "\\\\v \\\\rightarrow v^{\\\\prime}(t^{\\\\prime}) := v(t)",
+        "$$",
+      ]),
+    ).toEqual([
+      "$$",
+      "\\begin{gathered}",
+      "t \\rightarrow t^{\\prime} := t",
+      "\\\\ x \\rightarrow x^{\\prime}(t^{\\prime}) := x(t) + x_0",
+      "\\\\ v \\rightarrow v^{\\prime}(t^{\\prime}) := v(t)",
+      "\\end{gathered}",
+      "$$",
+    ]);
+  });
+
+  it("drops a page's MathJax script and reads its doubled inline math", async () => {
+    expect(
+      await normalize([
+        '<script type="text/javascript" async src="https://example.test/mathjax.js">',
+        "</script>",
+        '<script type="text/x-mathjax-config">',
+        "MathJax.Hub.Config({ tex2jax: { inlineMath: [['$', '$']] } });",
+        "</script>",
+        "",
+        "**Final 2026**",
+        "",
+        "* (4) is $$\\\\frac{d^2 x}{dt^2}-2a\\\\frac{dx}{dt}=te^{at}$$ now.",
+        "* $\\\\bold{F_2}(\\\\bold{r})$ and $U_i$ swapped.",
+      ]),
+    ).toEqual([
+      "",
+      "**Final 2026**",
+      "",
+      "* (4) is $$\\frac{d^2 x}{dt^2}-2a\\frac{dx}{dt}=te^{at}$$ now.",
+      "* $\\bold{F_2}(\\bold{r})$ and $U_i$ swapped.",
+    ]);
+  });
+
+  it("leaves code, inline code, prices and existing math alone", async () => {
+    const source = [
+      "Inline $a \\(b\\)$ and `\\(code\\)`; it costs $5 and $10.",
+      "",
+      "```",
+      "\\(in a fence\\)",
+      "$$x$$",
+      "```",
+      "",
+      "$$",
+      "\\begin{aligned} a &= b \\\\[2pt] c &= d \\end{aligned}",
+      "$$",
+      "",
+      "A literal \\\\(not math).",
+    ];
+    expect(await normalize(source)).toEqual(source);
+  });
+});
+
+describe("the mobile Markdown page", () => {
+  it("renders a shared note's math with KaTeX and shows its raw HTML as text", async () => {
+    const { renderMarkdown } =
+      await import("@app/features/markdown-viewer/viewer");
+    const html = renderMarkdown(
+      [
+        "<script>alert(1)</script>",
+        "",
+        "# Note",
+        "",
+        "Speed \\\\(v\\\\) and $\\\\Delta t$; <b>bold?</b>",
+        "",
+        "$$",
+        "t \\\\rightarrow t^{\\\\prime}",
+        "\\\\x \\\\rightarrow x^{\\\\prime}",
+        "$$",
+        "",
+        "| a | b |",
+        "| - | - |",
+        "| 1 | 2 |",
+      ].join("\n"),
+    );
+    const page = new DOMParser().parseFromString(html, "text/html");
+    expect(page.querySelector("script")).toBeNull();
+    expect(page.querySelector("b")).toBeNull();
+    expect(page.body.textContent).toContain("<b>bold?</b>");
+    expect(page.querySelector("h1")?.textContent).toBe("Note");
+    expect(page.querySelectorAll(".katex")).toHaveLength(3);
+    expect(page.querySelectorAll(".katex-error")).toHaveLength(0);
+    expect(
+      page.querySelector(".katex-display annotation")?.textContent,
+    ).toContain("x \\rightarrow x^{\\prime}");
+    expect(page.querySelectorAll("td")).toHaveLength(2);
   });
 });

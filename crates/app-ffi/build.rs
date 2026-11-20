@@ -176,6 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "cloud_sync/mod.rs",
         "plan/mod.rs",
         "course_materials.rs",
+        "file_preview/mod.rs",
         "storage.rs",
         "notes.rs",
         "../../adpt-isct/src/lms.rs",

@@ -846,6 +846,10 @@ export type ExamLocalDocument = {
    * This document on the ScienceTokyoExam website.
    */
   webUrl: string;
+  /**
+   * How the shells show it (`file_preview`).
+   */
+  viewer: Viewer;
 };
 
 export type ExamLibrary = {
@@ -2282,6 +2286,38 @@ export type FinderPage = {
   seq: number;
 };
 
+export type FileKind =
+  | "pdf"
+  | "markdown"
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "doc"
+  | "slides"
+  | "sheet"
+  | "zip"
+  | "archive"
+  | "notebook"
+  | "web";
+
+export type Viewer =
+  | "pdf"
+  | "markdown"
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "document"
+  | "tooLarge"
+  | "external";
+
+export type FileKindEntry = {
+  kind: FileKind;
+  extensions: Array<string>;
+  viewer: Viewer;
+};
+
 export type MatrixPoint = { x: number; y: number };
 
 export type MatrixReading = { text: string; confidence: number };
@@ -2464,6 +2500,133 @@ export const COURSE_FILE_POLICY: CourseFilePolicy = {
     max: 3650,
   },
 };
+
+export const FILE_KINDS: FileKindEntry[] = [
+  {
+    kind: "pdf",
+    extensions: ["pdf"],
+    viewer: "pdf",
+  },
+  {
+    kind: "markdown",
+    extensions: ["md", "markdown"],
+    viewer: "markdown",
+  },
+  {
+    kind: "notebook",
+    extensions: ["ipynb"],
+    viewer: "external",
+  },
+  {
+    kind: "web",
+    extensions: ["html", "htm"],
+    viewer: "external",
+  },
+  {
+    kind: "text",
+    extensions: [
+      "txt",
+      "tex",
+      "bib",
+      "js",
+      "jsx",
+      "ts",
+      "tsx",
+      "java",
+      "py",
+      "r",
+      "m",
+      "c",
+      "cpp",
+      "cxx",
+      "cc",
+      "h",
+      "hpp",
+      "rs",
+      "go",
+      "rb",
+      "sh",
+      "sql",
+      "json",
+      "yaml",
+      "yml",
+      "toml",
+      "xml",
+      "css",
+      "csv",
+      "tsv",
+      "log",
+      "v",
+      "sv",
+      "vhd",
+      "vhdl",
+      "asm",
+      "s",
+      "hs",
+      "ml",
+      "scala",
+      "kt",
+      "swift",
+    ],
+    viewer: "text",
+  },
+  {
+    kind: "image",
+    extensions: [
+      "png",
+      "apng",
+      "jpg",
+      "jpeg",
+      "jpe",
+      "gif",
+      "webp",
+      "avif",
+      "bmp",
+      "ico",
+      "svg",
+      "tif",
+      "tiff",
+      "heic",
+      "heif",
+    ],
+    viewer: "image",
+  },
+  {
+    kind: "video",
+    extensions: ["mp4", "m4v", "mov", "webm", "ogv"],
+    viewer: "video",
+  },
+  {
+    kind: "audio",
+    extensions: ["mp3", "m4a", "aac", "wav", "ogg", "oga", "flac", "opus"],
+    viewer: "audio",
+  },
+  {
+    kind: "doc",
+    extensions: ["doc", "docx", "odt", "rtf", "pages"],
+    viewer: "external",
+  },
+  {
+    kind: "slides",
+    extensions: ["ppt", "pptx", "odp", "key"],
+    viewer: "external",
+  },
+  {
+    kind: "sheet",
+    extensions: ["xls", "xlsx", "xlsm", "ods", "numbers"],
+    viewer: "external",
+  },
+  {
+    kind: "zip",
+    extensions: ["zip"],
+    viewer: "external",
+  },
+  {
+    kind: "archive",
+    extensions: ["7z", "rar", "tar", "gz", "tgz", "bz2", "xz"],
+    viewer: "external",
+  },
+];
 
 export const COURSE_PALETTE = [
   "#355ba7",

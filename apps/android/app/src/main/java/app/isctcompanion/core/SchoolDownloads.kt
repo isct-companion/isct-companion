@@ -1,5 +1,6 @@
 package app.isctcompanion.core
 
+import app.isctcompanion.design.showsInApp
 import app.isctcompanion.design.t
 import android.content.ContentValues
 import android.content.Context
@@ -25,6 +26,8 @@ import java.io.File
 class SchoolDownloads(private val context: Context) {
     /** Core's staging folder; whatever it holds is moved out at once. */
     private val staging = File(context.cacheDir, "school-downloads")
+    /** The last school file opened in the app's viewer. */
+    private val viewing = File(context.cacheDir, "school-viewing")
 
     suspend fun save(
         session: Session,
@@ -33,6 +36,7 @@ class SchoolDownloads(private val context: Context) {
         contentDisposition: String?,
         mimeType: String?,
         openExternal: (Uri) -> Unit,
+        openInApp: (File, String, Viewer) -> Unit,
     ) {
         notice(t("common.downloading"))
         val file = try {
@@ -45,13 +49,26 @@ class SchoolDownloads(private val context: Context) {
         }
         when (file) {
             is SchoolFile.Saved -> {
-                val saved = withContext(Dispatchers.IO) { publish(File(file.path), file.name, file.mimeType) }
+                val staged = File(file.path)
+                // WebView shows no PDF: one the app reads opens in its viewer,
+                // from a copy of its own, as a browser opens what it saved.
+                val shown = if (showsInApp(file.viewer)) withContext(Dispatchers.IO) { keepForViewing(staged, file.name) } else null
+                val saved = withContext(Dispatchers.IO) { publish(staged, file.name, file.mimeType) }
                 notice(if (saved) t("app.savedName", "name" to file.name) else t("lmsFile.theFileCouldNotBeDownloaded"))
+                shown?.let { openInApp(it, file.name, file.viewer) }
             }
             is SchoolFile.External -> openExternal(Uri.parse(file.url))
             null -> notice(t("lmsFile.theFileCouldNotBeDownloaded"))
         }
     }
+
+    /** A copy of a staged file for the app's viewer, in a cache folder
+     * emptied each time one is made, so only the last file viewed stays. */
+    private fun keepForViewing(file: File, name: String): File? = runCatching {
+        viewing.deleteRecursively()
+        viewing.mkdirs()
+        file.copyTo(File(viewing, File(name).name.ifEmpty { "download" }), overwrite = true)
+    }.getOrNull()
 
     /** Copies a staged file into Downloads and removes it from staging. */
     private fun publish(file: File, name: String, mimeType: String): Boolean {

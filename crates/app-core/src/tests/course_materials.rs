@@ -115,8 +115,7 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
         assert_eq!(open(corrupt).await, invalid, "{corrupt:?}");
     }
     // A `mod/url` resolved before keeps what it resolved to: a school site
-    // with an adapter is its page (not the system browser), anything else
-    // is the system browser.
+    // with an adapter is its page, anything else an outside page.
     let forms = "https://forms.office.com/r/AbCdEf1234";
     for (cmid, resolved, expected) in [
         (140010, syllabus, page(SchoolSite::Syllabus, syllabus)),
@@ -181,6 +180,112 @@ async fn cached_hit_missing_and_pages_do_not_reach_the_school() {
         .await
         .unwrap();
     assert!(matches!(missing, Material::Missing { .. }));
+}
+
+/// A downloaded ZIP opens as its files, and each one opens like any other
+/// source: extracted next to the archive under a cache name of its own,
+/// bounded by the same download limit, without a request.
+#[tokio::test]
+async fn a_zip_opens_as_its_files_and_each_file_as_a_course_file() {
+    let root = root("archive");
+    let store = store("archive");
+    let service = CourseMaterials::new(store.clone(), root.clone(), Downloader::default());
+    let (id, folder) = enrolled(&store);
+    let source =
+        "https://lms.s.isct.ac.jp/2026/pluginfile.php/7/mod_resource/content/1/OOP-2A-problem.zip";
+    let zip = material_path(&root, &folder, &Url::parse(source).unwrap()).unwrap();
+    crate::file_preview::archive::tests::archive(
+        &zip,
+        &[
+            ("OOP-2A/README.md", "# 2A"),
+            ("OOP-2A/Main.java", "class Main {}"),
+        ],
+    );
+
+    let Material::Archive { file, files, page } = service
+        .open(id.clone(), source.into(), true, false, None)
+        .await
+        .unwrap()
+    else {
+        panic!("a listable zip opens as an archive");
+    };
+    assert_eq!(file.path, zip.to_string_lossy());
+    assert_eq!(page.url, source);
+    assert_eq!(
+        files,
+        [
+            ArchiveFile {
+                name: "OOP-2A/Main.java".into(),
+                url: format!("{source}#entry=OOP-2A/Main.java"),
+                bytes: 13,
+            },
+            ArchiveFile {
+                name: "OOP-2A/README.md".into(),
+                url: format!("{source}#entry=OOP-2A/README.md"),
+                bytes: 4,
+            },
+        ]
+    );
+
+    let readme = &files[1].url;
+    let Material::Ready { file, page } = service
+        .open(id.clone(), readme.clone(), true, true, Some(1024))
+        .await
+        .unwrap()
+    else {
+        panic!("a file of the archive is ready");
+    };
+    assert_eq!(page.url, source);
+    assert_eq!(file.text.as_deref(), Some("# 2A"));
+    let extracted = Path::new(&file.path);
+    assert_eq!(extracted.parent(), zip.parent());
+    assert!(is_material_cache_name(extracted));
+    assert!(file.name.starts_with("README-") && file.name.ends_with(".md"));
+    // The extracted file is shown by its own kind, the archive's file name aside.
+    assert_eq!(file.viewer, crate::file_preview::Viewer::Markdown);
+
+    assert!(matches!(
+        service
+            .open(id.clone(), files[0].url.clone(), true, false, Some(4))
+            .await
+            .unwrap(),
+        Material::TooLarge { bytes: 13, .. }
+    ));
+    let gone = archive_entry_source(source, "OOP-2A/gone.txt");
+    assert!(matches!(
+        service
+            .open(id.clone(), gone, true, false, None)
+            .await
+            .unwrap(),
+        Material::Failed {
+            reason: MaterialFailure::Unresolved,
+            ..
+        }
+    ));
+    // Names keep Japanese and spaces through the source.
+    let named = archive_entry_source(source, "第1回/課題 1.pdf");
+    assert_eq!(
+        archive_entry(&named),
+        Some((source.to_owned(), "第1回/課題 1.pdf".to_owned()))
+    );
+
+    // An archive too big to show as a folder is the file itself.
+    let many = "https://lms.s.isct.ac.jp/2026/pluginfile.php/8/many.zip";
+    let names: Vec<String> = (0..=1000).map(|n| format!("f{n}.txt")).collect();
+    crate::file_preview::archive::tests::archive(
+        &material_path(&root, &folder, &Url::parse(many).unwrap()).unwrap(),
+        &names
+            .iter()
+            .map(|name| (name.as_str(), ""))
+            .collect::<Vec<_>>(),
+    );
+    assert!(matches!(
+        service
+            .open(id, many.into(), true, false, None)
+            .await
+            .unwrap(),
+        Material::Ready { .. }
+    ));
 }
 
 #[test]
@@ -329,7 +434,7 @@ fn binary_preview_is_optional_and_text_preview_is_bounded() {
     let large = root.join("large.txt");
     fs::write(
         &large,
-        "x".repeat(crate::storage::MAX_TEXT_PREVIEW_BYTES as usize + 1),
+        "x".repeat(crate::file_preview::MAX_TEXT_BYTES as usize + 1),
     )
     .unwrap();
     assert_eq!(

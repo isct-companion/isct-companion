@@ -102,14 +102,24 @@ pub(super) async fn local(
     language: ContentLanguage,
 ) -> Result<ExamLocalDocument, ExamError> {
     let path = file_path(base, &cached)?;
-    let path = blocking(move || {
+    // The cached file has a generated name; the upload's name and validated
+    // type say what it is.
+    let (name, mime) = (
+        cached.document.file_name.clone(),
+        cached.document.file_type.clone(),
+    );
+    let (path, viewer) = blocking(move || {
         touch(&path)?;
-        path.into_os_string()
+        let viewer = crate::file_preview::viewer_of_file(&path, &name, Some(&mime));
+        let path = path
+            .into_os_string()
             .into_string()
-            .map_err(|_| ExamError::Storage)
+            .map_err(|_| ExamError::Storage)?;
+        Ok((path, viewer))
     })
     .await?;
     Ok(ExamLocalDocument {
+        viewer,
         web_url: super::client::site_page(&format!("view/{}", cached.document.id)),
         document: cached.document.present(language),
         path,

@@ -1,9 +1,10 @@
-import { UiSelect } from "../../components/ui";
+import { UiButton, UiInput, UiSelect } from "../../components/ui";
 import { ReaderTools } from "./ReaderPane";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getDocument,
   GlobalWorkerOptions,
+  PasswordResponses,
   TextLayer,
   type PDFDocumentProxy,
 } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -164,6 +165,12 @@ export function PdfDocument({
   // Height/width of each page; mixed portrait/landscape decks are common.
   const [ratios, setRatios] = useState<number[]>([]);
   const [error, setError] = useState("");
+  // A PDF that needs its open password, as a browser's viewer asks for it.
+  const [locked, setLocked] = useState<{
+    wrong: boolean;
+    unlock: (password: string) => void;
+  }>();
+  const [password, setPassword] = useState("");
   const [zoom, setZoom] = useState(1);
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
@@ -184,13 +191,24 @@ export function PdfDocument({
     let disposed = false;
     setError("");
     setFinding(false);
+    setLocked(undefined);
+    setPassword("");
     const task = getDocument({
       url: src,
       disableAutoFetch: true,
       ...pdfjsAssets,
     });
+    task.onPassword = (unlock: (password: string) => void, reason: number) => {
+      if (!disposed)
+        setLocked({
+          wrong: reason === PasswordResponses.INCORRECT_PASSWORD,
+          unlock,
+        });
+    };
     void task.promise
       .then(async (doc) => {
+        if (disposed) return;
+        setLocked(undefined);
         const ratioOf = async (number: number) => {
           const size = (await doc.getPage(number)).getViewport({ scale: 1 });
           return size.height / size.width;
@@ -539,7 +557,42 @@ export function PdfDocument({
       )}
       <div className="lmsPdfDocument" ref={host} aria-label={title}>
         <div className="lmsPdfPages" style={{ width: `${zoom * 100}%` }}>
-          {error ? (
+          {locked ? (
+            <form
+              className="lmsPdfPassword"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!password) return;
+                locked.unlock(password);
+                setLocked(undefined);
+                setPassword("");
+              }}
+            >
+              <p role={locked.wrong ? "alert" : undefined}>
+                {t(
+                  locked.wrong
+                    ? "lms.pdfPasswordWrong"
+                    : "lms.pdfNeedsPassword",
+                )}
+              </p>
+              <UiInput
+                type="password"
+                value={password}
+                autoComplete="off"
+                autoFocus
+                aria-label={t("lms.pdfPassword")}
+                placeholder={t("lms.pdfPassword")}
+                onChange={(event) => setPassword(event.currentTarget.value)}
+              />
+              <UiButton
+                type="submit"
+                className="button primary"
+                disabled={!password}
+              >
+                {t("lms.openPdf")}
+              </UiButton>
+            </form>
+          ) : error ? (
             <p role="alert">{error}</p>
           ) : pdf ? (
             Array.from({ length: pdf.numPages }, (_, i) => (

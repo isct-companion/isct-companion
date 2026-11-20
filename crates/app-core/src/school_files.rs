@@ -32,6 +32,9 @@ pub enum SchoolFile {
         path: PathBuf,
         name: String,
         mime_type: String,
+        /// How the shells show it (`file_preview`), for one that opens it in
+        /// the app once saved (Android, whose web view shows no PDF).
+        viewer: crate::file_preview::Viewer,
     },
     /// Not on a school host: Core fetches only school files, so the shell
     /// hands it to the system browser.

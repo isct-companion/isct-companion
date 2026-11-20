@@ -279,6 +279,7 @@ fn request(
         main_frame,
         kind,
         user_gesture,
+        elsewhere: false,
     }
 }
 
@@ -458,6 +459,33 @@ async fn the_rule_table_lets_the_person_browse_and_sends_cleartext_to_the_system
             "{raw}"
         );
     }
+    // A link ⌘-clicked or middle-clicked opens in the person's browser, as a
+    // browser opens it in a new tab, a school page included; what no browser
+    // tab would load stays refused.
+    let lms = "https://lms.s.isct.ac.jp/2025/course/view.php?id=1";
+    for (raw, main_frame) in [(lms, true), (lms, false), (cleartext, true)] {
+        assert_eq!(
+            listener.decide_navigation(NavigationRequest {
+                elsewhere: true,
+                ..request(page, raw, main_frame, NavigationKind::Link, true)
+            }),
+            NavigationDecision::External(Url::parse(raw).unwrap()),
+            "{raw}"
+        );
+    }
+    assert_eq!(
+        listener.decide_navigation(NavigationRequest {
+            elsewhere: true,
+            ..request(
+                page,
+                "javascript:alert(1)",
+                true,
+                NavigationKind::Link,
+                true
+            )
+        }),
+        NavigationDecision::Deny(DenyReason::Scheme)
+    );
     // A script redirect nobody asked for is refused and shown on the page
     // with the address, for Open in browser.
     assert_eq!(

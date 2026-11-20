@@ -28,6 +28,14 @@ const VPN_ERROR_TEXT: Record<string, MessageKey> = {
   vpn_login_changed: "tools.campusWifi.vpnLoginChanged",
 };
 
+/** Helper states an install fixes: none yet, an older one, or one that does
+ * not answer (installing registers the daemon afresh from this app). */
+const HELPER_INSTALL_FIXES = new Set([
+  "helper_not_installed",
+  "helper_outdated",
+  "helper_unreachable",
+]);
+
 const vpnErrorText = (status: VpnStatus) =>
   status.error && VPN_ERROR_TEXT[status.error]
     ? t(VPN_ERROR_TEXT[status.error])
@@ -150,17 +158,13 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     // Allowed by now, or System Settings opens at it once more.
     if (next.error === "helper_needs_approval")
       return allowed(await desktopBridge.vpnInstall!());
-    if (
-      next.error !== "helper_not_installed" &&
-      next.error !== "helper_outdated"
-    )
-      return next;
+    if (!next.error || !HELPER_INSTALL_FIXES.has(next.error)) return next;
     const update = next.error === "helper_outdated";
     const confirmed = await confirmAction(
       t(
-        update
-          ? "tools.campusWifi.vpnHelperOutdated"
-          : "tools.campusWifi.vpnInstallNeeded",
+        next.error === "helper_not_installed"
+          ? "tools.campusWifi.vpnInstallNeeded"
+          : VPN_ERROR_TEXT[next.error],
       ),
       t(update ? "tools.campusWifi.vpnUpdate" : "tools.campusWifi.vpnInstall"),
       { title: t("tools.campusWifi.campusVpn"), danger: false },
@@ -261,9 +265,8 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
   const badge = vpnBadge(vpn, vpnBusy);
   const remaining = vpnConnected ? vpnRemaining(vpn.expiresAt, now) : undefined;
   const helperNeeded =
-    vpn?.error === "helper_not_installed" ||
-    vpn?.error === "helper_outdated" ||
-    vpn?.error === "helper_needs_approval";
+    vpn?.error === "helper_needs_approval" ||
+    (!!vpn?.error && HELPER_INSTALL_FIXES.has(vpn.error));
   // A line only when something needs saying beyond the badge.
   const detail = vpn?.error
     ? vpnErrorText(vpn)

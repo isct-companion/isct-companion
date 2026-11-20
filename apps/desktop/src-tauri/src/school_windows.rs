@@ -55,6 +55,9 @@ fn allowed(native: &Weak<NativeBrowser>, view: BrowserId, url: &Url) -> bool {
         main_frame: true,
         kind: NavigationKind::Unknown,
         user_gesture: false,
+        // wry reports a Ctrl-click or middle click as a new window, without
+        // the gesture that made it.
+        elsewhere: false,
     }) {
         NavigationDecision::Allow => true,
         NavigationDecision::External(url) => {

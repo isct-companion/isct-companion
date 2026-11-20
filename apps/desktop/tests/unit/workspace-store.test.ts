@@ -1010,6 +1010,7 @@ describe("Tauri bridge contract", () => {
       notice: { url: null, reason: "offline" },
       access: { kind: "problem", problem: "storage" },
       signIn: false,
+      outside: false,
       otp: null,
     };
     const { invoke, calls } = invokeSeam((command) => {

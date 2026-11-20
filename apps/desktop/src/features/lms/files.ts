@@ -7,6 +7,7 @@ import {
 } from "../../platform/desktop-bridge";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
 import type { Settings } from "../../lib/model";
+import type { Viewer } from "../../generated/persistence";
 /** Where a note lives: a section of a course; Core names the course's folder. */
 export type CourseFolder = { courseId: string; section: string };
 export type LocalFile = {
@@ -17,6 +18,8 @@ export type LocalFile = {
   bytes: number;
   cached: boolean;
   text?: string | null;
+  /** How the reader shows it (Core's `file_preview`). */
+  viewer: Viewer;
 };
 export type StorageInfo = { root: string; custom: boolean; canChoose: boolean };
 /** Writes to one note run one after another. */
@@ -110,10 +113,14 @@ export function saveNote(
 }
 /** A school page: where an LMS source lives, or a link to a school site. */
 export type SchoolPage = { site: SchoolSite; url: string };
+/** A file inside a downloaded ZIP (Core's `ArchiveFile`): `url` is the
+ * source it opens as, like a folder file's. */
+export type ArchiveFile = { name: string; url: string; bytes: number };
 /**
  * What an item or link opens as (Core's `Material`): a course file on disk or
- * why it is not (yet), a folder's files, a school page, or an outside page.
- * `page` is the LMS page of an LMS source, offered instead of the file.
+ * why it is not (yet), a folder's or a ZIP's files, a school page, or an
+ * outside page. `page` is the LMS page of an LMS source, offered instead of
+ * the file.
  */
 export type Material =
   | { state: "ready"; file: LocalFile; page: SchoolPage }
@@ -122,6 +129,12 @@ export type Material =
   | {
       state: "folder";
       files: { name: string; url: string }[];
+      page: SchoolPage;
+    }
+  | {
+      state: "archive";
+      file: LocalFile;
+      files: ArchiveFile[];
       page: SchoolPage;
     }
   | ({ state: "page" } & SchoolPage)

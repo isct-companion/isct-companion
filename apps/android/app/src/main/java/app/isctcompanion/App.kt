@@ -91,8 +91,11 @@ import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WidgetRoute
+import app.isctcompanion.core.Viewer
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.features.handin.InboxTray
+import app.isctcompanion.design.CourseArchiveScreen
+import app.isctcompanion.design.CourseFileScreen
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.LocalDestinationScope
@@ -248,6 +251,16 @@ class Navigator(private val controller: NavHostController) {
     fun openExamSubject(code: String, classId: UInt? = null) =
         controller.navigate("past-exams/subject/${Uri.encode(code)}?class=${classId?.toString().orEmpty()}")
 
+    /** A downloaded course file in the app's own viewer for it. */
+    fun openCourseFile(path: String, title: String, viewer: Viewer) =
+        controller.navigate("course-file?path=${Uri.encode(path)}&title=${Uri.encode(title)}&viewer=${viewer.name}")
+
+    /** A downloaded ZIP's files, listed as a folder. */
+    fun openCourseArchive(courseId: String, source: String, title: String) =
+        controller.navigate(
+            "course-archive?course=${Uri.encode(courseId)}&source=${Uri.encode(source)}&title=${Uri.encode(title)}",
+        )
+
     /** A past-exam document, full screen. */
     fun openExamDocument(id: String) = controller.navigate("past-exams/document/${Uri.encode(id)}")
 
@@ -383,6 +396,14 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    // A file a school page handed over opens in the app's viewer for it,
+    // as a browser opens what it downloaded (WebView shows no PDF).
+    val viewing = model.web.viewing
+    LaunchedEffect(viewing) {
+        viewing ?: return@LaunchedEffect
+        model.web.viewing = null
+        navigator.openCourseFile(viewing.path, viewing.name, viewing.viewer)
+    }
     LaunchedEffect(widgetLink, destination != null) {
         if (widgetLink == null || destination == null) return@LaunchedEffect
         when (val route = model.widgetRoute(widgetLink)) {
@@ -495,6 +516,32 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 ) {
                     val code = it.arguments?.getString("code").orEmpty()
                     ExamSubjectScreen(ExamSubjectEntry.Code(code, it.arguments?.getString("class")?.toUIntOrNull()))
+                }
+                destination(
+                    "course-file?path={path}&title={title}&viewer={viewer}",
+                    listOf("path", "title", "viewer").map { name ->
+                        navArgument(name) { type = NavType.StringType; defaultValue = "" }
+                    },
+                ) {
+                    val arguments = it.arguments
+                    CourseFileScreen(
+                        arguments?.getString("path").orEmpty(),
+                        arguments?.getString("title").orEmpty(),
+                        runCatching { Viewer.valueOf(arguments?.getString("viewer").orEmpty()) }.getOrDefault(Viewer.EXTERNAL),
+                    )
+                }
+                destination(
+                    "course-archive?course={course}&source={source}&title={title}",
+                    listOf("course", "source", "title").map { name ->
+                        navArgument(name) { type = NavType.StringType; defaultValue = "" }
+                    },
+                ) {
+                    val arguments = it.arguments
+                    CourseArchiveScreen(
+                        arguments?.getString("course").orEmpty(),
+                        arguments?.getString("source").orEmpty(),
+                        arguments?.getString("title").orEmpty(),
+                    )
                 }
                 destination("past-exams/document/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
                     ExamDocumentScreen(it.arguments?.getString("id").orEmpty())

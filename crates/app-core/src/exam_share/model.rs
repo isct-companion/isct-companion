@@ -1,3 +1,4 @@
+use crate::file_preview::Viewer;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
@@ -144,6 +145,8 @@ pub struct ExamLocalDocument {
     pub offline: bool,
     /// This document on the ScienceTokyoExam website.
     pub web_url: String,
+    /// How the shells show it (`file_preview`).
+    pub viewer: Viewer,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

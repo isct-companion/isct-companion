@@ -280,8 +280,14 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
             MaterialFailure::Denied => error(Reason::Denied, None),
             MaterialFailure::Network | MaterialFailure::Cancelled => error(Reason::Network, None),
         },
-        // A folder, a page or an outside link is not a file to serve.
-        Ok(Ok(Material::Folder { .. } | Material::Page { .. } | Material::External { .. }))
+        // A folder, a page or an outside link is not a file to serve; a
+        // preview is never answered as an archive (`CourseMaterials::open`).
+        Ok(Ok(
+            Material::Folder { .. }
+            | Material::Archive { .. }
+            | Material::Page { .. }
+            | Material::External { .. },
+        ))
         | Ok(Err(MaterialError::Input(_))) => error(Reason::Invalid, None),
         Ok(Err(MaterialError::Denied(_))) => error(Reason::Denied, None),
         _ => error(Reason::Network, None),

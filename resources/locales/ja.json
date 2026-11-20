@@ -728,6 +728,8 @@
   "lms.openFolder": "フォルダを開く",
   "lms.openInVSCode": "VS Code で開く",
   "lms.openLMSInBrowser": "ブラウザーでLMSを開く",
+  "lms.openPage": "ページを開く",
+  "lms.openWithDefaultApp": "既定のアプリで開く",
   "lms.openedContent": "開いている資料",
   "lms.openingLMS": "LMSを開いています…",
   "lms.page": "ページ",
@@ -754,6 +756,7 @@
   "lms.theDesktopAppOpensThe": "デスクトップアプリではログイン済みのLMSをここに表示します。ブラウザープレビューではLMSを埋め込めません。",
   "lms.theSystemBlockedSavingTo": "システムが授業フォルダへの保存をブロックしました。フォルダの権限を確認するか、設定で別の授業フォルダを選んでください。",
   "lms.theWorkspaceFolderNameIs": "ワークスペースのフォルダ「{{name}}」が見つかりません。作り直すか、LMS で課題を開いてファイルを選んでください。",
+  "lms.thisArchiveIsTooLarge": "この圧縮ファイルはファイルが多すぎるか大きすぎるため、ここに一覧表示できません。",
   "lms.thisFileTypeCantBe": "この形式はここでプレビューできません。",
   "lms.thisFolderCouldNotBe": "フォルダを読み込めませんでした。",
   "lms.thisFolderIsEmpty": "このフォルダは空です。",
@@ -1696,5 +1699,14 @@
   "tools.campusWifi.vpnOnCampusTitle": "学内ネットワークに接続しています",
   "tools.campusWifi.vpnDemandStoppedTitle": "キャンパス VPN の自動接続を停止しました",
   "tools.campusWifi.vpnUnusedBody": "経由していた接続（SSH など）は切断されました。必要なときに接続し直してください。",
-  "tools.campusWifi.vpnUnusedTitle": "30 分間使われなかったためキャンパス VPN を切断しました"
+  "tools.campusWifi.vpnUnusedTitle": "30 分間使われなかったためキャンパス VPN を切断しました",
+  "lms.openPdf": "開く",
+  "lms.pdfNeedsPassword": "この PDF は保護されています。開くにはパスワードを入力してください。",
+  "lms.pdfPassword": "PDF のパスワード",
+  "lms.pdfPasswordWrong": "パスワードが違います。もう一度入力してください。",
+  "schoolWeb.signIn.title": "{{host}} にサインイン",
+  "schoolWeb.signIn.retry": "ユーザ名またはパスワードが正しくありません。",
+  "schoolWeb.signIn.user": "ユーザ名",
+  "schoolWeb.signIn.password": "パスワード",
+  "schoolWeb.signIn.button": "サインイン"
 }

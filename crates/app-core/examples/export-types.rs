@@ -37,6 +37,11 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    for declaration in app_core::file_preview::declarations(&cfg) {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
     for declaration in app_core::matrix_scan::declarations(&cfg) {
         output.push_str("export ");
         output.push_str(&declaration);
@@ -57,6 +62,13 @@ fn main() {
     output.push_str(
         &serde_json::to_string_pretty(&app_core::contracts::course_file_policy())
             .expect("serialize course file policy"),
+    );
+    output.push_str(";\n");
+    // The desktop's viewers, the same on macOS and Windows.
+    output.push_str("\nexport const FILE_KINDS: FileKindEntry[] = ");
+    output.push_str(
+        &serde_json::to_string_pretty(&app_core::file_preview::catalog())
+            .expect("serialize file kinds"),
     );
     output.push_str(";\n");
     output.push_str("\nexport const COURSE_PALETTE = ");

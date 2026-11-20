@@ -14,7 +14,13 @@ import {
   type OpenedContent,
 } from "./reading-state";
 import { useCourseNotes } from "./useCourseNotes";
-import { ImageThumbnail, RichContent, type FileAccess } from "./RichContent";
+import {
+  ImageThumbnail,
+  RichContent,
+  type FileAccess,
+  type LinkedFolders,
+} from "./RichContent";
+import { FolderRow } from "./FolderRow";
 import "./lms.css";
 import {
   lazy,
@@ -56,7 +62,12 @@ import {
 const ACTIVITIES = -1;
 /** The lesson the course is at, for marking rows of schedule tables. */
 
-import { downloadOnly, fileFamily, extension } from "./file-types";
+import {
+  downloadOnly,
+  extension,
+  fileFamily,
+  listsAsFolder,
+} from "./file-types";
 import { withRecords } from "../../platform/records";
 import {
   downloadLimit,
@@ -66,9 +77,6 @@ import {
 } from "./files";
 const FilePopover = lazy(() =>
   import("./FilePreview").then((m) => ({ default: m.FilePopover })),
-);
-const InlineFolder = lazy(() =>
-  import("./FilePreview").then((m) => ({ default: m.InlineFolder })),
 );
 const FilePreview = lazy(() =>
   import("./FilePreview").then((m) => ({ default: m.FilePreview })),
@@ -152,6 +160,8 @@ export function LmsWorkspaceBody({
     saved?.lesson,
   );
   const [openFolders, setOpenFolders] = useState<string[]>([]);
+  /** Items Core answered as a ZIP though their address did not say so. */
+  const [archiveItems, setArchiveItems] = useState<string[]>([]);
   const [openDetails, setOpenDetails] = useState<string[]>([]);
   const flip = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -577,23 +587,73 @@ export function LmsWorkspaceBody({
       openWeb?.(url);
     }
   };
+  /**
+   * A page outside the school sites, in the reader's web view: the LMS view,
+   * where a link out of an LMS page lands as well.
+   */
+  const openWebPage = (url: string, title: string) =>
+    open({ id: `official:${url}`, title, kind: "official", url });
   const openAssignment = useCallback((a: Assignment) => {
     setViewing(false);
     requestAnimationFrame(() => revealAssignment(a.id));
   }, []);
+  /** The course item a link points at, by its page or its file. */
+  const materialAt = useCallback(
+    (url: string) =>
+      data.materials.find((m) => m.url === url || m.resourceUrl === url),
+    [data.materials],
+  );
   const openLink = useCallback(
     (url: string, title: string, anchor?: Element) => {
-      const material = data.materials.find(
-        (m) => m.url === url || m.resourceUrl === url,
-      );
+      const material = materialAt(url);
       if (material) return openMaterial(material, anchor);
       const assignment = data.assignments.find((a) => a.sourceUrl === url);
       if (assignment) return openAssignment(assignment);
       if (showFileMenu(url, title, anchor)) return;
       open({ id: `link:${url}`, title, kind: "link", url });
     },
-    [data.materials, data.assignments, openMaterial, openAssignment, open],
+    [materialAt, data.assignments, openMaterial, openAssignment, open],
   );
+  /**
+   * A link in course text that is a ZIP (its own address, or the resource it
+   * points at) is that ZIP's folder row, in place of its card.
+   */
+  const linkedFolders: LinkedFolders = {
+    of: (url) => {
+      const material = materialAt(url);
+      const zip = material?.resourceUrl ?? url;
+      return listsAsFolder(zip) ? zip : undefined;
+    },
+    render: (url, title) => (
+      <FolderRow
+        title={title}
+        url={url}
+        archive
+        courseId={course.id}
+        limit={limit}
+        openFile={(fileUrl, name, anchor) => openLink(fileUrl, name, anchor)}
+        openPage={(page) => openPage(page, title)}
+      />
+    ),
+  };
+  /**
+   * Core answered a ZIP for an item the reader opened: its row becomes a
+   * folder and opens, and the reader closes. False for anything without a
+   * row (a link), which the reader lists itself.
+   */
+  const archiveInOutline = (item: { id: string; kind: string }) => {
+    if (item.kind === "material") {
+      setArchiveItems((list) =>
+        list.includes(item.id) ? list : [...list, item.id],
+      );
+      setOpenFolders((list) =>
+        list.includes(item.id) ? list : [...list, item.id],
+      );
+      closeContent();
+      return true;
+    }
+    return false;
+  };
   const positionedRequest = useRef<number | undefined>(undefined);
   useEffect(() => {
     // Revealing Activity resumes the retained DOM; only a new entrance repositions it.
@@ -841,6 +901,7 @@ export function LmsWorkspaceBody({
                 html={body}
                 language={language}
                 openLink={openLink}
+                folders={linkedFolders}
               />
             ) : (
               <p>{a.details}</p>
@@ -933,44 +994,29 @@ export function LmsWorkspaceBody({
     const url = m.resourceUrl || m.url || "";
     const family = fileFamily(m.resourceUrl || "", m.module);
     const ext = extension(m.resourceUrl || "");
-    // A folder opens in place: its files list under its row.
-    if (m.module === "folder" && safeUrl(m.url)) {
-      const isOpen = openFolders.includes(m.id);
+    // A folder or a ZIP opens in place: its files list under its row.
+    const archive = family === "archive" || archiveItems.includes(m.id);
+    const listed =
+      m.module === "folder"
+        ? safeUrl(m.url)
+        : archive
+          ? safeUrl(m.resourceUrl || m.url)
+          : undefined;
+    if (listed)
       return (
-        <div className={`lmsFolder${isOpen ? " open" : ""}`} key={m.id}>
-          <button
-            type="button"
-            className="lmsItemRow"
-            aria-expanded={isOpen}
-            onClick={() => setOpenFolders((list) => flip(list, m.id))}
-          >
-            <FileTile family="folder" />
-            <span>
-              <b>{m.title}</b>
-              <small>{t("lms.folder")}</small>
-            </span>
-            <LmsIcon name="chevron" className="lmsRowAction lmsFolderChevron" />
-          </button>
-          {isOpen && (
-            <Suspense
-              fallback={
-                <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>
-              }
-            >
-              <InlineFolder
-                url={safeUrl(m.url)!}
-                courseId={course.id}
-                limit={limit}
-                openFile={(fileUrl, name, anchor) =>
-                  openLink(fileUrl, name, anchor)
-                }
-                openPage={(page) => openPage(page, m.title)}
-              />
-            </Suspense>
-          )}
-        </div>
+        <FolderRow
+          key={m.id}
+          title={m.title}
+          url={listed}
+          archive={archive}
+          courseId={course.id}
+          limit={limit}
+          openFile={(fileUrl, name, anchor) => openLink(fileUrl, name, anchor)}
+          openPage={(page) => openPage(page, m.title)}
+          open={openFolders.includes(m.id)}
+          onToggle={() => setOpenFolders((list) => flip(list, m.id))}
+        />
       );
-    }
     return (
       <button
         type="button"
@@ -1054,6 +1100,7 @@ export function LmsWorkspaceBody({
                 html={section.summaryHtml}
                 language={language}
                 openLink={openLink}
+                folders={linkedFolders}
               />
             )}
             {groupImageLabels(
@@ -1074,6 +1121,7 @@ export function LmsWorkspaceBody({
                         html={label.bodyHtml ?? ""}
                         language={language}
                         openLink={openLink}
+                        folders={linkedFolders}
                       />
                     ))}
                   </div>
@@ -1093,6 +1141,7 @@ export function LmsWorkspaceBody({
                       html={item.bodyHtml}
                       language={language}
                       openLink={openLink}
+                      folders={linkedFolders}
                     />
                   </article>
                 );
@@ -1448,6 +1497,7 @@ export function LmsWorkspaceBody({
                       html={announcement.html}
                       language={language}
                       openLink={openLink}
+                      folders={linkedFolders}
                     />
                   )}
                 </div>
@@ -1493,6 +1543,7 @@ export function LmsWorkspaceBody({
                       html={material.bodyHtml}
                       language={language}
                       openLink={openLink}
+                      folders={linkedFolders}
                     />
                   )}
                   {(() => {
@@ -1519,6 +1570,8 @@ export function LmsWorkspaceBody({
                           limit={limit}
                           inline={Boolean(material?.bodyHtml)}
                           openPage={(page) => openPage(page, opened.title)}
+                          openWeb={(page) => openWebPage(page, opened.title)}
+                          onArchive={() => archiveInOutline(opened)}
                           openFile={(fileUrl, name) =>
                             open({
                               id: `link:${fileUrl}`,

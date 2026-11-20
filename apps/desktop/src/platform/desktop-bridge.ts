@@ -368,6 +368,9 @@ export type SchoolWebPage = {
   /** The page in front is a sign-in page Core is not signing in now, and the
    * saved account could: the manual way out, through Reload. */
   signIn: boolean;
+  /** The page in front is outside the school sites: the view has none of
+   * the person's other accounts, so Open in browser is offered plainly. */
+  outside: boolean;
   otp: SchoolOtpEnrollment | null;
 };
 
@@ -768,6 +771,7 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
     schoolWebSteps.includes(page.back) &&
     schoolWebSteps.includes(page.forward) &&
     typeof page.signIn === "boolean" &&
+    typeof page.outside === "boolean" &&
     (otp === null ||
       (typeof otp === "object" &&
         Number.isSafeInteger(otp.id) &&

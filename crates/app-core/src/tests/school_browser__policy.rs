@@ -72,6 +72,21 @@ fn automation_reaches_adapter_sites_and_identity_providers_only() {
         "blob:https://kyomu0.gakumu.titech.ac.jp/uuid"
     ));
     assert!(!download_permitted("https://user:secret@example.com/a.pdf"));
+    // Outside the school is any other host a view shows, not a school
+    // host without an adapter or a sign-in host.
+    for raw in [
+        "https://vlmgr-42.edu2024.gsic.titech.ac.jp/idm/upc/",
+        "https://isct.ex-tic.com/auth/session",
+        "about:blank",
+    ] {
+        assert!(!outside_school(raw), "{raw}");
+    }
+    for raw in [
+        "https://colab.research.google.com/drive/1AbC",
+        "http://www.kurims.kyoto-u.ac.jp/~kyodo/kokyuroku/",
+    ] {
+        assert!(outside_school(raw), "{raw}");
+    }
 }
 
 #[test]

@@ -1,0 +1,62 @@
+name: androidx.pdf watch
+
+# Android shows PDFs on the platform's PdfRenderer with the app's own reader
+# (design/FileViewers.kt, PdfReader) because androidx.pdf was a beta: its
+# sandboxed service failed to start in the app and its page scroller needed
+# library internals overridden. Dependabot cannot watch a dependency the
+# build no longer declares, so this checks Google's Maven each month and
+# opens one issue when a stable release (no -alpha, -beta or -rc) is out.
+on:
+  schedule:
+    - cron: '0 0 1 * *' # The 1st of each month, 09:00 in Japan
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Look for a stable androidx.pdf
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          metadata=https://dl.google.com/android/maven2/androidx/pdf/pdf-viewer/maven-metadata.xml
+          stable=$(curl -fsSL "$metadata" \
+            | grep -o '<version>[^<]*</version>' \
+            | sed -E 's#</?version>##g' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -n 1 || true)
+          if [ -z "$stable" ]; then
+            echo "No stable androidx.pdf yet."
+            exit 0
+          fi
+          title="androidx.pdf $stable is stable: consider it for the Android PDF reader"
+          existing=$(gh issue list --state all --search "in:title \"androidx.pdf $stable is stable\"" --json number --jq length)
+          if [ "$existing" != 0 ]; then
+            echo "An issue for androidx.pdf $stable exists."
+            exit 0
+          fi
+          body=$(mktemp)
+          cat > "$body" <<EOF
+          androidx.pdf $stable is out on Google's Maven ($metadata).
+
+          The Android app shows PDFs on the platform's PdfRenderer with its own
+          Compose reader (\`apps/android/.../design/FileViewers.kt\`, \`PdfReader\`),
+          because the beta androidx.pdf had these problems in the app:
+
+          - its sandboxed PDF service failed to start (the isolated process ran
+            the app's Application setup), so every PDF spun forever;
+          - its page scroller stayed pinned unless library internals were
+            overridden on every frame;
+          - it had no Compose API.
+
+          Check those against this release, and switch if it gives selection and
+          search without them. Then remove this workflow.
+          EOF
+          gh issue create --title "$title" --body-file "$body"

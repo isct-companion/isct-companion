@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
+import android.webkit.HttpAuthHandler
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.MimeTypeMap
@@ -68,6 +69,9 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
     /** The page dialog waiting for the person, if the page on screen asked. */
     var dialog by mutableStateOf<PageDialog?>(null)
+
+    /** The sign-in a server of the page on screen asked for. */
+    var signIn by mutableStateOf<SignInRequest?>(null)
         private set
 
     /** The files the page on screen asked to choose, while its picker is
@@ -314,6 +318,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         val gone = root.popups.filter { it.descendsFrom(tab) } + listOfNotNull(root.takeIf { it === tab })
         for (each in gone) {
             if (dialog?.browser == each.id) dialog?.answer(false, null)
+            if (signIn?.browser == each.id) signIn?.answer(null, null)
             if (files?.browser == each.id) files?.answer(null)
             tabs.remove(each.id)
             (each.webView.parent as? ViewGroup)?.removeView(each.webView)
@@ -366,6 +371,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
          * matched by address because WebView orders the error and the error
          * page's start differently across versions. */
         private var failedUrl: String? = null
+        /** The server and realm last answered with a user name and password. */
+        private var lastSignIn: Pair<String, String>? = null
 
         /** POST starts do not reach shouldOverrideUrlLoading. Keep the native
          * loading fact so a queued OTP command cannot use the previous document. */
@@ -399,6 +406,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                     request.isForMainFrame,
                     if (request.isRedirect) NavigationKind.Other else NavigationKind.Unknown,
                     request.hasGesture(),
+                    // Touch has no gesture for a new tab.
+                    elsewhere = false,
                 )
                 return when (val decision = decide(navigation)) {
                     is NavigationDecision.Allow -> false
@@ -416,9 +425,25 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 }
             }
 
+            /** A server asking for a user name and password gets the sign-in
+             * dialog a browser shows, on the page on screen; a page off screen,
+             * or one already asking, gets the server's own 401 page. The
+             * credential is WebView's for this process and never stored. */
+            override fun onReceivedHttpAuthRequest(view: WebView, handler: HttpAuthHandler, host: String, realm: String) {
+                if (!shown(this@Tab) || signIn != null) return handler.cancel()
+                // WebView asks again for the same server when the last answer failed.
+                val retry = lastSignIn == host to realm
+                lastSignIn = host to realm
+                signIn = SignInRequest(id, host, retry) { user, password ->
+                    signIn = null
+                    if (user != null && password != null) handler.proceed(user, password) else handler.cancel()
+                }
+            }
+
             override fun onFormResubmission(view: WebView, dontResend: Message, resend: Message) {
                 val navigation = NavigationRequest(
                     page, view.url.orEmpty(), true, NavigationKind.FormResubmit(fromHistory = false), false,
+                    elsewhere = false,
                 )
                 // Core loads the page again with GET when it refuses.
                 if (decide(navigation) is NavigationDecision.Allow) resend.sendToTarget() else dontResend.sendToTarget()
@@ -549,6 +574,24 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 }
             }
             return true
+        }
+    }
+
+    /** A server's request for a user name and password (HTTP Basic, Digest,
+     * NTLM). [answer] runs once: the typed pair, or nulls for Cancel. */
+    class SignInRequest(
+        val browser: BrowserId,
+        val host: String,
+        /** The last pair for this server was not accepted. */
+        val retry: Boolean,
+        answer: (String?, String?) -> Unit,
+    ) {
+        private var reply: ((String?, String?) -> Unit)? = answer
+
+        fun answer(user: String?, password: String?) {
+            val reply = reply ?: return
+            this.reply = null
+            reply(user, password)
         }
     }
 
