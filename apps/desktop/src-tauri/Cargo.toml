@@ -18,7 +18,7 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 log = "0.4"
-app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives", "agent", "campus-printer"] }
+app-core = { path = "../../../crates/app-core", features = ["ts", "desktop-workspaces", "agent", "campus-printer"] }
 # Direct dependency carries DEP_LITERT_DLL to build.rs on Windows.
 app-ocr = { path = "../../../crates/app-ocr" }
 app-ocr-adapter = { path = "../../../crates/app-ocr-adapter" }

@@ -276,14 +276,6 @@ impl Session {
     }
 }
 
-/// A file the shell received (shared into the app, dropped on an assignment),
-/// by its path and the name it is handed in under.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct SharedFile {
-    pub path: String,
-    pub name: String,
-}
-
 /// What became of a file a school page handed over (`save_school_file`).
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum SchoolFile {
@@ -333,32 +325,6 @@ pub struct AppRelease {
     pub url: String,
 }
 
-/// An assignment whose `submit/` holds files not yet handed in.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct WaitingHandIn {
-    pub assignment_id: String,
-    pub files: u32,
-}
-
-/// What the LMS page says while Core fills its draft area, in the app's language.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct UploadMessages {
-    pub waiting: String,
-    pub queued: String,
-    pub failed: String,
-}
-
-fn workspace_error(e: app_core::workspaces::WorkspaceError) -> SdkError {
-    crate::error::coded(&e)
-}
-
-fn submission_error(e: app_core::school_browser::SubmissionError) -> SdkError {
-    crate::error::coded(&e)
-}
-
-/// The phones' hand-in: files shared into the app go to the assignment's
-/// workspace `submit/` (the desktop's folder layout), and handing in fills the
-/// LMS draft area from it. Core never submits; the person saves the page.
 #[uniffi::export]
 impl Session {
     /// The update check of a phone or tablet: a newer release, when a check
@@ -402,106 +368,6 @@ impl Session {
                 }),
                 prompt,
             })
-        })
-    }
-    /// Assignments with files waiting to be handed in, for 今日's rows.
-    pub fn waiting_hand_ins(&self) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let assignments = i
-                .core
-                .assignment_workspaces
-                .waiting()
-                .map_err(workspace_error)?
-                .into_iter()
-                .map(|(assignment_id, files)| WaitingHandIn {
-                    assignment_id,
-                    files: u32::try_from(files).unwrap_or(u32::MAX),
-                })
-                .collect();
-            Ok(OperationResult::Waiting { assignments })
-        })
-    }
-    /// The files waiting in the assignment's `submit/`.
-    pub fn assignment_submit_files(
-        &self,
-        assignment_id: String,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let files = i
-                .core
-                .assignment_workspaces
-                .submit_files(&assignment_id)
-                .map_err(workspace_error)?;
-            Ok(OperationResult::Files {
-                files: project(files)?,
-            })
-        })
-    }
-    /// Copies the files into the assignment's `submit/`, creating its
-    /// workspace on first use; the sources stay where they are.
-    pub fn add_assignment_files(
-        &self,
-        assignment_id: String,
-        files: Vec<SharedFile>,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let files = files
-                .into_iter()
-                .map(|file| (std::path::PathBuf::from(file.path), file.name))
-                .collect();
-            Ok(OperationResult::Files {
-                files: project(
-                    i.core
-                        .assignment_workspaces
-                        .add_submit_files(&assignment_id, files)
-                        .map_err(|e| crate::error::coded(&e))?,
-                )?,
-            })
-        })
-    }
-    pub fn remove_assignment_file(
-        &self,
-        assignment_id: String,
-        name: String,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            Ok(OperationResult::Files {
-                files: project(
-                    i.core
-                        .assignment_workspaces
-                        .remove_submit_file(&assignment_id, &name)
-                        .map_err(workspace_error)?,
-                )?,
-            })
-        })
-    }
-    /// Queues `submit/` for the assignment's LMS draft area and returns the
-    /// page to show; Core fills the draft area when that page loads.
-    pub fn hand_in_assignment(
-        &self,
-        assignment_id: String,
-        messages: UploadMessages,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let (page, prepared) = i
-                .core
-                .assignment_workspaces
-                .prepare_draft(&assignment_id, None)
-                .map_err(|error| crate::error::coded(&error))?;
-            let url = i
-                .core
-                .school_browser()?
-                .prepare_submission(
-                    &page,
-                    prepared.files,
-                    app_core::school_browser::SubmissionMessages {
-                        waiting: messages.waiting,
-                        queued: messages.queued,
-                        failed: messages.failed,
-                    },
-                )
-                .map_err(submission_error)?;
-            Ok(OperationResult::Text { value: url })
         })
     }
 }

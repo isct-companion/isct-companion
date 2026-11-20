@@ -54,10 +54,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
         private set
-    /** Files waiting in each assignment's `submit/`, by assignment id, for
-     * 今日's rows (Core's `waitingHandIns`). */
-    var waiting: Map<String, Int> by mutableStateOf(emptyMap())
-        internal set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
     /** Course id → Core's display colour, identical on every surface. */
@@ -445,7 +441,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         (overview?.values?.firstOrNull() as? WorkspaceQueryResult.WorkspaceOverview)?.let { colors = it.v1.colors }
         contentRevision = key
         scheduleBoundary()
-        refreshWaiting()
     }
 
     /** Re-query when Core says the phase or hero changes next. */

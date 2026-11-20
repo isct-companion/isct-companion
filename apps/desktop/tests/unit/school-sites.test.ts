@@ -80,7 +80,10 @@ describe("school webview bounds", () => {
     // Points on macOS: a Retina scale does not multiply them.
     scope.__ISCT_COMPANION_NATIVE_OS__ = "macos";
     expect(
-      schoolWebBounds({ left: 180, top: 32, width: 988, height: 675 }, viewport(2)),
+      schoolWebBounds(
+        { left: 180, top: 32, width: 988, height: 675 },
+        viewport(2),
+      ),
     ).toEqual({ x: 180, y: 32, width: 988, height: 675 });
     delete scope.__ISCT_COMPANION_NATIVE_OS__;
   });
@@ -420,11 +423,34 @@ describe("assignment upload injection", () => {
       });
     const submitted = vi.fn((event: Event) => event.preventDefault());
     w.document.querySelector("form")!.addEventListener("submit", submitted);
-    const start = () =>
+    const evaluate = (payload: object) =>
       w.eval(
-        `${readScript("assignment-upload.js")}(${JSON.stringify({ request: "test-upload", url: "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission", files: [{ name: "report.txt", data: Buffer.from("my report").toString("base64") }], messages: { waiting: "waiting", queued: "Review and submit yourself.", failed: "Choose files in LMS." } })})`,
+        `${readScript("assignment-upload.js")}(${JSON.stringify(payload)})`,
       );
-    return { w, drops, submitted, start };
+    const start = (request = "test-upload", scoped = false) =>
+      evaluate({
+        request,
+        scoped,
+        url: "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission",
+        files: [
+          {
+            name: "report.txt",
+            data: Buffer.from("my report").toString("base64"),
+          },
+        ],
+        messages: {
+          waiting: "waiting",
+          queued: "Review and submit yourself.",
+          failed: "Choose files in LMS.",
+        },
+      });
+    return {
+      w,
+      drops,
+      submitted,
+      start,
+      cancel: (request: string) => evaluate({ cancelRequest: request }),
+    };
   }
 
   it("hands files to Moodle once and leaves the final submission to the user", () => {
@@ -476,5 +502,26 @@ describe("assignment upload injection", () => {
       "filemanager fm-loaded";
     await Promise.resolve();
     expect(changed.drops).toHaveLength(0);
+    // A mobile screen can leave the resident view without navigating its document.
+    const url =
+      "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission&isctDraftRequest=B";
+    const resident = uploadPage(url, false);
+    resident.start("A", true);
+    expect(resident.w.document.querySelector('[role="status"]')).toBeNull();
+    resident.start("B", true);
+    expect(
+      resident.w.document.querySelector('[role="status"]')?.textContent,
+    ).toBe("waiting");
+    resident.cancel("A");
+    expect(
+      resident.w.document.querySelector('[role="status"]')?.textContent,
+    ).toBe("waiting");
+    resident.cancel("B");
+    resident.w.document.querySelector(".filemanager")!.className =
+      "filemanager fm-loaded";
+    resident.start("B", true);
+    await Promise.resolve();
+    expect(resident.drops).toHaveLength(0);
+    expect(resident.w.document.querySelector('[role="status"]')).toBeNull();
   });
 });

@@ -1,108 +1,172 @@
 import Foundation
+import UniformTypeIdentifiers
 
-/// The App Group folder the share extension and the app both see. The
-/// extension puts what was shared there; the app hands each file to an
-/// assignment's workspace through Core and then removes it. Nothing here
-/// decides anything: which assignment a file belongs to is the person's
-/// choice, and the hand-in rules are Core's.
-///
-/// ```text
-/// Inbox/<id>/item.json      name, the assignment chosen in the share sheet
-/// Inbox/<id>/<file>
-/// assignments.json          the open assignments the share sheet offers
-/// ```
+/// The App Group only carries a share from the extension to the app. Each
+/// transfer owns a distinct directory, which the app takes into temporary storage.
 enum SharedInbox {
-    static let group = "group.app.isctcompanion"
-
-    /// One shared file.
-    struct Item: Codable, Hashable, Identifiable {
+    struct File: Codable, Hashable, Identifiable {
         let id: String
-        /// The name it is handed in under.
         let name: String
-        /// Picked in the share sheet; the app hands it in there on its next open.
-        var assignmentId: String?
-        let addedAt: Date
 
-        /// Where the file itself is.
-        var url: URL? { SharedInbox.folder(id)?.appendingPathComponent(name) }
+        func url(in folder: URL) -> URL { folder.appendingPathComponent(id) }
     }
 
-    /// One open assignment of the quarter, as the app last saw it.
+    struct Transfer: Identifiable {
+        let folder: URL
+        let files: [File]
+        let choice: Choice?
+        var id: URL { folder }
+
+        func discard() { try? FileManager.default.removeItem(at: folder) }
+    }
+
     struct Choice: Codable, Hashable, Identifiable {
         let id: String
         let title: String
         let course: String?
-        /// The deadline as the app wrote it, in the app's language.
         let due: String
     }
 
-    /// The share sheet's list, written by the app with its language.
     struct Choices: Codable {
         var language: String
         var assignments: [Choice]
     }
 
+    private struct Handoff: Codable {
+        let files: [File]
+        let choice: Choice?
+    }
+
     private static var container: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.isctcompanion")
     }
 
-    private static var inbox: URL? { container?.appendingPathComponent("Inbox", isDirectory: true) }
+    private static var transfers: URL? { container?.appendingPathComponent("HandIn", isDirectory: true) }
 
-    private static func folder(_ id: String) -> URL? { inbox?.appendingPathComponent(id, isDirectory: true) }
-
-    /// Copies a received file in; the source is left as it is.
-    @discardableResult
-    static func add(_ source: URL, name: String, assignmentId: String?) throws -> Item {
-        guard let base = inbox else { throw CocoaError(.fileNoSuchFile) }
-        let item = Item(id: UUID().uuidString, name: safe(name), assignmentId: assignmentId, addedAt: Date())
-        let folder = base.appendingPathComponent(item.id, isDirectory: true)
+    static func temporaryFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        do {
-            try FileManager.default.copyItem(at: source, to: folder.appendingPathComponent(item.name))
-            try JSONEncoder().encode(item).write(to: folder.appendingPathComponent("item.json"), options: .atomic)
-        } catch {
-            try? FileManager.default.removeItem(at: folder)
-            throw error
-        }
-        return item
+        return folder
     }
 
-    /// Every complete item, oldest first.
-    static func items() -> [Item] {
-        guard let base = inbox,
-            let folders = try? FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)
-        else { return [] }
-        return folders.compactMap { folder in
-            guard let data = try? Data(contentsOf: folder.appendingPathComponent("item.json")),
-                let item = try? JSONDecoder().decode(Item.self, from: data),
-                let url = item.url, FileManager.default.fileExists(atPath: url.path)
-            else { return nil }
-            return item
-        }
-        .sorted { $0.addedAt < $1.addedAt }
+    static func copy(_ source: URL, name: String, into folder: URL) throws -> File {
+        let file = newFile(name: name)
+        try FileManager.default.copyItem(at: source, to: file.url(in: folder))
+        return file
     }
 
-    static func remove(_ item: Item) {
-        if let folder = folder(item.id) { try? FileManager.default.removeItem(at: folder) }
+    static func newFile(name: String) -> File {
+        let ext = (name as NSString).pathExtension
+        let id = UUID().uuidString
+        return File(id: ext.isEmpty ? id : "\(id).\(ext)", name: name)
+    }
+
+    /// Publish an entire selection so the app cannot consume a partial one.
+    static func publish(_ transfer: Transfer, choice: Choice?) throws {
+        guard let transfers else { throw CocoaError(.fileNoSuchFile) }
+        let id = UUID().uuidString
+        let staging = transfers.appendingPathComponent(".\(id)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        for file in transfer.files {
+            try FileManager.default.copyItem(at: file.url(in: transfer.folder), to: file.url(in: staging))
+        }
+        let handoff = try JSONEncoder().encode(Handoff(files: transfer.files, choice: choice))
+        try handoff.write(to: staging.appendingPathComponent("handoff.json"))
+        try FileManager.default.moveItem(at: staging, to: transfers.appendingPathComponent(id, isDirectory: true))
+    }
+
+    static func take() -> Transfer? {
+        guard let transfers, let folders = try? FileManager.default.contentsOfDirectory(
+            at: transfers, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return nil }
+        for folder in folders {
+            guard let data = try? Data(contentsOf: folder.appendingPathComponent("handoff.json")),
+                let handoff = try? JSONDecoder().decode(Handoff.self, from: data)
+            else { continue }
+            let destination = FileManager.default.temporaryDirectory.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+            if (try? FileManager.default.moveItem(at: folder, to: destination)) != nil {
+                return Transfer(folder: destination, files: handoff.files, choice: handoff.choice)
+            }
+        }
+        return nil
     }
 
     static func writeChoices(_ choices: Choices) {
-        guard let url = container?.appendingPathComponent("assignments.json"),
+        guard let url = container?.appendingPathComponent("hand-in-assignments.json"),
             let data = try? JSONEncoder().encode(choices)
         else { return }
         try? data.write(to: url, options: .atomic)
     }
 
     static func readChoices() -> Choices? {
-        guard let url = container?.appendingPathComponent("assignments.json"),
+        guard let url = container?.appendingPathComponent("hand-in-assignments.json"),
             let data = try? Data(contentsOf: url)
         else { return nil }
         return try? JSONDecoder().decode(Choices.self, from: data)
     }
 
-    /// A file name without folders; Core makes it safe for every platform.
-    private static func safe(_ name: String) -> String {
-        let last = (name as NSString).lastPathComponent.trimmingCharacters(in: .whitespaces)
-        return last.isEmpty || last == "." || last == ".." ? "file" : last
+    /// Starts every read before returning, while the native drop grant is live.
+    @MainActor
+    static func startCopy(
+        _ providers: [NSItemProvider], into folder: URL,
+        completion: @escaping @MainActor (Result<[File], Error>) -> Void
+    ) {
+        let group = DispatchGroup()
+        var results: [Int: Result<File, Error>] = [:]
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            copy(provider, into: folder) { result in
+                DispatchQueue.main.async {
+                    results[index] = result
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            completion(Result { try results.sorted { $0.key < $1.key }.map { try $0.value.get() } })
+        }
+    }
+
+    @MainActor
+    static func copy(_ providers: [NSItemProvider], into folder: URL) async throws -> [File] {
+        try await withCheckedThrowingContinuation { continuation in
+            startCopy(providers, into: folder) { continuation.resume(with: $0) }
+        }
+    }
+
+    private static func copy(
+        _ provider: NSItemProvider, into folder: URL,
+        completion: @escaping (Result<File, Error>) -> Void
+    ) {
+        let suggested = provider.suggestedName
+        let types = provider.registeredTypeIdentifiers.compactMap(UTType.init)
+        if let type = types.first(where: { $0.conforms(to: .data) && !$0.conforms(to: .plainText) && !$0.conforms(to: .url) }) {
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
+                completion(Result {
+                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
+                    return try store(url, suggested: suggested, type: type, into: folder)
+                })
+            }
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, error in
+                completion(Result {
+                    let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                    guard let url, url.isFileURL else { throw error ?? CocoaError(.fileReadUnknown) }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    return try store(url, suggested: suggested, type: nil, into: folder)
+                })
+            }
+        } else {
+            completion(.failure(CocoaError(.fileReadUnsupportedScheme)))
+        }
+    }
+
+    private static func store(_ source: URL, suggested: String?, type: UTType?, into folder: URL) throws -> File {
+        let base = suggested ?? source.deletingPathExtension().lastPathComponent
+        let ext = source.pathExtension.isEmpty ? (type?.preferredFilenameExtension ?? "") : source.pathExtension
+        let name = ext.isEmpty || base.hasSuffix(".\(ext)") ? base : "\(base).\(ext)"
+        return try copy(source, name: name, into: folder)
     }
 }

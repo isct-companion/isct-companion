@@ -13,8 +13,12 @@ pub use policy::{
 pub(crate) use policy::{domain_under, outside_school, school_domains};
 pub use port::*;
 pub use submission::{
-    SubmissionError, SubmissionFile, SubmissionMessages, MAX_SUBMISSION_BYTES, MAX_SUBMISSION_FILES,
+    DraftUpload, SubmissionError, SubmissionFile, SubmissionMessages, MAX_SUBMISSION_BYTES,
+    MAX_SUBMISSION_FILES,
 };
+
+#[cfg(feature = "desktop-workspaces")]
+pub(crate) use submission::{assignment_detail_in, draft_page};
 
 use crate::lifecycle::SchoolSite;
 use serde::{Deserialize, Serialize};

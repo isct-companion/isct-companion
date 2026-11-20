@@ -63,7 +63,8 @@ final class WebRouter {
         let site: SchoolSite
         let target: String?
         let title: String
-        var id: String { "\(site)-\(target ?? "")" }
+        var uploadId: String? = nil
+        var id: String { uploadId ?? "\(site)-\(target ?? "")" }
     }
 
     /// The ウェブ tab shows `site`, restoring its last page.
@@ -200,6 +201,8 @@ final class WebRouter {
         let file = downloads.removeFirst()
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
     }
+
+    func cancelHandIn(_ id: String) { try? session?.cancelHandIn(id: id) }
 
     /// Closes the popup in front of `site`'s page.
     func closePopup(_ site: SchoolSite) { browser.closeFrontPopup(site) }

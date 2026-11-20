@@ -535,6 +535,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
         web.open(page.site, page.target)
         web.setVisible(page.site)
         onDispose {
+            page.uploadId?.let(web::cancelHandIn)
             web.barsHidden = false
             web.setVisible(null)
         }

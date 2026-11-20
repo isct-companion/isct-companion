@@ -126,7 +126,9 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     }
 
     /** A page pushed from context (course → LMS, assignment → submission). */
-    data class PushedPage(val site: SchoolSite, val target: String?, val title: String)
+    data class PushedPage(val site: SchoolSite, val target: String?, val title: String, val uploadId: String? = null)
+
+    fun cancelHandIn(id: String) { runCatching { session?.cancelHandIn(id) } }
 
     /** The ウェブ tab shows `site`, restoring its last page. */
     fun showTab(site: SchoolSite) {

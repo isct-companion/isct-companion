@@ -213,8 +213,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         APPLICATION_EXTENSION_API_ONLY: YES
   # Action extension: "Open in IsctCompanion" in the share sheet's actions.
-  # What was shared goes to the inbox and the app comes forward with it in the
-  # corner stack; no sheet, nothing picked or submitted here.
+  # Hands a selection to the app's assignment picker.
   IsctOpen:
     type: app-extension
     platform: iOS

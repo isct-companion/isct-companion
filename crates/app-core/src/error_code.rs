@@ -314,6 +314,7 @@ coded!(crate::data::StoreOpenError, |e| {
         E::RecoveryRequired { .. } | E::Io(_) => C::Storage,
     }
 });
+#[cfg(feature = "desktop-workspaces")]
 coded!(crate::workspaces::WorkspaceError, |e| {
     use crate::workspaces::WorkspaceError as E;
     match e {
@@ -322,12 +323,12 @@ coded!(crate::workspaces::WorkspaceError, |e| {
         E::Missing => C::WorkspaceFolderMissing,
     }
 });
+#[cfg(feature = "desktop-workspaces")]
 coded!(crate::workspaces::HandInError, |e| {
     use crate::workspaces::HandInError as E;
     match e {
         E::Workspace(e) => e.code(),
         E::Unavailable => C::HandInUnavailable,
-        E::FilesOnly => C::HandInFilesOnly,
         E::Empty => C::HandInEmpty,
         E::NeedsZip => C::HandInNeedsZip,
         E::TooLarge => C::HandInTooLarge,
@@ -466,6 +467,10 @@ coded!(SubmissionError, |e| match e {
     SubmissionError::InvalidInput(_) => C::InvalidInput,
     SubmissionError::Storage(_) => C::Storage,
     SubmissionError::Browser(_) => C::Platform,
+    SubmissionError::AssignmentUnavailable => C::HandInUnavailable,
+    SubmissionError::FilesOnly => C::HandInFilesOnly,
+    SubmissionError::TooLarge => C::HandInTooLarge,
+    #[cfg(feature = "desktop-workspaces")]
     SubmissionError::WorkspaceMissing => C::WorkspaceFolderMissing,
 });
 coded!(CredentialMutationError, |e| match e {

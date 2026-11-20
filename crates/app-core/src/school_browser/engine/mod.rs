@@ -82,6 +82,8 @@ struct State {
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
     submission: Option<super::submission::PendingSubmission>,
+    /// The mobile request whose script may still be waiting in a resident view.
+    active_submission: Option<(String, BrowserId)>,
     restore: Option<(std::path::PathBuf, u64)>,
     restore_epoch: u64,
     /// The page last published for each site (`school-web-page`).
@@ -699,6 +701,58 @@ impl SchoolBrowserEngine {
         Ok(url)
     }
 
+    /// Re-read the assignment before any file is opened and once more before
+    /// queuing it for the LMS page. No workspace is needed for this selection.
+    pub fn prepare_assignment_submission(
+        &self,
+        store: &crate::data::DataStore,
+        assignment: &str,
+        paths: Vec<(std::path::PathBuf, String)>,
+        messages: super::SubmissionMessages,
+    ) -> Result<super::DraftUpload, super::SubmissionError> {
+        use super::submission::{current_draft_page, selected_files, PendingSubmission};
+        let page = current_draft_page(store, assignment)?;
+        let files = selected_files(paths)?;
+        if current_draft_page(store, assignment)? != page {
+            return Err(super::SubmissionError::AssignmentUnavailable);
+        }
+        let mut pending = PendingSubmission::new(&page, files, messages)?;
+        pending.scope_to_request()?;
+        let upload = super::DraftUpload {
+            id: pending.request.clone(),
+            url: pending.url.clone(),
+        };
+        self.0.state.guard().submission = Some(pending);
+        Ok(upload)
+    }
+
+    /// A departing page cancels its pending payload or its resident script.
+    pub fn cancel_submission(&self, id: &str) {
+        let browser = self.0.state.with(|state| {
+            if state
+                .submission
+                .as_ref()
+                .is_some_and(|pending| pending.request == id)
+            {
+                state.submission = None;
+            }
+            if state
+                .active_submission
+                .as_ref()
+                .is_some_and(|(active, _)| active == id)
+            {
+                state.active_submission.take().map(|(_, browser)| browser)
+            } else {
+                None
+            }
+        });
+        if let Some(browser) = browser {
+            let _ = self
+                .0
+                .dispatch_eval(browser, super::submission::cancel_script(id), false);
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn poison_state_for_test(&self) {
         let _state = self.0.state.guard();
@@ -706,7 +760,10 @@ impl SchoolBrowserEngine {
     }
 
     pub async fn shutdown(&self) {
-        self.0.state.guard().submission = None;
+        self.0.state.with(|state| {
+            state.submission = None;
+            state.active_submission = None;
+        });
         self.0.tasks.close();
         self.0.tasks.wait().await;
         let _ = self.0.browser.shutdown().await;
@@ -1305,6 +1362,13 @@ impl Inner {
             let mut state = self.state.guard();
             match state.views.get(&browser.site) {
                 Some(view) if view.id == browser => {
+                    if state
+                        .active_submission
+                        .as_ref()
+                        .is_some_and(|(_, owner)| *owner == browser)
+                    {
+                        state.active_submission = None;
+                    }
                     if browser.site == SchoolSite::SciencePortal {
                         if let Some(otp) = state.otp.as_mut() {
                             otp.stop();
@@ -1436,7 +1500,11 @@ impl Inner {
                 .as_ref()
                 .is_some_and(|pending| pending.matches(url))
             {
-                state.submission.take()
+                let pending = state.submission.take();
+                if let Some(scoped) = pending.as_ref().filter(|pending| pending.scoped()) {
+                    state.active_submission = Some((scoped.request.clone(), browser));
+                }
+                pending
             } else {
                 None
             }

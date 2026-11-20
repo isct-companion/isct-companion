@@ -17,6 +17,7 @@ mod campus_print;
 mod diagnostics;
 mod error;
 mod exam_share;
+mod hand_in;
 mod json;
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/contracts.rs"));
@@ -44,7 +45,8 @@ pub use matrix::{
 };
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};
 pub use session::{
-    decode_school_web_page, decode_sync_snapshot, Capabilities, Session, SessionConfig,
+    decode_school_session, decode_school_web_page, decode_sync_snapshot, Capabilities, Session,
+    SessionConfig,
 };
 mod services;
 

@@ -1,8 +1,7 @@
 import UIKit
 
 /// "Open in IsctCompanion" in the share sheet's actions: what was shared goes
-/// to the inbox and the app comes forward with it in the corner stack, as a
-/// file chosen in the app would. Nothing is picked or submitted here; the
+/// to the app's hand-in picker. The person chooses a target in the app. Nothing is picked or submitted here; the
 /// share extension is the one with a sheet.
 final class OpenViewController: UIViewController {
     private var started = false
@@ -13,8 +12,14 @@ final class OpenViewController: UIViewController {
         guard !started else { return }
         started = true
         Task {
-            for file in await ExtensionInput.files(extensionContext) {
-                _ = try? SharedInbox.add(file.url, name: file.name, assignmentId: nil)
+            do {
+                if let transfer = try await ExtensionInput.transfer(extensionContext) {
+                    defer { transfer.discard() }
+                    try SharedInbox.publish(transfer, choice: nil)
+                }
+            } catch {
+                extensionContext?.cancelRequest(withError: error)
+                return
             }
             ExtensionInput.openApp(from: self)
             extensionContext?.completeRequest(returningItems: nil)

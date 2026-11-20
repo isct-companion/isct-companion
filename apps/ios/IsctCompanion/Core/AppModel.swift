@@ -20,9 +20,6 @@ final class AppModel {
     private(set) var status: Status = .opening
     private(set) var today: TodayView?
     private(set) var board: AssignmentBoard?
-    /// Files waiting in each assignment's `submit/`, by assignment id, for
-    /// 今日's rows (Core's `waitingHandIns`).
-    var waiting: [String: Int] = [:]
     private(set) var periods: [TeachingPeriod] = []
     /// Course id → Core's display colour, identical on every surface.
     private(set) var colors: [String: String] = [:]
@@ -462,7 +459,6 @@ final class AppModel {
         if let newColors { colors = newColors }
         contentRevision = "\(generation)-\(result.seq)"
         scheduleBoundary()
-        await refreshWaiting()
     }
 
     /// Re-query when Core says the phase or hero changes next.

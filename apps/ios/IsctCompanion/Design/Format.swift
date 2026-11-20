@@ -200,7 +200,6 @@ struct DeadlineRow: View {
     let item: DeadlineItem
     var now: Date
     var showsCourse = true
-    @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(spacing: Theme.rowGap) {
@@ -214,14 +213,6 @@ struct DeadlineRow: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
-                // Files put in its upload card wait for the person to hand
-                // them in; Core counts them until LMS shows the work submitted.
-                if let waiting = model.waiting[item.assignmentId] {
-                    Label(t("components.countFilesToHandIn", ["count": waiting]), systemImage: "arrow.up.doc")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.accent)
-                        .lineLimit(1)
-                }
             }
             Spacer(minLength: Theme.space4)
             DeadlineChip(item: item)

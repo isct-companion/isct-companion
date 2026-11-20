@@ -356,6 +356,7 @@ struct WebPageScreen: View {
         }
         .onDisappear {
             barsHidden = false
+            if let uploadId = page.uploadId { web.cancelHandIn(uploadId) }
             web.disappear(owner: visibilityOwner)
         }
     }

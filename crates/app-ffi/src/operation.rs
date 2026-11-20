@@ -57,8 +57,9 @@ pub enum OperationResult {
     Files {
         files: Vec<LocalFile>,
     },
-    Waiting {
-        assignments: Vec<crate::services::WaitingHandIn>,
+    DraftUpload {
+        id: String,
+        url: String,
     },
     /// `checked`: whether a check was due and ran; `release`: a newer build
     /// for this platform, if it ran and found one; `prompt`: whether Core

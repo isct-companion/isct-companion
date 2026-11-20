@@ -27,6 +27,7 @@ pub struct Core {
     #[cfg(feature = "agent")]
     pub agent: AgentService,
     /// Assignment workspaces under the selected course storage root.
+    #[cfg(feature = "desktop-workspaces")]
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
     /// LMS writes, or why the service could not open; the MCP tools share
     /// it. Only the desktop's agents write to the LMS.
@@ -300,6 +301,7 @@ impl Core {
             #[cfg(feature = "agent")]
             agent_access: Arc::downgrade(&agent_access),
         }));
+        #[cfg(feature = "desktop-workspaces")]
         let assignment_workspaces = crate::workspaces::AssignmentWorkspaces::new(
             store.clone(),
             runtime.notes.clone(),
@@ -360,6 +362,7 @@ impl Core {
         Self {
             #[cfg(feature = "agent")]
             agent,
+            #[cfg(feature = "desktop-workspaces")]
             assignment_workspaces,
             #[cfg(feature = "agent")]
             submissions,

@@ -1,86 +1,103 @@
-import CoreGraphics
 import Foundation
 import IsctCore
 
-// The phones' hand-in (slotledger `approach/share-entry-points`): what was shared into the
-// app waits in `SharedInbox`; the person gives it to an assignment, Core puts
-// it in that assignment's workspace `submit/`, and handing in fills the LMS
-// draft area from there. Core never submits; the person saves the page.
-
-/// What waits in the shared inbox, for the corner thumbnails and the inbox
-/// sheet. Reads the App Group folder when the app comes forward.
+/// Holds only the current selection. A share prepared by the extension is
+/// adopted once when the app opens.
 @MainActor
 @Observable
 final class InboxModel {
-    private(set) var items: [SharedInbox.Item] = []
-    /// The assignment a share-sheet pick was just handed to, for the app to show.
-    var handedTo: String?
-    /// The upload panel is up (the corner stack was tapped).
-    var presenting = false
+    private(set) var transfer: SharedInbox.Transfer?
+    private(set) var working = false
+    private var generation = 0
     var error: String?
 
-    /// Where the corner stack can be dropped: assignment rows and upload
-    /// cards, by a token each view keeps. Read only while dragging.
-    struct Target {
-        let assignment: String
-        let frame: CGRect
-        /// A row opens its assignment after the drop; a page's own card is
-        /// already open.
-        let opens: Bool
-    }
-    @ObservationIgnored var targets: [UUID: Target] = [:]
-    /// The target under the dragged stack, which floats.
-    private(set) var hovered: UUID?
-
-    /// Finds the target under a point of the window while the stack is dragged.
-    func hover(at point: CGPoint?) {
-        let next = point.flatMap { point in targets.first { $0.value.frame.contains(point) }?.key }
-        if next != hovered { hovered = next }
+    func refresh() {
+        if transfer == nil, let shared = SharedInbox.take() {
+            adopt(shared, generation: nextGeneration())
+        }
     }
 
-    var hoveredTarget: Target? { hovered.flatMap { targets[$0] } }
-
-    /// Removes everything waiting, thrown into the corner's trash.
-    func discardAll() {
-        items.forEach(SharedInbox.remove)
-        items = SharedInbox.items()
+    func discard(_ selection: SharedInbox.Transfer) {
+        guard transfer?.id == selection.id else { return }
+        _ = nextGeneration()
+        transfer = nil
+        selection.discard()
     }
 
-    /// A file another app opened in this one ("Open in IsctCompanion"): the
-    /// system's copy joins the corner stack, as a file chosen in the app would.
-    func receive(_ url: URL) {
-        guard url.isFileURL else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    func give(
+        _ selection: SharedInbox.Transfer, to assignment: String, title: String, model: AppModel
+    ) async throws -> WebRouter.PushedPage? {
+        guard !working, transfer?.id == selection.id else { return nil }
+        working = true
+        defer { working = false }
+        let files = selection.files.map { SharedFile(path: $0.url(in: selection.folder).path, name: $0.name) }
+        let page = try await model.handIn(assignment, title: title, files: files)
+        guard transfer?.id == selection.id else {
+            if let uploadId = page.uploadId { model.web.cancelHandIn(uploadId) }
+            return nil
+        }
+        discard(selection)
+        return page
+    }
+
+    func select(
+        _ choice: SharedInbox.Choice?,
+        copying: (URL) async throws -> [SharedInbox.File]
+    ) async {
+        let current = nextGeneration()
         do {
-            try SharedInbox.add(url, name: url.lastPathComponent, assignmentId: nil)
-            // The system put its copy in Documents/Inbox; the inbox keeps its own.
-            try? FileManager.default.removeItem(at: url)
-            items = SharedInbox.items()
+            let folder = try SharedInbox.temporaryFolder()
+            finish(.success(try await copy(copying, into: folder)), folder: folder, choice: choice, generation: current)
         } catch {
-            self.error = AppModel.describe(error)
+            if generation == current { self.error = AppModel.describe(error) }
         }
     }
 
-    func refresh(_ model: AppModel) async {
-        items = SharedInbox.items()
-        // Files given an assignment in the share sheet go straight there.
-        let picked = Dictionary(grouping: items.filter { $0.assignmentId != nil }) { $0.assignmentId ?? "" }
-        for (assignment, items) in picked {
-            if await give(items, to: assignment, model) { handedTo = assignment }
-        }
-    }
-
-    /// Hands the items to the assignment's workspace and removes them from the
-    /// inbox; on failure they stay for another try.
-    @discardableResult
-    func give(_ items: [SharedInbox.Item], to assignment: String, _ model: AppModel) async -> Bool {
-        let files = items.compactMap { item in item.url.map { SharedFile(path: $0.path, name: item.name) } }
-        guard !files.isEmpty else { return false }
+    private func copy(
+        _ copying: (URL) async throws -> [SharedInbox.File], into folder: URL
+    ) async throws -> [SharedInbox.File] {
         do {
-            _ = try await model.addSubmitFiles(assignment, files)
-            items.forEach(SharedInbox.remove)
-            self.items = SharedInbox.items()
+            let files = try await copying(folder)
+            try Task.checkCancellation()
+            return files
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    func receive(_ urls: [URL], choice: SharedInbox.Choice? = nil) async {
+        await select(choice) { folder in
+            try urls.map { url in
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                return try SharedInbox.copy(url, name: url.lastPathComponent, into: folder)
+            }
+        }
+    }
+
+    /// Open In supplies an app-owned Documents/Inbox copy. A picker or a
+    /// drop may supply the user's source URL and does not use this entry.
+    func receiveOpenIn(_ url: URL) async {
+        defer {
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            let inbox = documents?.appendingPathComponent("Inbox", isDirectory: true)
+                .resolvingSymlinksInPath().path
+            if url.deletingLastPathComponent().resolvingSymlinksInPath().path == inbox {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        await receive([url])
+    }
+
+    /// Starts each provider synchronously inside SwiftUI's drop callback.
+    func receive(_ providers: [NSItemProvider], choice: SharedInbox.Choice) -> Bool {
+        let current = nextGeneration()
+        do {
+            let folder = try SharedInbox.temporaryFolder()
+            SharedInbox.startCopy(providers, into: folder) { result in
+                self.finish(result, folder: folder, choice: choice, generation: current)
+            }
             return true
         } catch {
             self.error = AppModel.describe(error)
@@ -88,8 +105,30 @@ final class InboxModel {
         }
     }
 
-    func remove(_ item: SharedInbox.Item) {
-        SharedInbox.remove(item)
-        items = SharedInbox.items()
+    private func nextGeneration() -> Int {
+        generation += 1
+        return generation
+    }
+
+    private func finish(
+        _ result: Result<[SharedInbox.File], Error>, folder: URL,
+        choice: SharedInbox.Choice?, generation: Int
+    ) {
+        do {
+            let files = try result.get()
+            if !files.isEmpty {
+                adopt(SharedInbox.Transfer(folder: folder, files: files, choice: choice), generation: generation)
+                return
+            }
+        } catch {
+            if self.generation == generation { self.error = AppModel.describe(error) }
+        }
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    private func adopt(_ selection: SharedInbox.Transfer, generation: Int) {
+        guard self.generation == generation else { selection.discard(); return }
+        transfer?.discard()
+        transfer = selection
     }
 }

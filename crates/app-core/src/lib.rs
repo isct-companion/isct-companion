@@ -75,4 +75,5 @@ pub mod workspace;
 pub mod workspace_changes;
 
 pub mod vpn;
+#[cfg(feature = "desktop-workspaces")]
 pub mod workspaces;

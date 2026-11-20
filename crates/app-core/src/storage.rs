@@ -24,6 +24,7 @@ use std::{
 /// Downloaded materials, with the notes beside them.
 pub const MATERIAL_TREE: &str = "material";
 /// Assignment workspaces.
+#[cfg(feature = "desktop-workspaces")]
 pub const WORKSPACE_TREE: &str = "workspace";
 
 /// `<root>/material`, with the layout before the trees moved in first.
@@ -33,6 +34,7 @@ pub fn material_root(root: &Path) -> PathBuf {
 }
 
 /// `<root>/workspace`, with the layout before the trees moved in first.
+#[cfg(feature = "desktop-workspaces")]
 pub fn workspace_root(root: &Path) -> PathBuf {
     settle(root);
     root.join(WORKSPACE_TREE)
@@ -101,7 +103,12 @@ pub fn migrate_layout(root: &Path) -> Result<Moved, StorageError> {
                     continue;
                 }
                 let destination = if entry.file_name() == Some("workspaces".as_ref()) {
-                    root.join(WORKSPACE_TREE).join(term_name).join(course_name)
+                    #[cfg(feature = "desktop-workspaces")]
+                    {
+                        root.join(WORKSPACE_TREE).join(term_name).join(course_name)
+                    }
+                    #[cfg(not(feature = "desktop-workspaces"))]
+                    continue;
                 } else {
                     let name = entry.file_name().unwrap_or_default();
                     root.join(MATERIAL_TREE)

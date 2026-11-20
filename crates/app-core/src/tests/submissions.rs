@@ -391,22 +391,13 @@ impl Fixture {
     }
 
     /// Writes `name` into `submit/`, creating the workspace on first use.
-    fn put(&self, name: &str, contents: &[u8]) {
-        if let Some(workspace) = self.workspaces.find(ASSIGNMENT).unwrap() {
-            std::fs::write(
-                PathBuf::from(workspace.path).join("submit").join(name),
-                contents,
-            )
-            .unwrap();
-            return;
-        }
-        let inbox = self.root.join("inbox");
-        std::fs::create_dir_all(&inbox).unwrap();
-        let source = inbox.join(name);
-        std::fs::write(&source, contents).unwrap();
-        self.workspaces
-            .add_submit_files(ASSIGNMENT, vec![(source, name.into())])
-            .unwrap();
+    async fn put(&self, name: &str, contents: &[u8]) {
+        let workspace = self.workspaces.create(ASSIGNMENT).await.unwrap().workspace;
+        std::fs::write(
+            PathBuf::from(workspace.path).join("submit").join(name),
+            contents,
+        )
+        .unwrap();
     }
 
     /// What the client sends back after showing the summary.
@@ -432,7 +423,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn files_changed_after_prepare_are_never_sent() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 first");
+    fixture.put("report.pdf", b"%PDF-1 first").await;
     let service = fixture.service();
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
@@ -445,7 +436,7 @@ async fn files_changed_after_prepare_are_never_sent() {
         super::preparation::DIGEST_PREFIX
     );
 
-    fixture.put("report.pdf", b"%PDF-1 second");
+    fixture.put("report.pdf", b"%PDF-1 second").await;
     assert!(matches!(
         service.execute(fixture.confirm(&prepared)).await,
         Err(SubmissionError::FilesChanged)
@@ -500,7 +491,7 @@ async fn files_changed_after_prepare_are_never_sent() {
 #[tokio::test]
 async fn maintenance_collects_only_what_nothing_names() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     let service = fixture.service();
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
@@ -532,7 +523,7 @@ async fn maintenance_collects_only_what_nothing_names() {
     assert!(service.ledger.preparation(&prepared.id).unwrap().is_none());
     assert!(object.is_file(), "the claimed write names it");
 
-    fixture.put("notes.txt", b"other");
+    fixture.put("notes.txt", b"other").await;
     let other = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
@@ -549,7 +540,7 @@ async fn maintenance_collects_only_what_nothing_names() {
 #[tokio::test]
 async fn a_lost_answer_after_the_lms_applied_settles_by_reading() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     fixture.lms().save = SaveOutcome::LostAfterApplying;
     let service = fixture.service();
     let prepared = service
@@ -584,7 +575,7 @@ async fn a_lost_answer_after_the_lms_applied_settles_by_reading() {
 #[tokio::test]
 async fn content_decides_whether_a_write_applied() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     {
         let mut lms = fixture.lms();
         lms.save = SaveOutcome::LostBeforeApplying;
@@ -627,7 +618,7 @@ async fn content_decides_whether_a_write_applied() {
 #[tokio::test]
 async fn a_lost_save_stays_unknown_until_a_read_shows_what_happened() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     fixture.lms().save = SaveOutcome::LostBeforeApplying;
     let service = fixture.service();
     let prepared = service
@@ -692,8 +683,8 @@ async fn a_lost_save_stays_unknown_until_a_read_shows_what_happened() {
 #[tokio::test]
 async fn the_same_content_prepared_and_executed_twice_is_written_once() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
-    fixture.put("data.csv", b"a,b\n1,2\n");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
+    fixture.put("data.csv", b"a,b\n1,2\n").await;
     let service = fixture.service();
     let first = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
@@ -756,7 +747,7 @@ async fn the_same_content_prepared_and_executed_twice_is_written_once() {
 #[tokio::test]
 async fn a_remote_change_after_prepare_is_a_conflict() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     let service = fixture.service();
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
@@ -823,13 +814,13 @@ async fn a_remote_change_after_prepare_is_a_conflict() {
 #[tokio::test]
 async fn one_write_per_assignment_at_a_time() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 second");
+    fixture.put("report.pdf", b"%PDF-1 second").await;
     let service = fixture.service();
     let second = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
         .unwrap();
-    fixture.put("report.pdf", b"%PDF-1 first");
+    fixture.put("report.pdf", b"%PDF-1 first").await;
     let first = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
@@ -848,7 +839,7 @@ async fn one_write_per_assignment_at_a_time() {
     // The caller stops waiting; the write does not stop.
     running.abort();
 
-    fixture.put("report.pdf", b"%PDF-1 second");
+    fixture.put("report.pdf", b"%PDF-1 second").await;
     assert!(matches!(
         service.execute(fixture.confirm(&second)).await,
         Err(SubmissionError::InProgress)
@@ -875,7 +866,7 @@ async fn one_write_per_assignment_at_a_time() {
 #[tokio::test]
 async fn restart_settles_interrupted_writes_by_reading_only() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     let service = fixture.service();
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
@@ -986,7 +977,7 @@ async fn an_older_ledger_is_replaced_and_a_newer_one_refused() {
     let service = fixture.service();
     assert_ne!(fixture.generation(), older);
     assert_ne!(fixture.generation(), first);
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
         .await
@@ -1037,7 +1028,7 @@ async fn a_flat_ledger_of_an_unknown_format_is_refused() {
 #[tokio::test]
 async fn lms_writes_need_the_persons_switch() {
     let fixture = Fixture::new();
-    fixture.put("report.pdf", b"%PDF-1 report");
+    fixture.put("report.pdf", b"%PDF-1 report").await;
     let service = fixture.service();
     let prepared = service
         .prepare(ASSIGNMENT, SubmissionAction::Save)
