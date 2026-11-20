@@ -744,14 +744,6 @@ impl Core {
         Ok(page)
     }
 
-    pub async fn import_legacy_reminders(
-        &self,
-        fired: serde_json::Value,
-        now: chrono::DateTime<chrono::FixedOffset>,
-    ) -> Result<bool, crate::schedule::ReminderError> {
-        self.reminders.import_legacy_fired(fired, now).await
-    }
-
     pub async fn shutdown(&self) {
         #[cfg(feature = "agent")]
         self.agent_access.detach();

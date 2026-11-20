@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex},
-    time::Duration as StdDuration,
 };
 
 use super::SchoolReads;
@@ -82,9 +81,6 @@ pub fn reminder_lead_options(settings: &Value) -> Result<ReminderLeadOptions, Sc
 }
 
 const REMINDER_GRACE_SECONDS: i64 = 5 * 60;
-/// How long delivery waits for a shell's one-time legacy log import. A shell
-/// that has no legacy log need not call the import at all.
-const LEGACY_IMPORT_WAIT: StdDuration = StdDuration::from_secs(60);
 const FIRED_TTL_SECONDS: i64 = 3 * 24 * 60 * 60;
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
@@ -102,8 +98,6 @@ pub trait NotificationSink: Send + Sync {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReminderError {
-    #[error("{0}")]
-    InvalidInput(String),
     #[error(transparent)]
     Data(#[from] crate::data::DataError),
     #[error("{0}")]
@@ -137,7 +131,6 @@ struct ReminderInner {
     /// When the next pass is due (`PlanEngine` asks); `None` before the
     /// first pass, which is due at once.
     next: Mutex<Option<DateTime<Utc>>>,
-    legacy_import_until: tokio::time::Instant,
     fired_path: PathBuf,
 }
 
@@ -152,7 +145,6 @@ impl ReminderService {
             #[cfg(feature = "mobile-reminders")]
             mobile_port: Mutex::new(None),
             next: Mutex::new(None),
-            legacy_import_until: tokio::time::Instant::now() + LEGACY_IMPORT_WAIT,
             fired_path,
         }))
     }
@@ -222,9 +214,6 @@ impl ReminderService {
         };
         let inner = self.0.clone();
         let service = self.clone();
-        // Until the legacy import runs or its wait ends, a startup pass must
-        // not deliver reminders the previous runtime already showed.
-        let awaiting_import = tokio::time::Instant::now() < self.0.legacy_import_until;
         self.0
             .tasks
             .run(async move {
@@ -232,13 +221,8 @@ impl ReminderService {
                 let store = inner.store.clone();
                 let fired_path = inner.fired_path.clone();
                 let horizon = now + Duration::hours(LOOKAHEAD_HOURS);
-                let (initialized, permission, plan) = tokio::task::spawn_blocking(move || {
+                let plan = tokio::task::spawn_blocking(move || {
                     if !fired_path.is_file() {
-                        if awaiting_import {
-                            return Ok((false, false, None));
-                        }
-                        // No legacy log arrived: start with an empty one.
-                        // A later import still merges into it.
                         write_fired(&fired_path, &BTreeMap::new())?;
                     }
                     // Only what the notification plan reads.
@@ -250,29 +234,20 @@ impl ReminderService {
                         .pointer("/settings/notifications/localPermission")
                         .and_then(Value::as_str)
                         == Some("granted");
-                    let plan = if permission {
-                        Some(notification_plan(
-                            &workspace,
-                            &school,
-                            now - Duration::seconds(REMINDER_GRACE_SECONDS),
-                            horizon,
-                            None,
-                        )?)
-                    } else {
-                        None
-                    };
-                    Ok::<_, ReminderError>((true, permission, plan))
+                    if !permission {
+                        return Ok::<_, ReminderError>(None);
+                    }
+                    Ok(Some(notification_plan(
+                        &workspace,
+                        &school,
+                        now - Duration::seconds(REMINDER_GRACE_SECONDS),
+                        horizon,
+                        None,
+                    )?))
                 })
                 .await
                 .map_err(crate::runtime_tasks::RuntimeTaskError::from)??;
-                if !initialized {
-                    let left = inner
-                        .legacy_import_until
-                        .saturating_duration_since(tokio::time::Instant::now());
-                    service.plan_next(Utc::now() + Duration::from_std(left).unwrap_or_default());
-                    return Ok(false);
-                }
-                let Some(plan) = plan.filter(|_| permission) else {
+                let Some(plan) = plan else {
                     // Turning permission on is a workspace change.
                     service.plan_next(horizon.with_timezone(&Utc));
                     return Ok(false);
@@ -301,37 +276,6 @@ impl ReminderService {
                 delivered
             })
             .await?
-    }
-
-    /// Imports the legacy browser fired-log, or confirms an empty legacy log.
-    /// Delivery waits for this for up to a minute after start, then begins
-    /// with an empty log; a later import still merges its entries.
-    pub async fn import_legacy_fired(
-        &self,
-        legacy: Value,
-        now: DateTime<FixedOffset>,
-    ) -> Result<bool, ReminderError> {
-        let permit = self
-            .0
-            .pass
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| crate::runtime_tasks::RuntimeTaskError::Stopped)?;
-        let inner = self.0.clone();
-        let imported = self
-            .0
-            .tasks
-            .run(async move {
-                let _permit = permit;
-                let path = inner.fired_path.clone();
-                tokio::task::spawn_blocking(move || merge_legacy_fired(&path, legacy, now))
-                    .await
-                    .map_err(crate::runtime_tasks::RuntimeTaskError::from)?
-            })
-            .await??;
-        self.changed();
-        Ok(imported)
     }
 
     pub async fn shutdown(&self) {
@@ -434,36 +378,6 @@ fn write_history(path: &Path, history: &impl Serialize) -> Result<(), ReminderEr
         serde_json::to_vec(history).map_err(|error| ReminderError::Storage(error.to_string()))?;
     crate::storage::durable_replace(path, &bytes)
         .map_err(|error| ReminderError::Storage(error.to_string()))
-}
-
-fn merge_legacy_fired(
-    path: &Path,
-    legacy: Value,
-    now: DateTime<FixedOffset>,
-) -> Result<bool, ReminderError> {
-    let empty = serde_json::Map::new();
-    let object = if legacy.is_null() {
-        &empty
-    } else {
-        legacy.as_object().ok_or_else(|| {
-            ReminderError::InvalidInput("legacy reminder history must be an object".into())
-        })?
-    };
-    let existed = path.is_file();
-    let mut fired = read_fired(path)?;
-    for (key, value) in object {
-        let Some(timestamp) = value.as_i64() else {
-            continue;
-        };
-        fired
-            .entry(key.clone())
-            .and_modify(|stored| *stored = (*stored).max(timestamp))
-            .or_insert(timestamp);
-    }
-    let oldest = (now - Duration::seconds(FIRED_TTL_SECONDS)).timestamp_millis();
-    fired.retain(|_, fired_at| *fired_at >= oldest);
-    write_fired(path, &fired)?;
-    Ok(!existed)
 }
 
 fn unclaim_fired(path: &Path, key: &str) -> Result<(), ReminderError> {

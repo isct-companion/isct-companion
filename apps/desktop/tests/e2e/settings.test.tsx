@@ -120,14 +120,6 @@ function emitNative(core: FakeCore, event: string, payload: unknown): void {
   core.emit(event, payload);
 }
 
-/** The host starts every suite with the reminder bootstrap reporting success. */
-function withDefaults(handler?: Handler): Handler {
-  return (command, args, core) => {
-    if (command === "bootstrap_reminders") return true;
-    return handler?.(command, args, core);
-  };
-}
-
 function mountSettings(
   route: string,
   options: {
@@ -153,7 +145,7 @@ function mountSettings(
         academicYears: { currentYear: YEAR },
         ...options.queries,
       },
-      handle: withDefaults(options.handle),
+      handle: options.handle,
       apply: options.apply,
     },
     { route },

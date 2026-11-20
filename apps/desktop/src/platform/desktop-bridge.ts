@@ -278,7 +278,6 @@ export interface DesktopBridge
   openExternal(url: string): Promise<void>;
   /** Opens the feedback form in the system browser, this build filled in. */
   openFeedbackForm(): Promise<void>;
-  bootstrapReminders(fired: unknown): Promise<boolean>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
   getNotificationPermission(): Promise<NotificationPermission>;
@@ -344,8 +343,6 @@ export function createTauriDesktopBridge(
     openFeedbackForm: async () => {
       await invokeCommand("open_feedback_form");
     },
-    bootstrapReminders: (fired) =>
-      booleanCommand("bootstrap_reminders", { fired }),
     notify: (title, body) => booleanCommand("notify", { title, body }),
     requestNotificationPermission: async () => {
       const value = await invokeCommand("request_notification_permission");

@@ -1752,40 +1752,8 @@ async fn failed_delivery_rolls_back_claim_and_can_retry_after_next_wake() {
 }
 
 #[tokio::test]
-async fn legacy_fired_history_is_merged_before_delivery_starts() {
-    let root = std::env::temp_dir().join(format!("isct-reminders-import-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize_dir(root.clone())
-        .unwrap()
-        .0;
-    let service = ReminderService::new(store.clone());
-    let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-
-    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
-    assert!(service
-        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis()}), now)
-        .await
-        .unwrap());
-    assert!(!service
-        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis() - 1}), now)
-        .await
-        .unwrap());
-    assert!(
-        super::reminders::read_fired(&store.paths().local(super::reminders::REMINDER_LOG))
-            .unwrap()
-            .contains_key("assignment:one")
-    );
-    service.shutdown().await;
-    // Windows cannot delete a folder with files still open.
-    drop(service);
-    drop(store);
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[tokio::test(start_paused = true)]
-async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges() {
-    let root =
-        std::env::temp_dir().join(format!("isct-reminders-no-import-{}", uuid::Uuid::new_v4()));
+async fn reminder_service_opens_current_history_on_its_first_pass_and_stops_after_shutdown() {
+    let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let store = crate::data::DataStore::initialize_dir(root.clone())
         .unwrap()
@@ -1793,36 +1761,9 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
     let path = store.paths().local(super::reminders::REMINDER_LOG);
     let service = ReminderService::new(store);
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-
+    assert!(!path.exists());
     assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
-    assert!(!path.is_file());
-    tokio::time::advance(std::time::Duration::from_secs(61)).await;
-    service.deliver_due(Arc::new(NoopSink), now).await.unwrap();
     assert!(path.is_file());
-    assert!(super::reminders::read_fired(&path).unwrap().is_empty());
-
-    assert!(!service
-        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis()}), now)
-        .await
-        .unwrap());
-    assert!(super::reminders::read_fired(&path)
-        .unwrap()
-        .contains_key("assignment:one"));
-    service.shutdown().await;
-    drop(service);
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[tokio::test]
-async fn reminder_passes_after_shutdown_are_rejected_as_stopped() {
-    let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize_dir(root.clone())
-        .unwrap()
-        .0;
-    let service = ReminderService::new(store);
-    let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
     service.shutdown().await;
     assert!(matches!(
         service.deliver_due(Arc::new(NoopSink), now).await,

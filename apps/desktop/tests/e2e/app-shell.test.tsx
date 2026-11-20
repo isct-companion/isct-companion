@@ -129,7 +129,6 @@ type Handle = NonNullable<FakeCoreOptions["handle"]>;
 /** Answers every non-query command the shell issues on the routes we cover. */
 const baseHandle: Handle = (command, args) => {
   switch (command) {
-    case "bootstrap_reminders":
     case "hide_school_web":
     case "configure_school_web_policy":
     case "set_school_web_zoom":

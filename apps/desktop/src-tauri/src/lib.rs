@@ -367,7 +367,6 @@ pub fn run() {
             commands::notifications::request_notification_permission,
             commands::notifications::notification_permission,
             commands::notifications::open_notification_settings,
-            commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
             exam_share::exam_share,
             exam_share::exam_upload_pick_files,

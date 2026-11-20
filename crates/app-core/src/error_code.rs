@@ -557,7 +557,6 @@ coded!(ReferenceError, |e| match e {
     ReferenceError::Cancelled | ReferenceError::Superseded => C::Cancelled,
 });
 coded!(ReminderError, |e| match e {
-    ReminderError::InvalidInput(_) => C::InvalidInput,
     ReminderError::Data(e) => e.code(),
     ReminderError::Storage(_) => C::Storage,
     ReminderError::Policy(e) => e.code(),

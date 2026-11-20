@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Workspace } from "../lib/model";
 import type { CapabilityRuntime } from "../platform/capabilities";
 import type { NativeCapabilitySnapshot } from "../platform/desktop-bridge";
-import { bootstrapReminders } from "../platform/reminders";
 import { cleanMaterials } from "../platform/course-storage";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { fetchRecords, useRecords } from "../platform/records";
@@ -94,11 +93,6 @@ export function useWorkspaceRuntime(sourceData: Workspace | undefined) {
       cancelled = true;
       dispose?.();
     };
-  }, [sourceData?.deviceId]);
-
-  useEffect(() => {
-    if (sourceData && desktopBridge)
-      void bootstrapReminders(desktopBridge).catch(notify.error);
   }, [sourceData?.deviceId]);
 
   // Once per launch, after settings load: drop downloaded course files left unused.
