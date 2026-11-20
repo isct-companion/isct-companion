@@ -805,6 +805,7 @@ describe("the LMS reading workspace", () => {
   it("shows Core’s preferred course text and opens the original on request", async () => {
     const f = lectureFixture();
     f.workspace.settings.locale = "en";
+    f.workspace.settings.lmsBilingualFilter = true;
     const content = contentFor(f);
     content.lessons[0].originalSummaryHtml =
       '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';

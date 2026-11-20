@@ -1931,7 +1931,6 @@ checks:
       retention is covered by the app-shell suite.
     covers:
       - apps/desktop/src/app/KeptPage.tsx
-      - apps/desktop/src/pages/today/CourseFinder.tsx
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/components/guide.tsx
       - apps/desktop/src/components/timetable/timetable.tsx
