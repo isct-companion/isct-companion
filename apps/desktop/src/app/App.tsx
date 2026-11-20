@@ -59,10 +59,10 @@ import {
   LectureWorkspacePage,
   lectureOpenView,
 } from "../pages/lectures/LectureWorkspacePage";
-import {
-  useCoursePlanning,
-  useCoursePlanningTerm,
-} from "../pages/courses/useCoursePlanning";
+import { useCoursePlanningTerm } from "../pages/courses/useCoursePlanningTerm";
+import { CoursePlanningPage } from "../pages/courses/CoursePlanningPage";
+import { CourseEditors } from "../pages/courses/CourseEditors";
+import { courseEditors } from "../store/course-editors";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
 import { saveVpnOnDemand } from "../store/vpn-settings";
@@ -381,12 +381,6 @@ export function WorkspaceApp() {
     });
     if (target) void navigate(target, { replace: true });
   }, [location.pathname, location.search, sourceData?.courses, navigate]);
-  const coursePlanning = useCoursePlanning({
-    quarter: planningTerm,
-    active: page === "timetable",
-    locationKey: location.key,
-    overview: overview.value,
-  });
   const sync = useSync();
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
@@ -441,7 +435,6 @@ export function WorkspaceApp() {
   useOpenHint(lectureOpenView(page === "lectures", lectureEntry, sourceData));
   useOpenHint(page === "timetable" ? { kind: "timetable" } : null);
   useOpenHint(page === "timetable" ? { kind: "grades" } : null);
-  useOpenHint(coursePlanning.finderView);
   // A 教務Web read that lands may settle a semester's physics group.
   const kyomuUpdated =
     sync.sources.find((source) => source.source === "kyomu")?.lastUpdated ??
@@ -513,7 +506,6 @@ export function WorkspaceApp() {
     about: t("settings.main.about"),
   };
   const todayTerm = workspaceView.todayTerm;
-  const { setEventEditor } = coursePlanning;
   const openWeb = (url: string, from: "home" | "lectures" = "home") => {
     setWebContext({
       page: from,
@@ -564,17 +556,23 @@ export function WorkspaceApp() {
         <PageErrorBoundary name={name}>{node}</PageErrorBoundary>
       </KeptPage>
     );
-  const planning = coursePlanning.render({
-    data,
-    workspaceView,
-    sync,
-    readOnly,
-    canSync,
-    openWeb,
-    openPastExams,
-    openLecture,
-    academicIntentOrThrow,
-  });
+  const timetablePage = (
+    <CoursePlanningPage
+      quarter={planningTerm}
+      active={page === "timetable"}
+      locationKey={location.key}
+      overview={overview.value}
+      data={data}
+      workspaceView={workspaceView}
+      sync={sync}
+      readOnly={readOnly}
+      canSync={canSync}
+      openWeb={openWeb}
+      openPastExams={openPastExams}
+      openLecture={openLecture}
+      academicIntentOrThrow={academicIntentOrThrow}
+    />
+  );
   const lecturesPage = (
     <LectureWorkspacePage
       data={data}
@@ -641,7 +639,8 @@ export function WorkspaceApp() {
             openExam={openExam}
             open={(courseId, _tab, context) => openLecture(courseId, context)}
             openEvent={(event) =>
-              !readOnly && setEventEditor({ event, term: event.termId })
+              !readOnly &&
+              courseEditors.editEvent({ event, term: event.termId })
             }
             openTask={(assignmentId) => {
               const assignment = data.assignments.find(
@@ -694,7 +693,7 @@ export function WorkspaceApp() {
               else {
                 const event = data.events.find((row) => row.id === block.id);
                 if (event && !readOnly)
-                  setEventEditor({ event, term: event.termId });
+                  courseEditors.editEvent({ event, term: event.termId });
               }
             }}
           />
@@ -809,7 +808,11 @@ export function WorkspaceApp() {
           }}
         />
       )}
-      {planning.editorOverlays}
+      <CourseEditors
+        data={data}
+        workspaceView={workspaceView}
+        academicIntentOrThrow={academicIntentOrThrow}
+      />
     </>
   );
   const railPages = pages.filter(
@@ -868,7 +871,7 @@ export function WorkspaceApp() {
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}
-        {keep("timetable", planning.timetablePage)}
+        {keep("timetable", timetablePage)}
         {keep("web", webPage)}
         {keep("tools", toolsPage)}
         {keep(

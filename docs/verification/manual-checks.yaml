@@ -3264,7 +3264,7 @@ checks:
       - apps/desktop/src/components/PullRing.tsx
       - apps/desktop/src/styles.css
       - apps/desktop/src/app/SchoolStatusBar.tsx
-      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
     verified: null
 
@@ -3361,7 +3361,7 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
-      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - crates/app-core/src/catalog.rs
       - crates/app-core/src/facade.rs
     verified: null
@@ -3394,7 +3394,7 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
-      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - apps/desktop/src/platform/query-client.ts
       - apps/desktop/src/store/workspace.ts
       - apps/desktop/src/pages/courses/useFinderSelection.ts
@@ -3527,7 +3527,7 @@ checks:
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
-      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - apps/desktop/src/features/lms/LmsReader.tsx
       - apps/desktop/src/features/lms/useLmsReader.ts
       - crates/app-core/src/net/kyomu.rs
@@ -4187,7 +4187,7 @@ checks:
       - crates/app-core/src/catalog.rs
       - crates/app-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
-      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
     verified: null
 
   - id: DESKTOP-SIGNED-UPDATES
