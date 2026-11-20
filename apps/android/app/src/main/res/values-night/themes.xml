@@ -1,0 +1,8 @@
+<resources>
+    <!-- The dark reader theme; see values/themes.xml. -->
+    <style name="Theme.IsctCompanion.PdfReader" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorSurfaceContainerHigh">#3D4040</item>
+        <item name="colorOnSurfaceVariant">#ECECEA</item>
+        <item name="colorOnSurface">#ECECEA</item>
+    </style>
+</resources>

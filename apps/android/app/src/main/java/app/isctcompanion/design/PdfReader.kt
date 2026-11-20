@@ -1,10 +1,15 @@
 package app.isctcompanion.design
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import android.util.Size
+import android.view.ContextThemeWrapper
+import android.view.View
+import android.view.ViewTreeObserver
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,16 +26,18 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.pdf.ExperimentalPdfApi
 import androidx.pdf.PdfDocument
 import androidx.pdf.SandboxedPdfLoader
-import androidx.pdf.compose.PdfViewer
-import androidx.pdf.compose.rememberPdfViewerState
+import androidx.pdf.view.PdfView
 import app.isctcompanion.LocalNavigator
+import app.isctcompanion.R
 import app.isctcompanion.core.openLocalFile
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -93,11 +100,51 @@ fun PdfReader(file: File, failure: @Composable () -> Unit) {
         }
     }
     val loaded = result?.getOrNull()
+    // An id lets PdfView keep its page and zoom across configuration changes.
+    val viewId = rememberSaveable { View.generateViewId() }
     when {
         result == null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
         loaded == null -> failure()
-        else -> PdfViewer(loaded, rememberPdfViewerState(), Modifier.fillMaxSize().background(Theme.colors.surface2))
+        else -> AndroidView(
+            factory = { viewContext ->
+                PdfView(ContextThemeWrapper(viewContext, R.style.Theme_IsctCompanion_PdfReader)).apply {
+                    id = viewId
+                    addOnAttachStateChangeListener(FastScrollAutoHide(this))
+                }
+            },
+            modifier = Modifier.fillMaxSize().background(Theme.colors.surface2),
+            update = { view -> view.pdfDocument = loaded },
+        )
     }
+}
+
+/** Shows androidx.pdf's page scroller the way other readers do: while the
+ * page scrolls, draggable to jump, faded out once it stops.
+ *
+ * PdfView pins the scroller on screen whenever any accessibility service is
+ * on, and many phones always run one (vendor gesture or security services),
+ * so the "page 3/10" label never went away. Only a screen reader needs it
+ * pinned. The switch is library-internal and PdfView sets it again when a
+ * document loads, its state is restored or accessibility changes, so before
+ * each frame a pinned scroller is set back to auto-hide unless touch
+ * exploration (TalkBack and the like) is on. */
+@SuppressLint("RestrictedApi")
+private class FastScrollAutoHide(private val view: PdfView) :
+    ViewTreeObserver.OnPreDrawListener, View.OnAttachStateChangeListener {
+    private val accessibility = view.context.getSystemService(AccessibilityManager::class.java)
+
+    override fun onPreDraw(): Boolean {
+        if (view.fastScrollVisibility == PdfView.FastScrollVisibility.ALWAYS_SHOW &&
+            accessibility?.isTouchExplorationEnabled != true
+        ) {
+            view.fastScrollVisibility = PdfView.FastScrollVisibility.AUTO_HIDE
+        }
+        return true
+    }
+
+    override fun onViewAttachedToWindow(v: View) = v.viewTreeObserver.addOnPreDrawListener(this)
+
+    override fun onViewDetachedFromWindow(v: View) = v.viewTreeObserver.removeOnPreDrawListener(this)
 }
 
 /** A downloaded PDF pushed full screen, its file still offered to another

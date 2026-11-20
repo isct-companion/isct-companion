@@ -2,4 +2,15 @@
     <style name="Theme.IsctCompanion" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">#F3F3F0</item>
     </style>
+
+    <!-- androidx.pdf's PdfView colours its page scroller, page label and
+         selection from Material 3 attributes, which the platform theme above
+         lacks, so the scroller came out transparent. The reader wraps PdfView
+         in this theme; the handle takes the app's strong line colour and the
+         arrows and label its ink, so it stands out on a white page. -->
+    <style name="Theme.IsctCompanion.PdfReader" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorSurfaceContainerHigh">#CFCFC8</item>
+        <item name="colorOnSurfaceVariant">#1D1E1C</item>
+        <item name="colorOnSurface">#1D1E1C</item>
+    </style>
 </resources>
