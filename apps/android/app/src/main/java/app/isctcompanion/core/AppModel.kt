@@ -93,9 +93,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     var ocrProgress: Int by mutableStateOf(0)
         private set
     private var ocrOperation: ULong? = null
-    /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
-    var cloud: SyncState? by mutableStateOf(null)
-        private set
     /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
      * events and `Account` answers report it; null until the page reads it. */
     var examAccount: ExamAccount? by mutableStateOf(null)
@@ -110,6 +107,11 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     val web = WebRouter(browser, scope, context)
     internal var session: Session? = null
         private set
+    internal val backup = CloudBackup(
+        session = { session },
+        refreshWorkspace = { refresh() },
+        reportFailure = { problem = describe(it) },
+    )
     private var revision = ""
     private val dashboardReads = ScheduleReads()
     internal val timetableWeeks = TimetableWeeks()
@@ -166,7 +168,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             refresh()
             refreshAccounts()
             readSync()
-            refreshCloud()
+            backup.refresh()
             status = Status.Ready
             watchNetwork()
             watchPowerSaver()
@@ -355,7 +357,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
                             refreshCredentials()
                         }
                     }
-                    "cloud-sync-state" -> refreshCloud()
+                    "cloud-sync-state" -> backup.refresh()
                     "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
                         .onSuccess(::applyDirective)
                     "exam-account" -> runCatching { decodeExamAccount(update.event.payload) }
@@ -782,74 +784,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         problem = null
         refreshAccounts()
         readSync()
-        refreshCloud()
-    }
-
-    // Backup: the desktop's Backup settings over the same Core journal. Core
-    // decides what uploads, merges and restores.
-
-    suspend fun refreshCloud() {
-        val session = session ?: return
-        (runCatching { session.cloudState().value() }.getOrNull() as? OperationResult.Cloud)
-            ?.let { cloud = it.state }
-    }
-
-    /** Turning Drive on first shows Google's consent; Core keeps it off with
-     * the reason if that fails. */
-    suspend fun setCloudEnabled(provider: CloudProvider, enabled: Boolean) =
-        cloudOperation { it.setCloudEnabled(provider, enabled) }
-
-    suspend fun setCloudAutomatic(automatic: Boolean) = cloudOperation { it.setCloudAutomatic(automatic) }
-
-    suspend fun syncCloud(direction: Direction) {
-        cloudOperation { it.syncCloud(direction) }
-        refresh()
-    }
-
-    /** Restores a cloud version or a local recovery file, on every connected device. */
-    suspend fun restoreCloud(id: String) {
-        cloudOperation { it.restoreCloud(id) }
-        refresh()
-    }
-
-    /** The current workspace as a backup file (the desktop's Export…). */
-    suspend fun exportBackup(): String? {
-        val session = session ?: return null
-        return try {
-            (session.exportBackup().value() as? OperationResult.Text)?.value
-        } catch (error: Exception) {
-            problem = describe(error)
-            null
-        }
-    }
-
-    /** Imports a backup file; Core saves a recovery file first and publishes
-     * the import like any restore. Core rejects anything that is not a backup. */
-    suspend fun importBackup(text: String) {
-        val session = session ?: return
-        session.applyBackup(text).value()
-        refreshCloud()
-        refresh()
-    }
-
-    private suspend fun cloudOperation(start: (Session) -> Operation) {
-        val session = session ?: return
-        try {
-            (start(session).value() as? OperationResult.Cloud)?.let { cloud = it.state }
-        } catch (error: Exception) {
-            problem = describe(error)
-            refreshCloud()
-        }
-    }
-
-    /** After a full reset, as the desktop's: the providers that were on are
-     * turned on again, then their copy is pulled. Throws when either fails. */
-    suspend fun restoreFromCloud(providers: List<CloudProvider>) {
-        val session = session ?: return
-        for (provider in providers) session.setCloudEnabled(provider, true).value()
-        session.syncCloud(Direction.PULL).value()
-        refreshCloud()
-        refresh()
+        backup.refresh()
     }
 
     companion object {

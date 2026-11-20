@@ -31,8 +31,21 @@ fn sign_in_presentation_leads_to_the_action_each_school_verdict_needs() {
             "schoolSession.problem.unknownPage",
             vec![OpenSchoolPage, Retry],
         ),
+        (
+            Unavailable,
+            Unanswered,
+            "schoolSession.problem.unanswered",
+            vec![Retry],
+        ),
+        (
+            Unavailable,
+            Anomaly,
+            "schoolSession.problem.anomaly",
+            vec![Retry],
+        ),
     ] {
-        let presentation = SignInPresentation::for_profile(state, Some(reason), false, false);
+        let presentation =
+            SignInPresentation::for_profile(state, Some(reason), state == Unavailable, false);
         assert_eq!(presentation.reason_key.as_deref(), Some(key));
         assert_eq!(presentation.recovery, actions);
     }

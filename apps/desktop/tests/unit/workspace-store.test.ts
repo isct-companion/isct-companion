@@ -1308,11 +1308,14 @@ describe("Tauri bridge contract", () => {
       profiles: schoolProfiles("normal", "normal"),
     };
     seam.deliver(valid);
-    // The pre-redesign per-profile event and states are refused outright.
     seam.deliver({ profile: "science", state: "active", revision: 3 });
+    // An inherited object key cannot stand in for a Core state.
     seam.deliver({
       revision: 4,
-      profiles: { ...valid.profiles, science: { state: "verifying" } },
+      profiles: {
+        ...valid.profiles,
+        science: { ...valid.profiles.science, state: "toString" },
+      },
     });
     seam.deliver({ revision: -1, profiles: valid.profiles });
     seam.deliver({

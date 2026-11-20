@@ -38,7 +38,7 @@ struct ResetScreen: View {
     private static let schoolCaches = ["settings.reset.item.schoolData", "settings.reset.item.catalog", "settings.reset.item.references", "settings.reset.item.syncRecords", "settings.reset.item.lmsToken"]
 
     private var everything: Bool { kind == .everything }
-    private var cloudOn: Bool { model.cloud?.providers.contains { $0.enabled } == true }
+    private var cloudOn: Bool { model.backup.state?.providers.contains { $0.enabled } == true }
 
     private var deletes: [String] {
         everything
@@ -151,7 +151,7 @@ struct ResetScreen: View {
         }
         if restoring {
             do {
-                try await model.restoreFromCloud()
+                try await model.backup.restoreAfterReset()
             } catch {
                 notice = Notice(text: t("settings.reset.full.restoreFailed"), leave: true)
                 return

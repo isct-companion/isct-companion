@@ -55,7 +55,7 @@ internal fun BackupPage() {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<Pair<String, suspend () -> Unit>?>(null) }
-    val state = model.cloud
+    val state = model.backup.state
     val locked = busy || state?.syncing == true
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     fun run(work: suspend () -> Unit) {
@@ -64,12 +64,12 @@ internal fun BackupPage() {
             try { work() } finally { busy = false }
         }
     }
-    LaunchedEffect(Unit) { model.refreshCloud() }
+    LaunchedEffect(Unit) { model.backup.refresh() }
 
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         run {
-            val text = model.exportBackup() ?: return@run
+            val text = model.backup.export() ?: return@run
             runCatching {
                 withContext(Dispatchers.IO) {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
@@ -86,7 +86,7 @@ internal fun BackupPage() {
                     context.contentResolver.openInputStream(uri)?.use { String(it.readBytes()) }
                         ?: throw IOException("No input stream")
                 }
-                model.importBackup(text)
+                model.backup.importBackup(text)
             }.onSuccess { toast(t("settings.backup.backupRestored")) }
                 .onFailure { toast(t("settings.backup.importFailedReason", "reason" to AppModel.describe(it))) }
         }
@@ -106,7 +106,7 @@ internal fun BackupPage() {
                     detailColor = if (provider.error != null) Theme.colors.danger else Theme.colors.muted,
                     compact = false,
                 ) {
-                    run { model.setCloudEnabled(provider.provider, it) }
+                    run { model.backup.setEnabled(provider.provider, it) }
                 }
             }
             if (providers.any { it.enabled }) {
@@ -119,21 +119,21 @@ internal fun BackupPage() {
                         else t("settings.backup.uploadAndPullByHand"),
                     enabled = !locked,
                     compact = false,
-                ) { run { model.setCloudAutomatic(it) } }
+                ) { run { model.backup.setAutomatic(it) } }
                 RowDivider(inset = Theme.rowX)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Theme.space4),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.space2),
                 ) {
-                    TextButton(onClick = { run { model.syncCloud(Direction.UPLOAD) } }, enabled = !locked) { Text(t("settings.backup.upload")) }
+                    TextButton(onClick = { run { model.backup.sync(Direction.UPLOAD) } }, enabled = !locked) { Text(t("settings.backup.upload")) }
                     Spacer(Modifier.weight(1f))
                     if (state?.syncing == true) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         Text(t("settings.backup.syncing"), color = Theme.colors.muted)
                         Spacer(Modifier.weight(1f))
                     }
-                    TextButton(onClick = { run { model.syncCloud(Direction.PULL) } }, enabled = !locked) { Text(t("settings.backup.pull")) }
+                    TextButton(onClick = { run { model.backup.sync(Direction.PULL) } }, enabled = !locked) { Text(t("settings.backup.pull")) }
                 }
             }
         }
@@ -149,7 +149,7 @@ internal fun BackupPage() {
                             "settings.backup.restoreTheVersionFromDate",
                             "date" to Format.due(version.savedAt),
                         ) to {
-                            model.restoreCloud(version.id)
+                            model.backup.restore(version.id)
                             toast(t("settings.backup.restoredTheEarlierVersion"))
                         }
                     }

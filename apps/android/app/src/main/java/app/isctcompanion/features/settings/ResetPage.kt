@@ -71,7 +71,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
     LaunchedEffect(resetting) { onBusy(resetting) }
     DisposableEffect(Unit) { onDispose { onBusy(false) } }
     // Read before the reset, which stops cloud sync.
-    val cloudOn = model.cloud?.providers.orEmpty().filter { it.enabled }.map { it.provider }
+    val cloudOn = model.backup.state?.providers.orEmpty().filter { it.enabled }.map { it.provider }
     var restore by remember { mutableStateOf(true) }
     /** `null` while estimating; an empty text when Core cannot tell. */
     var freed by remember { mutableStateOf<String?>(null) }
@@ -100,7 +100,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         resetting = true
         val message = try {
             model.reset(if (everything) ResetRequest.Everything else ResetRequest.SchoolCaches(signOutWeb, deleteDownloads))
-            if (restoring.isEmpty() || runCatching { model.restoreFromCloud(restoring) }.isSuccess) {
+            if (restoring.isEmpty() || runCatching { model.backup.restoreAfterReset(restoring) }.isSuccess) {
                 t(if (everything) "settings.reset.full.done" else "settings.reset.caches.done")
             } else {
                 t("settings.reset.full.restoreFailed")

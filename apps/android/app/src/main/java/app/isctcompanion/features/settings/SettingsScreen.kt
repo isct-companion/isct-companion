@@ -248,7 +248,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 open(SettingsPage.DataUpdates)
             }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("settings.main.backup"), backupSummary(model.cloud), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
+            NavRow(t("settings.main.backup"), backupSummary(model.backup.state), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
         }
         ThemeCard()
         LanguageCard()

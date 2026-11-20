@@ -15,14 +15,18 @@ import {
   type ListenNative,
 } from "./helpers";
 
-const SCHOOL_SESSION_STATES: readonly unknown[] = [
-  "not-configured",
-  "normal",
-  "signing-in",
-  "refused",
-  "needs-web",
-  "unavailable",
-] satisfies SchoolSessionState[];
+const SCHOOL_SESSION_STATES = {
+  "not-configured": true,
+  normal: true,
+  "signing-in": true,
+  refused: true,
+  "needs-web": true,
+  unavailable: true,
+} satisfies Record<SchoolSessionState, true>;
+
+const isSchoolSessionState = (value: unknown) =>
+  typeof value === "string" && Object.hasOwn(SCHOOL_SESSION_STATES, value);
+
 const isSchoolSessionSnapshot = (
   value: unknown,
 ): value is SchoolSessionSnapshot => {
@@ -34,8 +38,8 @@ const isSchoolSessionSnapshot = (
     Boolean(profiles) &&
     Array.isArray(profiles?.science?.presentation?.recovery) &&
     Array.isArray(profiles?.tokyoTech?.presentation?.recovery) &&
-    SCHOOL_SESSION_STATES.includes(profiles?.science?.state) &&
-    SCHOOL_SESSION_STATES.includes(profiles?.tokyoTech?.state)
+    isSchoolSessionState(profiles?.science?.state) &&
+    isSchoolSessionState(profiles?.tokyoTech?.state)
   );
 };
 export interface SchoolSessionBridge {

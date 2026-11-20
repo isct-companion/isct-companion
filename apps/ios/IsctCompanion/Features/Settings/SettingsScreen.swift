@@ -274,7 +274,7 @@ struct SettingsScreen: View {
     }
 
     private var backupSummary: String {
-        let icloud = model.cloud?.providers.first { $0.provider == .icloud }
+        let icloud = model.backup.state?.providers.first { $0.provider == .icloud }
         guard icloud?.enabled == true else { return t("settings.main.off") }
         return icloud?.lastSyncedAt.map { t("settings.backup.syncedDate", ["date": Format.due($0)]) } ?? "iCloud"
     }
