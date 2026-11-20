@@ -260,7 +260,10 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
   const unavailable = vpn?.state === "unavailable";
   const badge = vpnBadge(vpn, vpnBusy);
   const remaining = vpnConnected ? vpnRemaining(vpn.expiresAt, now) : undefined;
+  // A helper that does not answer is installed again: its message says so,
+  // and installing re-registers the daemon from this app.
   const helperNeeded =
+    vpn?.error === "helper_unreachable" ||
     vpn?.error === "helper_not_installed" ||
     vpn?.error === "helper_outdated" ||
     vpn?.error === "helper_needs_approval";
