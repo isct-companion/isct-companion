@@ -140,7 +140,7 @@ fun TimetableScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
-    var week by remember { mutableStateOf(model.cachedWeek(monday)) }
+    val week = model.cachedWeek(monday)
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
     var year by remember { mutableStateOf<TimetableYear?>(null) }
     var picker by remember { mutableStateOf(false) }
@@ -158,12 +158,10 @@ fun TimetableScreen() {
     }
     // A week read with its neighbours draws at once; the effect below still
     // checks it against the current revision.
-    LaunchedEffect(monday) { model.cachedWeek(monday)?.let { week = it } }
-    LaunchedEffect(monday, model.contentRevision) {
+    LaunchedEffect(monday, model.timetableRevision, model.today?.term) {
         // A newer revision or week cancels this read (the query rethrows), so
         // its empty answer never replaces what is shown.
         val loaded = model.week(monday)
-        week = loaded
         model.timetableAxis(loaded)?.let { axis = it }
         val number = model.academicYear(monday) ?: return@LaunchedEffect
         if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
@@ -175,7 +173,6 @@ fun TimetableScreen() {
     // popped in where they stand.
     fun show(to: LocalDate) {
         monday = to
-        model.cachedWeek(to)?.let { week = it }
     }
     val gap = with(LocalDensity.current) { weekGap.toPx() }
     // The weeks lie side by side and follow the finger; a swipe glides the

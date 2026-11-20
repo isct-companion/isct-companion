@@ -12,7 +12,7 @@ struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
     @State private var monday = TimetableScreen.monday(of: Date())
-    @State private var week: ScheduleView?
+    private var week: ScheduleView? { model.weeks[AppModel.civil(monday)] }
     @State private var year: TimetableYear?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
@@ -60,19 +60,12 @@ struct TimetableScreen: View {
         .onAppear {
             model.syncHint(.open(view: .timetable))
             if axis == nil { axis = model.lastTimetableAxis }
-            if week == nil { week = model.weeks[AppModel.civil(monday)] }
         }
-        // A week read with its neighbours draws at once; the task below
-        // still checks it against the current revision.
-        .onChange(of: monday) { _, next in
-            if let cached = model.weeks[AppModel.civil(next)] { week = cached }
-        }
-        .task(id: "\(monday.timeIntervalSince1970)-\(model.contentRevision)") {
+        .task(id: "\(monday.timeIntervalSince1970)-\(model.timetableRevision)-\(model.today?.term ?? "")") {
             // A newer revision cancels this read: its empty answer must not
             // replace what is shown.
             let loaded = await model.week(starting: monday)
             guard !Task.isCancelled else { return }
-            week = loaded
             let blocks = (loaded?.agendas ?? []).flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
             let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
             let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
@@ -185,7 +178,6 @@ struct TimetableScreen: View {
     /// cards popped in where they stand.
     private func show(_ next: Date) {
         monday = next
-        if let cached = model.weeks[AppModel.civil(next)] { week = cached }
     }
 
     /// The weeks lie side by side and follow the finger; past the threshold

@@ -139,8 +139,7 @@ fun TodayScreen() {
     val now = rememberNow(30)
     LaunchedEffect(Unit) { model.open(SyncView.Today) }
     // Core's upcoming exams for the next two weeks.
-    var exams by remember { mutableStateOf<List<ExamView>>(emptyList()) }
-    LaunchedEffect(model.contentRevision, model.today?.date) { exams = model.upcomingExams() }
+    val exams = model.upcomingExams
     TabPage(
         t("common.today"),
         actions = {

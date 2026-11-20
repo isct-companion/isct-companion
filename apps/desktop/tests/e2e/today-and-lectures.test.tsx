@@ -216,6 +216,8 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
 }
 
 const homeQueries = {
+  calendarRange: () => [],
+  upcomingExams: () => [],
   workspaceOverview: (_query: unknown, core: FakeCore) =>
     overviewFor(core.workspace),
   planningWeek: (_query: unknown, core: FakeCore) =>
@@ -406,7 +408,7 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
     handle: nativeNoise,
   });
   standaloneCore = core;
-  const { TodayBody: Today } = await import("@app/pages/today/TodayPage");
+  const { Today } = await import("@app/pages/today/TodayPage");
   standalone = await mount(
     <>
       <Today
@@ -704,6 +706,9 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
+          calendarRange: (_query, core) =>
+            lectureSchedule(core.workspace).agendas,
+          upcomingExams: () => [upcoming],
           scheduleView: (query, core) => ({
             ...lectureSchedule(core.workspace),
             allTerms: [TERM, "2026-2Q"],
@@ -715,7 +720,6 @@ describe("the lecture desk", () => {
               (query as { term: string }).term === "2026-2Q"
                 ? [exam, bound, weekClass]
                 : [],
-            upcomingExams: [upcoming],
           }),
           examAssociation: () => ({ conflicts: [exam] }),
           // Core owns search; this script matches the exam titles above.

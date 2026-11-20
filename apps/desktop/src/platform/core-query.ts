@@ -172,6 +172,7 @@ export function useScheduleQueries<T extends unknown[]>(
     ["schedule", queries],
     () => scheduleAnswers<T>(queries),
     enabled,
+    !queries.some((query) => query.kind === "calendarRange"),
   );
 }
 

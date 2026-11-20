@@ -1591,7 +1591,7 @@ fn undo_waits_for_the_catalog_add_receipt_after_its_database_commit() {
     // that commit from SQLite and request its undo.
     struct PauseCommit(Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>);
     impl CommitObserver for PauseCommit {
-        fn committed(&self, _: WorkspaceChangeSource, _: Option<String>, _: &BTreeSet<String>) {
+        fn committed(&self, _: WorkspaceChangeSource, _: Option<String>, _: u64, _: &BTreeSet<String>) {
             let gate = self.0.lock().unwrap().take();
             if let Some((entered, release)) = gate {
                 entered.send(()).unwrap();

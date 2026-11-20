@@ -160,6 +160,16 @@ pub enum WorkspaceQuery {
     Today {
         now: String,
     },
+    /// Upcoming exams in this inclusive range of civil dates.
+    UpcomingExams {
+        from: String,
+        to: Option<String>,
+    },
+    /// All visible items in an inclusive civil-date range, across terms.
+    CalendarRange {
+        from: String,
+        to: String,
+    },
     /// Phone assignment lists: a quarter's timeline as rows, the current
     /// quarter's unless `term` names another (the iPad 授業 page's 課題).
     AssignmentBoard {
@@ -339,7 +349,11 @@ impl WorkspaceQuery {
                 Subscriptions,
                 Settings,
             ],
-            Self::PlanningWeek { .. } | Self::DayAgenda { .. } | Self::QuarterIcs { .. } => AGENDA,
+            Self::CalendarRange { .. }
+            | Self::UpcomingExams { .. }
+            | Self::PlanningWeek { .. }
+            | Self::DayAgenda { .. }
+            | Self::QuarterIcs { .. } => AGENDA,
             Self::ExamAssociation { .. } => {
                 &[Courses, Registrations, Finder, Calendar, Plans, Settings]
             }
@@ -493,6 +507,8 @@ pub enum WorkspaceQueryResult {
     AcademicYears(AcademicYearIndex),
     TaskView(TaskView),
     Today(TodayView),
+    UpcomingExams(Vec<ExamView>),
+    CalendarRange(Vec<DatedAgenda>),
     AssignmentBoard(AssignmentBoard),
     CourseDetail(CourseDetail),
     AssignmentDetail(Option<AssignmentDetail>),
@@ -604,6 +620,15 @@ pub fn query(
             school,
             parse_timestamp(&now)?,
         )?)),
+        WorkspaceQuery::CalendarRange { from, to } => Ok(WorkspaceQueryResult::CalendarRange(
+            calendar_between(workspace, school, &from, &to)?,
+        )),
+        WorkspaceQuery::UpcomingExams { from, to } => Ok(WorkspaceQueryResult::UpcomingExams(
+            exams::upcoming_exams(workspace, school, &from)
+                .into_iter()
+                .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
+                .collect(),
+        )),
         WorkspaceQuery::AssignmentBoard { now, term } => {
             let term = term.map(|term| Term::parse(&term)).transpose()?;
             Ok(WorkspaceQueryResult::AssignmentBoard(assignment_board(

@@ -386,6 +386,7 @@ impl crate::data::CommitObserver for FakeObserver {
         &self,
         source: WorkspaceChangeSource,
         _revision: Option<String>,
+        _seq: u64,
         _tables: &std::collections::BTreeSet<String>,
     ) {
         self.workspaces.lock().unwrap().push(source);

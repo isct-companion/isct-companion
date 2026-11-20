@@ -292,14 +292,15 @@ fn entry(table: &str) -> Option<&'static (&'static str, &'static [WorkspaceChang
         })
 }
 
+pub(crate) fn table_changes(table: &str) -> &[WorkspaceChange] {
+    entry(table).map_or(&WorkspaceChange::ALL, |(_, feeds, _)| *feeds)
+}
+
 /// The change names a commit to `tables` produces, sorted.
 pub fn changes_for(tables: &BTreeSet<String>) -> BTreeSet<WorkspaceChange> {
     let mut changes = BTreeSet::new();
     for table in tables {
-        match entry(table) {
-            Some((_, feeds, _)) => changes.extend(feeds.iter().copied()),
-            None => changes.extend(WorkspaceChange::ALL),
-        }
+        changes.extend(table_changes(table).iter().copied());
     }
     changes
 }

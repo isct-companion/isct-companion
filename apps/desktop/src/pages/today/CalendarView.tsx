@@ -8,7 +8,7 @@ import {
   type BlockAction,
 } from "../../components/timetable/timetable";
 import { agendaColumns } from "../../components/timetable/workspace";
-import { useScheduleQuery, type ScheduleView } from "../../platform/core-query";
+import { useScheduleQuery, type DatedAgenda } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
 import {
   addCivilDays,
@@ -18,10 +18,9 @@ import {
 } from "../../lib/civil-date";
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
-import { withRecords } from "../../platform/records";
 
 /** Date navigation is independent of the quarter used for course planning. */
-function CalendarViewBody({
+export function CalendarView({
   data,
   open,
   mark,
@@ -66,15 +65,13 @@ function CalendarViewBody({
   const date = anchor ?? today;
   const from = addCivilDays(date, 1 - civilWeekday(date));
   const to = addCivilDays(from, 6);
-  const view = useScheduleQuery<ScheduleView>({
-    kind: "scheduleView",
-    term: data.currentTerm,
+  const view = useScheduleQuery<DatedAgenda[]>({
+    kind: "calendarRange",
     from,
     to,
-    includePersonal: true,
   });
-  const visibleFrom = view.value?.agendas[0]?.date ?? from;
-  const visibleTo = view.value?.agendas.at(-1)?.date ?? to;
+  const visibleFrom = view.value?.[0]?.date ?? from;
+  const visibleTo = view.value?.at(-1)?.date ?? to;
   return (
     <section className="calendarWorkspace" aria-label={t("today.calendar")}>
       <header className="scheduleTitleRow">
@@ -136,7 +133,7 @@ function CalendarViewBody({
             style={{ "--slide": slide } as React.CSSProperties}
           >
             <WeekTimetable
-              days={agendaColumns(view.value?.agendas ?? [], today)}
+              days={agendaColumns(view.value ?? [], today)}
               onSelect={open}
               actionsFor={actionsFor}
               now={now}
@@ -148,19 +145,3 @@ function CalendarViewBody({
     </section>
   );
 }
-
-/** CalendarView with the records it shows (`platform/records`). */
-export const CalendarView = withRecords(
-  [
-    "assignments",
-    "courses",
-    "events",
-    "memberships",
-    "planItems",
-    "exceptions",
-    "scheduleOverrides",
-    "intensiveSchedules",
-    "academicProfile",
-  ],
-  CalendarViewBody,
-);

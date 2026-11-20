@@ -64,11 +64,12 @@ final class AppModel {
     let web: WebRouter
     private var session: Session?
     private var revision = ""
-    /// The newest commit sequence heard from an event or a write; an answer
-    /// read before it is asked for again.
-    private var latestSeq: UInt64 = 0
+    private var lastNotificationSeq: UInt64?
+    private let dashboardReads = ScheduleReads()
+    private let timetableReads = ScheduleReads()
+    private(set) var timetableRevision = 0
+    private(set) var upcomingExams: [ExamView] = []
     private var boundaryTask: Task<Void, Never>?
-    private var refreshTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
     /// The one timer for Core's next deadline (`WakeDirective`).
     private var deadlineTask: Task<Void, Never>?
@@ -198,7 +199,7 @@ final class AppModel {
             _ = try? session.resume()
             syncHint(.foreground)
             armDeadline()
-            Task { await refresh() }
+            scheduleRefresh(force: true)
             Task { await checkForUpdate() }
         case .background:
             deadlineTask?.cancel()
@@ -369,18 +370,13 @@ final class AppModel {
                     case "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
-                        latestSeq = max(latestSeq, Self.seq(event.payload))
-                        // A key re-read with nothing new renews only its
-                        // freshness, which no screen here shows.
-                        if !Self.onlyFreshness(event.payload) {
-                            scheduleRefresh()
-                        }
-                    default:
                         scheduleRefresh()
+                    default:
+                        break
                     }
                 case .snapshotRequired:
                     try? session?.refreshWidgets()
-                    scheduleRefresh()
+                    scheduleRefresh(force: true)
                     if let next = try? session?.wakeDirective() { apply(next) }
                     web.refreshPages()
                     await refreshAccounts()
@@ -396,89 +392,72 @@ final class AppModel {
         }
     }
 
-    /// The commit sequence a `workspace-changed` names.
-    private static func seq(_ payload: String) -> UInt64 {
-        let row = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
-        return (row?["seq"] as? NSNumber)?.uint64Value ?? 0
-    }
-
-    /// What a committed intent says: where the next one starts, and the
-    /// sequence answers must not be older than.
-    private func adopt(_ commit: WorkspaceCommit) {
-        revision = commit.revision
-        latestSeq = max(latestSeq, commit.seq)
-    }
-
-    /// Whether a `workspace-changed` names sync freshness and nothing else.
-    /// An unreadable payload counts as a real change.
-    private static func onlyFreshness(_ payload: String) -> Bool {
-        guard let row = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any],
-            let changes = row["changes"] as? [String], !changes.isEmpty
-        else { return false }
-        return changes.allSatisfy { $0 == "freshness" }
-    }
-
-    /// Coalesces bursts of change hints into one read.
-    private func scheduleRefresh() {
-        refreshTask?.cancel()
-        refreshTask = Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled else { return }
-            await refresh()
+    @discardableResult
+    private func scheduleRefresh(force: Bool = false) -> Task<Void, Never>? {
+        guard let session else { return nil }
+        if force { dashboardReads.invalidate() }
+        if force || (!weeks.isEmpty && (try? timetableReads.current(session)) == false) {
+            invalidateWeeks()
         }
+        return dashboardReads.refresh(session, read: { generation in
+            try await self.readDashboard(session, generation: generation)
+        }, failed: { self.problem = Self.describe($0) })
     }
 
-    // MARK: Read models
+    private func invalidateWeeks() {
+        timetableReads.invalidate()
+        timetableRevision += 1
+        weeks.removeAll()
+    }
 
-    func refresh() async {
-        guard let session else { return }
-        let now = Self.timestamp(Date())
-        do {
-            guard case let .text(current) = try await session.workspaceRevision().value() else { return }
-            revision = current
-            // The rows screens look up, with the read models, from one read.
-            guard case let .schedule(result) = try await session.scheduleQuery(queries: [
-                .records(fields: ["courses", "assignments"]),
-                .today(now: now), .assignmentBoard(now: now, term: nil), .teachingPeriods,
-            ]).value() else { return }
-            // An answer read before the newest change heard is stale: ask again
-            // (`approach/query-cache-consistency`).
-            if result.seq < latestSeq {
-                scheduleRefresh()
-                return
-            }
-            for value in result.values {
-                switch value {
-                case let .records(json): records = WorkspaceRecords(json: json)
-                case let .today(view): today = view
-                case let .assignmentBoard(value):
-                    board = value
-                    writeShareChoices(value)
-                    await refreshWaiting()
-                case let .teachingPeriods(value): periods = value
-                default: break
-                }
-            }
-            // A fresh install has no current term yet, so the overview may fail alone.
-            if case let .schedule(overview)? = try? await session.scheduleQuery(queries: [
-                .workspaceOverview(term: "")
-            ]).value(), case let .workspaceOverview(value)? = overview.values.first {
-                colors = value.colors
-            }
-            let changed = contentRevision != String(result.seq)
-            contentRevision = String(result.seq)
-            scheduleBoundary()
-            if changed || weeks.isEmpty {
-                weeks = [:]
-                Task { await prefetchTimetable() }
-            }
-            if changed { await NotificationScheduler.sync(session) }
-        } catch is CancellationError {
-            // A newer change hint replaced this read; it is not a failure.
-        } catch SdkError.Cancelled {
-        } catch {
-            problem = Self.describe(error)
+    func refresh() async { await scheduleRefresh(force: true)?.value }
+
+    private func readDashboard(_ session: Session, generation: Int) async throws {
+        let date = Date()
+        let now = Self.timestamp(date)
+        let from = Self.civil(date)
+        let last = Self.civil(Calendar.tokyo.date(byAdding: .day, value: 14, to: date) ?? date)
+        let previousRevision = revision
+        guard case let .text(current) = try await session.workspaceRevision().value(),
+              case var .schedule(result) = try await session.scheduleQuery(queries: [
+                .records(fields: ["courses", "assignments"]), .today(now: now),
+                .upcomingExams(from: from, to: last),
+                .assignmentBoard(now: now, term: nil), .teachingPeriods,
+              ]).value() else { throw SdkError.Unavailable(detail: "dashboard") }
+
+        // A new install may have no term for an overview yet.
+        var newColors: [String: String]?
+        if case let .schedule(overview)? = try? await session.scheduleQuery(queries: [.workspaceOverview(term: "")]).value(),
+           case let .workspaceOverview(view)? = overview.values.first {
+            newColors = view.colors
+            result.reads.append(contentsOf: overview.reads)
         }
+        if let boundary = result.values.compactMap({ value -> Date? in
+            guard case let .today(view) = value, let raw = view.nextBoundary else { return nil }
+            return Self.date(raw)
+        }).first, boundary <= Date() { return }
+        guard try dashboardReads.accept(result, started: generation, session: session) else { return }
+        if revision == previousRevision { revision = current }
+        let changed = lastNotificationSeq != result.seq
+        lastNotificationSeq = result.seq
+        // No suspension between accepting the snapshot and publishing its views.
+        for value in result.values {
+            switch value {
+            case let .records(json): records = WorkspaceRecords(json: json)
+            case let .today(view):
+                if let old = today?.term, old != view.term { invalidateWeeks() }
+                today = view
+            case let .upcomingExams(exams): upcomingExams = exams
+            case let .assignmentBoard(value): board = value; writeShareChoices(value)
+            case let .teachingPeriods(value): periods = value
+            default: break
+            }
+        }
+        if let newColors { colors = newColors }
+        contentRevision = "\(generation)-\(result.seq)"
+        scheduleBoundary()
+        await refreshWaiting()
+        if changed { await NotificationScheduler.sync(session) }
     }
 
     /// Re-query when Core says the phase or hero changes next.
@@ -526,16 +505,30 @@ final class AppModel {
     /// one query, so stepping or swiping through nearby weeks draws at once.
     func week(starting monday: Date) async -> ScheduleView? {
         let key = Self.civil(monday)
-        if let cached = weeks[key] { return cached }
+        let generation = timetableReads.generation
+        if let session, let cached = weeks[key], (try? timetableReads.current(session)) == true { return cached }
         guard let session, let term = today?.term else { return nil }
         let calendar = Calendar.tokyo
         let first = calendar.date(byAdding: .day, value: -7 * Self.weekReach, to: monday) ?? monday
         let last = calendar.date(byAdding: .day, value: 7 * Self.weekReach + 4, to: monday) ?? monday
         let query = WorkspaceQuery.scheduleView(
             term: term, from: Self.civil(first), to: Self.civil(last), includePersonal: false)
-        guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
-            case let .scheduleView(view)? = result.values.first
-        else { return nil }
+        var view: ScheduleView
+        while true {
+            guard !Task.isCancelled, generation == timetableReads.generation, term == today?.term,
+                  case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
+                  case let .scheduleView(value)? = result.values.first else { return nil }
+            guard generation == timetableReads.generation, term == today?.term else { return nil }
+            if !weeks.isEmpty, (try? timetableReads.current(session)) == false {
+                weeks.removeAll()
+                timetableRevision += 1
+            }
+            guard let accepted = try? timetableReads.accept(result, started: generation, session: session) else { return nil }
+            if accepted {
+                view = value
+                break
+            }
+        }
         for offset in -Self.weekReach...Self.weekReach {
             guard let start = calendar.date(byAdding: .day, value: 7 * offset, to: monday) else { continue }
             let from = Self.civil(start)
@@ -563,15 +556,6 @@ final class AppModel {
             case let .quarterIcs(text)? = result.values.first
         else { throw SdkError.Unavailable(detail: "quarter calendar") }
         return text
-    }
-
-    /// Reads this week and its axis ahead of the timetable being opened.
-    private func prefetchTimetable() async {
-        guard let view = await week(starting: TimetableScreen.monday(of: Date())) else { return }
-        let blocks = view.agendas.flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
-        let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
-        let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
-        _ = await timetableAxis(earliest: earliest, latest: latest)
     }
 
     /// The quarter's courses as Core lists them for the course list.
@@ -795,22 +779,30 @@ final class AppModel {
     func dismissUndo() { undo = nil }
     func dismissProblem() { problem = nil }
 
-    private func mark(_ id: String, hidden: Bool?, pinned: Bool?) async {
-        guard let session else { return }
-        let mutation = WorkspaceMutation(
-            expectedRevision: revision,
-            intent: .setAssignmentMark(assignmentId: id, hidden: hidden, pinned: pinned, completedAt: nil))
+    /// Route a committed intent through the same pending read as its event.
+    private func commit(_ intent: WorkspaceIntent) async throws {
+        guard let session else { throw SdkError.Closed }
         do {
-            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
-                adopt(commit)
-            }
-        } catch SdkError.Conflict {
-            // Another device changed the workspace: re-read and let the person retry.
+            let mutation = WorkspaceMutation(expectedRevision: revision, intent: intent)
+            guard case let .committed(receipt) = try await session.mutateCommit(mutation: mutation).value()
+            else { throw SdkError.Unavailable(detail: "workspace commit") }
+            revision = receipt.revision
+            await scheduleRefresh()?.value
+        } catch SdkError.Conflict(let detail) {
             await refresh()
-        } catch {
-            problem = Self.describe(error)
+            throw SdkError.Conflict(detail: detail)
         }
-        await refresh()
+    }
+
+    @discardableResult
+    private func editWorkspace(_ intent: WorkspaceIntent) async -> Bool {
+        do { try await commit(intent); return true }
+        catch SdkError.Conflict { return false }
+        catch { problem = Self.describe(error); return false }
+    }
+
+    private func mark(_ id: String, hidden: Bool?, pinned: Bool?) async {
+        await editWorkspace(.setAssignmentMark(assignmentId: id, hidden: hidden, pinned: pinned, completedAt: nil))
     }
 
     /// Pull to refresh and "Refresh now": asks Core's planner for everything;
@@ -915,22 +907,12 @@ final class AppModel {
     }
 
     private func replaceSettings(_ edit: (inout [String: Any]) -> Void) async {
-        guard let session else { return }
         var settings = records.settings
         edit(&settings)
         guard let data = try? JSONSerialization.data(withJSONObject: settings),
             let json = String(data: data, encoding: .utf8)
         else { return }
-        let mutation = WorkspaceMutation(expectedRevision: revision, intent: .replaceSettings(settings: json))
-        do {
-            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
-                adopt(commit)
-            }
-        } catch {
-            problem = Self.describe(error)
-        }
-        await refresh()
-        await NotificationScheduler.sync(session)
+        await editWorkspace(.replaceSettings(settings: json))
     }
 
     /// Whether this build can read a Matrix card (arm64 devices; not the Intel simulator).
@@ -1156,50 +1138,17 @@ extension AppModel {
     }
 
     private func markSeen(_ intent: WorkspaceIntent) async {
-        guard let session else { return }
-        let mutation = WorkspaceMutation(expectedRevision: revision, intent: intent)
-        do {
-            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
-                adopt(commit)
-            }
-        } catch {
-            // The item only stays new a little longer; nothing to tell.
-        }
-        await refresh()
+        try? await commit(intent)
     }
 
     /// Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
     /// `class` (a plain class; Core clears the mark when that is the default).
     /// The commit names `calendar`, which re-queries the week.
     func markSession(_ key: String, _ mark: String) async {
-        guard let session else { return }
-        let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markSession(key: key, mark: mark))
-        do {
-            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
-                adopt(commit)
-            }
-        } catch SdkError.Conflict {
-            // Another device changed the workspace: re-read and let the person retry.
-            await refresh()
-        } catch {
-            problem = Self.describe(error)
-        }
-        await refresh()
+        await editWorkspace(.markSession(key: key, mark: mark))
     }
 
-    /// Exams Core lists as upcoming (linked and scheduled) from today
-    /// through `days` days ahead, for 今日.
-    func upcomingExams(days: Int = 14) async -> [ExamView] {
-        guard let session, let term = today?.term else { return [] }
-        let now = Date()
-        let from = Self.civil(now)
-        let last = Self.civil(Calendar.tokyo.date(byAdding: .day, value: days, to: now) ?? now)
-        let query = WorkspaceQuery.scheduleView(term: term, from: from, to: from, includePersonal: false)
-        guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
-            case let .scheduleView(view)? = result.values.first
-        else { return [] }
-        return view.upcomingExams.filter { $0.date <= last }
-    }
+
 }
 
 // MARK: Course page: lesson marks
@@ -1209,23 +1158,7 @@ extension AppModel {
     /// `CourseContent.classAt`), as a double click on the desktop rail does.
     /// `false` when Core did not take it.
     func recordLesson(courseId: String, occurrence: String, sectionId: UInt64) async -> Bool {
-        guard let session else { return false }
-        let mutation = WorkspaceMutation(
-            expectedRevision: revision,
-            intent: .recordLesson(courseId: courseId, occurrence: occurrence, sectionId: sectionId))
-        var recorded = false
-        do {
-            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
-                adopt(commit)
-            }
-            recorded = true
-        } catch SdkError.Conflict {
-            // Another device changed the workspace: the re-read lets the person retry.
-        } catch {
-            problem = Self.describe(error)
-        }
-        await refresh()
-        return recorded
+        await editWorkspace(.recordLesson(courseId: courseId, occurrence: occurrence, sectionId: sectionId))
     }
 }
 
@@ -1261,14 +1194,7 @@ extension AppModel {
 
     /// Saves the cohort and degree history through the desktop's intent.
     func setStudyProfile(_ profile: StudyProfile) async throws {
-        guard let session else { return }
-        let mutation = WorkspaceMutation(
-            expectedRevision: revision,
-            intent: .setStudyProfile(admissionYear: profile.admissionYear, studyEnrollments: profile.enrollments))
-        if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
-            adopt(commit)
-        }
-        await refresh()
+        try await commit(.setStudyProfile(admissionYear: profile.admissionYear, studyEnrollments: profile.enrollments))
     }
 
     /// The syllabus departments, as the desktop's course finder lists them.

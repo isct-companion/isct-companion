@@ -28,13 +28,14 @@ export function useViewQuery<T>(
   key: QueryKey,
   load: () => Promise<ViewAnswer<T>>,
   enabled = true,
+  keepPrevious = true,
 ): QueryState<T> {
   const query = useQuery(
     {
       queryKey: key,
       queryFn: ({ signal }) => freshAnswer(load, signal),
       enabled,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPrevious ? keepPreviousData : undefined,
     },
     queryClient,
   );
