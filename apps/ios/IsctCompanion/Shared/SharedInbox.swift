@@ -106,10 +106,25 @@ enum SharedInbox {
         return try? JSONDecoder().decode(Choices.self, from: data)
     }
 
-    /// Starts every read before returning, while the native drop grant is live.
+    /// Starts all candidate reads while SwiftUI's drop grant is live.
     @MainActor
     static func startCopy(
         _ providers: [NSItemProvider], into folder: URL,
+        completion: @escaping @MainActor (Result<[File], Error>) -> Void
+    ) {
+        copyBatch(providers, into: folder, fromDrop: true, completion: completion)
+    }
+
+    @MainActor
+    static func copy(_ providers: [NSItemProvider], into folder: URL) async throws -> [File] {
+        try await withCheckedThrowingContinuation { continuation in
+            copyBatch(providers, into: folder, fromDrop: false) { continuation.resume(with: $0) }
+        }
+    }
+
+    @MainActor
+    private static func copyBatch(
+        _ providers: [NSItemProvider], into folder: URL, fromDrop: Bool,
         completion: @escaping @MainActor (Result<[File], Error>) -> Void
     ) {
         let group = DispatchGroup()
@@ -118,11 +133,16 @@ enum SharedInbox {
             let representations = fileRepresentations(provider)
             guard !representations.isEmpty else { continue }
             group.enter()
-            copy(provider, through: representations[...], into: folder) { result in
+            let record: (Result<File, Error>) -> Void = { result in
                 DispatchQueue.main.async {
                     results[index] = result
                     group.leave()
                 }
+            }
+            if fromDrop {
+                copyDrop(provider, through: representations, into: folder, completion: record)
+            } else {
+                copy(provider, through: representations[...], into: folder, completion: record)
             }
         }
         group.notify(queue: .main) {
@@ -131,9 +151,32 @@ enum SharedInbox {
     }
 
     @MainActor
-    static func copy(_ providers: [NSItemProvider], into folder: URL) async throws -> [File] {
-        try await withCheckedThrowingContinuation { continuation in
-            startCopy(providers, into: folder) { continuation.resume(with: $0) }
+    private static func copyDrop(
+        _ provider: NSItemProvider, through types: [UTType], into folder: URL,
+        completion: @escaping (Result<File, Error>) -> Void
+    ) {
+        let group = DispatchGroup()
+        var results: [Int: Result<File, Error>] = [:]
+        for (index, type) in types.enumerated() {
+            group.enter()
+            copy(provider, as: type, into: folder) { result in
+                DispatchQueue.main.async {
+                    results[index] = result
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            // The provider's order decides, regardless of callback order.
+            let files = results.sorted { $0.key < $1.key }.compactMap { try? $0.value.get() }
+            guard let preferred = files.first else {
+                completion(results[0] ?? .failure(CocoaError(.fileReadUnknown)))
+                return
+            }
+            for extra in files.dropFirst() {
+                try? FileManager.default.removeItem(at: extra.url(in: folder))
+            }
+            completion(.success(preferred))
         }
     }
 
@@ -154,20 +197,24 @@ enum SharedInbox {
         _ provider: NSItemProvider, through types: ArraySlice<UTType>, into folder: URL,
         completion: @escaping (Result<File, Error>) -> Void
     ) {
-        // The first request starts synchronously in the drop handler. If this
-        // representation fails, try the other file types of this same provider.
         guard let type = types.first else { return }
-        let finish: (Result<File, Error>) -> Void = { result in
+        copy(provider, as: type, into: folder) { result in
             if case .failure = result, types.count > 1 {
                 copy(provider, through: types.dropFirst(), into: folder, completion: completion)
             } else {
                 completion(result)
             }
         }
+    }
+
+    private static func copy(
+        _ provider: NSItemProvider, as type: UTType, into folder: URL,
+        completion: @escaping (Result<File, Error>) -> Void
+    ) {
         let suggested = provider.suggestedName
         if type == .fileURL {
             provider.loadItem(forTypeIdentifier: type.identifier) { item, error in
-                finish(Result {
+                completion(Result {
                     let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
                     guard let url, url.isFileURL else { throw error ?? CocoaError(.fileReadUnknown) }
                     let scoped = url.startAccessingSecurityScopedResource()
@@ -177,7 +224,7 @@ enum SharedInbox {
             }
         } else {
             _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
-                finish(Result {
+                completion(Result {
                     guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
                     return try store(url, suggested: suggested, type: type, into: folder)
                 })
