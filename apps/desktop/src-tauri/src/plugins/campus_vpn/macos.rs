@@ -89,19 +89,29 @@ pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     // A daemon that still needs approval in Login Items is registered all
     // the same, yet register fails with EPERM ("Operation not permitted");
     // an already registered one fails too. The status says where it stands.
-    let registered = unsafe { service.registerAndReturnError() };
-    match unsafe { service.status() } {
-        SMAppServiceStatus::Enabled => Ok(Install::Ready),
-        SMAppServiceStatus::RequiresApproval => {
-            unsafe { SMAppService::openSystemSettingsLoginItems() };
-            Ok(Install::NeedsApproval)
+    // Right after an unregister the system is still removing the daemon, and
+    // register fails with EPERM while the status reads not registered; it
+    // settles within a few seconds, so register again until it does.
+    let mut registered = Ok(());
+    for _ in 0..REGISTER_ATTEMPTS {
+        registered = unsafe { service.registerAndReturnError() };
+        match unsafe { service.status() } {
+            SMAppServiceStatus::Enabled => return Ok(Install::Ready),
+            SMAppServiceStatus::RequiresApproval => {
+                unsafe { SMAppService::openSystemSettingsLoginItems() };
+                return Ok(Install::NeedsApproval);
+            }
+            _ => std::thread::sleep(Duration::from_millis(500)),
         }
-        _ => Err(match registered {
-            Err(error) => format!(
-                "the campus VPN helper could not be registered: {}",
-                error.localizedDescription()
-            ),
-            Ok(()) => "the campus VPN helper could not be registered".into(),
-        }),
     }
+    Err(match registered {
+        Err(error) => format!(
+            "the campus VPN helper could not be registered: {}",
+            error.localizedDescription()
+        ),
+        Ok(()) => "the campus VPN helper could not be registered".into(),
+    })
 }
+
+/// Register attempts, half a second apart, while an unregister settles.
+const REGISTER_ATTEMPTS: usize = 10;
