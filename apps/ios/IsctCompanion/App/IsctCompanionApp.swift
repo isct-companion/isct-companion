@@ -471,6 +471,8 @@ extension View {
             CourseDetailScreen(courseId: route.id).courseZoomDestination(route.zoom)
         }
         .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
+        .navigationDestination(for: CourseMarkdownRoute.self) { CourseMarkdownScreen(route: $0) }
+        .navigationDestination(for: CourseArchiveRoute.self) { CourseArchiveScreen(route: $0) }
         .navigationDestination(for: AssignmentListRoute.self) { _ in AssignmentListScreen() }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }

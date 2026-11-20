@@ -17,6 +17,7 @@ import {
   extension,
   fileFamily,
   listsAsFolder,
+  previewOf,
   type FileFamily,
 } from "./file-types";
 import { ImageView } from "./ImageView";
@@ -40,8 +41,8 @@ const TextDocument = lazy(() =>
 const PdfDocument = lazy(() =>
   import("./PdfDocument").then((m) => ({ default: m.PdfDocument })),
 );
-const MarkdownDocument = lazy(() =>
-  import("./MarkdownDocument").then((m) => ({ default: m.MarkdownDocument })),
+const ReadableMarkdown = lazy(() =>
+  import("./ReadableMarkdown").then((m) => ({ default: m.ReadableMarkdown })),
 );
 
 const megabytes = (bytes: number) =>
@@ -68,6 +69,8 @@ type View =
       src: string;
       path: string;
       kind?: ReturnType<typeof previewKind>;
+      /** Text Core will not read in the app (`Viewer::TooLarge`). */
+      tooLarge: boolean;
       text?: string;
       page: SchoolPage;
     }
@@ -145,20 +148,14 @@ function useCourseFile(
         if (disposed) return;
         if (material.state !== "failed") loadedRequest.current = requestKey;
         if (material.state === "ready") {
-          const name = material.file.name || url;
-          const text = material.file.text ?? undefined;
+          const { viewer } = material.file;
           return setView({
             state: "ready",
             src: localFileUrl(material.file.path),
             path: material.file.path,
-            // A file of no known type (a Makefile, a README) that reads as
-            // text is shown as text.
-            kind:
-              previewKind(name) ??
-              (fileFamily(byName(name)) === "file" && text != null
-                ? "text"
-                : undefined),
-            text,
+            kind: previewOf(viewer),
+            tooLarge: viewer === "tooLarge",
+            text: material.file.text ?? undefined,
             page: material.page,
           });
         }
@@ -240,10 +237,9 @@ export function FilePreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page?.site, page?.url, web, archive, inline]);
   const ready = view.state === "ready" ? view : undefined;
-  const kind = ready?.kind ?? expected;
+  const kind = ready ? ready.kind : expected;
   const src = ready?.src;
-  const textTooLarge =
-    (kind === "text" || kind === "markdown") && ready && ready.text == null;
+  const textTooLarge = ready?.tooLarge === true;
   const actions = <FileActions course={course} openPage={openPage} />;
   if (view.state === "loading") {
     return (
@@ -369,7 +365,7 @@ export function FilePreview({
             <p className="lmsQuiet lmsLoading">{t("common.loading")}</p>
           }
         >
-          <MarkdownDocument value={ready?.text ?? ""} />
+          <ReadableMarkdown text={ready?.text ?? ""} />
         </Suspense>
       ) : (
         <Suspense

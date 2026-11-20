@@ -194,7 +194,7 @@ async fn a_zip_opens_as_its_files_and_each_file_as_a_course_file() {
     let source =
         "https://lms.s.isct.ac.jp/2026/pluginfile.php/7/mod_resource/content/1/OOP-2A-problem.zip";
     let zip = material_path(&root, &folder, &Url::parse(source).unwrap()).unwrap();
-    crate::course_archive::tests::archive(
+    crate::file_preview::archive::tests::archive(
         &zip,
         &[
             ("OOP-2A/README.md", "# 2A"),
@@ -241,6 +241,8 @@ async fn a_zip_opens_as_its_files_and_each_file_as_a_course_file() {
     assert_eq!(extracted.parent(), zip.parent());
     assert!(is_material_cache_name(extracted));
     assert!(file.name.starts_with("README-") && file.name.ends_with(".md"));
+    // The extracted file is shown by its own kind, the archive's file name aside.
+    assert_eq!(file.viewer, crate::file_preview::Viewer::Markdown);
 
     assert!(matches!(
         service
@@ -270,7 +272,7 @@ async fn a_zip_opens_as_its_files_and_each_file_as_a_course_file() {
     // An archive too big to show as a folder is the file itself.
     let many = "https://lms.s.isct.ac.jp/2026/pluginfile.php/8/many.zip";
     let names: Vec<String> = (0..=1000).map(|n| format!("f{n}.txt")).collect();
-    crate::course_archive::tests::archive(
+    crate::file_preview::archive::tests::archive(
         &material_path(&root, &folder, &Url::parse(many).unwrap()).unwrap(),
         &names
             .iter()
@@ -432,7 +434,7 @@ fn binary_preview_is_optional_and_text_preview_is_bounded() {
     let large = root.join("large.txt");
     fs::write(
         &large,
-        "x".repeat(crate::storage::MAX_TEXT_PREVIEW_BYTES as usize + 1),
+        "x".repeat(crate::file_preview::MAX_TEXT_BYTES as usize + 1),
     )
     .unwrap();
     assert_eq!(

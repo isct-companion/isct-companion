@@ -1,7 +1,7 @@
-//! Reading a downloaded ZIP course file without unpacking all of it: its
-//! files are listed when the archive is small enough to show as a folder,
-//! and one file at a time is extracted when it is opened
-//! (`course_materials`, `Material::Archive`).
+//! Reading a downloaded ZIP without unpacking all of it: its files are
+//! listed when the archive is small enough to show as a folder, and one file
+//! at a time is extracted when it is opened (`course_materials`,
+//! `Material::Archive`).
 
 use crate::course_materials::MaterialError;
 use serde::Serialize;
@@ -123,7 +123,13 @@ fn listed(entry: &zip::read::ZipFile<'_, fs::File>) -> Option<String> {
     }
     let decoded = entry.name().ok();
     let name = entry_name(entry.name_raw(), decoded.as_deref());
-    (!name.split('/').any(crate::workspaces::is_junk)).then_some(name)
+    (!name.split('/').any(is_junk)).then_some(name)
+}
+
+/// A file or folder the system leaves in archives and folders, never the
+/// person's own: listings and hand-ins skip it.
+pub(crate) fn is_junk(name: &str) -> bool {
+    name == ".DS_Store" || name == "__MACOSX" || name == "Thumbs.db"
 }
 
 /// An entry's path as the person named it. UTF-8 (flagged or not, as macOS
@@ -157,5 +163,5 @@ fn io_error(error: io::Error) -> MaterialError {
 }
 
 #[cfg(test)]
-#[path = "tests/course_archive.rs"]
+#[path = "../tests/file_preview__archive.rs"]
 pub(crate) mod tests;

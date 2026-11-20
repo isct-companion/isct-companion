@@ -22,6 +22,12 @@ import type {
 import { t } from "../../i18n";
 import { ReportDialog } from "./ExamDialogs";
 
+const ReadableMarkdown = lazy(() =>
+  import("../../features/lms/ReadableMarkdown").then((m) => ({
+    default: m.ReadableMarkdown,
+  })),
+);
+
 const Pdf = lazy(() =>
   import("../../features/lms/PdfDocument").then((m) => ({
     default: m.PdfDocument,
@@ -52,7 +58,10 @@ export function ExamReader({
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const { document } = file;
-  const pdf = document.fileType === "application/pdf";
+  // How it shows is Core's (`file_preview`); Open in default app is a tool
+  // whatever it is.
+  const { viewer } = file;
+  const pdf = viewer === "pdf";
   const openInApp = async () => {
     try {
       if (!desktopBridge?.examOpenFile) throw new Error(t("error.unavailable"));
@@ -167,10 +176,22 @@ export function ExamReader({
             fileToolbar={toolbar}
           />
         </Suspense>
-      ) : document.fileType === "text/plain" ? (
-        <PlainTextPreview key={file.path} path={file.path} />
-      ) : (
+      ) : viewer === "text" || viewer === "markdown" ? (
+        <PlainTextPreview
+          key={file.path}
+          path={file.path}
+          markdown={viewer === "markdown"}
+        />
+      ) : viewer === "image" ? (
         <ImageView src={localFileUrl(file.path)} title={title} />
+      ) : (
+        <ErrorBanner>
+          {t(
+            viewer === "tooLarge"
+              ? "lms.thisTextFileExceedsThe"
+              : "lms.thisFileTypeCantBe",
+          )}
+        </ErrorBanner>
       )}
       {choices && (
         <ReportDialog
@@ -191,7 +212,15 @@ export function ExamReader({
   );
 }
 
-function PlainTextPreview({ path }: { path: string }) {
+/** A text document read whole; Markdown is shown formatted and read-only,
+ * its formulas set with KaTeX. */
+function PlainTextPreview({
+  path,
+  markdown,
+}: {
+  path: string;
+  markdown: boolean;
+}) {
   const [text, setText] = useState<string>();
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -207,8 +236,11 @@ function PlainTextPreview({ path }: { path: string }) {
     return () => controller.abort();
   }, [path]);
   if (failed) return <ErrorBanner>{t("error.storage")}</ErrorBanner>;
-  return text === undefined ? (
-    <Skeleton count={6} />
+  if (text === undefined) return <Skeleton count={6} />;
+  return markdown ? (
+    <Suspense fallback={<Skeleton count={6} />}>
+      <ReadableMarkdown text={text} />
+    </Suspense>
   ) : (
     <pre className="examDocumentText">{text}</pre>
   );

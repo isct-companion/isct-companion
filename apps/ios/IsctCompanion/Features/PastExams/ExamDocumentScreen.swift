@@ -3,8 +3,8 @@ import QuickLook
 import SwiftUI
 
 /// A past exam full screen in Quick Look inside the page, which reads PDFs
-/// and photos with its own copy and search; the document's actions sit in
-/// the toolbar's menu.
+/// and photos with its own copy and search, or a Markdown one in
+/// `MarkdownView`; the document's actions sit in the toolbar's menu.
 struct ExamDocumentScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -17,7 +17,16 @@ struct ExamDocumentScreen: View {
     var body: some View {
         Group {
             if let file {
-                QuickLookView(url: URL(fileURLWithPath: file.path)).ignoresSafeArea(edges: .bottom)
+                // The site stores Markdown as text/plain; Quick Look would show
+                // its source, so it opens formatted, with its math set.
+                if file.viewer == .markdown {
+                    MarkdownFileView(path: file.path) {
+                        QuickLookView(url: URL(fileURLWithPath: file.path))
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                } else {
+                    QuickLookView(url: URL(fileURLWithPath: file.path)).ignoresSafeArea(edges: .bottom)
+                }
             } else if failed {
                 ContentUnavailableView {
                     Label(route.file.map { examName($0.document) } ?? t("examShare.title"), systemImage: "doc")
@@ -115,7 +124,7 @@ struct ExamDocumentScreen: View {
 
 /// Quick Look inside the page rather than over it, so the document keeps the
 /// navigation bar and its actions.
-private struct QuickLookView: UIViewControllerRepresentable {
+struct QuickLookView: UIViewControllerRepresentable {
     let url: URL
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }

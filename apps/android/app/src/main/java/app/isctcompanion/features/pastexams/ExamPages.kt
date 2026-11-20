@@ -1,22 +1,13 @@
 package app.isctcompanion.features.pastexams
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.net.Uri
-import android.os.ParcelFileDescriptor
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -43,32 +34,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import androidx.pdf.ExperimentalPdfApi
-import androidx.pdf.PdfDocument
-import androidx.pdf.SandboxedPdfLoader
-import androidx.pdf.compose.PdfViewer
-import androidx.pdf.compose.rememberPdfViewerState
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAccountStatus
@@ -82,12 +59,11 @@ import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadStart
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.TabPage
+import app.isctcompanion.design.FileViewer
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** How a subject page was reached: from a course (Core finds its subject and
  * class) or by a subject code. */
@@ -260,8 +236,8 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
     )
 }
 
-/** A past exam full screen: PDFs in androidx.pdf (zoom, select and search
- * built in), photos zoomable, text as text; actions in the menu. */
+/** A past exam full screen in the app's file viewers (PDFs scroll and
+ * zoom, photos zoom, Markdown formatted, text as text); actions in the menu. */
 @Composable
 fun ExamDocumentScreen(id: String) {
     val scope = rememberCoroutineScope()
@@ -351,125 +327,13 @@ fun ExamDocumentScreen(id: String) {
 
 @Composable
 private fun DocumentView(file: ExamLocalDocument) {
-    when (file.document.fileType) {
-        "application/pdf" -> PdfView(file.path)
-        "text/plain" -> {
-            val text by produceState<String?>(null, file.path) {
-                value = withContext(Dispatchers.IO) {
-                    runCatching { File(file.path).readText() }.getOrElse { t("error.storage") }
-                }
-            }
-            Text(
-                text ?: t("common.loading"),
-                color = Theme.colors.ink,
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter),
-            )
+    // How it shows is Core's (`file_preview`): the site stores Markdown as
+    // text/plain, and Core names it Markdown by the upload's name.
+    val source = remember(file.path) { File(file.path) }
+    FileViewer(source, file.viewer) {
+        Box(Modifier.fillMaxSize(), Alignment.Center) {
+            Text(t("error.unavailable"), color = Theme.colors.muted)
         }
-        else -> ImageView(file.path)
-    }
-}
-
-/** androidx.pdf renders in its own sandboxed process, page by page as they
- * scroll in, with selection and zoom. It is a beta: when it cannot open the
- * file, the platform's PdfRenderer shows it a page at a time. */
-@OptIn(ExperimentalPdfApi::class)
-@Composable
-private fun PdfView(path: String) {
-    val context = LocalContext.current
-    val document by produceState<Result<PdfDocument>?>(null, path) {
-        value = runCatching { SandboxedPdfLoader(context).openDocument(Uri.fromFile(File(path))) }
-    }
-    DisposableEffect(document) { onDispose { document?.getOrNull()?.close() } }
-    when (val loaded = document) {
-        null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-        else -> loaded.getOrNull()?.let {
-            PdfViewer(it, rememberPdfViewerState(), Modifier.fillMaxSize().background(Theme.colors.surface2))
-        } ?: RendererPdfView(path)
-    }
-}
-
-/** The fallback reader: one page rendered by PdfRenderer, with page steps. */
-@Composable
-private fun RendererPdfView(path: String) {
-    var page by rememberSaveable(path) { mutableStateOf(0) }
-    val result by produceState<Result<Pair<Bitmap, Int>>?>(null, path, page) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                    PdfRenderer(descriptor).use { pdf ->
-                        pdf.openPage(page).use { source ->
-                            val scale = (1400f / maxOf(source.width, source.height)).coerceAtMost(2f)
-                            val bitmap = Bitmap.createBitmap((source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-                            bitmap.eraseColor(Color.WHITE)
-                            source.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            bitmap to pdf.pageCount
-                        }
-                    }
-                }
-            }
-        }
-    }
-    val preview = result
-    val shown = preview?.getOrNull()
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter)) {
-        if (shown == null) {
-            Text(t(if (preview == null) "common.loading" else "error.unavailable"), color = Theme.colors.muted)
-        } else {
-            val (bitmap, pages) = shown
-            if (pages > 1) Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(enabled = page > 0, onClick = { page-- }) { Text(t("common.previousPage")) }
-                Text("${page + 1} / $pages")
-                TextButton(enabled = page + 1 < pages, onClick = { page++ }) { Text(t("common.nextPage")) }
-            }
-            Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height))
-        }
-    }
-}
-
-/** A photo fitted to the screen; pinch zooms, drag pans while zoomed. */
-@Composable
-private fun ImageView(path: String) {
-    val bitmap by produceState<Result<Bitmap>?>(null, path) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(path, bounds)
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 3000)
-                }
-                checkNotNull(BitmapFactory.decodeFile(path, options))
-            }
-        }
-    }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    val loaded = bitmap ?: return Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-    val shown = loaded.getOrNull() ?: return Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Text(t("error.unavailable"), color = Theme.colors.muted)
-    }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Theme.colors.surface2)
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 8f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
-                }
-            },
-    ) {
-        Image(
-            shown.asImageBitmap(), null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offset.x
-                    translationY = offset.y
-                },
-        )
     }
 }
 

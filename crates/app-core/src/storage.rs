@@ -11,6 +11,7 @@
 //! <root>/workspace/<term>/<course>/<assignment>/…        assignment workspaces
 //! ```
 
+use crate::file_preview::Viewer;
 use serde::Serialize;
 use std::{
     collections::HashSet,
@@ -19,8 +20,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock, PoisonError},
 };
-
-pub(crate) const MAX_TEXT_PREVIEW_BYTES: u64 = 1_000_000;
 
 /// Downloaded materials, with the notes beside them.
 pub const MATERIAL_TREE: &str = "material";
@@ -191,6 +190,8 @@ pub struct LocalFile {
     pub bytes: u64,
     pub cached: bool,
     pub text: Option<String>,
+    /// How the shells show it (`file_preview`).
+    pub viewer: Viewer,
 }
 
 /// A safe folder name for a course or term, matching the folders earlier
@@ -268,7 +269,7 @@ pub fn describe(
         return Err(StorageError::Storage("Cannot read symbolic link".into()));
     }
     let bytes = path.metadata().map_err(storage_error)?.len();
-    let text = if read_text && bytes <= MAX_TEXT_PREVIEW_BYTES {
+    let text = if read_text && bytes <= crate::file_preview::MAX_TEXT_BYTES {
         fs::read_to_string(&path).ok()
     } else {
         None
@@ -293,6 +294,12 @@ pub fn describe(
             .to_string_lossy()
             .into_owned()
     };
+    // A note's name is its title; its kind is its file's.
+    let viewer = crate::file_preview::viewer_of_file(
+        &path,
+        &path.file_name().unwrap_or_default().to_string_lossy(),
+        None,
+    );
     Ok(LocalFile {
         id,
         name,
@@ -301,6 +308,7 @@ pub fn describe(
         bytes,
         cached,
         text,
+        viewer,
     })
 }
 

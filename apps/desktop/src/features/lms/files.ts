@@ -7,6 +7,7 @@ import {
 } from "../../platform/desktop-bridge";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
 import type { Settings } from "../../lib/model";
+import type { Viewer } from "../../generated/persistence";
 /** Where a note lives: a section of a course; Core names the course's folder. */
 export type CourseFolder = { courseId: string; section: string };
 export type LocalFile = {
@@ -17,6 +18,8 @@ export type LocalFile = {
   bytes: number;
   cached: boolean;
   text?: string | null;
+  /** How the reader shows it (Core's `file_preview`). */
+  viewer: Viewer;
 };
 export type StorageInfo = { root: string; custom: boolean; canChoose: boolean };
 /** Writes to one note run one after another. */

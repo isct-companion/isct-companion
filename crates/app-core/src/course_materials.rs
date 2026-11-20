@@ -63,7 +63,7 @@ pub enum Material {
         page: SchoolWebTarget,
     },
     /// A downloaded ZIP small enough to show as a folder
-    /// (`course_archive::list`): its files open like any other source
+    /// (`file_preview::archive::list`): its files open like any other source
     /// (`archive_entry_source`), each downloaded file of its own.
     Archive {
         file: LocalFile,
@@ -205,7 +205,7 @@ impl CourseMaterials {
         Ok(match material {
             Material::Ready { file, page } if is_zip(&file) => {
                 let path = PathBuf::from(&file.path);
-                match blocking(move || Ok(crate::course_archive::list(&path))).await? {
+                match blocking(move || Ok(crate::file_preview::archive::list(&path))).await? {
                     Some(entries) => Material::Archive {
                         files: entries
                             .into_iter()
@@ -253,7 +253,7 @@ impl CourseMaterials {
         };
         let path = directory.join(cache_name(&base, &source));
         let opened = blocking(move || {
-            use crate::course_archive::{extract, Extracted};
+            use crate::file_preview::archive::{extract, Extracted};
             // Extracted once, again only when the archive was downloaded anew.
             let current = regular_file(&path)?
                 && fs::metadata(&path)

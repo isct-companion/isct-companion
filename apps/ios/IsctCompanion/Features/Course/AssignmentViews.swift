@@ -215,7 +215,7 @@ struct MaterialPlace {
 
 /// Opens an item or link as Core decides (`open_material`): a file Core
 /// fetches with the signed-in LMS session (or from the course folder) shows
-/// in Quick Look, a school page opens in its in-app view, any other page in
+/// as its viewer says, a ZIP as a folder, a school page opens in its in-app view, any other page in
 /// the system browser. When the file is not shown, the alert offers the LMS
 /// page Core names for it. A download that only failed this time asks
 /// instead of showing the LMS page: silently doing so made Share hand out a
@@ -238,9 +238,16 @@ final class MaterialOpening {
         busy = true
         defer { busy = false }
         switch await place.model.openMaterial(courseId: course, source: source) {
-        // A ZIP Core lists as its files still opens whole in Quick Look here.
-        case let .ready(file, _)?, let .archive(file, _, _)?:
+        // How a file shows is Core's (`file_preview`): Markdown on a page of
+        // its own, everything else in Quick Look, which previews what iOS can
+        // and offers another app for the rest.
+        case let .ready(file, _)? where file.viewer == .markdown:
+            place.push(CourseMarkdownRoute(path: file.path, title: title))
+        case let .ready(file, _)?:
             preview = URL(fileURLWithPath: file.path)
+        // A ZIP Core lists opens as a folder of its files.
+        case .archive?:
+            place.push(CourseArchiveRoute(courseId: course, source: source, title: title))
         case let .page(site, url)?:
             place.push(WebRouter.PushedPage(site: site, target: url, title: title))
         case let .external(url)?:
