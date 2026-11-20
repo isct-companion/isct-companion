@@ -39,14 +39,15 @@ final class AppModel {
     /// Undo for the last hide, built from the intent Core committed.
     private(set) var undo: UndoAction?
     /// One "needs you" banner (sync feedback level 3).
-    var problem: String?
+    private(set) var problem: String?
     /// Cells read so far by a running Matrix scan, from Core's `ocr-progress`.
-    var ocrProgress = 0
+    private(set) var ocrProgress = 0
+    private var ocrOperation: UInt64?
     /// The commit sequence of the latest answers; open screens re-query when
     /// it moves.
     private(set) var contentRevision = ""
     /// Core's cloud journal: providers, unfinished tasks, versions, recovery files.
-    var cloud: SyncState?
+    private(set) var cloud: SyncState?
     /// A newer release on the App Store, shown in Settings.
     private(set) var availableUpdate: AppRelease?
     /// A release a check of its own found, offered once over the page.
@@ -353,12 +354,17 @@ final class AppModel {
                         if let snapshot = try? decodeSyncSnapshot(payload: event.payload) {
                             apply(snapshot)
                         }
-                    // The whole snapshot; credentials synced from another
-                    // device change it too, so both are read again.
                     case "school-session":
-                        await refreshAccounts()
+                        if let snapshot = try? decodeSchoolSession(payload: event.payload) {
+                            apply(snapshot)
+                            await refreshCredentials()
+                        } else {
+                            await refreshAccounts()
+                        }
                     case "ocr-progress":
                         if let row = try? JSONSerialization.jsonObject(with: Data(event.payload.utf8)) as? [String: Any],
+                            let operation = (row["operationId"] as? NSNumber)?.uint64Value,
+                            operation == ocrOperation,
                             let completed = (row["completed"] as? NSNumber)?.intValue
                         {
                             ocrProgress = completed
@@ -473,18 +479,35 @@ final class AppModel {
 
     func refreshAccounts() async {
         guard let session else { return }
-        if case let .credentials(status)? = try? await session.credentialStatus().value() {
-            credentials = status
-        }
         if case let .schoolSession(snapshot)? = try? await session.schoolSession().value() {
             apply(snapshot)
+        }
+        await refreshCredentials()
+    }
+
+    private func refreshCredentials() async {
+        guard let session else { return }
+        if case let .credentials(status)? = try? await session.credentialStatus().value() {
+            credentials = status
         }
     }
 
     /// A read that started before a newer school session must not replace it.
     func apply(_ snapshot: SchoolSessionSnapshot) {
-        guard snapshot.revision >= (schoolSessions?.revision ?? 0) else { return }
+        if let current = schoolSessions, snapshot.revision <= current.revision { return }
         schoolSessions = snapshot
+    }
+
+    /// Reads the 70 Matrix cells from one photo, in row order (A1…J1, A2…).
+    func scanMatrix(_ image: Data) async throws -> [MatrixCell] {
+        guard let session else { return [] }
+        ocrProgress = 0
+        let operation = try session.scanMatrix(image: image)
+        let id = operation.id()
+        ocrOperation = id
+        defer { if ocrOperation == id { ocrOperation = nil } }
+        guard case let .recognitions(cells) = try await operation.value() else { return [] }
+        return cells
     }
 
     private func refreshSyncSnapshot() async {
@@ -875,6 +898,75 @@ extension AppModel {
         _ = try await session.syncCloud(direction: .pull).value()
         await refreshCloud()
         await refresh()
+    }
+}
+
+// MARK: - Backup
+
+/// The desktop's Backup settings over the same Core journal: iCloud and Drive on or off,
+/// automatic or by-hand sync, earlier versions, local recovery files and a
+/// backup file. Core decides what uploads, merges and restores.
+extension AppModel {
+    func refreshCloud() async {
+        guard let session else { return }
+        if case let .cloud(state)? = try? await session.cloudState().value() {
+            cloud = state
+        }
+    }
+
+    /// Turning Drive on first shows Google's sign-in; Core keeps it off with
+    /// the reason if the sign-in fails.
+    func setCloudEnabled(_ provider: CloudProvider, _ enabled: Bool) async {
+        await cloudOperation { try $0.setCloudEnabled(provider: provider, enabled: enabled) }
+    }
+
+    func setCloudAutomatic(_ automatic: Bool) async {
+        await cloudOperation { try $0.setCloudAutomatic(enabled: automatic) }
+    }
+
+    func syncCloud(_ direction: Direction) async {
+        await cloudOperation { try $0.syncCloud(direction: direction) }
+        await refresh()
+    }
+
+    /// Restores a cloud version or a local recovery file, on every connected device.
+    func restoreCloud(_ id: String) async {
+        await cloudOperation { try $0.restoreCloud(id: id) }
+        await refresh()
+    }
+
+    /// The current workspace as a backup file (the desktop's Export…).
+    func exportBackup() async -> String? {
+        guard let session else { return nil }
+        do {
+            guard case let .text(value) = try await session.exportBackup().value() else { return nil }
+            return value
+        } catch {
+            problem = Self.describe(error)
+            return nil
+        }
+    }
+
+    /// Imports a backup file from this or another device; Core saves a recovery
+    /// file first and publishes the import to iCloud like any restore.
+    func importBackup(_ data: Data) async throws {
+        guard let session else { return }
+        // Core validates the document and rejects anything that is not a backup.
+        _ = try await session.applyBackup(document: String(decoding: data, as: UTF8.self)).value()
+        await refreshCloud()
+        await refresh()
+    }
+
+    private func cloudOperation(_ start: (Session) throws -> IsctCore.Operation) async {
+        guard let session else { return }
+        do {
+            if case let .cloud(state) = try await start(session).value() {
+                cloud = state
+            }
+        } catch {
+            problem = Self.describe(error)
+            await refreshCloud()
+        }
     }
 }
 

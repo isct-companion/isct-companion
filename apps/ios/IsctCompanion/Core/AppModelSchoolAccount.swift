@@ -39,14 +39,6 @@ extension AppModel {
         return value
     }
 
-    /// Reads the 70 Matrix cells from one photo, in row order (A1…J1, A2…).
-    func scanMatrix(_ image: Data) async throws -> [MatrixCell] {
-        guard let session else { return [] }
-        ocrProgress = 0
-        guard case let .recognitions(cells) = try await session.scanMatrix(image: image).value() else { return [] }
-        return cells
-    }
-
     /// Starts a live Matrix scan; its ten-second budget starts now.
     func beginMatrixCamera() throws -> MatrixCameraSession {
         guard let session else { throw SdkError.Closed }

@@ -77,10 +77,9 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         private set
     /** Core's school session per account: state, problem, retry time and
      * maintenance, rendered as they are. */
-    var sessions: SchoolSessionProfiles? by mutableStateOf(null)
-        private set
-    /** The `revision` of the snapshot [sessions] came from. */
-    private var sessionRevision: ULong? = null
+    private var schoolSession: SchoolSessionSnapshot? by mutableStateOf(null)
+    val sessions: SchoolSessionProfiles?
+        get() = schoolSession?.profiles
     /** Core's sync planner: its runs and sources, rendered as they are. */
     var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
         private set
@@ -93,13 +92,14 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         private set
     /** One "needs you" banner (sync feedback level 3). */
     var problem: String? by mutableStateOf(null)
-        internal set
+        private set
     /** Cells read so far by a running Matrix scan, from Core's `ocr-progress`. */
     var ocrProgress: Int by mutableStateOf(0)
-        internal set
+        private set
+    private var ocrOperation: ULong? = null
     /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
     var cloud: SyncState? by mutableStateOf(null)
-        internal set
+        private set
     /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
      * events and `Account` answers report it; null until the page reads it. */
     var examAccount: ExamAccount? by mutableStateOf(null)
@@ -350,21 +350,26 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
                 is StreamUpdate.Event -> when (update.event.name) {
                     "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
                         .onSuccess(::apply)
-                    // The whole snapshot. Credentials another device synced
-                    // change it too, so their summary is read again.
                     "school-session" -> {
-                        runCatching { decodeSchoolSession(update.event.payload) }
-                            .onSuccess(::applySchool)
-                            .onFailure { scope.launch { refreshAccounts() } }
-                        scope.launch { refreshCredentials() }
+                        val snapshot = runCatching { decodeSchoolSession(update.event.payload) }.getOrNull()
+                        if (snapshot == null) {
+                            refreshAccounts()
+                        } else {
+                            applySchool(snapshot)
+                            refreshCredentials()
+                        }
                     }
                     "cloud-sync-state" -> refreshCloud()
                     "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
                         .onSuccess(::applyDirective)
                     "exam-account" -> runCatching { decodeExamAccount(update.event.payload) }
                         .onSuccess { examAccount = it }
-                    "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
-                        .onSuccess { ocrProgress = it }
+                    "ocr-progress" -> runCatching {
+                        val progress = JSONObject(update.event.payload)
+                        if (progress.getLong("operationId").toULong() == ocrOperation) {
+                            ocrProgress = progress.getInt("completed")
+                        }
+                    }
                     "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
@@ -454,11 +459,11 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         }
     }
 
-    suspend fun refreshAccounts() {
-        refreshCredentials()
+    internal suspend fun refreshAccounts() {
         val session = session ?: return
         runCatching { (session.schoolSession().value() as? OperationResult.SchoolSession)?.snapshot }
             .getOrNull()?.let(::applySchool)
+        refreshCredentials()
     }
 
     private suspend fun refreshCredentials() {
@@ -772,6 +777,63 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         refreshCloud()
     }
 
+    // Backup: the desktop's Backup settings over the same Core journal. Core
+    // decides what uploads, merges and restores.
+
+    suspend fun refreshCloud() {
+        val session = session ?: return
+        (runCatching { session.cloudState().value() }.getOrNull() as? OperationResult.Cloud)
+            ?.let { cloud = it.state }
+    }
+
+    /** Turning Drive on first shows Google's consent; Core keeps it off with
+     * the reason if that fails. */
+    suspend fun setCloudEnabled(provider: CloudProvider, enabled: Boolean) =
+        cloudOperation { it.setCloudEnabled(provider, enabled) }
+
+    suspend fun setCloudAutomatic(automatic: Boolean) = cloudOperation { it.setCloudAutomatic(automatic) }
+
+    suspend fun syncCloud(direction: Direction) {
+        cloudOperation { it.syncCloud(direction) }
+        refresh()
+    }
+
+    /** Restores a cloud version or a local recovery file, on every connected device. */
+    suspend fun restoreCloud(id: String) {
+        cloudOperation { it.restoreCloud(id) }
+        refresh()
+    }
+
+    /** The current workspace as a backup file (the desktop's Export…). */
+    suspend fun exportBackup(): String? {
+        val session = session ?: return null
+        return try {
+            (session.exportBackup().value() as? OperationResult.Text)?.value
+        } catch (error: Exception) {
+            problem = describe(error)
+            null
+        }
+    }
+
+    /** Imports a backup file; Core saves a recovery file first and publishes
+     * the import like any restore. Core rejects anything that is not a backup. */
+    suspend fun importBackup(text: String) {
+        val session = session ?: return
+        session.applyBackup(text).value()
+        refreshCloud()
+        refresh()
+    }
+
+    private suspend fun cloudOperation(start: (Session) -> Operation) {
+        val session = session ?: return
+        try {
+            (start(session).value() as? OperationResult.Cloud)?.let { cloud = it.state }
+        } catch (error: Exception) {
+            problem = describe(error)
+            refreshCloud()
+        }
+    }
+
     /** After a full reset, as the desktop's: the providers that were on are
      * turned on again, then their copy is pulled. Throws when either fails. */
     suspend fun restoreFromCloud(providers: List<CloudProvider>) {
@@ -803,39 +865,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             }
             return listOfNotNull(line, maintenance.notice?.ifBlank { null }).joinToString("\n")
         }
-
-        /** Core's `school-session` payload, the snapshot in its serde names. */
-        private fun decodeSchoolSession(payload: String): SchoolSessionSnapshot {
-            val row = JSONObject(payload)
-            val profiles = row.getJSONObject("profiles")
-            return SchoolSessionSnapshot(
-                revision = row.getLong("revision").toULong(),
-                profiles = SchoolSessionProfiles(
-                    science = profileSession(profiles.getJSONObject("science")),
-                    tokyoTech = profileSession(profiles.getJSONObject("tokyoTech")),
-                ),
-            )
-        }
-
-        private fun profileSession(row: JSONObject) = SchoolProfileSession(
-            signOutPending = row.getBoolean("signOutPending"),
-            refusalUnsaved = row.getBoolean("refusalUnsaved"),
-            state = wire(row.getString("state")),
-            presentation = row.getJSONObject("presentation").let { presentation ->
-                val recovery = presentation.getJSONArray("recovery")
-                SignInPresentation(
-                    stateKey = presentation.getString("stateKey"),
-                    reasonKey = presentation.text("reasonKey"),
-                    recovery = (0 until recovery.length()).map { wire<SignInRecovery>(recovery.getString(it)) },
-                )
-            },
-            problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
-            retryAt = row.text("retryAt"),
-            maintenance = row.optJSONObject("maintenance")?.let { SchoolMaintenance(it.text("notice"), it.getString("until")) },
-        )
-
-        /** A kebab-case serde name as its enum entry (`needs-web` → `NEEDS_WEB`). */
-        private inline fun <reified T : Enum<T>> wire(raw: String): T = enumValueOf(raw.uppercase().replace('-', '_'))
 
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)

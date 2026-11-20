@@ -1,12 +1,5 @@
 package app.isctcompanion.features.settings
 
-import app.isctcompanion.core.exportBackup
-import app.isctcompanion.core.importBackup
-import app.isctcompanion.core.refreshCloud
-import app.isctcompanion.core.restoreCloud
-import app.isctcompanion.core.setCloudAutomatic
-import app.isctcompanion.core.setCloudEnabled
-import app.isctcompanion.core.syncCloud
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts

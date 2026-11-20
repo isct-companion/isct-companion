@@ -3,7 +3,6 @@ package app.isctcompanion.features.settings
 import app.isctcompanion.core.beginMatrixCamera
 import app.isctcompanion.core.canScanMatrix
 import app.isctcompanion.core.otpSetupLink
-import app.isctcompanion.core.scanMatrix
 import app.isctcompanion.shared.StillCameraResult
 import app.isctcompanion.shared.rememberStillCamera
 import android.content.ActivityNotFoundException

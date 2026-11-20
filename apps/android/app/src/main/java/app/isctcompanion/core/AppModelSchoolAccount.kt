@@ -37,13 +37,6 @@ internal suspend fun AppModel.otpSetupLink(): String {
 internal val AppModel.canScanMatrix: Boolean
     get() = runCatching { session?.capabilities()?.ocr }.getOrNull() == true
 
-/** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
-internal suspend fun AppModel.scanMatrix(image: ByteArray): List<MatrixCell> {
-    val session = session ?: return emptyList()
-    ocrProgress = 0
-    return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
-}
-
 /** Starts a live Matrix scan; its ten-second budget starts now. */
 internal fun AppModel.beginMatrixCamera(): MatrixCameraSession =
     session?.beginMatrixCamera() ?: throw SdkException.Closed()
