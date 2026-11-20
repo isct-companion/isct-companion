@@ -2551,6 +2551,7 @@ describe("a past exam's Markdown document", () => {
           offline: true,
           webUrl: "https://example.test/exam-1",
           viewer: "markdown",
+          exportName: "midterm.md",
         }}
         title="Midterm"
         call={async () => undefined}

@@ -13,6 +13,9 @@ struct ExamDocumentScreen: View {
     @State private var file: ExamLocalDocument?
     @State private var failed = false
     @State private var showsReport = false
+    /// The opened copy under its export name, for Share: the cached file
+    /// has a generated name.
+    @State private var shareCopy: URL?
 
     var body: some View {
         Group {
@@ -38,6 +41,13 @@ struct ExamDocumentScreen: View {
             }
         }
         .background(Theme.bg)
+        .task(id: file?.path) {
+            removeShareCopy()
+            guard let file else { return }
+            let (path, name) = (file.path, file.exportName)
+            shareCopy = await Task.detached { Self.namedCopy(of: path, as: name) }.value
+        }
+        .onDisappear { removeShareCopy() }
         .navigationTitle(file.map { examName($0.document) } ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -65,6 +75,29 @@ struct ExamDocumentScreen: View {
         .examPageFeedback(page)
     }
 
+    private func removeShareCopy() {
+        if let shareCopy { try? FileManager.default.removeItem(at: shareCopy.deletingLastPathComponent()) }
+        shareCopy = nil
+    }
+
+    /// A copy of the file at `path` named `name`, in a folder of its own
+    /// under the temporary directory.
+    nonisolated private static func namedCopy(of path: String, as name: String) -> URL? {
+        let manager = FileManager.default
+        let folder = manager.temporaryDirectory
+            .appendingPathComponent("exam-share", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let copy = folder.appendingPathComponent(name)
+        do {
+            try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+            try manager.copyItem(at: URL(fileURLWithPath: path), to: copy)
+            return copy
+        } catch {
+            try? manager.removeItem(at: folder)
+            return nil
+        }
+    }
+
     private func actions(_ file: ExamLocalDocument) -> some View {
         Menu {
             Button(t(file.downloaded ? "examShare.downloaded" : "examShare.download"), systemImage: "arrow.down.circle") {
@@ -77,7 +110,7 @@ struct ExamDocumentScreen: View {
                 }
                 .disabled(file.offline)
             }
-            ShareLink(item: URL(fileURLWithPath: file.path)) {
+            ShareLink(item: shareCopy ?? URL(fileURLWithPath: file.path)) {
                 Label(t("common.share"), systemImage: "square.and.arrow.up")
             }
             if let web = URL(string: file.webUrl) {

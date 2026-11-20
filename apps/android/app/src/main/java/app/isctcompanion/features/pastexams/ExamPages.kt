@@ -43,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -60,6 +61,7 @@ import app.isctcompanion.core.ExamUploadStart
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.FileViewer
+import app.isctcompanion.design.shareCopy
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import java.io.File
@@ -240,6 +242,7 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
  * zoom, photos zoom, Markdown formatted, text as text); actions in the menu. */
 @Composable
 fun ExamDocumentScreen(id: String) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
     val calls = rememberExamCalls()
@@ -284,6 +287,13 @@ fun ExamDocumentScreen(id: String) {
                                 enabled = !calls.busy && !current.offline,
                             )
                         }
+                        // The opened copy under the uploader's name (Core's exportName).
+                        DropdownMenuItem({ Text(t("common.share")) }, {
+                            menu = false
+                            scope.launch {
+                                shareCopy(context, File(current.path), current.exportName, current.document.fileType)
+                            }
+                        })
                         DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, { menu = false; links.open(current.webUrl) })
                         DropdownMenuItem(
                             { Text(t("examShare.report"), color = Theme.colors.danger) },

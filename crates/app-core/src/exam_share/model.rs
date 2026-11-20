@@ -147,6 +147,10 @@ pub struct ExamLocalDocument {
     pub web_url: String,
     /// How the shells show it (`file_preview`).
     pub viewer: Viewer,
+    /// The name a saved or shared copy takes: the uploader's name, with the
+    /// validated type's suffix when its own extension is not one that type
+    /// allows. The cached file at `path` has a generated name.
+    pub export_name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
