@@ -18,11 +18,9 @@ const excludedPaths = [
   /(?:^|\/)generated\//i, // design tokens and bindings written by generators
   /(?:^|\/)tests\//i, // test code, measured by its own suites
   /(?:^|\/)vendor\//i, // third-party sources
-  /(?:^|\/)(?:\.build|target)\//i, // SwiftPM and Cargo build output
   /\/app\/isct\/design\//, // Android token classes from design/build.mjs
   /\/IsctWidgets\/IsctTokens(?:Dark)?\.swift$/, // widget tokens from design/build.mjs
   /\/course_palette\.rs$/, // Core course palette from design/build.mjs
-  /\.gen\.rs$/, // other generated Rust
 ];
 
 export const isAuditedSource = (file) =>
