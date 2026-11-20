@@ -1,6 +1,6 @@
 import { DueChip } from "../../components/DueChip";
 import type { Assignment, TermId, Workspace } from "../../lib/model";
-import { submissionLabel } from "../../lib/academic";
+import { assignmentRowStatus, submissionLabel } from "../../lib/academic";
 import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../../features/lms";
@@ -29,28 +29,19 @@ export function LectureAssignments({
   const taskTerm = taskView?.byTerm?.[shownTerm];
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
   const courseById = new Map(data.courses.map((course) => [course.id, course]));
-  const submittedIds = new Set(taskView?.submittedIds);
   const matchesWork = (assignment: Assignment) => {
     return Boolean(search?.assignmentIds.includes(assignment.id));
   };
   const workRow = (assignment: Assignment) => {
     const course = courseById.get(assignment.courseId);
     const due = taskView?.deadlines?.[assignment.id];
-    const submitted = submittedIds.has(assignment.id);
-    // The same states as Today: submitted early, missed, or closed.
-    const state =
-      due?.state === "overdue"
-        ? submitted
-          ? " closed"
-          : " missed"
-        : submitted
-          ? " done"
-          : "";
+    const state = taskView?.states?.[assignment.id];
+    const { submitted, tone } = assignmentRowStatus(state, due);
     return (
       <button
         type="button"
         key={assignment.id}
-        className={`lectureRow${state}${entry?.assignmentId === assignment.id ? " selected" : ""}`}
+        className={`lectureRow${tone}${entry?.assignmentId === assignment.id ? " selected" : ""}`}
         aria-current={
           entry?.assignmentId === assignment.id ? "true" : undefined
         }
@@ -59,8 +50,7 @@ export function LectureAssignments({
       >
         <b>{assignment.title}</b>
         <small>
-          {course?.title ?? "LMS"} ·{" "}
-          {submissionLabel(assignment, t, taskView?.states?.[assignment.id])}
+          {course?.title ?? "LMS"} · {submissionLabel(assignment, t, state)}
         </small>
         {due && (
           <DueChip

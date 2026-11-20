@@ -379,7 +379,6 @@ async function openWorkspace(
     entry: { courseId: fixture.course.id, request: 1, ...options.entry },
     active: options.active ?? true,
     schoolWebAvailable: options.schoolWebAvailable ?? false,
-    close: () => {},
     markLesson: options.markLesson,
   };
   const view = await mount(
@@ -803,14 +802,12 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
-  it("filters bilingual school text by the content language, and shows the original on request", async () => {
+  it("shows Core’s preferred course text and opens the original on request", async () => {
     const f = lectureFixture();
     f.workspace.settings.locale = "en";
-    f.workspace.settings.lmsBilingualFilter = true;
-    f.record.sections![0].bodyHtml =
-      '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
     const content = contentFor(f);
-    content.lessons[0].originalSummaryHtml = content.lessons[0].summaryHtml;
+    content.lessons[0].originalSummaryHtml =
+      '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
     content.lessons[0].summaryHtml = '<p lang="ja">日本語の概要</p>';
     const { host } = await openWorkspace(f, {
       entry: { request: 700 },
@@ -1160,7 +1157,6 @@ describe("the LMS reading workspace", () => {
     const { host } = await openWorkspace(f, {
       entry: { request: 3, assignmentId: "a1" },
       tasks: {
-        submittedIds: ["a1"],
         states: { a1: "submitted" },
         deadlines: {
           a1: {
@@ -1535,7 +1531,6 @@ describe("the LMS reading workspace", () => {
         entry={{ courseId: f.course.id, request: 1 }}
         active={active}
         schoolWebAvailable={false}
-        close={() => {}}
       />
     );
     const view = await mount(node(false));

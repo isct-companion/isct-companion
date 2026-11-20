@@ -27,12 +27,12 @@
 }
 .lmsHeaderActions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--workspace-gutter); margin-left: auto; }
 .lmsEntryTime { white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
-.lmsBack, .lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
+.lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
   display: inline-flex; align-items: center; gap: var(--space-3); border: 0; border-radius: var(--radius-control);
   background: none; color: var(--accent) !important; white-space: nowrap; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500;
 }
-.lmsBack, .lmsRefresh { padding: 7px var(--space-5); }
-.lmsBack:hover, .lmsRefresh:hover:not(:disabled), .lmsOutlineTools button:hover { background: var(--accent-soft); }
+.lmsRefresh { padding: 7px var(--space-5); }
+.lmsRefresh:hover:not(:disabled), .lmsOutlineTools button:hover { background: var(--accent-soft); }
 .lmsRefresh:disabled { opacity: .5; cursor: default; }
 
 .lmsWorkspaceBody { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }

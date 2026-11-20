@@ -85,10 +85,6 @@ pub struct TermTaskView {
 #[serde(rename_all = "camelCase")]
 pub struct TaskView {
     pub deadlines: BTreeMap<String, TaskDeadlineView>,
-    /// Visible assignments Core treats as submitted (`submission` submitted
-    /// or graded, or LMS `submissionStatus` submitted). Shells render this
-    /// instead of applying their own rule.
-    pub submitted_ids: Vec<String>,
     pub states: BTreeMap<String, AssignmentState>,
     pub hand_in_availability: BTreeMap<String, HandInAvailability>,
     pub nearest_by_course: BTreeMap<String, String>,
@@ -203,11 +199,6 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
             deadlines.insert(id.to_owned(), deadline_view(due, now));
         }
     }
-    let submitted_ids = states
-        .iter()
-        .filter(|(_, state)| state.is_submitted())
-        .map(|(id, _)| id.clone())
-        .collect();
     let mut nearest_by_course = BTreeMap::<String, (DateTime<FixedOffset>, String)>::new();
     for row in array(workspace, "assignments")
         .iter()
@@ -338,7 +329,6 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     }
     Ok(TaskView {
         deadlines,
-        submitted_ids,
         states,
         hand_in_availability: availability,
         nearest_by_course: nearest_by_course

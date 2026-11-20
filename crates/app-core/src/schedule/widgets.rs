@@ -346,6 +346,7 @@ fn assignment_content(
     let rows = open_assignment_groups(workspace, time)?
         .into_open()
         .map(|item| {
+            let overdue = item.overdue();
             Ok(AssignmentRow {
                 title: item.title,
                 course_title: item.course_title,
@@ -356,7 +357,7 @@ fn assignment_content(
                     .map(parse_timestamp)
                     .transpose()?
                     .map(|at| at.to_utc()),
-                overdue: item.overdue,
+                overdue,
                 pinned: item.pinned,
                 destination: WidgetDestination::Assignment {
                     id: item.assignment_id,

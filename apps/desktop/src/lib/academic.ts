@@ -1,4 +1,7 @@
-import type { AssignmentState } from "../generated/persistence";
+import type {
+  AssignmentState,
+  TaskDeadlineView,
+} from "../generated/persistence";
 import type { Assignment } from "./model";
 import type { MessageKey } from "../i18n";
 export { JST } from "./civil-date";
@@ -17,4 +20,21 @@ export function submissionLabel(
   return translate(
     assignment.submission === "open" ? "status.open" : "status.unknown",
   );
+}
+
+/** Visual status of a list row and its deadline chip. */
+export function assignmentRowStatus(
+  state: AssignmentState | undefined,
+  deadline: TaskDeadlineView | undefined,
+) {
+  const submitted = state === "submitted" || state === "graded";
+  const tone =
+    deadline?.state === "overdue"
+      ? submitted
+        ? " closed"
+        : " missed"
+      : submitted
+        ? " done"
+        : "";
+  return { submitted, tone };
 }

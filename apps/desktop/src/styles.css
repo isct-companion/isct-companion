@@ -1528,11 +1528,6 @@ summary,
       opacity: 0;
     }
   }
-  @keyframes todayRailIn {
-    from {
-      opacity: 0;
-    }
-  }
   @keyframes daySwap {
     from {
       opacity: 0;
@@ -2477,111 +2472,6 @@ summary,
   flex: 1;
   color: var(--muted);
 }
-
-.todayNavigation {
-  width: 100%;
-  padding: 0 !important;
-}
-.todayNavigation .todayHeader {
-  padding: var(--space-6) 0 var(--space-8);
-}
-.todayNavigation .todayHeader h1 {
-  font-size: 15px;
-  line-height: 1.3;
-  font-weight: 500;
-}
-.todayNavigation .todayEyebrow {
-  display: none;
-}
-.todayNavigation .teachingState {
-  display: none;
-}
-.todayNavigation .todayFlow {
-  display: block;
-}
-.todayNavigation .todaySection {
-  padding: 18px 0;
-}
-.todayNavigation .todaySection > header {
-  margin-bottom: var(--space-5);
-}
-.todayNavigation .todaySection h2 {
-  font-size: calc(var(--type-block-size) * var(--text));
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
-.todayNavigation .todaySection > header > button,
-.todayNavigation .todaySection > header > span {
-  display: none;
-}
-.todayNavigation .dayAgendaRow {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: var(--space-row-y) var(--space-row-x);
-  min-height: 0;
-  border-radius: 5px;
-}
-.todayNavigation .dayAgendaRow.focus {
-  background: none;
-}
-.todayNavigation .dayAgendaRow.selected,
-.todayNavigation .dueAssignment.selected {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.todayNavigation .dayAgendaRow time {
-  font-size: calc(var(--type-tick-size) * var(--text));
-  color: var(--muted);
-  width: auto;
-}
-.todayNavigation .agendaState,
-.todayNavigation .agendaLine,
-.todayNavigation .agendaCourse small {
-  display: none;
-}
-.todayNavigation .agendaCourse b {
-  font-size: calc(var(--type-note-size) * var(--text));
-  line-height: 1.5;
-  font-weight: 500;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.todayNavigation .dueRow {
-  display: block;
-  padding: 0;
-}
-.todayNavigation .dueRow > i,
-.todayNavigation .dueRow > .textButton {
-  display: none;
-}
-.todayNavigation .dueAssignment {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  align-items: flex-start;
-  padding: var(--space-row-y) 8px;
-  border-radius: 5px;
-  width: 100%;
-}
-.todayNavigation .dueAssignment b {
-  font-size: calc(var(--type-note-size) * var(--text));
-  line-height: 1.5;
-  font-weight: 500;
-}
-.todayNavigation .dueAssignment small {
-  display: none;
-}
-.todayNavigation .dueAssignment time {
-  font-size: calc(var(--type-tick-size) * var(--text));
-}
-.todayNavigation .moreToggle {
-  font-size: calc(var(--type-block-size) * var(--text));
-}
-
 /* ---------- Courses: syllabus side panel and course details over it ---------- */
 .coursesLeft {
   position: relative;
@@ -3517,92 +3407,11 @@ textarea.codeArea {
   height: 30px;
   font-size: calc(var(--type-note-size) * var(--text));
 }
-/* Radix places it under the input (today/CourseFinder.tsx): at least 340px
-   wide, inside the window, and never past the space below the input. */
-.courseFinderList {
-  z-index: 1000;
-  width: min(
-    max(var(--radix-popover-trigger-width), 340px),
-    calc(100vw - 16px)
-  );
-  max-width: none;
-  max-height: min(
-    420px,
-    calc(var(--radix-popover-content-available-height) - 12px)
-  );
-  overflow: auto;
-  padding: var(--space-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
-}
-.courseFinderList section + section {
-  margin-top: var(--space-2);
-  border-top: 1px solid var(--line);
-  padding-top: var(--space-2);
-}
-.courseFinderList small {
-  display: block;
-  padding: var(--space-3) var(--space-4) var(--space-2);
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.courseFinderList button {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 6px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  border-radius: 5px;
-  background: none;
-  color: var(--ink);
-  text-align: left;
-  font: inherit;
-  font-size: calc(var(--type-note-size) * var(--text));
-  cursor: default;
-}
-.courseFinderList button.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.courseFinderList button i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.courseFinderList button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.courseFinderList code {
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-}
-.courseFinderList p {
-  padding: var(--space-5) var(--space-4);
-  color: var(--muted);
-  font-size: calc(var(--type-note-size) * var(--text));
-}
-
-/* ---------- today: motion ----------
-   Opacity/transform only. Full Today rises in, the workstation rail slides in
-   from the left, and a picked day slides from the side it came from. */
+/* Today rises in, and a picked day slides from the side it came from. */
 @keyframes todayRise {
   from {
     opacity: 0;
     transform: translate3d(0, 10px, 0);
-  }
-}
-@keyframes todayRailIn {
-  from {
-    opacity: 0;
-    transform: translate3d(-12px, 0, 0);
   }
 }
 @keyframes daySwap {
@@ -3611,39 +3420,19 @@ textarea.codeArea {
     transform: translate3d(calc(var(--swap, 0) * 14px), 0, 0);
   }
 }
-.todayPage:not(.todayNavigation) > .todayHeader,
-.todayPage:not(.todayNavigation) > .todayFlow > * {
+.todayPage > .todayHeader,
+.todayPage > .todayFlow > * {
   animation: todayRise var(--motion-duration-slow)
     var(--motion-easing-emphasized) backwards;
 }
-.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(1) {
+.todayPage > .todayFlow > :nth-child(1) {
   animation-delay: 50ms;
 }
-.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(2) {
+.todayPage > .todayFlow > :nth-child(2) {
   animation-delay: 100ms;
 }
-.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(3) {
+.todayPage > .todayFlow > :nth-child(3) {
   animation-delay: 150ms;
-}
-.todayNavigation > *,
-.todayNavigation > .todayFlow > * {
-  animation: todayRailIn var(--motion-duration-slow)
-    var(--motion-easing-emphasized) backwards;
-}
-.todayNavigation > .todayFlow {
-  animation: none;
-}
-.todayNavigation > .todayHeader {
-  animation-delay: 30ms;
-}
-.todayNavigation > .todayFlow > :nth-child(1) {
-  animation-delay: 60ms;
-}
-.todayNavigation > .todayFlow > :nth-child(2) {
-  animation-delay: 90ms;
-}
-.todayNavigation > .todayFlow > :nth-child(3) {
-  animation-delay: 120ms;
 }
 .daySwap,
 .weekDay b {

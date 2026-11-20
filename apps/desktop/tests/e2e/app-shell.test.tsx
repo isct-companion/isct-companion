@@ -194,7 +194,6 @@ function shellQueries(): QueryTable {
       byTerm: {},
       nearestByCourse: {},
       deadlines: {},
-      submittedIds: [],
       states: {},
       handInAvailability: {},
     },

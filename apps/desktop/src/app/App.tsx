@@ -591,11 +591,6 @@ export function WorkspaceApp() {
       openPastExams={openPastExams}
       openWeb={(url) => openWeb(url, "lectures")}
       schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
-      close={() =>
-        void hideNativeSchoolWeb()
-          .then(() => navigate(paths.lectures()))
-          .catch(notify.error)
-      }
       canSync={canSync}
       sync={sync}
     />

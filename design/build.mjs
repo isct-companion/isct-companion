@@ -443,9 +443,6 @@ export async function staleOutputs() {
     await build(out);
     const stale = [];
     for (const file of Object.values(outputs)) {
-      // Native SDK assets generated under ignored design/dist have no
-      // committed baseline to compare.
-      if (file.startsWith("design/dist/")) continue;
       const fresh = await readFile(path.join(out, file), "utf8");
       const committed = await readFile(path.join(repoRoot, file), "utf8").catch(
         () => null,

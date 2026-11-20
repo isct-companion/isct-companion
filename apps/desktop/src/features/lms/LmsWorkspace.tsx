@@ -83,12 +83,10 @@ export function LmsWorkspaceBody({
   entry,
   active,
   schoolWebAvailable,
-  close,
   refresh,
   progress,
   updatedAt,
   markLesson,
-  navigationProvided = false,
   headerStart,
   openPastExams,
   openWeb,
@@ -99,13 +97,11 @@ export function LmsWorkspaceBody({
   entry: CourseEntry;
   active: boolean;
   schoolWebAvailable: boolean;
-  navigationProvided?: boolean;
   headerStart?: ReactNode;
   openPastExams?: () => void;
   /** Opens a school page on the Web page. */
   openWeb?: (url: string) => void;
   openAccounts?: () => void;
-  close: () => void;
   /** Asks Core to refresh this course now (`Refresh { course }`). */
   refresh?: () => void;
   /** Core's runs for this course; null while nothing reads it. */
@@ -117,7 +113,15 @@ export function LmsWorkspaceBody({
 }) {
   const key = `${data.deviceId}:${course.id}`;
   const outlineState = useOutlineReadingState(key);
-  const { saved, expanded, setExpanded, readingSection, query, setQuery, outline } = outlineState;
+  const {
+    saved,
+    expanded,
+    setExpanded,
+    readingSection,
+    query,
+    setQuery,
+    outline,
+  } = outlineState;
   const [opened, setOpened] = useState<OpenedContent | undefined>(
     saved?.opened,
   );
@@ -265,7 +269,13 @@ export function LmsWorkspaceBody({
   /** The lesson the course is at, for marking rows of schedule tables. */
   const at = lessons.find((l) => l.section === content?.currentSection);
   const atIndex = lessons.findIndex((l) => l.id === at?.id);
-  const reading = useOutlineReading(outlineState, sections, lessons, at, opened);
+  const reading = useOutlineReading(
+    outlineState,
+    sections,
+    lessons,
+    at,
+    opened,
+  );
   const {
     pinned,
     paged,
@@ -409,7 +419,8 @@ export function LmsWorkspaceBody({
   const assignmentContent = (a: Assignment) => {
     const detail = details.get(a.id);
     const assignmentState = taskView?.states?.[a.id] ?? detail?.state;
-    const availability = taskView?.handInAvailability?.[a.id] ?? detail?.handInAvailability;
+    const availability =
+      taskView?.handInAvailability?.[a.id] ?? detail?.handInAvailability;
     const deadline = detail?.deadline ?? taskView?.deadlines?.[a.id];
     const showBody = openDetails.includes(a.id) || Boolean(query.trim());
     return (
@@ -706,11 +717,6 @@ export function LmsWorkspaceBody({
     >
       <header className="lmsWorkspaceHeader">
         {headerStart}
-        {!navigationProvided && (
-          <button type="button" className="lmsBack" onClick={close}>
-            <LmsIcon name="back" /> {t("common.today")}
-          </button>
-        )}
         <div className="lmsCourseIdentity">
           <h1 title={course.title}>{course.title}</h1>
           <small>{course.code}</small>

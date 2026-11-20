@@ -73,9 +73,6 @@ pub struct DeadlineItem {
     pub title: String,
     pub due_at: Option<String>,
     pub deadline: Option<TaskDeadlineView>,
-    pub overdue: bool,
-    /// `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
-    pub tone: String,
     pub pinned: bool,
     pub submitted: bool,
     pub state: AssignmentState,
@@ -83,6 +80,14 @@ pub struct DeadlineItem {
     pub hidden: bool,
     pub grade: Option<String>,
     pub source_url: Option<String>,
+}
+
+impl DeadlineItem {
+    pub(super) fn overdue(&self) -> bool {
+        self.deadline
+            .as_ref()
+            .is_some_and(|deadline| deadline.state == DeadlineState::Overdue)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -281,13 +286,6 @@ pub(super) fn deadline_item(
         color: course.map(display_color),
         title: text(row, "title").unwrap_or_default().into(),
         due_at: deadline.as_ref().map(|deadline| deadline.at.clone()),
-        overdue: deadline
-            .as_ref()
-            .is_some_and(|deadline| deadline.state == DeadlineState::Overdue),
-        tone: deadline
-            .as_ref()
-            .map_or("normal", |deadline| &deadline.countdown_tone)
-            .into(),
         deadline,
         pinned: row.get("pinned").and_then(Value::as_bool) == Some(true),
         submitted: state.is_submitted(),
@@ -549,7 +547,7 @@ pub fn today_view(
                     item.course_id
                         .as_ref()
                         .is_some_and(|id| course_ids.contains(id))
-                        && !item.overdue
+                        && !item.overdue()
                 })
                 .take(CLASS_ITEMS)
                 .collect();
@@ -558,7 +556,7 @@ pub fn today_view(
         TodayPhase::AfterClasses => {
             view.deadline_hero = open
                 .into_iter()
-                .find(|item| !item.overdue && due_before(item, midnight));
+                .find(|item| !item.overdue() && due_before(item, midnight));
             next_boundary = Some(midnight);
         }
         TodayPhase::NoClasses => {

@@ -11,7 +11,7 @@ import type { Course, TermId } from "../../lib/model";
 import { tokyoDate } from "../../lib/civil-date";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import type { ShellRecords } from "../../platform/records";
-import type { SyncSnapshot, SyncView } from "../../platform/sync";
+import type { SyncSnapshot, SyncView } from "../../generated/persistence";
 
 const LmsWorkspace = lazy(() =>
   import("../../features/lms").then((module) => ({
@@ -19,10 +19,7 @@ const LmsWorkspace = lazy(() =>
   })),
 );
 
-function lmsRecordFor(
-  schoolRecords: ShellRecords | undefined,
-  course: Course,
-) {
+function lmsRecordFor(schoolRecords: ShellRecords | undefined, course: Course) {
   const records = schoolRecords?.lmsCourses ?? [];
   return (
     records.find((item) => item.lmsId === course.lmsCourseId) ??
@@ -73,7 +70,6 @@ export function LectureWorkspacePage({
   openPastExams,
   openWeb,
   schoolWebAvailable,
-  close,
   canSync,
   sync,
 }: {
@@ -96,7 +92,6 @@ export function LectureWorkspacePage({
   openPastExams?: (courseId: string) => void;
   openWeb: (url: string) => void;
   schoolWebAvailable: boolean;
-  close: () => void;
   canSync: boolean;
   sync: SyncSnapshot;
 }) {
@@ -143,12 +138,10 @@ export function LectureWorkspacePage({
               course={course}
               entry={entry}
               active={active}
-              navigationProvided
               headerStart={sidebarToggle}
               openPastExams={openPastExams && (() => openPastExams(course.id))}
               openWeb={(url) => openWeb(url)}
               schoolWebAvailable={schoolWebAvailable}
-              close={close}
               refresh={
                 canSync && record
                   ? () => refresh({ kind: "course", lmsCourseId: record.lmsId })

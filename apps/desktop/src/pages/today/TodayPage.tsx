@@ -8,7 +8,6 @@ import {
   type TermId,
   type Workspace,
 } from "../../lib/model";
-import { CourseFinder } from "./CourseFinder";
 import {
   addCivilDays as addDays,
   civilWeekday,
@@ -37,7 +36,6 @@ export function Today({
   hideAssignment,
   openSchedule,
   focusSection,
-  compact = false,
   selection,
   active = true,
 }: {
@@ -55,7 +53,6 @@ export function Today({
   openAssignments?: () => void;
   hideAssignment: (assignmentId: string) => void;
   openSchedule: () => void;
-  compact?: boolean;
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
@@ -123,13 +120,7 @@ export function Today({
     t(effectiveDay > 5 ? "today.weekend" : "today.teachingDay");
 
   return (
-    <div
-      className={`page todayPage${compact ? " todayNavigation" : ""}`}
-      ref={page}
-    >
-      {compact && (
-        <CourseFinder data={data} term={term} open={(id) => open(id)} />
-      )}
+    <div className="page todayPage" ref={page}>
       <header className="todayHeader">
         <div className="daySwap" key={viewIso} style={swap}>
           <p className="todayEyebrow">
@@ -144,60 +135,58 @@ export function Today({
             })}
           </h1>
         </div>
-        {!compact && (
-          <div className="todayWeek">
-            <div
-              className="weekStrip"
-              role="group"
-              aria-label={t("today.week")}
-              style={
-                {
-                  "--day": effectiveDay - 1,
-                  "--swap": direction,
-                } as React.CSSProperties
-              }
+        <div className="todayWeek">
+          <div
+            className="weekStrip"
+            role="group"
+            aria-label={t("today.week")}
+            style={
+              {
+                "--day": effectiveDay - 1,
+                "--swap": direction,
+              } as React.CSSProperties
+            }
+          >
+            <UiButton
+              className="weekShift"
+              aria-label={t("today.previousWeek")}
+              onClick={() => pick(addDays(viewIso, -7))}
             >
+              <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+            </UiButton>
+            {week.map(({ date, busy }) => (
               <UiButton
-                className="weekShift"
-                aria-label={t("today.previousWeek")}
-                onClick={() => pick(addDays(viewIso, -7))}
+                key={date}
+                className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
+                aria-pressed={date === viewIso}
+                aria-label={date}
+                onClick={() => pick(date === todayIso ? null : date)}
               >
-                <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+                <small>
+                  {formatJst(date, data.settings.locale, {
+                    weekday: "narrow",
+                  })}
+                </small>
+                <b>{Number(date.slice(8))}</b>
               </UiButton>
-              {week.map(({ date, busy }) => (
-                <UiButton
-                  key={date}
-                  className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
-                  aria-pressed={date === viewIso}
-                  aria-label={date}
-                  onClick={() => pick(date === todayIso ? null : date)}
-                >
-                  <small>
-                    {formatJst(date, data.settings.locale, {
-                      weekday: "narrow",
-                    })}
-                  </small>
-                  <b>{Number(date.slice(8))}</b>
-                </UiButton>
-              ))}
-              <UiButton
-                className="weekShift"
-                aria-label={t("today.nextWeek")}
-                onClick={() => pick(addDays(viewIso, 7))}
-              >
-                <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-              </UiButton>
-            </div>
-            <span className="teachingState">
-              {!isToday && (
-                <UiButton className="textButton" onClick={() => pick(null)}>
-                  {t("common.today")}
-                </UiButton>
-              )}
-              {stateLabel}
-            </span>
+            ))}
+            <UiButton
+              className="weekShift"
+              aria-label={t("today.nextWeek")}
+              onClick={() => pick(addDays(viewIso, 7))}
+            >
+              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+            </UiButton>
           </div>
-        )}
+          <span className="teachingState">
+            {!isToday && (
+              <UiButton className="textButton" onClick={() => pick(null)}>
+                {t("common.today")}
+              </UiButton>
+            )}
+            {stateLabel}
+          </span>
+        </div>
       </header>
 
       <div className="todayFlow">

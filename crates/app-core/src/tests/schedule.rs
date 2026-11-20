@@ -5,7 +5,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use super::calendar::quarter_range;
 use super::*;
 
-fn workspace() -> Value {
+pub(super) fn workspace() -> Value {
     json!({
         "currentTerm":"2026-1Q", "selectedTerm":"2026-1Q", "terms":[],
         "settings":{"contentLanguage":"en","notifications":{"classes":true,"assignments":true,"classLeadMinutes":10}},
@@ -996,7 +996,10 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert!(!view.deadlines.contains_key("undated-done"));
     // One submitted rule for every shell, including the LMS status field.
     assert_eq!(
-        view.submitted_ids,
+        view.states
+            .iter()
+            .filter_map(|(id, state)| state.is_submitted().then_some(id.as_str()))
+            .collect::<Vec<_>>(),
         vec!["done", "lms-done", "old", "past-done", "undated-done"]
     );
     for (id, state, availability) in [
@@ -3199,6 +3202,10 @@ fn timetable_axis_gives_every_period_one_row_and_lunch_half_a_row() {
     ));
 }
 
+// Teacher-authored HTML is arbitrary. Exercise both read models with the
+// same language markers the sanitizer handles, independent of Moodle markup.
+const LANGUAGE_SAMPLE: &str = r#"<p lang="ja">日本語</p><p lang="en">English</p>"#;
+
 #[test]
 fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     let body = concat!(
@@ -3264,6 +3271,20 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     let view = assignment_detail(&bare, "a", chrono::Utc::now().fixed_offset()).unwrap();
     assert!(view.body_html.is_empty() && view.attachments.is_empty());
     assert_eq!(view.title, "Report");
+
+    let mut localized = data;
+    localized["materials"][0]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
+    let now = DateTime::parse_from_rfc3339("2026-10-22T00:00:00Z").unwrap();
+    for (language, preferred) in [("en", "English"), ("ja", "日本語")] {
+        localized["settings"] =
+            json!({"locale":"en","contentLanguage":language,"lmsBilingualFilter":true});
+        let view = assignment_detail(&localized, "a", now).unwrap();
+        assert_eq!(
+            view.body_html,
+            format!(r#"<p lang="{language}">{preferred}</p>"#)
+        );
+        assert_eq!(view.original_body_html.as_deref(), Some(LANGUAGE_SAMPLE));
+    }
 }
 
 #[test]
@@ -3378,6 +3399,28 @@ fn course_content_follows_the_desktop_lecture_desk() {
     assert!(view.lessons[3].items.is_empty());
     let now = DateTime::parse_from_rfc3339("2026-11-24T12:00:00+09:00").unwrap();
     assert!(course_content(&data, &SchoolReads::fixture(&data), "unknown", now).is_none());
+
+    let mut localized = data.clone();
+    localized["lmsCourses"][0]["sections"][2]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
+    localized["materials"][2]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
+    for (language, preferred) in [("en", "English"), ("ja", "日本語")] {
+        localized["settings"] =
+            json!({"locale":"en","contentLanguage":language,"lmsBilingualFilter":true});
+        let view = course_content(&localized, &SchoolReads::fixture(&localized), "c", now).unwrap();
+        let filtered = format!(r#"<p lang="{language}">{preferred}</p>"#);
+        assert_eq!(view.lessons[2].summary_html, filtered);
+        assert_eq!(
+            view.lessons[2].original_summary_html.as_deref(),
+            Some(LANGUAGE_SAMPLE)
+        );
+        let label = view.lessons[1]
+            .items
+            .iter()
+            .find(|item| item.material_id == "l")
+            .unwrap();
+        assert_eq!(label.body_html.as_deref(), Some(filtered.as_str()));
+        assert_eq!(label.original_body_html.as_deref(), Some(LANGUAGE_SAMPLE));
+    }
 
     // Linear Algebra II【X】's sections: lectures and recitations interleave.
     // The series with more lessons shows bare numbers, the other its own

@@ -1,5 +1,5 @@
 import { DueChip } from "../../components/DueChip";
-import { submissionLabel } from "../../lib/academic";
+import { assignmentRowStatus, submissionLabel } from "../../lib/academic";
 import { t } from "../../i18n";
 import { UiButton, Skeleton } from "../../components/ui";
 import { type Assignment, type TermId, type Workspace } from "../../lib/model";
@@ -30,7 +30,6 @@ export function TodayAssignments({
   openAssignments?: () => void;
 }) {
   const taskTerm = taskView?.byTerm[term];
-  const submittedIds = new Set(taskView?.submittedIds);
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
   const pendingCount = taskTerm?.pendingIds.length ?? 0;
   const row = (assignment: Assignment) => {
@@ -38,19 +37,10 @@ export function TodayAssignments({
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
     const due = taskView?.deadlines?.[assignment.id];
-    const submitted = submittedIds.has(assignment.id);
-    // Past and submitted: gray; past and never submitted: red; submitted
-    // ahead of the deadline: green.
-    const state =
-      due?.state === "overdue"
-        ? submitted
-          ? " closed"
-          : " missed"
-        : submitted
-          ? " done"
-          : "";
+    const state = taskView?.states?.[assignment.id];
+    const { submitted, tone } = assignmentRowStatus(state, due);
     return (
-      <div className={`dueRow${state}`} key={assignment.id}>
+      <div className={`dueRow${tone}`} key={assignment.id}>
         <i style={{ background: course?.color ?? "var(--muted)" }} />
         <UiButton
           className={`dueAssignment${selection?.assignmentId === assignment.id ? " selected" : ""}`}
@@ -62,12 +52,7 @@ export function TodayAssignments({
           <span>
             <b>{assignment.title}</b>
             <small>
-              {course?.title ?? "LMS"} ·{" "}
-              {submissionLabel(
-                assignment,
-                t,
-                taskView?.states?.[assignment.id],
-              )}
+              {course?.title ?? "LMS"} · {submissionLabel(assignment, t, state)}
             </small>
           </span>
           {due && (

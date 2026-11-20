@@ -51,7 +51,6 @@ enum Theme {
     static let space8 = IsctTokens.space8
     static let space9 = IsctTokens.space9
     static let space10 = IsctTokens.space10
-    static let space11 = IsctTokens.space11
 
     /// Course colour strength of a block that occupies time, a quiz's
     /// included; an exam's deeper fill; text on a fill.
