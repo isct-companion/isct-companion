@@ -106,8 +106,15 @@ class NotificationScheduler(
                 refreshed.add(item.key)
                 return@mapNotNull null
             }
-            installing[item.key]?.let { installed.putIfAbsent(item.key, it) }
-            val alarm = StoredAlarm(item.at, exact, UUID.randomUUID().toString(), item.title, item.body, item.deepLink)
+            val unfinished = installing[item.key]
+            val alarm = if (unfinished != null && Format.date(unfinished.at) == at && unfinished.exact == exact) {
+                // The handle alone does not show whether AlarmManager accepted it.
+                // Scheduling the same PendingIntent again preserves its ownership.
+                unfinished.withContent(item)
+            } else {
+                unfinished?.let { installed.putIfAbsent(item.key, it) }
+                StoredAlarm(item.at, exact, UUID.randomUUID().toString(), item.title, item.body, item.deepLink)
+            }
             installing[item.key] = alarm
             item.key to alarm
         }
@@ -168,7 +175,8 @@ class NotificationScheduler(
             val now = Instant.now()
             val previousAt = Format.date(observed[key]?.at)
             if (manager == null || at <= now || (previousAt != null && previousAt <= now)) return@attempt false
-            val intent = pendingIntent(context, key, alarm.token, install = true) ?: return@attempt false
+            val existing = pendingIntent(context, key, alarm.token)
+            val intent = existing ?: pendingIntent(context, key, alarm.token, install = true) ?: return@attempt false
             try {
                 if (alarm.exact) {
                     manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), intent)
@@ -176,7 +184,7 @@ class NotificationScheduler(
                     manager.setWindow(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), WINDOW_MS, intent)
                 }
             } catch (error: Exception) {
-                intent.cancel()
+                if (existing == null) intent.cancel()
                 throw error
             }
             true
