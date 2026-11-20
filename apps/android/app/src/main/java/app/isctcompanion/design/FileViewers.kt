@@ -131,6 +131,28 @@ fun openInAnotherApp(context: Context, file: File): Boolean {
     }
 }
 
+/** Sends a copy of `file` named `name` to the share sheet: a cached file
+ * has a generated name, which the people it reaches would see. The copy sits
+ * in a folder of its own under the share sheet's cache (`exports/`), emptied
+ * each time. */
+suspend fun shareCopy(context: Context, file: File, name: String, mimeType: String): Boolean {
+    val copy = withContext(Dispatchers.IO) {
+        runCatching {
+            val folder = File(context.cacheDir, "exports/shared")
+            folder.deleteRecursively()
+            folder.mkdirs()
+            file.copyTo(File(folder, File(name).name.ifEmpty { file.name }), overwrite = true)
+        }.getOrNull()
+    } ?: return false
+    val uri = runCatching { FileProvider.getUriForFile(context, "${context.packageName}.files", copy) }.getOrNull()
+        ?: return false
+    val send = Intent(Intent.ACTION_SEND)
+        .setType(mimeType)
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    return runCatching { context.startActivity(Intent.createChooser(send, null)) }.isSuccess
+}
+
 @Composable
 private fun Spinner() {
     Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
