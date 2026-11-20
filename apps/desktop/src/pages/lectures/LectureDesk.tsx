@@ -7,7 +7,6 @@ import {
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { DueChip } from "../../components/DueChip";
 import { CloseButton, Input, EmptyState, Skeleton } from "../../components/ui";
-import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { KeptPage } from "../../app/KeptPage";
@@ -34,6 +33,7 @@ import {
   type TaskView,
 } from "../../platform/core-query";
 import { withRecords } from "../../platform/records";
+import type { TaskDeadlineView } from "../../generated/persistence";
 
 type Lecture = {
   id: string;
@@ -44,7 +44,7 @@ type Lecture = {
   rank: number;
   when?: string;
   room?: string;
-  due?: { label: string; tone: string };
+  due?: TaskDeadlineView;
 };
 
 /** This quarter's lectures, in class order, and the open lecture's workspace. */
@@ -239,12 +239,7 @@ function LectureDeskBody({
           rank: meeting?.rank ?? Infinity,
           when: meeting?.when,
           room: meeting?.room,
-          due: due
-            ? {
-                label: deadlineText(due, data.settings.locale).countdownLabel,
-                tone: due.countdownTone,
-              }
-            : undefined,
+          due,
         };
       })
       .sort(
@@ -263,13 +258,14 @@ function LectureDeskBody({
     const due = taskView?.deadlines?.[assignment.id];
     const submitted = submittedIds.has(assignment.id);
     // The same states as Today: submitted early, missed, or closed.
-    const state = due?.overdue
-      ? submitted
-        ? " closed"
-        : " missed"
-      : submitted
-        ? " done"
-        : "";
+    const state =
+      due?.state === "overdue"
+        ? submitted
+          ? " closed"
+          : " missed"
+        : submitted
+          ? " done"
+          : "";
     return (
       <button
         type="button"
@@ -283,7 +279,8 @@ function LectureDeskBody({
       >
         <b>{assignment.title}</b>
         <small>
-          {course?.title ?? "LMS"} · {submissionLabel(assignment, t, submitted)}
+          {course?.title ?? "LMS"} ·{" "}
+          {submissionLabel(assignment, t, taskView?.states?.[assignment.id])}
         </small>
         {due && (
           <DueChip
@@ -576,9 +573,7 @@ function LectureDeskBody({
                     .join(" · ")}
                 </small>
                 {lecture.due && (
-                  <span className={`dueChip ${lecture.due.tone}`}>
-                    {lecture.due.label}
-                  </span>
+                  <DueChip due={lecture.due} locale={data.settings.locale} />
                 )}
               </button>
             ))}

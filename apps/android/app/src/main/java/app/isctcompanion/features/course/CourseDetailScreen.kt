@@ -261,7 +261,7 @@ private fun LessonPage(
         (lesson.summary.ifEmpty { null } ?: lesson.title)?.takeIf { it.isNotEmpty() }?.let {
             Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         }
-        if (lesson.summaryHtml.isNotEmpty()) Surface { HtmlText(lesson.summaryHtml, courseId) }
+        if (lesson.summaryHtml.isNotEmpty()) Surface { HtmlText(lesson.summaryHtml, courseId, originalHtml = lesson.originalSummaryHtml) }
         for (group in groups(lesson.items)) {
             val item = group.first()
             if (group.size == 1 && item.bodyHtml != null) {
@@ -316,7 +316,7 @@ private fun InlineItem(item: LessonItem, courseId: String) {
             }
             else -> Unit
         }
-        item.bodyHtml?.let { HtmlText(it, courseId) }
+        item.bodyHtml?.let { HtmlText(it, courseId, originalHtml = item.originalBodyHtml) }
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import IsctCore
 import UserNotifications
 
 /// The desktop's reminder choices (`platform/reminders.ts`) and labels
@@ -7,9 +8,6 @@ import UserNotifications
 enum ReminderLeads {
     static let classChoices = [5, 10, 15, 30]
     static let examChoices = [10, 30, 60, 1440, 2880]
-    static let assignmentChoices = [15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080]
-    /// Core accepts one to eight distinct times.
-    static let maxAssignment = 8
 
     static func label(_ minutes: Int) -> String {
         if minutes == 1440 { return t("settings.notification.oneDayBefore") }
@@ -39,7 +37,17 @@ enum ReminderLeads {
     }
 
     static func assignmentLeads(_ settings: [String: Any]) -> [Int] {
-        (settings["assignmentLeadMinutes"] as? [NSNumber])?.map(\.intValue) ?? []
+        assignmentOptions(settings)?.selected.map(Int.init) ?? []
+    }
+
+    static func assignmentOptions(_ settings: [String: Any]) -> ReminderLeadOptions? {
+        guard let options = settings["assignmentLeadOptions"] as? [String: Any],
+              let presets = options["presets"] as? [NSNumber],
+              let selected = options["selected"] as? [NSNumber],
+              let min = options["minSelected"] as? NSNumber,
+              let max = options["maxSelected"] as? NSNumber else { return nil }
+        return ReminderLeadOptions(presets: presets.map(\.uint32Value), selected: selected.map(\.uint32Value),
+                                   minSelected: min.uint32Value, maxSelected: max.uint32Value)
     }
 }
 
@@ -168,30 +176,32 @@ struct NotificationsScreen: View {
 struct AssignmentLeadsScreen: View {
     @Environment(AppModel.self) private var model
 
-    private var selected: [Int] {
-        ReminderLeads.assignmentLeads(model.records.settings["notifications"] as? [String: Any] ?? [:])
+    private var options: ReminderLeadOptions? {
+        ReminderLeads.assignmentOptions(model.records.settings["notifications"] as? [String: Any] ?? [:])
     }
 
     var body: some View {
-        let chosen = selected
+        let chosen = options?.selected.map(Int.init) ?? []
         Form {
             Group {
                 Section {
-                    ForEach(Array(Set(ReminderLeads.assignmentChoices + chosen)).sorted(by: >), id: \.self) { minutes in
-                        let on = chosen.contains(minutes)
-                        Button {
-                            toggle(minutes, in: chosen)
-                        } label: {
-                            HStack {
-                                Text(ReminderLeads.label(minutes)).foregroundStyle(Theme.ink)
-                                Spacer()
-                                if on { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                    if let options {
+                        ForEach(options.presets.map(Int.init), id: \.self) { minutes in
+                            let on = chosen.contains(minutes)
+                            Button {
+                                toggle(minutes, in: chosen)
+                            } label: {
+                                HStack {
+                                    Text(ReminderLeads.label(minutes)).foregroundStyle(Theme.ink)
+                                    Spacer()
+                                    if on { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                                }
                             }
+                            .disabled(on ? chosen.count <= Int(options.minSelected) : chosen.count >= Int(options.maxSelected))
                         }
-                        .disabled(on ? chosen.count == 1 : chosen.count >= ReminderLeads.maxAssignment)
                     }
                 } footer: {
-                    Text(t("settings.main.remindsYouAtEveryTime", ["max": ReminderLeads.maxAssignment]))
+                    if let options { Text(t("settings.main.remindsYouAtEveryTime", ["max": options.maxSelected])) }
                 }
             }
             .themedRows()
@@ -204,7 +214,6 @@ struct AssignmentLeadsScreen: View {
 
     private func toggle(_ minutes: Int, in chosen: [Int]) {
         let next = chosen.contains(minutes) ? chosen.filter { $0 != minutes } : chosen + [minutes]
-        guard !next.isEmpty, next.count <= ReminderLeads.maxAssignment else { return }
         Task { await model.setNotifications { $0["assignmentLeadMinutes"] = next } }
     }
 }

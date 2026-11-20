@@ -22,6 +22,37 @@ use crate::locale::{pick, ContentLanguage};
 
 pub const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
 
+const ASSIGNMENT_LEAD_PRESETS: [u32; 10] = [15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080];
+const MIN_ASSIGNMENT_LEADS: u32 = 1;
+const MAX_ASSIGNMENT_LEADS: u32 = 8;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderLeadOptions {
+    pub presets: Vec<u32>,
+    pub selected: Vec<u32>,
+    pub min_selected: u32,
+    pub max_selected: u32,
+}
+
+pub fn reminder_lead_options(settings: &Value) -> Result<ReminderLeadOptions, ScheduleError> {
+    let selected: Vec<u32> = assignment_lead_minutes(settings)?
+        .into_iter()
+        .map(|minutes| minutes as u32)
+        .collect();
+    let mut presets = ASSIGNMENT_LEAD_PRESETS.to_vec();
+    presets.extend(selected.iter().copied());
+    presets.sort_unstable_by(|a, b| b.cmp(a));
+    presets.dedup();
+    Ok(ReminderLeadOptions {
+        presets,
+        selected,
+        min_selected: MIN_ASSIGNMENT_LEADS,
+        max_selected: MAX_ASSIGNMENT_LEADS,
+    })
+}
+
 const REMINDER_GRACE_SECONDS: i64 = 5 * 60;
 /// How long delivery waits for a shell's one-time legacy log import. A shell
 /// that has no legacy log need not call the import at all.
@@ -548,11 +579,13 @@ pub(crate) fn assignment_lead_minutes(settings: &Value) -> Result<Vec<i64>, Sche
         return Ok(DEFAULT_ASSIGNMENT_LEADS.to_vec());
     };
     let invalid = || {
-        ScheduleError::InvalidInput("Choose 1 to 8 distinct assignment reminder times, from 1 minute to 7 days before the deadline.".into())
+        ScheduleError::InvalidInput(format!("Choose {MIN_ASSIGNMENT_LEADS} to {MAX_ASSIGNMENT_LEADS} distinct assignment reminder times, from 1 minute to 7 days before the deadline."))
     };
     let values = value
         .as_array()
-        .filter(|values| !values.is_empty() && values.len() <= 8)
+        .filter(|values| {
+            (MIN_ASSIGNMENT_LEADS as usize..=MAX_ASSIGNMENT_LEADS as usize).contains(&values.len())
+        })
         .ok_or_else(invalid)?;
     let mut leads = Vec::new();
     for value in values {

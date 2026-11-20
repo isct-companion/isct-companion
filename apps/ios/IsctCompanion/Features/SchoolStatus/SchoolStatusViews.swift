@@ -64,7 +64,7 @@ enum SyncText {
     static func account(_ wait: AccountWait) -> String {
         switch wait {
         case .person: return t("syncStatus.held.person")
-        case let .paused(until): return SchoolSessionText.line(.unavailable, problem: nil, retryAt: until)
+        case let .paused(until): return t("schoolSession.state.unavailableRetry", ["time": Format.due(until)])
         }
     }
 
@@ -74,87 +74,25 @@ enum SyncText {
 
     /// "Could not update Deadlines · Retry at Today 14:05".
     static func failure(_ failure: SyncFailure, name: String) -> String {
-        [t("syncStatus.couldNotUpdateSource", ["source": name]), failure.retryAt.map(retry(at:))]
+        [t("syncStatus.couldNotUpdateSource", ["source": name]), label(failure.reason), failure.retryAt.map(retry(at:))]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// What a Retry asks Core to read again for a failed run.
-    static func scope(for run: RunView) -> SyncScope {
-        if run.dataset.hasPrefix("lms.") {
-            if let id = run.scope.flatMap(UInt64.init) { return .course(lmsCourseId: id) }
-            return .site(site: .scienceLms)
-        }
-        if run.dataset.hasPrefix("kyomu.") { return .site(site: .kyomu) }
-        if run.dataset == "reference" { return .references }
-        if run.dataset.hasPrefix("catalog."), let year = run.scope.flatMap(UInt16.init) { return .catalog(year: year) }
-        return .everything
-    }
 
-    /// What a Retry asks Core to read again for a failed source.
-    static func scope(for source: SourceView) -> SyncScope {
-        switch source.source {
-        case "lms": return .site(site: .scienceLms)
-        case "kyomu": return .site(site: .kyomu)
-        case "references": return .references
-        default: return .everything
-        }
-    }
 }
 
 /// Words for Core's school sign-in read model (`SchoolSessionSnapshot`). Core
 /// decides the state, why an account is stuck and when it tries again; these
 /// only name it. Core's `message` is a diagnostic and never shown.
 enum SchoolSessionText {
-    /// The state alone, where only it is known.
-    static func state(_ state: SchoolSessionState) -> String {
-        switch state {
-        case .notConfigured: return t("common.notConnected")
-        case .normal: return t("schoolSession.state.normal")
-        case .signingIn: return t("common.signingIn")
-        case .refused: return t("schoolSession.state.refused")
-        case .needsWeb: return t("schoolSession.state.needsWeb")
-        case .unavailable: return t("schoolSession.state.unavailable")
-        }
-    }
-
-    /// Why the school refused a sign-in or wants its own page, for the
-    /// account's line and Connect's outcome.
-    static func reason(_ kind: SchoolSignInProblemKind) -> String? {
-        switch kind {
-        case .invalidCredentials: return t("failure.theIDOrPasswordWas")
-        case .invalidOtp: return t("failure.theOneTimePasswordWas")
-        case .otpNeeded: return t("schoolSession.problem.otpNeeded")
-        case .invalidMatrix: return t("failure.theMatrixAnswerWasNot")
-        case .emailOtp: return t("schoolSession.problem.emailOtp")
-        case .passwordChange: return t("schoolSession.problem.passwordChange")
-        case .unknownPage: return t("schoolSession.problem.unknownPage")
-        case .credentialStore: return t("schoolSession.problem.credentialStore")
-        case .network, .unanswered, .anomaly: return nil
-        }
-    }
-
-    /// The school sent its emailed-code page: the account has no school OTP,
-    /// so the next step is setting one up on the portal.
-    static func otpNotSetUp(_ state: SchoolSessionState, problem: SchoolSignInProblem?) -> Bool {
-        state == .needsWeb && problem?.kind == .emailOtp
-    }
-
-    /// The state with why, and when Core tries again (`retryAt`).
-    static func line(_ state: SchoolSessionState, problem: SchoolSignInProblem?, retryAt: String?) -> String {
-        if otpNotSetUp(state, problem: problem) { return t("schoolSession.state.otpNotSetUp") }
-        switch (state, problem.flatMap { reason($0.kind) }) {
-        case let (.refused, reason?): return reason
-        case let (.needsWeb, reason?): return "\(reason) · \(Self.state(state))"
-        case (.unavailable, _):
-            guard let at = Format.date(retryAt) else { return Self.state(state) }
-            return t("schoolSession.state.unavailableRetry", ["time": Format.time(at)])
-        default: return Self.state(state)
-        }
+    static func line(_ presentation: SignInPresentation, retryAt: String? = nil) -> String {
+        let args = Format.date(retryAt).map { ["time": Format.time($0)] } ?? [:]
+        return [t(presentation.stateKey, args), presentation.reasonKey.map { t($0) }]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     static func line(_ session: SchoolProfileSession) -> String {
-        if session.signOutPending { return t("error.sign-out-incomplete") }
-        return line(session.state, problem: session.problem, retryAt: session.retryAt)
+        line(session.presentation, retryAt: session.retryAt)
     }
 
     /// The paused site of an account (LMS for Science Tokyo, 教務Web for Tokyo
@@ -178,57 +116,60 @@ enum SyncIndicator: Equatable {
 /// The one thing that needs the person, for 今日's banner.
 struct SyncProblem {
     let text: String
-    let retry: SyncScope?
+    let retry: RetryPlan?
     let signIn: SchoolAuthProfile?
 }
 
 extension SyncSnapshot {
-    /// Runs reading now: neither held nor failed.
-    var activeRuns: [RunView] { runs.filter { $0.held == nil && $0.failure == nil } }
-
-    /// Work the person asked for or is looking at, as opposed to background reads.
-    var isBusy: Bool { resetting || activeRuns.contains { $0.priority != .background } }
+    var showsLoading: Bool {
+        switch attention.primary {
+        case .active, .resetting: true
+        default: false
+        }
+    }
 
     var indicator: SyncIndicator? {
-        let active = activeRuns
-        if let run = active.first(where: { $0.total != nil }), let total = run.total {
-            return .progress(Double(min(run.done, total)) / Double(max(total, 1)), emphasized: run.priority != .background)
+        switch attention.primary {
+        case .resetting: return .spinner(emphasized: true)
+        case .held: return .held
+        case .problem: return .failed
+        case let .active(id):
+            guard let run = runs.first(where: { $0.run == id }) else { return nil }
+            let emphasized = run.priority != .background
+            if let total = run.total {
+                return .progress(Double(min(run.done, total)) / Double(max(total, 1)), emphasized: emphasized)
+            }
+            return .spinner(emphasized: emphasized)
+        case nil: return nil
         }
-        if resetting { return .spinner(emphasized: true) }
-        if let run = active.first { return .spinner(emphasized: run.priority != .background) }
-        if problem != nil { return .failed }
-        if runs.contains(where: { $0.held != nil }) { return .held }
-        return nil
     }
 
     var problem: SyncProblem? {
-        // A read waiting on its account is no failure, but one that waits
-        // for the person (Retry, Connect, other credentials) needs them.
-        let held = runs.compactMap(\.held) + sources.compactMap(\.held)
-        for case let .account(profile, .person) in held {
-            return SyncProblem(text: SyncText.account(.person), retry: nil, signIn: profile)
+        switch attention.problem {
+        case let .account(profile, presentation, retryAt):
+            let text = presentation.map { SchoolSessionText.line($0, retryAt: retryAt) } ?? SyncText.account(.person)
+            return SyncProblem(text: text, retry: nil, signIn: profile)
+        case let .runFailed(dataset, failure, retry):
+            return SyncProblem(text: SyncText.failure(failure, name: SyncText.dataset(dataset)), retry: retry, signIn: nil)
+        case let .sourceFailed(source, failure, retry):
+            return SyncProblem(text: SyncText.failure(failure, name: SyncText.source(source)), retry: retry, signIn: nil)
+        case nil: return nil
         }
-        if let run = runs.first(where: { $0.failure != nil }), let failure = run.failure {
-            return SyncProblem(
-                text: SyncText.failure(failure, name: SyncText.label(run.label)), retry: SyncText.scope(for: run), signIn: nil)
-        }
-        if let source = sources.first(where: { $0.failure != nil }), let failure = source.failure {
-            return SyncProblem(
-                text: SyncText.failure(failure, name: SyncText.source(source.source)),
-                retry: SyncText.scope(for: source), signIn: nil)
-        }
-        return nil
     }
 
-    /// One line for the first-load card and the indicator's accessibility label.
     var line: String {
-        if resetting { return t("syncStatus.resetting") }
-        if let run = activeRuns.first {
-            return ([SyncText.label(run.label)] + [run.current.map(SyncText.label)].compactMap { $0 }).joined(separator: " · ")
-        }
-        if let problem { return problem.text }
-        if let run = runs.first(where: { $0.held != nil }), let held = run.held {
-            return "\(SyncText.label(run.label)) · \(SyncText.held(held))"
+        switch attention.primary {
+        case .resetting: return t("syncStatus.resetting")
+        case .problem: if let problem { return problem.text }
+        case let .active(id):
+            if let run = runs.first(where: { $0.run == id }) {
+                return ([SyncText.label(run.label)] + [run.current.map(SyncText.label)].compactMap { $0 }).joined(separator: " · ")
+            }
+        case let .held(id):
+            if let run = runs.first(where: { $0.run == id }), let held = run.held {
+                return "\(SyncText.label(run.label)) · \(SyncText.held(held))"
+            }
+        case nil: break
         }
         return t("syncStatus.upToDate")
     }
@@ -299,7 +240,7 @@ struct SyncRingButton: View {
         }
         .animation(.smooth(duration: Theme.motionBase), value: showsDone)
         .sheet(isPresented: $showsSheet) { SyncStatusSheet() }
-        .onChange(of: model.syncSnapshot?.isBusy) { old, new in
+        .onChange(of: model.syncSnapshot?.attention.busy) { old, new in
             guard old == true, new == false, model.syncSnapshot?.indicator == nil else { return }
             showsDone = true
             Task {
@@ -366,7 +307,6 @@ struct SyncSections: View {
 
 private struct SyncSourceRow: View {
     let source: SourceView
-    @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
@@ -384,9 +324,7 @@ private struct SyncSourceRow: View {
                     .font(.footnote)
                     .foregroundStyle(Theme.warn)
             } else if let failure = source.failure {
-                FailureLine(text: SyncText.failure(failure, name: SyncText.source(source.source))) {
-                    model.syncHint(.refresh(scope: SyncText.scope(for: source)))
-                }
+                FailureLine(text: SyncText.failure(failure, name: SyncText.source(source.source)), retry: source.retry)
             } else if let held = source.held {
                 Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
             } else if source.session == .notConfigured {
@@ -400,7 +338,6 @@ private struct SyncSourceRow: View {
 /// One run: a bar only when Core knows its total, a spinner otherwise.
 private struct SyncRunRow: View {
     let run: RunView
-    @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
@@ -423,9 +360,7 @@ private struct SyncRunRow: View {
                 Text(SyncText.label(current)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
             }
             if let failure = run.failure {
-                FailureLine(text: SyncText.failure(failure, name: SyncText.dataset(run.dataset))) {
-                    model.syncHint(.refresh(scope: SyncText.scope(for: run)))
-                }
+                FailureLine(text: SyncText.failure(failure, name: SyncText.dataset(run.dataset)), retry: run.retry)
                 if let detail = failure.detail {
                     // Core's diagnostic text, selectable to quote in a report.
                     Text(verbatim: detail).font(.footnote).foregroundStyle(Theme.muted).textSelection(.enabled)
@@ -440,15 +375,18 @@ private struct SyncRunRow: View {
 
 private struct FailureLine: View {
     let text: String
-    let retry: () -> Void
+    let retry: RetryPlan?
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(text).font(.footnote).foregroundStyle(Theme.danger)
             Spacer()
-            Button(t("common.retry"), action: retry)
-                .font(.footnote.weight(.semibold))
-                .buttonStyle(.borderless)
+            if let retry {
+                Button(t("common.retry")) { model.retrySync(retry) }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderless)
+            }
         }
     }
 }
@@ -471,8 +409,8 @@ struct SyncProblemBanner: View {
                 } label: {
                     Text(t("syncStatus.signIn")).font(.subheadline.weight(.semibold))
                 }
-            } else if let scope = problem.retry {
-                Button(t("common.retry")) { model.syncHint(.refresh(scope: scope)) }
+            } else if let retry = problem.retry {
+                Button(t("common.retry")) { model.retrySync(retry) }
                     .font(.subheadline.weight(.semibold))
             }
         }

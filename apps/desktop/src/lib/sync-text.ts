@@ -3,7 +3,11 @@
  * due or when to sign in. */
 import { formatJst } from "./civil-date";
 import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
-import type { SchoolAuthProfile, SchoolProfileSession, SchoolSessionState, SchoolSignInProblemKind } from "../platform/school-session-contract";
+import type {
+  SchoolAuthProfile,
+  SchoolProfileSession,
+  SignInPresentation,
+} from "../platform/school-session-contract";
 import type {
   AccountWait,
   RunView,
@@ -103,46 +107,28 @@ export function heldText(held: SyncHeld, locale: string) {
   }
 }
 
-const FAILURE_KINDS: Record<string, MessageKey> = {
-  timeout: "syncStatus.failure.timedOut",
-  offline: "syncStatus.failure.noConnection",
-  "sign-in": "syncStatus.failure.signInRequired",
-  "site-changed": "syncStatus.failure.siteChanged",
-  storage: "syncStatus.failure.notSaved",
-  parse: "syncStatus.failure.unreadable",
-  dns: "syncStatus.failure.unreachable",
-  tls: "syncStatus.failure.unreachable",
-  connect: "syncStatus.failure.unreachable",
-};
-
-function failureReason(kind: string) {
-  if (FAILURE_KINDS[kind]) return t(FAILURE_KINDS[kind]);
-  const status = /^http-(\d{3})$/.exec(kind)?.[1];
-  if (status) {
-    if (status.startsWith("5"))
-      return t("syncStatus.failure.serverFailed", { status });
-    // A redirect is not a refusal: the school sent the page elsewhere.
-    if (status.startsWith("3"))
-      return t("syncStatus.failure.serverRedirected", { status });
-    return t("syncStatus.failure.serverRefused", { status });
-  }
-  return kind;
-}
-
 /** "Grades page failed · timed out · retries at 14:05". */
 export function failureText(
   dataset: string,
   failure: SyncFailure,
   locale: string,
 ) {
+  return sourceFailureText(datasetName(dataset), failure, locale);
+}
+
+export function sourceFailureText(
+  name: string,
+  failure: SyncFailure,
+  locale: string,
+) {
   return [
     failure.keysFailed > 1
       ? t("app.datasetCountPartsFailed", {
-          dataset: datasetName(dataset),
+          dataset: name,
           count: failure.keysFailed,
         })
-      : t("app.datasetFailed", { dataset: datasetName(dataset) }),
-    failureReason(failure.kind),
+      : t("app.datasetFailed", { dataset: name }),
+    labelText(failure.reason),
     failure.retryAt
       ? t("syncStatus.failure.retriesAt", {
           time: clock(failure.retryAt, locale),
@@ -159,54 +145,29 @@ export function ageText(at: string | null, now: string, locale: string) {
   return relativeTimeAgo(at, now, locale) ?? t("syncStatus.justNow");
 }
 
-/** One short label per session state: badges, the footer and a held read. */
-const SESSION_STATES: Record<SchoolSessionState, MessageKey> = {
-  "not-configured": "common.notConnected",
-  normal: "schoolSession.state.normal",
-  "signing-in": "common.signingIn",
-  refused: "schoolSession.state.refused",
-  "needs-web": "schoolSession.state.needsWeb",
-  unavailable: "schoolSession.state.unavailable",
-};
-
-const SIGN_IN_PROBLEMS: Record<SchoolSignInProblemKind, MessageKey> = {
-  "invalid-credentials": "failure.theIDOrPasswordWas",
-  "invalid-otp": "failure.theOneTimePasswordWas",
-  "otp-needed": "schoolSession.problem.otpNeeded",
-  "invalid-matrix": "failure.theMatrixAnswerWasNot",
-  "email-otp": "schoolSession.problem.emailOtp",
-  "password-change": "schoolSession.problem.passwordChange",
-  "unknown-page": "schoolSession.problem.unknownPage",
-  network: "schoolSession.problem.network",
-  unanswered: "schoolSession.problem.unanswered",
-  anomaly: "schoolSession.problem.anomaly",
-  "credential-store": "schoolSession.problem.credentialStore",
-};
-
 /** The site each account's maintenance pauses. */
 const MAINTENANCE_SOURCES: Record<SchoolAuthProfile, MessageKey> = {
   science: "syncStatus.source.lms",
   "tokyo-tech": "syncStatus.source.kyomu",
 };
 
-/** The reason by kind; undefined for a kind this build does not know yet. */
-export const signInProblemText = (kind: SchoolSignInProblemKind) =>
-  SIGN_IN_PROBLEMS[kind] ? t(SIGN_IN_PROBLEMS[kind]) : undefined;
+export function signInText(
+  presentation: SignInPresentation,
+  retryAt: string | null,
+  locale: string,
+) {
+  return lookup(
+    presentation.stateKey,
+    retryAt ? { time: clock(retryAt, locale) } : undefined,
+  );
+}
 
-/** The school sent its emailed-code page: the account has no school OTP, so
- * the next step is setting one up on the portal, not signing in there. */
-export const otpNotSetUp = (session: SchoolProfileSession) =>
-  session.state === "needs-web" && session.problem?.kind === "email-otp";
+export function signInReason(presentation: SignInPresentation) {
+  return presentation.reasonKey ? lookup(presentation.reasonKey) : undefined;
+}
 
-/** The state's label; `unavailable` adds when Core tries again. */
 export function sessionText(session: SchoolProfileSession, locale: string) {
-  if (session.signOutPending) return t("schoolSession.state.signOutPending");
-  if (otpNotSetUp(session)) return t("schoolSession.state.otpNotSetUp");
-  if (session.state === "unavailable" && session.retryAt)
-    return t("schoolSession.state.unavailableRetry", {
-      time: clock(session.retryAt, locale),
-    });
-  return t(SESSION_STATES[session.state]);
+  return signInText(session.presentation, session.retryAt, locale);
 }
 
 /** The sentences under the label: the reason by kind, what the person can
@@ -218,10 +179,10 @@ export function sessionDetails(
 ): string[] {
   const lines: string[] = [];
   // A kind this build does not know yet shows Core's own diagnostic.
-  const problem = session.problem;
-  if (problem) lines.push(signInProblemText(problem.kind) ?? problem.message);
+  const reason = signInReason(session.presentation);
+  if (reason) lines.push(reason);
   if (session.refusalUnsaved) lines.push(t("schoolSession.refusalUnsaved"));
-  if (session.state === "needs-web" && !otpNotSetUp(session))
+  if (session.presentation.recovery.includes("open-school-page"))
     lines.push(t("schoolSession.needsWeb.signInYourself"));
   if (session.maintenance)
     lines.push(

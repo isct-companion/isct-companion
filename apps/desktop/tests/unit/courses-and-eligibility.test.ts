@@ -174,27 +174,27 @@ describe("the state label shown beside an assignment", () => {
       submissionLabel(
         assignment({ submission: "graded", grade: "A" }),
         label,
-        false,
+        "graded",
       ),
     ).toBe("graded A");
     expect(
       submissionLabel(
         assignment({ submission: "graded", grade: "秀" }),
         label,
-        true,
+        "graded",
       ),
     ).toBe("graded 秀");
   });
 
   it("shows only the graded label when the record carries no grade", () => {
     expect(
-      submissionLabel(assignment({ submission: "graded" }), label, false),
+      submissionLabel(assignment({ submission: "graded" }), label, "graded"),
     ).toBe("graded");
     expect(
       submissionLabel(
         assignment({ submission: "graded", grade: "" }),
         label,
-        false,
+        "graded",
       ),
     ).toBe("graded");
   });
@@ -204,28 +204,32 @@ describe("the state label shown beside an assignment", () => {
       submissionLabel(
         assignment({ submission: "submitted", grade: "A" }),
         label,
-        true,
+        "submitted",
       ),
     ).toBe("submitted");
   });
 
   it("shows the submitted label once the caller marks it submitted", () => {
     expect(
-      submissionLabel(assignment({ submission: "open" }), label, true),
+      submissionLabel(assignment({ submission: "open" }), label, "submitted"),
     ).toBe("submitted");
   });
 
   it("shows the state Core recorded while the caller has not submitted it", () => {
     expect(
-      submissionLabel(assignment({ submission: "open" }), label, false),
+      submissionLabel(assignment({ submission: "open" }), label, "open"),
     ).toBe("open");
     expect(
-      submissionLabel(assignment({ submission: "submitted" }), label, false),
-    ).toBe("submitted");
+      submissionLabel(
+        assignment({ submission: "submitted" }),
+        label,
+        "overdue",
+      ),
+    ).toBe("unknown");
   });
 
   it("shows the unknown label when Core recorded no state at all", () => {
-    expect(submissionLabel(assignment(), label, false)).toBe("unknown");
+    expect(submissionLabel(assignment(), label, undefined)).toBe("unknown");
   });
 });
 

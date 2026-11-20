@@ -1,9 +1,8 @@
 import { downloadLimit } from "../../lib/course-file-policy";
 import { ExamCards } from "../../components/exams/ExamCards";
-import { dueRole } from "../../components/DueChip";
+import { DueChip } from "../../components/DueChip";
 import { Tag } from "../../components/ui";
 import { GuideTip } from "../../components/guide";
-import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { useResizeObserver } from "usehooks-ts";
 import { ReaderPane } from "../../components/files/ReaderPane";
@@ -226,10 +225,6 @@ export function LmsWorkspaceBody({
     opened?.id === "syllabus"
       ? { ...opened, title: t("common.syllabus"), url: syllabus ?? opened.url }
       : opened;
-  const language =
-    data.settings.lmsBilingualFilter && !original
-      ? courseDetail?.contentLanguage
-      : undefined;
   const assignments = useMemo(
     () =>
       data.assignments.filter(
@@ -277,8 +272,17 @@ export function LmsWorkspaceBody({
         ...lesson,
         id: lesson.sectionId ?? lesson.section,
         title: lesson.title || lesson.label,
+        summaryHtml: original
+          ? (lesson.originalSummaryHtml ?? lesson.summaryHtml)
+          : lesson.summaryHtml,
+        items: original
+          ? lesson.items.map((item) => ({
+              ...item,
+              bodyHtml: item.originalBodyHtml ?? item.bodyHtml,
+            }))
+          : lesson.items,
       })),
-    [content],
+    [content, original],
   );
   const lessons = useMemo(
     () => sections.filter((section) => section.number != null),
@@ -290,7 +294,7 @@ export function LmsWorkspaceBody({
         section.items.flatMap((item) => {
           const m = materials.get(item.materialId);
           return item.kind === "forum" && m
-            ? announcements(m.bodyHtml).map((post) => ({
+            ? announcements(item.bodyHtml ?? undefined).map((post) => ({
                 ...post,
                 id: `announcement:${m.id}:${post.id}`,
                 section: section.title,
@@ -309,11 +313,6 @@ export function LmsWorkspaceBody({
     () => new Set(taskView?.byTerm?.[course.termId]?.pendingIds ?? []),
     [course.termId, taskView],
   );
-  const submittedIds = useMemo(
-    () => new Set(taskView?.submittedIds),
-    [taskView],
-  );
-  const closedIds = useMemo(() => new Set(taskView?.closedIds), [taskView]);
   const classAt = content?.classAt ?? undefined;
   const at = lessons.find((l) => l.section === content?.currentSection);
   const atIndex = lessons.findIndex((l) => l.id === at?.id);
@@ -779,6 +778,16 @@ export function LmsWorkspaceBody({
   }, [Boolean(opened)]);
   const material =
     opened?.kind === "material" ? materials.get(opened.id) : undefined;
+  const readerHtml = material
+    ? content?.materialReaderHtml?.[material.id]
+    : undefined;
+  const materialBody = readerHtml
+    ? original
+      ? (readerHtml.original ?? readerHtml.preferred)
+      : readerHtml.preferred
+    : sections
+        .flatMap((section) => section.items)
+        .find((item) => item.materialId === material?.id)?.bodyHtml;
   const toggle = (id: string) =>
     setExpanded((previous) =>
       previous.includes(id)
@@ -793,26 +802,25 @@ export function LmsWorkspaceBody({
   /** Assignment card: state and deadline first, the teacher's text on request. */
   const assignmentContent = (a: Assignment) => {
     const detail = details.get(a.id);
-    const done = submittedIds.has(a.id);
-    const deadline = taskView?.deadlines?.[a.id];
+    const assignmentState = taskView?.states?.[a.id] ?? detail?.state;
+    const availability = taskView?.handInAvailability?.[a.id] ?? detail?.handInAvailability;
+    const done =
+      assignmentState === "submitted" || assignmentState === "graded";
+    const deadline = detail?.deadline ?? taskView?.deadlines?.[a.id];
     const due = deadline ? new Date(deadline.at) : undefined;
-    const past = deadline?.overdue ?? false;
     const state =
-      a.submission === "graded"
-        ? "graded"
-        : done
-          ? "done"
-          : past
-            ? "missed"
-            : "open";
-    const countdown =
-      deadline && !done && !past
-        ? {
-            label: deadlineText(deadline, data.settings.locale).countdownLabel,
-            tone: deadline.countdownTone,
-          }
-        : undefined;
-    const body = detail?.bodyHtml ?? "";
+      assignmentState &&
+      {
+        open: "open",
+        overdue: "missed",
+        closed: "missed",
+        submitted: "done",
+        graded: "graded",
+      }[assignmentState];
+    const body =
+      (original
+        ? (detail?.originalBodyHtml ?? detail?.bodyHtml)
+        : detail?.bodyHtml) ?? "";
     const hasBody = Boolean(contentText(body).trim() || a.details?.trim());
     const showBody = openDetails.includes(a.id) || Boolean(query.trim());
     const submit = (preparedUrl?: string) =>
@@ -824,7 +832,7 @@ export function LmsWorkspaceBody({
       });
     return (
       <article
-        className={`lmsAssignmentCard ${state}`}
+        className={`lmsAssignmentCard ${state ?? ""}`}
         data-assignment={a.id}
         key={a.id}
       >
@@ -862,37 +870,34 @@ export function LmsWorkspaceBody({
               </time>
             )}
           </div>
-          {countdown ? (
-            <Tag
-              tone={dueRole(countdown.tone)}
-              className={`dueChip ${countdown.tone}`}
-            >
-              {countdown.label}
-            </Tag>
+          {deadline && !done ? (
+            <DueChip due={deadline} locale={data.settings.locale} />
           ) : (
-            <Tag
-              tone={
-                state === "graded" || state === "done"
-                  ? "ok"
-                  : state === "missed"
-                    ? "danger"
-                    : "neutral"
-              }
-              className={`lmsAssignmentState ${state}`}
-            >
-              {t(
-                state === "graded"
-                  ? "common.graded"
-                  : state === "done"
-                    ? "common.submitted"
+            state && (
+              <Tag
+                tone={
+                  state === "graded" || state === "done"
+                    ? "ok"
                     : state === "missed"
-                      ? "lms.notSubmitted"
-                      : "common.noDeadline",
-              )}
-              {state === "graded" && a.grade && (
-                <span className="lmsAssignmentGrade">{a.grade}</span>
-              )}
-            </Tag>
+                      ? "danger"
+                      : "neutral"
+                }
+                className={`lmsAssignmentState ${state}`}
+              >
+                {t(
+                  state === "graded"
+                    ? "common.graded"
+                    : state === "done"
+                      ? "common.submitted"
+                      : state === "missed"
+                        ? "lms.notSubmitted"
+                        : "common.noDeadline",
+                )}
+                {state === "graded" && a.grade && (
+                  <span className="lmsAssignmentGrade">{a.grade}</span>
+                )}
+              </Tag>
+            )
           )}
         </header>
         {showBody && hasBody && (
@@ -901,7 +906,6 @@ export function LmsWorkspaceBody({
               <RichContent
                 files={files}
                 html={body}
-                language={language}
                 openLink={openLink}
                 folders={linkedFolders}
               />
@@ -913,12 +917,13 @@ export function LmsWorkspaceBody({
         {workspaces ? (
           <AssignmentWorkspaceFooter
             assignment={a}
-            closed={closedIds.has(a.id)}
-            submit={a.sourceUrl ? submit : undefined}
+            state={assignmentState}
+            dueAt={deadline?.at}
+            submit={a.sourceUrl && availability !== "unavailable" ? submit : undefined}
           />
         ) : (
           <footer>
-            {a.sourceUrl && (
+            {a.sourceUrl && availability !== "unavailable" && (
               <button
                 type="button"
                 className={done ? "lmsTextLink" : "lmsSubmit"}
@@ -1100,7 +1105,6 @@ export function LmsWorkspaceBody({
               <RichContent
                 files={files}
                 html={section.summaryHtml}
-                language={language}
                 openLink={openLink}
                 folders={linkedFolders}
               />
@@ -1121,7 +1125,6 @@ export function LmsWorkspaceBody({
                         key={label.materialId}
                         files={files}
                         html={label.bodyHtml ?? ""}
-                        language={language}
                         openLink={openLink}
                         folders={linkedFolders}
                       />
@@ -1141,7 +1144,6 @@ export function LmsWorkspaceBody({
                     <RichContent
                       files={files}
                       html={item.bodyHtml}
-                      language={language}
                       openLink={openLink}
                       folders={linkedFolders}
                     />
@@ -1497,7 +1499,6 @@ export function LmsWorkspaceBody({
                     <RichContent
                       files={files}
                       html={announcement.html}
-                      language={language}
                       openLink={openLink}
                       folders={linkedFolders}
                     />
@@ -1540,11 +1541,10 @@ export function LmsWorkspaceBody({
                     <small>{material?.sectionTitle || course.code}</small>
                     <h2>{opened.title}</h2>
                   </div>
-                  {material?.bodyHtml && (
+                  {materialBody && (
                     <RichContent
                       files={files}
-                      html={material.bodyHtml}
-                      language={language}
+                      html={materialBody}
                       openLink={openLink}
                       folders={linkedFolders}
                     />
@@ -1558,7 +1558,7 @@ export function LmsWorkspaceBody({
                         (opened.kind === "link" ? opened.url : undefined),
                     );
                     if (!url)
-                      return material && !material.bodyHtml ? (
+                      return material && !materialBody ? (
                         <p className="lmsQuiet">
                           {t("lms.noContentInThisSection")}
                         </p>
@@ -1571,7 +1571,7 @@ export function LmsWorkspaceBody({
                           title={opened.title}
                           courseId={course.id}
                           limit={limit}
-                          inline={Boolean(material?.bodyHtml)}
+                          inline={Boolean(materialBody)}
                           openPage={(page) => openPage(page, opened.title)}
                           openWeb={(page) => openWebPage(page, opened.title)}
                           onArchive={() => archiveInOutline(opened)}

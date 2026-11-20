@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { desktopBridge } from "../../platform/native";
 import { errorText } from "../../lib/error-text";
 import {
@@ -14,10 +14,11 @@ import {
   SegmentedControl,
   Select,
   Stack,
+  Text,
   TextInput,
   UiTextarea,
 } from "../../components/ui";
-import { t, type MessageKey } from "../../i18n";
+import { lookup, t, type MessageKey } from "../../i18n";
 import type {
   ExamAction,
   ExamAnswer,
@@ -34,6 +35,7 @@ import type {
   ExamUploadEdit,
   ExamUploadFile,
   ExamUploadForm,
+  ExamUploadReadiness,
   ExamUploadStatus,
 } from "../../generated/persistence";
 
@@ -258,6 +260,28 @@ export function UploadDialog({
   const waiting = running || choosing || finding;
   const disabled = waiting || pending;
 
+  const [checked, setChecked] = useState<{
+    draft: ExamUploadDraft;
+    files: ExamUploadFile[];
+    readiness: ExamUploadReadiness;
+  }>();
+  const readiness =
+    checked?.draft === draft && checked.files === files
+      ? checked.readiness
+      : undefined;
+  const canSubmit = !disabled && readiness?.reasonKey === null;
+  useEffect(() => {
+    if (choosing) return;
+    let current = true;
+    void run({ kind: "uploadReadiness", draft, files }).then((answer) => {
+      if (current && answer?.kind === "uploadReadiness")
+        setChecked({ draft, files, readiness: answer.value });
+    });
+    return () => {
+      current = false;
+    };
+  }, [choosing, draft, files, run]);
+
   const update = <K extends keyof ExamUploadDraft>(
     key: K,
     value: ExamUploadDraft[K],
@@ -349,8 +373,7 @@ export function UploadDialog({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (!disabled && files.length > 0)
-            void submit({ kind: "upload", files, draft });
+          if (canSubmit) void submit({ kind: "upload", files, draft });
         }}
       >
         <Stack>
@@ -569,7 +592,6 @@ export function UploadDialog({
                   aria-label={t("examShare.upload.familyName")}
                   placeholder={t("examShare.upload.familyName")}
                   required
-                  maxLength={limits.teacherName}
                   value={teacher.familyName}
                   disabled={disabled}
                   onChange={(e) =>
@@ -579,7 +601,6 @@ export function UploadDialog({
                 <TextInput
                   aria-label={t("examShare.upload.givenName")}
                   placeholder={t("examShare.upload.givenName")}
-                  maxLength={limits.teacherName}
                   value={teacher.givenName}
                   disabled={disabled}
                   onChange={(e) =>
@@ -654,20 +675,23 @@ export function UploadDialog({
           <Group grow>
             <TextInput
               label={t("examShare.upload.variant")}
-              maxLength={limits.variant}
               disabled={disabled}
               value={draft.variant}
               onChange={(e) => update("variant", e.currentTarget.value)}
             />
             <TextInput
               label={t("examShare.upload.note")}
-              maxLength={limits.note}
               disabled={disabled}
               value={draft.note}
               onChange={(e) => update("note", e.currentTarget.value)}
             />
           </Group>
           <p className="examQuiet">{t("examShare.uploadPublic")}</p>
+          {readiness?.reasonKey && !pending && !running && (
+            <Text size="sm" c="red" role="status">
+              {lookup(readiness.reasonKey)}
+            </Text>
+          )}
           {running && <UploadProgress status={status} cancel={cancel} />}
           {pending && !running && (
             <UploadRecovery
@@ -678,11 +702,7 @@ export function UploadDialog({
             <Button variant="default" disabled={waiting} onClick={close}>
               {t("common.cancel")}
             </Button>
-            <Button
-              type="submit"
-              loading={running}
-              disabled={disabled || !files.length}
-            >
+            <Button type="submit" loading={running} disabled={!canSubmit}>
               {t("examShare.upload.title")}
             </Button>
           </Group>

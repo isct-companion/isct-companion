@@ -37,6 +37,7 @@ pub(crate) use planner::Depth;
 pub(crate) use runner::{Gated, KeyEnd, Lease};
 pub(crate) use school::{denied_read, net_end, session_end, SchoolReaders};
 
+use crate::school_session::SignInPresentation;
 use crate::{
     lifecycle::SchoolSite, school_auth::SchoolAuthProfile, school_session::SchoolSessionState,
 };
@@ -129,6 +130,17 @@ pub enum Scope {
     Catalog {
         year: u16,
     },
+    LmsHistory {
+        year: u16,
+        month: u8,
+    },
+}
+
+/// Refresh scopes that cover the failed keys.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryPlan {
+    pub scopes: Vec<Scope>,
 }
 
 /// i18n key plus arguments; shells translate, Core never builds sentences.
@@ -188,6 +200,7 @@ pub enum AccountWait {
 pub struct SyncFailure {
     /// `sync_runs.error_kind` code (`timeout`, `http-503`, …).
     pub kind: String,
+    pub reason: Label,
     pub keys_failed: u32,
     pub retry_at: Option<DateTime<Utc>>,
     /// Which pages of a run failed and why, one `page: reason` line each.
@@ -212,6 +225,7 @@ pub struct RunView {
     pub scope: Option<String>,
     pub held: Option<Held>,
     pub failure: Option<SyncFailure>,
+    pub retry: Option<RetryPlan>,
 }
 
 /// One source as the status line shows it.
@@ -224,10 +238,52 @@ pub struct SourceView {
     pub running: bool,
     pub held: Option<Held>,
     pub failure: Option<SyncFailure>,
+    pub retry: Option<RetryPlan>,
     /// The account's session state for school sources.
     pub session: Option<SchoolSessionState>,
     /// The school's maintenance notice for the source's site.
     pub maintenance: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SyncWork {
+    Resetting,
+    Active { run: String },
+    Held { run: String },
+    Problem,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum SyncAttentionProblem {
+    Account {
+        profile: SchoolAuthProfile,
+        presentation: Option<SignInPresentation>,
+        retry_at: Option<DateTime<Utc>>,
+    },
+    RunFailed {
+        dataset: String,
+        failure: SyncFailure,
+        retry: Option<RetryPlan>,
+    },
+    SourceFailed {
+        source: String,
+        failure: SyncFailure,
+        retry: Option<RetryPlan>,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncAttention {
+    pub primary: Option<SyncWork>,
+    pub problem: Option<SyncAttentionProblem>,
+    pub busy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -235,6 +291,7 @@ pub struct SourceView {
 pub struct SyncSnapshot {
     pub generation: u64,
     pub resetting: bool,
+    pub attention: SyncAttention,
     pub runs: Vec<RunView>,
     pub sources: Vec<SourceView>,
 }

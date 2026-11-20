@@ -75,7 +75,7 @@ struct TodayScreen: View {
                 SyncProblemBanner(problem: problem)
             }
             if model.needsAccount { ConnectCard() }
-            if let snapshot = model.syncSnapshot, !snapshot.activeRuns.isEmpty || snapshot.resetting,
+            if let snapshot = model.syncSnapshot, snapshot.showsLoading,
                 model.records.courses.isEmpty, model.records.assignments.isEmpty
             {
                 FirstLoadCard(snapshot: snapshot)
@@ -515,7 +515,7 @@ private struct TonightHero: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.danger)
                 Spacer()
-                DeadlineChip(item: item, now: now)
+                DeadlineChip(item: item)
             }
             Text(Format.date(item.dueAt).map(Format.time) ?? Format.due(item.dueAt, now: now))
                 .font(.display.monospacedDigit())
@@ -646,7 +646,7 @@ private struct ThisClassCard: View {
                         Text(Format.due(item.dueAt, now: now)).font(.subheadline).foregroundStyle(Theme.muted)
                     }
                     Spacer(minLength: Theme.space4)
-                    DeadlineChip(item: item, now: now)
+                    DeadlineChip(item: item)
                 }
             }
         }

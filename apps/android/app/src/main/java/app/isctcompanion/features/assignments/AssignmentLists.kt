@@ -106,10 +106,10 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
             GuideTip("assignment-swipe", "guide.pinOrHide", "guide.swipeRightToPinAn", Modifier.padding(top = Theme.space4))
         }
     }
-    group(t("common.pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
-    group(t("common.thisWeek"), today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
-    group(t("assignments.nextWeekAndLater"), today.later, now, Format.OverdueStyle.Elapsed)
-    group(t("common.overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
+    group(t("common.pinned"), today.pinned, now)
+    group(t("common.thisWeek"), today.dueThisWeek, now)
+    group(t("assignments.nextWeekAndLater"), today.later, now)
+    group(t("common.overdue"), today.pastRecent, now)
     if (today.isEmpty()) {
         item(key = "assignments-empty") {
             EmptyState(Icons.Rounded.CheckCircle, t("assignments.noUnsubmittedAssignments"))
@@ -125,7 +125,6 @@ private fun LazyListScope.group(
     title: String,
     items: List<DeadlineItem>,
     now: Instant,
-    overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label,
     restores: Boolean = false,
 ) {
     if (items.isEmpty()) return
@@ -140,7 +139,7 @@ private fun LazyListScope.group(
             )
             Column(Modifier.clip(shape).background(Theme.colors.surface)) {
                 if (index > 0) RowDivider()
-                if (restores) RestoreRow(row, now) else SwipeRow(row, now, overdueStyle)
+                if (restores) RestoreRow(row, now) else SwipeRow(row, now)
             }
         }
     }
@@ -155,7 +154,7 @@ private fun GroupCard(content: @Composable () -> Unit) {
  * Core's refreshed board moves it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle) {
+private fun SwipeRow(item: DeadlineItem, now: Instant) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -200,7 +199,7 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
         },
     ) {
         Box(Modifier.background(Theme.colors.surface)) {
-            DeadlineLink(item) { DeadlineRow(item, now, overdueStyle) }
+            DeadlineLink(item) { DeadlineRow(item, now) }
         }
     }
 }

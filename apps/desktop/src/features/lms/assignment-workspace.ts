@@ -1,3 +1,4 @@
+import type { HandInAvailability } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { errorCode, invoke } from "../../platform/native-error";
 
@@ -14,12 +15,11 @@ export type AssignmentWorkspace = {
 /** Core's main action for an assignment: open its LMS page, or upload `submit/` as the draft first. */
 export type HandInView = {
   workspace: AssignmentWorkspace | null;
-  handIn: "openLms" | "prepareDraft";
+  handIn: HandInAvailability;
 };
 
-/** `closed`: the assignment is in `TaskView.closedIds`. */
-export const findWorkspace = (assignment: string, closed: boolean) =>
-  invoke<HandInView>("assignment_workspace", { assignment, closed });
+export const findWorkspace = (assignment: string) =>
+  invoke<HandInView>("assignment_workspace", { assignment });
 
 /** The workspace folder was deleted outside the app. */
 export const workspaceMissing = (error: unknown) =>
@@ -51,17 +51,12 @@ export const setWorkspaceSubmission = (
     zipName,
   });
 /** Queue these files for the assignment's official draft upload area. */
-export const prepareSubmission = (
-  path: string,
-  assignment: string,
-  url: string,
-) =>
+export const prepareSubmission = (path: string, assignment: string) =>
   invoke<{ workspace: AssignmentWorkspace; url: string }>(
     "prepare_workspace_submission",
     {
       path,
       assignment,
-      url,
       messages: {
         waiting: t("failure.preparingYourLMSUpload"),
         queued: t("failure.filesSentToTheUpload"),

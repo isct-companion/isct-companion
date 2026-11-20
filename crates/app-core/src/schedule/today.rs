@@ -15,11 +15,13 @@ use ts_rs::TS;
 use super::calendar::{quarter_range, teaching_week};
 use super::course_content::{item_source, kind_of, LessonItemKind};
 use super::reminders::reminder_term;
-use super::tasks::{countdown_tone, task_view, AssignmentGroups};
+use super::tasks::{
+    assignment_state, deadline_view, hand_in_availability, task_view, AssignmentGroups,
+    AssignmentState, DeadlineState, HandInAvailability, TaskDeadlineView,
+};
 use super::{
-    array, assignment_submitted, calendar_between, display_color, parse_civil_date,
-    teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind, ScheduleError,
-    TeachingPeriod,
+    array, calendar_between, display_color, parse_civil_date, teaching_periods, text, tokyo_date,
+    visible, Occurrence, OccurrenceKind, ScheduleError, TeachingPeriod,
 };
 use crate::locale::ContentLanguage;
 
@@ -70,11 +72,14 @@ pub struct DeadlineItem {
     pub color: Option<String>,
     pub title: String,
     pub due_at: Option<String>,
+    pub deadline: Option<TaskDeadlineView>,
     pub overdue: bool,
     /// `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
     pub tone: String,
     pub pinned: bool,
     pub submitted: bool,
+    pub state: AssignmentState,
+    pub hand_in_availability: HandInAvailability,
     pub hidden: bool,
     pub grade: Option<String>,
     pub source_url: Option<String>,
@@ -257,7 +262,7 @@ pub(crate) fn classes_on(agenda: &[Occurrence]) -> Vec<Occurrence> {
         .collect()
 }
 
-fn deadline_item(
+pub(super) fn deadline_item(
     workspace: &Value,
     row: &Value,
     now: DateTime<FixedOffset>,
@@ -265,18 +270,29 @@ fn deadline_item(
     let id = text(row, "id")?;
     let course_id = text(row, "courseId");
     let course = course_id.and_then(|id| super::visible_by_id(workspace, "courses", id));
-    let due = text(row, "dueAt").and_then(|raw| DateTime::parse_from_rfc3339(raw).ok());
+    let deadline = text(row, "dueAt")
+        .and_then(|raw| super::parse_timestamp(raw).ok())
+        .map(|due| deadline_view(due, now));
+    let state = assignment_state(row, now);
     Some(DeadlineItem {
         assignment_id: id.into(),
         course_id: course_id.map(str::to_owned),
         course_title: course.and_then(|c| text(c, "title")).map(str::to_owned),
         color: course.map(display_color),
         title: text(row, "title").unwrap_or_default().into(),
-        due_at: due.map(|due| due.to_rfc3339()),
-        overdue: due.is_some_and(|due| due < now),
-        tone: due.map_or("normal", |due| countdown_tone(due, now)).into(),
+        due_at: deadline.as_ref().map(|deadline| deadline.at.clone()),
+        overdue: deadline
+            .as_ref()
+            .is_some_and(|deadline| deadline.state == DeadlineState::Overdue),
+        tone: deadline
+            .as_ref()
+            .map_or("normal", |deadline| &deadline.countdown_tone)
+            .into(),
+        deadline,
         pinned: row.get("pinned").and_then(Value::as_bool) == Some(true),
-        submitted: assignment_submitted(row),
+        submitted: state.is_submitted(),
+        state,
+        hand_in_availability: hand_in_availability(row, state),
         hidden: row.get("hidden").and_then(Value::as_bool) == Some(true),
         grade: text(row, "grade")
             .filter(|grade| !grade.trim().is_empty())

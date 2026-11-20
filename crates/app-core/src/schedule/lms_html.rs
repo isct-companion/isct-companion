@@ -7,6 +7,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
+use crate::locale::ContentLanguage;
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "ts")]
+use ts_rs::TS;
+
 use ego_tree::{NodeId, NodeRef};
 use regex::Regex;
 use scraper::{ElementRef, Html, Node, Selector};
@@ -68,7 +73,33 @@ fn head(html: &str, max: usize) -> &str {
     &html[..end]
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct LocalizedLmsHtml {
+    pub preferred: String,
+    /// Present when filtering changed what the reader sees.
+    pub original: Option<String>,
+}
+
+pub(crate) fn preferred_language(workspace: &serde_json::Value) -> Option<ContentLanguage> {
+    (workspace
+        .pointer("/settings/lmsBilingualFilter")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true))
+    .then(|| ContentLanguage::of(workspace))
+}
+
+#[cfg(test)]
 pub(crate) fn safe_html(html: &str, without_activity_dates: bool) -> String {
+    project_html(html, without_activity_dates, None).preferred
+}
+
+pub fn project_html(
+    html: &str,
+    without_activity_dates: bool,
+    language: Option<ContentLanguage>,
+) -> LocalizedLmsHtml {
     let source = head(html, MAX_SOURCE);
     let page = Html::parse_fragment(source);
     let mut skip: HashSet<NodeId> = HashSet::new();
@@ -81,11 +112,102 @@ pub(crate) fn safe_html(html: &str, without_activity_dates: bool) -> String {
             skip.extend(page.select(&selector).map(|element| element.id()));
         }
     }
-    let mut out = String::with_capacity(source.len());
-    for child in page.root_element().children() {
-        write(child, &skip, &HashMap::new(), &mut out);
+    let render = |skip: &HashSet<_>| {
+        let mut out = String::with_capacity(source.len());
+        for child in page.root_element().children() {
+            write(child, skip, &HashMap::new(), &mut out);
+        }
+        out.trim().to_owned()
+    };
+    let original = render(&skip);
+    let Some(language) = language else {
+        return LocalizedLmsHtml {
+            preferred: original,
+            original: None,
+        };
+    };
+    let filtered = language_filter(&page, &skip, language.code());
+    if filtered.is_empty() {
+        return LocalizedLmsHtml {
+            preferred: original,
+            original: None,
+        };
     }
-    out.trim().to_owned()
+    skip.extend(filtered);
+    let preferred = render(&skip);
+    LocalizedLmsHtml {
+        original: (original != preferred).then_some(original),
+        preferred,
+    }
+}
+
+fn lang(element: &scraper::node::Element) -> Option<&'static str> {
+    let primary = element.attr("lang")?.trim().split('-').next()?;
+    if primary.eq_ignore_ascii_case("ja") {
+        return Some("ja");
+    }
+    if primary.eq_ignore_ascii_case("en") {
+        return Some("en");
+    }
+    None
+}
+
+/// Each forum post can stand on its own in the reader. Elsewhere the whole
+/// fragment is one document. A nested marker overrides its enclosing one.
+fn language_filter(page: &Html, dropped: &HashSet<NodeId>, preferred: &str) -> HashSet<NodeId> {
+    let root = page.root_element();
+    // An absent parent entry means the parent was removed by sanitization.
+    let mut context = HashMap::from([(root.id(), (None, root.id()))]);
+    let mut opposite = Vec::new();
+    let mut preferred_groups = HashSet::new();
+    let mut preferred_ancestors = HashSet::new();
+    for node in root.descendants() {
+        if dropped.contains(&node.id()) {
+            continue;
+        }
+        let Some((mut effective, mut group)) = node
+            .parent()
+            .and_then(|parent| context.get(&parent.id()).copied())
+        else {
+            continue;
+        };
+        if let Node::Element(tag) = node.value() {
+            effective = lang(tag).or(effective);
+            if tag.name() == "article" {
+                group = node.id();
+            }
+        }
+        context.insert(node.id(), (effective, group));
+        match effective {
+            Some(code) if code != preferred => opposite.push((node.id(), group)),
+            Some(_) => {
+                let visible = match node.value() {
+                    Node::Text(text) => !text.trim().is_empty(),
+                    Node::Element(tag) if matches!(tag.name(), "img" | "a") => {
+                        safe_url(tag.attr(if tag.name() == "img" { "src" } else { "href" }))
+                            .is_some()
+                    }
+                    _ => false,
+                };
+                if visible {
+                    preferred_groups.insert(group);
+                    for element in std::iter::once(node).chain(node.ancestors()) {
+                        if !preferred_ancestors.insert(element.id()) {
+                            break;
+                        }
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+    opposite
+        .into_iter()
+        .filter_map(|(node, group)| {
+            (preferred_groups.contains(&group) && !preferred_ancestors.contains(&node))
+                .then_some(node)
+        })
+        .collect()
 }
 
 /// Safe HTML with the rows of its lesson schedule tables marked against the
@@ -247,12 +369,12 @@ fn write(
     marks: &HashMap<NodeId, String>,
     out: &mut String,
 ) {
+    if skip.contains(&node.id()) {
+        return;
+    }
     match node.value() {
         Node::Text(text) => escape(text, false, out),
         Node::Element(element) => {
-            if skip.contains(&node.id()) {
-                return;
-            }
             let name = element.name();
             if name == "img" {
                 if let Some(url) = safe_url(element.attr("src"))
@@ -293,15 +415,22 @@ fn write(
                     out.push('"');
                 }
             }
-            // Shells filter bilingual content by its language.
-            if let Some(lang) = element
-                .attr("lang")
-                .map(str::to_ascii_lowercase)
-                .filter(|lang| matches!(lang.as_str(), "ja" | "en"))
-            {
+            if let Some(lang) = lang(element) {
                 out.push_str(" lang=\"");
-                out.push_str(&lang);
+                out.push_str(lang);
                 out.push('"');
+            }
+            if name == "article" {
+                if let Some(id) = element.attr("id") {
+                    out.push_str(" id=\"");
+                    escape(id, true, out);
+                    out.push('"');
+                }
+                if let Some(source) = safe_url(element.attr("data-source-url")) {
+                    out.push_str(" data-source-url=\"");
+                    escape(source.as_str(), true, out);
+                    out.push('"');
+                }
             }
             if let Some(classes) = marks.get(&node.id()) {
                 out.push_str(" class=\"");

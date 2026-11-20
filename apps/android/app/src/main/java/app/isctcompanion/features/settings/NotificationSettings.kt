@@ -29,6 +29,7 @@ import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import app.isctcompanion.core.ReminderLeadOptions
 
 /** The desktop's reminder choices (`platform/reminders.ts`) and labels
  * (`NotificationSettings.tsx`), so every shell writes the same values to
@@ -36,9 +37,6 @@ import org.json.JSONObject
 internal object ReminderLeads {
     val classChoices = listOf(5, 10, 15, 30)
     val examChoices = listOf(10, 30, 60, 1440, 2880)
-    val assignmentChoices = listOf(15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080)
-    /** Core accepts one to eight distinct times. */
-    const val MAX_ASSIGNMENT = 8
 
     fun label(minutes: Int): String = when {
         minutes == 1440 -> t("settings.notification.oneDayBefore")
@@ -59,10 +57,20 @@ internal object ReminderLeads {
 
     fun examLead(settings: JSONObject?): Int = settings?.optInt("examLeadMinutes") ?: 0
 
-    fun assignmentLeads(settings: JSONObject?): List<Int> {
-        val stored = settings?.optJSONArray("assignmentLeadMinutes")
-        return (0 until (stored?.length() ?: 0)).map { stored!!.optInt(it) }
+    fun assignmentOptions(settings: JSONObject?): ReminderLeadOptions? {
+        val options = settings?.optJSONObject("assignmentLeadOptions") ?: return null
+        val presets = options.getJSONArray("presets")
+        val selected = options.getJSONArray("selected")
+        return ReminderLeadOptions(
+            presets = (0 until presets.length()).map { presets.getInt(it).toUInt() },
+            selected = (0 until selected.length()).map { selected.getInt(it).toUInt() },
+            minSelected = options.getInt("minSelected").toUInt(),
+            maxSelected = options.getInt("maxSelected").toUInt(),
+        )
     }
+
+    fun assignmentLeads(settings: JSONObject?): List<Int> =
+        assignmentOptions(settings)?.selected.orEmpty().map { it.toInt() }
 
     fun summary(settings: JSONObject?): String {
         val parts = mutableListOf<String>()

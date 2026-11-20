@@ -373,7 +373,7 @@ private struct LessonPage: View {
                     .foregroundStyle(Theme.ink)
             }
             if let summary = lesson?.summaryHtml, !summary.isEmpty {
-                HTMLText(html: summary, courseId: courseId)
+                HTMLText(html: summary, courseId: courseId, originalHTML: lesson?.originalSummaryHtml)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
@@ -442,7 +442,7 @@ private struct InlineItem: View {
             default:
                 EmptyView()
             }
-            if let html = item.bodyHtml { HTMLText(html: html, courseId: courseId) }
+            if let html = item.bodyHtml { HTMLText(html: html, courseId: courseId, originalHTML: item.originalBodyHtml) }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

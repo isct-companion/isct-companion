@@ -105,6 +105,10 @@ final class AppModel {
     }
 
     /// Tells Core's planner a fact or an intent; it never waits for a read.
+    func retrySync(_ plan: RetryPlan) {
+        for scope in plan.scopes { syncHint(.refresh(scope: scope)) }
+    }
+
     func syncHint(_ hint: Hint) {
         _ = try? session?.syncHint(hint: hint)
     }
@@ -589,6 +593,16 @@ final class AppModel {
         return detail
     }
 
+    func deadlineDisplay(at: String) async -> TaskDeadlineView? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .deadlineDisplay(at: at, now: Self.timestamp(Date(), fractional: true))
+            ]).value(),
+            case let .deadlineDisplay(display)? = result.values.first
+        else { return nil }
+        return display
+    }
+
     /// The academic year (April–March) a date belongs to.
     func academicYear(of date: Date) async -> Int32? {
         guard let session,
@@ -935,10 +949,10 @@ final class AppModel {
         }
     }
 
-    nonisolated static func timestamp(_ date: Date) -> String {
+    nonisolated static func timestamp(_ date: Date, fractional: Bool = false) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.timeZone = .tokyo
-        formatter.formatOptions = [.withInternetDateTime]
+        formatter.formatOptions = fractional ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
         return formatter.string(from: date)
     }
 

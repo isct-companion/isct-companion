@@ -716,3 +716,81 @@ async fn a_reset_finishes_each_account_whose_credentials_went() {
         .all(|profile| !relaunched.sign_out_pending(*profile)));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn sign_in_presentation_distinguishes_reasons_and_recovery_actions() {
+    use SchoolSessionState::*;
+    use SchoolSignInProblemKind::*;
+    use SignInRecovery::*;
+
+    for (state, reason, key, actions) in [
+        (
+            NeedsWeb,
+            EmailOtp,
+            "schoolSession.problem.emailOtp",
+            vec![SetUpOtpOnPortal],
+        ),
+        (
+            Refused,
+            OtpNeeded,
+            "schoolSession.problem.otpNeeded",
+            vec![Retry],
+        ),
+        (
+            NeedsWeb,
+            PasswordChange,
+            "schoolSession.problem.passwordChange",
+            vec![OpenSchoolPage, Retry],
+        ),
+        (
+            NeedsWeb,
+            UnknownPage,
+            "schoolSession.problem.unknownPage",
+            vec![OpenSchoolPage, Retry],
+        ),
+        (
+            Unavailable,
+            Network,
+            "schoolSession.problem.network",
+            vec![Retry],
+        ),
+        (
+            Unavailable,
+            Unanswered,
+            "schoolSession.problem.unanswered",
+            vec![Retry],
+        ),
+        (
+            Unavailable,
+            Anomaly,
+            "schoolSession.problem.anomaly",
+            vec![Retry],
+        ),
+        (
+            Unavailable,
+            CredentialStore,
+            "schoolSession.problem.credentialStore",
+            vec![Retry],
+        ),
+    ] {
+        let presentation = SignInPresentation::for_profile(state, Some(reason), true, false);
+        assert_eq!(presentation.reason_key.as_deref(), Some(key));
+        assert_eq!(presentation.recovery, actions);
+        if state == Unavailable {
+            assert_eq!(
+                presentation.state_key,
+                "schoolSession.state.unavailableRetry"
+            );
+            let SchoolConnectOutcome::Unreachable { presentation } =
+                SchoolConnectOutcome::unreachable(Some(reason))
+            else {
+                panic!("expected an unreachable connect outcome");
+            };
+            assert_eq!(presentation.reason_key.as_deref(), Some(key));
+        }
+    }
+    let pending = SignInPresentation::for_profile(NeedsWeb, Some(EmailOtp), false, true);
+    assert_eq!(pending.state_key, "schoolSession.state.signOutPending");
+    assert_eq!(pending.recovery, [FinishSignOut]);
+    assert!(pending.reason_key.is_none());
+}

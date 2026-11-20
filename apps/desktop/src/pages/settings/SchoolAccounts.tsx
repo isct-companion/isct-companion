@@ -1,10 +1,10 @@
 import { errorText } from "../../lib/error-text";
 import { notify as appNotify } from "../../components/notifications/notify";
 import {
-  otpNotSetUp,
   sessionDetails,
   sessionText,
-  signInProblemText,
+  signInReason,
+  signInText,
 } from "../../lib/sync-text";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -91,24 +91,11 @@ const OUTCOME_COLOR: Record<SchoolConnectOutcome["kind"], string> = {
 /** What the form says about its last Connect. Only `connected` saved the
  * entered credentials; every other outcome says they were not saved. */
 function connectOutcomeText(outcome: SchoolConnectOutcome) {
-  switch (outcome.kind) {
-    case "connected":
-      return t("schoolSession.connect.connected");
-    case "refused":
-    case "needs-web":
-      return [
-        signInProblemText(outcome.reason),
-        t("schoolSession.connect.notSaved"),
-      ]
-        .filter(Boolean)
-        .join(" ");
-    case "unreachable":
-      return t("schoolSession.connect.unreachable");
-    case "not-saved":
-      return t("schoolSession.connect.saveFailed");
-    case "stopped":
-      return t("schoolSession.connect.stopped");
-  }
+  const reason = signInReason(outcome.presentation);
+  const state = signInText(outcome.presentation, null, i18n.language);
+  return outcome.kind === "refused" || outcome.kind === "needs-web"
+    ? [reason ?? state, t("schoolSession.connect.notSaved")].join(" ")
+    : [state, reason].filter(Boolean).join(" · ");
 }
 
 const emptyDraft = (): Draft => ({
@@ -438,13 +425,30 @@ function Account({
   const details = session
     ? sessionDetails(profile, session, i18n.language)
     : [];
-  // Retry re-reads the synced credentials and signs in once now; Core also
-  // tries an unavailable school again by itself. Without school OTP the
-  // school only sends its emailed code again, so the portal is the way on.
-  const retryOffered =
-    session?.state === "refused" ||
-    (session?.state === "needs-web" && !otpNotSetUp(session)) ||
-    session?.state === "unavailable";
+  const recovery = session?.presentation.recovery ?? [];
+  const retryOffered = recovery.includes("retry");
+  const openPageActions = (actions: readonly string[]) => (
+    <>
+      {actions.includes("set-up-otp-on-portal") && (
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          onClick={() => showLoginPage(profile, { unsigned: true })}
+        >
+          {t("schoolSession.openPortal")}
+        </Button>
+      )}
+      {actions.includes("open-school-page") && (
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          onClick={() => showLoginPage(profile)}
+        >
+          {t("settings.schoolAccounts.showPage")}
+        </Button>
+      )}
+    </>
+  );
   const credentials = (): SchoolCredentials => ({
     username: draft.username,
     password: draft.password,
@@ -570,45 +574,30 @@ function Account({
           </Badge>
         )}
       </Group>
-      {session && (details.length > 0 || retryOffered) && (
-        <div
-          className="schoolConnection"
-          data-state={session.state}
-          data-maintenance={session.maintenance ? "" : undefined}
-        >
-          <span>{details.join(" ")}</span>
-          {session.state === "needs-web" &&
-            (otpNotSetUp(session) ? (
+      {session &&
+        (details.length > 0 ||
+          recovery.some((action) => action !== "finish-sign-out")) && (
+          <div
+            className="schoolConnection"
+            data-state={session.state}
+            data-maintenance={session.maintenance ? "" : undefined}
+          >
+            <span>{details.join(" ")}</span>
+            {openPageActions(recovery)}
+            {retryOffered && !session.signOutPending && (
               <Button
                 variant="subtle"
                 size="compact-xs"
-                onClick={() => showLoginPage(profile, { unsigned: true })}
+                disabled={busy || retrying}
+                loading={retrying}
+                onClick={() => void retry()}
               >
-                {t("schoolSession.openPortal")}
+                {t("common.retry")}
               </Button>
-            ) : (
-              <Button
-                variant="subtle"
-                size="compact-xs"
-                onClick={() => showLoginPage(profile)}
-              >
-                {t("settings.schoolAccounts.showPage")}
-              </Button>
-            ))}
-          {retryOffered && !session.signOutPending && (
-            <Button
-              variant="subtle"
-              size="compact-xs"
-              disabled={busy || retrying}
-              loading={retrying}
-              onClick={() => void retry()}
-            >
-              {t("common.retry")}
-            </Button>
-          )}
-        </div>
-      )}
-      {session?.signOutPending && (
+            )}
+          </div>
+        )}
+      {recovery.includes("finish-sign-out") && (
         <div className="schoolConnection" data-state="sign-out-pending">
           <span>{t("settings.schoolAccounts.signOutUnfinished")}</span>
           <Button
@@ -707,9 +696,14 @@ function Account({
         )}
       </div>
       {outcome && (
-        <Text size="sm" c={OUTCOME_COLOR[outcome.kind]} role="status">
-          {connectOutcomeText(outcome)}
-        </Text>
+        <div>
+          <Text size="sm" c={OUTCOME_COLOR[outcome.kind]} role="status">
+            {connectOutcomeText(outcome)}
+          </Text>
+          {!outcome.presentation.recovery.every((action) =>
+            recovery.includes(action),
+          ) && openPageActions(outcome.presentation.recovery)}
+        </div>
       )}
     </Paper>
   );

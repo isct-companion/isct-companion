@@ -27,7 +27,7 @@ struct AssignmentScreen: View {
                         .font(.title.bold())
                         .foregroundStyle(Theme.ink)
                     AssignmentBody(assignment: assignment)
-                    if assignment.sourceUrl != nil { HandInCard(assignment: assignment) }
+                    if assignment.handInAvailability == .prepareDraft { HandInCard(assignment: assignment) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -42,6 +42,15 @@ struct AssignmentScreen: View {
             guard !Task.isCancelled, let loaded else { return }
             // The text is ready before the page shows it, outside any view update.
             HTMLCache.warm([loaded.bodyHtml])
+            assignment = loaded
+        }
+        .task(id: assignment?.deadline?.at) {
+            guard let deadline = assignment?.deadline, deadline.state == .remaining,
+                  let due = Format.date(deadline.at) else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0.001, due.timeIntervalSinceNow)))
+            } catch { return }
+            guard let loaded = await model.assignmentDetail(assignmentId), !Task.isCancelled else { return }
             assignment = loaded
         }
     }
@@ -102,7 +111,7 @@ struct AssignmentBody: View {
                 Text(t("course.dueDate", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
             }
             if !assignment.bodyHtml.isEmpty {
-                HTMLText(html: assignment.bodyHtml, courseId: assignment.courseId)
+                HTMLText(html: assignment.bodyHtml, courseId: assignment.courseId, originalHTML: assignment.originalBodyHtml)
             } else if !assignment.details.isEmpty {
                 Text(assignment.details).font(.body).foregroundStyle(Theme.ink)
             }
@@ -114,11 +123,11 @@ struct AssignmentBody: View {
                     }
                 }
             }
-            if let url = assignment.sourceUrl {
+            if assignment.handInAvailability != .unavailable, let url = assignment.sourceUrl {
                 Button {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: assignment.title))
                 } label: {
-                    Label(t("common.submitInLMS"), systemImage: "arrow.up.forward.square")
+                    Label(t(assignment.handInAvailability == .openLms ? "common.openInLMS" : "common.submitInLMS"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Theme.space6)
@@ -134,16 +143,11 @@ private struct AssignmentState: View {
     let assignment: AssignmentDetail
 
     var body: some View {
-        let done = ["submitted", "graded"].contains(assignment.submission ?? "")
-        let past = Format.date(assignment.dueAt).map { $0 < Date() } ?? false
-        let (ink, fill) = DeadlineChip.colors(done ? "done" : past ? "past" : "soon")
-        Text(done ? (assignment.grade ?? t("common.submitted")) : Format.countdown(assignment.dueAt, now: Date()))
-            .font(.caption.weight(.semibold).monospacedDigit())
-            .foregroundStyle(ink)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(fill, in: RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous))
-            .fixedSize()
+        AssignmentDeadlineTag(
+            deadline: assignment.deadline,
+            submitted: assignment.state == .submitted || assignment.state == .graded,
+            grade: assignment.grade
+        )
     }
 }
 

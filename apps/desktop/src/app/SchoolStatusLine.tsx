@@ -2,19 +2,17 @@ import { UiButton } from "../components/ui";
 import { formatJst } from "../lib/civil-date";
 import { t } from "../i18n";
 import { useClock } from "../platform/use-clock";
-import {
-  failedRuns,
-  progressLine,
-  retryScope,
-  type SyncSnapshot,
-} from "../platform/sync";
-import { refresh as sendRefresh } from "../platform/sync-intents";
+import { failedRuns, progressLine, type SyncSnapshot } from "../platform/sync";
+import { retry } from "../platform/sync-intents";
 import {
   ageText,
+  sourceFailureText,
   failureText,
   heldText,
   runText,
   sourceName,
+  signInText,
+  signInReason,
 } from "../lib/sync-text";
 
 /** One line of what Core's planner is doing now. A bar appears only when
@@ -27,16 +25,34 @@ function SyncProgressLine({
   locale: string;
 }) {
   const line = progressLine(snapshot);
-  if (snapshot.resetting)
-    return (
-      <span className="syncProgress" data-kind="busy">
-        <i className="schoolStatusSpinner" aria-hidden="true" />
-        <span>{t("app.resetting")}</span>
-      </span>
-    );
   switch (line.kind) {
     case "idle":
       return null;
+    case "resetting":
+      return (
+        <span className="syncProgress" data-kind="busy">
+          <i className="schoolStatusSpinner" aria-hidden="true" />
+          <span>{t("app.resetting")}</span>
+        </span>
+      );
+    case "problem": {
+      const problem = snapshot.attention.problem;
+      if (problem?.kind !== "account") return null;
+      const presentation = problem.presentation;
+      const text = presentation
+        ? [
+            signInText(presentation, problem.retryAt, locale),
+            signInReason(presentation),
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : t("syncStatus.held.person");
+      return (
+        <span className="syncProgress" data-kind="held">
+          {text}
+        </span>
+      );
+    }
     case "bar":
       return (
         <span className="syncProgress" data-kind="bar">
@@ -86,23 +102,52 @@ function SyncFailures({
   snapshot: SyncSnapshot;
   locale: string;
 }) {
-  const failures = failedRuns(snapshot);
+  const failures = [
+    ...failedRuns(snapshot).flatMap((run) =>
+      run.failure
+        ? [
+            {
+              id: run.run,
+              failure: run.failure,
+              retry: run.retry,
+              text: failureText(run.dataset, run.failure, locale),
+            },
+          ]
+        : [],
+    ),
+    ...snapshot.sources.flatMap((source) =>
+      source.failure
+        ? [
+            {
+              id: source.source,
+              failure: source.failure,
+              retry: source.retry,
+              text: sourceFailureText(
+                sourceName(source.source),
+                source.failure,
+                locale,
+              ),
+            },
+          ]
+        : [],
+    ),
+  ];
   if (!failures.length) return null;
   return (
     <ul className="syncFailures" role="status">
-      {failures.map((run) => (
-        <li key={run.run}>
-          <span title={run.failure!.detail ?? undefined}>
-            {failureText(run.dataset, run.failure!, locale)}
-          </span>
-          <UiButton
-            type="button"
-            className="textButton"
-            disabled={snapshot.resetting}
-            onClick={() => sendRefresh(retryScope(run))}
-          >
-            {t("common.retry")}
-          </UiButton>
+      {failures.map(({ id, failure, retry: plan, text }) => (
+        <li key={id}>
+          <span title={failure.detail ?? undefined}>{text}</span>
+          {plan && (
+            <UiButton
+              type="button"
+              className="textButton"
+              disabled={snapshot.resetting}
+              onClick={() => retry(plan)}
+            >
+              {t("common.retry")}
+            </UiButton>
+          )}
         </li>
       ))}
     </ul>
@@ -123,7 +168,7 @@ export function SchoolStatusLine({
 }) {
   const line = progressLine(snapshot);
   const now = useClock(line.kind === "idle");
-  const failed = failedRuns(snapshot).length > 0;
+  const failed = snapshot.attention.problem !== null;
   return (
     <div
       className="lmsStatus"

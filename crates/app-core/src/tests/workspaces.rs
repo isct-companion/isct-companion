@@ -228,11 +228,17 @@ fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
         )
         .unwrap();
     fs::write(PathBuf::from(&created.path).join("submit/answer.txt"), "x").unwrap();
-    let open = HandInView::of(service.find(&course(), "a").unwrap(), false);
-    assert_eq!(open.hand_in, HandIn::PrepareDraft);
+    let open = HandInView::of(
+        service.find(&course(), "a").unwrap(),
+        HandInAvailability::PrepareDraft,
+    );
+    assert_eq!(open.hand_in, HandInAvailability::PrepareDraft);
     // Closed work goes to LMS even while its workspace is still there.
-    let closed = HandInView::of(service.find(&course(), "a").unwrap(), true);
-    assert_eq!(closed.hand_in, HandIn::OpenLms);
+    let closed = HandInView::of(
+        service.find(&course(), "a").unwrap(),
+        HandInAvailability::OpenLms,
+    );
+    assert_eq!(closed.hand_in, HandInAvailability::OpenLms);
     assert!(closed.workspace.is_some());
 
     fs::remove_dir_all(&created.path).unwrap();
@@ -257,9 +263,63 @@ fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
         .unwrap(),
         serde_json::json!({"kind": "workspaceMissing"})
     );
-    let gone = HandInView::of(service.find(&course(), "a").unwrap(), false);
-    assert_eq!(gone.hand_in, HandIn::OpenLms);
+    let gone = HandInView::of(
+        service.find(&course(), "a").unwrap(),
+        HandInAvailability::PrepareDraft,
+    );
+    assert_eq!(gone.hand_in, HandInAvailability::OpenLms);
     assert!(gone.workspace.is_none());
+}
+
+#[test]
+fn draft_upload_rechecks_the_stored_assignment_before_reading_files() {
+    use crate::data::DataError;
+    use serde_json::json;
+
+    let fixture = Fixture::new("draft-eligibility");
+    let store = DataStore::initialize_dir(fixture.0.join("data")).unwrap().0;
+    let notes = NoteStore::default();
+    notes.at(fixture.0.join("files"));
+    let service = AssignmentWorkspaces::new(store.clone(), notes, Downloader::default());
+    let folder = service
+        .at()
+        .unwrap()
+        .create(
+            &course(),
+            "a".into(),
+            "Report".into(),
+            String::new(),
+            Vec::new(),
+        )
+        .unwrap();
+    fs::write(PathBuf::from(&folder.path).join("submit/answer.txt"), "x").unwrap();
+
+    let page = "https://lms.s.isct.ac.jp/2026/mod/assign/view.php?id=7";
+    let save = |accepts: bool| {
+        let row = json!({
+            "id": "a", "sourceUrl": page, "dueAt": "2026-01-01T00:00:00Z",
+            "acceptsSubmission": accepts
+        });
+        store.write(None, |transaction| {
+            transaction.execute(
+                "INSERT INTO assignments (id,value,hash,updated_at,updated_by,rev)
+                 VALUES ('a',?1,?2,'2026-01-01T00:00:00Z','seed',1)
+                 ON CONFLICT (id) DO UPDATE SET value=excluded.value, hash=excluded.hash, rev=rev+1",
+                rusqlite::params![row.to_string(), accepts.to_string()],
+            ).map_err(DataError::from)?;
+            Ok::<_, DataError>(())
+        }).unwrap();
+    };
+    save(true);
+    let (destination, prepared) = service.prepare_draft("a", Some(&folder.path)).unwrap();
+    assert_eq!(destination, page);
+    assert_eq!(prepared.files[0].name, "answer.txt");
+
+    save(false);
+    assert!(matches!(
+        service.prepare_draft("a", Some(&folder.path)),
+        Err(HandInError::Unavailable)
+    ));
 }
 
 #[test]
@@ -434,12 +494,16 @@ fn brief_carries_the_description_due_time_and_each_attachment() {
         course_id: "c1".into(),
         title: "Report 3".into(),
         due_at: Some("2026-11-05T14:59:00Z".into()),
+        deadline: None,
+        state: crate::schedule::AssignmentState::Open,
+        hand_in_availability: HandInAvailability::PrepareDraft,
         submission: None,
         submission_status: None,
         grade: None,
         source_url: Some("https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7".into()),
         body_html: "<p>Answer <b>all</b> questions.</p><ul><li>PDF only</li></ul>".into(),
         details: "row notes".into(),
+        original_body_html: None,
         attachments: vec![attachment("sheet.pdf"), attachment("data.csv")],
     };
     let missing = [MissingAttachment {

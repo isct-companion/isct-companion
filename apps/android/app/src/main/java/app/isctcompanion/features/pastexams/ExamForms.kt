@@ -86,6 +86,7 @@ import app.isctcompanion.core.ExamUploadEdit
 import app.isctcompanion.core.ExamUploadFile
 import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadPhase
+import app.isctcompanion.core.ExamUploadReadiness
 import app.isctcompanion.core.ExamUploadStatus
 import app.isctcompanion.core.SdkException
 import app.isctcompanion.core.SharedInbox
@@ -193,7 +194,6 @@ internal fun UploadSheet(
     val limits = choices.limits
     val role = choices.roles.first { it.role == draft.role }
     val numbered = draft.occasion in choices.numbered
-    val mixed = files.size > 1 && !files.all { it.isPhoto }
     val held by rememberUpdatedState(busy)
 
     /** A plain field: the draft changes here. */
@@ -326,7 +326,22 @@ internal fun UploadSheet(
         }
     }
 
-    val ready = canEdit && files.isNotEmpty() && !mixed && familyName.isBlank() && givenName.isBlank()
+    var checked by remember { mutableStateOf<Pair<Pair<ExamUploadDraft, List<ExamUploadFile>>, ExamUploadReadiness>?>(null) }
+    val input = draft to files
+    val readiness = checked?.takeIf { it.first == input }?.second
+    LaunchedEffect(input, picking) {
+        if (picking) return@LaunchedEffect
+        checked = null
+        try {
+            val answer = model.examShare(ExamAction.UploadReadiness(files, draft))
+            if (answer is ExamAnswer.UploadReadiness) checked = input to answer.v1
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = AppModel.describe(failure)
+        }
+    }
+    val ready = canEdit && readiness != null && readiness.reasonKey == null && familyName.isBlank() && givenName.isBlank()
 
     ModalBottomSheet(
         onDismissRequest = { if (!held) dismiss() },
@@ -374,8 +389,8 @@ internal fun UploadSheet(
                 }
             }
             Text(
-                t(if (mixed) "error.exam-share-upload-mixed" else "examShare.upload.fileSelection"),
-                color = if (mixed) Theme.colors.danger else Theme.colors.muted,
+                t("examShare.upload.fileSelection"),
+                color = Theme.colors.muted,
                 style = MaterialTheme.typography.bodySmall,
             )
 
@@ -450,9 +465,9 @@ internal fun UploadSheet(
                     )
                 }
                 if (addingTeacher) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
-                    OutlinedTextField(familyName, { familyName = it.take(limits.teacherName.toInt()) }, enabled = canEdit, singleLine = true,
+                    OutlinedTextField(familyName, { familyName = it }, enabled = canEdit, singleLine = true,
                         label = { Text(t("examShare.upload.familyName")) }, modifier = Modifier.weight(1f))
-                    OutlinedTextField(givenName, { givenName = it.take(limits.teacherName.toInt()) }, enabled = canEdit, singleLine = true,
+                    OutlinedTextField(givenName, { givenName = it }, enabled = canEdit, singleLine = true,
                         label = { Text(t("examShare.upload.givenName")) }, modifier = Modifier.weight(1f))
                     TextButton(enabled = canEdit && familyName.isNotBlank(), onClick = {
                         edit { it.copy(newTeachers = it.newTeachers + ExamNewTeacher(familyName.trim(), givenName.trim())) }
@@ -504,11 +519,12 @@ internal fun UploadSheet(
                     edit { it.copy(answerSource = picked) }
                 }
             }
-            OutlinedTextField(draft.variant, { value -> edit { it.copy(variant = value.take(limits.variant.toInt())) } }, enabled = canEdit,
+            OutlinedTextField(draft.variant, { value -> edit { it.copy(variant = value) } }, enabled = canEdit,
                 label = { Text(t("examShare.upload.variant")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(draft.note, { value -> edit { it.copy(note = value.take(limits.note.toInt())) } }, enabled = canEdit,
+            OutlinedTextField(draft.note, { value -> edit { it.copy(note = value) } }, enabled = canEdit,
                 label = { Text(t("examShare.upload.note")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Text(t("examShare.uploadPublic"), color = Theme.colors.muted, style = MaterialTheme.typography.bodySmall)
+            if (!pending && !sending) readiness?.reasonKey?.let { Text(t(it), color = Theme.colors.danger) }
             error?.let { Text(it, color = Theme.colors.danger) }
             when {
                 sending -> ExamUploadProgress(progress, true)

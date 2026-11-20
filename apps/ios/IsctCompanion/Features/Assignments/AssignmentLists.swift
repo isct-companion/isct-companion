@@ -58,7 +58,7 @@ struct TodayAssignmentSections: View {
             Section {
                 ForEach(items, id: \.assignmentId) { item in
                     AssignmentListRow(item: item) {
-                        DeadlineRow(item: item, now: now, overdueStyle: .elapsed)
+                        DeadlineRow(item: item, now: now)
                     }
                 }
             } header: {

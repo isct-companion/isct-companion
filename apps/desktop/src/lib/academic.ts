@@ -1,27 +1,20 @@
+import type { AssignmentState } from "../generated/persistence";
 import type { Assignment } from "./model";
 import type { MessageKey } from "../i18n";
 export { JST } from "./civil-date";
 
-const SUBMISSION = {
-  unknown: "status.unknown",
-  open: "status.open",
-  submitted: "status.submitted",
-  graded: "status.graded",
-} satisfies Record<NonNullable<Assignment["submission"]>, MessageKey>;
-
-/** Render Core's submitted state and the grade displayed by the LMS. */
+/** Render the state Core selected and the grade displayed by the LMS. */
 export function submissionLabel(
   assignment: Assignment,
   translate: (key: MessageKey) => string,
-  submitted: boolean,
+  state: AssignmentState | undefined,
 ): string {
-  if (assignment.submission === "graded")
+  if (state === "graded")
     return assignment.grade
       ? `${translate("status.graded")} ${assignment.grade}`
       : translate("status.graded");
+  if (state === "submitted") return translate("status.submitted");
   return translate(
-    submitted
-      ? "status.submitted"
-      : SUBMISSION[assignment.submission ?? "unknown"],
+    assignment.submission === "open" ? "status.open" : "status.unknown",
   );
 }

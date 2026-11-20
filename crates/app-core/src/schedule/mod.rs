@@ -11,11 +11,12 @@ mod credits;
 mod exam_courses;
 mod exams;
 mod ics;
-mod lms_html;
+pub mod lms_html;
 mod occurrence;
 mod range;
 mod reminders;
 pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};
+pub use reminders::{reminder_lead_options, ReminderLeadOptions};
 mod requests;
 mod school;
 mod search;
@@ -85,7 +86,11 @@ pub(crate) use school::{CatalogEntry, ExamTimetable};
 pub(crate) use search::subject_codes;
 pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
-pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
+pub use tasks::{
+    assignment_state, deadline_view, task_view, AssignmentGroups, AssignmentState,
+    CountdownComponent, CountdownUnit, DeadlineState, HandInAvailability, TaskDeadlineView,
+    TaskView, TermTaskView,
+};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
 pub use timing::{
     default_teaching_periods, teaching_periods, timetable_axis, validate_teaching_periods, AxisRow,
@@ -183,6 +188,10 @@ pub enum WorkspaceQuery {
     /// A course's LMS content lesson by lesson.
     CourseContent {
         course_id: String,
+        now: String,
+    },
+    DeadlineDisplay {
+        at: String,
         now: String,
     },
     /// One assignment with its LMS text and files, for an in-app page.
@@ -366,6 +375,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
+            Self::DeadlineDisplay { .. } => &[],
             Self::AssignmentDetail { .. } => &[
                 Courses,
                 Registrations,
@@ -505,6 +515,7 @@ pub enum WorkspaceQueryResult {
     PlanningWeek(PlanningWeek),
     AcademicYears(AcademicYearIndex),
     TaskView(TaskView),
+    DeadlineDisplay(TaskDeadlineView),
     Today(TodayView),
     UpcomingExams(Vec<ExamView>),
     CalendarRange(Vec<DatedAgenda>),
@@ -647,9 +658,16 @@ pub fn query(
                 parse_timestamp(&now)?,
             )))
         }
-        WorkspaceQuery::AssignmentDetail { assignment_id } => Ok(
-            WorkspaceQueryResult::AssignmentDetail(assignment_detail(workspace, &assignment_id)),
-        ),
+        WorkspaceQuery::AssignmentDetail { assignment_id } => {
+            Ok(WorkspaceQueryResult::AssignmentDetail(assignment_detail(
+                workspace,
+                &assignment_id,
+                chrono::Utc::now().fixed_offset(),
+            )))
+        }
+        WorkspaceQuery::DeadlineDisplay { at, now } => Ok(WorkspaceQueryResult::DeadlineDisplay(
+            deadline_view(parse_timestamp(&at)?, parse_timestamp(&now)?),
+        )),
         WorkspaceQuery::TaskView { now } => Ok(WorkspaceQueryResult::TaskView(task_view(
             workspace,
             parse_timestamp(&now)?,
@@ -1035,10 +1053,13 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ColorOverrides::decl(cfg),
         CourseDetail::decl(cfg),
         AssignmentDetail::decl(cfg),
+        AssignmentState::decl(cfg),
+        HandInAvailability::decl(cfg),
         CourseContent::decl(cfg),
         LessonContent::decl(cfg),
         LessonItem::decl(cfg),
         LessonItemKind::decl(cfg),
+        lms_html::LocalizedLmsHtml::decl(cfg),
         AssignmentAttachment::decl(cfg),
         <crate::course_materials::CourseKey as TS>::decl(cfg),
         ExamView::decl(cfg),
@@ -1047,6 +1068,9 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamAssociation::decl(cfg),
         LectureSearch::decl(cfg),
         TaskDeadlineView::decl(cfg),
+        DeadlineState::decl(cfg),
+        CountdownUnit::decl(cfg),
+        CountdownComponent::decl(cfg),
         AssignmentGroups::decl(cfg),
         TermTaskView::decl(cfg),
         TaskView::decl(cfg),

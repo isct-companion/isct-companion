@@ -868,6 +868,80 @@ fn assignment_reminders_preserve_leads_and_open_work_filter() {
 }
 
 #[test]
+fn deadline_display_truncates_adjacent_units_and_changes_at_the_projected_instant() {
+    use CountdownUnit::*;
+    let due: DateTime<FixedOffset> = "2026-04-14T00:00:00+09:00".parse().unwrap();
+    for (seconds, expected, tone) in [
+        (59, vec![(Seconds, 59)], "urgent"),
+        (60, vec![(Minutes, 1)], "urgent"),
+        (61, vec![(Minutes, 1), (Seconds, 1)], "urgent"),
+        (3660, vec![(Hours, 1), (Minutes, 1)], "urgent"),
+        (3630, vec![(Hours, 1)], "urgent"),
+        (86_400 + 5 * 60, vec![(Days, 1)], "soon"),
+        (86_400, vec![(Days, 1)], "soon"),
+        (259_200, vec![(Days, 3)], "normal"),
+    ] {
+        for elapsed in [false, true] {
+            let delta = chrono::Duration::seconds(seconds);
+            let at = if elapsed { due + delta } else { due - delta };
+            let view = deadline_view(due, at);
+            let parts = |view: &TaskDeadlineView| {
+                view.units
+                    .iter()
+                    .map(|unit| (unit.unit, unit.count))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(parts(&view), expected);
+            assert_eq!(view.countdown_tone, if elapsed { "past" } else { tone });
+            let next = view
+                .next_change_at
+                .as_ref()
+                .unwrap()
+                .parse::<DateTime<FixedOffset>>()
+                .unwrap();
+            assert!(next > at);
+            assert_eq!(
+                parts(&deadline_view(
+                    due,
+                    next - chrono::Duration::milliseconds(1)
+                )),
+                expected
+            );
+            assert_ne!(parts(&deadline_view(due, next)), expected);
+        }
+    }
+    let remaining = deadline_view(due, due - chrono::Duration::milliseconds(1));
+    assert_eq!(remaining.state, DeadlineState::Remaining);
+    assert_eq!(
+        remaining
+            .next_change_at
+            .unwrap()
+            .parse::<DateTime<FixedOffset>>()
+            .unwrap(),
+        due
+    );
+    let exact = deadline_view(due, due);
+    assert_eq!(
+        (exact.state, exact.countdown_tone.as_str()),
+        (DeadlineState::Overdue, "past")
+    );
+    assert_eq!(
+        exact.units,
+        [CountdownComponent {
+            unit: Seconds,
+            count: 0
+        }]
+    );
+    assert_eq!(
+        deadline_view(due, due + chrono::Duration::seconds(1)).units,
+        [CountdownComponent {
+            unit: Seconds,
+            count: 1
+        }]
+    );
+}
+
+#[test]
 fn task_view_strictly_classifies_today_and_lecture_work() {
     let mut data = workspace();
     data["assignments"] = json!([
@@ -886,6 +960,11 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"lms-done","courseId":"course","title":"LMS done","dueAt":"2026-04-15T10:00:00+09:00","submissionStatus":"submitted"},
         {"id":"graded","courseId":"course","title":"Graded","dueAt":"2026-04-01T10:00:00+09:00","submission":"graded","deletedAt":"2026-04-02T00:00:00Z"}
     ]);
+    for row in data["assignments"].as_array_mut().unwrap() {
+        if row["id"] != "undated" {
+            row["sourceUrl"] = json!("https://lms.s.isct.ac.jp/2026/mod/assign/view.php?id=7");
+        }
+    }
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap();
     let view = task_view(&data, now).unwrap();
     let term = &view.by_term["2026-1Q"];
@@ -920,20 +999,48 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         view.submitted_ids,
         vec!["done", "lms-done", "old", "past-done", "undated-done"]
     );
-    // Closed for hand-in: submitted work, and past deadlines unless LMS last
-    // showed the page still taking late work ("missed").
-    assert_eq!(
-        view.closed_ids,
-        vec![
-            "done",
+    for (id, state, availability) in [
+        (
+            "soon",
+            AssignmentState::Open,
+            HandInAvailability::PrepareDraft,
+        ),
+        ("past", AssignmentState::Closed, HandInAvailability::OpenLms),
+        (
+            "missed",
+            AssignmentState::Overdue,
+            HandInAvailability::PrepareDraft,
+        ),
+        (
             "lms-done",
-            "old",
-            "orphan",
-            "past",
+            AssignmentState::Submitted,
+            HandInAvailability::OpenLms,
+        ),
+        (
             "past-done",
-            "undated-done"
-        ]
-    );
+            AssignmentState::Graded,
+            HandInAvailability::OpenLms,
+        ),
+        (
+            "undated",
+            AssignmentState::Open,
+            HandInAvailability::Unavailable,
+        ),
+    ] {
+        let row = visible_by_id(&data, "assignments", id).unwrap();
+        let item = super::today::deadline_item(&data, row, now).unwrap();
+        let detail = assignment_detail(&data, id, now).unwrap();
+        assert_eq!(view.states[id], state);
+        assert_eq!(view.hand_in_availability[id], availability);
+        assert_eq!(
+            (item.state, item.hand_in_availability),
+            (state, availability)
+        );
+        assert_eq!(
+            (detail.state, detail.hand_in_availability),
+            (state, availability)
+        );
+    }
     // Another quarter lists all of its past work at once; unlinked work
     // belongs only to the current quarter.
     let mut ended = data.clone();
@@ -947,7 +1054,13 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert!(ended.past_earlier_ids.is_empty());
     assert_eq!(ended.hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
-    assert_eq!(view.deadlines["soon"].countdown_label, "2h");
+    assert_eq!(
+        view.deadlines["soon"].units,
+        [CountdownComponent {
+            unit: CountdownUnit::Hours,
+            count: 2
+        }]
+    );
     assert_eq!(view.deadlines["soon"].countdown_tone, "urgent");
     assert!(!view.deadlines.contains_key("invalid"));
 }
@@ -2144,6 +2257,14 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
     )
     .unwrap();
     assert_eq!(ja.items[1].body, "締切まで30分");
+    for selected in [vec![17], vec![17, 1, 2, 3, 4, 5, 6, 7]] {
+        data["settings"]["notifications"]["assignmentLeadMinutes"] = json!(selected);
+        let options = reminder_lead_options(&data["settings"]["notifications"]).unwrap();
+        assert_eq!((options.min_selected, options.max_selected), (1, 8));
+        assert_eq!(options.selected, selected);
+        assert!(options.presets.contains(&17) && options.presets.contains(&60));
+        assert!(options.presets.windows(2).all(|pair| pair[0] > pair[1]));
+    }
     for invalid in [
         json!([]),
         json!([0]),
@@ -2155,6 +2276,7 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
     ] {
         data["settings"]["notifications"]["assignmentLeadMinutes"] = invalid;
         assert!(notification_plan(&data, &SchoolReads::fixture(&data), from, to, None).is_err());
+        assert!(reminder_lead_options(&data["settings"]["notifications"]).is_err());
     }
 }
 
@@ -3119,7 +3241,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert!(assignment_detail(&data, "gone").is_none());
+    assert!(assignment_detail(&data, "gone", chrono::Utc::now().fixed_offset()).is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
     // relative links and other hosts are not attachments.
     let mut named = data.clone();
@@ -3129,7 +3251,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
         r#"<a href="http://lms.s.isct.ac.jp/pluginfile.php/1/x.zip">plain</a>"#,
         r#"<a href="/pluginfile.php/relative.zip">relative</a>"#,
     ));
-    let names: Vec<_> = assignment_detail(&named, "a")
+    let names: Vec<_> = assignment_detail(&named, "a", chrono::Utc::now().fixed_offset())
         .unwrap()
         .attachments
         .into_iter()
@@ -3139,7 +3261,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     // Without a module row the page still shows the assignment's own fields.
     let mut bare = data.clone();
     bare["materials"] = json!([]);
-    let view = assignment_detail(&bare, "a").unwrap();
+    let view = assignment_detail(&bare, "a", chrono::Utc::now().fixed_offset()).unwrap();
     assert!(view.body_html.is_empty() && view.attachments.is_empty());
     assert_eq!(view.title, "Report");
 }

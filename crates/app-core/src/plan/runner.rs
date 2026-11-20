@@ -735,6 +735,8 @@ fn shown(snapshot: &SchoolSessionSnapshot) -> HashMap<SchoolAuthProfile, Shown> 
                 profile,
                 Shown {
                     state: session.state,
+                    presentation: session.presentation.clone(),
+                    retry_at: session.retry_at,
                     maintenance: session
                         .maintenance
                         .as_ref()

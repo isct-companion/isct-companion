@@ -486,7 +486,15 @@ export type Notifications = {
   examLeadMinutes: number;
   classLeadMinutes: number;
   assignmentLeadMinutes: Array<number>;
+  assignmentLeadOptions?: ReminderLeadOptions;
   localPermission: NotificationPermission;
+};
+
+export type ReminderLeadOptions = {
+  presets: Array<number>;
+  selected: Array<number>;
+  minSelected: number;
+  maxSelected: number;
 };
 
 export type CloudSettings = {
@@ -990,6 +998,8 @@ export type ExamUploadForm = {
   request: ExamRequest | null;
 };
 
+export type ExamUploadReadiness = { reasonKey: string | null };
+
 export type ExamUploadStart =
   { kind: "subject"; code: string } | { kind: "request"; request: ExamRequest };
 
@@ -1045,6 +1055,11 @@ export type ExamAction =
   | { kind: "deleteRequest"; id: string; mine: boolean }
   | { kind: "uploadForm"; start: ExamUploadStart }
   | { kind: "editUpload"; form: ExamUploadForm; edit: ExamUploadEdit }
+  | {
+      kind: "uploadReadiness";
+      files: Array<ExamUploadFile>;
+      draft: ExamUploadDraft;
+    }
   | { kind: "upload"; files: Array<ExamUploadFile>; draft: ExamUploadDraft }
   | { kind: "cancelUpload" }
   | { kind: "recoverUpload" };
@@ -1059,6 +1074,7 @@ export type ExamAnswer =
   | { kind: "requests"; value: ExamRequestPage }
   | { kind: "choices"; value: ExamChoices }
   | { kind: "uploadForm"; value: ExamUploadForm }
+  | { kind: "uploadReadiness"; value: ExamUploadReadiness }
   | { kind: "uploaded"; value: string | null }
   | { kind: "done" };
 
@@ -1461,6 +1477,12 @@ export type AssignmentDetail = {
   courseId: string;
   title: string;
   dueAt: string | null;
+  deadline: TaskDeadlineView | null;
+  state: AssignmentState;
+  handInAvailability: HandInAvailability;
+  /**
+   * Stored LMS statuses for the agent assignment read. Shells use state.
+   */
   submission: string | null;
   submissionStatus: string | null;
   grade: string | null;
@@ -1473,12 +1495,18 @@ export type AssignmentDetail = {
    * which the page states already.
    */
   bodyHtml: string;
+  originalBodyHtml: string | null;
   /**
    * Notes the assignment row carries besides the LMS text.
    */
   details: string;
   attachments: Array<AssignmentAttachment>;
 };
+
+export type AssignmentState =
+  "open" | "overdue" | "closed" | "submitted" | "graded";
+
+export type HandInAvailability = "unavailable" | "openLms" | "prepareDraft";
 
 export type CourseContent = {
   courseId: string;
@@ -1487,6 +1515,7 @@ export type CourseContent = {
    * numbers its lessons, in section order.
    */
   lessons: Array<LessonContent>;
+  materialReaderHtml: { [key in string]: LocalizedLmsHtml };
   /**
    * The course's assignments set outside any section (their LMS activity
    * is not among the materials).
@@ -1540,6 +1569,7 @@ export type LessonContent = {
    * `lmsRowOff`.
    */
   summaryHtml: string;
+  originalSummaryHtml: string | null;
   /**
    * The first line of that text without a short leading label
    * (授業計画：, Course schedule:), which heads a folded lesson.
@@ -1567,6 +1597,7 @@ export type LessonItem = {
    * schedule tables marked as in `LessonContent.summary_html`.
    */
   bodyHtml: string | null;
+  originalBodyHtml: string | null;
   /**
    * The LMS page or file Core resolves and downloads.
    */
@@ -1580,6 +1611,14 @@ export type LessonItem = {
 
 export type LessonItemKind =
   "file" | "link" | "folder" | "page" | "label" | "forum" | "other";
+
+export type LocalizedLmsHtml = {
+  preferred: string;
+  /**
+   * Present when filtering changed what the reader sees.
+   */
+  original: string | null;
+};
 
 export type AssignmentAttachment = { name: string; url: string };
 
@@ -1668,13 +1707,17 @@ export type LectureSearch = {
 
 export type TaskDeadlineView = {
   at: string;
-  remainingMilliseconds: number;
-  label: string;
-  tone: string;
-  countdownLabel: string;
+  state: DeadlineState;
+  units: Array<CountdownComponent>;
   countdownTone: string;
-  overdue: boolean;
+  nextChangeAt: string | null;
 };
+
+export type DeadlineState = "remaining" | "overdue";
+
+export type CountdownUnit = "days" | "hours" | "minutes" | "seconds";
+
+export type CountdownComponent = { unit: CountdownUnit; count: number };
 
 export type AssignmentGroups = {
   pinnedIds: Array<string>;
@@ -1718,12 +1761,8 @@ export type TaskView = {
    * instead of applying their own rule.
    */
   submittedIds: Array<string>;
-  /**
-   * Visible assignments that no longer take a hand-in: submitted, or past
-   * the deadline unless the LMS page last showed it still accepting late
-   * work. Shells open the LMS page for these instead of preparing a draft.
-   */
-  closedIds: Array<string>;
+  states: { [key in string]: AssignmentState };
+  handInAvailability: { [key in string]: HandInAvailability };
   nearestByCourse: { [key in string]: string };
   byTerm: { [key in string]: TermTaskView };
 };
@@ -1748,6 +1787,7 @@ export type DeadlineItem = {
   color: string | null;
   title: string;
   dueAt: string | null;
+  deadline: TaskDeadlineView | null;
   overdue: boolean;
   /**
    * `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
@@ -1755,6 +1795,8 @@ export type DeadlineItem = {
   tone: string;
   pinned: boolean;
   submitted: boolean;
+  state: AssignmentState;
+  handInAvailability: HandInAvailability;
   hidden: boolean;
   grade: string | null;
   sourceUrl: string | null;
@@ -1913,6 +1955,7 @@ export type WorkspaceQuery =
   | { kind: "assignmentBoard"; now: string; term: string | null }
   | { kind: "courseDetail"; courseId: string }
   | { kind: "courseContent"; courseId: string; now: string }
+  | { kind: "deadlineDisplay"; at: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
@@ -1972,6 +2015,7 @@ export type WorkspaceQueryResult =
   | { kind: "planningWeek"; value: PlanningWeek }
   | { kind: "academicYears"; value: AcademicYearIndex }
   | { kind: "taskView"; value: TaskView }
+  | { kind: "deadlineDisplay"; value: TaskDeadlineView }
   | { kind: "today"; value: TodayView }
   | { kind: "upcomingExams"; value: Array<ExamView> }
   | { kind: "calendarRange"; value: Array<DatedAgenda> }
@@ -2415,6 +2459,7 @@ export type ErrorCode =
   | "host-paused"
   | "workspace-folder-missing"
   | "hand-in-files-only"
+  | "hand-in-unavailable"
   | "hand-in-empty"
   | "hand-in-needs-zip"
   | "hand-in-too-large"
@@ -2472,6 +2517,11 @@ export type ErrorCode =
   | "exam-share-identity"
   | "exam-share-already-reported"
   | "exam-share-quota"
+  | "exam-share-upload-no-files"
+  | "exam-share-upload-teacher-name"
+  | "exam-share-upload-teacher-length"
+  | "exam-share-upload-variant-length"
+  | "exam-share-upload-note-length"
   | "exam-share-upload-file"
   | "exam-share-upload-mixed"
   | "exam-share-upload-size"

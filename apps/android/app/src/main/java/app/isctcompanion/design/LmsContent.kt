@@ -8,6 +8,7 @@ import android.content.Intent
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -57,13 +58,15 @@ import kotlinx.coroutines.launch
  * opens as Core decides for the course `courseId` (`rememberMaterialOpening`);
  * other links (mail, phone) go to the system. */
 @Composable
-fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier) {
+fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier, originalHtml: String? = null) {
+    var original by remember(originalHtml) { mutableStateOf(false) }
+    val shown = if (original) originalHtml ?: html else html
     val context = LocalContext.current
     val opening by rememberUpdatedState(rememberMaterialOpening())
     val accent = Theme.colors.accent
-    val text = remember(html, accent) {
+    val text = remember(shown, accent) {
         AnnotatedString.fromHtml(
-            html.trim(),
+            shown.trim(),
             linkStyles = TextLinkStyles(SpanStyle(color = accent)),
             linkInteractionListener = { link ->
                 val url = (link as? LinkAnnotation.Url)?.url ?: return@fromHtml
@@ -75,8 +78,15 @@ fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier) {
             },
         ).trimmed()
     }
-    SelectionContainer(modifier) {
-        Text(text, style = MaterialTheme.typography.bodyLarge, color = Theme.colors.ink)
+    Column(modifier) {
+        if (originalHtml != null) {
+            TextButton(onClick = { original = !original }) {
+                Text(t(if (original) "lms.usePreferredLanguage" else "lms.showOriginal"))
+            }
+        }
+        SelectionContainer {
+            Text(text, style = MaterialTheme.typography.bodyLarge, color = Theme.colors.ink)
+        }
     }
 }
 

@@ -10,7 +10,7 @@ use crate::{
     downloads::Downloader,
     file_preview::archive::is_junk,
     notes::NoteStore,
-    schedule::AssignmentDetail,
+    schedule::{AssignmentDetail, HandInAvailability},
     storage::{self, LocalFile, StorageError},
 };
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,8 @@ pub enum WorkspaceError {
 pub enum HandInError {
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
+    #[error("This assignment is no longer available for draft upload.")]
+    Unavailable,
     #[error("Only files can be handed in.")]
     FilesOnly,
     #[error("The submit folder is empty")]
@@ -93,32 +95,28 @@ pub struct WorkspaceInfo {
     pub zip_name: String,
 }
 
-/// What the assignment's main button does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum HandIn {
-    /// Open the assignment's LMS page; nothing local is read.
-    OpenLms,
-    /// Upload `submit/` to the LMS draft area, then open it.
-    PrepareDraft,
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HandInView {
     pub workspace: Option<WorkspaceInfo>,
-    pub hand_in: HandIn,
+    pub hand_in: HandInAvailability,
 }
 
 impl HandInView {
-    fn of(workspace: Option<WorkspaceInfo>, closed: bool) -> Self {
-        let hand_in = if closed || workspace.is_none() {
-            HandIn::OpenLms
-        } else {
-            HandIn::PrepareDraft
+    fn of(workspace: Option<WorkspaceInfo>, availability: HandInAvailability) -> Self {
+        let hand_in = match availability {
+            HandInAvailability::PrepareDraft if workspace.is_none() => HandInAvailability::OpenLms,
+            availability => availability,
         };
         Self { workspace, hand_in }
     }
+}
+
+fn draft_page(detail: AssignmentDetail) -> Result<String, HandInError> {
+    if detail.hand_in_availability != HandInAvailability::PrepareDraft {
+        return Err(HandInError::Unavailable);
+    }
+    detail.source_url.ok_or(HandInError::Unavailable)
 }
 
 pub struct PreparedUpload {
@@ -231,12 +229,7 @@ impl Workspaces {
             .and_then(serde_json::Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|row| {
-                matches!(
-                    row.get("submission").and_then(serde_json::Value::as_str),
-                    Some("submitted" | "graded")
-                )
-            })
+            .filter(|row| crate::schedule::assignment_submitted(row))
             .filter_map(|row| row.get("id").and_then(serde_json::Value::as_str))
             .collect();
         let tree = storage::workspace_root(&self.root);
@@ -627,8 +620,12 @@ impl AssignmentWorkspaces {
             .store
             .view(&fields)
             .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
-        let detail = crate::schedule::assignment_detail(&workspace, assignment)
-            .ok_or_else(|| WorkspaceError::Input("The assignment was not found.".into()))?;
+        let detail = crate::schedule::assignment_detail(
+            &workspace,
+            assignment,
+            chrono::Utc::now().fixed_offset(),
+        )
+        .ok_or_else(|| WorkspaceError::Input("The assignment was not found.".into()))?;
         let course = workspace
             .get("courses")
             .and_then(serde_json::Value::as_array)
@@ -707,11 +704,34 @@ impl AssignmentWorkspaces {
         }
     }
 
-    /// The workspace and main action for one assignment. `closed` is the
-    /// assignment's membership in `TaskView::closed_ids`: closed work, and
-    /// open work without a workspace, go straight to LMS.
-    pub fn hand_in(&self, assignment: &str, closed: bool) -> Result<HandInView, WorkspaceError> {
-        Ok(HandInView::of(self.find(assignment)?, closed))
+    /// The workspace and main action for one assignment.
+    pub fn hand_in(&self, assignment: &str) -> Result<HandInView, WorkspaceError> {
+        let (detail, _) = self.detail(assignment)?;
+        Ok(HandInView::of(
+            self.find(assignment)?,
+            detail.hand_in_availability,
+        ))
+    }
+
+    /// Resolve eligibility and the LMS destination from the current store before
+    /// preparing the files. The browser still verifies the remote draft area.
+    pub fn prepare_draft(
+        &self,
+        assignment: &str,
+        workspace_path: Option<&str>,
+    ) -> Result<(String, PreparedUpload), HandInError> {
+        let (detail, _) = self.detail(assignment)?;
+        let page = draft_page(detail)?;
+        let workspaces = self.at()?;
+        let workspace;
+        let path = match workspace_path {
+            Some(path) => path,
+            None => {
+                workspace = self.find(assignment)?.ok_or(HandInError::Empty)?;
+                &workspace.path
+            }
+        };
+        Ok((page, workspaces.prepare_upload(path, assignment)?))
     }
 
     /// Creates the assignment's workspace once: downloads its attachments

@@ -260,7 +260,15 @@ describe("School accounts", () => {
               },
               { label: "School account", issuer: "School", setup },
             ];
-          if (command === "connect_school") return { kind: "connected" };
+          if (command === "connect_school")
+            return {
+              kind: "connected",
+              presentation: {
+                stateKey: "schoolSession.connect.connected",
+                reasonKey: null,
+                recovery: [],
+              },
+            };
           return undefined;
         },
       });
@@ -392,9 +400,32 @@ describe("School accounts", () => {
         tokyoTech: notConfigured(),
       };
       const answers = [
-        { kind: "refused", reason: "invalid-otp", refusalUnsaved: false },
-        { kind: "not-saved" },
-        { kind: "connected" },
+        {
+          kind: "refused",
+          reason: "invalid-otp",
+          refusalUnsaved: false,
+          presentation: {
+            stateKey: "schoolSession.state.refused",
+            reasonKey: "failure.theOneTimePasswordWas",
+            recovery: [],
+          },
+        },
+        {
+          kind: "not-saved",
+          presentation: {
+            stateKey: "schoolSession.connect.saveFailed",
+            reasonKey: null,
+            recovery: [],
+          },
+        },
+        {
+          kind: "connected",
+          presentation: {
+            stateKey: "schoolSession.connect.connected",
+            reasonKey: null,
+            recovery: [],
+          },
+        },
       ];
       const mounted = await mountAccounts({
         handle: (command) => {
@@ -510,6 +541,11 @@ describe("School accounts", () => {
           "school-session",
           snapshot(2, {
             state: "refused",
+            presentation: {
+              stateKey: "schoolSession.state.refused",
+              reasonKey: "failure.theIDOrPasswordWas",
+              recovery: ["retry"],
+            },
             problem: { kind: "invalid-credentials", message: "HTTP 401" },
           }),
         ),
@@ -547,6 +583,11 @@ describe("School accounts", () => {
           "school-session",
           snapshot(5, {
             state: "needs-web",
+            presentation: {
+              stateKey: "schoolSession.state.otpNotSetUp",
+              reasonKey: "schoolSession.problem.emailOtp",
+              recovery: ["set-up-otp-on-portal"],
+            },
             problem: { kind: "email-otp", message: "email" },
           }),
         ),
@@ -900,7 +941,15 @@ describe("Matrix scan and paste", () => {
               stable: false,
               level: index === 0 ? "high" : index === 1 ? "medium" : "low",
             }));
-          if (command === "connect_school") return { kind: "connected" };
+          if (command === "connect_school")
+            return {
+              kind: "connected",
+              presentation: {
+                stateKey: "schoolSession.connect.connected",
+                reasonKey: null,
+                recovery: [],
+              },
+            };
           return undefined;
         },
       });

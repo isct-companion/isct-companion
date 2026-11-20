@@ -30,6 +30,13 @@ export type SchoolSignInProblemKind =
   | "unanswered"
   | "anomaly"
   | "credential-store";
+export type SignInRecovery =
+  "retry" | "open-school-page" | "set-up-otp-on-portal" | "finish-sign-out";
+export type SignInPresentation = {
+  stateKey: string;
+  reasonKey: string | null;
+  recovery: SignInRecovery[];
+};
 /** Why the last sign-in did not finish. `message` is Core's English
  * diagnostic, for logs and tooltips; the shell shows text chosen by `kind`. */
 export type SchoolSignInProblem = {
@@ -47,6 +54,7 @@ export type SchoolProfileSession = {
   signOutPending: boolean;
   refusalUnsaved: boolean;
   state: SchoolSessionState;
+  presentation: SignInPresentation;
   problem: SchoolSignInProblem | null;
   /** RFC 3339; only with `unavailable`. */
   retryAt: string | null;

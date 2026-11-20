@@ -1,4 +1,10 @@
-import type { SchoolAuthProfile, SchoolSessionState, SchoolSignInProblemKind, SchoolSessionSnapshot } from "./school-session-contract";
+import type {
+  SchoolAuthProfile,
+  SchoolSessionState,
+  SchoolSignInProblemKind,
+  SchoolSessionSnapshot,
+  SignInPresentation,
+} from "./school-session-contract";
 import type {
   ExamAccount,
   ExamAction,
@@ -129,28 +135,14 @@ const SCHOOL_SESSION_STATES: readonly unknown[] = [
 ] satisfies SchoolSessionState[];
 /** How Connect ended. Only `connected` saved anything: the entered
  * credentials are the verified ones now and sync to the other devices. */
-export type SchoolConnectOutcome =
-  | { kind: "connected" }
-  /** The school refused the ID or password, the one-time password or the
-   * Matrix (`reason`). */
+export type SchoolConnectOutcome = { presentation: SignInPresentation } & (
+  | { kind: "connected" | "unreachable" | "not-saved" | "stopped" }
   | {
-      kind: "refused";
+      kind: "refused" | "needs-web";
       reason: SchoolSignInProblemKind;
       refusalUnsaved: boolean;
     }
-  /** The school wants the person on its own page (`reason`). */
-  | {
-      kind: "needs-web";
-      reason: SchoolSignInProblemKind;
-      refusalUnsaved: boolean;
-    }
-  /** No verdict: offline, the network, out of time. */
-  | { kind: "unreachable" }
-  /** The school accepted the credentials and the system vault did not save
-   * them: the saved ones are as they were. */
-  | { kind: "not-saved" }
-  /** A newer Connect, a sign-out or a reset stopped it. */
-  | { kind: "stopped" };
+);
 const isSchoolSessionSnapshot = (
   value: unknown,
 ): value is SchoolSessionSnapshot => {
@@ -160,6 +152,8 @@ const isSchoolSessionSnapshot = (
     Number.isSafeInteger(revision) &&
     (revision as number) >= 0 &&
     Boolean(profiles) &&
+    Array.isArray(profiles?.science?.presentation?.recovery) &&
+    Array.isArray(profiles?.tokyoTech?.presentation?.recovery) &&
     SCHOOL_SESSION_STATES.includes(profiles?.science?.state) &&
     SCHOOL_SESSION_STATES.includes(profiles?.tokyoTech?.state)
   );
@@ -946,8 +940,7 @@ export function createTauriDesktopBridge(
       subscribe<VpnStatus>(
         listen,
         "vpn-status",
-        (payload) =>
-          typeof payload?.state === "string" ? payload : undefined,
+        (payload) => (typeof payload?.state === "string" ? payload : undefined),
         callback,
       ),
     onVpnNotice: (callback) =>

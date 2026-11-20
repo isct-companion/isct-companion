@@ -167,6 +167,88 @@ impl SchoolSignInProblemKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SignInRecovery {
+    Retry,
+    OpenSchoolPage,
+    SetUpOtpOnPortal,
+    FinishSignOut,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInPresentation {
+    pub state_key: String,
+    pub reason_key: Option<String>,
+    pub recovery: Vec<SignInRecovery>,
+}
+
+impl SchoolSignInProblemKind {
+    fn reason_key(self) -> &'static str {
+        match self {
+            Self::InvalidCredentials => "failure.theIDOrPasswordWas",
+            Self::InvalidOtp => "failure.theOneTimePasswordWas",
+            Self::OtpNeeded => "schoolSession.problem.otpNeeded",
+            Self::InvalidMatrix => "failure.theMatrixAnswerWasNot",
+            Self::EmailOtp => "schoolSession.problem.emailOtp",
+            Self::PasswordChange => "schoolSession.problem.passwordChange",
+            Self::UnknownPage => "schoolSession.problem.unknownPage",
+            Self::Network => "schoolSession.problem.network",
+            Self::Unanswered => "schoolSession.problem.unanswered",
+            Self::Anomaly => "schoolSession.problem.anomaly",
+            Self::CredentialStore => "schoolSession.problem.credentialStore",
+        }
+    }
+
+    fn page_recovery(self) -> Option<SignInRecovery> {
+        match self {
+            Self::EmailOtp => Some(SignInRecovery::SetUpOtpOnPortal),
+            Self::PasswordChange | Self::UnknownPage => Some(SignInRecovery::OpenSchoolPage),
+            _ => None,
+        }
+    }
+}
+
+impl SignInPresentation {
+    fn new(
+        state_key: &str,
+        reason: Option<SchoolSignInProblemKind>,
+        recovery: impl IntoIterator<Item = SignInRecovery>,
+    ) -> Self {
+        Self {
+            state_key: state_key.into(),
+            reason_key: reason.map(|kind| kind.reason_key().into()),
+            recovery: recovery.into_iter().collect(),
+        }
+    }
+
+    pub(crate) fn for_profile(
+        state: SchoolSessionState,
+        reason: Option<SchoolSignInProblemKind>,
+        has_retry_at: bool,
+        sign_out_pending: bool,
+    ) -> Self {
+        use SchoolSessionState::*;
+        use SignInRecovery::*;
+        if sign_out_pending {
+            return Self::new("schoolSession.state.signOutPending", None, [FinishSignOut]);
+        }
+        let page = reason.and_then(SchoolSignInProblemKind::page_recovery);
+        let (key, retry) = match state {
+            NotConfigured => ("common.notConnected", None),
+            Normal => ("schoolSession.state.normal", None),
+            SigningIn => ("common.signingIn", None),
+            Refused => ("schoolSession.state.refused", Some(Retry)),
+            NeedsWeb if page == Some(SetUpOtpOnPortal) => ("schoolSession.state.otpNotSetUp", None),
+            NeedsWeb => ("schoolSession.state.needsWeb", Some(Retry)),
+            Unavailable if has_retry_at => ("schoolSession.state.unavailableRetry", Some(Retry)),
+            Unavailable => ("schoolSession.state.unavailable", Some(Retry)),
+        };
+        Self::new(key, reason, page.into_iter().chain(retry))
+    }
+}
+
 /// Why an account is not signed in. A refusal is kept with the credentials
 /// it is about (`school_auth`'s refusal record), so a relaunch never sends
 /// a refused password again.
@@ -192,6 +274,7 @@ pub struct SchoolMaintenance {
 pub struct SchoolProfileSession {
     pub sign_out_pending: bool,
     pub state: SchoolSessionState,
+    pub presentation: SignInPresentation,
     pub problem: Option<SchoolSignInProblem>,
     pub refusal_unsaved: bool,
     /// When Core tries again on its own (`unavailable` only).
@@ -232,28 +315,49 @@ impl SchoolSessionSnapshot {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SchoolConnectOutcome {
-    Connected,
-    /// The school refused these credentials: the ID or password, the
-    /// one-time password or the Matrix (`reason`).
+    Connected {
+        presentation: SignInPresentation,
+    },
+    /// The school refused the entered credentials, OTP or Matrix.
     Refused {
         reason: SchoolSignInProblemKind,
         #[serde(rename = "refusalUnsaved")]
         refusal_unsaved: bool,
+        presentation: SignInPresentation,
     },
-    /// The school wants the person on its own page: an emailed code, a new
-    /// password, a page Core does not know (`reason`).
+    /// The school wants the person on its own page.
     NeedsWeb {
         reason: SchoolSignInProblemKind,
         #[serde(rename = "refusalUnsaved")]
         refusal_unsaved: bool,
+        presentation: SignInPresentation,
     },
     /// No verdict: offline, the network, out of time.
-    Unreachable,
-    /// The school accepted the credentials, and the system credential vault
-    /// did not save them: the saved credentials are as they were.
-    NotSaved,
+    Unreachable {
+        presentation: SignInPresentation,
+    },
+    /// The school accepted the credentials and the vault did not save them.
+    NotSaved {
+        presentation: SignInPresentation,
+    },
     /// A newer Connect, a sign-out or a reset stopped it.
-    Stopped,
+    Stopped {
+        presentation: SignInPresentation,
+    },
+}
+
+impl SchoolConnectOutcome {
+    fn stopped() -> Self {
+        Self::Stopped {
+            presentation: SignInPresentation::new("schoolSession.connect.stopped", None, []),
+        }
+    }
+
+    fn unreachable(reason: Option<SchoolSignInProblemKind>) -> Self {
+        Self::Unreachable {
+            presentation: SignInPresentation::new("schoolSession.connect.unreachable", reason, []),
+        }
+    }
 }
 
 /// The identity cookies of one sign-in, as the providers sent them.
@@ -689,7 +793,7 @@ impl SchoolSessions {
     ) -> Result<SchoolConnectOutcome, SchoolAuthError> {
         let inner = &self.0;
         let Some(permit) = inner.account(profile).owner.permit() else {
-            return Ok(SchoolConnectOutcome::Stopped);
+            return Ok(SchoolConnectOutcome::stopped());
         };
         // The person's Connect replaces the running sign-in at once, before
         // the vault is read: a read that fails leaves none running.
@@ -697,7 +801,7 @@ impl SchoolSessions {
         let intent = turn.intent;
         inner.publish();
         let Some(blocking) = inner.account(profile).owner.permit_of(permit.generation()) else {
-            return Ok(SchoolConnectOutcome::Stopped);
+            return Ok(SchoolConnectOutcome::stopped());
         };
         let auth = inner.auth.clone();
         let credentials = tokio::task::spawn_blocking(move || {
@@ -710,7 +814,7 @@ impl SchoolSessions {
             SchoolAuthError::Storage("The saved credentials could not be read.".into())
         })??;
         if permit.is_cancelled() {
-            return Ok(SchoolConnectOutcome::Stopped);
+            return Ok(SchoolConnectOutcome::stopped());
         }
         inner.restore(profile).await;
         let seen = inner.account(profile).identity.generation();
@@ -722,24 +826,42 @@ impl SchoolSessions {
         let ended = inner.sign_in(profile, seen, how).await;
         inner.changed();
         Ok(match ended {
-            Ok(_) => SchoolConnectOutcome::Connected,
+            Ok(_) => SchoolConnectOutcome::Connected {
+                presentation: SignInPresentation::new("schoolSession.connect.connected", None, []),
+            },
             Err(Ended::Refused(problem)) if problem.kind.needs_web() => {
                 SchoolConnectOutcome::NeedsWeb {
                     refusal_unsaved: inner.auth.refusal_unsaved(profile)
                         && inner.auth.refusal(profile).as_ref() == Some(&problem),
                     reason: problem.kind,
+                    presentation: SignInPresentation::new(
+                        "schoolSession.state.needsWeb",
+                        Some(problem.kind),
+                        problem.kind.page_recovery(),
+                    ),
                 }
             }
             Err(Ended::Refused(problem)) => SchoolConnectOutcome::Refused {
                 refusal_unsaved: inner.auth.refusal_unsaved(profile)
                     && inner.auth.refusal(profile).as_ref() == Some(&problem),
                 reason: problem.kind,
+                presentation: SignInPresentation::new(
+                    "schoolSession.state.refused",
+                    Some(problem.kind),
+                    [],
+                ),
             },
-            Err(Ended::NotSaved { .. }) => SchoolConnectOutcome::NotSaved,
-            Err(Ended::Stopped) => SchoolConnectOutcome::Stopped,
-            Err(Ended::Unavailable(_) | Ended::Offline | Ended::NotConfigured) => {
-                SchoolConnectOutcome::Unreachable
+            Err(Ended::NotSaved { .. }) => SchoolConnectOutcome::NotSaved {
+                presentation: SignInPresentation::new("schoolSession.connect.saveFailed", None, []),
+            },
+            Err(Ended::Stopped) => SchoolConnectOutcome::stopped(),
+            Err(Ended::Unavailable(problem)) => {
+                SchoolConnectOutcome::unreachable(Some(problem.kind))
             }
+            Err(Ended::Offline) => {
+                SchoolConnectOutcome::unreachable(Some(SchoolSignInProblemKind::Network))
+            }
+            Err(Ended::NotConfigured) => SchoolConnectOutcome::unreachable(None),
         })
     }
 
@@ -1244,9 +1366,17 @@ impl Inner {
     fn profile(&self, profile: SchoolAuthProfile) -> SchoolProfileSession {
         let account = self.account(profile);
         let (state, problem, retry_at) = account.identity.view(self.auth.refusal(profile));
-        SchoolProfileSession {
-            sign_out_pending: account.owner.sign_out_pending(),
+        let sign_out_pending = account.owner.sign_out_pending();
+        let presentation = SignInPresentation::for_profile(
             state,
+            problem.as_ref().map(|problem| problem.kind),
+            retry_at.is_some(),
+            sign_out_pending,
+        );
+        SchoolProfileSession {
+            sign_out_pending,
+            state,
+            presentation,
             problem,
             refusal_unsaved: self.auth.refusal_unsaved(profile),
             retry_at,

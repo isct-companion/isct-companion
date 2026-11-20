@@ -614,6 +614,7 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
     let snapshot = core::SyncSnapshot {
         generation: 3,
         resetting: false,
+        attention: Default::default(),
         runs: vec![core::RunView {
             run: "run-1".into(),
             dataset: "lms.course".into(),
@@ -626,9 +627,14 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
             total: Some(9),
             current: None,
             scope: Some("123".into()),
+            retry: None,
             held: Some(core::Held::Backoff { until: retry }),
             failure: Some(core::SyncFailure {
                 kind: "http-503".into(),
+                reason: core::Label {
+                    key: "syncStatus.failure.serverFailed".into(),
+                    args: json!({ "status": "503" }),
+                },
                 keys_failed: 1,
                 retry_at: Some(retry),
                 detail: Some("grades: parse".into()),

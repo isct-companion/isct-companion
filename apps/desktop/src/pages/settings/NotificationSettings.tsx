@@ -4,10 +4,7 @@ import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../platform/native";
 import { resolveCapabilities } from "../../platform/capabilities";
-import {
-  CLASS_LEAD_CHOICES,
-  ASSIGNMENT_LEAD_CHOICES,
-} from "../../platform/reminders";
+import { CLASS_LEAD_CHOICES } from "../../platform/reminders";
 import { UiButton, UiSelect } from "../../components/ui";
 import {
   Row,
@@ -30,7 +27,7 @@ export function NotificationSettings({
 }) {
   const settings = data.settings.notifications;
   // Core resolves every preference's default before the workspace arrives.
-  const assignmentLeads = settings.assignmentLeadMinutes;
+  const assignmentLeads = settings.assignmentLeadOptions;
   const leadLabel = (minutes: number) =>
     minutes % 1440 === 0
       ? minutes === 1440
@@ -195,7 +192,7 @@ export function NotificationSettings({
             onChange={(value) => set((n) => (n.assignments = value))}
           />
         </Row>
-        {settings.assignments && (
+        {settings.assignments && assignmentLeads && (
           <div
             className="settingsSuboptions"
             role="group"
@@ -205,18 +202,14 @@ export function NotificationSettings({
               <MultiSelect
                 className="assignmentTimes"
                 aria-label={t("settings.notification.assignmentReminderTimes")}
-                value={assignmentLeads.map(String)}
-                data={[
-                  ...new Set([...ASSIGNMENT_LEAD_CHOICES, ...assignmentLeads]),
-                ]
-                  .sort((a, b) => b - a)
-                  .map((minutes) => ({
-                    value: String(minutes),
-                    label: leadLabel(minutes),
-                  }))}
-                maxValues={8}
+                value={assignmentLeads.selected.map(String)}
+                data={assignmentLeads.presets.map((minutes) => ({
+                  value: String(minutes),
+                  label: leadLabel(minutes),
+                }))}
+                maxValues={assignmentLeads.maxSelected}
                 onChange={(values) => {
-                  if (!values.length) return;
+                  if (values.length < assignmentLeads.minSelected) return;
                   const minutes = values.map(Number);
                   set((n) => (n.assignmentLeadMinutes = minutes));
                 }}

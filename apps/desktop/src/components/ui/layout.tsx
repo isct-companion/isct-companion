@@ -3,6 +3,7 @@ import {
   type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
+  type Ref,
 } from "react";
 
 const spacingValues = {
@@ -156,6 +157,7 @@ export function Tag({
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
+  ref?: Ref<HTMLElement>;
   variant?: "soft" | "outline" | "solid";
   /** The colour role; named `tone` so it never shadows ARIA's `role`. */
   tone?: TagRole;

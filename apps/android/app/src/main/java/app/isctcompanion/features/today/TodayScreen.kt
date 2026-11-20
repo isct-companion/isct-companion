@@ -102,7 +102,7 @@ import app.isctcompanion.features.schoolstatus.FirstLoadCard
 import app.isctcompanion.features.schoolstatus.SyncProblemBanner
 import app.isctcompanion.features.schoolstatus.SyncRingButton
 import app.isctcompanion.features.map.RoomMapButton
-import app.isctcompanion.features.schoolstatus.activeRuns
+import app.isctcompanion.features.schoolstatus.showsLoading
 import app.isctcompanion.features.schoolstatus.problem
 import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
@@ -152,7 +152,7 @@ fun TodayScreen() {
                     }
                     if (model.needsAccount) ConnectCard { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
                     model.syncSnapshot?.let { snapshot ->
-                        if ((snapshot.activeRuns.isNotEmpty() || snapshot.resetting) &&
+                        if (snapshot.showsLoading &&
                             model.records.courses.isEmpty() && model.records.assignments.isEmpty()
                         ) {
                             FirstLoadCard(snapshot)
@@ -520,7 +520,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
 private fun TonightHero(item: DeadlineItem, now: Instant) {
     val navigator = LocalNavigator.current
     Hero(Modifier.background(Theme.colors.dangerSoft, RoundedCornerShape(Theme.radiusPanel))) {
-        HeroLine(t("today.dueTonight"), Theme.colors.danger) { DeadlineChip(item, now) }
+        HeroLine(t("today.dueTonight"), Theme.colors.danger) { DeadlineChip(item) }
         Text(
             Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
@@ -571,7 +571,7 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
                         Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(Format.due(item.dueAt, now), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
                     }
-                    DeadlineChip(item, now)
+                    DeadlineChip(item)
                 }
             }
         }

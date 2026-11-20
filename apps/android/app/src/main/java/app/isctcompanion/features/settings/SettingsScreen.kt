@@ -104,6 +104,8 @@ import app.isctcompanion.core.CredentialAvailability
 import app.isctcompanion.core.CredentialSummary
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolConnectOutcome
+import app.isctcompanion.core.SignInPresentation
+import app.isctcompanion.core.SignInRecovery
 import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolProfileSession
@@ -540,13 +542,13 @@ private fun AccountRow(
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
-        session?.signOutPending == true -> t("error.sign-out-incomplete") to Theme.colors.danger
+        session?.presentation?.recovery?.contains(SignInRecovery.FINISH_SIGN_OUT) == true -> AppModel.sessionText(session) to Theme.colors.danger
         !connected -> t("common.notConnected") to Theme.colors.muted
         session == null -> t("settings.main.checking") to Theme.colors.muted
         session.state == SchoolSessionState.NORMAL -> (
-            lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: AppModel.sessionText(session.state)
+            lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: AppModel.sessionText(session)
             ) to Theme.colors.ok
-        else -> AppModel.sessionText(session.state, session.problem, session.retryAt) to stateColor(session.state)
+        else -> AppModel.sessionText(session) to stateColor(session.state)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -575,33 +577,22 @@ private fun SessionStatus(
     retrying: Boolean,
     enabled: Boolean,
     openPortal: () -> Unit,
+    openSchoolPage: () -> Unit,
     retry: () -> Unit,
 ) {
     val state = session.state
-    val retryable = state == SchoolSessionState.REFUSED || state == SchoolSessionState.NEEDS_WEB ||
-        state == SchoolSessionState.UNAVAILABLE
+    val presentation = session.presentation
     val maintenance = session.maintenance
-    if (!retryable && maintenance == null) return
+    if (presentation.recovery.isEmpty() && maintenance == null) return
     Card {
         Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
-            if (AppModel.otpNotSetUp(state, session.problem)) {
-                // No school OTP: Retry would only get the emailed code again,
-                // so the way on is setting it up on the portal.
-                Text(AppModel.sessionText(state, session.problem), color = stateColor(state))
-                Text(t("schoolSession.problem.emailOtp"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-                OutlinedButton(onClick = openPortal, modifier = Modifier.fillMaxWidth()) {
-                    Text(t("schoolSession.openPortal"))
-                }
-            } else if (retryable) {
-                // The kind says what the school page asks for; signing in there
-                // is the person's own and serves only that page.
-                val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let { AppModel.reason(it.kind) } else null
-                Text(headline ?: AppModel.sessionText(state, session.problem, session.retryAt), color = stateColor(state))
-                if (state == SchoolSessionState.NEEDS_WEB) {
-                    Text(t("schoolSession.needsWeb.signInYourself"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-                }
-                OutlinedButton(onClick = retry, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-                    if (retrying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("common.retry"))
+            if (presentation.recovery.isNotEmpty()) {
+                Text(AppModel.sessionText(session), color = stateColor(state))
+                SchoolPageRecovery(presentation, openPortal, openSchoolPage)
+                if (SignInRecovery.RETRY in presentation.recovery) {
+                    OutlinedButton(onClick = retry, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+                        if (retrying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("common.retry"))
+                    }
                 }
                 if (state == SchoolSessionState.REFUSED) {
                     Text(t("schoolSession.retry.otherDevice"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
@@ -644,11 +635,16 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
         model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
         navigator.openTab("tab/web")
     }
+    val openSchoolPage: () -> Unit = {
+        model.web.showTab(if (profile == SchoolAuthProfile.SCIENCE) SchoolSite.SCIENCE_PORTAL else SchoolSite.TOKYO_PORTAL)
+        navigator.openTab("tab/web")
+    }
+    val finishingSignOut = session?.presentation?.recovery?.contains(SignInRecovery.FINISH_SIGN_OUT) == true
     Page {
-        if (session?.signOutPending == true) {
-            Footer(t("error.sign-out-incomplete"), Theme.colors.danger)
-        } else if (saved && session != null) {
-            SessionStatus(profile, session, retrying, enabled = !busy, openPortal = openPortal) {
+        if (session != null && finishingSignOut) {
+            Footer(AppModel.sessionText(session), Theme.colors.danger)
+        } else if (session != null) {
+            SessionStatus(profile, session, retrying, enabled = !busy, openPortal = openPortal, openSchoolPage = openSchoolPage) {
                 scope.launch {
                     retrying = true
                     error = null
@@ -689,7 +685,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
             }
         }
-        outcome?.let { ConnectOutcome(it) }
+        outcome?.let { ConnectOutcome(it, openPortal, openSchoolPage) }
         error?.let { Footer(it, Theme.colors.danger) }
         Button(
             onClick = {
@@ -719,7 +715,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
         ) {
             if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
         }
-        if (saved || session?.signOutPending == true) {
+        if (saved || finishingSignOut) {
             // Core stops the account's reads and clears the web sign-in
             // before this returns, which can take a moment.
             TextButton(
@@ -742,7 +738,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 if (removing) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Theme.colors.danger)
                 } else {
-                    Text(t("settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger)
+                    Text(t(if (finishingSignOut) "settings.schoolAccounts.finishSignOut" else "settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger)
                 }
             }
         }
@@ -751,18 +747,35 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
 
 /** What a Connect ended with, under the form. */
 @Composable
-private fun ConnectOutcome(outcome: SchoolConnectOutcome) {
-    val notSaved = t("schoolSession.connect.notSaved")
-    val (text, color) = when (outcome) {
-        is SchoolConnectOutcome.Connected -> t("schoolSession.connect.connected") to Theme.colors.ok
-        is SchoolConnectOutcome.Refused -> "${AppModel.reason(outcome.reason)}\n$notSaved" to Theme.colors.danger
-        is SchoolConnectOutcome.NeedsWeb -> "${AppModel.reason(outcome.reason)}\n$notSaved" to Theme.colors.warn
-        is SchoolConnectOutcome.Unreachable -> t("schoolSession.connect.unreachable") to Theme.colors.warn
-        is SchoolConnectOutcome.NotSaved -> t("schoolSession.connect.saveFailed") to Theme.colors.danger
-        is SchoolConnectOutcome.Stopped -> t("schoolSession.connect.stopped") to Theme.colors.muted
+private fun ConnectOutcome(outcome: SchoolConnectOutcome, openPortal: () -> Unit, openSchoolPage: () -> Unit) {
+    val (presentation, color) = when (outcome) {
+        is SchoolConnectOutcome.Connected -> outcome.presentation to Theme.colors.ok
+        is SchoolConnectOutcome.Refused -> outcome.presentation to Theme.colors.danger
+        is SchoolConnectOutcome.NeedsWeb -> outcome.presentation to Theme.colors.warn
+        is SchoolConnectOutcome.Unreachable -> outcome.presentation to Theme.colors.warn
+        is SchoolConnectOutcome.NotSaved -> outcome.presentation to Theme.colors.danger
+        is SchoolConnectOutcome.Stopped -> outcome.presentation to Theme.colors.muted
     }
+    val text = if (outcome is SchoolConnectOutcome.Refused || outcome is SchoolConnectOutcome.NeedsWeb) {
+        val reason = presentation.reasonKey?.let { t(it) } ?: t(presentation.stateKey)
+        "$reason\n${t("schoolSession.connect.notSaved")}"
+    } else AppModel.signInText(presentation)
     Footer(text, color)
+    SchoolPageRecovery(presentation, openPortal, openSchoolPage)
+}
 
+@Composable
+private fun SchoolPageRecovery(presentation: SignInPresentation, openPortal: () -> Unit, openSchoolPage: () -> Unit) {
+    if (SignInRecovery.SET_UP_OTP_ON_PORTAL in presentation.recovery) {
+        OutlinedButton(onClick = openPortal, modifier = Modifier.fillMaxWidth()) {
+            Text(t("schoolSession.openPortal"))
+        }
+    }
+    if (SignInRecovery.OPEN_SCHOOL_PAGE in presentation.recovery) {
+        OutlinedButton(onClick = openSchoolPage, modifier = Modifier.fillMaxWidth()) {
+            Text(t("settings.schoolAccounts.showPage"))
+        }
+    }
 }
 
 @Composable
@@ -853,6 +866,12 @@ private fun LanguageCard() {
                 t("settings.main.courseNamesRoomsAndSyllabus"),
                 style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
             )
+            SwitchRow(
+                t("settings.appearance.showOneLanguageInBilingual"),
+                settings.optBoolean("lmsBilingualFilter"),
+            ) { enabled ->
+                scope.launch { model.updateSettings { it.put("lmsBilingualFilter", enabled) } }
+            }
         }
     }
 }

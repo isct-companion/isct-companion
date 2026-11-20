@@ -86,7 +86,7 @@ import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
 import { schoolSessions, useSchoolSession } from "../platform/school-session";
 import type { SchoolAuthProfile, SchoolProfileSession } from "../platform/school-session-contract";
 import { onWidgetRoute } from "../platform/widget-links";
-import { otpNotSetUp, sessionDetails, sessionText } from "../lib/sync-text";
+import { sessionDetails, sessionText } from "../lib/sync-text";
 
 import { performAction } from "../platform/actions";
 
@@ -176,8 +176,7 @@ function SchoolStatusAccount({
         <b>{name}</b>
         <small>{label}</small>
       </span>
-      {(session?.state === "refused" ||
-        (session?.state === "needs-web" && !otpNotSetUp(session))) && (
+      {session?.presentation.recovery.includes("retry") && (
         <UiButton
           type="button"
           className="textButton"

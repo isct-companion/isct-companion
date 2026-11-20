@@ -348,6 +348,7 @@ export function idleSync(): SyncSnapshot {
   return {
     generation: 1,
     resetting: false,
+    attention: { primary: null, problem: null, busy: false },
     runs: [],
     sources: ["lms", "kyomu"].map((source) => ({
       source,
@@ -355,6 +356,7 @@ export function idleSync(): SyncSnapshot {
       running: false,
       held: null,
       failure: null,
+      retry: null,
       session: null,
       maintenance: null,
     })),

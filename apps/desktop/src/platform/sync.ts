@@ -5,7 +5,11 @@
  * (`approach/core-deadline-plan`); these helpers only choose which row of the snapshot a
  * surface shows.
  */
-import type { SchoolAuthProfile, SchoolSessionState } from "./school-session-contract";
+import type {
+  SchoolAuthProfile,
+  SchoolSessionState,
+  SignInPresentation,
+} from "./school-session-contract";
 
 export type SyncPriority = "background" | "visible" | "interactive";
 export type SyncNetwork = "offline" | "wifi" | "cellular" | "unknown";
@@ -25,7 +29,10 @@ export type SyncScope =
   | { kind: "course"; lmsCourseId: number }
   | { kind: "timetable" }
   | { kind: "references" }
-  | { kind: "catalog"; year: number };
+  | { kind: "catalog"; year: number }
+  | { kind: "lms-history"; year: number; month: number };
+
+export type RetryPlan = { scopes: SyncScope[] };
 
 export type SyncHint =
   | { kind: "foreground" }
@@ -61,6 +68,7 @@ export type SyncHeld =
 export type SyncFailure = {
   /** `sync_runs.error_kind`: `timeout`, `http-503`, … */
   kind: string;
+  reason: SyncLabel;
   keysFailed: number;
   retryAt: string | null;
   /** Core's diagnostic text: one `page: reason` line per failed page. */
@@ -81,6 +89,7 @@ export type RunView = {
   scope: string | null;
   held: SyncHeld | null;
   failure: SyncFailure | null;
+  retry: RetryPlan | null;
 };
 
 export type SourceView = {
@@ -90,14 +99,45 @@ export type SourceView = {
   running: boolean;
   held: SyncHeld | null;
   failure: SyncFailure | null;
+  retry: RetryPlan | null;
   /** The account's session state for school sources. */
   session: SchoolSessionState | null;
   maintenance: string | null;
 };
 
+export type SyncWork =
+  { kind: "resetting" | "problem" } | { kind: "active" | "held"; run: string };
+
+export type SyncAttentionProblem =
+  | {
+      kind: "account";
+      profile: SchoolAuthProfile;
+      presentation: SignInPresentation | null;
+      retryAt: string | null;
+    }
+  | {
+      kind: "run-failed";
+      dataset: string;
+      failure: SyncFailure;
+      retry: RetryPlan | null;
+    }
+  | {
+      kind: "source-failed";
+      source: string;
+      failure: SyncFailure;
+      retry: RetryPlan | null;
+    };
+
+export type SyncAttention = {
+  primary: SyncWork | null;
+  problem: SyncAttentionProblem | null;
+  busy: boolean;
+};
+
 export type SyncSnapshot = {
   generation: number;
   resetting: boolean;
+  attention: SyncAttention;
   runs: RunView[];
   sources: SourceView[];
 };
@@ -105,6 +145,7 @@ export type SyncSnapshot = {
 export const EMPTY_SYNC: SyncSnapshot = {
   generation: 0,
   resetting: false,
+  attention: { primary: null, problem: null, busy: false },
   runs: [],
   sources: [],
 };
@@ -112,6 +153,7 @@ export const EMPTY_SYNC: SyncSnapshot = {
 export const isSyncSnapshot = (value: unknown): value is SyncSnapshot =>
   Boolean(value) &&
   typeof value === "object" &&
+  typeof (value as SyncSnapshot).attention?.busy === "boolean" &&
   Array.isArray((value as SyncSnapshot).runs) &&
   Array.isArray((value as SyncSnapshot).sources);
 
@@ -138,15 +180,9 @@ export function networkHint(): SyncNetwork {
 }
 
 const working = (run: RunView) => !run.held && !run.failure;
-const RANK: Record<SyncPriority, number> = {
-  interactive: 2,
-  visible: 1,
-  background: 0,
-};
-
 /** What the one-line progress in the workstation footer shows. */
 export type ProgressLine =
-  | { kind: "idle" }
+  | { kind: "idle" | "resetting" | "problem" }
   /** A visible run with a known size: a determinate bar. */
   | { kind: "bar"; run: RunView; done: number; total: number }
   /** A visible run of unknown size: its label, no bar. */
@@ -157,28 +193,17 @@ export type ProgressLine =
   | { kind: "held"; run: RunView; held: SyncHeld };
 
 export function progressLine(snapshot: SyncSnapshot): ProgressLine {
-  const ordered = [...snapshot.runs].sort(
-    (a, b) => RANK[b.priority] - RANK[a.priority],
-  );
-  const foreground = ordered.find(
-    (run) => run.priority !== "background" && working(run),
-  );
-  if (foreground)
-    return foreground.total !== null
-      ? {
-          kind: "bar",
-          run: foreground,
-          done: foreground.done,
-          total: foreground.total,
-        }
-      : { kind: "busy", run: foreground };
-  const held = ordered.find((run) => run.held && run.priority !== "background");
-  if (held) return { kind: "held", run: held, held: held.held! };
-  const background = ordered.find(working);
-  if (background) return { kind: "background", run: background };
-  const waiting = ordered.find((run) => run.held);
-  if (waiting) return { kind: "held", run: waiting, held: waiting.held! };
-  return { kind: "idle" };
+  const work = snapshot.attention.primary;
+  if (!work) return { kind: "idle" };
+  if (!("run" in work)) return { kind: work.kind };
+  const run = snapshot.runs.find((candidate) => candidate.run === work.run);
+  if (!run) return { kind: "idle" };
+  if (work.kind === "held")
+    return run.held ? { kind: "held", run, held: run.held } : { kind: "idle" };
+  if (run.priority === "background") return { kind: "background", run };
+  return run.total === null
+    ? { kind: "busy", run }
+    : { kind: "bar", run, done: run.done, total: run.total };
 }
 
 /** The runs of one page: datasets by prefix, optionally narrowed by scope. */
@@ -205,19 +230,6 @@ export function pageProgress(runs: RunView[]): PageProgress {
     ? active.reduce((sum, run) => sum + (run.total ?? 0), 0)
     : null;
   return { done: active.reduce((sum, run) => sum + run.done, 0), total };
-}
-
-/** The refresh a failed run's Retry button sends. */
-export function retryScope(run: RunView): SyncScope {
-  if (run.dataset.startsWith("lms."))
-    return run.scope && /^\d+$/.test(run.scope)
-      ? { kind: "course", lmsCourseId: Number(run.scope) }
-      : { kind: "site", site: "science-lms" };
-  if (run.dataset.startsWith("kyomu.")) return { kind: "site", site: "kyomu" };
-  if (run.dataset.startsWith("reference")) return { kind: "references" };
-  if (run.dataset === "catalog.official" && /^\d{4}$/.test(run.scope ?? ""))
-    return { kind: "catalog", year: Number(run.scope) };
-  return { kind: "everything" };
 }
 
 export const failedRuns = (snapshot: SyncSnapshot) =>

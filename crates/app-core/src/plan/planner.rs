@@ -566,6 +566,15 @@ pub(crate) fn scope_keys(
                 .collect(),
         ),
         Scope::Catalog { year } => catalog_keys(*year, inputs.english),
+        Scope::LmsHistory { year, month }
+            if (1000..=9999).contains(year) && (1..=12).contains(month) =>
+        {
+            unscoped(vec![Key::new(
+                Dataset::LmsHistory,
+                format!("{year:04}-{month:02}"),
+            )])
+        }
+        Scope::LmsHistory { .. } => Vec::new(),
     }
 }
 

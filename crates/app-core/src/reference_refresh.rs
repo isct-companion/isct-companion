@@ -88,7 +88,7 @@ pub(crate) fn year_scope(kind: &str, year: i32) -> FileScope {
 }
 
 /// A reference key's kind and scope; `None` for a key no reader knows.
-fn parse_key(key: &str) -> Option<(String, FileScope)> {
+pub(crate) fn parse_key(key: &str) -> Option<(String, FileScope)> {
     let (kind, segment) = key.rsplit_once('/')?;
     #[cfg(feature = "campus-map")]
     if kind == CAMPUS_MAP_KIND {

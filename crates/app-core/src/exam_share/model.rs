@@ -341,6 +341,13 @@ pub struct ExamUploadSubject {
     pub removable: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamUploadReadiness {
+    pub reason_key: Option<String>,
+}
+
 /// An upload form between edits. Core keeps `draft` consistent with
 /// `subjects`, so a shell renders it and sends it back with each edit.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -495,6 +502,10 @@ pub enum ExamAction {
         form: ExamUploadForm,
         edit: ExamUploadEdit,
     },
+    UploadReadiness {
+        files: Vec<ExamUploadFile>,
+        draft: ExamUploadDraft,
+    },
     Upload {
         files: Vec<ExamUploadFile>,
         draft: ExamUploadDraft,
@@ -516,6 +527,7 @@ pub enum ExamAnswer {
     Requests(ExamRequestPage),
     Choices(ExamChoices),
     UploadForm(ExamUploadForm),
+    UploadReadiness(ExamUploadReadiness),
     /// The upload is published; the shell reads its view again. Carries the
     /// new document's id, so the shell can open it, unless the attempt that
     /// registered it lost the answer.

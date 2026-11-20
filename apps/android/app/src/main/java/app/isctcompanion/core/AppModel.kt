@@ -263,6 +263,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     fun refresh(target: SyncScope) = hint(Hint.Refresh(target))
 
+    fun retrySync(plan: RetryPlan) = plan.scopes.forEach(::refresh)
+
     /** Takes Core's directive, unless an older one; the in-front timer and
      * the WorkManager requests follow it. */
     private fun applyDirective(next: WakeDirective) {
@@ -511,6 +513,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** One assignment with its LMS text and files, for the in-app page. */
     suspend fun assignmentDetail(id: String): AssignmentDetail? =
         (query(WorkspaceQuery.AssignmentDetail(id)) as? WorkspaceQueryResult.AssignmentDetail)?.v1
+
+    suspend fun deadlineDisplay(at: String): TaskDeadlineView? =
+        (query(WorkspaceQuery.DeadlineDisplay(at, Instant.now().toString())) as? WorkspaceQueryResult.DeadlineDisplay)?.v1
 
     // Campus map
 
@@ -1035,40 +1040,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     companion object {
-        /** Core's sign-in problem in the person's words, chosen by its kind.
-         * Core's `message` is a diagnostic for the log, never shown. */
-        fun reason(kind: SchoolSignInProblemKind): String = when (kind) {
-            SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
-            SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
-            SchoolSignInProblemKind.OTP_NEEDED -> t("schoolSession.problem.otpNeeded")
-            SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
-            SchoolSignInProblemKind.EMAIL_OTP -> t("schoolSession.problem.emailOtp")
-            SchoolSignInProblemKind.PASSWORD_CHANGE -> t("schoolSession.problem.passwordChange")
-            SchoolSignInProblemKind.UNKNOWN_PAGE -> t("schoolSession.problem.unknownPage")
-            SchoolSignInProblemKind.CREDENTIAL_STORE -> t("schoolSession.problem.credentialStore")
-            SchoolSignInProblemKind.NETWORK, SchoolSignInProblemKind.UNANSWERED, SchoolSignInProblemKind.ANOMALY ->
-                t("schoolSession.state.unavailable")
+        fun sessionText(session: SchoolProfileSession): String =
+            signInText(session.presentation, session.retryAt)
+
+        fun signInText(presentation: SignInPresentation, retryAt: String? = null): String {
+            val time = Format.date(retryAt)?.let { Format.time(it) }
+            val state = if (time != null) t(presentation.stateKey, "time" to time) else t(presentation.stateKey)
+            return listOfNotNull(state, presentation.reasonKey?.let { t(it) }).joinToString(" · ")
         }
-
-        /** The school sent its emailed-code page: the account has no school
-         * OTP, so the next step is setting one up on the portal. */
-        fun otpNotSetUp(state: SchoolSessionState, problem: SchoolSignInProblem?): Boolean =
-            state == SchoolSessionState.NEEDS_WEB && problem?.kind == SchoolSignInProblemKind.EMAIL_OTP
-
-        /** One line for an account's session state, as the account row and a
-         * read waiting on it say it; `problem` and `retryAt` add what Core
-         * knows. */
-        fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
-            if (otpNotSetUp(state, problem)) t("schoolSession.state.otpNotSetUp") else when (state) {
-                SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
-                SchoolSessionState.NORMAL -> t("schoolSession.state.normal")
-                SchoolSessionState.SIGNING_IN -> t("common.signingIn")
-                SchoolSessionState.REFUSED -> problem?.let { reason(it.kind) } ?: t("schoolSession.state.refused")
-                SchoolSessionState.NEEDS_WEB -> t("schoolSession.state.needsWeb")
-                SchoolSessionState.UNAVAILABLE -> Format.date(retryAt)
-                    ?.let { t("schoolSession.state.unavailableRetry", "time" to Format.time(it)) }
-                    ?: t("schoolSession.state.unavailable")
-            }
 
         /** An account's site paused for maintenance (LMS for Science Tokyo,
          * 教務Web for Tokyo Tech), until when, with the school's notice. */
@@ -1099,6 +1078,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             signOutPending = row.getBoolean("signOutPending"),
             refusalUnsaved = row.getBoolean("refusalUnsaved"),
             state = wire(row.getString("state")),
+            presentation = row.getJSONObject("presentation").let { presentation ->
+                val recovery = presentation.getJSONArray("recovery")
+                SignInPresentation(
+                    stateKey = presentation.getString("stateKey"),
+                    reasonKey = presentation.text("reasonKey"),
+                    recovery = (0 until recovery.length()).map { wire<SignInRecovery>(recovery.getString(it)) },
+                )
+            },
             problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
             retryAt = row.text("retryAt"),
             maintenance = row.optJSONObject("maintenance")?.let { SchoolMaintenance(it.text("notice"), it.getString("until")) },

@@ -187,18 +187,27 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
           row.id,
           {
             at: row.dueAt ?? "",
-            label: "Due soon",
-            tone: "normal",
-            remainingMilliseconds: 86400000,
-            countdownLabel: "1d",
+            units: [{ unit: "days" as const, count: 1 }],
+            state: overdue.includes(row.id)
+              ? ("overdue" as const)
+              : ("remaining" as const),
             countdownTone: "soon",
-            overdue: overdue.includes(row.id),
+            nextChangeAt: null,
           },
         ]),
     ),
     submittedIds: pick("closed", "handed-in"),
-    // Core closes submitted work and past-due work that takes no late hand-in.
-    closedIds: pick("closed", "handed-in", "missed", "early"),
+    states: Object.fromEntries(
+      workspace.assignments.map((row) => [
+        row.id,
+        pick("closed", "handed-in").includes(row.id)
+          ? "submitted"
+          : overdue.includes(row.id)
+            ? "closed"
+            : "open",
+      ]),
+    ),
+    handInAvailability: {},
     nearestByCourse: {},
     byTerm: {
       [term]: {
@@ -588,12 +597,13 @@ function lectureTasks(workspace: Workspace): TaskView {
       ...view.deadlines,
       a1: {
         at: "2026-10-08T15:00:00Z",
-        label: "Due soon",
-        tone: "normal",
-        remainingMilliseconds: 129600000,
-        countdownLabel: "1d 12h",
+        units: [
+          { unit: "days", count: 1 },
+          { unit: "hours", count: 12 },
+        ],
+        state: "remaining",
         countdownTone: "soon",
-        overdue: false,
+        nextChangeAt: null,
       },
     },
   };

@@ -148,13 +148,14 @@ export function Today({
     const submitted = submittedIds.has(assignment.id);
     // Past and submitted: gray; past and never submitted: red; submitted
     // ahead of the deadline: green.
-    const state = due?.overdue
-      ? submitted
-        ? " closed"
-        : " missed"
-      : submitted
-        ? " done"
-        : "";
+    const state =
+      due?.state === "overdue"
+        ? submitted
+          ? " closed"
+          : " missed"
+        : submitted
+          ? " done"
+          : "";
     return (
       <div className={`dueRow${state}`} key={assignment.id}>
         <i style={{ background: course?.color ?? "var(--muted)" }} />
@@ -169,7 +170,11 @@ export function Today({
             <b>{assignment.title}</b>
             <small>
               {course?.title ?? "LMS"} ·{" "}
-              {submissionLabel(assignment, t, submitted)}
+              {submissionLabel(
+                assignment,
+                t,
+                taskView?.states?.[assignment.id],
+              )}
             </small>
           </span>
           {due && (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEventListener } from "usehooks-ts";
 import { t } from "../../i18n";
+import type { AssignmentState } from "../../generated/persistence";
 import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/ui";
@@ -22,12 +23,13 @@ import {
  */
 export function AssignmentWorkspaceFooter({
   assignment,
-  closed,
+  state,
+  dueAt,
   submit,
 }: {
-  assignment: { id: string; title: string; sourceUrl?: string };
-  /** In `TaskView.closedIds`: submitted, or past a deadline LMS no longer extends. */
-  closed: boolean;
+  assignment: { id: string };
+  state: AssignmentState | undefined;
+  dueAt?: string;
   /** Opens the assignment in the LMS; undefined when it has no LMS page. */
   submit?: (preparedUrl?: string) => void;
 }) {
@@ -40,21 +42,41 @@ export function AssignmentWorkspaceFooter({
   const [missing, setMissing] = useState<string[]>([]);
   const { busy, error, run } = useSubmissionGuard();
   const [zipName, setZipName] = useState("");
-  const load = useCallback(
-    () =>
-      findWorkspace(assignment.id, closed).then((next) => {
-        if (next.workspace) setLost(undefined);
-        else if (shown.current) setLost(shown.current.name);
-        shown.current = next.workspace;
-        setView(next);
-      }),
-    [assignment.id, closed],
-  );
+  const request = useRef(0);
+  const load = useCallback(async () => {
+    const generation = ++request.current;
+    const next = await findWorkspace(assignment.id).catch(() => undefined);
+    if (generation !== request.current) return;
+    if (!next) {
+      setView(undefined);
+      return;
+    }
+    if (next.workspace) setLost(undefined);
+    else if (shown.current) setLost(shown.current.name);
+    shown.current = next.workspace;
+    setView(next);
+  }, [assignment.id, state]);
   useEffect(() => {
-    void load().catch(() => setView({ workspace: null, handIn: "openLms" }));
+    void load();
+    return () => {
+      request.current += 1;
+    };
   }, [load]);
+  useEffect(() => {
+    if (!dueAt) return;
+    const due = Date.parse(dueAt);
+    if (!(due > Date.now())) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      const delay = due - Date.now();
+      if (delay <= 0) void load();
+      else timer = setTimeout(arm, Math.min(delay, 2_147_483_647));
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, [dueAt, load]);
   // Folders are also edited in Finder and VS Code; look again on return.
-  useEventListener("focus", () => void load().catch(() => undefined));
+  useEventListener("focus", () => void load());
   useEffect(() => setZipName(workspace?.zipName ?? ""), [workspace?.zipName]);
 
   const update = (next: AssignmentWorkspace) => {
@@ -73,12 +95,8 @@ export function AssignmentWorkspaceFooter({
     });
   const prepare = () =>
     act(async () => {
-      if (!workspace || !assignment.sourceUrl) return submit?.();
-      const prepared = await prepareSubmission(
-        workspace.path,
-        assignment.id,
-        assignment.sourceUrl,
-      );
+      if (!workspace) return;
+      const prepared = await prepareSubmission(workspace.path, assignment.id);
       update(prepared.workspace);
       submit?.(prepared.url);
     });
@@ -195,26 +213,23 @@ export function AssignmentWorkspaceFooter({
       {draft && (
         <p className="lmsWorkspaceHint">{t("lms.filesUploadToTheLMS")}</p>
       )}
-      {lost && !closed && !workspace && (
+      {lost && !workspace && (
         <p className="lmsWorkspaceHint" role="status">
           {t("lms.theWorkspaceFolderNameIs", { name: lost })}
         </p>
       )}
       <footer>
-        {submit && (
-          // Opening the page reads nothing local, so only the draft upload waits.
+        {submit && draft && (
           <button
             type="button"
-            className={closed ? "lmsTextLink" : "lmsSubmit"}
-            disabled={busy && draft}
-            onClick={() => (draft ? void prepare() : submit())}
+            className="lmsSubmit"
+            disabled={busy}
+            onClick={() => void prepare()}
           >
-            {t(draft ? "lms.prepareInLMS" : "lms.viewInLMS")}{" "}
-            <LmsIcon name="external" size={13} />
+            {t("lms.prepareInLMS")} <LmsIcon name="external" size={13} />
           </button>
         )}
-        {submit && draft && (
-          // Opens the page only, so it works whatever state the folder is in.
+        {submit && (
           <button
             type="button"
             className="lmsTextLink"

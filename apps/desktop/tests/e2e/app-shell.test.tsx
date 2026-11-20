@@ -195,6 +195,8 @@ function shellQueries(): QueryTable {
       nearestByCourse: {},
       deadlines: {},
       submittedIds: [],
+      states: {},
+      handInAvailability: {},
     },
   };
 }
@@ -1920,6 +1922,7 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     scope: null,
     held: null,
     failure: null,
+    retry: null,
     ...overrides,
   });
   const source = (name: string, lastUpdated: string | null) => ({
@@ -1927,16 +1930,26 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     lastUpdated,
     running: false,
     held: null,
-    failure: null,
+    failure: null as unknown,
+    retry: null as unknown,
     session: null,
     maintenance: null,
   });
   let generation = 1;
-  const emit = (runs: unknown[], sources = [source("lms", null)]) =>
+  const emit = (
+    runs: unknown[],
+    sources = [source("lms", null)],
+    attention = {
+      primary: runs.length ? { kind: "active", run: "run" } : null,
+      problem: null as unknown,
+      busy: runs.length > 0,
+    },
+  ) =>
     act(async () =>
       app!.core.emit("sync-snapshot", {
         generation: ++generation,
         resetting: false,
+        attention,
         runs,
         sources,
       }),
@@ -1967,7 +1980,11 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     expect(status().querySelector(".schoolStatusSpinner")).not.toBeNull();
     expect(status().querySelector("progress")).toBeNull();
   });
-  await emit([run({ held: { kind: "cellular" } })]);
+  await emit([run({ held: { kind: "cellular" } })], undefined, {
+    primary: { kind: "held", run: "run" },
+    busy: false,
+    problem: null,
+  });
   await until(() =>
     expect(status().textContent).toContain("Waiting for Wi-Fi"),
   );
@@ -1981,7 +1998,14 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
       run: "grades",
       dataset: "kyomu.page",
       scope: "grades",
-      failure: { kind: "timeout", keysFailed: 1, retryAt: null, detail: null },
+      failure: {
+        kind: "timeout",
+        reason: { key: "syncStatus.failure.timedOut", args: {} },
+        keysFailed: 1,
+        retryAt: null,
+        detail: null,
+      },
+      retry: { scopes: [{ kind: "site", site: "kyomu" }] },
     }),
   ]);
   const retry = await required(
@@ -2006,6 +2030,46 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
       expect.arrayContaining([
         { kind: "refresh", scope: { kind: "site", site: "kyomu" } },
         { kind: "refresh", scope: { kind: "everything" } },
+      ]),
+    ),
+  );
+  await emit(
+    [],
+    [
+      {
+        ...source("catalog", null),
+        failure: {
+          kind: "http-503",
+          reason: {
+            key: "syncStatus.failure.serverFailed",
+            args: { status: "503" },
+          },
+          keysFailed: 2,
+          retryAt: null,
+          detail: null,
+        },
+        retry: {
+          scopes: [
+            { kind: "catalog", year: 2024 },
+            { kind: "catalog", year: 2026 },
+          ],
+        },
+      },
+    ],
+  );
+  const catalogRetry = await required(
+    () =>
+      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Retry",
+      ),
+    "the persisted catalog failure's Retry",
+  );
+  await click(catalogRetry);
+  await until(() =>
+    expect(hints()).toEqual(
+      expect.arrayContaining([
+        { kind: "refresh", scope: { kind: "catalog", year: 2024 } },
+        { kind: "refresh", scope: { kind: "catalog", year: 2026 } },
       ]),
     ),
   );

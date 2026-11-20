@@ -1,9 +1,6 @@
 /** Native Core owns reminder planning, timing and durable delivery deduplication. */
 import type { DesktopBridge } from "./desktop-bridge";
 export const CLASS_LEAD_CHOICES = [5, 10, 15, 30] as const;
-export const ASSIGNMENT_LEAD_CHOICES = [
-  15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080,
-] as const;
 
 /** One-time transfer of the previous webview's device-local delivery log. */
 export async function bootstrapReminders(

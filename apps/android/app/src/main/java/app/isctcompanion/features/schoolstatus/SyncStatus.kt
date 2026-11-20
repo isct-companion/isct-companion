@@ -8,6 +8,7 @@ import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
+import app.isctcompanion.design.lookup
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedVisibility
@@ -60,13 +61,14 @@ import app.isctcompanion.core.Held
 import app.isctcompanion.core.RunView
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolSessionState
-import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SourceView
 import app.isctcompanion.core.SyncFailure
 import app.isctcompanion.core.SyncLabel
 import app.isctcompanion.core.SyncPriority
-import app.isctcompanion.core.SyncScope
+import app.isctcompanion.core.RetryPlan
 import app.isctcompanion.core.SyncSnapshot
+import app.isctcompanion.core.SyncAttentionProblem
+import app.isctcompanion.core.SyncWork
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
@@ -120,7 +122,7 @@ fun heldText(held: Held): String = when (held) {
     is Held.Account -> when (val wait = held.wait) {
         is AccountWait.Person -> t("syncStatus.held.person")
         // A pause after a sign-in without a verdict, said as the account row says it.
-        is AccountWait.Paused -> AppModel.sessionText(SchoolSessionState.UNAVAILABLE, retryAt = wait.until)
+        is AccountWait.Paused -> t("schoolSession.state.unavailableRetry", "time" to Format.due(wait.until))
     }
     is Held.Resetting -> t("syncStatus.resetting")
     is Held.Prerequisite -> t("syncStatus.waitingForTheDataIt")
@@ -130,25 +132,7 @@ private fun retryAt(raw: String): String = t("syncStatus.retryAtTime", "time" to
 
 /** "Could not update Deadlines · Retry at Today 14:05". */
 private fun failureText(failure: SyncFailure, name: String): String =
-    listOfNotNull(t("syncStatus.couldNotUpdateSource", "source" to name), failure.retryAt?.let(::retryAt)).joinToString(" · ")
-
-/** What a Retry asks Core to read again for a failed run. */
-private fun retryScope(run: RunView): SyncScope = when {
-    run.dataset.startsWith("lms.") ->
-        run.scope?.toULongOrNull()?.let { SyncScope.Course(it) } ?: SyncScope.Site(SchoolSite.SCIENCE_LMS)
-    run.dataset.startsWith("kyomu.") -> SyncScope.Site(SchoolSite.KYOMU)
-    run.dataset == "reference" -> SyncScope.References
-    run.dataset.startsWith("catalog.") -> run.scope?.toUShortOrNull()?.let { SyncScope.Catalog(it) } ?: SyncScope.Everything
-    else -> SyncScope.Everything
-}
-
-/** What a Retry asks Core to read again for a failed source. */
-private fun retryScope(source: SourceView): SyncScope = when (source.source) {
-    "lms" -> SyncScope.Site(SchoolSite.SCIENCE_LMS)
-    "kyomu" -> SyncScope.Site(SchoolSite.KYOMU)
-    "references" -> SyncScope.References
-    else -> SyncScope.Everything
-}
+    listOfNotNull(t("syncStatus.couldNotUpdateSource", "source" to name), label(failure.reason), failure.retryAt?.let(::retryAt)).joinToString(" · ")
 
 /** What the header shows for Core's runs: a ring only when a run has a
  * total, a spinner for other work, an icon when everything waits or failed. */
@@ -160,58 +144,48 @@ sealed interface SyncIndicator {
 }
 
 /** The one thing that needs the person, for 今日's banner. */
-data class SyncProblem(val text: String, val retry: SyncScope?, val signIn: SchoolAuthProfile?)
+data class SyncProblem(val text: String, val retry: RetryPlan?, val signIn: SchoolAuthProfile?)
 
-/** Runs reading now: neither held nor failed. */
-val SyncSnapshot.activeRuns: List<RunView>
-    get() = runs.filter { it.held == null && it.failure == null }
-
-/** Work the person asked for or is looking at, as opposed to background reads. */
-val SyncSnapshot.isBusy: Boolean
-    get() = resetting || activeRuns.any { it.priority != SyncPriority.BACKGROUND }
+val SyncSnapshot.showsLoading: Boolean
+    get() = attention.primary is SyncWork.Active || attention.primary is SyncWork.Resetting
 
 val SyncSnapshot.indicator: SyncIndicator?
-    get() {
-        val active = activeRuns
-        active.firstOrNull { it.total != null }?.let { run ->
-            val total = run.total!!.toLong()
-            return SyncIndicator.Progress(
-                minOf(run.done.toLong(), total).toFloat() / maxOf(total, 1L), run.priority != SyncPriority.BACKGROUND,
-            )
+    get() = when (val work = attention.primary) {
+        is SyncWork.Resetting -> SyncIndicator.Spinner(true)
+        is SyncWork.Held -> SyncIndicator.Held
+        is SyncWork.Problem -> SyncIndicator.Failed
+        is SyncWork.Active -> runs.firstOrNull { it.run == work.run }?.let { run ->
+            val emphasized = run.priority != SyncPriority.BACKGROUND
+            val total = run.total?.toLong()
+            if (total == null) SyncIndicator.Spinner(emphasized)
+            else SyncIndicator.Progress(minOf(run.done.toLong(), total).toFloat() / maxOf(total, 1L), emphasized)
         }
-        if (resetting) return SyncIndicator.Spinner(true)
-        active.firstOrNull()?.let { return SyncIndicator.Spinner(it.priority != SyncPriority.BACKGROUND) }
-        if (problem != null) return SyncIndicator.Failed
-        if (runs.any { it.held != null }) return SyncIndicator.Held
-        return null
+        null -> null
     }
 
 val SyncSnapshot.problem: SyncProblem?
-    get() {
-        // Reads held on an account are a problem only while they wait for the
-        // person: no credentials, turned down, or asking for the school page.
-        val held = runs.mapNotNull { it.held } + sources.mapNotNull { it.held }
-        held.filterIsInstance<Held.Account>()
-            .firstOrNull { it.wait is AccountWait.Person }
-            ?.let { return SyncProblem(t("syncStatus.held.person"), null, it.profile) }
-        runs.firstOrNull { it.failure != null }?.let { run ->
-            return SyncProblem(failureText(run.failure!!, label(run.label)), retryScope(run), null)
-        }
-        sources.firstOrNull { it.failure != null }?.let { source ->
-            return SyncProblem(failureText(source.failure!!, sourceName(source.source)), retryScope(source), null)
-        }
-        return null
+    get() = when (val problem = attention.problem) {
+        is SyncAttentionProblem.Account -> SyncProblem(
+            problem.presentation?.let { AppModel.signInText(it, problem.retryAt) } ?: t("syncStatus.held.person"),
+            null, problem.profile,
+        )
+        is SyncAttentionProblem.RunFailed -> SyncProblem(failureText(problem.failure, dataset(problem.dataset)), problem.retry, null)
+        is SyncAttentionProblem.SourceFailed -> SyncProblem(failureText(problem.failure, sourceName(problem.source)), problem.retry, null)
+        null -> null
     }
 
-/** One line for the first-load card and the indicator's accessibility label. */
 val SyncSnapshot.line: String
-    get() {
-        if (resetting) return t("syncStatus.resetting")
-        activeRuns.firstOrNull()?.let { run -> return listOfNotNull(label(run.label), run.current?.let(::label)).joinToString(" · ") }
-        problem?.let { return it.text }
-        runs.firstOrNull { it.held != null }?.let { return "${label(it.label)} · ${heldText(it.held!!)}" }
-        return t("syncStatus.upToDate")
-    }
+    get() = when (val work = attention.primary) {
+        is SyncWork.Resetting -> t("syncStatus.resetting")
+        is SyncWork.Problem -> problem?.text
+        is SyncWork.Active -> runs.firstOrNull { it.run == work.run }?.let { run ->
+            listOfNotNull(label(run.label), run.current?.let(::label)).joinToString(" · ")
+        }
+        is SyncWork.Held -> runs.firstOrNull { it.run == work.run }?.let { run ->
+            run.held?.let { "${label(run.label)} · ${heldText(it)}" }
+        }
+        null -> null
+    } ?: t("syncStatus.upToDate")
 
 @Composable
 fun SyncIndicatorView(indicator: SyncIndicator) {
@@ -239,7 +213,7 @@ fun SyncRingButton() {
     var done by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val snapshot = model.syncSnapshot
-    val nowBusy = snapshot?.isBusy == true
+    val nowBusy = snapshot?.attention?.busy == true
     LaunchedEffect(nowBusy) {
         val finished = busy && !nowBusy && snapshot?.indicator == null
         busy = nowBusy
@@ -313,7 +287,6 @@ fun ColumnScope.SyncSections() {
 
 @Composable
 private fun SourceRow(source: SourceView) {
-    val model = LocalModel.current
     Column(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY), verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(sourceName(source.source), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -329,7 +302,7 @@ private fun SourceRow(source: SourceView) {
                     .filter { it.isNotEmpty() }.joinToString(" · "),
                 Theme.colors.warn,
             )
-            failure != null -> FailureLine(failureText(failure, sourceName(source.source))) { model.refresh(retryScope(source)) }
+            failure != null -> FailureLine(failureText(failure, sourceName(source.source)), source.retry)
             held != null -> Small(heldText(held))
             source.session == SchoolSessionState.NOT_CONFIGURED -> Small(t("common.notConnected"))
         }
@@ -339,7 +312,6 @@ private fun SourceRow(source: SourceView) {
 /** One run: a bar only when Core knows its total, a spinner otherwise. */
 @Composable
 private fun RunRow(run: RunView) {
-    val model = LocalModel.current
     Column(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY), verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
         val total = run.total
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -361,7 +333,7 @@ private fun RunRow(run: RunView) {
         val failure = run.failure
         val held = run.held
         if (failure != null) {
-            FailureLine(failureText(failure, dataset(run.dataset))) { model.refresh(retryScope(run)) }
+            FailureLine(failureText(failure, dataset(run.dataset)), run.retry)
             // Core's diagnostic text, selectable to quote in a report.
             failure.detail?.let { SelectionContainer { Small(it) } }
         } else if (held != null) {
@@ -371,10 +343,13 @@ private fun RunRow(run: RunView) {
 }
 
 @Composable
-private fun FailureLine(text: String, retry: () -> Unit) {
+private fun FailureLine(text: String, retry: RetryPlan?) {
+    val model = LocalModel.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Small(text, Theme.colors.danger, Modifier.weight(1f))
-        TextButton(onClick = retry) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold) }
+        if (retry != null) {
+            TextButton(onClick = { model.retrySync(retry) }) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold) }
+        }
     }
 }
 
@@ -405,7 +380,7 @@ fun SyncProblemBanner(problem: SyncProblem) {
         if (profile != null) {
             TextButton(onClick = { navigator.openSettings(profile) }) { Text(t("syncStatus.signIn"), fontWeight = FontWeight.SemiBold) }
         } else if (retry != null) {
-            TextButton(onClick = { model.refresh(retry) }) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = { model.retrySync(retry) }) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold) }
         }
     }
 }

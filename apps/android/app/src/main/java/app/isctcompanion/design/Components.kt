@@ -47,6 +47,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -58,6 +60,10 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DeadlineItem
+import app.isctcompanion.core.TaskDeadlineView
+import java.time.Duration
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.produceState
 import app.isctcompanion.core.ExamConflict
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.SchoolSite
@@ -78,11 +84,31 @@ fun androidx.compose.ui.text.TextStyle.tabular() = merge(tabular)
 
 /** Deadline chip: one per row, coloured by Core's tone. */
 @Composable
-fun DeadlineChip(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label) {
-    val (ink, fill) = toneColors(if (item.submitted) "done" else item.tone)
+fun DeadlineChip(item: DeadlineItem) {
+    AssignmentDeadlineTag(item.deadline, item.submitted, item.grade)
+}
+
+@Composable
+fun AssignmentDeadlineTag(deadline: TaskDeadlineView?, submitted: Boolean, grade: String?) {
+    val model = LocalModel.current
+    var visible by remember { mutableStateOf(false) }
+    val display by produceState(deadline, deadline, submitted, visible) {
+        value = deadline
+        if (submitted || deadline == null || !visible) return@produceState
+        var current: TaskDeadlineView = deadline
+        while (true) {
+            val next = Format.date(current.nextChangeAt) ?: break
+            delay(maxOf(1L, Duration.between(Instant.now(), next).toMillis()))
+            current = model.deadlineDisplay(current.at) ?: break
+            value = current
+        }
+    }
+    val current = display.takeIf { it?.at == deadline?.at } ?: deadline
+    val (ink, fill) = toneColors(if (submitted) "done" else current?.countdownTone ?: "normal")
     Tag(
-        if (item.submitted) item.grade ?: t("common.submitted") else Format.countdown(item.dueAt, now, overdueStyle),
+        if (submitted) grade ?: t("common.submitted") else current?.let(Format::countdown) ?: t("common.noDeadline"),
         color = ink, soft = fill,
+        modifier = Modifier.onGloballyPositioned { visible = !it.boundsInWindow().isEmpty },
     )
 }
 
@@ -134,9 +160,10 @@ fun Tag(
     ink: Color = color,
     onSolid: Color = Theme.onSolid,
     counting: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(Theme.radiusChip)
-    val box = Modifier
+    val box = modifier
         .clip(shape)
         .then(
             when (variant) {
@@ -164,7 +191,6 @@ fun Tag(
 fun DeadlineRow(
     item: DeadlineItem,
     now: Instant,
-    overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label,
     showsCourse: Boolean = true,
 ) {
     Row(
@@ -202,7 +228,7 @@ fun DeadlineRow(
                 )
             }
         }
-        DeadlineChip(item, now, overdueStyle)
+        DeadlineChip(item)
     }
 }
 

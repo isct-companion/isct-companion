@@ -44,6 +44,12 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.AssignmentDetail
+import app.isctcompanion.core.DeadlineState
+import app.isctcompanion.design.AssignmentDeadlineTag
+import java.time.Duration
+import kotlinx.coroutines.delay
+import app.isctcompanion.core.HandInAvailability
+import app.isctcompanion.core.AssignmentState as CoreAssignmentState
 import app.isctcompanion.core.LessonItemKind
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
@@ -58,7 +64,6 @@ import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
-import app.isctcompanion.design.toneColors
 import java.time.Instant
 
 /** An assignment pushed from 今日 or 課題: what the course page shows when it
@@ -69,6 +74,15 @@ fun AssignmentScreen(assignmentId: String) {
     val navigator = LocalNavigator.current
     var assignment by remember { mutableStateOf<AssignmentDetail?>(null) }
     LaunchedEffect(assignmentId, model.contentRevision) {
+        model.assignmentDetail(assignmentId)?.let { assignment = it }
+    }
+    val deadline = assignment?.deadline
+    LaunchedEffect(assignmentId, deadline?.at) {
+        if (deadline == null || deadline.state != DeadlineState.REMAINING) return@LaunchedEffect
+        val due = Format.date(deadline.at) ?: return@LaunchedEffect
+        do {
+            delay(maxOf(1L, Duration.between(Instant.now(), due).toMillis()))
+        } while (Instant.now().isBefore(due))
         model.assignmentDetail(assignmentId)?.let { assignment = it }
     }
     TabPage(
@@ -88,7 +102,7 @@ fun AssignmentScreen(assignmentId: String) {
                     modifier = Modifier.clickable { navigator.openCourse(detail.courseId) },
                 )
                 AssignmentBody(detail)
-                if (detail.sourceUrl != null) HandInCard(detail)
+                if (detail.handInAvailability == HandInAvailability.PREPARE_DRAFT) HandInCard(detail)
             }
         }
     }
@@ -139,7 +153,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             due?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         }
         if (assignment.bodyHtml.isNotEmpty()) {
-            HtmlText(assignment.bodyHtml, assignment.courseId)
+            HtmlText(assignment.bodyHtml, assignment.courseId, originalHtml = assignment.originalBodyHtml)
         } else if (assignment.details.isNotEmpty()) {
             Text(assignment.details, color = Theme.colors.ink)
         }
@@ -151,9 +165,9 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
                 }
             }
         }
-        assignment.sourceUrl?.let { url ->
+        assignment.sourceUrl?.takeIf { assignment.handInAvailability != HandInAvailability.UNAVAILABLE }?.let { url ->
             ActionButton(
-                t("common.submitInLMS"),
+                t(if (assignment.handInAvailability == HandInAvailability.OPEN_LMS) "common.openInLMS" else "common.submitInLMS"),
                 { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title)) },
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
             )
@@ -164,9 +178,6 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
 /** 提出済 / the grade, or the countdown, in the deadline chip's colours. */
 @Composable
 private fun AssignmentState(assignment: AssignmentDetail) {
-    val now = Instant.now()
-    val done = assignment.submission in setOf("submitted", "graded")
-    val past = Format.date(assignment.dueAt)?.isBefore(now) == true
-    val (ink, fill) = toneColors(if (done) "done" else if (past) "past" else "soon")
-    Tag(if (done) assignment.grade ?: t("common.submitted") else Format.countdown(assignment.dueAt, now), color = ink, soft = fill)
+    val done = assignment.state == CoreAssignmentState.SUBMITTED || assignment.state == CoreAssignmentState.GRADED
+    AssignmentDeadlineTag(assignment.deadline, done, assignment.grade)
 }

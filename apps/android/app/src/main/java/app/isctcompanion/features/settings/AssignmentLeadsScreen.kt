@@ -27,14 +27,14 @@ import org.json.JSONArray
 internal fun AssignmentLeadsPage() {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    val chosen = ReminderLeads.assignmentLeads(model.records.settings.optJSONObject("notifications"))
+    val options = ReminderLeads.assignmentOptions(model.records.settings.optJSONObject("notifications")) ?: return
+    val chosen = options.selected.map { it.toInt() }
     Page {
         Card {
-            val options = (ReminderLeads.assignmentChoices + chosen).distinct().sortedDescending()
-            options.forEachIndexed { index, minutes ->
+            options.presets.map { it.toInt() }.forEachIndexed { index, minutes ->
                 if (index > 0) RowDivider(inset = Theme.rowX)
                 val on = minutes in chosen
-                val enabled = if (on) chosen.size > 1 else chosen.size < ReminderLeads.MAX_ASSIGNMENT
+                val enabled = if (on) chosen.size.toUInt() > options.minSelected else chosen.size.toUInt() < options.maxSelected
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -53,6 +53,6 @@ internal fun AssignmentLeadsPage() {
                 }
             }
         }
-        Footer(t("settings.main.remindsYouAtEveryTime", "max" to ReminderLeads.MAX_ASSIGNMENT))
+        Footer(t("settings.main.remindsYouAtEveryTime", "max" to options.maxSelected.toInt()))
     }
 }

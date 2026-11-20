@@ -356,27 +356,6 @@ fn submission_error(e: app_core::school_browser::SubmissionError) -> SdkError {
     crate::error::coded(&e)
 }
 
-/// Core's reading of one assignment, which names its course folder and page.
-fn assignment_detail(
-    inner: &crate::session::Inner,
-    id: &str,
-) -> Result<app_core::schedule::AssignmentDetail, SdkError> {
-    let snapshot =
-        inner
-            .core
-            .schedule_query(vec![app_core::schedule::WorkspaceQuery::AssignmentDetail {
-                assignment_id: id.into(),
-            }])?;
-    match snapshot.values.into_iter().next() {
-        Some(app_core::schedule::WorkspaceQueryResult::AssignmentDetail(Some(detail))) => {
-            Ok(detail)
-        }
-        _ => Err(SdkError::InvalidInput {
-            detail: "The assignment was not found.".into(),
-        }),
-    }
-}
-
 /// The phones' hand-in: files shared into the app go to the assignment's
 /// workspace `submit/` (the desktop's folder layout), and handing in fills the
 /// LMS draft area from it. Core never submits; the person saves the page.
@@ -504,25 +483,11 @@ impl Session {
         messages: UploadMessages,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let detail = assignment_detail(&i, &assignment_id)?;
-            let page = detail
-                .source_url
-                .clone()
-                .ok_or_else(|| SdkError::Unavailable {
-                    detail: "This assignment has no LMS page.".into(),
-                })?;
-            let workspaces = i.core.assignment_workspaces.at().map_err(workspace_error)?;
-            let workspace = i
+            let (page, prepared) = i
                 .core
                 .assignment_workspaces
-                .find(&assignment_id)
-                .map_err(workspace_error)?
-                .ok_or_else(|| SdkError::InvalidInput {
-                    detail: "There are no files to hand in.".into(),
-                })?;
-            let prepared = workspaces
-                .prepare_upload(&workspace.path, &assignment_id)
-                .map_err(|e| crate::error::coded(&e))?;
+                .prepare_draft(&assignment_id, None)
+                .map_err(|error| crate::error::coded(&error))?;
             let url = i
                 .core
                 .school_browser()?

@@ -1691,6 +1691,10 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
         json!([180, 30])
     );
     let stored = service.read_back().unwrap().workspace;
+    assert_eq!(
+        stored["settings"]["notifications"]["assignmentLeadOptions"]["selected"],
+        json!([180, 30])
+    );
     assert_eq!(stored["settings"]["notifications"]["examLeadMinutes"], 1440);
     assert_eq!(stored["settings"]["notifications"]["exams"], false);
     for invalid_lead in [json!(0), json!(10081), json!("one day")] {

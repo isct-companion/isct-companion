@@ -289,14 +289,12 @@ struct SettingsScreen: View {
         let session = model.profileSession(profile)
         let state = session?.state ?? .notConfigured
         let text: String =
-            if session?.signOutPending == true {
-                t("error.sign-out-incomplete")
-            } else if state == .normal, let lastRun {
+            if state == .normal, session?.presentation.recovery.isEmpty == true, let lastRun {
                 t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)])
             } else if let session {
                 SchoolSessionText.line(session)
             } else {
-                SchoolSessionText.state(state)
+                t("common.notConnected")
             }
         return HStack(spacing: Theme.rowGap) {
             Circle().fill(Self.tint(state)).frame(width: 8, height: 8)
@@ -371,7 +369,6 @@ private struct AccountScreen: View {
 
     /// The states that wait for the person or for Core's next try, where
     /// Retry makes one attempt now with the synced credentials.
-    private static let stuck: [SchoolSessionState] = [.refused, .needsWeb, .unavailable]
 
     var body: some View {
         Form {
@@ -410,9 +407,7 @@ private struct AccountScreen: View {
                     Section { Text(error).foregroundStyle(Theme.danger) }
                 } else if let outcome {
                     connectOutcome(outcome)
-                } else if session?.signOutPending == true {
-                    Text(t("error.sign-out-incomplete"))
-                } else if !saving, let session, Self.stuck.contains(session.state) {
+                } else if !saving, let session, !session.presentation.recovery.isEmpty {
                     status(session)
                 }
                 if let maintenance = session?.maintenance {
@@ -426,7 +421,7 @@ private struct AccountScreen: View {
                     }
                     .disabled(saving || session?.signOutPending == true || username.isEmpty || (password.isEmpty && summary?.saved != true))
                 }
-                if summary?.saved == true || session?.signOutPending == true {
+                if summary?.saved == true || session?.presentation.recovery.contains(.finishSignOut) == true {
                     Section {
                         // Core first stops the account's reads, so this can take a moment.
                         Button(role: .destructive) {
@@ -444,7 +439,7 @@ private struct AccountScreen: View {
                                 removing = false
                             }
                         } label: {
-                            if removing { ProgressView() } else { Text(t("settings.main.removeSignInDetailsFrom")) }
+                            if removing { ProgressView() } else { Text(t(session?.presentation.recovery.contains(.finishSignOut) == true ? "settings.schoolAccounts.finishSignOut" : "settings.main.removeSignInDetailsFrom")) }
                         }
                         .disabled(removing)
                     }
@@ -466,48 +461,54 @@ private struct AccountScreen: View {
     private func connectOutcome(_ outcome: SchoolConnectOutcome) -> some View {
         Section {
             switch outcome {
-            case .connected:
-                Text(t("schoolSession.connect.connected")).foregroundStyle(Theme.ok)
-            case let .refused(reason, _):
-                Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.refused)).foregroundStyle(Theme.danger)
+            case let .connected(presentation):
+                Text(SchoolSessionText.line(presentation)).foregroundStyle(Theme.ok)
+            case let .refused(_, _, presentation), let .needsWeb(_, _, presentation):
+                Text(presentation.reasonKey.map { t($0) } ?? t(presentation.stateKey))
+                    .foregroundStyle(outcomeIsRefusal(outcome) ? Theme.danger : Theme.warn)
                 Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
-            case let .needsWeb(reason, _):
-                Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.needsWeb)).foregroundStyle(Theme.warn)
-                Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
-            case .unreachable:
-                Text(t("schoolSession.connect.unreachable")).foregroundStyle(Theme.warn)
-            case .notSaved:
-                Text(t("schoolSession.connect.saveFailed")).foregroundStyle(Theme.danger)
-            case .stopped:
-                Text(t("schoolSession.connect.stopped")).foregroundStyle(Theme.warn)
+                recoveryButtons(presentation)
+            case let .unreachable(presentation), let .stopped(presentation):
+                Text(SchoolSessionText.line(presentation)).foregroundStyle(Theme.warn)
+            case let .notSaved(presentation):
+                Text(SchoolSessionText.line(presentation)).foregroundStyle(Theme.danger)
             }
         }
     }
 
-    /// Why the account is stuck, then what to do. Without school OTP that is
-    /// setting it up on the portal (Retry would only get the emailed code
-    /// again); other needs-web says the person signs in on the school page;
-    /// refused says when Retry helps.
+    private func outcomeIsRefusal(_ outcome: SchoolConnectOutcome) -> Bool {
+        if case .refused = outcome { return true }
+        return false
+    }
+
     private func status(_ session: SchoolProfileSession) -> some View {
         Section {
             Text(SchoolSessionText.line(session))
                 .foregroundStyle(session.state == .refused ? Theme.danger : Theme.warn)
-            if SchoolSessionText.otpNotSetUp(session.state, problem: session.problem) {
-                Text(t("schoolSession.problem.emailOtp")).font(.footnote).foregroundStyle(Theme.muted)
-                Button(t("schoolSession.openPortal"), action: openPortal)
-            } else {
-                if session.state == .needsWeb {
-                    Text(t("schoolSession.needsWeb.signInYourself")).font(.footnote).foregroundStyle(Theme.muted)
-                }
-                Button {
-                    Task { await retry() }
-                } label: {
-                    if retrying { ProgressView() } else { Text(t("common.retry")) }
-                }
-                .disabled(retrying)
-            }
+            recoveryButtons(session.presentation)
         } footer: {
             if session.state == .refused { Text(t("schoolSession.retry.otherDevice")) }
+        }
+    }
+
+    @ViewBuilder
+    private func recoveryButtons(_ presentation: SignInPresentation) -> some View {
+        if presentation.recovery.contains(.setUpOtpOnPortal) {
+            Button(t("schoolSession.openPortal"), action: openPortal)
+        }
+        if presentation.recovery.contains(.openSchoolPage) {
+            Button(t("settings.schoolAccounts.showPage")) {
+                web.showTab(profile == .science ? .sciencePortal : .tokyoPortal)
+                navigator.tab = .web
+            }
+        }
+        if presentation.recovery.contains(.retry) {
+            Button {
+                Task { await retry() }
+            } label: {
+                if retrying { ProgressView() } else { Text(t("common.retry")) }
+            }
+            .disabled(retrying)
         }
     }
 
@@ -629,6 +630,10 @@ private struct LanguageSection: View {
             } label: {
                 Label { Text(t("settings.main.schoolContentLanguage")) } icon: { SettingsIcon(symbol: "text.book.closed", tint: Theme.accent) }
             }
+            Toggle(t("settings.appearance.showOneLanguageInBilingual"), isOn: Binding(
+                get: { model.records.settings["lmsBilingualFilter"] as? Bool == true },
+                set: { value in Task { await model.updateSettings { $0["lmsBilingualFilter"] = value } } }
+            ))
         } footer: {
             Text(t("settings.main.courseNamesRoomsAndSyllabus"))
         }
