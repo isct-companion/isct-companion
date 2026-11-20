@@ -65,6 +65,10 @@ class PrintShareActivity : ComponentActivity() {
                 fail()
                 return@launch
             }
+            // The print dialog would otherwise show the campus printer as
+            // unavailable when the system lost the print service.
+            Toast.makeText(this@PrintShareActivity, R.string.print_share_preparing, Toast.LENGTH_SHORT).show()
+            CampusPrintRefresh.refresh(applicationContext)
             val adapter = SharedFileAdapter(applicationContext, shared) {
                 shared.file.parentFile?.deleteRecursively()
                 finish()

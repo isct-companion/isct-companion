@@ -88,7 +88,13 @@ class CampusPrintService : PrintService() {
         job.cancel()
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        CampusPrintRefresh.serviceRunning = true
+    }
+
     override fun onDestroy() {
+        CampusPrintRefresh.serviceRunning = false
         scope.cancel()
         super.onDestroy()
     }
