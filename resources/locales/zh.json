@@ -1699,5 +1699,9 @@
   "tools.campusWifi.vpnOnCampusTitle": "你在校园网内",
   "tools.campusWifi.vpnDemandStoppedTitle": "校园 VPN 已停止自动连接",
   "tools.campusWifi.vpnUnusedBody": "仍经由它的连接（如 SSH）已被断开。需要时请重新连接。",
-  "tools.campusWifi.vpnUnusedTitle": "校园 VPN 闲置 30 分钟，已断开"
+  "tools.campusWifi.vpnUnusedTitle": "校园 VPN 闲置 30 分钟，已断开",
+  "lms.openPdf": "打开",
+  "lms.pdfNeedsPassword": "此 PDF 受密码保护，请输入密码后打开。",
+  "lms.pdfPassword": "PDF 密码",
+  "lms.pdfPasswordWrong": "密码不正确，请重新输入。"
 }

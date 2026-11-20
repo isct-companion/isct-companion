@@ -114,8 +114,10 @@ function searchPanel(view: EditorView): Panel {
   };
 }
 
-export function textLanguage(url: string) {
-  const path = new URL(url).pathname.toLowerCase();
+/** The highlighting for a file's name (a path inside a ZIP, an upload's
+ * name). */
+export function textLanguage(name: string) {
+  const path = name.toLowerCase();
   if (/\.(c|h|cpp|cc|cxx|hpp)$/.test(path))
     return { name: "C / C++", extension: cpp() };
   if (/\.java$/.test(path)) return { name: "Java", extension: java() };
@@ -124,11 +126,11 @@ export function textLanguage(url: string) {
     return { name: "R", extension: StreamLanguage.define(r) };
   return { name: t("lms.plainText"), extension: [] };
 }
-export function TextDocument({ value, url }: { value: string; url: string }) {
+export function TextDocument({ value, name }: { value: string; name: string }) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
   const [searching, setSearching] = useState(false);
-  const language = textLanguage(url);
+  const language = textLanguage(name);
   const position = useRef({ top: 0, left: 0 });
   useEffect(() => {
     const view = new EditorView({
@@ -196,7 +198,7 @@ export function TextDocument({ value, url }: { value: string; url: string }) {
       setSearching(false);
       view.destroy();
     };
-  }, [value, url]);
+  }, [value, name]);
   return (
     <div className="lmsTextDocument">
       <div className="lmsTextMeta">

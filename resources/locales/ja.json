@@ -1699,5 +1699,9 @@
   "tools.campusWifi.vpnOnCampusTitle": "学内ネットワークに接続しています",
   "tools.campusWifi.vpnDemandStoppedTitle": "キャンパス VPN の自動接続を停止しました",
   "tools.campusWifi.vpnUnusedBody": "経由していた接続（SSH など）は切断されました。必要なときに接続し直してください。",
-  "tools.campusWifi.vpnUnusedTitle": "30 分間使われなかったためキャンパス VPN を切断しました"
+  "tools.campusWifi.vpnUnusedTitle": "30 分間使われなかったためキャンパス VPN を切断しました",
+  "lms.openPdf": "開く",
+  "lms.pdfNeedsPassword": "この PDF は保護されています。開くにはパスワードを入力してください。",
+  "lms.pdfPassword": "PDF のパスワード",
+  "lms.pdfPasswordWrong": "パスワードが違います。もう一度入力してください。"
 }

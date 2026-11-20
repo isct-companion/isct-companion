@@ -158,6 +158,10 @@
 .lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
 .lmsPdfDocument { width: 100%; padding: var(--space-gutter); overflow-x: auto; touch-action: pan-x pan-y; }
 .lmsPdfPages { min-width: 200px; margin: 0 auto; }
+/* A PDF's open password, asked where its pages will show. */
+.lmsPdfPassword { display: grid; gap: var(--space-row-gap); width: min(100%, 320px); margin: var(--space-card) auto; }
+.lmsPdfPassword > p { margin: 0; color: var(--muted); }
+.lmsPdfPassword > p[role=alert] { color: var(--danger); }
 /* position: relative bounds pdf.js's absolutely positioned text layer
    (pdf_viewer.css .textLayer, inset: 0) to its page. The page is paper, so
    it stays white in dark mode. Pages sit one document padding apart; a page

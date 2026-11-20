@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Bookmark,
   BookmarkCheck,
@@ -9,9 +9,8 @@ import {
 import { desktopBridge } from "../../app/native";
 import { notify } from "../../app/notify";
 import { notifyDownload } from "../../components/DownloadNotice";
-import { ErrorBanner, Skeleton, Tag } from "../../components/ui";
-import { localFileUrl } from "../../features/lms/files";
-import { ImageView } from "../../features/lms/ImageView";
+import { ErrorBanner, Tag } from "../../components/ui";
+import { FileView } from "../../features/lms/FileView";
 import { ReaderPane, ReaderTools } from "../../features/lms/ReaderPane";
 import type {
   ExamAction,
@@ -21,18 +20,6 @@ import type {
 } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { ReportDialog } from "./ExamDialogs";
-
-const ReadableMarkdown = lazy(() =>
-  import("../../features/lms/ReadableMarkdown").then((m) => ({
-    default: m.ReadableMarkdown,
-  })),
-);
-
-const Pdf = lazy(() =>
-  import("../../features/lms/PdfDocument").then((m) => ({
-    default: m.PdfDocument,
-  })),
-);
 
 /** The opened document in the shared LMS reader frame, with its own tools.
  * Every type Core accepts shows here; the system application is one of
@@ -58,10 +45,6 @@ export function ExamReader({
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const { document } = file;
-  // How it shows is Core's (`file_preview`); Open in default app is a tool
-  // whatever it is.
-  const { viewer } = file;
-  const pdf = viewer === "pdf";
   const openInApp = async () => {
     try {
       if (!desktopBridge?.examOpenFile) throw new Error(t("error.unavailable"));
@@ -167,32 +150,28 @@ export function ExamReader({
   );
   return (
     <ReaderPane title={title} close={close}>
-      {!pdf && <ReaderTools>{toolbar}</ReaderTools>}
-      {pdf ? (
-        <Suspense fallback={<Skeleton count={6} />}>
-          <Pdf
-            src={localFileUrl(file.path)}
-            title={title}
-            fileToolbar={toolbar}
-          />
-        </Suspense>
-      ) : viewer === "text" || viewer === "markdown" ? (
-        <PlainTextPreview
+      <div className="lmsDocument lmsFileDocument">
+        <FileView
           key={file.path}
+          viewer={file.viewer}
           path={file.path}
-          markdown={viewer === "markdown"}
+          name={document.fileName}
+          title={title}
+          toolbar={toolbar}
+          fallback={
+            <>
+              <ReaderTools>{toolbar}</ReaderTools>
+              <ErrorBanner>
+                {t(
+                  file.viewer === "tooLarge"
+                    ? "lms.thisTextFileExceedsThe"
+                    : "lms.thisFileTypeCantBe",
+                )}
+              </ErrorBanner>
+            </>
+          }
         />
-      ) : viewer === "image" ? (
-        <ImageView src={localFileUrl(file.path)} title={title} />
-      ) : (
-        <ErrorBanner>
-          {t(
-            viewer === "tooLarge"
-              ? "lms.thisTextFileExceedsThe"
-              : "lms.thisFileTypeCantBe",
-          )}
-        </ErrorBanner>
-      )}
+      </div>
       {choices && (
         <ReportDialog
           opened={reporting}
@@ -209,39 +188,5 @@ export function ExamReader({
         />
       )}
     </ReaderPane>
-  );
-}
-
-/** A text document read whole; Markdown is shown formatted and read-only,
- * its formulas set with KaTeX. */
-function PlainTextPreview({
-  path,
-  markdown,
-}: {
-  path: string;
-  markdown: boolean;
-}) {
-  const [text, setText] = useState<string>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch(localFileUrl(path), { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error();
-        return response.text();
-      })
-      .then(setText, () => {
-        if (!controller.signal.aborted) setFailed(true);
-      });
-    return () => controller.abort();
-  }, [path]);
-  if (failed) return <ErrorBanner>{t("error.storage")}</ErrorBanner>;
-  if (text === undefined) return <Skeleton count={6} />;
-  return markdown ? (
-    <Suspense fallback={<Skeleton count={6} />}>
-      <ReadableMarkdown text={text} />
-    </Suspense>
-  ) : (
-    <pre className="examDocumentText">{text}</pre>
   );
 }

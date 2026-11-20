@@ -50,6 +50,7 @@ const pdfjs = vi.hoisted(() => ({
 
 vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   GlobalWorkerOptions: {},
+  PasswordResponses: { NEED_PASSWORD: 1, INCORRECT_PASSWORD: 2 },
   getDocument: pdfjs.load,
   TextLayer: class {
     render() {
@@ -1754,6 +1755,81 @@ describe("the file preview pipeline", () => {
       path: "/course/a.txt",
       reveal: true,
     });
+  }, 30_000);
+
+  it("asks for a protected PDF's password, again when it is wrong, then shows its pages", async () => {
+    pdfjs.load.mockReset();
+    pdfjs.render.mockReset();
+    pdfjs.render.mockReturnValue({
+      promise: Promise.resolve(),
+      cancel: vi.fn(),
+    });
+    let opened: (doc: unknown) => void = () => undefined;
+    const task: {
+      promise: Promise<unknown>;
+      destroy: () => Promise<void>;
+      onPassword?: (unlock: (password: string) => void, reason: number) => void;
+    } = {
+      promise: new Promise((resolve) => (opened = resolve)),
+      destroy: vi.fn(async () => undefined),
+    };
+    pdfjs.load.mockReturnValue(task);
+    const { host } = await openPreview(
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/exam.pdf",
+      (command) =>
+        command === "open_course_material"
+          ? {
+              state: "ready",
+              file: {
+                id: "f1",
+                name: "exam-1a2b3c4d.pdf",
+                section: "section-91",
+                path: "/course/exam-1a2b3c4d.pdf",
+                bytes: 10,
+                cached: true,
+                viewer: "pdf",
+              },
+            }
+          : undefined,
+    );
+    await waitFor(() => expect(task.onPassword).toBeTypeOf("function"));
+    const unlock = vi.fn();
+    // PDF.js asks for the open password as a browser's viewer does.
+    await act(async () => task.onPassword!(unlock, 1));
+    const field = () =>
+      host.querySelector<HTMLInputElement>(".lmsPdfPassword input")!;
+    await waitFor(() => expect(field()).not.toBeNull());
+    expect(host.querySelector(".lmsPdfPassword [role=alert]")).toBeNull();
+    await typeInto(field(), "wrong");
+    await click(buttonByText(host, "Open"));
+    expect(unlock).toHaveBeenLastCalledWith("wrong");
+    await act(async () => task.onPassword!(unlock, 2));
+    await waitFor(() =>
+      expect(
+        host.querySelector(".lmsPdfPassword [role=alert]")?.textContent,
+      ).toContain("not right"),
+    );
+    await typeInto(field(), "secret");
+    await click(buttonByText(host, "Open"));
+    expect(unlock).toHaveBeenLastCalledWith("secret");
+    await act(async () =>
+      opened({
+        numPages: 1,
+        getPage: vi.fn(async () => ({
+          getViewport: ({ scale }: { scale: number }) => ({
+            width: 600 * scale,
+            height: 800 * scale,
+          }),
+          render: pdfjs.render,
+          cleanup: vi.fn(),
+          streamTextContent: () => ({}),
+        })),
+      }),
+    );
+    await waitFor(() =>
+      expect(host.querySelectorAll("canvas")).toHaveLength(1),
+    );
+    expect(host.querySelector(".lmsPdfPassword")).toBeNull();
   }, 30_000);
 
   it("renders a previewable image from the local file URL", async () => {

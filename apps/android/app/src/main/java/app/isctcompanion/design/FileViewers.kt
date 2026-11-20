@@ -7,6 +7,16 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
+import android.graphics.pdf.LoadParams
+import android.os.Build
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import android.os.ParcelFileDescriptor
 import android.webkit.MimeTypeMap
 import androidx.compose.foundation.Image
@@ -202,8 +212,11 @@ private const val MAX_PAGE_PIXELS = 2000
  */
 @Composable
 fun PdfReader(file: File, fallback: @Composable () -> Unit) {
-    val document by produceState<Result<PdfPages>?>(null, file) {
-        val opened = withContext(Dispatchers.IO) { runCatching { PdfPages.open(file) } }
+    // The open password a protected PDF asked for, as a browser's viewer asks.
+    var password by remember(file) { mutableStateOf<String?>(null) }
+    val document by produceState<Result<PdfPages>?>(null, file, password) {
+        value = null
+        val opened = withContext(Dispatchers.IO) { runCatching { PdfPages.open(file, password) } }
         value = opened
         try {
             awaitCancellation()
@@ -213,6 +226,11 @@ fun PdfReader(file: File, fallback: @Composable () -> Unit) {
         }
     }
     val pages = document ?: return Spinner()
+    val failure = pages.exceptionOrNull()
+    // PdfRenderer reads a password from Android 15; before, another app opens it.
+    if (failure is SecurityException && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        return PdfPassword(wrong = password != null) { password = it }
+    }
     val pdf = pages.getOrNull() ?: return fallback()
     var zoom by remember(file) { mutableFloatStateOf(1f) }
     BoxWithConstraints(
@@ -246,6 +264,32 @@ fun PdfReader(file: File, fallback: @Composable () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** A protected PDF's open password, asked where its pages will show. */
+@Composable
+private fun PdfPassword(wrong: Boolean, open: (String) -> Unit) {
+    var typed by remember { mutableStateOf("") }
+    Column(
+        Modifier.fillMaxSize().padding(Theme.gutter),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            t(if (wrong) "lms.pdfPasswordWrong" else "lms.pdfNeedsPassword"),
+            color = if (wrong) Theme.colors.danger else Theme.colors.muted,
+            textAlign = TextAlign.Center,
+        )
+        OutlinedTextField(
+            typed, { typed = it },
+            singleLine = true,
+            label = { Text(t("lms.pdfPassword")) },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { if (typed.isNotEmpty()) open(typed) }),
+        )
+        ActionButton(t("lms.openPdf"), { open(typed) }, enabled = typed.isNotEmpty())
     }
 }
 
@@ -287,10 +331,16 @@ private class PdfPages(
     }
 
     companion object {
-        fun open(file: File): PdfPages {
+        /** Opens `file`; a protected one throws SecurityException until
+         * `password` is right (Android 15 and later read one). */
+        fun open(file: File, password: String?): PdfPages {
             val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = try {
-                PdfRenderer(descriptor)
+                if (password != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    PdfRenderer(descriptor, LoadParams.Builder().setPassword(password).build())
+                } else {
+                    PdfRenderer(descriptor)
+                }
             } catch (error: Exception) {
                 descriptor.close()
                 throw error

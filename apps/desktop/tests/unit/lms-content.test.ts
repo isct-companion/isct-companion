@@ -153,13 +153,14 @@ describe("LMS file classification", () => {
     ] as const) {
       const url = `https://lms.s.isct.ac.jp/2025/pluginfile.php/1/lecture.${ext}?forcedownload=1`;
       expect(previewKind(url), ext).toBe("text");
-      expect(textLanguage(url).name, ext).toBe(name);
+      // The reader names the language from the downloaded file's name.
+      expect(textLanguage(`lecture-1a2b3c4d.${ext}`).name, ext).toBe(name);
     }
     for (const ext of ["tex", "rs", "json", "ts", "sh", "sql", "yaml", "go"]) {
       expect(previewKind(lms(`file.${ext}`)), ext).toBe("text");
     }
     expect(previewKind("https://lms.s.isct.ac.jp/1/notes.md")).toBe("markdown");
-    expect(textLanguage("https://lms.s.isct.ac.jp/1/notes.md").name).toBe(
+    expect(textLanguage("notes-1a2b3c4d.md").name).toBe(
       "Plain text",
     );
   });

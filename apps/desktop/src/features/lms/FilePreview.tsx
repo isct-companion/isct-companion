@@ -1,7 +1,5 @@
 import { ReaderTools } from "./ReaderPane";
 import {
-  lazy,
-  Suspense,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -12,6 +10,7 @@ import { notify } from "../../app/notify";
 import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t, type MessageKey } from "../../i18n";
+import type { Viewer } from "../../generated/persistence";
 import {
   downloadOnly,
   extension,
@@ -20,12 +19,10 @@ import {
   previewOf,
   type FileFamily,
 } from "./file-types";
-import { ImageView } from "./ImageView";
+import { FileView } from "./FileView";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import { FolderRow } from "./FolderRow";
-import { useReleaseSource } from "./useReleaseSource";
 import {
-  localFileUrl,
   copyStoredFile,
   openMaterial,
   openStoredFile,
@@ -35,16 +32,6 @@ import {
   type Material,
   type SchoolPage,
 } from "./files";
-const TextDocument = lazy(() =>
-  import("./TextDocument").then((m) => ({ default: m.TextDocument })),
-);
-const PdfDocument = lazy(() =>
-  import("./PdfDocument").then((m) => ({ default: m.PdfDocument })),
-);
-const ReadableMarkdown = lazy(() =>
-  import("./ReadableMarkdown").then((m) => ({ default: m.ReadableMarkdown })),
-);
-
 const megabytes = (bytes: number) =>
   `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 /** A file's size in the unit that reads best. */
@@ -66,11 +53,10 @@ type View =
   | { state: "missing"; page: SchoolPage }
   | {
       state: "ready";
-      src: string;
       path: string;
-      kind?: ReturnType<typeof previewKind>;
-      /** Text Core will not read in the app (`Viewer::TooLarge`). */
-      tooLarge: boolean;
+      name: string;
+      /** How the reader shows it (Core's `file_preview`). */
+      viewer: Viewer;
       text?: string;
       page: SchoolPage;
     }
@@ -148,13 +134,11 @@ function useCourseFile(
         if (disposed) return;
         if (material.state !== "failed") loadedRequest.current = requestKey;
         if (material.state === "ready") {
-          const { viewer } = material.file;
           return setView({
             state: "ready",
-            src: localFileUrl(material.file.path),
             path: material.file.path,
-            kind: previewOf(viewer),
-            tooLarge: viewer === "tooLarge",
+            name: material.file.name || url,
+            viewer: material.file.viewer,
             text: material.file.text ?? undefined,
             page: material.page,
           });
@@ -237,9 +221,6 @@ export function FilePreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page?.site, page?.url, web, archive, inline]);
   const ready = view.state === "ready" ? view : undefined;
-  const kind = ready ? ready.kind : expected;
-  const src = ready?.src;
-  const textTooLarge = ready?.tooLarge === true;
   const actions = <FileActions course={course} openPage={openPage} />;
   if (view.state === "loading") {
     return (
@@ -299,84 +280,53 @@ export function FilePreview({
       </button>
     ) : null;
   }
-  // A ZIP Core did not list (too many files, too large, unreadable) is a
-  // file to open with another app.
-  if (!kind || !src || textTooLarge || kind === "archive") {
-    return (
-      <div className="lmsFileCardStage">
-        <FileCard
-          course={course}
-          title={title}
-          openPage={openPage}
-          previewable={Boolean(kind) && !textTooLarge && kind !== "archive"}
-          note={
-            textTooLarge
-              ? t("lms.thisTextFileExceedsThe")
-              : kind === "archive" && ready
-                ? t("lms.thisArchiveIsTooLarge")
-                : undefined
-          }
-        />
-      </div>
-    );
-  }
-  const toolbar = (
-    <Toolbar title={title} url={url} inline={kind === "pdf"}>
-      {actions}
-    </Toolbar>
-  );
-  if (kind === "pdf")
-    return (
-      <Suspense
-        fallback={
-          <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
+  // Before the file is on disk its address says whether it will preview;
+  // once it is, Core's viewer does. A ZIP Core did not list (too many files,
+  // too large, unreadable) and text over the limit open with another app.
+  const card = (
+    <div className="lmsFileCardStage">
+      <FileCard
+        course={course}
+        title={title}
+        openPage={openPage}
+        previewable={
+          ready
+            ? ready.viewer !== "tooLarge" && previewOf(ready.viewer) != null
+            : Boolean(expected) && expected !== "archive"
         }
-      >
-        <PdfDocument src={src} title={title} fileToolbar={toolbar} />
-      </Suspense>
-    );
-  return (
-    <div className="lmsAttachmentPreview">
-      {toolbar}
-      {kind === "image" ? (
-        <ImageView
-          src={src}
-          title={title}
-          onBroken={() =>
-            course.setView({
-              state: "failed",
-              reason: "network",
-              page: ready?.page ?? null,
-              note: "lms.thisImageCantBeDisplayed",
-            })
-          }
-        />
-      ) : kind === "video" ? (
-        <div className="lmsImageStage">
-          <MediaView kind="video" src={src} />
-        </div>
-      ) : kind === "audio" ? (
-        <div className="lmsAudioStage">
-          <MediaView kind="audio" src={src} />
-        </div>
-      ) : kind === "markdown" ? (
-        <Suspense
-          fallback={
-            <p className="lmsQuiet lmsLoading">{t("common.loading")}</p>
-          }
-        >
-          <ReadableMarkdown text={ready?.text ?? ""} />
-        </Suspense>
-      ) : (
-        <Suspense
-          fallback={
-            <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
-          }
-        >
-          <TextDocument value={ready?.text ?? ""} url={url} />
-        </Suspense>
-      )}
+        note={
+          ready?.viewer === "tooLarge"
+            ? t("lms.thisTextFileExceedsThe")
+            : ready && expected === "archive"
+              ? t("lms.thisArchiveIsTooLarge")
+              : undefined
+        }
+      />
     </div>
+  );
+  if (!ready) return card;
+  return (
+    <FileView
+      viewer={ready.viewer}
+      path={ready.path}
+      name={ready.name}
+      title={title}
+      text={ready.text}
+      toolbar={
+        <Toolbar title={title} url={url} inline>
+          {actions}
+        </Toolbar>
+      }
+      fallback={card}
+      onBroken={() =>
+        course.setView({
+          state: "failed",
+          reason: "network",
+          page: ready.page,
+          note: "lms.thisImageCantBeDisplayed",
+        })
+      }
+    />
   );
 }
 
@@ -771,26 +721,6 @@ function Toolbar({
     </div>
   );
   return inline ? tools : <ReaderTools>{tools}</ReaderTools>;
-}
-
-function MediaView({ kind, src }: { kind: "video" | "audio"; src: string }) {
-  const media = useReleaseSource<HTMLMediaElement>(src);
-  return kind === "video" ? (
-    <video
-      ref={media as React.RefObject<HTMLVideoElement>}
-      className="lmsMediaPreview"
-      src={src}
-      controls
-      preload="metadata"
-    />
-  ) : (
-    <audio
-      ref={media as React.RefObject<HTMLAudioElement>}
-      src={src}
-      controls
-      preload="metadata"
-    />
-  );
 }
 
 /**

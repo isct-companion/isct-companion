@@ -1699,5 +1699,9 @@
   "tools.campusWifi.vpnOnCampusTitle": "You're on the campus network",
   "tools.campusWifi.vpnDemandStoppedTitle": "Campus VPN stopped connecting when needed",
   "tools.campusWifi.vpnUnusedBody": "Connections still open through it, such as SSH, were closed. Connect again when you need it.",
-  "tools.campusWifi.vpnUnusedTitle": "Campus VPN disconnected after 30 minutes unused"
+  "tools.campusWifi.vpnUnusedTitle": "Campus VPN disconnected after 30 minutes unused",
+  "lms.openPdf": "Open",
+  "lms.pdfNeedsPassword": "This PDF is protected. Enter its password to open it.",
+  "lms.pdfPassword": "PDF password",
+  "lms.pdfPasswordWrong": "That password is not right. Try again."
 }
