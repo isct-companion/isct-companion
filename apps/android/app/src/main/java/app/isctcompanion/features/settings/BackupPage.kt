@@ -98,13 +98,13 @@ internal fun BackupPage() {
         Card {
             val providers = state?.providers.orEmpty()
             providers.forEachIndexed { index, provider ->
-                if (index > 0) RowDivider(inset = 16.dp)
+                if (index > 0) RowDivider(inset = Theme.rowX)
                 SwitchRow(providerName(provider.provider), providerDetail(provider), provider.error != null, provider.enabled, !locked) {
                     run { model.setCloudEnabled(provider.provider, it) }
                 }
             }
             if (providers.any { it.enabled }) {
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 val automatic = state?.automatic == true
                 SwitchRow(
                     t("settings.backup.syncAutomatically"),
@@ -112,11 +112,11 @@ internal fun BackupPage() {
                     else t("settings.backup.uploadAndPullByHand"),
                     false, automatic, !locked,
                 ) { run { model.setCloudAutomatic(it) } }
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Theme.space4),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.space2),
                 ) {
                     TextButton(onClick = { run { model.syncCloud(Direction.UPLOAD) } }, enabled = !locked) { Text(t("settings.backup.upload")) }
                     Spacer(Modifier.weight(1f))
@@ -131,11 +131,11 @@ internal fun BackupPage() {
         }
         val versions = state?.versions.orEmpty().sortedByDescending { it.savedAt }
         if (versions.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Theme.space4))
             SectionLabel(t("settings.backup.earlierVersions"))
             Card {
                 versions.forEachIndexed { index, version ->
-                    if (index > 0) RowDivider(inset = 16.dp)
+                    if (index > 0) RowDivider(inset = Theme.rowX)
                     RestoreRow(Format.due(version.savedAt), version.device, !locked) {
                         confirm = t(
                             "settings.backup.restoreTheVersionFromDate",
@@ -149,11 +149,11 @@ internal fun BackupPage() {
             }
             Footer(t("settings.backup.historyKeepsHourlyThenDaily"))
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Theme.space4))
         SectionLabel(t("settings.backup.backupFile"))
         Card {
             Action(t("settings.backup.export"), !busy) { save.launch("IsctCompanion.json") }
-            RowDivider(inset = 16.dp)
+            RowDivider(inset = Theme.rowX)
             Action(t("settings.backup.import"), !busy) { open.launch(arrayOf("application/json")) }
         }
     }
@@ -199,8 +199,8 @@ private fun SwitchRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, color = Theme.colors.ink)
@@ -220,7 +220,7 @@ private fun SwitchRow(
 private fun RestoreRow(title: String, detail: String?, enabled: Boolean, onRestore: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = Theme.rowX, end = Theme.space2, top = Theme.space2, bottom = Theme.space2),
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, color = Theme.colors.ink)
@@ -233,7 +233,7 @@ private fun RestoreRow(title: String, detail: String?, enabled: Boolean, onResto
 
 @Composable
 private fun Action(title: String, enabled: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.space2)) {
         Text(title, modifier = Modifier.fillMaxWidth())
     }
 }

@@ -25,6 +25,7 @@ import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.components.Scaffold
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.color.ColorProvider
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.layout.Column
 import androidx.glance.layout.Spacer
@@ -35,6 +36,8 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import app.isct.design.IsctTokens
+import app.isct.design.IsctTokensDark
 import app.isctcompanion.MainActivity
 import app.isctcompanion.design.MessageCatalog
 import java.time.Instant
@@ -98,13 +101,13 @@ private fun WidgetContent(context: Context, display: WidgetDisplay, catalog: Mes
         modifier = GlanceModifier.clickable(open(context, display.destination)),
         backgroundColor = GlanceTheme.colors.widgetBackground,
     ) {
-        Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = IsctTokens.space5)) {
             Text(
                 catalog.string(purpose.label),
                 style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Medium),
                 maxLines = 1,
             )
-            Spacer(GlanceModifier.height(4.dp))
+            Spacer(GlanceModifier.height(IsctTokens.space2))
             val primary = display.primary
             if (primary == null) {
                 Text(catalog.string(display.message ?: "widget.openToUpdate"), style = TextStyle(color = GlanceTheme.colors.onSurface))
@@ -116,7 +119,7 @@ private fun WidgetContent(context: Context, display: WidgetDisplay, catalog: Mes
                 }
             }
             if (size.height >= 110.dp) display.updated?.let { at ->
-                Spacer(GlanceModifier.height(4.dp))
+                Spacer(GlanceModifier.height(IsctTokens.space2))
                 Text(
                     catalog.string("widget.updated", "time" to formatted(at, display.zone, catalog, true)),
                     style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
@@ -148,7 +151,8 @@ private fun RowView(context: Context, row: WidgetRow, zone: ZoneId, catalog: Mes
             ColorProvider(Color((0xFF000000L or it).toInt()))
         }
         row.detail?.let {
-            Text(it, style = TextStyle(color = accent ?: GlanceTheme.colors.onSurface, fontSize = 12.sp), maxLines = 1)
+            val color = accent ?: ColorProvider(IsctTokens.colorMuted, IsctTokensDark.colorMuted)
+            Text(it, style = TextStyle(color = color, fontSize = 12.sp), maxLines = 1)
         }
         interval?.let {
             Text(it, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)

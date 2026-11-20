@@ -5,8 +5,8 @@ import UIKit
 /// Text metrics of a timetable block. Columns are about 60 pt wide, so the
 /// title takes every line the block's height leaves above the room line.
 enum BlockText {
-    static let padding: CGFloat = 4
-    static let spacing: CGFloat = 2
+    static let padding: CGFloat = Theme.space2
+    static let spacing: CGFloat = Theme.space1
     /// `.caption2`, not `.caption`: SwiftUI's Text ignores a paragraph style's
     /// `hyphenationFactor`, so a smaller face is what keeps English words
     /// ("Assembly") whole in a ~60 pt column more often.

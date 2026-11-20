@@ -153,9 +153,9 @@ fun TodayScreen() {
         },
         onRefresh = { model.refreshFromSchool() },
     ) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
             item(key = "today") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Theme.space6)) {
                     PageSubtitle(subtitle(model.today))
                     val problem = model.syncSnapshot?.problem
                     if (model.problem != null) {
@@ -237,7 +237,7 @@ private fun RecentLabel() {
         Box(Modifier.weight(1f)) { SectionLabel(t("today.new")) }
         TextButton(
             onClick = { scope.launch { model.markAllRecentSeen() } },
-            modifier = Modifier.padding(end = 4.dp, top = 8.dp),
+            modifier = Modifier.padding(end = Theme.space2, top = Theme.space4),
         ) {
             Text(t("today.markAllAsRead"), fontWeight = FontWeight.SemiBold)
         }
@@ -275,7 +275,7 @@ private fun ClassStack(items: List<TodayClass>, now: Instant) {
         if (items.size > 1) {
             Text(
                 "${index + 1} / ${items.size}", style = MaterialTheme.typography.bodySmall.tabular(),
-                color = Theme.colors.muted, modifier = Modifier.padding(end = 4.dp),
+                color = Theme.colors.muted, modifier = Modifier.padding(end = Theme.space2),
             )
         }
     }
@@ -403,7 +403,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             // The map button sits over the card here, beside the room.
             Row(
                 Modifier.padding(end = 44.dp),
-                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Theme.space6),
             ) {
                 Text(
                     item.occurrence.startTime, fontWeight = FontWeight.Bold,
@@ -412,7 +412,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
                 Text(
                     item.occurrence.room, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
                     color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    modifier = Modifier.padding(bottom = Theme.space2),
                 )
             }
             Text(
@@ -426,7 +426,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
         if (enabled) {
             RoomMapButton(
                 item.occurrence.room,
-                Modifier.align(Alignment.CenterEnd).padding(end = 6.dp).size(44.dp).clip(CircleShape),
+                Modifier.align(Alignment.CenterEnd).padding(end = Theme.space3).size(44.dp).clip(CircleShape),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Box(Modifier.size(36.dp).clip(CircleShape).background(Theme.colors.surface), contentAlignment = Alignment.Center) {
@@ -453,7 +453,7 @@ private fun Hero(
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(Theme.cardPadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space5),
     ) { content() }
 }
 
@@ -505,19 +505,19 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
                 fontWeight = FontWeight.SemiBold, color = tint,
             )
         }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
             // The figure sits where the language puts the count: あと 45 分,
             // 45 min left, 还剩 45 分钟.
             val words = t("today.countMinLeft").split("{{count}}").map { it.trim() }
             words.first().takeIf { it.isNotEmpty() }?.let {
-                Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+                Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = Theme.space4))
             }
             CountingText(
                 "${maxOf(Format.minutes(ends, now), 0)}", fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
             )
             words.getOrNull(1)?.takeIf { it.isNotEmpty() }?.let {
-                Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+                Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = Theme.space4))
             }
         }
         LinearProgressIndicator(
@@ -576,11 +576,11 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
             DeadlineLink(item, chevron = true) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
                 ) {
                     Icon(Icons.Rounded.Description, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
                         Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(Format.due(item.dueAt, now), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
                     }
@@ -603,14 +603,14 @@ private fun UpcomingExams(exams: List<ExamView>) {
             val id = exam.courseId
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (id != null) Modifier.clickable { navigator.openCourse(id) } else Modifier)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
             ) {
                 CourseSquare(exam.color)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
                     Text(exam.title.ifEmpty { exam.code }, color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(examDetail(exam), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
                     exam.conflict?.let { ExamConflictLabel(it) }
@@ -665,7 +665,7 @@ private fun RecentRow(
     val scope = rememberCoroutineScope()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
         modifier = Modifier
             .fillMaxWidth()
             .then(
@@ -678,10 +678,10 @@ private fun RecentRow(
                     Modifier
                 },
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         CourseSquare(color)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
             Text(title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1) }
         }
@@ -698,8 +698,8 @@ private fun ConnectCard(onConnect: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .background(Theme.colors.surface)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(Theme.cardPadding),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6),
     ) {
         Text(t("common.connectSchoolAccounts"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
         Text(

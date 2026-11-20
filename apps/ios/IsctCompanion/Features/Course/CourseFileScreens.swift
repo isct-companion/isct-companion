@@ -48,9 +48,9 @@ struct CourseArchiveScreen: View {
             if let files {
                 List(files, id: \.url) { file in
                     MaterialOpener(title: file.name, source: file.url, courseId: route.courseId) { opening in
-                        HStack(spacing: 12) {
+                        HStack(spacing: Theme.rowGap) {
                             Image(systemName: "doc").foregroundStyle(Theme.muted).frame(width: 18)
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: Theme.space1) {
                                 Text(file.name.split(separator: "/").last.map(String.init) ?? file.name)
                                     .foregroundStyle(Theme.ink).lineLimit(2)
                                 // A file inside a folder of the archive names that folder.
@@ -59,7 +59,7 @@ struct CourseArchiveScreen: View {
                                         .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
                                 }
                             }
-                            Spacer(minLength: 8)
+                            Spacer(minLength: Theme.space4)
                             if opening {
                                 ProgressView().controlSize(.small)
                             } else {

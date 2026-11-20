@@ -158,19 +158,19 @@ export function TextDocument({ value, name }: { value: string; name: string }) {
               backgroundColor: "transparent",
               color: "var(--ink)",
               fontSize: "13px",
-              padding: "16px 0",
+              padding: "var(--space-8) 0",
             },
             ".cm-content": {
               fontFamily:
                 '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-              padding: "4px 0",
+              padding: "var(--space-2) 0",
             },
-            ".cm-line": { padding: "0 24px 0 16px" },
+            ".cm-line": { padding: "0 var(--space-10) 0 var(--space-8)" },
             ".cm-gutters": {
               backgroundColor: "transparent",
               border: "none",
               color: "var(--muted)",
-              padding: "0 8px",
+              padding: "0 var(--space-4)",
             },
             ".cm-activeLineGutter": { backgroundColor: "transparent" },
             ".cm-scroller": {

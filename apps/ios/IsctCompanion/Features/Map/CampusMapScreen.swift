@@ -318,8 +318,8 @@ struct CampusMapScreen: View {
                     Text(attribution.joined(separator: " · "))
                         .font(.caption2)
                         .foregroundStyle(Theme.muted)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, Theme.space4)
+                        .padding(.vertical, Theme.space1)
                         .floatingGlass(in: Capsule())
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .allowsHitTesting(false)
@@ -341,7 +341,7 @@ struct CampusMapScreen: View {
     private var topBar: some View {
         HStack(spacing: CampusMapChrome.controlGap) {
             closeButton
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space4) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Theme.muted)
                     .accessibilityHidden(true)
@@ -364,8 +364,8 @@ struct CampusMapScreen: View {
                     .accessibilityLabel(t("common.clear"))
                 }
             }
-            .padding(.leading, 14)
-            .padding(.trailing, query.isEmpty ? 14 : 6)
+            .padding(.leading, Theme.space7)
+            .padding(.trailing, query.isEmpty ? Theme.space7 : Theme.space3)
             .frame(height: CampusMapChrome.controlSide)
             .floatingGlass(in: Capsule())
             .contentShape(Capsule())
@@ -480,7 +480,7 @@ struct CampusMapScreen: View {
                     if adjustable { cardGrabber(heights) }
                     cardHeader(card)
                 }
-                .padding(.top, adjustable ? 0 : 6)
+                .padding(.top, adjustable ? 0 : Theme.space3)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
                     if abs(measured - cardHeaderHeight) > 0.5 { cardHeaderHeight = measured }
                 }
@@ -568,7 +568,7 @@ struct CampusMapScreen: View {
             .accessibilityLabel(t("campusMap.closeCard"))
         }
         .padding(.leading, Theme.cardPadding)
-        .padding(.trailing, 6)
+        .padding(.trailing, Theme.space3)
     }
 
     /// Loading, or the map file is missing or unreadable.
@@ -678,7 +678,7 @@ struct CampusMapScreen: View {
         Button {
             pick(result)
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(result.title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.ink)
@@ -693,7 +693,7 @@ struct CampusMapScreen: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, Theme.cardPadding)
-            .padding(.vertical, 8)
+            .padding(.vertical, Theme.space4)
             .frame(maxWidth: .infinity, minHeight: minimumResultHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -732,7 +732,7 @@ private struct CampusMapCardView: View {
     let takePhoto: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.space6) {
             Text(subtitle)
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
@@ -777,7 +777,7 @@ private struct CampusMapCardView: View {
 
     /// The building (on a room's card) and the maps app, sharing the row.
     private var actions: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.space4) {
             if let building = card.building {
                 Button {
                     select(building)
@@ -814,7 +814,7 @@ private struct CampusMapCardView: View {
         Label(title, systemImage: systemImage)
             .font(.subheadline.weight(.semibold))
             .lineLimit(1)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Theme.space6)
             .frame(maxWidth: .infinity, minHeight: 44)
     }
 
@@ -825,12 +825,12 @@ private struct CampusMapCardView: View {
             Text(t("campusMap.entrances"))
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Theme.muted)
-                .padding(.bottom, 2)
+                .padding(.bottom, Theme.space1)
             ForEach(rows, id: \.entranceId) { row in
                 Button {
                     select(.entrance(id: row.entranceId))
                 } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: Theme.space5) {
                         Image("CampusMap/entrance")
                             .renderingMode(.template)
                             .resizable()
@@ -841,7 +841,7 @@ private struct CampusMapCardView: View {
                             .font(row.selected ? .body.weight(.semibold) : .body)
                             .foregroundStyle(row.selected ? Theme.accent : Theme.ink)
                             .lineLimit(1)
-                        Spacer(minLength: 8)
+                        Spacer(minLength: Theme.space4)
                         if let level = row.levelName {
                             Text(level)
                                 .font(.subheadline.monospacedDigit())
@@ -869,12 +869,12 @@ private struct CampusMapCardView: View {
 
     /// Every room an ambiguous spelling names; one is shown at a time.
     private func candidates(_ candidates: [CampusMapCandidate]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.space3) {
             Text(t("campusMap.chooseRoom"))
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Theme.muted)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.space4) {
                     ForEach(Array(candidates.enumerated()), id: \.offset) { index, candidate in
                         Button {
                             choose(index)
@@ -882,8 +882,8 @@ private struct CampusMapCardView: View {
                             Text(verbatim: "\(candidate.label) · \(candidate.buildingName)")
                                 .font(.footnote.weight(.semibold))
                                 .lineLimit(1)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, Theme.space5)
+                                .padding(.vertical, Theme.space4)
                                 .frame(minHeight: 44)
                                 .foregroundStyle(candidate.chosen ? Theme.accentInk : Theme.accent)
                                 .background(candidate.chosen ? Theme.accent : Theme.accentSoft, in: Capsule())
@@ -992,7 +992,7 @@ private struct LevelPicker: View {
                     Text(level.name)
                         .font(.footnote.weight(.semibold).monospacedDigit())
                         .foregroundStyle(isSelected ? Theme.accentInk : Theme.ink)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, Theme.space3)
                         .frame(minWidth: 44, minHeight: 44)
                         .background(isSelected ? Theme.accent : .clear)
                         .overlay(alignment: .topTrailing) {

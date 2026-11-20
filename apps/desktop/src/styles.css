@@ -11,7 +11,6 @@
   font-size: calc(var(--type-row-size) * var(--text));
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
-  --radius: var(--radius-surface);
   --rail: 72px;
   --text: 1;
 }
@@ -137,14 +136,14 @@ summary,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 14px 8px;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 70%, var(--bg));
 }
 .rail nav {
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
   width: 100%;
 }
 /* Page and utility buttons share one look. A label wider than the rail
@@ -158,8 +157,8 @@ summary,
   color: var(--muted);
   display: grid;
   justify-items: center;
-  gap: 4px;
-  padding: 8px 0 7px;
+  gap: var(--space-2);
+  padding: var(--space-4) 0 7px;
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
   line-height: 1.2;
@@ -190,11 +189,11 @@ summary,
   margin-top: auto;
   width: 100%;
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .workspaceMain {
   min-width: 0;
-  padding: 20px var(--space-gutter) 72px;
+  padding: var(--space-9) var(--space-gutter) 72px;
   padding-inline-start: calc(var(--rail) + var(--space-gutter));
   display: flex;
   transition: margin-right var(--motion-duration-base)
@@ -232,7 +231,7 @@ summary,
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-6);
   animation: enter var(--motion-duration-base) var(--motion-easing-standard);
 }
 @keyframes enter {
@@ -255,7 +254,7 @@ summary,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .pageBar h1 {
   font-size: calc(var(--type-title-size) * var(--text));
@@ -266,12 +265,12 @@ summary,
   display: block;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
-  margin-top: 2px;
+  margin-top: var(--space-1);
 }
 .pageBarRight {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
 }
 /* ---------- controls ---------- */
@@ -288,7 +287,7 @@ summary,
   right: 0;
   bottom: 0;
   min-height: 52px;
-  padding: 7px 16px;
+  padding: 7px var(--space-8);
   display: grid;
   grid-template-columns: max-content minmax(260px, 1fr);
   align-items: center;
@@ -306,7 +305,7 @@ summary,
 .schoolStatusAccount {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
   color: var(--muted);
 }
@@ -325,7 +324,7 @@ summary,
 .schoolStatusAccount[data-state="needs-web"] > i,
 .schoolStatusAccount[data-state="unavailable"] > i,
 .schoolStatusAccount[data-maintenance] > i {
-  background: var(--color-warning, #d5a34f);
+  background: var(--warn);
 }
 .schoolStatusAccount[data-state="refused"] > i {
   background: var(--danger);
@@ -373,7 +372,7 @@ summary,
 }
 .lmsStatusLine > .textButton {
   flex: 0 0 auto;
-  margin-inline-start: 6px;
+  margin-inline-start: var(--space-3);
 }
 .lmsStatus[data-kind="problem"] .lmsStatusLine > span {
   color: var(--danger);
@@ -381,12 +380,12 @@ summary,
 /* Idle: one quiet "source · age" pair per school site. */
 .schoolUpdated {
   display: flex;
-  gap: 16px;
+  gap: var(--space-8);
 }
 .schoolUpdated > span {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-3);
   font-variant-numeric: tabular-nums;
 }
 .schoolUpdated b {
@@ -468,8 +467,8 @@ summary,
 }
 .syncFailures {
   display: grid;
-  gap: 2px;
-  margin: 4px 0 0;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
   padding: 0;
   list-style: none;
   color: var(--danger);
@@ -479,7 +478,7 @@ summary,
   display: flex;
   align-items: baseline;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
 }
 .syncFailures li > span {
@@ -492,7 +491,7 @@ summary,
 .syncPageStatus {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
   font-variant-numeric: tabular-nums;
@@ -518,7 +517,7 @@ summary,
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-3);
   font-size: calc(var(--type-note-size) * var(--text));
   color: var(--muted);
 }
@@ -535,7 +534,7 @@ summary,
   color: var(--accent);
 }
 .ttHead.today small {
-  padding: 0 6px;
+  padding: 0 var(--space-3);
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-ink);
@@ -554,7 +553,7 @@ summary,
   position: absolute;
   inset-inline: 0;
   border-top: 1px solid var(--line);
-  padding: 4px 0 0 8px;
+  padding: var(--space-2) 0 0 var(--space-4);
   color: var(--muted);
   display: grid;
   align-content: start;
@@ -592,19 +591,19 @@ summary,
   right: 2px;
   z-index: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-block);
   background: transparent;
   cursor: default;
 }
 .ttSlot:hover {
-  background: color-mix(in srgb, var(--accent, #1f4e9a) 7%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 .ttSlot.active {
-  background: color-mix(in srgb, var(--accent, #1f4e9a) 12%, transparent);
-  box-shadow: inset 0 0 0 1.5px var(--accent, #1f4e9a);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 .ttSlot:focus-visible {
-  outline: 2px solid var(--accent, #1f4e9a);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 .ttRule,
@@ -620,7 +619,7 @@ summary,
    that overlap share it side by side (Core's grid lanes), so no kind of
    block is raised over another and all of them sit in one layer. */
 .ttBlock {
-  --course: #777;
+  --course: var(--muted);
   position: absolute;
   z-index: 2;
   left: 3px;
@@ -636,7 +635,7 @@ summary,
     var(--surface)
   );
   color: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
-  padding: 6px 7px;
+  padding: var(--space-3) 7px;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -646,7 +645,7 @@ summary,
     opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-density="compact"] .ttBlock {
-  padding: 4px 6px;
+  padding: var(--space-2) var(--space-3);
 }
 .ttBlock:hover {
   filter: brightness(0.97);
@@ -717,7 +716,7 @@ summary,
 /* Solid in the course's own colour; a quiz's is outlined. */
 .ttBlock .ttExamTag {
   display: inline-block;
-  margin-right: 4px;
+  margin-right: var(--space-2);
   padding: 0 5px;
   border-radius: var(--radius-chip);
   background: var(--course);
@@ -738,7 +737,7 @@ summary,
    details are in the exam editor. */
 .ttBlock .ttSourceChanged {
   display: inline-block;
-  margin-right: 4px;
+  margin-right: var(--space-2);
   min-width: 1.5em;
   border-radius: 999px;
   background: var(--warn);
@@ -805,7 +804,7 @@ summary,
   grid-template-columns: minmax(0, 1fr) 320px;
   /* One row the height of the page: long side panels scroll instead of stretching the timetable. */
   grid-template-rows: minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-6);
 }
 .ttCard {
   display: flex;
@@ -824,12 +823,12 @@ summary,
 }
 .listCard > header {
   min-height: 42px;
-  padding: 0 14px;
+  padding: 0 var(--space-7);
   border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .listCard > header b {
   font-size: calc(var(--type-row-size) * var(--text));
@@ -840,7 +839,7 @@ summary,
 }
 .courseListTools {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .courseListTools button {
   border: 0;
@@ -871,14 +870,14 @@ summary,
   max-width: none;
   margin: 0;
   width: 100%;
-  padding: 0 18px 16px;
+  padding: 0 18px var(--space-8);
 }
 .sheetInner.narrow {
   max-width: none;
 }
 .sheetActions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
   align-items: center;
 }
 .sheetBody {
@@ -886,18 +885,18 @@ summary,
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  gap: var(--space-7);
   overflow: auto;
 }
 .sheetBody.single {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 14px;
+  gap: var(--space-6) var(--space-7);
   align-content: start;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 18px;
+  border-radius: var(--radius-surface);
+  padding: var(--space-card);
   flex: 0 0 auto;
 }
 .sheetCol {
@@ -905,21 +904,21 @@ summary,
   overflow: visible;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 18px;
+  border-radius: var(--radius-surface);
+  padding: var(--space-card);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 14px;
+  gap: var(--space-6) var(--space-7);
   align-content: start;
 }
 .sheetDangerZone {
-  margin-top: 16px;
-  padding: 14px 0 0;
+  margin-top: var(--space-8);
+  padding: var(--space-7) 0 0;
   border-top: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .sheetDangerZone div {
   display: grid;
@@ -957,7 +956,7 @@ summary,
 }
 .swatches {
   display: flex;
-  gap: 6px;
+  gap: var(--space-3);
   align-items: center;
   flex-wrap: wrap;
 }
@@ -983,14 +982,14 @@ summary,
 .meetingRows {
   grid-column: 1 / -1;
   display: grid;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .meetingRow {
   display: grid;
   grid-template-columns: auto minmax(150px, 1fr) minmax(90px, 0.6fr) auto;
-  gap: 8px;
+  gap: var(--space-4);
   align-items: center;
-  padding: 10px;
+  padding: var(--space-5);
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--surface-2);
@@ -998,7 +997,7 @@ summary,
 .meetingRow .timeRange {
   grid-column: 1 / -1;
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .formError {
   grid-column: 1 / -1;
@@ -1007,12 +1006,12 @@ summary,
 }
 .termForm {
   display: grid;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .modalFields {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 8px;
+  gap: var(--space-4);
   align-items: center;
 }
 .termForm small {
@@ -1026,10 +1025,10 @@ summary,
 
 /* ---------- web ---------- */
 .web {
-  gap: 12px;
+  gap: var(--space-6);
 }
 .servicesPage {
-  padding: 20px;
+  padding: var(--space-gutter);
 }
 .webStatus {
   max-width: 180px;
@@ -1045,7 +1044,7 @@ summary,
   min-height: 0;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-surface);
   overflow: hidden;
   position: relative;
 }
@@ -1054,11 +1053,11 @@ summary,
 .webNotice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   min-height: 32px;
-  padding: 4px 6px 4px 12px;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--surface-2);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
@@ -1089,9 +1088,9 @@ summary,
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 10px;
+  gap: var(--space-5);
   text-align: center;
-  padding: 24px;
+  padding: var(--space-10);
 }
 .webFallback b {
   font-size: calc(15px * var(--text));
@@ -1111,14 +1110,14 @@ summary,
   flex: 0 0 auto;
   display: grid;
   align-content: start;
-  gap: 2px;
-  padding-top: 4px;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
 }
 .settingsNav button {
   border: 0;
   background: none;
   text-align: left;
-  padding: 8px 11px;
+  padding: var(--space-4) 11px;
   border-radius: 8px;
   color: var(--muted);
   font-weight: 600;
@@ -1133,12 +1132,12 @@ summary,
   color: var(--accent);
 }
 .settingsNav .settingsSearch {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-5);
 }
 /* Group headings sit left of the items they hold, above a hairline. */
 .settingsNavGroup {
-  margin: 16px 0 4px;
-  padding: 12px 2px 2px;
+  margin: var(--space-8) 0 var(--space-2);
+  padding: var(--space-6) var(--space-1) var(--space-1);
   border-top: 1px solid var(--line);
   color: var(--ink);
   font-size: calc(var(--type-block-size) * var(--text));
@@ -1152,27 +1151,27 @@ summary,
   min-height: 0;
   overflow: auto;
   max-width: 760px;
-  padding: 4px 4px 24px 0;
+  padding: var(--space-2) var(--space-2) var(--space-10) 0;
 }
 .settingsPane h2 {
   font-size: calc(17px * var(--text));
-  margin-bottom: 10px;
+  margin-bottom: var(--space-5);
 }
 .settingsPane h3 {
   font-size: calc(var(--type-block-size) * var(--text));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 22px 0 4px;
+  margin: 22px 0 var(--space-2);
 }
 .row {
   min-height: 52px;
-  padding: 8px 0;
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--line);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(200px, 280px);
   align-items: center;
-  gap: 16px;
+  gap: var(--space-8);
 }
 .row > span:first-child b {
   display: block;
@@ -1183,7 +1182,7 @@ summary,
   display: block;
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
-  margin-top: 2px;
+  margin-top: var(--space-1);
   line-height: 1.4;
 }
 .row > select,
@@ -1199,7 +1198,7 @@ summary,
   gap: 18px;
 }
 .schoolAccount {
-  padding: 12px 0 16px;
+  padding: var(--space-6) 0 var(--space-8);
   border-bottom: 1px solid var(--line);
 }
 .schoolAccount > header,
@@ -1207,7 +1206,7 @@ summary,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-5);
 }
 .schoolAccount > header > b {
   font-size: calc(var(--type-row-size) * var(--text));
@@ -1216,7 +1215,7 @@ summary,
   font-style: normal;
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 3px var(--space-4);
   border-radius: 99px;
   background: var(--surface-3);
   color: var(--muted);
@@ -1226,13 +1225,13 @@ summary,
   align-items: center;
   gap: 7px;
   min-height: 24px;
-  margin-top: 8px;
+  margin-top: var(--space-4);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
 }
 .schoolConnection {
   flex-wrap: wrap;
-  row-gap: 4px;
+  row-gap: var(--space-2);
 }
 .schoolConnection button {
   margin-left: auto;
@@ -1258,14 +1257,14 @@ summary,
 }
 /* Under Retry: why a refused account may only need it once. */
 .schoolRetryHint {
-  margin-top: 2px;
+  margin-top: var(--space-1);
   text-align: right;
 }
 .credentialFields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  gap: var(--space-5);
+  margin-top: var(--space-6);
 }
 .credentialFields label {
   display: grid;
@@ -1289,10 +1288,10 @@ summary,
 }
 .schoolAccountActions {
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: var(--space-6);
 }
 .matrixEditor {
-  margin-top: 14px;
+  margin-top: var(--space-7);
 }
 .matrixTools {
   justify-content: flex-start;
@@ -1316,7 +1315,7 @@ summary,
 .matrixGrid {
   display: grid;
   grid-template-columns: 20px repeat(10, minmax(28px, 1fr));
-  gap: 4px;
+  gap: var(--space-2);
   max-width: 520px;
   margin-top: 7px;
 }
@@ -1365,8 +1364,8 @@ summary,
 .matrixConfidenceLegend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
-  margin: 8px 0;
+  gap: var(--space-3) var(--space-6);
+  margin: var(--space-4) 0;
   font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
@@ -1389,29 +1388,29 @@ summary,
 }
 .actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
   flex-wrap: wrap;
   align-items: center;
 }
 .actions.end {
   justify-content: flex-end;
-  padding: 12px 0;
+  padding: var(--space-6) 0;
 }
 .actions small {
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
 }
 .alert {
-  margin-top: 10px;
-  padding: 12px 14px;
+  margin-top: var(--space-5);
+  padding: var(--space-6) var(--space-7);
   border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
   background: var(--warn-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-surface);
   display: grid;
-  gap: 10px;
+  gap: var(--space-5);
 }
 .logList > div {
-  padding: 8px 0;
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--line);
 }
 .logList b,
@@ -1422,12 +1421,12 @@ summary,
 .logList span {
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
-  margin-top: 2px;
+  margin-top: var(--space-1);
 }
 .editor {
   display: grid;
-  gap: 6px;
-  margin-top: 12px;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
 }
 .editor > span {
   font-size: calc(var(--type-note-size) * var(--text));
@@ -1441,7 +1440,7 @@ summary,
   color: #e6e8e2;
   border: 1px solid #2c2f2e;
   border-radius: 8px;
-  padding: 10px;
+  padding: var(--space-5);
   font:
     calc(12px * var(--text))/1.5 ui-monospace,
     SFMono-Regular,
@@ -1451,22 +1450,22 @@ summary,
 }
 .siteEditor {
   border-bottom: 1px solid var(--line);
-  padding: 8px 0;
+  padding: var(--space-4) 0;
 }
 /* The grid sits inside <details>, not on it: WebKit lays details content out
    through an internal slot, and the open editor overlapped the next row. */
 .siteEditorBody {
   display: grid;
-  gap: 8px;
-  padding-top: 8px;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
 }
 .siteEditor summary {
   cursor: default;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  padding: 4px 0;
+  gap: var(--space-5);
+  padding: var(--space-2) 0;
   list-style: none;
 }
 .siteEditor summary::-webkit-details-marker {
@@ -1478,7 +1477,7 @@ summary,
 }
 .siteEditor label {
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
@@ -1583,7 +1582,7 @@ summary,
   overflow: visible;
 }
 .syllabusStatus {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-6);
   color: var(--muted);
   font-size: calc(var(--type-row-size) * var(--text));
   line-height: 1.5;
@@ -1592,7 +1591,7 @@ summary,
 .syllabusFrame {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-3);
   min-height: 0;
 }
 .syllabusFrame iframe {
@@ -1616,8 +1615,8 @@ summary,
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  padding: 22px 4px 24px;
+  gap: var(--space-10);
+  padding: 22px var(--space-2) var(--space-10);
   border-bottom: 1px solid var(--line);
 }
 .todayEyebrow {
@@ -1637,28 +1636,28 @@ summary,
 .teachingState {
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
-  padding-bottom: 4px;
+  padding-bottom: var(--space-2);
 }
 .todayFlow {
   min-height: 0;
   overflow: auto;
-  padding: 8px 4px 36px;
+  padding: var(--space-4) var(--space-2) 36px;
 }
 .importantDates {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
   border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 6%, var(--surface));
 }
 .importantDates > span {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
 }
 .importantDates > span + span {
-  padding-left: 10px;
+  padding-left: var(--space-5);
   border-left: 1px solid var(--line);
 }
 .importantDates b {
@@ -1669,16 +1668,16 @@ summary,
   font-size: calc(var(--type-tick-size) * var(--text));
 }
 .todaySection {
-  padding: 24px 0 8px;
+  padding: var(--space-10) 0 var(--space-4);
 }
 .todaySection + .todaySection {
-  margin-top: 12px;
+  margin-top: var(--space-6);
   border-top: 1px solid var(--line);
 }
 .todaySection > header {
   display: flex;
   flex-wrap: wrap;
-  row-gap: 8px;
+  row-gap: var(--space-4);
   justify-content: space-between;
   align-items: center;
   min-height: 34px;
@@ -1697,14 +1696,14 @@ summary,
   display: grid;
 }
 .dayAgendaRow {
-  --course: #777;
+  --course: var(--muted);
   width: 100%;
   min-height: 66px;
   display: grid;
   grid-template-columns: 58px 58px 16px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 8px 10px 8px 0;
+  gap: var(--space-row-gap);
+  padding: var(--space-row-y) var(--space-row-x);
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   background: transparent;
@@ -1715,7 +1714,6 @@ summary,
 }
 .dayAgendaRow.focus {
   margin: 5px 0;
-  padding-left: 12px;
   border-bottom-color: transparent;
   border-radius: var(--radius-surface);
   /* The 'now' tint the phone's hero card uses (design/README.md): the
@@ -1785,14 +1783,14 @@ summary,
 .agendaLine {
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-course-marker);
   background: var(--course);
   justify-self: center;
 }
 .agendaCourse {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .agendaCourse b,
 .agendaCourse small {
@@ -1813,8 +1811,8 @@ summary,
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 13px;
-  padding: 9px 10px 9px 0;
+  gap: var(--space-row-gap);
+  padding: var(--space-row-y) var(--space-row-x);
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   background: transparent;
@@ -1827,7 +1825,7 @@ summary,
 .dueRow > i {
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-course-marker);
 }
 .dueRow > span {
   min-width: 0;
@@ -1861,11 +1859,11 @@ summary,
 .scheduleControls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .scheduleControls button {
   min-height: 32px;
-  padding: 5px 10px;
+  padding: 5px var(--space-5);
   white-space: nowrap;
   border: 0;
   border-radius: 7px;
@@ -1892,7 +1890,7 @@ summary,
     );
   align-items: center;
   gap: 0;
-  padding: 2px 0 2px 10px;
+  padding: var(--space-1) 0 var(--space-1) var(--space-5);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-2);
@@ -1943,7 +1941,7 @@ summary,
     );
   align-items: center;
   gap: 1px;
-  padding-inline: 2px;
+  padding-inline: var(--space-1);
   border-inline: 1px solid var(--line);
 }
 .webZoom .iconButton,
@@ -1978,7 +1976,7 @@ summary,
 .servicePicker {
   min-width: 0;
   overflow: hidden auto;
-  padding-top: 2px;
+  padding-top: var(--space-1);
 }
 .serviceTier {
   display: grid;
@@ -1995,7 +1993,7 @@ summary,
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: var(--space-4);
   padding: 0 9px;
   border: 0;
   border-radius: 8px;
@@ -2037,7 +2035,7 @@ summary,
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-surface);
   overflow: hidden;
   background: var(--surface);
 }
@@ -2049,11 +2047,11 @@ summary,
   min-height: 0;
 }
 .courseFinder > header {
-  padding-block: 8px;
+  padding-block: var(--space-4);
 }
 .finderTitle {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
   flex: 1;
   min-width: 0;
 }
@@ -2085,8 +2083,8 @@ summary,
 .intensiveLane {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-6);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
   min-height: 36px;
@@ -2103,7 +2101,7 @@ summary,
   border: 1px dashed var(--line-strong);
   border-radius: 6px;
   background: transparent;
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
   cursor: default;
 }
 .intensiveToggle:hover {
@@ -2118,7 +2116,7 @@ summary,
 }
 .intensiveLane > div {
   display: flex;
-  gap: 6px;
+  gap: var(--space-3);
   overflow-x: auto;
   min-width: 0;
 }
@@ -2128,8 +2126,8 @@ summary,
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
+  gap: var(--space-3);
+  padding: 3px var(--space-4);
   border: 0;
   border-radius: var(--radius-chip);
   background: var(--surface-2);
@@ -2141,8 +2139,8 @@ summary,
   flex: none;
   width: 10px;
   height: 10px;
-  border-radius: 3px;
-  background: var(--course, var(--accent));
+  border-radius: var(--radius-course-marker);
+  background: var(--course, var(--muted));
 }
 .intensiveLane > div small {
   color: var(--muted);
@@ -2150,16 +2148,16 @@ summary,
 }
 .finderOmni {
   position: relative;
-  padding: 8px 12px 4px;
+  padding: var(--space-4) var(--space-6) var(--space-2);
 }
 .finderBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  padding: 4px 6px;
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
   background: var(--surface);
   cursor: text;
 }
@@ -2176,12 +2174,12 @@ summary,
   color: var(--ink);
   font: inherit;
   font-size: calc(var(--type-row-size) * var(--text));
-  padding: 4px 2px;
+  padding: var(--space-2) var(--space-1);
 }
 .finderPillGroup {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-1);
 }
 .finderOr {
   color: var(--muted);
@@ -2190,10 +2188,10 @@ summary,
 .finderPill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   border: 0;
   border-radius: var(--radius-chip);
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-4);
   cursor: default;
   font: inherit;
   font-size: calc(var(--type-block-size) * var(--text));
@@ -2265,21 +2263,21 @@ summary,
   box-shadow: var(--shadow);
   max-height: 340px;
   overflow-y: auto;
-  padding-block: 4px;
+  padding-block: var(--space-2);
 }
 .finderHead {
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--muted);
-  padding: 6px 12px 2px;
+  padding: var(--space-3) var(--space-6) var(--space-1);
 }
 .finderSuggestion {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  padding: 5px 12px;
+  gap: var(--space-5);
+  padding: 5px var(--space-6);
   cursor: default;
   font-size: calc(var(--type-row-size) * var(--text));
 }
@@ -2290,13 +2288,13 @@ summary,
   font-weight: 500;
   font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
-  margin-right: 6px;
+  margin-right: var(--space-3);
 }
 .finderSuggestion em {
   font-style: normal;
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
-  margin-left: 6px;
+  margin-left: var(--space-3);
 }
 .finderSuggestion small {
   color: var(--muted);
@@ -2324,9 +2322,9 @@ summary,
 .finderKeys {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 6px 12px 2px;
-  margin-top: 4px;
+  gap: var(--space-6);
+  padding: var(--space-3) var(--space-6) var(--space-1);
+  margin-top: var(--space-2);
   border-top: 1px solid var(--line);
   font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
@@ -2340,9 +2338,9 @@ summary,
 .finderStatus {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-4);
   justify-content: space-between;
-  padding: 2px 14px 6px;
+  padding: var(--space-1) var(--space-7) var(--space-3);
   font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
@@ -2358,9 +2356,9 @@ summary,
 .finderRow {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--space-row-gap);
   align-items: center;
-  padding: 6px 10px 6px 14px;
+  padding: var(--space-row-y) var(--space-row-x);
   border-bottom: 1px solid var(--line);
 }
 .finderRow:hover,
@@ -2390,7 +2388,7 @@ summary,
 }
 .finderMain .finderBadges {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2);
   justify-items: start;
 }
 .finderMain .finderBadges:empty {
@@ -2399,7 +2397,7 @@ summary,
 .finderAdd {
   font: inherit;
   font-size: calc(var(--type-note-size) * var(--text));
-  padding: 3px 10px;
+  padding: 3px var(--space-5);
   border-radius: 6px;
   border: 1px solid var(--accent);
   background: transparent;
@@ -2416,7 +2414,7 @@ summary,
   font-size: calc(var(--type-block-size) * var(--text));
   color: var(--ok);
   white-space: nowrap;
-  padding-inline: 4px;
+  padding-inline: var(--space-2);
 }
 .finderPlaced.saving {
   color: var(--muted);
@@ -2446,7 +2444,7 @@ summary,
   font-style: normal;
   font-size: calc(var(--type-block-size) * var(--text));
   border-radius: 4px;
-  padding: 0 6px;
+  padding: 0 var(--space-3);
   white-space: nowrap;
 }
 .finderBadges .rec {
@@ -2468,8 +2466,8 @@ summary,
 .finderFoot {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--line);
   font-size: calc(var(--type-note-size) * var(--text));
   font-variant-numeric: tabular-nums;
@@ -2484,7 +2482,7 @@ summary,
   padding: 0 !important;
 }
 .todayNavigation .todayHeader {
-  padding: 12px 0 16px;
+  padding: var(--space-6) 0 var(--space-8);
 }
 .todayNavigation .todayHeader h1 {
   font-size: 15px;
@@ -2504,7 +2502,7 @@ summary,
   padding: 18px 0;
 }
 .todayNavigation .todaySection > header {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-5);
 }
 .todayNavigation .todaySection h2 {
   font-size: calc(var(--type-block-size) * var(--text));
@@ -2520,7 +2518,7 @@ summary,
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
-  padding: 10px 8px;
+  padding: var(--space-row-y) var(--space-row-x);
   min-height: 0;
   border-radius: 5px;
 }
@@ -2562,9 +2560,9 @@ summary,
 .todayNavigation .dueAssignment {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2);
   align-items: flex-start;
-  padding: 10px 8px;
+  padding: var(--space-row-y) 8px;
   border-radius: 5px;
   width: 100%;
 }
@@ -2615,8 +2613,8 @@ summary,
   flex: 1;
 }
 .coursePanel > header {
-  border-top: 3px solid var(--course, var(--accent));
-  padding-block: 8px;
+  border-top: 3px solid var(--course, var(--muted));
+  padding-block: var(--space-4);
 }
 .coursePanel .courseListTools a {
   color: var(--muted);
@@ -2635,10 +2633,10 @@ summary,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: var(--space-6) var(--space-7);
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .coursePanelBody > * {
   min-width: 0;
@@ -2646,7 +2644,7 @@ summary,
 .coursePanelBody > dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 12px;
+  gap: var(--space-2) var(--space-6);
   margin: 0;
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -2661,27 +2659,27 @@ summary,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .coursePanelLinks .officialLink {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 3px 4px 3px 10px;
+  padding: 3px var(--space-2) 3px var(--space-5);
 }
 .coursePanelFoot {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-7);
   border-top: 1px solid var(--line);
 }
 /* A clash is explained where the click lands, with the way out beside it. */
 .coursePanelConflict {
   display: grid;
   justify-items: start;
-  gap: 6px;
-  margin: 10px 14px 0;
-  padding: 10px 12px;
+  gap: var(--space-3);
+  margin: var(--space-5) var(--space-7) 0;
+  padding: var(--space-5) var(--space-6);
   border-radius: var(--radius-chip);
   background: var(--danger-soft);
   color: var(--danger);
@@ -2689,7 +2687,7 @@ summary,
 }
 .coursePanelConflict ul {
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
   width: 100%;
   margin: 0;
   padding: 0;
@@ -2699,7 +2697,7 @@ summary,
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-4);
   color: var(--ink);
 }
 .coursePanelConflict li span:nth-child(2) {
@@ -2742,8 +2740,8 @@ summary,
 
 .dueGroup {
   display: grid;
-  margin-top: 10px;
-  padding-top: 8px;
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--line);
 }
 .dueGroup:first-child {
@@ -2755,26 +2753,26 @@ summary,
   display: block;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
-  padding-bottom: 4px;
+  padding-bottom: var(--space-2);
 }
 
 /* Today: assignments heading with its count and link */
 .dueSection > header {
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-5);
 }
 .dueScope {
   display: inline-flex;
   flex-shrink: 0;
   max-width: 100%;
   margin-left: auto;
-  padding: 2px;
-  gap: 2px;
+  padding: var(--space-1);
+  gap: var(--space-1);
   border-radius: 7px;
   background: var(--surface-3);
 }
 .dueScope > button {
-  padding: 2px 9px;
+  padding: var(--space-1) 9px;
   white-space: nowrap;
   border-radius: 5px;
   color: var(--muted);
@@ -2811,7 +2809,7 @@ summary,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-6);
   padding: 0;
   border: 0;
   background: transparent;
@@ -2843,7 +2841,7 @@ summary,
 }
 .moreToggle {
   justify-self: start;
-  margin-top: 4px;
+  margin-top: var(--space-2);
 }
 .nextClass time {
   display: grid;
@@ -2855,18 +2853,18 @@ summary,
 }
 /* Smaller date header so classes and deadlines start higher. */
 .todayHeader {
-  padding: 12px 4px 14px;
+  padding: var(--space-6) var(--space-2) var(--space-7);
 }
 .todayHeader h1 {
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: clamp(28px, 3vw, calc(var(--type-display-size) * var(--text)));
 }
 .todaySection {
-  padding-top: 16px;
+  padding-top: var(--space-8);
 }
 .officialLink {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .officialLink button {
@@ -2874,7 +2872,7 @@ summary,
   background: transparent;
   color: var(--accent);
   font: inherit;
-  padding: 2px 0;
+  padding: var(--space-1) 0;
   cursor: pointer;
   text-align: left;
   min-width: 0;
@@ -2907,7 +2905,7 @@ summary,
   flex: none;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-4);
   font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
   background: transparent;
@@ -2927,7 +2925,7 @@ summary,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-8);
 }
 .scheduleTitleRow h1 {
   font-size: calc(20px * var(--text));
@@ -2947,18 +2945,18 @@ summary,
 }
 .timetableViewBar {
   min-height: 45px;
-  padding: 6px 14px;
+  padding: var(--space-3) var(--space-7);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-5);
   border-bottom: 1px solid var(--line);
 }
 .timetableViewBar > b {
   font-size: calc(var(--type-note-size) * var(--text));
 }
 .coursesSide {
-  gap: 12px;
+  gap: var(--space-6);
 }
 .coursesInspector {
   flex: 1;
@@ -2972,7 +2970,7 @@ summary,
 }
 .academicPanel {
   flex-shrink: 0;
-  padding: 14px;
+  padding: var(--space-7);
 }
 .academicPanel header h2 {
   margin: 0;
@@ -2983,8 +2981,8 @@ summary,
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 12px;
-  padding: 14px 0;
+  gap: var(--space-6);
+  padding: var(--space-7) 0;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -2999,14 +2997,14 @@ summary,
   font-weight: 400;
 }
 .academicGradeDetails {
-  margin-top: 14px;
+  margin-top: var(--space-7);
   animation: enter var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .academicAvailability {
   display: grid;
-  gap: 4px;
-  margin-bottom: 10px;
-  padding: 9px 10px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  padding: 9px var(--space-5);
   border-radius: 6px;
   background: var(--surface-2);
   color: var(--ink);
@@ -3022,7 +3020,7 @@ summary,
 }
 .academicGradeDetails th,
 .academicGradeDetails td {
-  padding: 6px 3px;
+  padding: var(--space-3) 3px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -3038,7 +3036,7 @@ summary,
 }
 .academicGradeDetails > small {
   display: block;
-  margin-top: 10px;
+  margin-top: var(--space-5);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
 }
@@ -3046,8 +3044,8 @@ summary,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 .srOnly {
   position: absolute;
@@ -3069,7 +3067,7 @@ summary,
   overflow: hidden;
 }
 .academicQuarterLabel {
-  padding: 0 10px;
+  padding: 0 var(--space-5);
   font-variant-numeric: tabular-nums;
 }
 .academicQuarterLabel b {
@@ -3083,13 +3081,13 @@ summary,
 /* Native proximity snapping attracts nearby section starts, without locking long sections. */
 
 .courseStorageSettings {
-  padding: 12px 0 20px;
+  padding: var(--space-6) 0 var(--space-9);
   border-bottom: 1px solid var(--line);
 }
 .courseStorageSettings p {
   overflow-wrap: anywhere;
   font-size: calc(var(--type-row-size) * var(--text));
-  margin: 8px 0;
+  margin: var(--space-4) 0;
 }
 .courseStorageSettings small {
   color: var(--muted);
@@ -3098,7 +3096,7 @@ summary,
 .numberSetting {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
   white-space: nowrap;
@@ -3106,7 +3104,7 @@ summary,
 .cleanWorkspaces {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-5);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -3127,7 +3125,7 @@ summary,
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
 }
 .yearQuarterGroup {
@@ -3162,7 +3160,7 @@ summary,
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 13px;
+  padding: var(--space-4) 13px;
 }
 .selectedYear .yearQuarterYear {
   color: var(--ink);
@@ -3198,7 +3196,7 @@ summary,
 .yearQuarterQuarters {
   display: flex;
   align-items: center;
-  padding: 4px 6px;
+  padding: var(--space-2) var(--space-3);
 }
 .yearQuarterStep {
   display: flex;
@@ -3208,7 +3206,7 @@ summary,
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 8px;
+  padding: 5px var(--space-4);
   border-radius: 6px;
 }
 .yearQuarterStep button:hover,
@@ -3231,7 +3229,7 @@ summary,
   flex: none;
   color: var(--muted);
   opacity: 0.45;
-  margin: 0 2px;
+  margin: 0 var(--space-1);
 }
 .yearQuarterAdd {
   border: 1px dashed var(--line);
@@ -3253,7 +3251,7 @@ summary,
 .tt.hasCalendarNotice .ttHead {
   flex-wrap: wrap;
   align-content: center;
-  gap: 1px 6px;
+  gap: 1px var(--space-3);
   padding: 5px;
 }
 .ttCalendarNotice {
@@ -3272,7 +3270,7 @@ summary,
 /* One-time notice on data accuracy. */
 .dataNotice {
   display: grid;
-  gap: 10px;
+  gap: var(--space-5);
   font-size: calc(var(--type-row-size) * var(--text));
   line-height: 1.6;
 }
@@ -3281,7 +3279,7 @@ summary,
 }
 .dataNotice button {
   justify-self: end;
-  margin-top: 6px;
+  margin-top: var(--space-3);
 }
 
 .row > .actions.reverse,
@@ -3292,9 +3290,9 @@ summary,
 .commandLine {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 8px 8px 8px 12px;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-2);
@@ -3308,11 +3306,11 @@ summary,
 }
 .profileForm {
   display: grid;
-  gap: 14px;
+  gap: var(--space-7);
 }
 .profileFields {
   display: grid;
-  gap: 20px;
+  gap: var(--space-9);
   border: 0;
   padding: 0;
   margin: 0;
@@ -3321,7 +3319,7 @@ summary,
 .profileTimes {
   display: grid;
   grid-template-columns: 60px minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-4);
   align-items: center;
 }
 .profileTimes.columnHeads,
@@ -3331,7 +3329,7 @@ summary,
 }
 .profileForm section {
   display: grid;
-  gap: 6px;
+  gap: var(--space-3);
 }
 .profileForm header {
   display: flex;
@@ -3344,7 +3342,7 @@ summary,
 .profileLine {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px 28px;
-  gap: 6px;
+  gap: var(--space-3);
   align-items: center;
 }
 .profileLine.quarters {
@@ -3364,7 +3362,7 @@ summary,
 .actions .textButton {
   border: 0;
   background: none;
-  padding: 0 4px;
+  padding: 0 var(--space-2);
   color: var(--accent);
   font: inherit;
   font-size: calc(var(--type-note-size) * var(--text));
@@ -3381,8 +3379,8 @@ textarea.codeArea {
 }
 .configField {
   display: grid;
-  gap: 4px;
-  padding: 8px 0;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
 }
 .configField > span {
   font-size: calc(var(--type-note-size) * var(--text));
@@ -3401,7 +3399,7 @@ textarea.codeArea {
   display: inline-flex;
   align-items: center;
   height: 30px;
-  padding: 0 12px;
+  padding: 0 var(--space-6);
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
@@ -3416,19 +3414,19 @@ textarea.codeArea {
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
-  padding-left: 2px;
+  padding-left: var(--space-1);
 }
 
 /* ---------- today: week strip ---------- */
 .todayWeek {
   display: grid;
   justify-items: end;
-  gap: 6px;
+  gap: var(--space-3);
 }
 .todayWeek .teachingState {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-5);
   padding-bottom: 0;
 }
 .todayWeek .teachingState .textButton {
@@ -3443,7 +3441,7 @@ textarea.codeArea {
 .weekStrip {
   display: flex;
   align-items: stretch;
-  gap: 2px;
+  gap: var(--space-1);
 }
 .weekStrip button {
   border: 0;
@@ -3511,7 +3509,7 @@ textarea.codeArea {
 /* ---------- workstation: course finder ---------- */
 .courseFinder {
   position: relative;
-  padding-top: 12px;
+  padding-top: var(--space-6);
 }
 .courseFinder input {
   width: 100%;
@@ -3532,20 +3530,20 @@ textarea.codeArea {
     calc(var(--radix-popover-content-available-height) - 12px)
   );
   overflow: auto;
-  padding: 4px;
+  padding: var(--space-2);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
 }
 .courseFinderList section + section {
-  margin-top: 4px;
+  margin-top: var(--space-2);
   border-top: 1px solid var(--line);
-  padding-top: 4px;
+  padding-top: var(--space-2);
 }
 .courseFinderList small {
   display: block;
-  padding: 6px 8px 4px;
+  padding: var(--space-3) var(--space-4) var(--space-2);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
@@ -3556,8 +3554,8 @@ textarea.codeArea {
   display: grid;
   grid-template-columns: 6px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 0;
   border-radius: 5px;
   background: none;
@@ -3586,7 +3584,7 @@ textarea.codeArea {
   font-size: calc(var(--type-block-size) * var(--text));
 }
 .courseFinderList p {
-  padding: 10px 8px;
+  padding: var(--space-5) var(--space-4);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -3699,7 +3697,7 @@ textarea.codeArea {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  gap: 24px;
+  gap: var(--space-10);
   min-width: 0;
   min-height: 0;
 }
@@ -3710,18 +3708,18 @@ textarea.codeArea {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px 20px;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-9);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
 }
 .homeSetup > div {
   flex: 1;
   min-width: 0;
 }
 .homeSetup p {
-  margin: 4px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--muted);
   font-size: calc(var(--type-row-size) * var(--text));
 }
@@ -3732,7 +3730,7 @@ textarea.codeArea {
   display: flex;
   min-height: 0;
   overflow: auto;
-  padding-right: 20px;
+  padding-right: var(--space-9);
   border-right: 1px solid var(--line);
 }
 .homeWeek {
@@ -3753,7 +3751,7 @@ textarea.codeArea {
 }
 .homeDay .todayHeader {
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: var(--space-2) var(--space-8);
 }
 .homePage.planning {
   grid-template-columns: minmax(0, 1fr);
@@ -3776,7 +3774,7 @@ textarea.codeArea {
   .homePage.week:not(.planning) .homeBack {
     display: inline-flex;
     align-self: flex-start;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-4);
     color: var(--accent);
   }
 }
@@ -3787,7 +3785,7 @@ textarea.codeArea {
   justify-content: center;
 }
 .finderLoadMore:has(button) {
-  padding: 12px;
+  padding: var(--space-6);
 }
 
 .quarterPage,
@@ -3799,7 +3797,7 @@ textarea.codeArea {
   min-height: 0;
 }
 .calendarWorkspace {
-  gap: 16px;
+  gap: var(--space-8);
 }
 .calendarWorkspace .ttCard {
   flex: 1;

@@ -125,11 +125,11 @@ fun CourseDetailScreen(courseId: String) {
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = Theme.gutter)
+                .padding(bottom = Theme.space10),
+            verticalArrangement = Arrangement.spacedBy(Theme.space7),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
                 PageSubtitle(subtitle(course))
                 for (exam in detail?.exams.orEmpty()) {
                     Text(
@@ -205,7 +205,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
     LaunchedEffect(pager.currentPage) { row.animateScrollToItem(maxOf(pager.currentPage - 2, 0)) }
     // `11/27` in Tokyo time.
     val classDay = Format.date(content.classAt)?.let { Format.tokyo(it) }?.let { "${it.monthValue}/${it.dayOfMonth}" }
-    LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
         itemsIndexed(lessons, key = { _, lesson -> lesson.section }) { index, lesson ->
             val selected = index == pager.currentPage
             var menu by remember { mutableStateOf(false) }
@@ -257,7 +257,7 @@ private fun LessonPage(
     expanded: Set<String>,
     expand: (String, Boolean) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Theme.space7)) {
         // Headed by the plan's first line, as a desktop lesson is, else by its title.
         (lesson.summary.ifEmpty { null } ?: lesson.title)?.takeIf { it.isNotEmpty() }?.let {
             Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
@@ -279,7 +279,7 @@ private fun LessonPage(
         if (work.isNotEmpty()) {
             Text(
                 t("common.assignments"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
-                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 16.dp),
+                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = Theme.space8),
             )
             for (assignment in work) {
                 AssignmentCard(assignment, assignment.assignmentId in expanded) { expand(assignment.assignmentId, it) }
@@ -311,7 +311,7 @@ private fun InlineItem(item: LessonItem, courseId: String) {
     Surface {
         when (item.kind) {
             LessonItemKind.PAGE -> Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-            LessonItemKind.FORUM -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LessonItemKind.FORUM -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 Icon(Icons.Rounded.Campaign, null, tint = Theme.colors.ink, modifier = Modifier.size(18.dp))
                 Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             }
@@ -325,7 +325,7 @@ private fun InlineItem(item: LessonItem, courseId: String) {
 private fun Surface(content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(Theme.radiusSurface)).background(Theme.colors.surface).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space4),
     ) { content() }
 }
 
@@ -362,7 +362,7 @@ private fun examLine(exam: ExamView): String {
 private fun Links(detail: CourseDetail?, title: String, courseId: String) {
     if (detail == null) return
     val navigator = LocalNavigator.current
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
         detail.lmsUrl?.let { url ->
             LinkChip("LMS", Icons.Rounded.Language) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title)) }
         }
@@ -381,7 +381,7 @@ private fun RoomLinks(course: JSONObject) {
     val rooms = (0 until (meetings?.length() ?: 0))
         .mapNotNull { meetings?.optJSONObject(it)?.text("room")?.takeIf { room -> room.isNotEmpty() } }
         .distinct()
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
         for (room in rooms) {
             RoomMapButton(room, Modifier.clip(CircleShape)) { LinkChip(room, Icons.Rounded.Map) }
         }
@@ -393,12 +393,12 @@ private fun RoomLinks(course: JSONObject) {
 private fun LinkChip(title: String, icon: ImageVector, onClick: (() -> Unit)? = null) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space2),
         modifier = Modifier
             .clip(CircleShape)
             .background(Theme.colors.accentSoft)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = Theme.space5, vertical = Theme.space3),
     ) {
         Icon(icon, null, tint = Theme.colors.accent, modifier = Modifier.size(14.dp))
         Text(

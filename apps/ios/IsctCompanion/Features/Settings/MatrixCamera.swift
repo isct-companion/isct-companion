@@ -36,7 +36,7 @@ struct MatrixCameraScreen: View {
                 Spacer(minLength: 16)
                 CardGuide().padding(.horizontal, 24).allowsHitTesting(false)
                 Spacer(minLength: 16)
-                VStack(spacing: 10) {
+                VStack(spacing: Theme.space5) {
                     LiveGrid(cells: state?.cells ?? [])
                     Text(error ?? status)
                         .font(.footnote)
@@ -44,10 +44,10 @@ struct MatrixCameraScreen: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
-                .padding(14)
+                .padding(Theme.space7)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .padding(.horizontal, Theme.space6)
+                .padding(.bottom, Theme.space4)
             }
             .foregroundStyle(.white)
         }

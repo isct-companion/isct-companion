@@ -1,31 +1,31 @@
 .page.tools {
   overflow: auto;
-  padding: 4px 4px 24px 0;
+  padding: var(--space-2) var(--space-2) var(--space-10) 0;
 }
 .page.tools > h2 {
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-8);
 }
 .toolCards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
+  gap: var(--space-6);
   align-items: stretch;
   max-width: 960px;
 }
 .toolCard {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
-  padding: 14px 16px;
+  padding: var(--space-7) var(--space-8);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-surface);
   background: var(--surface);
 }
 .toolCard > header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   color: var(--muted);
 }
 .toolCard > header > svg {
@@ -41,7 +41,7 @@
 }
 .toolCardStatus {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
   font-size: calc(var(--type-row-size) * var(--text));
   overflow-wrap: anywhere;
 }
@@ -62,9 +62,9 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-4);
   margin-top: auto;
-  padding-top: 4px;
+  padding-top: var(--space-2);
 }
 
 /* Signed in or connected: the button stays green. */
@@ -79,7 +79,7 @@
   cursor: default;
 }
 .toolProgress {
-  margin-top: 6px;
+  margin-top: var(--space-3);
 }
 
 /* The state in a word, at the end of the card's header. */
@@ -89,7 +89,7 @@
 /* Facts as icon-led rows: what a tool covers, how long it has left. */
 .toolCardFacts {
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
   margin: 0;
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
@@ -97,7 +97,7 @@
 .toolCardFacts > div {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .toolCardFacts dt {
   display: inline-grid;
@@ -107,7 +107,7 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   min-width: 0;
   margin: 0;
   color: var(--ink);
@@ -132,7 +132,7 @@
 }
 .vpnPublishers {
   display: grid;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .vpnPublishers h4 {
   margin: 0;
@@ -146,7 +146,7 @@
 .vpnPublishers ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-2);
   max-height: 160px;
   margin: 0;
   padding: 0;
@@ -156,7 +156,7 @@
 .vpnPublishers li button {
   display: inline-grid;
   place-items: center;
-  margin-left: 2px;
+  margin-left: var(--space-1);
   padding: 0;
   border: 0;
   background: none;
@@ -165,7 +165,7 @@
 }
 .vpnPublishers form {
   display: flex;
-  gap: 6px;
+  gap: var(--space-3);
 }
 .vpnPublishers form > :first-child {
   flex: 1;

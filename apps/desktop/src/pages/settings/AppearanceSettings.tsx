@@ -1,6 +1,7 @@
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { UiInput } from "../../components/ui";
+import { lightThemePreviews } from "../../generated/design/theme-previews";
 import { nativeOs } from "../../platform/desktop-bridge";
 import {
   Choice,
@@ -14,45 +15,12 @@ import {
 type Settings = Workspace["settings"];
 type ThemeId = NonNullable<Settings["theme"]>;
 
-/** Each theme's light background and surface, for its swatch. The values
- * mirror design/tokens (color.light.json for warm, theme.json for the
- * rest); the app itself reads them from generated/design/themes.css. */
-const themes: {
-  id: ThemeId;
-  title: MessageKey;
-  bg: string;
-  surface: string;
-}[] = [
-  {
-    id: "warm",
-    title: "settings.main.warm",
-    bg: "#f3f3f0",
-    surface: "#ffffff",
-  },
-  {
-    id: "cool",
-    title: "settings.main.cool",
-    bg: "#f2f2f7",
-    surface: "#ffffff",
-  },
-  {
-    id: "paper",
-    title: "settings.main.paper",
-    bg: "#f3eee4",
-    surface: "#fffdf8",
-  },
-  {
-    id: "mist",
-    title: "settings.main.mist",
-    bg: "#edf1f6",
-    surface: "#fbfcfe",
-  },
-  {
-    id: "moss",
-    title: "settings.main.moss",
-    bg: "#eef2ec",
-    surface: "#fcfdfb",
-  },
+const themes: { id: ThemeId; title: MessageKey }[] = [
+  { id: "warm", title: "settings.main.warm" },
+  { id: "cool", title: "settings.main.cool" },
+  { id: "paper", title: "settings.main.paper" },
+  { id: "mist", title: "settings.main.mist" },
+  { id: "moss", title: "settings.main.moss" },
 ];
 
 /** Five round swatches; choosing one applies and saves at once. */
@@ -81,8 +49,8 @@ function ThemeSwatches({
           key={theme.id}
           style={
             {
-              "--swatch-bg": theme.bg,
-              "--swatch-surface": theme.surface,
+              "--swatch-bg": lightThemePreviews[theme.id].bg,
+              "--swatch-surface": lightThemePreviews[theme.id].surface,
             } as React.CSSProperties
           }
           onClick={() => onChange(theme.id)}

@@ -94,7 +94,7 @@ fun toneColors(tone: String): Pair<Color, Color> = with(Theme.colors) {
  * user corrected it, or left the timetable. Resolving it stays on desktop. */
 @Composable
 fun ExamConflictLabel(conflict: ExamConflict) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space2)) {
         Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.warn, modifier = Modifier.size(14.dp))
         Text(
             if (conflict.removed) t("exam.noLongerInThePublished") else t("common.timetableChanged"),
@@ -139,7 +139,7 @@ fun Tag(
                 TagVariant.Solid -> Modifier.background(color)
             },
         )
-        .padding(horizontal = 6.dp, vertical = 2.dp)
+        .padding(horizontal = Theme.space3, vertical = Theme.space1)
     val tone = when (variant) {
         TagVariant.Soft -> color
         TagVariant.Outline -> ink
@@ -167,7 +167,7 @@ fun DeadlineRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         CourseSquare(item.color)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
             Text(
                 item.title,
                 style = MaterialTheme.typography.bodyLarge,
@@ -217,7 +217,7 @@ fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean =
         if (chevron) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { content() }
-                RowChevron(Modifier.padding(end = 16.dp))
+                RowChevron(Modifier.padding(end = Theme.rowX))
             }
         } else {
             content()
@@ -277,14 +277,14 @@ fun MaterialRow(item: MaterialItem) {
     val opening = rememberMaterialOpening()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !opening.busy) { opening.open(item.courseId, item.url, item.title) }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Icon(materialIcon(item.kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
             Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             item.sectionLabel?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
@@ -329,12 +329,12 @@ fun ActionButton(
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space3, Alignment.CenterHorizontally),
         modifier = modifier
             .clip(CircleShape)
             .background(fill)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = Theme.space8, vertical = Theme.space5)
             .alpha(if (enabled) 1f else 0.35f),
     ) {
         icon?.let { Icon(it, null, tint = ink, modifier = Modifier.size(18.dp)) }
@@ -347,9 +347,9 @@ fun ActionButton(
 @Composable
 fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier, action: Pair<String, () -> Unit>? = null) {
     Column(
-        modifier.fillMaxWidth().padding(vertical = 32.dp, horizontal = Theme.gutter),
+        modifier.fillMaxWidth().padding(vertical = Theme.space11, horizontal = Theme.gutter),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space5),
     ) {
         Icon(icon, null, tint = Theme.colors.muted, modifier = Modifier.size(40.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, textAlign = TextAlign.Center)
@@ -364,17 +364,17 @@ fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier, a
 fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
     val model = LocalModel.current
     Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space5),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.dangerSoft)
-            .padding(start = 14.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = Theme.space7, top = Theme.space2, bottom = Theme.space2),
     ) {
-        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = 10.dp))
+        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = Theme.space5))
         Text(
             text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink,
-            modifier = Modifier.weight(1f).padding(vertical = 10.dp),
+            modifier = Modifier.weight(1f).padding(vertical = Theme.space5),
         )
         onRetry?.let { retry ->
             TextButton(onClick = retry) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }

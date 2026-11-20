@@ -369,7 +369,7 @@ private struct SyncSourceRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Theme.space2) {
             HStack {
                 Text(SyncText.source(source.source)).font(.body.weight(.semibold))
                 Spacer()
@@ -393,7 +393,7 @@ private struct SyncSourceRow: View {
                 Text(t("common.notConnected")).font(.footnote).foregroundStyle(Theme.muted)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Theme.space1)
     }
 }
 
@@ -403,7 +403,7 @@ private struct SyncRunRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Theme.space2) {
             HStack {
                 Text(SyncText.label(run.label))
                 Spacer()
@@ -434,7 +434,7 @@ private struct SyncRunRow: View {
                 Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Theme.space1)
     }
 }
 
@@ -461,7 +461,7 @@ struct SyncProblemBanner: View {
     @Environment(\.push) private var push
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Theme.space5) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
             Text(problem.text).font(.subheadline).foregroundStyle(Theme.ink)
             Spacer()
@@ -476,7 +476,7 @@ struct SyncProblemBanner: View {
                     .font(.subheadline.weight(.semibold))
             }
         }
-        .padding(14)
+        .padding(Theme.space7)
         .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
     }
 }
@@ -487,14 +487,14 @@ struct FirstLoadCard: View {
     let snapshot: SyncSnapshot
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Theme.space7) {
             SyncIndicatorView(indicator: snapshot.indicator ?? .spinner(emphasized: true))
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Theme.space2) {
                 Text(t("syncStatus.loadingSchoolData")).font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
                 Text(snapshot.line).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
             }
         }
-        .padding(18)
+        .padding(Theme.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
     }

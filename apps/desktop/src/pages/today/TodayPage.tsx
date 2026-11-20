@@ -157,7 +157,7 @@ export function Today({
         : "";
     return (
       <div className={`dueRow${state}`} key={assignment.id}>
-        <i style={{ background: course?.color ?? "#888" }} />
+        <i style={{ background: course?.color ?? "var(--muted)" }} />
         <UiButton
           className={`dueAssignment${selection?.assignmentId === assignment.id ? " selected" : ""}`}
           aria-current={

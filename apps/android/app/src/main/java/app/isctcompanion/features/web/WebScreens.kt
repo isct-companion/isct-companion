@@ -218,7 +218,7 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
     Column(modifier) {
         if ((page?.popups ?: 0uL) > 0uL) {
             Row(
-                Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = 16.dp),
+                Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = Theme.space8),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(t("web.popupWindow"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
@@ -289,10 +289,10 @@ private fun problemText(problem: SchoolWebProblem): String = when (problem) {
 @Composable
 private fun NoticeBanner(text: String, color: Color, actions: @Composable () -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().background(color).padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        Modifier.fillMaxWidth().background(color).padding(start = Theme.space8, end = Theme.space4, top = Theme.space2, bottom = Theme.space2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = Theme.space4))
         actions()
     }
 }
@@ -304,12 +304,12 @@ private fun FailedPage(site: SchoolSite, failure: SchoolWebFailure) {
     val web = LocalModel.current.web
     val context = LocalContext.current
     Column(
-        Modifier.fillMaxSize().background(Theme.colors.bg).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        Modifier.fillMaxSize().background(Theme.colors.bg).padding(Theme.space10),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(t(failureText(failure.reason)), style = MaterialTheme.typography.bodyLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             TextButton(onClick = { web.retry(site) }) { Text(t("web.reopenThisPage")) }
             if (goes(web.pages[site]?.back)) TextButton(onClick = { web.back(site) }) { Text(t("common.back")) }
             failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("common.openInBrowser")) } }
@@ -341,7 +341,7 @@ private fun PageDialog(host: SchoolBrowserHost) {
             onDismissRequest = { dialog.answer(dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT, null) },
             title = { Text(if (leave) t("web.leaveThisPage") else dialog.origin) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Theme.space6)) {
                     if (dialog.message.isNotEmpty()) Text(dialog.message)
                     if (dialog.kind == SchoolBrowserHost.PageDialog.Kind.PROMPT) {
                         OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -371,7 +371,7 @@ private fun SignInDialog(host: SchoolBrowserHost) {
             onDismissRequest = { request.answer(null, null) },
             title = { Text(t("schoolWeb.signIn.title", "host" to request.host)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Theme.space6)) {
                     if (request.retry) Text(t("schoolWeb.signIn.retry"), color = Theme.colors.danger)
                     OutlinedTextField(
                         user, { user = it },
@@ -430,7 +430,7 @@ fun WebTabScreen() {
             // The one thing drawn over the page, once: how to reach the other sites.
             GuideTip(
                 "web-sites", "common.switchSites", "web.tapTheTitleToSwitch",
-                Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                Modifier.align(Alignment.BottomCenter).padding(Theme.space6),
             )
         }
     }
@@ -445,7 +445,7 @@ private fun SiteTitle() {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.clip(RoundedCornerShape(Theme.radiusChip)).clickable { open = true }
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = Theme.space4, vertical = Theme.space2),
         ) {
             Text(WebRouter.name(web.tabSite), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Icon(Icons.Rounded.ArrowDropDown, t("common.switchSites"))
@@ -514,9 +514,9 @@ private fun ProblemNote(text: String, modifier: Modifier) {
         text,
         style = MaterialTheme.typography.bodyMedium,
         modifier = modifier
-            .padding(16.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .padding(Theme.space8)
+            .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.dangerSoft)
-            .padding(12.dp),
+            .padding(Theme.space6),
     )
 }

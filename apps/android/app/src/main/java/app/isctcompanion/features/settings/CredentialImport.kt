@@ -119,6 +119,7 @@ import app.isctcompanion.design.ButtonLevel
 private fun SourceChip(label: String, icon: ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
     AssistChip(
         onClick = onClick, enabled = enabled,
+        shape = RoundedCornerShape(Theme.radiusControl),
         // One line: a chip that does not fit moves to the next row of
         // `ChipRow` instead of breaking its label into a column.
         label = { Text(label, maxLines = 1, softWrap = false) },
@@ -130,7 +131,7 @@ private fun SourceChip(label: String, icon: ImageVector, enabled: Boolean = true
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChipRow(content: @Composable FlowRowScope.() -> Unit) =
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space4), content = content)
 
 /** An image on the clipboard (a screenshot shared to it), as a content URI. */
 private fun clipboardImage(context: Context): Uri? {
@@ -214,7 +215,7 @@ fun OtpImportField(
     }
 
     if (saved && !changing && setup.isEmpty()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
             Text(t(if (verifiedAccount) "settings.credentialImport.codesAreFilledInFor" else "otpEnrollment.savedOnDevice"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
@@ -262,14 +263,14 @@ fun OtpImportField(
     if (read != null && !changing) {
         // A good read folds the chooser into one line, like a saved setup;
         // Change opens it again to fix a wrong image or link.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
             Text(read, color = Theme.colors.ok, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
         return
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         OtpBranchCard(branch == "help", t("otpEnrollment.help"), t("otpEnrollment.helpHint"), { branch = "help" }) {
             ActionButton(t("otpEnrollment.start"), { confirming = true }, level = ButtonLevel.Secondary)
         }
@@ -358,7 +359,7 @@ fun OtpImportField(
                     for (account in choices) {
                         Text(
                             name(account),
-                            modifier = Modifier.fillMaxWidth().clickable { choose(account) }.padding(vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { choose(account) }.padding(vertical = Theme.space6),
                         )
                     }
                 }
@@ -382,22 +383,22 @@ private fun OtpBranchCard(selected: Boolean, title: String, hint: String, select
     ) {
         Row(
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(Theme.space2),
             modifier = Modifier
                 .fillMaxWidth()
                 .selectable(selected, role = Role.RadioButton, onClick = select)
-                .padding(end = 14.dp, top = 2.dp, bottom = 12.dp),
+                .padding(end = Theme.space7, top = Theme.space1, bottom = Theme.space6),
         ) {
-            RadioButton(selected, onClick = null, modifier = Modifier.padding(12.dp).size(20.dp))
-            Column(Modifier.weight(1f).padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            RadioButton(selected, onClick = null, modifier = Modifier.padding(Theme.space6).size(20.dp))
+            Column(Modifier.weight(1f).padding(top = Theme.space6), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
                 Text(title, color = colors.ink, fontWeight = FontWeight.SemiBold)
                 Text(hint, style = MaterialTheme.typography.bodyMedium, color = colors.muted)
             }
         }
         if (selected) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(Theme.space4),
+                modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = Theme.space7, bottom = Theme.space7),
                 content = content,
             )
         }
@@ -594,7 +595,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     }
     if (editing) {
         MatrixGrid(cells, confidence) { publish() }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Theme.space6)) {
             Swatch(Theme.colors.okSoft, t("settings.credentialImport.certain"))
             Swatch(Theme.colors.warnSoft, t("settings.credentialImport.check"))
             Swatch(Theme.colors.dangerSoft, t("settings.credentialImport.unreadable"))
@@ -611,7 +612,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
 
 @Composable
 private fun Swatch(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space2)) {
         Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(color))
         Text(label, style = MaterialTheme.typography.labelSmall, color = Theme.colors.muted)
     }
@@ -666,7 +667,7 @@ private fun MatrixGrid(cells: MutableList<String>, confidence: MutableList<Matri
                             .height(32.dp)
                             .clip(RoundedCornerShape(5.dp))
                             .background(fill)
-                            .padding(top = 6.dp)
+                            .padding(top = Theme.space3)
                             .focusRequester(focus[index]),
                     )
                 }

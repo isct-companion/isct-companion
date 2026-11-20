@@ -60,12 +60,11 @@ export function AcademicSummary({
             {t("courses.details")}
           </Button>
         </Popover.Target>
-        <Popover.Dropdown p={0}>
+        <Popover.Dropdown style={{ padding: 0 }}>
           {opened && (
             <Paper
               component="section"
               className="academicPanel"
-              radius="md"
               aria-label={t("courses.academicSummary")}
             >
               <header>

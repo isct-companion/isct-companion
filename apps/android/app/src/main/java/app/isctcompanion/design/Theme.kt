@@ -91,6 +91,7 @@ object Theme {
     val radiusBlock: Dp = IsctTokens.radiusBlock
     val radiusColumn: Dp = IsctTokens.radiusColumn
     val radiusControl: Dp = IsctTokens.radiusControl
+    val radiusCourseMarker: Dp = IsctTokens.radiusCourseMarker
 
     /** Page side margin. */
     val gutter: Dp = IsctTokens.spaceGutter
@@ -99,6 +100,20 @@ object Theme {
     val rowY: Dp = IsctTokens.spaceRowY
     val rowGap: Dp = IsctTokens.spaceRowGap
     val cardPadding: Dp = IsctTokens.spaceCard
+
+    val space1: Dp = IsctTokens.space1
+    val space2: Dp = IsctTokens.space2
+    val space3: Dp = IsctTokens.space3
+    val space4: Dp = IsctTokens.space4
+    val space5: Dp = IsctTokens.space5
+    val space6: Dp = IsctTokens.space6
+    val space7: Dp = IsctTokens.space7
+    val space8: Dp = IsctTokens.space8
+    val space9: Dp = IsctTokens.space9
+    val space10: Dp = IsctTokens.space10
+    val space11: Dp = IsctTokens.space11
+
+    val motionGuideTap: Int = IsctTokens.motionDurationGuideTap
 
     /** Course colour strength of a block that occupies time, a quiz included. */
     val tintFill = IsctTokens.courseTintFill.toFloat()
@@ -195,7 +210,7 @@ fun IsctTheme(themeId: String = "warm", content: @Composable () -> Unit) {
 fun courseColor(hex: String?): Color {
     val digits = hex.orEmpty().trimStart('#')
     val value = if (digits.length == 6) digits.toLongOrNull(16) else null
-    return value?.let { Color(0xff000000 or it) } ?: Theme.colors.accent
+    return value?.let { Color(0xff000000 or it) } ?: Theme.colors.muted
 }
 
 /** White rounded card on the warm background, the phone's one container. */
@@ -218,7 +233,7 @@ fun SectionLabel(text: String) {
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.SemiBold,
         color = Theme.colors.muted,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        modifier = Modifier.padding(start = Theme.rowX, end = Theme.rowX, top = Theme.space4),
     )
 }
 
@@ -228,7 +243,7 @@ fun CourseSquare(color: String?) {
     Box(
         Modifier
             .size(10.dp)
-            .clip(RoundedCornerShape(3.dp))
+            .clip(RoundedCornerShape(Theme.radiusCourseMarker))
             .background(courseColor(color)),
     )
 }

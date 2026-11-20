@@ -79,7 +79,7 @@ struct BackupScreen: View {
                     get: { provider.enabled },
                     set: { on in run { await model.setCloudEnabled(provider.provider, on) } })
                 ) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Theme.space1) {
                         Text(Self.name(provider.provider))
                         if let detail = detail(provider) {
                             Text(detail).font(.subheadline)
@@ -94,7 +94,7 @@ struct BackupScreen: View {
                     get: { state?.automatic ?? false },
                     set: { on in run { await model.setCloudAutomatic(on) } })
                 ) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Theme.space1) {
                         Text(t("settings.backup.syncAutomatically"))
                         Text(state?.automatic == true
                             ? t("settings.backup.pullsOtherDevicesChangesWhen")
@@ -143,7 +143,7 @@ struct BackupScreen: View {
 
     private func restoreRow(_ title: String, detail: String?, id: String, savedAt: String) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(title)
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
             }

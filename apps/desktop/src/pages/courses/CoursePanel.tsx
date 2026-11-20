@@ -44,7 +44,6 @@ function PlanningPanel({
       className="listCard coursePanel"
       withBorder
       shadow="xs"
-      radius="md"
       style={color ? ({ "--course": color } as React.CSSProperties) : undefined}
     >
       <header>

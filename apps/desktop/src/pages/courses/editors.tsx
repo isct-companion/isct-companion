@@ -100,7 +100,7 @@ function DayChips({
       value={value.map(String)}
       onChange={(days) => onChange(days.map(Number).sort((a, b) => a - b))}
     >
-      <Group gap={4} role="group" aria-label={t("courses.weekdays")}>
+      <Group gap="space-2" role="group" aria-label={t("courses.weekdays")}>
         {dayNames.map((name, index) => (
           <Chip key={name} value={String(index + 1)} size="xs">
             {t(dayShort[index])}
@@ -193,7 +193,7 @@ export function CourseEditor({
         onSubmit={submit}
         aria-busy={submission.busy}
       >
-        <Group className="sheetActions" justify="flex-end" py="sm">
+        <Group className="sheetActions" justify="flex-end" py="space-5">
           <UiButton
             type="button"
             className="button"
@@ -506,7 +506,7 @@ export function EventEditor({
         onSubmit={submit}
         aria-busy={submission.busy}
       >
-        <Group className="sheetActions" justify="flex-end" py="sm">
+        <Group className="sheetActions" justify="flex-end" py="space-5">
           <UiButton
             type="button"
             className="button"

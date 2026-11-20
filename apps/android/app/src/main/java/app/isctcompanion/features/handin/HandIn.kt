@@ -127,13 +127,13 @@ private fun InboxSheet(close: () -> Unit) {
     ModalBottomSheet(onDismissRequest = close, containerColor = Theme.colors.bg) {
         Text(
             t("common.handInTo"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = Theme.space8, vertical = Theme.space4),
         )
         AssignmentPicker(
             header = {
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Theme.space6),
+                    contentPadding = PaddingValues(horizontal = Theme.space8, vertical = Theme.space2),
                 ) {
                     items(SharedInbox.items, key = { it.id }) { item ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(80.dp)) {
@@ -251,8 +251,8 @@ fun HandInCard(assignment: AssignmentDetail) {
         files.forEach { file ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.space4),
             ) {
                 Thumbnail(File(file.path), Modifier.size(32.dp, 40.dp))
                 Text(file.name, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -264,11 +264,11 @@ fun HandInCard(assignment: AssignmentDetail) {
                     }
                 }) { Icon(Icons.Rounded.RemoveCircleOutline, t("common.delete"), tint = Theme.colors.danger) }
             }
-            RowDivider(16.dp)
+            RowDivider(Theme.rowX)
         }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(Theme.space3),
             modifier = Modifier.fillMaxWidth().clickable { documents.launch(arrayOf("*/*")) }.padding(vertical = 18.dp),
         ) {
             Icon(Icons.Rounded.UploadFile, null, tint = Theme.colors.accent)
@@ -277,11 +277,11 @@ fun HandInCard(assignment: AssignmentDetail) {
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = Theme.space4, end = Theme.space8, bottom = Theme.space6),
         ) {
             TextButton(onClick = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                 Icon(Icons.Rounded.PhotoLibrary, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(Theme.space3))
                 Text(t("handIn.photos"), fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.weight(1f))

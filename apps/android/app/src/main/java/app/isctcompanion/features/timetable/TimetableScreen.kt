@@ -221,9 +221,9 @@ fun TimetableScreen() {
             .clipToBounds()
             .background(Theme.colors.bg)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 12.dp)
-            .padding(bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = Theme.space6)
+            .padding(bottom = Theme.space4),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6),
     ) {
         Header(monday, chip(year, monday), term, openPicker = { picker = true }) { go(thisWeek(), slow = false) }
         GuideTip("timetable-marks", "guide.swipeToChangeWeeks", "timetable.longPressAClassTo")
@@ -299,7 +299,7 @@ private val Occurrence.isBlock: Boolean
  * date range, the quarter export and 今日. Weeks change by swiping the grid. */
 @Composable
 private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: () -> Unit, toToday: () -> Unit) {
-    Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.padding(top = Theme.space6, start = Theme.space2, end = Theme.space2), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
         // The way into the week picker, a secondary button.
         ActionButton(
             chip, openPicker,
@@ -347,7 +347,7 @@ private fun ExportButton(term: String) {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
                 t("common.exportICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
-                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = Theme.space6, vertical = Theme.space3),
             )
             DropdownMenuItem(
                 text = { Text(t("common.coursesOnly")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
@@ -395,7 +395,7 @@ private fun Grid(monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, r
     val height = rowHeight * (axis?.length ?: 12.5).toFloat()
     val today = Format.today()
     val current = model.today?.takeIf { it.phase == TodayPhase.IN_CLASS }?.hero?.occurrence?.key
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             Spacer(Modifier.width(periodWidth))
             for (day in days) DayHeader(day, day == today, Modifier.weight(1f))
@@ -412,7 +412,7 @@ private fun Grid(monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, r
 
 @Composable
 private fun DayHeader(day: LocalDate, today: Boolean, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
         Text(Format.weekday(day), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted)
         Box(
             Modifier.size(30.dp).clip(CircleShape).background(if (today) Theme.colors.accent else Color.Transparent),
@@ -593,7 +593,7 @@ private fun Block(
                         menu = true
                     }),
                 )
-                .padding(4.dp),
+                .padding(Theme.space2),
         ) {
             val style = MaterialTheme.typography.labelSmall
             // An exam or quiz names itself first, so even a short block says what it is.
@@ -632,7 +632,7 @@ private fun Block(
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
                 t("timetable.thisLesson"), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = Theme.space6, vertical = Theme.space3),
             )
             HorizontalDivider()
             // Choosing the checked mark again sends `class`; Core decides

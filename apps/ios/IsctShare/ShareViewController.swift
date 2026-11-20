@@ -1,3 +1,4 @@
+import IsctWidgets
 import QuickLookThumbnailing
 import SwiftUI
 import UIKit
@@ -67,16 +68,16 @@ private struct ShareView: View {
             List {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        HStack(spacing: IsctTokens.space6) {
                             ForEach(state.files) { file in
-                                VStack(spacing: 6) {
+                                VStack(spacing: IsctTokens.space3) {
                                     Thumbnail(url: file.url).frame(width: 72, height: 92)
                                     Text(file.name).font(.caption2).lineLimit(1).frame(width: 80)
                                 }
                             }
                             if state.loading { ProgressView().frame(width: 72, height: 92) }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, IsctTokens.space2)
                     }
                     if !state.loading && state.files.isEmpty && !state.failed {
                         Text(t("shareViewController.noFilesCameThrough"))
@@ -130,7 +131,7 @@ private struct ShareView: View {
             state.assignment = id
         } label: {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: IsctTokens.space1) {
                     Text(title).foregroundStyle(.primary)
                     if let detail, !detail.isEmpty {
                         Text(detail).font(.footnote).foregroundStyle(.secondary)

@@ -140,12 +140,12 @@ private struct ExamPageFeedback: ViewModifier {
                     Text(message)
                         .font(.subheadline)
                         .foregroundStyle(page.problem == nil ? Theme.ink : Theme.danger)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, Theme.space7)
+                        .padding(.vertical, Theme.space5)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
                         .padding(.horizontal, Theme.gutter)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, Theme.space4)
                         .onTapGesture { page.problem = nil; page.notice = nil }
                         .task(id: message) {
                             try? await Task.sleep(for: .seconds(4))
@@ -290,7 +290,7 @@ struct PastExamsScreen: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, Theme.gutter)
-            .padding(.vertical, 8)
+            .padding(.vertical, Theme.space4)
             switch tab {
             case .browse: browse
             case .requests: requestBoard
@@ -305,7 +305,7 @@ struct PastExamsScreen: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return List {
             Section {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.space4) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Theme.muted)
                     TextField(t("examShare.search"), text: $query)
                         .submitLabel(.search)
@@ -518,7 +518,7 @@ private struct ExamAccountGate: View {
                 Button(t("examShare.accept")) { Task { await act(.acceptTerms) } }
                     .buttonStyle(.borderedProminent)
                     .disabled(page.busy)
-                HStack(spacing: 16) {
+                HStack(spacing: Theme.space8) {
                     if let terms = ExamSite.terms { Link(t("examShare.terms"), destination: terms) }
                     if let privacy = ExamSite.privacy { Link(t("examShare.privacy"), destination: privacy) }
                 }
@@ -574,7 +574,7 @@ struct ExamRequestRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
+            HStack(spacing: Theme.space3) {
                 Text(item.subject.name).foregroundStyle(Theme.ink)
                 if item.status != "open" { ExamStatusTag(status: item.status) }
             }
@@ -594,8 +594,8 @@ struct ExamStatusTag: View {
         Text(t("examShare.requestStatus.\(status)"))
             .font(.caption2.weight(.medium))
             .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Theme.space3)
+            .padding(.vertical, Theme.space1)
             .background(tint.opacity(0.12), in: Capsule())
     }
 }

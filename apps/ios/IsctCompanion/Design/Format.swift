@@ -119,8 +119,8 @@ struct Tag: View {
             .font(.block.monospacedDigit())
             .lineLimit(1)
             .foregroundStyle(style == .solid ? Theme.onSolid : ink)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Theme.space3)
+            .padding(.vertical, Theme.space1)
             .background {
                 switch style {
                 case .soft: shape.fill(fill)
@@ -185,9 +185,9 @@ struct DeadlineRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.rowGap) {
             CourseSquare(color: item.color)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(item.title)
                     .font(.body)
                     .foregroundStyle(item.submitted ? Theme.muted : Theme.ink)
@@ -205,11 +205,11 @@ struct DeadlineRow: View {
                         .lineLimit(1)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Theme.space4)
             DeadlineChip(item: item, now: now, overdueStyle: overdueStyle)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 16)
+        .padding(.vertical, Theme.rowY)
+        .padding(.horizontal, Theme.rowX)
         .contentShape(Rectangle())
     }
 

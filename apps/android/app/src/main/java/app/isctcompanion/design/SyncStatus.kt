@@ -260,12 +260,12 @@ fun SyncRingButton() {
     if (sheet) {
         ModalBottomSheet(onDismissRequest = { sheet = false }, containerColor = Theme.colors.bg) {
             Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.verticalScroll(rememberScrollState()).padding(horizontal = Theme.gutter).padding(bottom = Theme.space10),
+                verticalArrangement = Arrangement.spacedBy(Theme.space4),
             ) {
                 Text(
                     t("common.schoolConnection"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                    color = Theme.colors.ink, modifier = Modifier.padding(horizontal = 16.dp),
+                    color = Theme.colors.ink, modifier = Modifier.padding(horizontal = Theme.space8),
                 )
                 SyncSections()
             }
@@ -282,21 +282,21 @@ fun ColumnScope.SyncSections() {
         SectionLabel(t("syncStatus.lastUpdated"))
         Card {
             snapshot.sources.forEachIndexed { index, source ->
-                if (index > 0) RowDivider(inset = 16.dp)
+                if (index > 0) RowDivider(inset = Theme.rowX)
                 SourceRow(source)
             }
         }
     }
     if (snapshot.resetting || snapshot.runs.isNotEmpty()) {
-        Card(Modifier.padding(top = 8.dp)) {
+        Card(Modifier.padding(top = Theme.space4)) {
             if (snapshot.resetting) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY), verticalAlignment = Alignment.CenterVertically) {
                     Text(t("syncStatus.resetting"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 }
             }
             snapshot.runs.forEachIndexed { index, run ->
-                if (index > 0 || snapshot.resetting) RowDivider(inset = 16.dp)
+                if (index > 0 || snapshot.resetting) RowDivider(inset = Theme.rowX)
                 RunRow(run)
             }
         }
@@ -306,7 +306,7 @@ fun ColumnScope.SyncSections() {
 @Composable
 private fun SourceRow(source: SourceView) {
     val model = LocalModel.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY), verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(sourceName(source.source), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink, modifier = Modifier.weight(1f))
             if (source.running) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -332,7 +332,7 @@ private fun SourceRow(source: SourceView) {
 @Composable
 private fun RunRow(run: RunView) {
     val model = LocalModel.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY), verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
         val total = run.total
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label(run.label), color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -383,15 +383,15 @@ fun SyncProblemBanner(problem: SyncProblem) {
     val navigator = LocalNavigator.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space5),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.dangerSoft)
-            .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = Theme.space7, end = Theme.space2, top = Theme.space2, bottom = Theme.space2),
     ) {
         Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger)
-        Text(problem.text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink, modifier = Modifier.weight(1f).padding(vertical = 10.dp))
+        Text(problem.text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink, modifier = Modifier.weight(1f).padding(vertical = Theme.space5))
         val profile = problem.signIn
         val retry = problem.retry
         if (profile != null) {
@@ -408,15 +408,15 @@ fun SyncProblemBanner(problem: SyncProblem) {
 fun FirstLoadCard(snapshot: SyncSnapshot) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space7),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .background(Theme.colors.surface)
-            .padding(18.dp),
+            .padding(Theme.cardPadding),
     ) {
         SyncIndicatorView(snapshot.indicator ?: SyncIndicator.Spinner(true))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
             Text(t("syncStatus.loadingSchoolData"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             Text(snapshot.line, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted, maxLines = 2)
         }

@@ -92,11 +92,11 @@ fun MaterialButton(title: String, kind: LessonItemKind, source: String?, courseI
     val opening = rememberMaterialOpening()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !opening.busy && source != null) { source?.let { opening.open(courseId, it, title) } }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Icon(materialIcon(kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         Text(title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

@@ -143,8 +143,8 @@ import kotlin.math.roundToInt
 
 /** The page's control size, the gap between controls and its side inset. */
 private val Control = 44.dp
-private val ControlGap = 8.dp
-private val PageInset = 12.dp
+private val ControlGap = Theme.space4
+private val PageInset = Theme.space6
 
 /** Where opening the map stands. */
 private sealed interface MapLoad {
@@ -350,7 +350,7 @@ fun CampusMapScreen(room: String?) {
                     .align(Alignment.BottomStart)
                     .padding(start = PageInset, bottom = with(density) { bottomEdge.toDp() })
                     .floating(CircleShape, elevation = 2)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = Theme.space4, vertical = Theme.space1),
             )
         }
 
@@ -538,8 +538,8 @@ private fun SearchBar(
         modifier
             .defaultMinSize(minHeight = Control)
             .floating(CircleShape)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = Theme.space7),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4),
     ) {
         Icon(Icons.Rounded.Search, null, tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
         BasicTextField(
@@ -581,13 +581,13 @@ private fun CardHeader(card: CampusMapCard, folded: Boolean, fold: () -> Unit, c
                 .fillMaxWidth()
                 .clickable(role = Role.Button, onClick = fold)
                 .semantics { contentDescription = spoken }
-                .padding(vertical = 8.dp),
+                .padding(vertical = Theme.space4),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(width = 36.dp, height = 5.dp).clip(CircleShape).background(Theme.colors.muted.copy(alpha = 0.55f)))
         }
         Row(
-            Modifier.padding(start = Theme.cardPadding, end = 4.dp, bottom = 6.dp),
+            Modifier.padding(start = Theme.cardPadding, end = Theme.space2, bottom = Theme.space3),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -618,7 +618,7 @@ private fun CardDetails(
 ) {
     Column(
         Modifier.padding(start = Theme.cardPadding, end = Theme.cardPadding, bottom = Theme.cardPadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space5),
     ) {
         // `建物 · 大岡山`, `西9号館 · 2F · 大岡山`.
         val subtitle = listOfNotNull(
@@ -649,7 +649,7 @@ private fun CardDetails(
 private fun Notice(title: String, detail: String, retry: (() -> Unit)? = null) {
     Column(
         Modifier.padding(start = Theme.cardPadding, end = Theme.cardPadding, bottom = Theme.cardPadding),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space3),
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         Text(detail, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
@@ -667,7 +667,7 @@ private fun Actions(
     photos: FloorPhotoUploads?,
     takePhoto: () -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
         // Each tap opens the camera; the label tells how the photos went.
         if (photos != null) {
             ActionButton(
@@ -735,12 +735,12 @@ private fun Entrances(rows: List<CampusMapEntranceRow>, select: (CampusMapPlace)
 /** Every room an ambiguous spelling names; one is shown at a time. */
 @Composable
 private fun Candidates(candidates: List<CampusMapCandidate>, choose: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
         Text(
             t("campusMap.chooseRoom"),
             style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = Theme.colors.muted,
         )
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             candidates.forEachIndexed { index, candidate ->
                 Text(
                     "${candidate.label} · ${candidate.buildingName}",
@@ -751,7 +751,7 @@ private fun Candidates(candidates: List<CampusMapCandidate>, choose: (Int) -> Un
                         .background(if (candidate.chosen) Theme.colors.accent else Theme.colors.accentSoft)
                         .clickable(role = Role.Button) { choose(index) }
                         .semantics { selected = candidate.chosen }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = Theme.space5, vertical = Theme.space4),
                 )
             }
         }
@@ -788,8 +788,8 @@ private fun SearchRow(result: CampusMapSearchResult, pick: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = pick)
             .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = Theme.cardPadding, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+            .padding(horizontal = Theme.cardPadding, vertical = Theme.space4),
+        verticalArrangement = Arrangement.spacedBy(Theme.space1, Alignment.CenterVertically),
     ) {
         Text(result.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         val details = listOfNotNull(result.buildingName.takeIf { it != result.title }, result.levelName, campusName(result.campus))

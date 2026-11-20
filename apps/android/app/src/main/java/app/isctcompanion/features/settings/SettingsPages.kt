@@ -164,29 +164,29 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
         Card {
             SwitchRow(t("settings.main.remindMeBeforeClasses"), settings?.optBoolean("classes") == true) { toggle("classes", it) }
             if (settings?.optBoolean("classes") == true) {
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 PickerRow(t("settings.main.remindMe"), ReminderLeads.classLead(settings), ReminderLeads.classChoices) { lead("classLeadMinutes", it) }
             }
         }
-        Card(Modifier.padding(top = 8.dp)) {
+        Card(Modifier.padding(top = Theme.space4)) {
             SwitchRow(t("settings.main.remindMeBeforeExams"), ReminderLeads.exams(settings)) { toggle("exams", it) }
             if (ReminderLeads.exams(settings)) {
                 val current = ReminderLeads.examLead(settings)
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 PickerRow(t("settings.main.remindMe"), current, (ReminderLeads.examChoices + current).distinct().sorted()) { lead("examLeadMinutes", it) }
             }
             // Also decides Today's upcoming exams, so it stays while reminders
             // are off and asks for no permission.
-            RowDivider(inset = 16.dp)
+            RowDivider(inset = Theme.rowX)
             SwitchRow(
                 t("settings.main.countQuizzesAsExams"), ReminderLeads.quizzes(settings),
                 detail = t("settings.main.quizzesAppearInUpcomingExams"),
             ) { on -> scope.launch { model.setNotifications { it.put("quizzes", on) } } }
         }
-        Card(Modifier.padding(top = 8.dp)) {
+        Card(Modifier.padding(top = Theme.space4)) {
             SwitchRow(t("settings.main.remindMeBeforeAssignmentDeadlines"), settings?.optBoolean("assignments") == true) { toggle("assignments", it) }
             if (settings?.optBoolean("assignments") == true) {
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 NavRow(
                     t("settings.main.remindMe"),
                     ReminderLeads.assignmentLeads(settings).sortedDescending().joinToString("、", transform = ReminderLeads::label),
@@ -194,10 +194,10 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                 )
             }
         }
-        Card(Modifier.padding(top = 8.dp)) {
+        Card(Modifier.padding(top = Theme.space4)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = Theme.rowX, end = Theme.space4, top = Theme.space2, bottom = Theme.space2),
             ) {
                 Text(t("settings.main.testNotification"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 TextButton(onClick = {
@@ -211,7 +211,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                 }) { Text(t("settings.notification.send")) }
             }
             if (denied) {
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 NavRow(t("settings.main.openSettings"), null) {
                     context.startActivity(
                         Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
@@ -242,7 +242,7 @@ internal fun AssignmentLeadsPage() {
         Card {
             val options = (ReminderLeads.assignmentChoices + chosen).distinct().sortedDescending()
             options.forEachIndexed { index, minutes ->
-                if (index > 0) RowDivider(inset = 16.dp)
+                if (index > 0) RowDivider(inset = Theme.rowX)
                 val on = minutes in chosen
                 val enabled = if (on) chosen.size > 1 else chosen.size < ReminderLeads.MAX_ASSIGNMENT
                 Row(
@@ -253,7 +253,7 @@ internal fun AssignmentLeadsPage() {
                             val next = if (on) chosen - minutes else chosen + minutes
                             scope.launch { model.setNotifications { it.put("assignmentLeadMinutes", JSONArray(next)) } }
                         }
-                        .padding(16.dp),
+                        .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
                 ) {
                     Text(
                         ReminderLeads.label(minutes), color = if (enabled || on) Theme.colors.ink else Theme.colors.muted,
@@ -347,12 +347,12 @@ internal fun StudyProfilePage() {
             PickerRow(t("settings.main.department"), departmentId, departmentOptions) { id ->
                 scope.launch { model.updateSettings { if (id.isEmpty()) it.remove("departmentId") else it.put("departmentId", id) } }
             }
-            RowDivider(inset = 16.dp)
+            RowDivider(inset = Theme.rowX)
             PickerRow(
                 t("settings.main.admissionYear"), year,
                 listOf<Pair<Int?, String>>(null to t("settings.studyProfile.notSet")) + years.map { it to t("settings.main.enteredYear", "year" to it) },
             ) { choose(it, stage) }
-            RowDivider(inset = 16.dp)
+            RowDivider(inset = Theme.rowX)
             PickerRow(t("settings.main.degreeStage"), stage, stages) { choose(year, it) }
         }
         error?.let { Footer(it, Theme.colors.danger) }
@@ -382,10 +382,10 @@ internal fun DataUpdatesPage() {
         }
         Footer(t("settings.main.whenOffAutomaticUpdatesWait"))
         SyncSections()
-        Card(Modifier.padding(top = 8.dp)) {
+        Card(Modifier.padding(top = Theme.space4)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().clickable { model.refreshFromSchool() }.padding(16.dp),
+                modifier = Modifier.fillMaxWidth().clickable { model.refreshFromSchool() }.padding(horizontal = Theme.rowX, vertical = Theme.rowY),
             ) {
                 Text(t("common.refreshNow"), color = Theme.colors.accent, modifier = Modifier.weight(1f))
                 model.syncSnapshot?.indicator?.let { SyncIndicatorView(it) }
@@ -408,8 +408,8 @@ internal fun <T> PickerRow(title: String, selected: T, options: List<Pair<T, Str
     Box {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().clickable { menu = true }.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(Theme.space4),
+            modifier = Modifier.fillMaxWidth().clickable { menu = true }.padding(horizontal = Theme.rowX, vertical = Theme.rowY),
         ) {
             Text(title, color = Theme.colors.ink, modifier = Modifier.weight(1f))
             Text(options.firstOrNull { it.first == selected }?.second.orEmpty(), color = Theme.colors.muted)
@@ -451,14 +451,14 @@ internal fun SettingsIcon(icon: ImageVector, tint: Color) {
 internal val SETTINGS_ICON = 29.dp
 
 /** Where a divider starts under a row with a settings icon: at its text. */
-internal val ICON_ROW_INSET = 16.dp + SETTINGS_ICON + 12.dp
+internal val ICON_ROW_INSET = Theme.rowX + SETTINGS_ICON + Theme.rowGap
 
 @Composable
 internal fun NavRow(title: String, detail: String?, icon: ImageVector? = null, tint: Color = Theme.colors.accent, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         icon?.let { SettingsIcon(it, tint) }
         Column(Modifier.weight(1f)) {

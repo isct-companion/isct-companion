@@ -68,7 +68,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlin.math.min
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -326,7 +325,7 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
             CircularProgressIndicator()
         }
         is AppModel.Status.Failed -> Column(
-            Modifier.fillMaxSize().padding(32.dp),
+            Modifier.fillMaxSize().padding(Theme.space11),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -595,7 +594,7 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             // navigation bar.
             InboxTray(
                 Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
+                    .padding(end = Theme.space8, bottom = padding.calculateBottomPadding() + Theme.space6),
             )
             }
             }

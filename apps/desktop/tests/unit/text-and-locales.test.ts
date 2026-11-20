@@ -80,7 +80,7 @@ function sources(): { file: string; text: string }[] {
     .filter(
       (file) =>
         SOURCE_FILE.test(file) &&
-        !file.includes("/generated/") &&
+        !/\/generated\//i.test(file) &&
         !file.includes("/tests/"),
     );
   return listed.map((file) => ({

@@ -167,7 +167,7 @@ struct ResetScreen: View {
 
     private func option(_ title: String, _ hint: String, _ isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(title)
                 Text(hint).font(.footnote).foregroundStyle(Theme.muted)
             }
@@ -175,7 +175,7 @@ struct ResetScreen: View {
     }
 
     private func choice(_ title: String, _ hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Theme.space1) {
             Text(title)
             Text(hint).font(.footnote).foregroundStyle(Theme.muted)
         }

@@ -29,6 +29,7 @@
   --course-tint-exam: 34%; /** An exam block: a deeper fill than a class, never ringed (a ring means the class in progress); its solid tag sits before the title */
   --course-tint-ink: 40%; /** Text on a fill: the course colour mixed into ink, on every platform */
   --course-on-solid: #ffffff; /** Text on the solid course colour (an exam tag); the palette is mid-tone in both themes */
+  --radius-course-marker: 3px; /** Corner radius of the 10-unit square that marks a course in a list, and of its loading placeholder. */
   --radius-chip: 6px; /** Chips and tags */
   --radius-block: 6px; /** Timetable block */
   --radius-column: 10px; /** Timetable day column */
@@ -40,6 +41,17 @@
   --workspace-control-height: 30px;
   --workspace-gutter: 12px;
   --workspace-splitter-width: 20px;
+  --space-1: 2px; /** Tailwind 0.5 */
+  --space-2: 4px; /** Tailwind 1 */
+  --space-3: 6px; /** Tailwind 1.5 */
+  --space-4: 8px; /** Tailwind 2 */
+  --space-5: 10px; /** Tailwind 2.5 */
+  --space-6: 12px; /** Tailwind 3 */
+  --space-7: 14px; /** Tailwind 3.5 */
+  --space-8: 16px; /** Tailwind 4 */
+  --space-9: 20px; /** Tailwind 5 */
+  --space-10: 24px; /** Tailwind 6 */
+  --space-11: 32px; /** Tailwind 8 */
   --space-gutter: 20px; /** Page side margin */
   --space-row-x: 16px; /** List row, horizontal padding */
   --space-row-y: 10px; /** List row, vertical padding */
@@ -62,6 +74,7 @@
   --motion-duration-fast: 150ms; /** Hover, press, small state */
   --motion-duration-base: 200ms; /** Appear, collapse, a tag changing */
   --motion-duration-slow: 250ms; /** Week change, panels, pages */
+  --motion-duration-guide-tap: 1600ms; /** Period of one tap-marker pulse in the OTP setup illustration. */
   --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1); /** fast and base */
   --motion-easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1); /** slow */
 }

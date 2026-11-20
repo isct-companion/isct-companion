@@ -120,7 +120,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 OptionRow(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), signOutWeb, !resetting) {
                     signOutWeb = it
                 }
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 OptionRow(t("settings.reset.caches.downloads"), t("settings.reset.caches.downloadsHint"), deleteDownloads, !resetting) {
                     deleteDownloads = it
                 }
@@ -129,7 +129,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         Items(t("settings.reset.deletes"), deletes, Icons.Rounded.Delete)
         Items(t("settings.reset.keeps"), keeps, Icons.Rounded.Check)
         Card {
-            Row(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY)) {
                 Text(t("settings.reset.freed"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 Text(freed ?: t("settings.reset.estimating"), color = Theme.colors.muted)
             }
@@ -140,7 +140,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 ChoiceRow(t("settings.reset.full.restore"), t("settings.reset.full.restoreHint"), restore, !resetting) {
                     restore = true
                 }
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 ChoiceRow(t("settings.reset.full.newDevice"), t("settings.reset.full.newDeviceHint"), !restore, !resetting) {
                     restore = false
                 }
@@ -151,7 +151,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().clickable(enabled = !resetting) { acknowledged = !acknowledged }
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                        .padding(horizontal = Theme.space4, vertical = Theme.space4),
                 ) {
                     Checkbox(acknowledged, { acknowledged = it }, enabled = !resetting)
                     Text(t("settings.reset.full.acknowledge"), color = Theme.colors.ink)
@@ -162,7 +162,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
             onClick = { if (everything) confirming = true else reset() },
             enabled = !resetting && (!everything || acknowledged),
             colors = ButtonDefaults.buttonColors(containerColor = Theme.colors.danger),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = Theme.space4),
         ) { Text(if (resetting) t("settings.reset.resetting") else confirmLabel) }
     }
     if (confirming) {
@@ -185,8 +185,8 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
 private fun OptionRow(title: String, hint: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, color = Theme.colors.ink)
@@ -200,9 +200,9 @@ private fun OptionRow(title: String, hint: String, checked: Boolean, enabled: Bo
 private fun ChoiceRow(title: String, hint: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space4),
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = Theme.space4, vertical = Theme.space4),
     ) {
         RadioButton(selected, onClick, enabled = enabled)
         Column(Modifier.weight(1f)) {
@@ -220,8 +220,8 @@ private fun Items(title: String, keys: List<String>, icon: ImageVector) {
             if (index > 0) RowDivider(inset = 48.dp)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.space8),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = 12.dp),
             ) {
                 Icon(icon, null, tint = Theme.colors.muted)
                 Text(t(key), color = Theme.colors.ink)

@@ -248,8 +248,8 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
 @Composable
 internal fun Page(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Theme.gutter).padding(bottom = Theme.space11),
+        verticalArrangement = Arrangement.spacedBy(Theme.space4),
         content = content,
     )
 }
@@ -273,7 +273,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 model.syncSource("kyomu")?.lastUpdated,
             ) { open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech)) }
         }
-        Card(Modifier.padding(top = 16.dp)) {
+        Card(Modifier.padding(top = Theme.space8)) {
             NavRow(
                 t("common.notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
                 Icons.Rounded.Notifications, Theme.colors.danger,
@@ -293,13 +293,13 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         WebCard()
         // As on iOS: About holds the version, the tips and the logs, then the
         // desktop note; the destructive Reset group comes last.
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Theme.space4))
         SectionLabel(t("settings.main.about"))
         Card {
             Row(
-                Modifier.fillMaxWidth().padding(16.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
             ) {
                 SettingsIcon(Icons.Rounded.Info, Theme.colors.muted)
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -328,7 +328,7 @@ private fun accountName(profile: SchoolAuthProfile) =
 /** The desktop's Reset group: each row opens its confirmation page. */
 @Composable
 private fun ResetCard(open: (SettingsPage) -> Unit) {
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(Theme.space4))
     SectionLabel(t("settings.reset.group"))
     Card {
         ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink, Icons.Rounded.Restore, Theme.colors.warn) {
@@ -345,8 +345,8 @@ private fun ResetCard(open: (SettingsPage) -> Unit) {
 private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVector, tint: Color, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         SettingsIcon(icon, tint)
         Column(Modifier.weight(1f)) {
@@ -440,8 +440,8 @@ private fun UpdateRows() {
 private fun ActionRow(title: String, icon: ImageVector? = null, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         icon?.let { SettingsIcon(it, Theme.colors.muted) }
         Text(
@@ -458,7 +458,7 @@ private fun ActionRow(title: String, icon: ImageVector? = null, enabled: Boolean
 /** A heading inside a card, with its settings icon. */
 @Composable
 private fun IconHeading(title: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space6)) {
         SettingsIcon(icon, tint)
         Text(title, color = Theme.colors.ink)
     }
@@ -466,7 +466,7 @@ private fun IconHeading(title: String, icon: ImageVector, tint: Color, modifier:
 
 @Composable
 internal fun Footer(text: String, color: Color = Theme.colors.muted) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = 16.dp))
+    Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = Theme.space8))
 }
 
 /** Off, or when the cloud copy last synced; every connected provider counts,
@@ -482,10 +482,10 @@ private fun backupSummary(cloud: SyncState?): String {
 @Composable
 private fun WebCard() {
     val web = LocalModel.current.web
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(Theme.space4))
     SectionLabel(t("common.web"))
     Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space5)) {
             IconHeading(t("common.textSize"), Icons.Rounded.FormatSize, Theme.colors.muted)
             Choices(SchoolBrowserHost.textScales.map { "$it" to "$it%" }, "${web.browser.textScale}") {
                 web.browser.chooseTextScale(it.toInt())
@@ -496,8 +496,8 @@ private fun WebCard() {
         Box {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+                modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(horizontal = Theme.rowX, vertical = Theme.rowY),
             ) {
                 SettingsIcon(Icons.Rounded.Language, Theme.colors.accent)
                 Text(t("settings.main.firstSite"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -552,8 +552,8 @@ private fun AccountRow(
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(if (connected) color else Theme.colors.line))
         Column(Modifier.weight(1f)) {
@@ -585,7 +585,7 @@ private fun SessionStatus(
     val maintenance = session.maintenance
     if (!retryable && maintenance == null) return
     Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
             if (AppModel.otpNotSetUp(state, session.problem)) {
                 // No school OTP: Retry would only get the emailed code again,
                 // so the way on is setting it up on the portal.
@@ -717,7 +717,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                 }
             },
             enabled = !busy && session?.signOutPending != true && username.isNotEmpty() && (password.isNotEmpty() || saved),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = Theme.space4),
         ) {
             if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
         }
@@ -795,7 +795,7 @@ private fun Secret(
 internal fun SwitchRow(title: String, checked: Boolean, detail: String? = null, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = 8.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, color = Theme.colors.ink)
@@ -814,13 +814,13 @@ private fun ThemeCard() {
     val scope = rememberCoroutineScope()
     val selected = model.records.settings.optString("theme").ifEmpty { "warm" }
     val themes = listOf("warm" to t("settings.main.warm"), "cool" to t("settings.main.cool"), "paper" to t("settings.main.paper"), "mist" to t("settings.main.mist"), "moss" to t("settings.main.moss"))
-    Card(Modifier.padding(top = 16.dp)) {
+    Card(Modifier.padding(top = Theme.space8)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = 12.dp),
         ) {
             IconHeading(t("settings.main.theme"), Icons.Rounded.Palette, Theme.colors.accent, Modifier.weight(1f))
-            Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 for ((id, label) in themes) {
                     val neutrals = (IsctThemes[id] ?: continue).first
                     val chosen = id == selected
@@ -828,7 +828,7 @@ private fun ThemeCard() {
                         Modifier
                             .size(32.dp)
                             .border(2.dp, if (chosen) Theme.colors.accent else Color.Transparent, CircleShape)
-                            .padding(2.dp)
+                            .padding(Theme.space1)
                             .clip(CircleShape)
                             .background(neutrals.bg)
                             .border(1.dp, neutrals.line, CircleShape)
@@ -854,14 +854,14 @@ private fun LanguageCard() {
     val scope = rememberCoroutineScope()
     val settings = model.records.settings
     fun set(key: String, value: String) = scope.launch { model.updateSettings { it.put(key, value) } }
-    Card(Modifier.padding(top = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(Modifier.padding(top = Theme.space8)) {
+        Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space5)) {
             IconHeading(t("common.language"), Icons.Rounded.Translate, Theme.colors.accent)
             Choices(
                 listOf("en" to "English", "ja" to "日本語", "zh" to "中文"),
                 settings.optString("locale").ifEmpty { "en" },
             ) { set("locale", it) }
-            IconHeading(t("settings.main.schoolContentLanguage"), Icons.AutoMirrored.Rounded.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
+            IconHeading(t("settings.main.schoolContentLanguage"), Icons.AutoMirrored.Rounded.MenuBook, Theme.colors.accent, Modifier.padding(top = Theme.space3))
             Choices(
                 listOf("auto" to t("common.automatic"), "en" to "English", "ja" to "日本語"),
                 settings.optString("contentLanguage").ifEmpty { "auto" },
@@ -881,8 +881,8 @@ private fun LanguageCard() {
 private fun MapCard() {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    Card(Modifier.padding(top = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(Modifier.padding(top = Theme.space8)) {
+        Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space5)) {
             IconHeading(t("settings.main.openPlacesIn"), Icons.Rounded.Map, Theme.colors.ok)
             Choices(
                 listOf("google" to t("settings.main.googleMaps"), "apple" to t("settings.main.appleMaps")),

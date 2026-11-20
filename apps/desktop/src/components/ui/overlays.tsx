@@ -27,7 +27,7 @@ type ModalProps = {
   onClose: () => void;
   title?: ReactNode;
   children: ReactNode;
-  size?: Size | string;
+  size?: string;
   centered?: boolean;
   closeOnClickOutside?: boolean;
   closeOnEscape?: boolean;

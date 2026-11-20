@@ -79,8 +79,8 @@ fun AssignmentScreen(assignmentId: String) {
         },
     ) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Theme.gutter).padding(bottom = Theme.space10),
+            verticalArrangement = Arrangement.spacedBy(Theme.space7),
         ) {
             assignment?.let { detail ->
                 Text(
@@ -106,11 +106,11 @@ fun AssignmentCard(assignment: AssignmentDetail, expanded: Boolean, onExpand: (B
             .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.surface)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(Theme.space5),
             modifier = Modifier.fillMaxWidth().clickable { onExpand(!expanded) },
         ) {
             Text(assignment.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -129,10 +129,10 @@ fun AssignmentCard(assignment: AssignmentDetail, expanded: Boolean, onExpand: (B
 @Composable
 fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
     val navigator = LocalNavigator.current
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Theme.space7)) {
         val due = assignment.dueAt?.let { t("course.dueDate", "date" to Format.due(it)) }
         if (showsState) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 AssignmentState(assignment)
                 due?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
             }

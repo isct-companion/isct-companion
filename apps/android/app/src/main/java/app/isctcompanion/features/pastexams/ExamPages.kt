@@ -150,7 +150,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                     val grouped = current.classId != null
                     val mine = current.sets.filter { !grouped || it.mine }
                     val others = if (grouped) current.sets.filter { !it.mine } else emptyList()
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
                         if (current.sets.isEmpty()) {
                             item { Text(t("examShare.noItems"), color = Theme.colors.muted) }
                         } else {
@@ -159,9 +159,9 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                             if (others.isNotEmpty()) {
                                 item(key = "others") {
                                     Row(
-                                        Modifier.fillMaxWidth().clickable { othersOpen = !othersOpen }.padding(vertical = 8.dp),
+                                        Modifier.fillMaxWidth().clickable { othersOpen = !othersOpen }.padding(vertical = Theme.space4),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(Theme.space2),
                                     ) {
                                         Icon(if (othersOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = Theme.colors.muted)
                                         Text(t("examShare.otherTeachers", "count" to others.size), color = Theme.colors.muted)
@@ -212,7 +212,7 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
         onClick = null,
         leading = { Icon(Icons.Rounded.Description, null, tint = Theme.colors.accent, modifier = Modifier.size(20.dp)) },
         trailing = {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
                 set.documents.forEach { document ->
                     val answer = document.role == "answer"
                     val ink = if (answer) Theme.colors.ok else Theme.colors.accent
@@ -230,7 +230,7 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
                             .background(if (answer) Theme.colors.okSoft else Theme.colors.accentSoft, CircleShape)
                             .border(1.dp, ink.copy(alpha = 0.35f), CircleShape)
                             .clickable { navigator.openExamDocument(document.id) }
-                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                            .padding(horizontal = Theme.space6, vertical = 5.dp),
                     )
                 }
             }
@@ -311,7 +311,7 @@ fun ExamDocumentScreen(id: String) {
                         t("examShare.offline"),
                         style = MaterialTheme.typography.bodySmall,
                         color = Theme.colors.muted,
-                        modifier = Modifier.padding(horizontal = Theme.gutter, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = Theme.gutter, vertical = Theme.space2),
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) { DocumentView(current) }
                 }
@@ -386,7 +386,7 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
             when {
                 item != null -> Column(
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(Theme.space6),
                 ) {
                     RequestDetail(item)
                     item.answerExamId?.let { answer ->
@@ -455,7 +455,7 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
 @Composable
 private fun RequestDetail(item: ExamRequest) {
     Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
             Text(item.subject.code, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
             Text(item.subject.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             StatusTag(item.status)
@@ -464,6 +464,6 @@ private fun RequestDetail(item: ExamRequest) {
         }
     }
     if (item.description.isNotBlank()) Card {
-        Text(item.description, color = Theme.colors.ink, modifier = Modifier.padding(16.dp))
+        Text(item.description, color = Theme.colors.ink, modifier = Modifier.padding(Theme.space8))
     }
 }

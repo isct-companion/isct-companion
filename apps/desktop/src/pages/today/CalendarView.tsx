@@ -77,7 +77,7 @@ export function CalendarView({
       <header className="scheduleTitleRow">
         <h1>{t("today.calendar")}</h1>
       </header>
-      <Paper className="ttCard" withBorder radius="md">
+      <Paper className="ttCard" withBorder>
         <header className="timetableViewBar">
           <b>
             {formatCivilDate(visibleFrom, data.settings.locale, {

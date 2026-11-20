@@ -440,7 +440,6 @@ export function CourseFinder({
       className="listCard courseFinder"
       withBorder
       shadow="xs"
-      radius="md"
     >
       <header>
         <div className="finderTitle">

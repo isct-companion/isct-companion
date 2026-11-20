@@ -34,7 +34,7 @@ struct TimetableScreen: View {
 
     var body: some View {
         let weekRevision = model.timetableWeeks.revision
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.space6) {
             header
             TipView(TimetableMarkTip())
             pager
@@ -48,7 +48,7 @@ struct TimetableScreen: View {
                 .gesture(PagePan(moved: follow, ended: release))
         }
         .padding(.horizontal, Theme.gutter)
-        .padding(.bottom, 8)
+        .padding(.bottom, Theme.space4)
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: shownTerm, initial: true) { _, term in navigator.timetableTerm = term }
@@ -97,7 +97,7 @@ struct TimetableScreen: View {
     /// the date range and 今日. Weeks change by swiping the grid; the quarter's
     /// calendar export is a long press on the 時間割 tab.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.space3) {
             Button {
                 showsPicker = true
             } label: {
@@ -107,7 +107,7 @@ struct TimetableScreen: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, Theme.space5)
                     .padding(.vertical, 5)
                     .background(Theme.accentSoft, in: Capsule())
             }
@@ -126,11 +126,11 @@ struct TimetableScreen: View {
                         .countingFigure(monday, down: false)
                 }
                 .buttonStyle(.plain)
-                Spacer(minLength: 8)
+                Spacer(minLength: Theme.space4)
                 todayButton
             }
         }
-        .padding(.top, 12)
+        .padding(.top, Theme.space6)
     }
 
     private var range: String {
@@ -164,7 +164,7 @@ struct TimetableScreen: View {
         } label: {
             Text(t("common.today"))
                 .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.space8)
                 .frame(height: 40)
         }
         .buttonStyle(CapsuleButtonStyle(level: .secondary))
@@ -266,7 +266,7 @@ struct TimetableScreen: View {
     private func grid(_ start: Date, week: ScheduleView?) -> some View {
         let height = rowHeight * CGFloat(axis?.length ?? 12.5)
         let days = days(from: start)
-        return VStack(spacing: 6) {
+        return VStack(spacing: Theme.space3) {
             HStack(spacing: Self.columnSpacing) {
                 Color.clear.frame(width: Self.periodWidth, height: 1)
                 ForEach(days, id: \.self) { day in dayHeader(day).frame(maxWidth: .infinity) }
@@ -283,7 +283,7 @@ struct TimetableScreen: View {
     private func dayHeader(_ day: Date) -> some View {
         let parts = Calendar.tokyo.dateComponents([.weekday, .day], from: day)
         let today = Calendar.tokyo.isDateInToday(day)
-        return VStack(spacing: 2) {
+        return VStack(spacing: Theme.space1) {
             Text(Format.weekdays[(parts.weekday ?? 1) - 1])
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
@@ -381,7 +381,7 @@ struct TimetableScreen: View {
                 RoundedRectangle(cornerRadius: Theme.radiusBlock, style: .continuous)
                     .fill(Theme.surface2)
                     .frame(height: max(rowHeight * 2 - 4, 24))
-                    .padding(.horizontal, 2)
+                    .padding(.horizontal, Theme.space1)
                     .padding(.top, CGFloat(row) * rowHeight + 2)
             }
         }
@@ -448,7 +448,7 @@ struct TimetableScreen: View {
             }
         }
         .contentShape(shape)
-        .padding(.horizontal, 2)
+        .padding(.horizontal, Theme.space1)
         return Group {
             if let id = block.courseId {
                 NavigationLink(value: CourseRoute(id: id, zoom: block.key)) { content }
@@ -517,9 +517,9 @@ struct CalendarExportRows: View {
             .font(.footnote.weight(.semibold))
             .foregroundStyle(Theme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
+            .padding(.horizontal, Theme.space7)
+            .padding(.top, Theme.space3)
+            .padding(.bottom, Theme.space1)
         TabPressRow(choice: CalendarExportPick.courses, title: t("common.coursesOnly"), icon: "calendar",
                     highlighted: highlighted, report: report, pick: pick)
         TabPressRow(choice: CalendarExportPick.coursesAndEvents, title: t("common.coursesWeeklyEvents"),

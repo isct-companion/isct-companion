@@ -112,7 +112,7 @@ function CurrentCode() {
   // size so the dialog does not jump at each rollover.
   if (!visible) {
     return (
-      <Stack gap="md" aria-busy="true">
+      <Stack gap="space-7" aria-busy="true">
         <div className="schoolOtpCode">
           <span className="schoolOtpCodeDigits" data-pending>
             <span>···</span>
@@ -132,7 +132,7 @@ function CurrentCode() {
   // Grouped as authenticators show it: 123 456.
   const half = Math.floor(otp.length / 2);
   return (
-    <Stack gap="md">
+    <Stack gap="space-7">
       <div className="schoolOtpCode">
         <button
           type="button"

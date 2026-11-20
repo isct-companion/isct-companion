@@ -31,15 +31,15 @@ struct InboxTray: View {
                     trash
                         .allowsHitTesting(false)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .padding(.top, 24)
-                        .padding(.trailing, 24)
+                        .padding(.top, Theme.space10)
+                        .padding(.trailing, Theme.space10)
                         .transition(.scale.combined(with: .opacity))
                 }
                 if !inbox.items.isEmpty {
                     stack
                         .scaleEffect(dragging ? 0.9 : 1)
                         .offset(drag)
-                        .padding(.trailing, 16)
+                        .padding(.trailing, Theme.space8)
                         .padding(.bottom, bottom)
                         .onTapGesture { inbox.presenting = true }
                         .gesture(gesture(in: frame))
@@ -180,9 +180,9 @@ struct InboxSheet: View {
                 Group {
                     Section {
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
+                            HStack(spacing: Theme.space6) {
                                 ForEach(inbox.items) { item in
-                                    VStack(spacing: 6) {
+                                    VStack(spacing: Theme.space3) {
                                         if let url = item.url { Thumbnail(url: url).frame(width: 72, height: 92) }
                                         Text(item.name).font(.caption2).lineLimit(1).frame(width: 80)
                                     }
@@ -191,7 +191,7 @@ struct InboxSheet: View {
                                     }
                                 }
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, Theme.space2)
                         }
                     }
                     if let groups = model.board?.today {
@@ -261,22 +261,22 @@ struct HandInCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(files, id: \.path) { file in
-                HStack(spacing: 12) {
+                HStack(spacing: Theme.rowGap) {
                     Thumbnail(url: URL(fileURLWithPath: file.path)).frame(width: 32, height: 40)
                     Text(file.name).foregroundStyle(Theme.ink).lineLimit(2)
-                    Spacer(minLength: 8)
+                    Spacer(minLength: Theme.space4)
                     Button(t("common.delete"), systemImage: "minus.circle") { remove(file) }
                         .labelStyle(.iconOnly)
                         .foregroundStyle(Theme.danger)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                RowDivider(inset: 16)
+                .padding(.horizontal, Theme.rowX)
+                .padding(.vertical, Theme.space4)
+                RowDivider(inset: Theme.rowX)
             }
             Button {
                 choosing = true
             } label: {
-                VStack(spacing: 6) {
+                VStack(spacing: Theme.space3) {
                     Image(systemName: "arrow.up.doc").font(.title2).foregroundStyle(Theme.accent)
                     Text(t("handIn.dropFilesHereOrTap")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
                     Text(t("handIn.upTo32Files20")).font(.footnote).foregroundStyle(Theme.muted)
@@ -297,15 +297,15 @@ struct HandInCard: View {
                     } label: {
                         Label(t("handIn.uploadToLMS"), systemImage: "arrow.up.forward.square")
                             .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, Theme.space7)
+                            .padding(.vertical, Theme.space4)
                     }
                     .buttonStyle(CapsuleButtonStyle())
                     .disabled(working)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, Theme.space8)
+            .padding(.bottom, Theme.space6)
         }
         .background(targeted ? Theme.accentSoft : Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
         .overlay {

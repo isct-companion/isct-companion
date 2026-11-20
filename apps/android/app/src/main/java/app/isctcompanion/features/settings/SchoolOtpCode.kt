@@ -116,8 +116,8 @@ private fun SchoolOtpCodeSheet(close: () -> Unit) {
     }
     ModalBottomSheet(onDismissRequest = close, containerColor = colors.bg) {
         Column(
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(Theme.space9),
+            modifier = Modifier.fillMaxWidth().padding(start = Theme.space9, end = Theme.space9, bottom = Theme.space10),
         ) {
             Text(t("settings.otp.currentCode"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (visible != null) {
@@ -129,7 +129,7 @@ private fun SchoolOtpCodeSheet(close: () -> Unit) {
                         .background(colors.surface)
                         // The code is the copy target too, as in an authenticator.
                         .clickable(onClickLabel = t("settings.otp.copyCode")) { copy(visible) }
-                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                        .padding(horizontal = Theme.space9, vertical = Theme.cardPadding),
                 ) {
                     OtpDigits(visible.otp, Modifier.weight(1f))
                     OtpCountdown(visible, seconds)

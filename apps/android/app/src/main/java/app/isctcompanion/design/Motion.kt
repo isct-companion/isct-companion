@@ -90,8 +90,8 @@ fun SkeletonRows(count: Int = 4, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
             ) {
-                Skeleton(Modifier.size(10.dp), RoundedCornerShape(3.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Skeleton(Modifier.size(10.dp), RoundedCornerShape(Theme.radiusCourseMarker))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
                     Skeleton(Modifier.fillMaxWidth(if (index % 2 == 0) 0.7f else 0.55f).height(14.dp))
                     Skeleton(Modifier.fillMaxWidth(0.4f).height(10.dp))
                 }

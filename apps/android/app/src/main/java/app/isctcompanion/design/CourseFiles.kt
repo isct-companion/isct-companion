@@ -95,8 +95,8 @@ fun CourseArchiveScreen(courseId: String, source: String, title: String) {
                         Modifier
                             .fillMaxWidth()
                             .clickable(enabled = !opening.busy) { opening.open(courseId, entry.url, name) }
-                            .padding(horizontal = Theme.gutter, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
+                        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Rounded.Description, null, tint = Theme.colors.muted)

@@ -68,7 +68,7 @@ export function QrCamera({
       title={t("qrCamera.scanAuthenticatorQRCode")}
       size="lg"
     >
-      <Stack gap="sm">
+      <Stack gap="space-5">
         <Text size="sm">{t("qrCamera.showTheWholeQRCode")}</Text>
         <CameraPreview ref={setVideo} />
         {error && (

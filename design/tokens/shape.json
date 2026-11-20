@@ -2,6 +2,10 @@
   "radius": {
     "$type": "dimension",
     "$description": "Corner radius by role. Platforms override the values (platforms/mobile.json), never the names.",
+    "course-marker": {
+      "$value": "3px",
+      "$description": "Corner radius of the 10-unit square that marks a course in a list, and of its loading placeholder."
+    },
     "chip": {
       "$value": "6px",
       "$description": "Chips and tags"
@@ -54,7 +58,7 @@
       "$value": "30px"
     },
     "gutter": {
-      "$value": "12px"
+      "$value": "{space.6}"
     },
     "splitter-width": {
       "$value": "20px"
@@ -62,21 +66,65 @@
   },
   "space": {
     "$type": "dimension",
-    "$description": "Spacing by role. Phones override the values (platforms/mobile.json).",
-    "gutter": {
+    "$description": "Spacing scale by step. Platforms may override a step's value in platforms/, never its name. Prefer a role (gutter, row-x, row-y, row-gap, card) when the value plays that role.",
+    "1": {
+      "$value": "2px",
+      "$description": "Tailwind 0.5"
+    },
+    "2": {
+      "$value": "4px",
+      "$description": "Tailwind 1"
+    },
+    "3": {
+      "$value": "6px",
+      "$description": "Tailwind 1.5"
+    },
+    "4": {
+      "$value": "8px",
+      "$description": "Tailwind 2"
+    },
+    "5": {
+      "$value": "10px",
+      "$description": "Tailwind 2.5"
+    },
+    "6": {
+      "$value": "12px",
+      "$description": "Tailwind 3"
+    },
+    "7": {
+      "$value": "14px",
+      "$description": "Tailwind 3.5"
+    },
+    "8": {
+      "$value": "16px",
+      "$description": "Tailwind 4"
+    },
+    "9": {
       "$value": "20px",
+      "$description": "Tailwind 5"
+    },
+    "10": {
+      "$value": "24px",
+      "$description": "Tailwind 6"
+    },
+    "11": {
+      "$value": "32px",
+      "$description": "Tailwind 8"
+    },
+    "gutter": {
+      "$value": "{space.9}",
       "$description": "Page side margin"
     },
     "row-x": {
-      "$value": "16px",
+      "$value": "{space.8}",
       "$description": "List row, horizontal padding"
     },
     "row-y": {
-      "$value": "10px",
+      "$value": "{space.5}",
       "$description": "List row, vertical padding"
     },
     "row-gap": {
-      "$value": "12px",
+      "$value": "{space.6}",
       "$description": "Between rows and between a row's leading mark and its text"
     },
     "card": {

@@ -227,7 +227,7 @@ export function OtpSetupInput({
     </Button>
   );
   const exportButtons = (
-    <Group gap={6} wrap="nowrap">
+    <Group gap="space-3" wrap="nowrap">
       {copyButton}
       <Button
         variant="default"
@@ -319,7 +319,7 @@ export function OtpSetupInput({
                 <Text size="xs" c="dimmed">
                   {t("settings.credentialImport.exportFromGoogleAuthenticator")}
                 </Text>
-                <Group gap="xs">
+                <Group gap="space-4">
                   <Button
                     size="xs"
                     variant="default"
@@ -400,7 +400,7 @@ export function OtpSetupInput({
           {/* Opened with Change: fold back to the setup just read, or drop
               a wrong entry and keep the saved one. */}
           {changing && (read || saved) && (
-            <Group gap={6} className="otpKeep">
+            <Group gap="space-3" className="otpKeep">
               {read && (
                 <Button
                   variant="subtle"
@@ -436,7 +436,7 @@ export function OtpSetupInput({
         </Text>
       )}
       {error && (
-        <Alert color="red" role="alert" mt="xs">
+        <Alert color="red" role="alert" mt="space-4">
           {error}
         </Alert>
       )}
@@ -448,7 +448,7 @@ export function OtpSetupInput({
         title={t("otpEnrollment.help")}
         centered
       >
-        <Stack gap="sm">
+        <Stack gap="space-5">
           <Text size="sm">{t("otpEnrollment.confirm")}</Text>
           <Group justify="end">
             <Button variant="default" onClick={() => setConfirm(false)}>
@@ -482,7 +482,7 @@ export function OtpSetupInput({
           onClose={() => setQr("")}
           title={t("settings.otp.addToAnotherAuthenticator")}
         >
-          <Stack gap="sm" align="center">
+          <Stack gap="space-5" align="center">
             <img
               className="otpQr"
               alt={t("settings.otp.otpSetupQRCode")}
@@ -503,7 +503,7 @@ export function OtpSetupInput({
           onClose={() => setAccounts([])}
           title={t("settings.otp.chooseYourSchoolAccount")}
         >
-          <Stack gap="xs" mah={360} style={{ overflowY: "auto" }}>
+          <Stack gap="space-4" mah={360} style={{ overflowY: "auto" }}>
             {accounts.map((account, index) => (
               <Button
                 key={index}

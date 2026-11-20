@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let tabPressPanelInset = Theme.space3
+
 // A long press on a tab bar item raises a glass panel of rows above it: the
 // ウェブ tab's site picker and the 時間割 tab's calendar export. The finger can
 // slide to a row and lift to choose it, or lift first and tap.
@@ -86,9 +88,9 @@ struct TabPressPanel<Choice: Hashable, Rows: View>: View {
                             pick(choice)
                         }
                     }
-                    .padding(6)
+                    .padding(tabPressPanelInset)
                     .frame(width: Self.width)
-                    .floatingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .floatingGlass(in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
                     .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
                     // Bottom edge 10 pt above the tab item, centred on it.
                     .frame(height: max(0, anchor.minY - origin.y - 10), alignment: .bottom)
@@ -144,7 +146,7 @@ private struct TabPressRowStyle: ButtonStyle {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 highlighted || configuration.isPressed ? Theme.line.opacity(0.9) : .clear,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                in: RoundedRectangle(cornerRadius: Theme.radiusPanel - tabPressPanelInset, style: .continuous))
             .contentShape(Rectangle())
     }
 }
@@ -153,7 +155,7 @@ private struct TrailingIconLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
             configuration.title
-            Spacer(minLength: 12)
+            Spacer(minLength: Theme.space6)
             configuration.icon.foregroundStyle(Theme.accent)
         }
     }

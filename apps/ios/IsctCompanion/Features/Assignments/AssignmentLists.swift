@@ -26,7 +26,7 @@ struct TodayAssignmentSections: View {
             } header: {
                 // One line on the narrowest phone: the title never wraps, the
                 // quarter note gives way first.
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.space4) {
                     Text(t("common.assignments")).font(.title3.bold()).foregroundStyle(Theme.ink)
                         .lineLimit(1)
                         .fixedSize()
@@ -34,7 +34,7 @@ struct TodayAssignmentSections: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
-                    Spacer(minLength: 4)
+                    Spacer(minLength: Theme.space2)
                     Button {
                         push(AssignmentRecordRoute())
                     } label: {
@@ -43,7 +43,7 @@ struct TodayAssignmentSections: View {
                     .fixedSize()
                 }
                 .textCase(nil)
-                .padding(.top, 8)
+                .padding(.top, Theme.space4)
             }
             group(t("common.pinned"), board.today.pinned)
             group(t("common.thisWeek"), board.today.dueThisWeek)

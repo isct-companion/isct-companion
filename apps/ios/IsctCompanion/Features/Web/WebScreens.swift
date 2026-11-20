@@ -105,12 +105,12 @@ struct WebTabScreen: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = web.error {
-                ProblemNote(text: error).padding(.top, 12).frame(maxHeight: .infinity, alignment: .top)
+                ProblemNote(text: error).padding(.top, Theme.space6).frame(maxHeight: .infinity, alignment: .top)
             }
             // The one thing drawn over the page, once: how to reach the
             // other sites.
             TipView(WebSitesTip())
-                .padding(12)
+                .padding(Theme.space6)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .safeAreaInset(edge: .top, spacing: 0) { PageBars(site: web.tabSite) }
@@ -317,7 +317,7 @@ private struct PageBars: View {
                         .controlSize(.small)
                 }
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space4)
                 Divider()
             }
             if let otp = web.pages[site]?.otp {
@@ -339,7 +339,7 @@ private struct PageBars: View {
                         .controlSize(.small)
                 }
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space4)
                 Divider()
             }
             if let failure = web.failure(site) {
@@ -352,7 +352,7 @@ private struct PageBars: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, Theme.space4)
                 Divider()
             }
         }
@@ -384,14 +384,14 @@ private struct PageBars: View {
                     .controlSize(.small)
             }
             .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(.vertical, Theme.space4)
         case let .problem(problem):
             Label(t(Self.problemText(problem)), systemImage: "person.crop.circle.badge.exclamationmark")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space4)
         }
     }
 
@@ -405,7 +405,7 @@ private struct PageBars: View {
     }
 
     private func failed(_ failure: SchoolWebFailure) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space4) {
             Label(t(Self.failureText(failure.reason)), systemImage: "exclamationmark.triangle")
                 .font(.subheadline)
                 .symbolRenderingMode(.multicolor)
@@ -425,7 +425,7 @@ private struct PageBars: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.vertical, Theme.space4)
     }
 }
 
@@ -434,8 +434,8 @@ private struct ProblemNote: View {
     var body: some View {
         Text(text)
             .font(.subheadline)
-            .padding(12)
-            .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: 12))
+            .padding(Theme.space6)
+            .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface))
             .padding()
     }
 }

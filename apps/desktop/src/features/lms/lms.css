@@ -18,7 +18,7 @@
 .lmsWorkspace svg { flex: 0 0 auto; }
 /* The title keeps at least 18rem; below that the actions wrap to a second row
    instead of squeezing the title (CJK text can break between any two glyphs). */
-.lmsWorkspaceHeader { display: flex; flex-wrap: wrap; align-items: center; gap: var(--workspace-gutter); padding: 4px 4px 16px; border-bottom: 1px solid var(--line); }
+.lmsWorkspaceHeader { display: flex; flex-wrap: wrap; align-items: center; gap: var(--workspace-gutter); padding: var(--space-2) var(--space-2) var(--space-8); border-bottom: 1px solid var(--line); }
 .lmsCourseIdentity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--workspace-gutter); flex: 1 1 18rem; min-width: 0; }
 .lmsCourseIdentity small { flex: 0 0 auto; white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsCourseIdentity h1 {
@@ -28,10 +28,10 @@
 .lmsHeaderActions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--workspace-gutter); margin-left: auto; }
 .lmsEntryTime { white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsBack, .lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
-  display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: var(--radius-control);
+  display: inline-flex; align-items: center; gap: var(--space-3); border: 0; border-radius: var(--radius-control);
   background: none; color: var(--accent) !important; white-space: nowrap; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500;
 }
-.lmsBack, .lmsRefresh { padding: 7px 10px; }
+.lmsBack, .lmsRefresh { padding: 7px var(--space-5); }
 .lmsBack:hover, .lmsRefresh:hover:not(:disabled), .lmsOutlineTools button:hover { background: var(--accent-soft); }
 .lmsRefresh:disabled { opacity: .5; cursor: default; }
 
@@ -41,27 +41,27 @@
 .lmsOutline { display: flex; flex-direction: column; min-height: 0; }
 /* Card for files the app cannot preview, anchored to the clicked item. */
 .lmsFilePopover { position: absolute; z-index: 20; margin: 0 !important; width: min(360px, calc(100% - 16px)); animation: lmsPopIn var(--motion-duration-base) var(--motion-easing-emphasized); }
-.lmsFilePopover .lmsFileCard { width: 100%; padding: 18px; animation: none; box-shadow: 0 2px 6px #00000014, 0 16px 40px #0000001f; }
-.lmsFilePopover .lmsFileCardActions { padding-top: 12px; }
-.lmsOutlineTools { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 900px; align-self: center; padding: 14px 24px 10px; }
+.lmsFilePopover .lmsFileCard { width: 100%; padding: var(--space-card); animation: none; box-shadow: 0 2px 6px #00000014, 0 16px 40px #0000001f; }
+.lmsFilePopover .lmsFileCardActions { padding-top: var(--space-6); }
+.lmsOutlineTools { display: flex; align-items: center; gap: var(--space-4); width: 100%; max-width: 900px; align-self: center; padding: var(--space-7) var(--space-10) var(--space-5); }
 .lmsOutlineTools input {
-  width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-control);
+  width: 100%; min-width: 0; padding: var(--space-4) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-control);
   background: var(--surface); color: var(--ink); font: inherit; font-size: calc(var(--type-row-size) * var(--text)); transition: border-color var(--motion-duration-base);
 }
 .lmsOutlineTools input:focus { outline: none; border-color: var(--lms-active-line); }
-.lmsOutlineTools button { padding: 7px 8px; }
-.lmsOutlineScroll { position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; padding: 0 24px 60px; }
+.lmsOutlineTools button { padding: 7px var(--space-4); }
+.lmsOutlineScroll { position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; padding: 0 var(--space-10) 60px; }
 .lmsOutlineScroll > * { max-width: 850px; margin-left: auto; margin-right: auto; }
-.lmsOutlineScroll h2 { display: flex; gap: 8px; margin: 28px auto 8px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 600; letter-spacing: .01em; }
-.lmsOutlineScroll h2:first-child { margin-top: 6px; }
+.lmsOutlineScroll h2 { display: flex; gap: var(--space-4); margin: 28px auto var(--space-4); color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 600; letter-spacing: .01em; }
+.lmsOutlineScroll h2:first-child { margin-top: var(--space-3); }
 .lmsOutlineScroll h2 small { font-weight: 500; opacity: .7; }
-.lmsOriginal { justify-content: center; padding: 12px; border-top: 1px solid var(--line); border-radius: 0; }
+.lmsOriginal { justify-content: center; padding: var(--space-6); border-top: 1px solid var(--line); border-radius: 0; }
 
-.lmsSection { padding: 4px 0 8px; border-bottom: 1px solid var(--line); }
-.lmsSectionHeading { display: flex; align-items: center; gap: 6px; }
+.lmsSection { padding: var(--space-2) 0 var(--space-4); border-bottom: 1px solid var(--line); }
+.lmsSectionHeading { display: flex; align-items: center; gap: var(--space-3); }
 .lmsSectionHeading h3 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; }
 .lmsSectionHeading h3 button {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 8px; border: 0; border-radius: var(--radius-control);
+  display: flex; align-items: center; gap: var(--space-4); width: 100%; padding: var(--space-5) var(--space-4); border: 0; border-radius: var(--radius-control);
   background: none; text-align: left; transition: background-color var(--motion-duration-base);
 }
 .lmsSectionHeading h3 button:hover { background: var(--surface-2); }
@@ -76,24 +76,24 @@
 }
 .lmsSection:hover .lmsAddNote, .lmsAddNote:focus-visible { opacity: 1; }
 .lmsAddNote:hover { background: var(--accent-soft); color: var(--accent) !important; }
-.lmsSectionPreview { margin: -2px 16px 8px 32px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
-.lmsSectionBody { padding: 2px 8px 8px 32px; animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
-.lmsSectionBody > .lmsRichContent { margin-bottom: 12px; font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.85; }
-.lmsQuiet { padding: 8px 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.7; }
+.lmsSectionPreview { margin: -2px var(--space-8) var(--space-4) var(--space-11); color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
+.lmsSectionBody { padding: var(--space-1) var(--space-4) var(--space-4) var(--space-11); animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
+.lmsSectionBody > .lmsRichContent { margin-bottom: var(--space-6); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.85; }
+.lmsQuiet { padding: var(--space-4) 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.7; }
 
 /* Rows and cards share one surface: 12px radius, hairline, accent on hover. */
 .lmsItemRow, .lmsAnnouncementCard {
-  width: 100%; margin: 6px 0; border: 1px solid var(--line); border-radius: var(--radius-surface);
+  width: 100%; margin: var(--space-3) 0; border: 1px solid var(--line); border-radius: var(--radius-surface);
   background: var(--surface); text-align: left; transition: border-color var(--motion-duration-base), background-color var(--motion-duration-base);
 }
 .lmsItemRow:hover, .lmsAnnouncementCard:hover { border-color: var(--lms-hover-line); }
 .lmsItemRow.selected, .lmsAnnouncementCard.selected { border-color: var(--lms-active-line); background: var(--accent-soft); }
-.lmsItemRow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.lmsItemRow { display: flex; align-items: center; gap: var(--space-row-gap); padding: var(--space-row-y) var(--space-row-x); }
 .lmsItemRow > span:nth-child(2) { flex: 1; min-width: 0; }
 .lmsItemRow b { display: block; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
-.lmsItemRow small { display: block; margin-top: 2px; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
+.lmsItemRow small { display: block; margin-top: var(--space-1); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsRowAction { color: var(--muted); }
-.lmsAnnouncementCard { position: relative; display: grid; gap: 6px; padding: 14px 40px 14px 16px; }
+.lmsAnnouncementCard { position: relative; display: grid; gap: var(--space-3); padding: var(--space-7) 40px var(--space-7) var(--space-8); }
 .lmsCardType { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsCardExcerpt { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: calc(var(--type-row-size) * var(--text)); -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .lmsCardArrow { position: absolute; top: 50%; right: 14px; margin-top: -8px; color: var(--muted); }
@@ -103,6 +103,7 @@
   position: relative; display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; overflow: hidden;
   border-radius: 10px; background: color-mix(in srgb, var(--tint) 12%, var(--surface)); color: var(--tint);
 }
+/* File-kind tints identify the document type, like course colours identify the course. */
 .lmsFileTile[data-family="pdf"] { --tint: #d4483b; }
 .lmsFileTile[data-family="image"] { --tint: #2f9e6e; }
 .lmsFileTile[data-family="video"], .lmsFileTile[data-family="audio"] { --tint: #8b5cf6; }
@@ -114,28 +115,28 @@
 .lmsThumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: white; opacity: 0; transition: opacity var(--motion-duration-slow) var(--motion-easing-emphasized); }
 .lmsThumbnail.loaded img { opacity: 1; }
 
-.lmsInlineActivity { padding: 16px 0; border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.8; scroll-margin: 30px; }
+.lmsInlineActivity { padding: var(--space-8) 0; border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.8; scroll-margin: 30px; }
 .lmsInlineActivity h4 { margin: 0; font-size: 15px; font-weight: 600; }
 .lmsInlineActivity .lmsQuiet { padding: 0; }
-.lmsSubmit { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 7px 12px; border: 0; border-radius: var(--radius-control); background: var(--accent); color: var(--accent-ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; }
-.lmsPreviousNotes { margin: 8px 0 12px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
-.lmsPreviousNotes summary { padding: 6px 4px; cursor: default; }
-.lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--surface); font-size: calc(var(--type-note-size) * var(--text)); }
+.lmsSubmit { display: inline-flex; align-items: center; gap: var(--space-3); margin-top: var(--space-6); padding: 7px var(--space-6); border: 0; border-radius: var(--radius-control); background: var(--accent); color: var(--accent-ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; }
+.lmsPreviousNotes { margin: var(--space-4) 0 var(--space-6); color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
+.lmsPreviousNotes summary { padding: var(--space-3) var(--space-2); cursor: default; }
+.lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: var(--space-5) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--surface); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsNoteUndo button { flex: 0 0 auto; padding: 5px 9px; white-space: nowrap; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; }
 
 /* ---------- Teacher HTML ---------- */
 .lmsRichContent { font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.7; overflow-wrap: anywhere; }
-.lmsRichContent p, .lmsRichContent div { margin-bottom: 10px; }
-.lmsRichContent table { display: block; max-width: 100%; margin: 12px 0; overflow: auto; border-collapse: collapse; }
+.lmsRichContent p, .lmsRichContent div { margin-bottom: var(--space-5); }
+.lmsRichContent table { display: block; max-width: 100%; margin: var(--space-6) 0; overflow: auto; border-collapse: collapse; }
 .lmsRichContent th, .lmsRichContent td { min-width: 75px; padding: 7px; border: 1px solid var(--line); }
 .lmsRichContent pre { overflow: auto; }
 .lmsRichContent a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 /* Attachment links: a card with a tinted type tile, name and meta line. */
-.lmsFileList { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 10px 0; }
+.lmsFileList { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-4); margin: var(--space-5) 0; }
 .lmsRichContent a.lmsAttachmentCard {
   --tint: var(--accent);
-  display: inline-grid; grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; align-items: center;
-  min-width: min(100%, 220px); max-width: 100%; margin: 4px 0; padding: 9px 12px 9px 9px; vertical-align: middle;
+  display: inline-grid; grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: var(--space-5); align-items: center;
+  min-width: min(100%, 220px); max-width: 100%; margin: var(--space-2) 0; padding: 9px var(--space-6) 9px 9px; vertical-align: middle;
   border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--surface); color: var(--ink);
   line-height: 1.35; text-decoration: none; transition: border-color var(--motion-duration-base);
 }
@@ -157,9 +158,9 @@
 .lmsAttachmentCard[data-family="sheet"] { --tint: #1f8a4c; }
 .lmsAttachmentCard[data-family="video"], .lmsAttachmentCard[data-family="audio"] { --tint: #8b5cf6; }
 .lmsAttachmentCard[data-family="archive"], .lmsAttachmentCard[data-family="text"], .lmsAttachmentCard[data-family="file"] { --tint: #5b6b82; }
-.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: stretch; gap: 6px; width: 200px; max-width: 100%; padding: 6px 6px 8px; font-size: calc(var(--type-note-size) * var(--text)); }
+.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: stretch; gap: var(--space-3); width: 200px; max-width: 100%; padding: var(--space-3) var(--space-3) var(--space-4); font-size: calc(var(--type-note-size) * var(--text)); }
 /* Image-only labels: thumbnail tiles in a grid, caption = file name. */
-.lmsImageGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
+.lmsImageGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-5); padding: var(--space-7) 0; border-top: 1px solid var(--line); }
 .lmsImageGrid .lmsRichContent > *, .lmsImageGrid .lmsRichContent p { margin: 0; }
 .lmsImageGrid a.lmsImageCard { display: flex; width: 100%; margin: 0; }
 .lmsImageGrid .lmsInlineThumbnail { height: 100px; object-fit: cover; object-position: top; }
@@ -176,32 +177,32 @@
   -webkit-mask: var(--lms-icon-image) center / contain no-repeat; mask: var(--lms-icon-image) center / contain no-repeat;
 }
 .lmsInlineThumbnail { display: block; width: 100%; max-height: 130px; object-fit: contain; background: white; animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
-.lmsAnnouncement { padding: 16px 0; border-bottom: 1px solid var(--line); }
-.lmsAnnouncement h5 { margin: 0 0 8px; font-size: 1em; }
+.lmsAnnouncement { padding: var(--space-8) 0; border-bottom: 1px solid var(--line); }
+.lmsAnnouncement h5 { margin: 0 0 var(--space-4); font-size: 1em; }
 
 /* ---------- Course content in the reader ---------- */
-.lmsDocument { min-height: 100%; padding: 20px clamp(20px, 4vw, 48px) 28px; }
-.lmsDocumentHeading { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.lmsDocument { min-height: 100%; padding: var(--space-9) clamp(var(--space-9), 4vw, 48px) 28px; }
+.lmsDocumentHeading { margin-bottom: var(--space-9); padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
 .lmsDocumentHeading small { display: block; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
-.lmsDocumentHeading h2 { margin: 6px 0 0; font-size: clamp(19px, 2vw, 24px); font-weight: 600; line-height: 1.4; letter-spacing: -.02em; }
+.lmsDocumentHeading h2 { margin: var(--space-3) 0 0; font-size: clamp(19px, 2vw, 24px); font-weight: 600; line-height: 1.4; letter-spacing: -.02em; }
 .lmsDocument > .lmsRichContent { max-width: 78ch; font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.85; }
 .lmsFileDocument { display: flex; flex-direction: column; padding: 0; }
 .lmsFileDocument > .lmsDocumentHeading { display: none; }
-.lmsFileDocument > .lmsRichContent { margin: 20px; }
+.lmsFileDocument > .lmsRichContent { margin: var(--space-9); }
 .lmsOfficialHost { position: relative; flex: 1; min-height: 300px; }
 /* Core's notes about the page (popup, failed load) above the native view. */
-.lmsViewerBody > .webNotice { margin: 8px 8px 0; }
+.lmsViewerBody > .webNotice { margin: var(--space-4) var(--space-4) 0; }
 
 .lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
 /* Leave room to scroll and zoom when the image follows a long description. */
 .lmsFileDocument:has(> .lmsAttachmentPreview > .lmsImageViewer) { height: 100%; }
 .lmsAttachmentPreview:has(> .lmsImageViewer) { flex: 1; min-height: 50%; }
-.lmsLoading { padding: 40px 20px; text-align: center; }
+.lmsLoading { padding: 40px var(--space-9); text-align: center; }
 
 /* Files the pane cannot show: one panel, one primary action. */
-.lmsFileCardStage { display: grid; place-items: center; flex: 1; min-height: 320px; padding: 32px 20px; }
+.lmsFileCardStage { display: grid; place-items: center; flex: 1; min-height: 320px; padding: var(--space-11) var(--space-gutter); }
 .lmsFileCard {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 16px; width: min(100%, 460px);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-7) var(--space-8); width: min(100%, 460px);
   padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
   box-shadow: 0 1px 2px #0000000a, 0 12px 32px #00000010; animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized);
 }
@@ -212,10 +213,10 @@
 .lmsFileCardText small { display: block; margin-top: 3px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsFileCard > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.6; overflow-wrap: anywhere; }
 .lmsFileCard > p[role=alert] { color: var(--ink); }
-.lmsFileCardActions { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.lmsFileCardActions { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-7); border-top: 1px solid var(--line); }
 .lmsPrimaryAction { display: contents; }
 .lmsPrimaryAction > button {
-  display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--accent); border-radius: var(--radius-control);
+  display: inline-flex; align-self: flex-start; align-items: center; gap: var(--space-3); padding: 7px var(--space-6); border: 1px solid var(--accent); border-radius: var(--radius-control);
   background: var(--accent); color: var(--accent-ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; white-space: nowrap;
   transition: border-color var(--motion-duration-base), background-color var(--motion-duration-base);
 }
@@ -232,39 +233,39 @@
 .lmsFileActions[data-layout="menu"] .lmsToolLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lmsFileActions[data-layout="menu"] svg { flex: 0 0 auto; }
 .lmsMediaPreview { display: block; width: 100%; max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; border-radius: var(--radius-control); background: black; box-shadow: var(--shadow); }
-.lmsAudioStage { padding: 32px 24px; }
+.lmsAudioStage { padding: var(--space-11) var(--space-10); }
 .lmsAudioStage audio { width: 100%; }
 
 /* ---------- Text, Markdown, notes ---------- */
 .lmsTextDocument { overflow: hidden; background: var(--surface); }
-.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
+.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: var(--space-5) 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsTextMeta > span:first-child { color: var(--ink); font-weight: 600; }
 .lmsTextDocument .cm-editor { outline: none; }
 .lmsTextDocument .cm-scroller { max-height: 75dvh; }
 /* Search floats over the code's top right and stays put while it scrolls. */
 .lmsTextCode { position: relative; }
-.lmsTextDocument .cm-panels.cm-panels-top { position: absolute; top: 8px; right: 12px; left: auto; z-index: 3; border: 0; background: none; }
+.lmsTextDocument .cm-panels.cm-panels-top { position: absolute; top: var(--space-4); right: var(--workspace-gutter); left: auto; z-index: 3; border: 0; background: none; }
 .lmsCodeSearchOpen, .lmsCodeSearch { box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); border: 1px solid var(--line); background: var(--surface); }
-.lmsCodeSearchOpen { position: absolute; top: 8px; right: 12px; z-index: 3; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 8px; color: var(--muted); }
+.lmsCodeSearchOpen { position: absolute; top: var(--space-4); right: var(--workspace-gutter); z-index: 3; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 8px; color: var(--muted); }
 .lmsCodeSearchOpen:hover { color: var(--accent); }
-.lmsCodeSearch { display: flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; border-radius: 8px; font-size: calc(var(--type-note-size) * var(--text)); }
-.lmsCodeSearch input { width: 160px; padding: 4px 0; border: 0; background: transparent; color: var(--ink); font: inherit; }
+.lmsCodeSearch { display: flex; align-items: center; gap: var(--space-1); padding: 3px var(--space-2) 3px var(--space-5); border-radius: 8px; font-size: calc(var(--type-note-size) * var(--text)); }
+.lmsCodeSearch input { width: 160px; padding: var(--space-2) 0; border: 0; background: transparent; color: var(--ink); font: inherit; }
 .lmsCodeSearch input:focus { outline: none; }
-.lmsCodeSearch [role=status] { min-width: 18px; padding: 0 4px; color: var(--muted); white-space: nowrap; }
+.lmsCodeSearch [role=status] { min-width: 18px; padding: 0 var(--space-2); color: var(--muted); white-space: nowrap; }
 .lmsCodeSearch button { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 16px; line-height: 1; }
 .lmsCodeSearch button:hover { background: var(--accent-soft); color: var(--accent); }
 .lmsTextDocument .cm-searchMatch { background: var(--warn-soft); }
 .lmsTextDocument .cm-searchMatch-selected { background: var(--accent-soft); outline: 1px solid var(--accent); }
 .lmsNoteEditor { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .lmsNoteEditor > div:not(.lmsSourceBar) { flex: 1; min-height: 0; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror { max-width: 760px; margin: 0 auto; padding: 36px clamp(24px, 4vw, 54px) 120px; line-height: 1.85; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h1 { margin-bottom: 24px; font-size: 28px; letter-spacing: -.03em; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { margin-top: 32px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror { max-width: 760px; margin: 0 auto; padding: 36px clamp(var(--space-10), 4vw, 54px) 120px; line-height: 1.85; }
+.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h1 { margin-bottom: var(--space-10); font-size: 28px; letter-spacing: -.03em; }
+.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { margin-top: var(--space-11); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
-.lmsLessonRail { display: flex; gap: 2px; width: 100%; max-width: 900px; align-self: center; padding: 0 24px 10px; overflow-x: auto; scrollbar-width: none; }
+.lmsLessonRail { display: flex; gap: var(--space-1); width: 100%; max-width: 900px; align-self: center; padding: 0 var(--space-10) var(--space-5); overflow-x: auto; scrollbar-width: none; }
 .lmsLessonRail button {
-  position: relative; flex: 1 0 22px; min-width: max-content; padding: 4px 4px 8px; border: 0; background: none; white-space: nowrap;
+  position: relative; flex: 1 0 22px; min-width: max-content; padding: var(--space-2) var(--space-2) var(--space-4); border: 0; background: none; white-space: nowrap;
   color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: center;
 }
 .lmsLessonRail button::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--motion-duration-base); }
@@ -284,9 +285,9 @@
 .lmsLessonRail button:hover::after { background: var(--lms-hover-line); }
 
 /* Sections without a number (一般, 連絡先 …) and Activities: text tabs before the numbers. */
-.lmsLessonRail .lmsRailTab { flex: 0 1 auto; max-width: 9em; min-width: 0; padding-left: 8px; padding-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lmsRailDivider { flex: 0 0 1px; align-self: stretch; margin: 4px 6px 8px; background: var(--line); }
-.lmsLessonPage { padding-bottom: 16px; }
+.lmsLessonRail .lmsRailTab { flex: 0 1 auto; max-width: 9em; min-width: 0; padding-left: var(--space-4); padding-right: var(--space-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmsRailDivider { flex: 0 0 1px; align-self: stretch; margin: var(--space-2) var(--space-3) var(--space-4); background: var(--line); }
+.lmsLessonPage { padding-bottom: var(--space-8); }
 
 /* ---------- Lesson pages ----------
    The course is one continuous outline; each lesson starts a page, and a
@@ -297,8 +298,8 @@
 .lmsFolder.open > .lmsItemRow { border-color: var(--lms-hover-line); }
 .lmsFolderChevron { transition: transform var(--motion-duration-base) var(--motion-easing-emphasized); }
 .lmsFolder.open .lmsFolderChevron { transform: rotate(90deg); }
-.lmsFolderFiles { display: grid; gap: 2px; margin: 0 0 8px 22px; padding-left: 12px; border-left: 1px solid var(--line); animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
-.lmsFolderFile { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius-control); background: none; text-align: left; }
+.lmsFolderFiles { display: grid; gap: var(--space-1); margin: 0 0 var(--space-4) 22px; padding-left: var(--space-6); border-left: 1px solid var(--line); animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
+.lmsFolderFile { display: flex; align-items: center; gap: var(--space-5); width: 100%; padding: var(--space-3) var(--space-4); border: 0; border-radius: var(--radius-control); background: none; text-align: left; }
 .lmsFolderFile:hover { background: var(--surface-2); }
 .lmsFolderFile .lmsFileTile { flex-basis: 30px; width: 30px; height: 30px; border-radius: 8px; }
 .lmsFolderFile .lmsFileTile svg { width: 15px; height: 15px; }
@@ -312,29 +313,29 @@
 
 /* ---------- Assignment card: state and deadline first ---------- */
 .lmsAssignmentCard {
-  margin: 8px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-surface);
+  margin: var(--space-4) 0; padding: var(--space-6) var(--space-7); border: 1px solid var(--line); border-radius: var(--radius-surface);
   background: var(--surface); scroll-margin: 30px;
 }
-.lmsAssignmentCard > header { display: flex; align-items: flex-start; gap: 10px; }
-.lmsAssignmentMark { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--accent); }
+.lmsAssignmentCard > header { display: flex; align-items: flex-start; gap: var(--space-5); }
+.lmsAssignmentMark { flex: 0 0 8px; width: 8px; height: 8px; margin-top: var(--space-3); border-radius: 50%; background: var(--accent); }
 .lmsAssignmentCard.done .lmsAssignmentMark, .lmsAssignmentCard.graded .lmsAssignmentMark { background: var(--ok); }
 .lmsAssignmentCard.missed .lmsAssignmentMark { background: var(--danger); }
 .lmsAssignmentTitle { flex: 1; min-width: 0; }
 .lmsAssignmentTitle h4 { margin: 0; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; line-height: 1.45; }
-.lmsAssignmentTitle time { display: block; margin-top: 2px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsAssignmentTitle time { display: block; margin-top: var(--space-1); color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsAssignmentState { flex: 0 0 auto; }
-.lmsAssignmentGrade { margin-left: 6px; font-variant-numeric: tabular-nums; }
-.lmsAssignmentBody { margin: 10px 0 0 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.75; animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
-.lmsAssignmentCard > footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin: 10px 0 0 18px; }
+.lmsAssignmentGrade { margin-left: var(--space-3); font-variant-numeric: tabular-nums; }
+.lmsAssignmentBody { margin: var(--space-5) 0 0 18px; padding-top: var(--space-5); border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.75; animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
+.lmsAssignmentCard > footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-8); margin: var(--space-5) 0 0 18px; }
 .lmsAssignmentCard > footer > .lmsTextLink:first-child { margin-right: auto; }
-.lmsAssignmentCard .lmsSubmit { margin-top: 0; padding: 6px 11px; }
+.lmsAssignmentCard .lmsSubmit { margin-top: 0; padding: var(--space-3) 11px; }
 
 /* ---------- Folder: its files as rows, read in the same pane ---------- */
-.lmsFolderView { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
-.lmsFolderHeader { display: flex; align-items: center; gap: 14px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.lmsFolderView { display: flex; flex-direction: column; gap: var(--space-8); padding: var(--space-10); }
+.lmsFolderHeader { display: flex; align-items: center; gap: var(--space-7); padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
 .lmsFolderHeader h3 { margin: 0; font-size: 17px; font-weight: 600; }
 .lmsFolderHeader small { color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
-.lmsFolderList { display: grid; gap: 8px; }
+.lmsFolderList { display: grid; gap: var(--space-4); }
 .lmsFolderList a.lmsItemRow { color: inherit; text-decoration: none; }
 
 /* Quiet overlay-width scrollbars, even where the system always shows them. */
@@ -344,7 +345,7 @@
    Files are list rows marked by their type's icon and colour; tasks carry a
    state bar, announcements read as quotes, tables are hairline grids. */
 .lmsSectionBody .lmsItemRow, .lmsActivityGroup .lmsItemRow {
-  margin: 1px 0; padding: 6px 8px; border-color: transparent; background: none; border-radius: var(--radius-control);
+  margin: 1px 0; border-color: transparent; background: none; border-radius: var(--radius-control);
 }
 .lmsSectionBody .lmsItemRow:hover, .lmsActivityGroup .lmsItemRow:hover { border-color: transparent; background: var(--surface-2); }
 .lmsSectionBody .lmsItemRow.selected, .lmsActivityGroup .lmsItemRow.selected { border-color: transparent; background: var(--accent-soft); }
@@ -358,16 +359,16 @@
 /* Announcements: a quote with its date, no card. */
 .lmsInlineActivity:has(.lmsAnnouncementCard) > h4 { display: none; }
 .lmsSectionBody .lmsAnnouncementCard {
-  margin: 4px 0; padding: 4px 32px 4px 14px; border: 0; border-left: 2px solid var(--line-strong); border-radius: 0; background: none;
+  margin: var(--space-2) 0; padding: var(--space-2) var(--space-11) var(--space-2) var(--space-7); border: 0; border-left: 2px solid var(--line-strong); border-radius: 0; background: none;
 }
 .lmsSectionBody .lmsAnnouncementCard:hover { border-left-color: var(--lms-hover-line); background: none; }
 .lmsSectionBody .lmsAnnouncementCard.selected { border-left-color: var(--accent); background: none; }
 .lmsSectionBody .lmsAnnouncementCard strong { font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; }
-.lmsInlineActivity:has(.lmsAnnouncementCard), .lmsInlineActivity:has(.lmsQuiet:only-child) { padding: 8px 0; border-top: 0; }
+.lmsInlineActivity:has(.lmsAnnouncementCard), .lmsInlineActivity:has(.lmsQuiet:only-child) { padding: var(--space-4) 0; border-top: 0; }
 
 /* Tasks: a state bar instead of a box. */
 .lmsAssignmentCard {
-  display: grid; grid-template-columns: 3px minmax(0, 1fr); column-gap: 12px; margin: 10px 0; padding: 2px 0;
+  display: grid; grid-template-columns: 3px minmax(0, 1fr); column-gap: var(--space-row-gap); margin: var(--space-5) 0; padding: var(--space-1) 0;
   border: 0; border-radius: 0; background: none;
 }
 .lmsAssignmentCard::before { content: ""; grid-row: 1 / span 5; border-radius: 2px; background: var(--accent); }
@@ -377,37 +378,37 @@
 .lmsAssignmentCard:has(.dueChip.soon)::before { background: var(--warn); }
 .lmsAssignmentCard > * { grid-column: 2; }
 .lmsAssignmentMark { display: none; }
-.lmsAssignmentTitle h4 button { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; text-align: left; }
+.lmsAssignmentTitle h4 button { display: inline-flex; align-items: center; gap: var(--space-3); padding: 0; border: 0; background: none; font: inherit; text-align: left; }
 .lmsAssignmentTitle h4 button:hover { color: var(--accent); }
 .lmsAssignmentChevron { color: var(--muted); transition: transform var(--motion-duration-base) var(--motion-easing-emphasized); }
 .lmsAssignmentTitle h4 button[aria-expanded="true"] .lmsAssignmentChevron { transform: rotate(90deg); }
-.lmsAssignmentBody { margin: 8px 0 0; padding: 0; border-top: 0; color: var(--ink); }
-.lmsAssignmentCard > footer { justify-content: flex-start; margin: 8px 0 0; }
-.lmsAssignmentCard .lmsSubmit { padding: 5px 10px; }
+.lmsAssignmentBody { margin: var(--space-4) 0 0; padding: 0; border-top: 0; color: var(--ink); }
+.lmsAssignmentCard > footer { justify-content: flex-start; margin: var(--space-4) 0 0; }
+.lmsAssignmentCard .lmsSubmit { padding: 5px var(--space-5); }
 
 /* Assignment workspace (desktop): the folder, how to open it, how to hand in. */
-.lmsWorkspaceCard { display: grid; gap: 10px; max-width: 520px; margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--surface); }
-.lmsWorkspaceCard > header { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lmsWorkspaceCard { display: grid; gap: var(--space-5); max-width: 520px; margin-top: var(--space-5); padding: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--surface); }
+.lmsWorkspaceCard > header { display: flex; align-items: center; gap: var(--space-5); min-width: 0; }
 .lmsWorkspaceCard > header > div { display: grid; flex: 1; min-width: 0; }
 .lmsWorkspaceCard > header b { overflow: hidden; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .lmsWorkspaceCard > header small { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsIconButton { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-control); background: none; color: var(--muted); }
 .lmsIconButton:hover:not(:disabled) { background: var(--surface-3); color: var(--danger); }
-.lmsWorkspaceActions, .lmsWorkspaceSubmit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lmsWorkspaceActions, .lmsWorkspaceSubmit { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 .lmsWorkspaceActions button {
-  display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--line); border-radius: var(--radius-control);
+  display: inline-flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 11px; border: 1px solid var(--line); border-radius: var(--radius-control);
   background: var(--surface); color: var(--ink); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; white-space: nowrap; transition: border-color var(--motion-duration-base);
 }
 .lmsWorkspaceActions button:hover { border-color: var(--lms-hover-line); }
-.lmsSegmented { display: inline-flex; padding: 2px; border-radius: var(--radius-control); background: var(--surface-3); }
-.lmsSegmented button { padding: 3px 10px; white-space: nowrap; border: 0; border-radius: calc(var(--radius-control) - 2px); background: none; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; }
+.lmsSegmented { display: inline-flex; padding: var(--space-1); border-radius: var(--radius-control); background: var(--surface-3); }
+.lmsSegmented button { padding: 3px var(--space-5); white-space: nowrap; border: 0; border-radius: calc(var(--radius-control) - var(--space-1)); background: none; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; }
 .lmsSegmented button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
 .lmsWorkspaceSubmit input { width: 200px; height: 28px; min-height: 28px; font-size: calc(var(--type-note-size) * var(--text)); }
-.lmsWorkspaceError { margin: 6px 0 0; color: var(--danger); font-size: calc(var(--type-note-size) * var(--text)); overflow-wrap: anywhere; }
+.lmsWorkspaceError { margin: var(--space-3) 0 0; color: var(--danger); font-size: calc(var(--type-note-size) * var(--text)); overflow-wrap: anywhere; }
 .lmsAssignmentCard > footer button:disabled { opacity: .6; cursor: default; }
 
 /* The open lesson: its number large, its plan as the title. */
-.lmsLessonHead { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.lmsLessonHead { display: flex; align-items: baseline; gap: var(--space-6); min-width: 0; }
 .lmsLessonHead > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lmsLessonNo { flex: 0 0 auto; color: var(--muted); font-size: 26px; font-weight: 600; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .lmsLessonPage .lmsSectionHeading h3 button { cursor: default; }
@@ -416,7 +417,7 @@
 .lmsLessonPage .lmsSectionBody > .lmsRichContent:first-child { color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.75; }
 
 /* Tables: hairline rows; a schedule marks where the course is. */
-.lmsRichContent th, .lmsRichContent td { padding: 6px 10px; border: 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.lmsRichContent th, .lmsRichContent td { padding: var(--space-3) var(--space-5); border: 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .lmsRichContent tr:first-child > th, .lmsRichContent tr:first-child > td:only-child,
 .lmsRichContent thead td, .lmsRichContent table:not(:has(th)) tr:first-child > td {
   color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-weight: 600; border-bottom-color: var(--line-strong);
@@ -427,12 +428,12 @@
 .lmsRichContent tr.lmsRowNow > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 /* Progress stays above the workspace; search belongs only to the outline. */
-.lmsWorkspaceTools { padding: 10px 0 2px; }
+.lmsWorkspaceTools { padding: var(--space-5) 0 var(--space-1); }
 .lmsWorkspaceTools:empty { display: none; }
-.lmsWorkspaceTools .lmsLessonRail { max-width: none; padding: 0 4px 6px; }
-.lmsOutline > .lmsOutlineTools { flex: 0 0 auto; max-width: none; padding: 10px 24px 12px; }
+.lmsWorkspaceTools .lmsLessonRail { max-width: none; padding: 0 var(--space-2) var(--space-3); }
+.lmsOutline > .lmsOutlineTools { flex: 0 0 auto; max-width: none; padding: var(--space-5) var(--space-10) var(--space-6); }
 .lmsOutlineTools button { flex-shrink: 0; }
-.lmsOutlineScroll > h2:first-child { margin-top: 16px; }
+.lmsOutlineScroll > h2:first-child { margin-top: var(--space-8); }
 
 /* Here, not in styles.css: a keyframe defined later wins over an override
    defined earlier, and this file loads after styles.css. */
@@ -455,7 +456,7 @@
 .lmsWorkspace.narrowReader.viewing .lmsOutline { display: none; }
 .lmsWorkspace.narrowReader.viewing .lmsViewer { display: flex; }
 
-.lmsWorkspaceHint { margin: 8px 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.5; }
+.lmsWorkspaceHint { margin: var(--space-4) 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.5; }
 
-.lmsPullControls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.lmsPullControls { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
 

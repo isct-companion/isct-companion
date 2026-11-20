@@ -26,9 +26,9 @@ private struct SchoolOtpCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: Theme.space9) {
                 if scenePhase == .active, let current, seconds > 0 {
-                    HStack(spacing: 16) {
+                    HStack(spacing: Theme.space8) {
                         // The code is the copy target too, as in an authenticator.
                         Button { copy(current) } label: { OtpDigits(otp: current.otp) }
                             .buttonStyle(.plain)
@@ -39,8 +39,8 @@ private struct SchoolOtpCodeSheet: View {
                             period: TimeInterval(current.period),
                             seconds: seconds)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 18)
+                    .padding(.horizontal, Theme.space9)
+                    .padding(.vertical, Theme.cardPadding)
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusColumn, style: .continuous))
                     Button {
                         copy(current)
@@ -49,7 +49,7 @@ private struct SchoolOtpCodeSheet: View {
                               systemImage: copied ? "checkmark" : "doc.on.doc")
                             .font(.body.weight(.semibold))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                            .padding(.vertical, Theme.space6)
                     }
                     .buttonStyle(CapsuleButtonStyle())
                 } else if unavailable {
@@ -117,7 +117,7 @@ private struct OtpDigits: View {
 
     var body: some View {
         let half = otp.index(otp.startIndex, offsetBy: otp.count / 2)
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.space5) {
             Text(otp[..<half])
             Text(otp[half...])
         }

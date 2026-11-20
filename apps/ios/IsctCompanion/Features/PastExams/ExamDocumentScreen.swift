@@ -200,7 +200,7 @@ struct ExamRequestScreen: View {
         let item = item ?? route.request
         List {
             Section {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Theme.space3) {
                     Text(item.subject.code).font(.footnote).foregroundStyle(Theme.muted)
                     Text(item.subject.name).font(.title3.weight(.semibold)).foregroundStyle(Theme.ink)
                     ExamStatusTag(status: item.status)

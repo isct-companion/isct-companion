@@ -89,8 +89,8 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
     item(key = "assignments-header") {
         Row(
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(Theme.space4),
+            modifier = Modifier.fillMaxWidth().padding(top = Theme.space9, start = Theme.space2),
         ) {
             Text(t("common.assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
             Text(
@@ -104,7 +104,7 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
     val today = board.today
     if (!today.isEmpty()) {
         item(key = "assignments-tip") {
-            GuideTip("assignment-swipe", "guide.pinOrHide", "guide.swipeRightToPinAn", Modifier.padding(top = 8.dp))
+            GuideTip("assignment-swipe", "guide.pinOrHide", "guide.swipeRightToPinAn", Modifier.padding(top = Theme.space4))
         }
     }
     group(t("common.pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
@@ -130,7 +130,7 @@ private fun LazyListScope.group(
     restores: Boolean = false,
 ) {
     if (items.isEmpty()) return
-    item(key = "label-$title") { Box(Modifier.padding(top = 12.dp, bottom = 6.dp)) { SectionLabel(title) } }
+    item(key = "label-$title") { Box(Modifier.padding(top = Theme.space6, bottom = Theme.space3)) { SectionLabel(title) } }
     items.forEachIndexed { index, row ->
         item(key = "$title-${row.assignmentId}") {
             val shape = RoundedCornerShape(
@@ -231,8 +231,8 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
 
 @Composable
 private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment: Alignment, ink: Color = Theme.colors.accentInk) {
-    Box(Modifier.fillMaxSize().background(fill).padding(horizontal = 20.dp), contentAlignment = alignment) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Box(Modifier.fillMaxSize().background(fill).padding(horizontal = Theme.space9), contentAlignment = alignment) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
             Icon(icon, null, tint = ink)
             Text(label, color = ink, fontWeight = FontWeight.SemiBold)
         }
@@ -254,7 +254,7 @@ fun AssignmentListScreen() {
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
             todayAssignments(model.board, now, navigator::openRecord)
         }
     }
@@ -279,7 +279,7 @@ fun RecordScreen() {
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
             if (record != null) {
                 group(t("common.pinned"), record.pinned, now)
                 group(t("common.thisWeek"), record.dueThisWeek, now)
@@ -291,11 +291,11 @@ fun RecordScreen() {
                         group(t("common.earlier"), record.pastEarlier, now)
                     } else {
                         item {
-                            Box(Modifier.padding(top = 12.dp)) {
+                            Box(Modifier.padding(top = Theme.space6)) {
                                 GroupCard {
                                     Text(
                                         t("assignments.showCountEarlier", "count" to record.pastEarlier.size), color = Theme.colors.accent,
-                                        modifier = Modifier.fillMaxWidth().clickable { unfolded = true }.padding(16.dp),
+                                        modifier = Modifier.fillMaxWidth().clickable { unfolded = true }.padding(horizontal = Theme.rowX, vertical = 16.dp),
                                     )
                                 }
                             }

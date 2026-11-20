@@ -333,8 +333,8 @@ internal fun UploadSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { it != SheetValue.Hidden || !held }),
     ) {
         Column(
-            Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = Theme.gutter).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = Theme.gutter).padding(bottom = Theme.space10),
+            verticalArrangement = Arrangement.spacedBy(Theme.space6),
         ) {
             Text(
                 t(if (current.request == null) "examShare.upload.title" else "examShare.upload.answerRequest"),
@@ -344,7 +344,7 @@ internal fun UploadSheet(
             // Files, in the order their pages are sent.
             if (files.size > 1) SectionLabel(t("examShare.upload.fileOrder"))
             files.forEachIndexed { index, picked ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
                     Icon(if (picked.isPhoto) Icons.Rounded.Image else Icons.Rounded.Description, null, tint = Theme.colors.muted)
                     Text(picked.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(Formatter.formatShortFileSize(context, File(picked.path).length()), color = Theme.colors.muted, style = MaterialTheme.typography.bodySmall)
@@ -362,7 +362,7 @@ internal fun UploadSheet(
                     }) { Icon(Icons.Rounded.Close, t("common.remove")) }
                 }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space4), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 if (scans) OutlinedButton(enabled = canEdit, onClick = ::scan) {
                     Icon(Icons.Rounded.DocumentScanner, null); Text(" " + t("examShare.upload.scan"))
                 }
@@ -380,9 +380,9 @@ internal fun UploadSheet(
             )
 
             // Subjects: the course's own, and any others the material covers.
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
                 ChoiceLabel(t("examShare.upload.subjects"))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
                     current.subjects.forEach { entry ->
                         FilterChip(
                             selected = true,
@@ -404,7 +404,7 @@ internal fun UploadSheet(
                     )
                     hits?.let { found ->
                         if (found.isEmpty()) Text(t("examShare.noItems"), color = Theme.colors.muted, style = MaterialTheme.typography.bodySmall)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
                             found.forEach { hit ->
                                 FilterChip(
                                     selected = false,
@@ -420,9 +420,9 @@ internal fun UploadSheet(
             }
 
             // Teachers: those the site lists, and any it does not yet.
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
                 ChoiceLabel(t("examShare.teacher"))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
                     current.teachers.forEach { teacher ->
                         val checked = teacher.id in draft.teacherIds
                         FilterChip(
@@ -449,7 +449,7 @@ internal fun UploadSheet(
                         leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(FilterChipDefaults.IconSize)) },
                     )
                 }
-                if (addingTeacher) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (addingTeacher) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
                     OutlinedTextField(familyName, { familyName = it.take(limits.teacherName.toInt()) }, enabled = canEdit, singleLine = true,
                         label = { Text(t("examShare.upload.familyName")) }, modifier = Modifier.weight(1f))
                     OutlinedTextField(givenName, { givenName = it.take(limits.teacherName.toInt()) }, enabled = canEdit, singleLine = true,
@@ -516,7 +516,7 @@ internal fun UploadSheet(
                 pending -> ExamUploadProgress(progress, false)
             }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Theme.space4, Alignment.End)) {
                 if (sending && progress?.cancellable == true) TextButton(onClick = {
                     scope.launch {
                         try {
@@ -533,7 +533,7 @@ internal fun UploadSheet(
                     Button(enabled = !busy, onClick = { send(ExamAction.RecoverUpload) }) { Text(t("examShare.upload.recover")) }
                 } else {
                     Button(enabled = ready, onClick = { send(ExamAction.Upload(files, draft)) }) {
-                        if (sending) CircularProgressIndicator(Modifier.padding(end = 8.dp).size(16.dp), strokeWidth = 2.dp, color = Theme.colors.accentInk)
+                        if (sending) CircularProgressIndicator(Modifier.padding(end = Theme.space4).size(16.dp), strokeWidth = 2.dp, color = Theme.colors.accentInk)
                         Text(t("examShare.upload.title"))
                     }
                 }
@@ -559,9 +559,9 @@ private fun <T> Choices(
     more: List<Pair<T, String>> = emptyList(),
     pick: (T) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
         label?.let { ChoiceLabel(it) }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
             options.forEach { (value, text) ->
                 FilterChip(selected = selected == value, enabled = enabled, onClick = { pick(value) }, label = { Text(text) })
             }
@@ -605,7 +605,7 @@ internal fun RequestDialog(
         onDismissRequest = dismiss,
         title = { Text(t("examShare.newRequest")) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Theme.space5)) {
                 Text(subject.subject.name, fontWeight = FontWeight.SemiBold)
                 if (subject.rows.size > 1) Choices(
                     t("examShare.class"),
@@ -663,7 +663,7 @@ internal fun ReportDialog(
         onDismissRequest = dismiss,
         title = { Text(t("examShare.report")) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 Choices(null, reasons.map { it to t("examShare.reason.${it.wire}") }, reason) { reason = it }
                 OutlinedTextField(
                     detail, { detail = it.take(detailLimit) },

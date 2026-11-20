@@ -60,7 +60,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import app.isctcompanion.core.Viewer
 import java.io.File
@@ -279,7 +278,7 @@ fun PdfReader(file: File, fallback: @Composable () -> Unit) {
         Box(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {
             LazyColumn(
                 Modifier.width(viewport * zoom).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(Theme.space4),
             ) {
                 itemsIndexed(pdf.ratios) { index, ratio ->
                     PdfPage(pdf, index, ratio, pixels)
@@ -295,7 +294,7 @@ private fun PdfPassword(wrong: Boolean, open: (String) -> Unit) {
     var typed by remember { mutableStateOf("") }
     Column(
         Modifier.fillMaxSize().padding(Theme.gutter),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(

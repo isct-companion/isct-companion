@@ -11,12 +11,12 @@
 .lmsReaderTools {
   flex-wrap: wrap;
   align-items: center;
-  row-gap: 4px;
+  row-gap: var(--space-2);
 }
 .lmsReaderTitle {
   flex: 1 1 120px;
   min-width: 0;
-  padding: 6px 4px;
+  padding: var(--space-3) var(--space-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -43,7 +43,7 @@
 .lmsReaderToolSlot .lmsPdfHeader,
 .lmsReaderToolSlot .lmsFileToolbar {
   flex-wrap: nowrap;
-  gap: 4px;
+  gap: var(--space-2);
 }
 /* The panel already names the document; icons carry the actions. */
 .lmsReaderToolSlot .lmsFileAddress,
@@ -81,14 +81,14 @@
   flex: 2 1 240px;
 }
 .lmsReaderToolSlot .lmsPdfControls + .lmsFileToolbar {
-  margin-inline-start: 4px;
-  padding-inline-start: 8px;
+  margin-inline-start: var(--space-2);
+  padding-inline-start: var(--space-4);
   border-inline-start: 1px solid var(--line);
 }
 .lmsFileActions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 /* ---------- Reading pane ---------- */
@@ -102,11 +102,11 @@
 
 /* ---------- Status / toolbar bar: banner above the outline, or flush bar inside the pane ---------- */
 .lmsSourceBar {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 9px var(--workspace-gutter);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-4); padding: 9px var(--workspace-gutter);
   border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text));
 }
 .lmsSourceBar > [role=status] { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
-.lmsSourceBar button, .lmsSourceBar a { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border: 0; border-radius: var(--radius-control); background: none; color: var(--accent) !important; font-size: calc(var(--type-block-size) * var(--text)); font-weight: 500; text-decoration: none; white-space: nowrap; }
+.lmsSourceBar button, .lmsSourceBar a { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-3) 9px; border: 0; border-radius: var(--radius-control); background: none; color: var(--accent) !important; font-size: calc(var(--type-block-size) * var(--text)); font-weight: 500; text-decoration: none; white-space: nowrap; }
 .lmsSourceBar button:hover, .lmsSourceBar a:hover { background: var(--accent-soft); }
 .lmsViewer .lmsSourceBar { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
 .lmsFileToolbar { position: sticky; top: 0; z-index: 4; }
@@ -123,20 +123,20 @@
 /* Auto margins center small scans while keeping large ones scrollable.
    A white background keeps transparent scans readable in either theme. */
 .lmsImagePreview { display: block; flex: none; margin: auto; max-width: none; max-height: none; object-fit: contain; border-radius: var(--radius-control); background: white; box-shadow: var(--shadow); cursor: inherit; }
-.lmsImageZoom { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); }
-.lmsImageZoom button { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsImageZoom { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: var(--space-1); padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); }
+.lmsImageZoom button { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 var(--space-3); border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsImageZoom button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
 .lmsImageZoom button:disabled { opacity: .3; }
 
 /* ---------- PDF ---------- */
 .lmsPdfReader { background: var(--surface-2); }
-.lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--workspace-gutter); padding: 7px var(--workspace-gutter); border-bottom: 1px solid var(--line); background: var(--surface); }
+.lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--workspace-gutter); padding: 7px var(--workspace-gutter); border-bottom: 1px solid var(--line); background: var(--surface); }
 .lmsPdfHeader > .lmsFileToolbar { position: static; flex: 1 1 240px; flex-wrap: wrap; gap: 5px; min-width: 0; padding: 0; border: 0; }
-.lmsPdfHeader .lmsFileAddress { min-width: 60px; padding: 4px 0; }
-.lmsPdfControls { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
-.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 2px; }
+.lmsPdfHeader .lmsFileAddress { min-width: 60px; padding: var(--space-2) 0; }
+.lmsPdfControls { display: flex; flex: 0 1 auto; align-items: center; gap: var(--space-5); color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: var(--space-1); }
 .lmsPdfPagination { gap: 5px; }
-.lmsPdfControls input, .lmsPdfControls select { height: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--surface); color: var(--ink); font: inherit; }
+.lmsPdfControls input, .lmsPdfControls select { height: 26px; padding: 0 var(--space-3); border: 1px solid transparent; border-radius: var(--radius-control); background: var(--surface); color: var(--ink); font: inherit; }
 .lmsPdfControls input:hover, .lmsPdfControls select:hover, .lmsPdfControls input:focus { border-color: var(--line); }
 .lmsPdfPagination input { width: 36px; text-align: center; appearance: textfield; }
 .lmsPdfPagination input::-webkit-inner-spin-button { appearance: none; }
@@ -149,11 +149,11 @@
 .lmsPdfControls button:not(.uiSelectTrigger):hover:not(:disabled), .lmsPdfSearch button:hover:not(:disabled) { background: var(--accent-soft); }
 .lmsPdfControls button:not(.uiSelectTrigger):disabled { opacity: .3; cursor: default; }
 .lmsPdfZoom .uiSelect { width: 100px; }
-.lmsPdfZoom .uiSelectTrigger { width: 100%; height: 28px; min-height: 28px; padding: 0 8px; font-size: calc(var(--type-note-size) * var(--text)); white-space: nowrap; }
-.lmsPdfSearch { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px var(--workspace-gutter); border-bottom: 1px solid var(--line); background: var(--surface); font-size: calc(var(--type-block-size) * var(--text)); }
-.lmsPdfSearch input { flex: 1; min-width: 90px; padding: 4px; border: 0; background: transparent; color: var(--ink); font: inherit; }
+.lmsPdfZoom .uiSelectTrigger { width: 100%; height: 28px; min-height: 28px; padding: 0 var(--space-4); font-size: calc(var(--type-note-size) * var(--text)); white-space: nowrap; }
+.lmsPdfSearch { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--workspace-gutter); border-bottom: 1px solid var(--line); background: var(--surface); font-size: calc(var(--type-block-size) * var(--text)); }
+.lmsPdfSearch input { flex: 1; min-width: 90px; padding: var(--space-2); border: 0; background: transparent; color: var(--ink); font: inherit; }
 .lmsPdfSearch input:focus { outline: none; }
-.lmsPdfSearch button { padding: 5px 8px; border-radius: var(--radius-control); font-size: calc(var(--type-block-size) * var(--text)); white-space: nowrap; }
+.lmsPdfSearch button { padding: 5px var(--space-4); border-radius: var(--radius-control); font-size: calc(var(--type-block-size) * var(--text)); white-space: nowrap; }
 .lmsPdfSearch button:disabled { color: var(--muted); opacity: .6; cursor: default; }
 .lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
 .lmsPdfDocument { width: 100%; padding: var(--space-gutter); overflow-x: auto; touch-action: pan-x pan-y; }
@@ -196,6 +196,6 @@
 
 @container workspace (max-width: 520px) {
   .lmsPdfHeader > .lmsFileToolbar { flex-wrap: wrap; }
-  .lmsPdfControls { gap: 4px; }
+  .lmsPdfControls { gap: var(--space-2); }
   .lmsPdfZoom .uiSelect { display: none; }
 }

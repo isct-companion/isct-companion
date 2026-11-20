@@ -559,8 +559,7 @@ function Account({
       component="section"
       className="schoolAccount"
       data-setting={profile === "science" ? "science" : "tokyo-tech"}
-      p="md"
-      radius="md"
+      p="card"
       withBorder
     >
       <Group component="header" justify="space-between" wrap="nowrap">

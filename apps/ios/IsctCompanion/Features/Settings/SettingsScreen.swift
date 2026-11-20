@@ -130,7 +130,7 @@ struct SettingsScreen: View {
                             SettingsIcon(symbol: "doc.text", tint: Theme.muted)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, Theme.space3)
                         .contentShape(.rect)
                         .contentShape(.contextMenuPreview, .rect(cornerRadius: 10))
                     }
@@ -247,7 +247,7 @@ struct SettingsScreen: View {
 
     private func row(_ title: String, _ detail: String?, icon: String, tint: Color) -> some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(title)
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
             }
@@ -297,9 +297,9 @@ struct SettingsScreen: View {
             } else {
                 SchoolSessionText.state(state)
             }
-        return HStack(spacing: 12) {
+        return HStack(spacing: Theme.rowGap) {
             Circle().fill(Self.tint(state)).frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(name)
                 Text(text).font(.subheadline).foregroundStyle(Theme.muted)
                 if let maintenance = session?.maintenance {
@@ -563,8 +563,8 @@ private struct ThemeSection: View {
         Section {
             HStack(spacing: 0) {
                 Label { Text(t("settings.main.theme")) } icon: { SettingsIcon(symbol: "paintpalette", tint: Theme.accent) }
-                Spacer(minLength: 12)
-                HStack(spacing: 10) {
+                Spacer(minLength: Theme.space6)
+                HStack(spacing: Theme.space5) {
                     ForEach(Theme.themes, id: \.self) { id in swatch(id, selected: id == chosen) }
                 }
             }
@@ -579,7 +579,7 @@ private struct ThemeSection: View {
         } label: {
             Circle()
                 .fill(set?.bg ?? Theme.bg)
-                .overlay { Circle().fill(set?.surface ?? Theme.surface).padding(8) }
+                .overlay { Circle().fill(set?.surface ?? Theme.surface).padding(Theme.space4) }
                 .overlay { Circle().strokeBorder(selected ? Theme.accent : Theme.line, lineWidth: selected ? 2 : 1) }
                 .frame(width: 28, height: 28)
         }
