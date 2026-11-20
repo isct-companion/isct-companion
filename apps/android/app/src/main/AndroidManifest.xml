@@ -115,6 +115,12 @@
             android:name=".core.SignInService"
             android:exported="false"
             android:foregroundServiceType="shortService" />
+        <!-- Keeps the app awake while a print job is sent, so HyperOS does not
+             freeze it once the print dialog closes (CampusPrintSending.kt). -->
+        <service
+            android:name=".CampusPrintSending"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <!-- The campus printer in every app's print dialog. Only the system
              may bind it; Android enables it on install. -->
         <service

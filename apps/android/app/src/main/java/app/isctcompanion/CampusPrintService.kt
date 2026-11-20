@@ -50,6 +50,9 @@ class CampusPrintService : PrintService() {
         val id = printJob.id ?: return
         if (jobs.containsKey(id)) return
         jobs[id] = scope.launch {
+            // Started now, while the system has this service bound; it keeps
+            // HyperOS from freezing the app once the dialog closes.
+            CampusPrintSending.hold(this@CampusPrintService)
             try {
                 turn.withLock {
                     if (!printJob.isStarted && !printJob.start()) return@withLock
@@ -72,6 +75,7 @@ class CampusPrintService : PrintService() {
                 jobs.remove(id)
                 sending.remove(id)
                 cancelled.remove(id)
+                CampusPrintSending.release(this@CampusPrintService)
             }
         }
     }
