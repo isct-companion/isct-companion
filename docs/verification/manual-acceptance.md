@@ -292,8 +292,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
-| `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Core/AppModelHandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/InboxTray.swift<br>apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift |
-| `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxTray.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt<br>apps/android/app/src/main/java/app/isctcompanion/shared/Thumbnail.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Core/AppModelHandIn.swift<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
+| `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/store/app-update.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
@@ -6419,7 +6419,7 @@ one would prove only the fake.
 
 **Last recorded** never run
 
-### Files shared into the iPhone or iPad app reach an assignment's LMS draft area (`IOS-SHARE-HAND-IN`)
+### Files shared on iPhone or iPad reach an eligible assignment's LMS draft area (`IOS-SHARE-HAND-IN`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6427,64 +6427,46 @@ one would prove only the fake.
 
 **Preconditions**
 
-The app signed in to Science Tokyo with an open assignment this quarter
-whose LMS page accepts file submissions; a signed build with the share
-extension and the App Group.
+A signed build with the share and action extensions and the App Group.
+The Science Tokyo account has an assignment that accepts late work and
+a closed assignment, or a deadline that can pass during the check.
 
 **Steps**
 
-1. In Goodnotes or Files, share a PDF and choose 「IsctCompanion で開く」
-   from the share sheet's actions (Edit Actions lists it if it is not
-   shown).
-   - *Why:* The app opens with the PDF in the corner stack, as if chosen in the
-     app; no panel pops up. No stack means the opened file never reached
-     the inbox.
-2. Drag the stack over an assignment row on 今日 and drop it; then add
-   another file, drag it to the trash that appears top right.
-   - *Why:* The row floats while the stack is over it; the drop opens the
-     assignment with the files in its upload card, and the row then says
-     「x 件のファイルが提出待ち」. The trash takes the stack with a bounce
-     and the files are gone from the inbox.
-3. In Photos, select two photos, Share, choose IsctCompanion, read the
-   sheet, leave 「アプリで選ぶ」 and tap 「追加して IsctCompanion を開く」.
-   - *Why:* The share extension copies both into the App Group inbox and the app
-     shows them as a thumbnail stack bottom right, without a count badge.
-     No IsctCompanion in the sheet means the extension or its activation
-     rule is missing.
-4. Tap the stack, then 「課題を選ぶ」 and the assignment.
-   - *Why:* The files move to the assignment's workspace `submit/` (Core) and its
-     page opens with both files in the upload card; the stack disappears.
-5. On the iPad, share a PDF from Files with the assignment picked in the
-   sheet; open the app. Then drag a file from Files in Split View onto
-   the upload card, and tap the card to add one more.
-   - *Why:* Files hands the sheet only a file URL, no content type; the sheet
-     must still show the PDF's thumbnail, and an empty strip with Add
-     greyed out means that URL was not read. A file given an assignment
-     in the sheet is handed in on the next open and that page is shown. The card is the one drop target and
-     tapping it opens the Files picker; each adds to the card's list.
-6. Tap 「LMS にアップロード」, wait, and read the LMS page.
-   - *Why:* Core fills the draft area through Moodle's own uploader and the page
-     says to review and submit yourself. The app never presses save; a
-     submission without the person's tap is a safety failure.
-7. In Files › On My iPad › IsctCompanion, open
-   `workspace/<quarter>/<course>/`.
-   - *Why:* The assignment's folder holds ASSIGNMENT.md and `submit/` with the
-     files, the same layout desktop uses.
+1. In Files, share a PDF through 「IsctCompanion で開く」. Choose the
+   assignment that allows late work, then inspect its LMS page.
+   - *Why:* The native action moves the app's copy into the current picker.
+     The LMS draft contains the PDF and the person must tap Save.
+2. In the share extension, pick an assignment before it closes. Wait
+   for its cutoff, then open the app from the share sheet.
+   - *Why:* Core rejects the stale target before taking the files. The app
+     retains the selection and offers another eligible assignment or Cancel.
+3. Cancel that selection. Verify the original PDF in Files and check the
+   previous assignment folder if this is an upgraded install.
+   - *Why:* The app clears its current copies; user's original and older files
+     are still there.
+4. On iPad, drag two files from Files in Split View onto an eligible
+   assignment row or its hand-in card. Try the same drop on a closed row.
+   - *Why:* The eligible drop reads the whole batch and fills the draft. A
+     closed row has no hand-in drop target.
+5. Pick files or photos in the assignment card. Go back from its LMS
+   page while it is still preparing, then reopen the LMS draft normally.
+   - *Why:* The resident browser cancels the matching request. Returning
+     does not make the canceled upload start.
 
 **Where to look**
 
-The share sheet, the corner stack, the assignment page and the LMS page in the app.
+The system share and pickers, the app's assignment picker, Files and the LMS draft.
 
 **Expected**
 
-Shared files wait in the corner, go to the chosen assignment's
-`submit/`, show in its upload card, and fill the LMS draft area for the
-person to save.
+Only eligible assignments receive the current selection. A stale
+target can be changed or canceled, and only a user's tap saves the draft.
 
 **Why this is manual**
 
-The share extension, App Group, Split View drag and the LMS draft area
-need a signed build, a device and a school account.
+The Apple extensions, App Group, Split View drag and actual LMS draft
+require a signed app, device and Science Tokyo account.
 
 **Covers**
 
@@ -6494,14 +6476,18 @@ need a signed build, a device and a school account.
 - `apps/ios/IsctCompanion/Shared/SharedInbox.swift`
 - `apps/ios/IsctCompanion/Core/HandIn.swift`
 - `apps/ios/IsctCompanion/Core/AppModelHandIn.swift`
-- `apps/ios/IsctCompanion/Features/HandIn/InboxTray.swift`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
 - `apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift`
 - `apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift`
 - `apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+- `crates/app-ffi/src/hand_in.rs`
+- `crates/app-core/src/school_browser/submission.rs`
+- `crates/adpt-isct/assets/assignment-upload.js`
 
 **Last recorded** never run
 
-### Files shared into the Android app reach an assignment's LMS draft area (`ANDROID-SHARE-HAND-IN`)
+### Files shared on Android reach an eligible assignment's LMS draft area (`ANDROID-SHARE-HAND-IN`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6509,49 +6495,55 @@ need a signed build, a device and a school account.
 
 **Preconditions**
 
-The Android app signed in to Science Tokyo with an open assignment this
-quarter whose LMS page accepts file submissions.
+The app signed in to Science Tokyo with an assignment that allows late
+work and a closed assignment, or a deadline that can pass during the check.
 
 **Steps**
 
-1. In Photos (or Files), select two items, Share, choose IsctCompanion.
-   - *Why:* The app opens with both in the inbox stack above the navigation
-     bar. No IsctCompanion in the sheet means the SEND filter is wrong.
-2. Tap the stack, then 「課題を選ぶ」 and the assignment.
-   - *Why:* The files go to the assignment's `submit/` through Core and its page
-     opens with them listed in the upload card.
-3. On the card, tap to add a document and use Photos to add an image;
-   remove one file; on a tablet, drag a file from another app onto it.
-   - *Why:* The card is the one place to add files: the document picker, the
-     photo picker and a drop all add to its list, and removing deletes
-     the copy in `submit/` only.
-4. Tap 「LMS にアップロード」 and read the LMS page.
-   - *Why:* Core fills the draft area and the page asks the person to review and
-     submit; the app never saves the submission itself.
+1. Select two files in Files or Photos, tap Share and choose IsctCompanion.
+   In the picker, select the assignment that allows late work.
+   - *Why:* Android's share intent grants the app the two files. The app's
+     picker omits closed assignments and the selected draft shows both
+     files for the person to save.
+2. Open the picker before an assignment closes, leave it open until
+   its cutoff, then try the stale target if still shown.
+   - *Why:* Core rejects the stale choice and keeps the files for another
+     eligible assignment or Cancel.
+3. Cancel and check both original files. Repeat using the assignment
+   card's file or photo picker or tablet drop.
+   - *Why:* The app clears its current copies. The originals remain in their
+     source apps.
+4. Go back from the LMS page while it is preparing, then reopen the
+   draft normally.
+   - *Why:* The resident WebView cancels the matching request. Returning does
+     not make the canceled upload start.
 
 **Where to look**
 
-The share sheet, the corner stack, the assignment page and the LMS page.
+Android's share and file pickers, the app's assignment picker and the LMS draft.
 
 **Expected**
 
-Shared files wait in the corner, go to the chosen assignment, show in its
-upload card and fill the LMS draft area for the person to save.
+Each selection is sent to an eligible LMS draft. A stale target can
+be changed or canceled. The person taps Save to submit the draft.
 
 **Why this is manual**
 
-The share sheet, document and photo pickers, cross-app drag and the LMS
-draft area need a device or emulator with a school account.
+System share grants, document and photo pickers, tablet drag and the
+actual LMS draft require Android and a Science Tokyo account.
 
 **Covers**
 
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxTray.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/shared/Thumbnail.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
+- `crates/app-ffi/src/hand_in.rs`
+- `crates/app-core/src/school_browser/submission.rs`
+- `crates/adpt-isct/assets/assignment-upload.js`
 
 **Last recorded** never run
 
@@ -6855,6 +6847,12 @@ notifications) in the same workspace.
    - *Why:* Once the system delivered the request, it no longer appears in the
      pending list. After dismissal, reopening must still respect that
      the OS already owned that reminder.
+7. On Android, turn off exact alarms and set a class reminder. If the
+   alarm is still pending after its nominal time, change the class
+   title and let the app refresh before the alarm fires. Repeat with
+   the class reminders switched off while the alarm is still pending.
+   - *Why:* The delayed broadcast must read the latest title exactly once.
+     After the switch is off, that pending alarm must stay silent.
 
 **Where to look**
 
@@ -10568,7 +10566,8 @@ export logic is pinned by the Core schedule and workspace suites.
 **Preconditions**
 
 iOS simulator and Android emulator builds of this commit, UI in
-English, no school account signed in and the network turned off.
+English, signed in to Science Tokyo with an eligible file assignment
+and the network turned off.
 
 **Steps**
 
@@ -10576,8 +10575,8 @@ English, no school account signed in and the network turned off.
    - *Why:* Core answers with a code as the SDK error's detail; text such as
      "network" or "offline" on screen means the shell showed the code
      itself instead of `error.<code>`.
-2. Turn the network on and open an assignment's hand-in with no files
-   chosen, then hand in.
+2. Turn the network on, select files totaling more than 20 MiB in an
+   assignment's hand-in.
    - *Why:* A Core validation failure must read as its catalog copy, not as
      "Invalid input: …" from the SDK error's description.
 

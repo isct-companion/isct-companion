@@ -150,7 +150,7 @@ shell; background changes are coalesced to at most one event per source per
 failure. `applyBackup` imports through the cloud journal like the desktop
 (written as this device's newest edits, then uploaded), so it and a cloud
 version restore both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
-The `school-session` event carries a complete revisioned snapshot.
+Query results are authoritative. The `school-session` event carries a complete revisioned snapshot.
 `decodeSchoolSession` converts its payload to the same SDK type as
 `schoolSession`. On a lost or undecodable event, read the snapshot again.
 
