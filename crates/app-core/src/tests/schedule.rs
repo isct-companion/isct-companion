@@ -2364,7 +2364,7 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
 }
 
 #[test]
-fn published_sessions_and_weekly_meetings_keep_their_own_dates_and_keys() {
+fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_edits() {
     let mut data = workspace();
     data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
     let exam_week_monday = "2026-06-01";
@@ -2379,7 +2379,7 @@ fn published_sessions_and_weekly_meetings_keep_their_own_dates_and_keys() {
         row("monday-exam", "exam", "2026-04-27", [5, 6]),
         row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
     ]);
-    // Individual weekly and published sessions keep their own edits.
+    // A session the person re-roomed outranks the timetable.
     data["scheduleOverrides"] = json!([
         {"id":"mine","targetKey":"course-weekly-0-2026-04-20","targetKind":"course","room":"My room","hidden":false},
         {"id":"mine-too","targetKey":"course-weekly-0-2026-05-11","targetKind":"course","room":"My room","hidden":false}
@@ -2408,7 +2408,6 @@ fn published_sessions_and_weekly_meetings_keep_their_own_dates_and_keys() {
     assert_eq!(
         agenda("2026-04-13"),
         [
-            session("course-weekly-0-2026-04-13", "08:50", "M-101"),
             session("reference:moved", "10:45", "W8E-E207"),
             (
                 OccurrenceKind::Exam,
@@ -2430,17 +2429,15 @@ fn published_sessions_and_weekly_meetings_keep_their_own_dates_and_keys() {
         ]
     );
 
-    // A dated exam and a weekly class can both take place on the same day.
+    // An exam replaces the weekly class of its day too, unless the person
+    // edited that session.
     let kinds = |date| {
         agenda(date)
             .into_iter()
             .map(|block| block.0)
             .collect::<Vec<_>>()
     };
-    assert_eq!(
-        kinds("2026-04-27"),
-        [OccurrenceKind::Course, OccurrenceKind::Exam]
-    );
+    assert_eq!(kinds("2026-04-27"), [OccurrenceKind::Exam]);
     assert_eq!(
         kinds("2026-05-11"),
         [OccurrenceKind::Course, OccurrenceKind::Exam]
@@ -2486,8 +2483,8 @@ fn published_sessions_and_weekly_meetings_keep_their_own_dates_and_keys() {
     .iter()
     .all(|view| view.kind == "exam"));
 
-    // A published class can change its kind without generating a weekly
-    // session outside the teaching range.
+    // Marking the published class as a quiz must not bring back the
+    // cancelled weekly session it replaces.
     mark_session(&mut data, "reference:exam-week", "quiz");
     let days = calendar_between(
         &data,
@@ -2655,16 +2652,24 @@ fn a_user_mark_decides_what_a_session_is() {
     .is_err());
     mark_session(&mut data, "course-weekly-0-2026-04-20", "exam");
     assert_eq!(agenda(&data, "2026-04-21"), [(OccurrenceKind::Exam, None)]);
-    // The personally marked session and the published exam have separate keys.
+    // The session gives way to the published exam of its course that day;
+    // the mark stays and counts again once that exam leaves the timetable.
     data["exams"].as_array_mut().unwrap().push(json!({"id":"monday","kind":"exam","sourceKey":"reference:monday","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-05-11","periods":[1,2],"room":{"ja":"W8E-E207"},"label":{"ja":"中間"},"status":"scheduled"}));
     mark_session(&mut data, "course-weekly-0-2026-05-11", "exam");
-    assert_eq!(
-        agenda(&data, "2026-05-11"),
-        [(OccurrenceKind::Exam, None), (OccurrenceKind::Exam, None)]
-    );
+    assert_eq!(agenda(&data, "2026-05-11"), [(OccurrenceKind::Exam, None)]);
+    assert!(!listed(&data)
+        .iter()
+        .any(|row| row.0 == "course-weekly-0-2026-05-11"));
+    let monday = data["exams"].as_array_mut().unwrap().pop().unwrap();
     assert!(listed(&data).contains(&session("course-weekly-0-2026-05-11", "exam")));
-    // A personal mark can restore an original slot outside the teaching range.
+    data["exams"].as_array_mut().unwrap().push(monday);
+    // The exam period cancels the weekly session; it stays in the calendar
+    // so the person can say it runs.
     assert!(agenda(&data, "2026-06-01").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-06-01"),
+        [(OccurrenceKind::Course, Some(true))]
+    );
     mark_session(&mut data, "course-weekly-0-2026-06-01", "class");
     assert_eq!(
         agenda(&data, "2026-06-01"),
@@ -2683,7 +2688,15 @@ fn a_user_mark_decides_what_a_session_is() {
     )
     .unwrap();
     assert!(!days[0].no_classes);
-    assert!(days[7].occurrences.is_empty());
+    assert!(days[7].no_classes);
+    assert_eq!(
+        days[7]
+            .occurrences
+            .iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>(),
+        [(OccurrenceKind::Course, Some(true))]
+    );
 
     // Exam-timetable rows: cancel, turn into a class, then back to the source.
     mark_session(&mut data, "reference:final", "cancelled");

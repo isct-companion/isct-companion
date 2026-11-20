@@ -598,8 +598,7 @@ impl<'a> CourseSessions<'a> {
         })
     }
 
-    /// Resolve a stored key at its original date, even if that date is no
-    /// longer a teaching day. Only an explicit change can use that source.
+    /// The session a stored key names, at its original date.
     pub(super) fn original(&self, key: &str) -> Result<Option<Occurrence>, ScheduleError> {
         let Some(date) = key_date(key) else {
             return Ok(None);
@@ -666,9 +665,10 @@ impl<'a> CourseSessions<'a> {
                         alternation,
                         cancelled,
                     } if on(day) => (Some(alternation.clone()), *cancelled),
+                    // Exam weeks and closed days keep the weekly session as
+                    // cancelled, so the person can mark it as running.
                     Resolution::Weekly(marker)
-                        if (on(teaching_day) || mark == Some("class") && on(day))
-                            && (!outside_teaching || only.is_some() || mark.is_some()) =>
+                        if on(teaching_day) || mark == Some("class") && on(day) =>
                     {
                         (marker.clone(), closed || outside_teaching)
                     }
@@ -747,6 +747,21 @@ impl<'a> CourseSessions<'a> {
                 );
             }
         }
+        // `approach/day-source-precedence`: the exam timetable states what a
+        // course does that day, so its rows replace the weekly sessions; only
+        // a session the person says still runs stays beside them.
+        let official: HashSet<&str> = published
+            .iter()
+            .filter(|exam| exam.date == date)
+            .filter_map(super::ExamView::replaced_course)
+            .collect();
+        blocks.retain(|block| {
+            runs_anyway(block)
+                || !block
+                    .course_id
+                    .as_deref()
+                    .is_some_and(|id| official.contains(id))
+        });
         blocks.extend(
             published
                 .iter()
@@ -792,6 +807,15 @@ impl<'a> CourseSessions<'a> {
 pub(super) fn key_date(key: &str) -> Option<&str> {
     key.get(key.len().saturating_sub(10)..)
         .filter(|date| parse_civil_date(date).is_ok())
+}
+
+/// A class session the person moved, re-roomed or marked as running. A
+/// session they marked as an exam or a quiz says what the timetable says and
+/// gives way to it.
+fn runs_anyway(block: &Occurrence) -> bool {
+    block.kind == OccurrenceKind::Course
+        && block.overridden == Some(true)
+        && block.cancelled != Some(true)
 }
 
 fn replacement_weekday(row: &Value) -> Option<u8> {

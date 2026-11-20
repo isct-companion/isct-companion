@@ -172,9 +172,16 @@ export function useScheduleQueries<T extends unknown[]>(
     ["schedule", queries],
     () => scheduleAnswers<T>(queries),
     enabled,
-    !queries.some((query) => query.kind === "calendarRange"),
+    // Another calendar range is another set of days, whose old answer would
+    // draw under the new dates. A new minute in `now` keeps the last answer.
+    (previous) =>
+      calendarRanges(previous[1] as readonly ScheduleQuery[]) ===
+      calendarRanges(queries),
   );
 }
+
+const calendarRanges = (queries: readonly ScheduleQuery[]) =>
+  JSON.stringify(queries.filter((query) => query.kind === "calendarRange"));
 
 export function useScheduleQuery<T>(
   query: ScheduleQuery,

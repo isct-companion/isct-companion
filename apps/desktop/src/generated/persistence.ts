@@ -1876,7 +1876,6 @@ export type ScheduleView = {
   courses: unknown[];
   agendas: Array<DatedAgenda>;
   exams: Array<ExamView>;
-  upcomingExams: Array<ExamView>;
   declaredCredits: number | null;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;

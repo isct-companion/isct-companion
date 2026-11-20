@@ -231,7 +231,6 @@ export function scheduleViewFor(
     ...overviewFor(workspace),
     agendas: [],
     exams: [],
-    upcomingExams: [],
     problems: [],
     ...overrides,
   };

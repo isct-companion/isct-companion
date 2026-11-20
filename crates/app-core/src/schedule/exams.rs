@@ -66,6 +66,19 @@ pub struct ExamView {
     pub conflict: Option<ExamConflict>,
 }
 
+impl ExamView {
+    /// The course whose weekly sessions this timetable row replaces on its
+    /// date: a scheduled row an agenda can draw.
+    pub(super) fn replaced_course(&self) -> Option<&str> {
+        (self.origin == "published"
+            && self.status == "scheduled"
+            && self.start_time.is_some()
+            && self.end_time.is_some())
+        .then_some(self.course_id.as_deref())
+        .flatten()
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -408,7 +421,7 @@ pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str
 /// and the class sessions the user marked as an exam or a quiz.
 pub(crate) fn exam_views(workspace: &Value, school: &SchoolReads, term: &str) -> Vec<ExamView> {
     let mut result = published_exam_views(workspace, school, term);
-    let sessions = session_exam_views(workspace, term);
+    let sessions = session_exam_views(workspace, term, &result);
     result.extend(sessions);
     sort_views(&mut result);
     result
@@ -463,7 +476,9 @@ pub(super) fn published_sessions_by_date(
 
 /// Class sessions marked as exams or quizzes use the same source and
 /// correction as the agenda, without laying out a day of unrelated sessions.
-fn session_exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
+/// As in the agenda, one gives way to a timetable row of its course that
+/// day; the mark stays and returns if the row goes.
+fn session_exam_views(workspace: &Value, term: &str, published: &[ExamView]) -> Vec<ExamView> {
     let Ok(sessions) = CourseSessions::new(workspace, term, None) else {
         return Vec::new();
     };
@@ -471,6 +486,14 @@ fn session_exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
         .iter()
         .filter(|row| visible(row) && text(row, "targetKind") == Some("course"))
         .filter_map(|row| session_exam_view(&sessions, term, text(row, "targetKey")?, row))
+        .filter(|view| {
+            !published.iter().any(|row| {
+                row.date == view.date
+                    && row
+                        .replaced_course()
+                        .is_some_and(|id| view.course_id.as_deref() == Some(id))
+            })
+        })
         .collect()
 }
 
