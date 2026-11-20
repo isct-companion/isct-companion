@@ -1139,8 +1139,10 @@ checks:
       - crates/app-ffi/src/services.rs
       - apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/android/app/src/main/AndroidManifest.xml
       - apps/desktop/src-tauri/src/commands/platform.rs
       - crates/app-ocr/**
@@ -1240,7 +1242,10 @@ checks:
     covers:
       - crates/app-core/src/campus_map/photos.rs
       - apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift
+      - apps/ios/IsctCompanion/Features/Map/FloorPhotoCamera.swift
+      - apps/ios/IsctCompanion/Core/AppModelCampusMap.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCampusMap.kt
       - .github/workflows/ios-release.yml
       - .github/workflows/android-release.yml
   - id: SCHOOL-MATRIX-TITECH-APP-IMPORT
@@ -4710,6 +4715,8 @@ checks:
       - apps/desktop/src-tauri/src/school_cookies.rs
       - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
     verified: null
 
@@ -4872,7 +4879,9 @@ checks:
       `otpauth://`, and the system clipboard.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - crates/app-ffi/src/session.rs
     verified: null
 
@@ -5114,7 +5123,9 @@ checks:
       - apps/ios/IsctCompanion/Design/TabItemPress.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
-      - apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableExport.swift
+      - apps/ios/IsctCompanion/Shared/ShareSheet.swift
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableAxisLayout.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
     verified: null
 
@@ -5182,6 +5193,7 @@ checks:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
       - apps/ios/IsctCompanion/Design/Theme.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt
       - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
       - apps/desktop/src/components/timetable/timetable.tsx
       - apps/desktop/src/styles.css
@@ -5234,8 +5246,10 @@ checks:
       - design/tokens/theme.json
       - apps/ios/IsctCompanion/Design/Theme.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt
       - apps/desktop/src/pages/settings/AppearanceSettings.tsx
       - crates/app-core/src/data/settings.rs
     verified: null
@@ -5623,7 +5637,11 @@ checks:
       - apps/ios/ExtensionShared/ExtensionInput.swift
       - apps/ios/IsctCompanion/Shared/SharedInbox.swift
       - apps/ios/IsctCompanion/Core/HandIn.swift
-      - apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift
+      - apps/ios/IsctCompanion/Core/AppModelHandIn.swift
+      - apps/ios/IsctCompanion/Features/HandIn/InboxTray.swift
+      - apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift
+      - apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift
+      - apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift
     verified: null
 
   - id: ANDROID-SHARE-HAND-IN
@@ -5663,7 +5681,11 @@ checks:
       draft area need a device or emulator with a school account.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxTray.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt
+      - apps/android/app/src/main/java/app/isctcompanion/shared/Thumbnail.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt
       - apps/android/app/src/main/AndroidManifest.xml
     verified: null
 
@@ -5882,6 +5904,7 @@ checks:
       object itself is covered by Core's workspace tests.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift
@@ -6072,6 +6095,7 @@ checks:
       loads. Recognition accuracy is Core's, covered by its tests and replay.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/android/app/src/main/res/xml/file_paths.xml
       - apps/android/app/src/main/AndroidManifest.xml
       - apps/android/app/build.gradle.kts
@@ -6252,6 +6276,8 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt
       - apps/android/app/src/main/res/xml/file_paths.xml
@@ -6516,12 +6542,15 @@ checks:
       object is covered by Core's workspace tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/DataUpdatesScreen.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt
     verified: null
 
   - id: ANDROID-WEB-PREFERENCES
@@ -6966,8 +6995,10 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Design/Localization.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt
       - resources/locales/**
       - apps/desktop/src/i18n/**
       - apps/desktop/src/lib/model.ts
@@ -7364,6 +7395,7 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Core/BrowserAuthentication.swift
       - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelCloud.swift
       - apps/ios/project.yml
     verified: null
 
@@ -7440,6 +7472,7 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt
       - crates/app-ffi/src/ports.rs
     verified: null
@@ -8201,6 +8234,8 @@ checks:
       tests is the live school's answer and the native page a person reads.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
       - crates/app-core/src/school_session/identity.rs
     verified: null
@@ -8848,7 +8883,11 @@ checks:
     covers:
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
     verified: null
 
   - id: SCHOOL-APP-OTP-ENTRY
@@ -8985,8 +9024,12 @@ checks:
       - apps/desktop/src/app/SchoolStatusBar.tsx
       - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
     verified: null
 
   - id: SCHOOL-REFUSAL-UNSAVED-COPY

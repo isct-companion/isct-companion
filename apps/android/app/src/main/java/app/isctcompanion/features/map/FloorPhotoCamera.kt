@@ -1,5 +1,6 @@
 package app.isctcompanion.features.map
 
+import app.isctcompanion.core.campusMapUploadPhoto
 import app.isctcompanion.shared.StillCameraResult
 import app.isctcompanion.shared.rememberStillCamera
 import android.graphics.Bitmap

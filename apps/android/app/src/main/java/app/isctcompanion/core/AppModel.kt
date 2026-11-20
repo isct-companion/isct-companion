@@ -38,7 +38,7 @@ import org.json.JSONObject
  * forwards intents and reports lifecycle facts; every decision about what is
  * due, grouped or shown stays in Core. Lives as long as the process, so state
  * survives activity recreation. Every member is used on the main thread. */
-class AppModel(private val context: Context, private val scope: CoroutineScope) {
+class AppModel(internal val context: Context, private val scope: CoroutineScope) {
     /** Newer releases from GitHub, offered on 今日 (`AppUpdater`). */
     val updater = AppUpdater(context)
 
@@ -57,7 +57,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Files waiting in each assignment's `submit/`, by assignment id, for
      * 今日's rows (Core's `waitingHandIns`). */
     var waiting: Map<String, Int> by mutableStateOf(emptyMap())
-        private set
+        internal set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
     /** Course id → Core's display colour, identical on every surface. */
@@ -93,13 +93,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         private set
     /** One "needs you" banner (sync feedback level 3). */
     var problem: String? by mutableStateOf(null)
-        private set
+        internal set
     /** Cells read so far by a running Matrix scan, from Core's `ocr-progress`. */
     var ocrProgress: Int by mutableStateOf(0)
-        private set
+        internal set
     /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
     var cloud: SyncState? by mutableStateOf(null)
-        private set
+        internal set
     /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
      * events and `Account` answers report it; null until the page reads it. */
     var examAccount: ExamAccount? by mutableStateOf(null)
@@ -112,7 +112,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Google Drive sign-in; the activity in front attaches its consent screen. */
     val drive = DriveTokens(context)
     val web = WebRouter(browser, scope, context)
-    private var session: Session? = null
+    internal var session: Session? = null
+        private set
     private var revision = ""
     private val dashboardReads = ScheduleReads()
     internal val timetableWeeks = TimetableWeeks()
@@ -468,7 +469,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Keeps the higher `revision` of Core's `school-session` events and
      * `schoolSession` reads. */
-    private fun applySchool(snapshot: SchoolSessionSnapshot) {
+    internal fun applySchool(snapshot: SchoolSessionSnapshot) {
         val shown = sessionRevision
         if (shown != null && snapshot.revision < shown) return
         sessionRevision = snapshot.revision
@@ -517,89 +518,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     suspend fun deadlineDisplay(at: String): TaskDeadlineView? =
         (query(WorkspaceQuery.DeadlineDisplay(at, Instant.now().toString())) as? WorkspaceQueryResult.DeadlineDisplay)?.v1
-
-    // Campus map
-
-    /** Whether Core's map knows a room string, or with null whether a map is
-     * stored at all; false (also before Core has the map's file) means no
-     * map button. A failure also hides the button, but is logged. */
-    suspend fun campusMapHas(room: String?): Boolean {
-        val session = session ?: return false
-        if (room?.isEmpty() == true) return false
-        return try {
-            (session.campusMapHas(room).value() as? OperationResult.Flag)?.value == true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: SdkException.Unavailable) {
-            false
-        } catch (error: Exception) {
-            Log.w("isct", "campus map has", error)
-            false
-        }
-    }
-
-    /** Opens Core's map page on a room string, or on none to browse. */
-    suspend fun campusMapOpen(room: String?): CampusMapOpening {
-        val session = session ?: return CampusMapOpening.Failed(t("error.internal"))
-        return try {
-            val scene = (session.campusMapOpen(room).value() as? OperationResult.CampusMapScene)?.scene
-            if (scene != null) CampusMapOpening.Ready(scene) else CampusMapOpening.Failed(t("error.internal"))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: SdkException.Unavailable) {
-            CampusMapOpening.Missing
-        } catch (error: Exception) {
-            CampusMapOpening.Failed(describe(error))
-        }
-    }
-
-    /** One intent on an open map page; null when nothing drawn changed or
-     * the page is gone. A failure is logged: the page keeps its last scene. */
-    /** Sends one floor photo to the maintainers' inbox; `null` once stored,
-     * else what to show. */
-    suspend fun campusMapUploadPhoto(buildingId: String, jpeg: ByteArray): String? {
-        val session = session ?: return t("error.internal")
-        return try {
-            session.campusMapUploadPhoto(buildingId, jpeg).value()
-            null
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w("isct", "campus map photo", error)
-            describe(error)
-        }
-    }
-
-    suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
-        val session = session ?: return null
-        return try {
-            (session.campusMapSend(page, intent).value() as? OperationResult.CampusMapScene)?.scene
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w("isct", "campus map send", error)
-            null
-        }
-    }
-
-    /** What a map search's text names; Core echoes the text so the page can
-     * drop answers to text since changed. A failure carries the text to show. */
-    suspend fun campusMapSearch(query: String): Result<CampusMapSearch> {
-        val session = session ?: return Result.failure(IllegalStateException(t("error.internal")))
-        return try {
-            val search = (session.campusMapSearch(query).value() as? OperationResult.CampusMapSearch)?.search
-            if (search != null) Result.success(search) else Result.failure(IllegalStateException(t("error.internal")))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Result.failure(IllegalStateException(describe(error)))
-        }
-    }
-
-    /** Drops Core's map page, and its open if it is still loading. */
-    fun campusMapClose() {
-        session?.campusMapClose()
-    }
 
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
@@ -650,71 +568,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (result as? OperationResult.Material)?.material
     }
 
-    // Hand-in (slotledger `approach/share-entry-points`): files go to the assignment's
-    // workspace `submit/`; handing in fills the LMS draft area from it. Core
-    // never submits; the person saves the page.
-
-    /** The files waiting in the assignment's `submit/`. */
-    suspend fun submitFiles(assignment: String): List<LocalFile> {
-        val session = session ?: return emptyList()
-        val result = runCatching { session.assignmentSubmitFiles(assignment).value() }.getOrNull()
-        return (result as? OperationResult.Files)?.files.orEmpty()
-    }
-
-    /** Copies the files into the assignment's `submit/`; the sources stay. */
-    suspend fun addSubmitFiles(assignment: String, files: List<SharedFile>): List<LocalFile> {
-        val session = session ?: throw SdkException.Closed()
-        val listed = (session.addAssignmentFiles(assignment, files).value() as? OperationResult.Files)?.files.orEmpty()
-        refreshWaiting()
-        return listed
-    }
-
-    suspend fun removeSubmitFile(assignment: String, name: String): List<LocalFile> {
-        val session = session ?: throw SdkException.Closed()
-        val listed = (session.removeAssignmentFile(assignment, name).value() as? OperationResult.Files)?.files.orEmpty()
-        refreshWaiting()
-        return listed
-    }
-
     /** Asks Core for a newer release when a check is due (or now, `manual`). */
     suspend fun checkForUpdate(manual: Boolean = false) {
         val session = session ?: return
         updater.check(session, manual)
-    }
-
-    /** Re-reads which assignments have files waiting to be handed in. */
-    suspend fun refreshWaiting() {
-        val session = session ?: return
-        val result = runCatching { session.waitingHandIns().value() }.getOrNull() as? OperationResult.Waiting ?: return
-        waiting = result.assignments.groupBy({ it.assignmentId }, { it.files.toInt() }).mapValues { it.value.sum() }
-    }
-
-    /** Queues `submit/` for the LMS draft area; returns the page that receives it. */
-    suspend fun handIn(assignment: String): String {
-        val session = session ?: throw SdkException.Closed()
-        val messages = UploadMessages(
-            t("failure.preparingYourLMSUpload"),
-            t("failure.filesSentToTheUpload"),
-            t("failure.theUploadAreaIsNot"),
-        )
-        return (session.handInAssignment(assignment, messages).value() as? OperationResult.Text)?.value
-            ?: throw SdkException.Unavailable("")
-    }
-
-    /** Gives inbox items to an assignment and removes them; on failure they stay. */
-    suspend fun give(items: List<SharedInbox.Item>, assignment: String): Boolean {
-        val files = items.map { SharedFile(it.file.path, it.name) }
-        if (files.isEmpty()) return false
-        return try {
-            addSubmitFiles(assignment, files)
-            items.forEach { SharedInbox.remove(context, it) }
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            problem = describe(error)
-            false
-        }
     }
 
     /** The syllabus departments, as the desktop's course finder lists them. */
@@ -868,37 +725,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh(SyncScope.Everything)
     }
 
-    /** "Save and connect": Core signs in with the entered details and keeps
-     * them only when the school accepted them (`Connected`); every other
-     * outcome saved nothing. */
-    suspend fun connect(profile: SchoolAuthProfile, credentials: SchoolCredentials): SchoolConnectOutcome? {
-        val session = session ?: return null
-        val value = session.connectSchool(profile, credentials).value()
-        refreshAccounts()
-        return (value as? OperationResult.SchoolConnect)?.outcome
-    }
-
-    /** Retry on an account Core holds (`refused`, `needs-web`) or waits on
-     * (`unavailable`): Core reads the synced credentials again and signs in
-     * once in front; the credentials stay as they are. */
-    suspend fun retrySchool(profile: SchoolAuthProfile) {
-        val session = session ?: return
-        (session.retrySchool(profile).value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }
-    }
-
-    suspend fun schoolOtpCode(): SchoolOtpCode? {
-        val session = session ?: return null
-        return (session.schoolOtpCode().value() as? OperationResult.CurrentSchoolOtp)?.snapshot
-    }
-
-    /** The saved school OTP setup as an `otpauth://` link, read only when the
-     * person asks to add it to an authenticator or copy it. */
-    suspend fun otpSetupLink(): String {
-        val session = session ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-        return (session.schoolOtpLink().value() as? OperationResult.Text)?.value
-            ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-    }
-
     /** Edits `settings.notifications` and replaces the settings object. */
     suspend fun setNotifications(edit: (JSONObject) -> Unit) = updateSettings { settings ->
         val notifications = settings.optJSONObject("notifications") ?: JSONObject()
@@ -922,77 +748,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         runCatching { session?.refreshReminderPort() }
     }
 
-    /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */
-    val canScanMatrix: Boolean
-        get() = runCatching { session?.capabilities()?.ocr }.getOrNull() == true
 
-    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
-    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
-        val session = session ?: return emptyList()
-        ocrProgress = 0
-        return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
-    }
-
-    /** Starts a live Matrix scan; its ten-second budget starts now. */
-    fun beginMatrixCamera(): MatrixCameraSession =
-        session?.beginMatrixCamera() ?: throw SdkException.Closed()
-
-    // Backup: the desktop's Backup settings over the same Core journal. Core
-    // decides what uploads, merges and restores.
-
-    suspend fun refreshCloud() {
-        val session = session ?: return
-        (runCatching { session.cloudState().value() }.getOrNull() as? OperationResult.Cloud)
-            ?.let { cloud = it.state }
-    }
-
-    /** Turning Drive on first shows Google's consent; Core keeps it off with
-     * the reason if that fails. */
-    suspend fun setCloudEnabled(provider: CloudProvider, enabled: Boolean) =
-        cloudOperation { it.setCloudEnabled(provider, enabled) }
-
-    suspend fun setCloudAutomatic(automatic: Boolean) = cloudOperation { it.setCloudAutomatic(automatic) }
-
-    suspend fun syncCloud(direction: Direction) {
-        cloudOperation { it.syncCloud(direction) }
-        refresh()
-    }
-
-    /** Restores a cloud version or a local recovery file, on every connected device. */
-    suspend fun restoreCloud(id: String) {
-        cloudOperation { it.restoreCloud(id) }
-        refresh()
-    }
-
-    /** The current workspace as a backup file (the desktop's Export…). */
-    suspend fun exportBackup(): String? {
-        val session = session ?: return null
-        return try {
-            (session.exportBackup().value() as? OperationResult.Text)?.value
-        } catch (error: Exception) {
-            problem = describe(error)
-            null
-        }
-    }
-
-    /** Imports a backup file; Core saves a recovery file first and publishes
-     * the import like any restore. Core rejects anything that is not a backup. */
-    suspend fun importBackup(text: String) {
-        val session = session ?: return
-        session.applyBackup(text).value()
-        refreshCloud()
-        refresh()
-    }
-
-    private suspend fun cloudOperation(start: (Session) -> Operation) {
-        val session = session ?: return
-        try {
-            (start(session).value() as? OperationResult.Cloud)?.let { cloud = it.state }
-        } catch (error: Exception) {
-            problem = describe(error)
-            refreshCloud()
-        }
-    }
 
     /** Settings → Reset: what `request` would remove now, or null when Core
      * cannot tell. */
@@ -1024,19 +780,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         session.syncCloud(Direction.PULL).value()
         refreshCloud()
         refresh()
-    }
-
-    /** Forgets an account. Returns once Core's account barrier passed: its
-     * reads stopped, and its credentials, cookies and LMS token are gone, with
-     * every school web sign-in (the other account's next page writes its own
-     * again). */
-    suspend fun deleteCredentials(profile: SchoolAuthProfile) {
-        val session = session ?: return
-        try {
-            session.deleteCredentials(profile).value()
-        } finally {
-            refreshAccounts()
-        }
     }
 
     companion object {

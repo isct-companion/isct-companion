@@ -77,3 +77,115 @@ extension View {
         if block.mark != nil { modifier(SessionMarks(block: block)) } else { self }
     }
 }
+
+extension TimetableScreen {
+    /// One block (slotledger `approach/timetable-*`): a solid course fill,
+    /// deeper for an exam; a ring only for the class in progress; an exam or
+    /// quiz tag above the title; a class that does not take place striped.
+    func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool, narrow: Bool) -> some View {
+        let planned = block.planned == true
+        let cancelled = block.cancelled == true || holiday
+        let exam = block.kind == .exam && !cancelled
+        let quiz = exam && block.quiz == true
+        let current = isCurrent(block)
+        let tint = Color(hex: block.color)
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusBlock, style: .continuous)
+        let tagged = exam && !narrow
+        let content = VStack(alignment: .leading, spacing: BlockText.spacing) {
+            if tagged {
+                HStack(spacing: 3) {
+                    ExamTag(quiz: quiz, tint: tint)
+                    if block.sourceChanged == true {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(Theme.warn)
+                            .accessibilityLabel(t("common.timetableChanged"))
+                    }
+                }
+                .font(BlockText.titleFont)
+            }
+            Text(block.title)
+                .strikethrough(cancelled)
+                .font(BlockText.titleFont)
+                .lineLimit(BlockText.titleLines(height: height, tagged: tagged, footer: !narrow))
+            if !narrow {
+                Spacer(minLength: 0)
+                bottomLine(block, planned: planned, cancelled: cancelled)
+                    .font(BlockText.roomFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .foregroundStyle(cancelled ? Theme.muted : Theme.courseInk(tint))
+        .padding(BlockText.padding)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: height)
+        .background {
+            if cancelled {
+                shape.fill(Theme.mix(Theme.muted, 0.10, into: Theme.surface))
+                    .overlay { Stripes().clipShape(shape) }
+            } else if planned {
+                shape.fill(Theme.surface)
+            } else {
+                shape.fill(Theme.mix(tint, exam && !quiz ? Theme.tintExam : Theme.tintFill, into: Theme.surface))
+            }
+        }
+        .overlay {
+            if current && !cancelled {
+                shape.stroke(tint, lineWidth: 2)
+            } else if planned && !cancelled {
+                shape.stroke(Theme.mix(tint, 0.45, into: Theme.surface), lineWidth: 1.5)
+            }
+        }
+        .contentShape(shape)
+        .padding(.horizontal, Theme.space1)
+        return Group {
+            if let id = block.courseId {
+                NavigationLink(value: CourseRoute(id: id, zoom: block.key)) { content }
+                    .buttonStyle(PressableStyle())
+                    .courseZoomSource(block.key)
+            } else {
+                content
+            }
+        }
+        .sessionMarks(block)
+    }
+
+    /// 計画, 休講, the real times of a block drawn over whole periods, or the
+    /// first room; every room stays on the course page.
+    @ViewBuilder
+    private func bottomLine(_ block: Occurrence, planned: Bool, cancelled: Bool) -> some View {
+        if planned {
+            Text(t("timetable.planned"))
+        } else if cancelled {
+            Text(t("common.noClass"))
+        } else if let grid = block.grid,
+            grid.startTime != block.startTime || grid.endTime != block.endTime
+        {
+            Text("\(Self.clock(block.startTime))–\(Self.clock(block.endTime))").monospacedDigit()
+        } else {
+            Text(BlockText.firstRoom(block.room))
+        }
+    }
+
+    /// "09:30" as 9:30, as the period column writes times.
+    private static func clock(_ time: String) -> String {
+        time.replacingOccurrences(of: "^0", with: "", options: .regularExpression)
+    }
+}
+
+/// Diagonal stripes on a class that does not take place.
+private struct Stripes: View {
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            var x: CGFloat = -size.height
+            while x < size.width {
+                path.move(to: CGPoint(x: x, y: size.height))
+                path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                x += 8
+            }
+            context.stroke(path, with: .color(Theme.line), lineWidth: 3)
+        }
+        .allowsHitTesting(false)
+    }
+}

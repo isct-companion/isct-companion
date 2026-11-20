@@ -1,5 +1,6 @@
 package app.isctcompanion.features.settings
 
+import app.isctcompanion.core.schoolOtpCode
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager

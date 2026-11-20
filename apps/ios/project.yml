@@ -175,6 +175,7 @@ targets:
       - path: IsctCompanion/Shared
         excludes:
           - QuickLookView.swift
+          - ShareSheet.swift
           - SystemCamera.swift
       - path: IsctCompanion/Design/Localization.swift
       - path: ../../resources/locales

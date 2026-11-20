@@ -1,7 +1,6 @@
 import IsctCore
 import SwiftUI
 import TipKit
-import UIKit
 
 /// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
 /// Monday–Friday, whatever quarter the week is in; the title opens a picker
@@ -390,100 +389,8 @@ struct TimetableScreen: View {
         .accessibilityHidden(true)
     }
 
-    /// One block (slotledger `approach/timetable-*`): a solid course fill,
-    /// deeper for an exam; a ring only for the class in progress; an exam or
-    /// quiz tag above the title; a class that does not take place striped.
-    private func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool, narrow: Bool) -> some View {
-        let planned = block.planned == true
-        let cancelled = block.cancelled == true || holiday
-        let exam = block.kind == .exam && !cancelled
-        let quiz = exam && block.quiz == true
-        let current = isCurrent(block)
-        let tint = Color(hex: block.color)
-        let shape = RoundedRectangle(cornerRadius: Theme.radiusBlock, style: .continuous)
-        let tagged = exam && !narrow
-        let content = VStack(alignment: .leading, spacing: BlockText.spacing) {
-            if tagged {
-                HStack(spacing: 3) {
-                    ExamTag(quiz: quiz, tint: tint)
-                    if block.sourceChanged == true {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(Theme.warn)
-                            .accessibilityLabel(t("common.timetableChanged"))
-                    }
-                }
-                .font(BlockText.titleFont)
-            }
-            Text(block.title)
-                .strikethrough(cancelled)
-                .font(BlockText.titleFont)
-                .lineLimit(BlockText.titleLines(height: height, tagged: tagged, footer: !narrow))
-            if !narrow {
-                Spacer(minLength: 0)
-                bottomLine(block, planned: planned, cancelled: cancelled)
-                    .font(BlockText.roomFont)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-        }
-        .foregroundStyle(cancelled ? Theme.muted : Theme.courseInk(tint))
-        .padding(BlockText.padding)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .frame(height: height)
-        .background {
-            if cancelled {
-                shape.fill(Theme.mix(Theme.muted, 0.10, into: Theme.surface))
-                    .overlay { Stripes().clipShape(shape) }
-            } else if planned {
-                shape.fill(Theme.surface)
-            } else {
-                shape.fill(Theme.mix(tint, exam && !quiz ? Theme.tintExam : Theme.tintFill, into: Theme.surface))
-            }
-        }
-        .overlay {
-            if current && !cancelled {
-                shape.stroke(tint, lineWidth: 2)
-            } else if planned && !cancelled {
-                shape.stroke(Theme.mix(tint, 0.45, into: Theme.surface), lineWidth: 1.5)
-            }
-        }
-        .contentShape(shape)
-        .padding(.horizontal, Theme.space1)
-        return Group {
-            if let id = block.courseId {
-                NavigationLink(value: CourseRoute(id: id, zoom: block.key)) { content }
-                    .buttonStyle(PressableStyle())
-                    .courseZoomSource(block.key)
-            } else {
-                content
-            }
-        }
-        .sessionMarks(block)
-    }
 
-    /// 計画, 休講, the real times of a block drawn over whole periods, or the
-    /// first room; every room stays on the course page.
-    @ViewBuilder
-    private func bottomLine(_ block: Occurrence, planned: Bool, cancelled: Bool) -> some View {
-        if planned {
-            Text(t("timetable.planned"))
-        } else if cancelled {
-            Text(t("common.noClass"))
-        } else if let grid = block.grid,
-            grid.startTime != block.startTime || grid.endTime != block.endTime
-        {
-            Text("\(Self.clock(block.startTime))–\(Self.clock(block.endTime))").monospacedDigit()
-        } else {
-            Text(BlockText.firstRoom(block.room))
-        }
-    }
-
-    /// "09:30" as 9:30, as the period column writes times.
-    private static func clock(_ time: String) -> String {
-        time.replacingOccurrences(of: "^0", with: "", options: .regularExpression)
-    }
-
-    private func isCurrent(_ block: Occurrence) -> Bool {
+    func isCurrent(_ block: Occurrence) -> Bool {
         guard let today = model.today, today.phase == .inClass, let hero = today.hero else { return false }
         return hero.occurrence.key == block.key
     }
@@ -496,63 +403,6 @@ struct TimetableScreen: View {
         let offset = weekday == 1 ? 1 : weekday == 7 ? 2 : 2 - weekday
         return calendar.date(byAdding: .day, value: offset, to: start) ?? start
     }
-}
-
-/// What the 時間割 tab's long press offers: the shown quarter as an .ics.
-enum CalendarExportPick: Hashable {
-    case courses, coursesAndEvents
-
-    var scope: CalendarExportScope { self == .courses ? .courses : .coursesAndEvents }
-}
-
-/// The export panel's rows; the workstation's rail row shows the same in a menu.
-struct CalendarExportRows: View {
-    let term: String
-    var highlighted: CalendarExportPick?
-    var report: ((CalendarExportPick, CGRect) -> Void)?
-    let pick: (CalendarExportPick) -> Void
-
-    var body: some View {
-        Text(t("common.exportICS") + " · " + Format.quarter(term))
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(Theme.muted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.space7)
-            .padding(.top, Theme.space3)
-            .padding(.bottom, Theme.space1)
-        TabPressRow(choice: CalendarExportPick.courses, title: t("common.coursesOnly"), icon: "calendar",
-                    highlighted: highlighted, report: report, pick: pick)
-        TabPressRow(choice: CalendarExportPick.coursesAndEvents, title: t("common.coursesWeeklyEvents"),
-                    icon: "calendar.badge.plus", highlighted: highlighted, report: report, pick: pick)
-    }
-}
-
-/// A quarter's calendar, written by Core as the desktop's ICSを書き出す, in a
-/// temporary file for the share sheet (Files, AirDrop, Mail; opened from
-/// Files it adds to Calendar).
-struct QuarterCalendarFile: Identifiable {
-    let url: URL
-    var id: URL { url }
-
-    static func write(model: AppModel, term: String, pick: CalendarExportPick) async throws -> Self {
-        let text = try await model.quarterIcs(term: term, scope: pick.scope)
-        let suffix = pick == .coursesAndEvents ? "-with-events" : ""
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("IsctCompanion-\(term)\(suffix).ics")
-        try Data(text.utf8).write(to: url, options: .atomic)
-        return Self(url: url)
-    }
-}
-
-/// The system share sheet for a file, presented from the root.
-struct ShareSheet: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// One rule after each teaching block (1–2, 3–4, …), never inside one, so a
@@ -597,23 +447,6 @@ private struct NowLine: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 .animation(reduceMotion ? nil : .smooth(duration: Theme.motionSlow), value: offset)
             }
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-/// Diagonal stripes on a class that does not take place.
-private struct Stripes: View {
-    var body: some View {
-        Canvas { context, size in
-            var path = Path()
-            var x: CGFloat = -size.height
-            while x < size.width {
-                path.move(to: CGPoint(x: x, y: size.height))
-                path.addLine(to: CGPoint(x: x + size.height, y: 0))
-                x += 8
-            }
-            context.stroke(path, with: .color(Theme.line), lineWidth: 3)
         }
         .allowsHitTesting(false)
     }

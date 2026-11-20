@@ -42,7 +42,8 @@ OCR is unavailable on the Intel simulator.
 
 | Path | Content |
 |---|---|
-| `IsctCompanion/Core/AppModel.swift` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents, lifecycle facts |
+| `IsctCompanion/Core/AppModel.swift` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents and lifecycle facts |
+| `IsctCompanion/Core/AppModel*.swift` | Campus map, hand-in, cloud backup and school account adapters for the same session |
 | `IsctCompanion/Core/SchoolBrowserHost.swift` | `NativeBrowser`: one resident WKWebView per school site, driven by Core |
 | `IsctCompanion/Core/WebRouter.swift` | Which school page is on screen; `openSchool` and the visibility fact |
 | `IsctCompanion/Core/KeychainVault.swift` | `NativeVault`; item names come from Core's `vaultItem`, shared with the Mac app through iCloud Keychain |
