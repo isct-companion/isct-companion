@@ -39,8 +39,6 @@ struct ThemeSection: View {
     }
 }
 
-/// Settings → Map: which maps app the campus map's "Open in Maps" links
-
 /// The desktop's language rows: the UI language and the language of school
 /// text. Both are workspace settings, so they follow the person to desktop.
 struct LanguageSection: View {

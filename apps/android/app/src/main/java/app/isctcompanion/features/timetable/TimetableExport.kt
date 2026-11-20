@@ -35,6 +35,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** The shown quarter as an .ics, written by Core as the desktop's ICSを書き出す,
+ * handed to the share sheet (Calendar, Drive, Mail). */
 @Composable
 internal fun ExportButton(term: String) {
     val model = LocalModel.current

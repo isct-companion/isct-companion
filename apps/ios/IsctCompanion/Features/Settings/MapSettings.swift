@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Settings → Map: which maps app the campus map's "Open in Maps" links
 /// open in. Core builds the link from this device setting.
 struct MapSection: View {
     @Environment(AppModel.self) private var model

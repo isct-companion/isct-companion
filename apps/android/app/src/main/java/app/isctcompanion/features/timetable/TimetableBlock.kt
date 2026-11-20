@@ -59,7 +59,8 @@ import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.t
 import kotlinx.coroutines.launch
 
-private val laneGap = 2.dp
+/** Gap between blocks that share a time side by side. */
+internal val laneGap = 2.dp
 
 @Composable
 internal fun Block(

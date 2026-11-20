@@ -296,9 +296,6 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
     }
 }
 
-/** The shown quarter as an .ics, written by Core as the desktop's ICSを書き出す,
- * handed to the share sheet (Calendar, Drive, Mail). */
-
 /** "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み. */
 private fun chip(year: TimetableYear?, monday: LocalDate): String {
     year ?: return t("common.timetable")
@@ -442,8 +439,6 @@ private fun DaySkeleton(axis: TimetableAxis, rowHeight: Dp) {
         }
     }
 }
-
-/** Gap between blocks that share a time side by side. */
 
 /** One rule after each teaching block (1–2, 3–4, …), never inside one, so a
  * two-period class is not cut in half; the lunch band is shaded. */
