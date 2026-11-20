@@ -908,7 +908,8 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
-          scheduleView: (_query, core) => lectureSchedule(core.workspace),
+          calendarRange: (_query, core) =>
+            lectureSchedule(core.workspace).agendas,
           taskView: (_query, core) => lectureTasks(core.workspace),
         },
         handle: nativeNoise,
