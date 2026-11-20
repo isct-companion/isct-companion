@@ -4,7 +4,7 @@
 //! record, so a later source correction still reaches every field the user did
 //! not change. The course link is stored beside those fields but edited apart.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use super::occurrence::{key_date, CourseSessions};
+use super::occurrence::{key_date, names_session, CourseSessions};
 use super::SchoolReads;
 use super::{
     array, clock_for_periods, display_color, teaching_periods, term_courses, text, visible,
@@ -484,7 +484,7 @@ fn session_exam_views(workspace: &Value, term: &str, published: &[ExamView]) -> 
     };
     array(workspace, "scheduleOverrides")
         .iter()
-        .filter(|row| visible(row) && text(row, "targetKind") == Some("course"))
+        .filter(|row| visible(row) && names_session(row))
         .filter_map(|row| session_exam_view(&sessions, term, text(row, "targetKey")?, row))
         .filter(|view| {
             !published.iter().any(|row| {

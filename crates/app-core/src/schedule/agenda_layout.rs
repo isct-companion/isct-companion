@@ -17,7 +17,8 @@ pub(super) fn finalize_agenda(
     alternation::pair_blocks(&mut blocks)?;
     mark_conflicts(&mut blocks)?;
     for i in 0..blocks.len() {
-        if blocks[i].kind != OccurrenceKind::Exam {
+        // A cancelled exam collides with nothing, as `mark_conflicts` holds.
+        if blocks[i].kind != OccurrenceKind::Exam || blocks[i].cancelled == Some(true) {
             continue;
         }
         let collisions: Vec<_> = (0..blocks.len())

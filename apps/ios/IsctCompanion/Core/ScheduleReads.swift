@@ -55,8 +55,11 @@ final class TimetableWeeks {
 
     subscript(monday: Date) -> ScheduleView? { shown[AppModel.civil(monday)] }
 
+    /// A week on screen reads again when a commit touched what it read, or
+    /// when its last read did not finish.
     func invalidateIfChanged(_ session: Session) {
-        if !fresh.isEmpty, (try? reads.current(session)) == false { invalidate() }
+        guard !shown.isEmpty else { return }
+        if fresh.isEmpty || (try? reads.current(session)) == false { invalidate() }
     }
 
     func invalidate(discard: Bool = false) {

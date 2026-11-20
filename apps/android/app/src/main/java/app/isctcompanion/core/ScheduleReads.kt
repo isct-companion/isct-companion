@@ -69,8 +69,10 @@ internal class TimetableWeeks {
 
     operator fun get(monday: LocalDate): ScheduleView? = shown[monday]
 
+    /** A week on screen reads again when a commit touched what it read, or
+     * when its last read did not finish. */
     fun invalidateIfChanged(session: Session) {
-        if (fresh.isNotEmpty() && !reads.current(session)) invalidate()
+        if (shown.isNotEmpty() && (fresh.isEmpty() || !reads.current(session))) invalidate()
     }
 
     fun invalidate(discard: Boolean = false) {

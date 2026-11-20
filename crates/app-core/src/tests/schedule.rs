@@ -2379,9 +2379,10 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
         row("monday-exam", "exam", "2026-04-27", [5, 6]),
         row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
     ]);
-    // A session the person re-roomed outranks the timetable.
+    // A session the person re-roomed outranks the timetable. A stored row
+    // without `targetKind` names a class session too.
     data["scheduleOverrides"] = json!([
-        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","targetKind":"course","room":"My room","hidden":false},
+        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","room":"My room","hidden":false},
         {"id":"mine-too","targetKey":"course-weekly-0-2026-05-11","targetKind":"course","room":"My room","hidden":false}
     ]);
     let agenda = |date| {
@@ -2697,6 +2698,13 @@ fn a_user_mark_decides_what_a_session_is() {
             .collect::<Vec<_>>(),
         [(OccurrenceKind::Course, Some(true))]
     );
+    // Moved to another day, the session takes place there.
+    data["scheduleOverrides"].as_array_mut().unwrap().push(json!({"id":"moved-out","targetKey":"course-weekly-0-2026-06-08","targetKind":"course","date":"2026-06-09","hidden":false}));
+    assert!(calendar(&data, "2026-06-08").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-06-09"),
+        [(OccurrenceKind::Course, None)]
+    );
 
     // Exam-timetable rows: cancel, turn into a class, then back to the source.
     mark_session(&mut data, "reference:final", "cancelled");
@@ -2898,7 +2906,8 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
     for (key, mark) in [
         ("course-weekly-0-2026-04-13", "cancelled"),
         ("course-weekly-0-2026-04-20", "exam"),
-        ("course-weekly-0-2026-06-01", "quiz"),
+        ("course-weekly-0-2026-05-11", "quiz"),
+        ("course-weekly-0-2026-06-01", "class"),
         ("reference:dropped", "cancelled"),
     ] {
         mark_session(&mut data, key, mark);
@@ -2920,7 +2929,7 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
     assert!(plan
         .items
         .iter()
-        .any(|item| item.at == "2026-06-01T07:50:00+09:00" && item.title.starts_with("Quiz · ")));
+        .any(|item| item.at == "2026-05-11T07:50:00+09:00" && item.title.starts_with("Quiz · ")));
     // Weekly Mondays from 04-27 to 05-25 remind as classes; 04-13 is
     // cancelled and 04-20 is an exam with the exam lead.
     assert!(!items.iter().any(|item| item.0.starts_with("2026-04-13")));
@@ -2929,7 +2938,9 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
     // The timetable's exam-week class is a class; its final is an exam.
     assert!(items.contains(&("2026-05-28T13:20:00+09:00", false, false)));
     assert!(items.contains(&("2026-05-29T09:45:00+09:00", true, true)));
-    // A timetable exam the user cancelled never reminds.
+    // The exam period stops the weekly class, unless the user says it runs;
+    // a timetable exam the user cancelled never reminds.
+    assert!(items.contains(&("2026-06-01T08:40:00+09:00", false, false)));
     assert!(!items.iter().any(|item| item.0.starts_with("2026-06-02")));
     assert_eq!(
         items.iter().filter(|item| item.1).count(),
@@ -2943,7 +2954,7 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
     assert!(quiz_off
         .items
         .iter()
-        .any(|item| item.at == "2026-06-01T08:40:00+09:00"
+        .any(|item| item.at == "2026-05-11T08:40:00+09:00"
             && matches!(item.priority, NotificationPriority::Class)));
     data["settings"]["notifications"]["quizzes"] = json!(true);
     // Turning exams off keeps the exam-week class, a class reminder.

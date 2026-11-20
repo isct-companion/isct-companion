@@ -573,7 +573,7 @@ impl<'a> CourseSessions<'a> {
     ) -> Result<Self, ScheduleError> {
         let changes: HashMap<_, _> = array(workspace, "scheduleOverrides")
             .iter()
-            .filter(|row| visible(row) && text(row, "targetKind") == Some("course"))
+            .filter(|row| visible(row) && names_session(row))
             .filter_map(|row| Some((text(row, "targetKey")?, row)))
             .collect();
         let mut moved: HashMap<_, Vec<_>> = HashMap::new();
@@ -612,7 +612,13 @@ impl<'a> CourseSessions<'a> {
         }
         // An invalid correction leaves the class as scheduled.
         // `schedule_problems` reports the record.
+        let source_date = block.date.clone();
         if apply_override(&mut block, change, &self.periods).is_ok() {
+            // Moved to another day, it takes place there, whatever cancelled
+            // it on its own day.
+            if block.date != source_date {
+                block.cancelled = None;
+            }
             apply_mark(&mut block, change);
         }
         Some(block)
@@ -757,6 +763,7 @@ impl<'a> CourseSessions<'a> {
             .collect();
         blocks.retain(|block| {
             runs_anyway(block)
+                || !weekly_session(&block.key)
                 || !block
                     .course_id
                     .as_deref()
@@ -807,6 +814,18 @@ impl<'a> CourseSessions<'a> {
 pub(super) fn key_date(key: &str) -> Option<&str> {
     key.get(key.len().saturating_sub(10)..)
         .filter(|date| parse_civil_date(date).is_ok())
+}
+
+/// Whether `key` names a session of a course's weekly meetings, as
+/// `CourseSessions::sources` keys them; an intensive day is dated on its own.
+fn weekly_session(key: &str) -> bool {
+    key.contains("-weekly-")
+}
+
+/// A stored change to a class session. Rows written without `targetKind`
+/// name a session too; `exam` rows belong to the exam timetable.
+pub(super) fn names_session(row: &Value) -> bool {
+    text(row, "targetKind").is_none_or(|kind| kind == "course")
 }
 
 /// A class session the person moved, re-roomed or marked as running. A

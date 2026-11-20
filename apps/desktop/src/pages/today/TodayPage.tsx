@@ -25,6 +25,7 @@ import {
 } from "../../lib/civil-date";
 import {
   useScheduleQueries,
+  useScheduleQuery,
   type DatedAgenda,
   type TaskView,
 } from "../../platform/core-query";
@@ -95,19 +96,23 @@ export function Today({
   const isToday = viewIso === todayIso;
   const viewDate = new Date(`${viewIso}T12:00:00+09:00`);
   const weekStart = addDays(viewIso, 1 - civilWeekday(viewIso));
-  const dashboard = useScheduleQueries<
-    [DatedAgenda[], ExamView[], TodayView, TaskView]
-  >(
+  // Apart from the rest: another week's days must not draw under this one,
+  // while the answers below stay on screen when only the minute changes.
+  const weekQuery = useScheduleQuery<DatedAgenda[]>(
+    { kind: "calendarRange", from: weekStart, to: addDays(viewIso, 7) },
+    active,
+  );
+  const dashboard = useScheduleQueries<[ExamView[], TodayView, TaskView]>(
     [
-      { kind: "calendarRange", from: weekStart, to: addDays(viewIso, 7) },
       { kind: "upcomingExams", from: viewIso, to: null },
       { kind: "today", now: nowIso },
       { kind: "taskView", now: nowIso },
     ],
     active,
   );
-  const [agendas, exams, today, taskView] = dashboard.value ?? [];
-  const scheduleLoading = dashboard.pending && !agendas;
+  const agendas = weekQuery.value;
+  const [exams, today, taskView] = dashboard.value ?? [];
+  const scheduleLoading = weekQuery.pending && !agendas;
   const scheduleReveal = useReveal(scheduleLoading);
   const agenda = agendas?.find((day) => day.date === viewIso);
   const teachingState = agenda?.calendarState;
@@ -357,7 +362,12 @@ export function Today({
                             ? "today.next"
                             : block.endTime <= clock
                               ? "common.earlier"
-                              : "common.later",
+                              : // Core's moment covers classes; a personal
+                                // event is now while its own time runs.
+                                block.kind === "event" &&
+                                  block.startTime <= clock
+                                ? "common.now"
+                                : "common.later",
                       );
                   return (
                     <UiButton

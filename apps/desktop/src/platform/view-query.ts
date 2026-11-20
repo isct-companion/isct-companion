@@ -1,4 +1,8 @@
-import { useQuery, type QueryKey } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  type QueryKey,
+} from "@tanstack/react-query";
 import type { ViewRevisions } from "../store/workspace";
 import type { WorkspaceChange } from "../generated/persistence";
 import type { QueryState } from "./core-query";
@@ -18,24 +22,20 @@ export const viewRevision = (
 export type ViewAnswer<T> = CoreAnswer<T>;
 
 /** Core's answer to `key`, cached until Core says what it read changed
- * (`query-client`). While a refresh, or a new key `keepFrom` accepts the
- * previous key for, loads, the last answer stays on screen; a late answer
- * for an old key never replaces it. */
+ * (`query-client`). While a new key or a refresh loads, the last answer
+ * stays on screen; a late answer for an old key never replaces it. */
 export function useViewQuery<T>(
   key: QueryKey,
   load: () => Promise<ViewAnswer<T>>,
   enabled = true,
-  keepFrom: (previous: QueryKey) => boolean = () => true,
+  keepPrevious = true,
 ): QueryState<T> {
   const query = useQuery(
     {
       queryKey: key,
       queryFn: ({ signal }) => freshAnswer(load, signal),
       enabled,
-      placeholderData: (previous, previousQuery) =>
-        previousQuery && keepFrom(previousQuery.queryKey)
-          ? previous
-          : undefined,
+      placeholderData: keepPrevious ? keepPreviousData : undefined,
     },
     queryClient,
   );
