@@ -134,6 +134,7 @@ class IsctApplication : Application() {
         super.onCreate()
         Localizer.attach(this)
         Guide.attach(this)
+        CampusPrintRefresh.ensureEnabled(this)
         // The periodic wake of earlier releases; Core's directive schedules
         // one-time work now (`BackgroundWake.schedule`).
         androidx.work.WorkManager.getInstance(this).cancelUniqueWork("core-background-wake")
@@ -191,6 +192,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch(Dispatchers.IO) { SharedInbox.refresh(this@MainActivity) }
+        // Once a run: if the system lost the print service while the app was
+        // stopped, print dialogs get the campus printer back.
+        lifecycleScope.launch { CampusPrintRefresh.refresh(this@MainActivity, oncePerProcess = true) }
     }
 
     override fun onNewIntent(intent: Intent) {

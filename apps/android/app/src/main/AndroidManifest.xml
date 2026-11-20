@@ -66,6 +66,27 @@
                 <data android:mimeType="text/*" />
             </intent-filter>
         </activity>
+        <!-- "Print via campus printer" in the share sheet: Android's own print
+             screen for a shared PDF or photo, for apps whose printing HyperOS
+             sends to its own screen, which hides the campus printer
+             (PrintShareActivity.kt). It has no window and closes with the
+             print screen; it stays out of recents, and rotating does not
+             recreate it, which would cancel the print. -->
+        <activity
+            android:name=".PrintShareActivity"
+            android:exported="true"
+            android:label="@string/print_share_label"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
         <receiver
             android:name=".core.NotificationScheduler$Receiver"
             android:exported="false" />
@@ -92,6 +113,12 @@
         </receiver>
         <service
             android:name=".core.SignInService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
+        <!-- Keeps the app awake while a print job is sent, so HyperOS does not
+             freeze it once the print dialog closes (CampusPrintSending.kt). -->
+        <service
+            android:name=".CampusPrintSending"
             android:exported="false"
             android:foregroundServiceType="shortService" />
         <!-- The campus printer in every app's print dialog. Only the system
