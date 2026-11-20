@@ -13,6 +13,7 @@ mod exams;
 mod ics;
 pub mod lms_html;
 mod occurrence;
+mod profile_validation;
 mod range;
 mod reminders;
 pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};

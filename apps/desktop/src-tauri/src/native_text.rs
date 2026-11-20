@@ -15,7 +15,7 @@ pub(crate) struct WindowText {
 }
 
 /// The sign-in sheet a school page's HTTP authentication raises
-/// (school_webkit.rs); WebView2 shows its own.
+/// (school_webkit/mod.rs); WebView2 shows its own.
 #[cfg(target_os = "macos")]
 pub(crate) struct SignInText {
     /// `{{host}}` stands for the server's host.

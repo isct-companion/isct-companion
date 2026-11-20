@@ -1,3 +1,4 @@
+use super::preparation::hex_digest;
 use super::*;
 use crate::{
     data::{DataError, DataStore},

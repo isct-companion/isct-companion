@@ -620,6 +620,8 @@ checks:
       - crates/app-core/src/net/moodle/rest.rs
       - crates/app-core/src/net/moodle/ajax.rs
       - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
       - crates/app-core/src/plan/school.rs
       - crates/app-core/src/plan/planner.rs
       - docs/lms-api/README.md
@@ -699,7 +701,7 @@ checks:
       real school produces lead there.
     covers:
       - crates/app-core/src/plan/planner.rs
-      - crates/app-core/src/plan/runner.rs
+      - crates/app-core/src/plan/runner/**
       - crates/app-core/src/plan/school.rs
       - crates/app-core/src/plan/snapshot.rs
       - crates/app-core/src/school_session/**
@@ -744,6 +746,10 @@ checks:
     covers:
       - crates/app-core/src/study_profile.rs
       - crates/app-core/src/course_query/mod.rs
+      - crates/app-core/src/course_query/catalog.rs
+      - crates/app-core/src/course_query/conditions.rs
+      - crates/app-core/src/course_query/matching.rs
+      - crates/app-core/src/course_query/personal.rs
       - apps/desktop/src/pages/courses/**
     verified: null
 
@@ -1266,7 +1272,7 @@ checks:
     why_manual: |
       Needs the real card and a real export; whether the grid matches the
       card is a glance in the real app. Core's reading of both shapes is
-      tested in crates/app-core/src/tests/school_auth.rs.
+      tested in crates/app-core/src/tests/school_auth__matrix.rs.
     covers:
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
@@ -1454,9 +1460,9 @@ checks:
       while the panel is open cannot be triggered by hand; it rests on the
       answer-once guard, which answers Cancel when dropped.
     covers:
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - apps/desktop/src-tauri/src/school_web.rs
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
@@ -1579,7 +1585,7 @@ checks:
       and the failure's lifetime are Core's and tested there; the reader
       reading them from the snapshot is tested in the desktop suite.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src/pages/web/WebPage.tsx
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
@@ -1630,7 +1636,7 @@ checks:
       Core's and tested there.
     covers:
       - crates/app-core/src/school_browser/policy.rs
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_windows.rs
       - apps/desktop/src/pages/web/WebPage.tsx
     verified: null
@@ -1677,7 +1683,7 @@ checks:
       Needs the campus network and a real failed load inside WebKit; the
       notice is a glance. Which failures are shown is Core's and tested there.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src/pages/web/WebPage.tsx
     verified: null
 
@@ -1703,7 +1709,7 @@ checks:
       Needs the real school link and the system browser; where the click
       lands is a glance. The cleartext rule is Core's and tested there.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
     verified: null
 
   - id: DESKTOP-SCHOOL-PRINT
@@ -1728,7 +1734,7 @@ checks:
     why_manual: |
       The print panel is native UI on a real school page; it is a glance.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
     verified: null
 
   - id: DESKTOP-SCHOOL-NATIVE-CONFIRM
@@ -1747,7 +1753,7 @@ checks:
           with an async function, so `if (!confirm(...))` never stopped and
           logout happened with no question. Without that plugin, macOS WebKit
           answers confirm() with Cancel unseen unless the view's UI delegate
-          shows it; the school view's delegate (school_webkit.rs) now does, as
+          shows it; the school view's delegate (school_webkit/mod.rs) now does, as
           a sheet naming the page's origin. A confirm that keeps the session
           on Cancel means the sheet's answer reaches the page.
       - action: |
@@ -1791,7 +1797,7 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/native_dialog.rs
       - apps/desktop/src-tauri/src/school_web.rs
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
       - apps/desktop/src-tauri/src/commands/backup.rs
@@ -2766,7 +2772,6 @@ checks:
       tests drive the same paths only over a test transport.
     covers:
       - crates/app-core/src/net/moodle/submission.rs
-      - crates/app-core/src/submissions/mod.rs
       - crates/app-core/src/submissions/**
       - crates/app-core/src/agent/submissions.rs
       - crates/app-core/src/deadlines.rs
@@ -3384,6 +3389,10 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/commands/read_models.rs
       - crates/app-core/src/course_query/mod.rs
+      - crates/app-core/src/course_query/catalog.rs
+      - crates/app-core/src/course_query/conditions.rs
+      - crates/app-core/src/course_query/matching.rs
+      - crates/app-core/src/course_query/personal.rs
     verified: null
 
 
@@ -3910,12 +3919,12 @@ checks:
     covers:
       - crates/app-core/src/workspaces.rs
       - crates/app-core/src/school_browser/policy.rs
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - crates/app-core/src/school_browser/submission.rs
       - crates/adpt-isct/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
 
@@ -4473,7 +4482,10 @@ checks:
     covers:
       - crates/app-core/src/school_session/store.rs
       - crates/app-core/src/school_session/mod.rs
+      - crates/app-core/src/school_session/presentation.rs
       - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
     verified: null
 
 
@@ -4518,6 +4530,8 @@ checks:
     covers:
       - crates/app-core/src/school_session/identity.rs
       - crates/app-core/src/school_session/mod.rs
+      - crates/app-core/src/school_session/presentation.rs
+      - crates/app-core/src/school_session/store.rs
       - crates/app-core/src/school_browser/engine/operation.rs
       - apps/desktop/src-tauri/src/school_cookies.rs
     verified: null
@@ -4601,7 +4615,7 @@ checks:
       page Reload reopens are in the Core web operation suite.
     covers:
       - crates/app-core/src/school_browser/engine/operation.rs
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src/features/school-web/SchoolWebControls.tsx
       - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
@@ -4878,7 +4892,7 @@ checks:
       signed-in account. Neither the jsdom e2e host nor the Rust engine tests
       have a window or WebKit.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
     verified: null
 
   - id: DESKTOP-WRITES-PUBLISH-THEMSELVES
@@ -7227,6 +7241,7 @@ checks:
       and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit`.
     covers:
       - crates/app-core/src/cloud_sync/mod.rs
+      - crates/app-core/src/cloud_sync/restore.rs
       - crates/app-core/src/data/cloud_merge.rs
       - crates/app-core/src/data/backup_store.rs
     verified: null
@@ -8100,7 +8115,7 @@ checks:
       covered by Core's plan and lms_ingest tests.
     covers:
       - crates/app-core/src/plan/planner.rs
-      - crates/app-core/src/plan/runner.rs
+      - crates/app-core/src/plan/runner/**
       - crates/app-core/src/plan/school.rs
       - apps/desktop/src/lib/sync-text.ts
     verified: null
@@ -8504,6 +8519,8 @@ checks:
       school_auth and school_browser tests.
     covers:
       - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
       - crates/app-core/src/ports.rs
       - apps/ios/IsctCompanion/Core/KeychainVault.swift
       - apps/desktop/src-tauri/src/secrets.rs
@@ -8553,7 +8570,11 @@ checks:
       school_auth tests.
     covers:
       - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
       - crates/app-core/src/school_session/mod.rs
+      - crates/app-core/src/school_session/presentation.rs
+      - crates/app-core/src/school_session/store.rs
     verified: null
 
   - id: SCHOOL-OTP-SUBMITTED-ONCE
@@ -8754,7 +8775,7 @@ checks:
       The entry rule is exercised in the school_browser suite; that the real
       WebKit view and its cookies then sign in is a glance in the real app.
     covers:
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - crates/app-core/src/school_browser/engine/operation.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
@@ -8966,6 +8987,8 @@ checks:
     covers:
       - apps/desktop/src/lib/sync-text.ts
       - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
     verified: null
 
   - id: DESKTOP-ERROR-CODE-COPY

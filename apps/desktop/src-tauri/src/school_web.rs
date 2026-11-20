@@ -100,7 +100,7 @@ pub(crate) fn go(webview: &NativeWebview, back: bool) -> Result<(), String> {
 
 /// A resident school view. School pages get no script of the app's: only
 /// Core's own page scripts, which Core evaluates itself. The
-/// platform host decides navigation and windows (`school_webkit.rs`; the
+/// platform host decides navigation and windows (`school_webkit/mod.rs`; the
 /// Windows interim's wry callbacks in `school_windows.rs`).
 pub(crate) fn create_webview(
     app: &AppHandle,
