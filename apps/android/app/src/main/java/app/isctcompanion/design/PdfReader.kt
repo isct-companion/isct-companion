@@ -118,6 +118,7 @@ fun PdfScreen(path: String, title: String) {
                 Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInAnotherApp"))
             }
         },
+        compact = true,
     ) {
         key(attempt) {
             PdfReader(file) {

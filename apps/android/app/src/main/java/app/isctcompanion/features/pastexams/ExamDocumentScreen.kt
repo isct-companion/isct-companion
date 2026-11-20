@@ -137,6 +137,7 @@ fun ExamDocumentScreen(id: String) {
                     }
                 }
             },
+            compact = true,
         ) {
             when {
                 current != null -> Column(Modifier.fillMaxSize()) {

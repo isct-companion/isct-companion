@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -386,7 +387,8 @@ fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
 }
 
 /** A tab's page (or a pushed one, with `navigationIcon`): Material's collapsing large title over scrolling content,
- * pull to refresh when `onRefresh` is given. The content scrolls itself. */
+ * pull to refresh when `onRefresh` is given. The content scrolls itself. A `compact` page, such as a document
+ * reader, keeps a small one-line bar that never grows, so the content has the height. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabPage(
@@ -394,25 +396,36 @@ fun TabPage(
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     onRefresh: (suspend () -> Unit)? = null,
+    compact: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
+    val colors = TopAppBarDefaults.topAppBarColors(
+        containerColor = Theme.colors.bg, scrolledContainerColor = Theme.colors.bg,
+    )
     Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        modifier = if (compact) Modifier else Modifier.nestedScroll(scroll.nestedScrollConnection),
         containerColor = Theme.colors.bg,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            LargeTopAppBar(
-                title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = navigationIcon,
-                actions = actions,
-                scrollBehavior = scroll,
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Theme.colors.bg, scrolledContainerColor = Theme.colors.bg,
-                ),
-            )
+            if (compact) {
+                TopAppBar(
+                    title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    navigationIcon = navigationIcon,
+                    actions = actions,
+                    colors = colors,
+                )
+            } else {
+                LargeTopAppBar(
+                    title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    navigationIcon = navigationIcon,
+                    actions = actions,
+                    scrollBehavior = scroll,
+                    colors = colors,
+                )
+            }
         },
     ) { padding ->
         Box(Modifier.padding(padding)) {
