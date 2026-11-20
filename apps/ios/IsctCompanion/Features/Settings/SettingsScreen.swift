@@ -43,6 +43,7 @@ struct SettingsDestination: View {
 /// ウェブ tab and reset.
 /// Planning, calendars, folders and developer settings stay on desktop.
 struct SettingsScreen: View {
+    @Environment(\.openURL) private var openURL
     @Environment(AppModel.self) private var model
     @Environment(WebRouter.self) private var web
     @AppStorage(SchoolBrowserHost.textScaleKey) private var textScale = 115
@@ -179,8 +180,8 @@ struct SettingsScreen: View {
                     SettingsIcon(symbol: "arrow.down.app", tint: Theme.accent)
                 }
                 Spacer()
-                if let url = URL(string: release.url) {
-                    Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
+                if let button = OpenReleaseButton(release: release, openURL: openURL) {
+                    button
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }

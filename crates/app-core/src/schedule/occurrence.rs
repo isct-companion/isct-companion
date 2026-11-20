@@ -279,45 +279,9 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
         }
         alternation::pair_blocks(&mut blocks)?;
         for event in &events {
-            if !event
-                .get("days")
-                .and_then(Value::as_array)
-                .is_some_and(|values| {
-                    values
-                        .iter()
-                        .any(|value| value.as_u64() == Some(u64::from(day)))
-                })
-            {
-                continue;
+            if occurs_on_weekday(event, day) {
+                blocks.push(personal_occurrence(event, &date, day));
             }
-            let id = text(event, "id").unwrap_or_default();
-            blocks.push(Occurrence {
-                key: format!("{id}-{day}"),
-                id: id.into(),
-                kind: OccurrenceKind::Event,
-                term_id: None,
-                course_id: None,
-                date: date.clone(),
-                title: text(event, "title").unwrap_or_default().into(),
-                subtitle: None,
-                room: text(event, "room").unwrap_or_default().into(),
-                start_time: text(event, "startTime").unwrap_or_default().into(),
-                end_time: text(event, "endTime").unwrap_or_default().into(),
-                end_date: None,
-                color: super::event_color(event),
-                conflict: None,
-                dim: None,
-                cancelled: None,
-                time_label: None,
-                conflict_with: None,
-                overridden: None,
-                alternation: None,
-                planned: None,
-                quiz: None,
-                source_changed: None,
-                grid: None,
-                mark: None,
-            });
         }
         for left in 0..blocks.len() {
             for right in left + 1..blocks.len() {
@@ -858,45 +822,48 @@ pub(crate) fn personal_occurrences(
     events: &[Value],
 ) -> Result<Vec<Occurrence>, ScheduleError> {
     let day = weekday(date)?;
-    let mut blocks = Vec::new();
-    for event in events.iter().filter(|row| visible(row)) {
-        let occurs = event
-            .get("days")
-            .and_then(Value::as_array)
-            .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))));
-        if !occurs {
-            continue;
-        }
-        let id = text(event, "id").unwrap_or_default();
-        blocks.push(Occurrence {
-            key: format!("{id}-{date}"),
-            id: id.into(),
-            kind: OccurrenceKind::Event,
-            term_id: None,
-            course_id: None,
-            date: date.into(),
-            title: text(event, "title").unwrap_or_default().into(),
-            subtitle: None,
-            room: text(event, "room").unwrap_or_default().into(),
-            start_time: text(event, "startTime").unwrap_or_default().into(),
-            end_time: text(event, "endTime").unwrap_or_default().into(),
-            end_date: None,
-            color: super::event_color(event),
-            conflict: None,
-            dim: None,
-            cancelled: None,
-            time_label: None,
-            conflict_with: None,
-            overridden: None,
-            alternation: None,
-            planned: None,
-            quiz: None,
-            source_changed: None,
-            grid: None,
-            mark: None,
-        });
+    Ok(events
+        .iter()
+        .filter(|event| visible(event) && occurs_on_weekday(event, day))
+        .map(|event| personal_occurrence(event, date, date))
+        .collect())
+}
+
+fn occurs_on_weekday(row: &Value, day: u8) -> bool {
+    row.get("days")
+        .and_then(Value::as_array)
+        .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))))
+}
+
+fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -> Occurrence {
+    let id = text(event, "id").unwrap_or_default();
+    Occurrence {
+        key: format!("{id}-{key}"),
+        id: id.into(),
+        kind: OccurrenceKind::Event,
+        term_id: None,
+        course_id: None,
+        date: date.into(),
+        title: text(event, "title").unwrap_or_default().into(),
+        subtitle: None,
+        room: text(event, "room").unwrap_or_default().into(),
+        start_time: text(event, "startTime").unwrap_or_default().into(),
+        end_time: text(event, "endTime").unwrap_or_default().into(),
+        end_date: None,
+        color: super::event_color(event),
+        conflict: None,
+        dim: None,
+        cancelled: None,
+        time_label: None,
+        conflict_with: None,
+        overridden: None,
+        alternation: None,
+        planned: None,
+        quiz: None,
+        source_changed: None,
+        grid: None,
+        mark: None,
     }
-    Ok(blocks)
 }
 
 /// Stored user records the schedule skips or leaves unapplied. Read models

@@ -1,6 +1,6 @@
 import { t } from "../i18n";
 import { getDesktopBridge } from "./desktop-bridge";
-import { useViewQuery, type ViewAnswer } from "./view-query";
+import { useViewQuery, type QueryState, type ViewAnswer } from "./view-query";
 import type {
   AcademicProfile,
   CalendarException,
@@ -25,12 +25,6 @@ type OptionalDefaults<T> = T extends { kind: string }
   ? Omit<T, Defaulted> & Partial<Pick<T, Extract<keyof T, Defaulted>>>
   : never;
 export type ScheduleQuery = OptionalDefaults<WorkspaceQuery>;
-export type QueryState<T> = {
-  value?: T;
-  error?: string;
-  pending: boolean;
-  retry?: () => void;
-};
 
 /** These fields use serde's skip_serializing_if: Option::is_none. */
 type OmittedNulls<T> = {

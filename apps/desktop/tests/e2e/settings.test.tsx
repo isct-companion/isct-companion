@@ -25,11 +25,8 @@ import {
   schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
-import type {
-  CloudSyncState,
-  SchoolCredentialStatus,
-  SchoolProfileSession,
-} from "@app/platform/desktop-bridge";
+import type { CloudSyncState, SchoolCredentialStatus } from "@app/platform/desktop-bridge";
+import type { SchoolProfileSession } from "@app/platform/school-session-contract";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
 import { schoolSessions } from "@app/platform/school-session";
@@ -48,7 +45,7 @@ import { schoolSessions } from "@app/platform/school-session";
  * - ZXing camera/canvas decoding is replaced by controlled results; account
  *   selection, draft replacement and explicit credential saves remain real.
  *
- * `mountApp` must stay the first thing that imports the shell: `app/native.ts`
+ * `mountApp` must stay the first thing that imports the shell: `platform/native.ts`
  * captures its bridge at first import.
  */
 

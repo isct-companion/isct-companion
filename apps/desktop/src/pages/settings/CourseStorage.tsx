@@ -5,7 +5,7 @@ import {
   chooseStorage,
   storageInfo,
   type StorageInfo,
-} from "../../features/lms/files";
+} from "../../platform/course-storage";
 export function CourseStorage() {
   const [info, setInfo] = useState<StorageInfo>();
   const [error, setError] = useState("");

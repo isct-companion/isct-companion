@@ -1,11 +1,11 @@
-import { errorText } from "../../app/shared";
-import { notify as appNotify } from "../../app/notify";
+import { errorText } from "../../lib/error-text";
+import { notify as appNotify } from "../../components/notifications/notify";
 import {
   otpNotSetUp,
   sessionDetails,
   sessionText,
   signInProblemText,
-} from "../../app/sync-text";
+} from "../../lib/sync-text";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -22,7 +22,7 @@ import { UiInput } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import i18n, { t, type MessageKey } from "../../i18n";
 
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import { NativeError } from "../../platform/native-error";
 import {
   MATRIX_COLUMNS,
@@ -33,13 +33,8 @@ import {
   recognizeMatrixImage,
 } from "../../lib/matrix-ocr";
 import type { MatrixConfidence } from "../../generated/persistence";
-import type {
-  SchoolAuthProfile,
-  SchoolConnectOutcome,
-  SchoolCredentialStatus,
-  SchoolCredentials,
-  SchoolSessionState,
-} from "../../platform/desktop-bridge";
+import type { SchoolConnectOutcome, SchoolCredentialStatus, SchoolCredentials } from "../../platform/desktop-bridge";
+import type { SchoolAuthProfile, SchoolSessionState } from "../../platform/school-session-contract";
 import {
   schoolSessions,
   useSchoolSession,

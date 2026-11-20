@@ -18,7 +18,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -117,11 +116,23 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         Footer(t(if (everything) "settings.reset.full.hint" else "settings.reset.caches.hint"))
         if (!everything) {
             Card {
-                OptionRow(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), signOutWeb, !resetting) {
+                SwitchRow(
+                    title = t("settings.reset.caches.signOut"),
+                    checked = signOutWeb,
+                    detail = t("settings.reset.caches.signOutHint"),
+                    enabled = !resetting,
+                    compact = false,
+                ) {
                     signOutWeb = it
                 }
                 RowDivider(inset = Theme.rowX)
-                OptionRow(t("settings.reset.caches.downloads"), t("settings.reset.caches.downloadsHint"), deleteDownloads, !resetting) {
+                SwitchRow(
+                    title = t("settings.reset.caches.downloads"),
+                    checked = deleteDownloads,
+                    detail = t("settings.reset.caches.downloadsHint"),
+                    enabled = !resetting,
+                    compact = false,
+                ) {
                     deleteDownloads = it
                 }
             }
@@ -178,21 +189,6 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
             },
             dismissButton = { TextButton(onClick = { confirming = false }) { Text(t("settings.reset.cancel")) } },
         )
-    }
-}
-
-@Composable
-private fun OptionRow(title: String, hint: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Theme.colors.ink)
-            Text(hint, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-        }
-        Switch(checked, onChange, enabled = enabled)
     }
 }
 

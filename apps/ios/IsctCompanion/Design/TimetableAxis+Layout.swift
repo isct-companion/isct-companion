@@ -1,5 +1,5 @@
 import IsctCore
-import SwiftUI
+import Foundation
 
 /// Core's timetable axis (`timetable_axis`): every period one row, lunch half
 /// a row, short breaks folded into the rules. The shell only interpolates
@@ -32,18 +32,5 @@ extension TimetableAxis {
     static func minutes(_ clock: String) -> Int {
         let parts = clock.split(separator: ":").compactMap { Int($0) }
         return parts.count == 2 ? parts[0] * 60 + parts[1] : 0
-    }
-}
-
-/// A press that answers at once: the card dips while the finger is down,
-/// before the navigation that follows.
-struct PressableStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.smooth(duration: Theme.motionFast), value: configuration.isPressed)
     }
 }

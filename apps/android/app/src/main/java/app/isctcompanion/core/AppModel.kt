@@ -20,7 +20,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Localizer
-import app.isctcompanion.features.timetable.clockMinutes
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate

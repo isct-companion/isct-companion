@@ -6,11 +6,8 @@ import type {
   TimetableAxis,
   WorkspaceChange,
 } from "@app/generated/persistence";
-import type {
-  SchoolRecords,
-  SchoolSessionSnapshot,
-  SchoolSessionState,
-} from "@app/platform/desktop-bridge";
+import type { SchoolRecords } from "@app/platform/desktop-bridge";
+import type { SchoolSessionSnapshot, SchoolSessionState } from "@app/platform/school-session-contract";
 
 /**
  * Data builders shared by the suites.

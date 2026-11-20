@@ -173,6 +173,9 @@ targets:
         buildPhase: resources
       - path: ExtensionShared
       - path: IsctCompanion/Shared
+        excludes:
+          - QuickLookView.swift
+          - SystemCamera.swift
       - path: IsctCompanion/Design/Localization.swift
       - path: ../../resources/locales
         buildPhase: resources

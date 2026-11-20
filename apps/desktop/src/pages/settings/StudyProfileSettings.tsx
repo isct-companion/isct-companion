@@ -1,5 +1,6 @@
+import { errorText } from "../../lib/error-text";
 import { useEffect, useRef, useState } from "react";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import { t } from "../../i18n";
 import type { StudyEnrollment, Workspace } from "../../lib/model";
 import { departmentById } from "../../lib/departments";
@@ -21,9 +22,6 @@ type DraftEnrollment = Omit<StudyEnrollment, "admittedTerm"> & {
 
 const draftEnrollments = (rows: StudyEnrollment[]): DraftEnrollment[] =>
   rows.map((row) => ({ ...row }));
-
-const message = (reason: unknown) =>
-  reason instanceof Error ? reason.message : String(reason);
 
 export function StudyProfileSettings({
   data,
@@ -171,7 +169,7 @@ export function StudyProfileSettings({
       setAwaitingKey(JSON.stringify([draft.admissionYear, submitted]));
       setDirty(false);
     } catch (reason) {
-      setError(message(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     } finally {
       setSaving(false);
     }

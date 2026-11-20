@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { useState } from "react";
-import { desktopBridge } from "../../app/native";
-import { errorText } from "../../app/shared";
+import { desktopBridge } from "../../platform/native";
+import { errorText } from "../../lib/error-text";
 import {
   Button,
   Chip,

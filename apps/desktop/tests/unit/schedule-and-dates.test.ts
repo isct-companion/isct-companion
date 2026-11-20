@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import {
+  formatDay,
   formatTimestamp,
   isCivilDate,
   parseIsoTimestamp,
@@ -19,7 +20,6 @@ import {
 } from "@app/components/timetable/workspace";
 import type { DatedAgenda, PlanningWeek } from "@app/platform/core-query";
 import { DEFAULT_TIMETABLE_AXIS } from "@tests/harness/fixtures";
-import { formatDay } from "@app/pages/settings/subscription-status";
 import {
   minuteNow,
   resyncClock,

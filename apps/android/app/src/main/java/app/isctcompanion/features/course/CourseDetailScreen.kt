@@ -1,5 +1,6 @@
 package app.isctcompanion.features.course
 
+import app.isctcompanion.design.BackButton
 import app.isctcompanion.design.SkeletonRows
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,7 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FolderOpen
 import app.isctcompanion.design.EmptyState
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.FileCopy
@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -117,7 +116,7 @@ fun CourseDetailScreen(courseId: String) {
     TabPage(
         title,
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+            BackButton { navigator.back() }
         },
         onRefresh = { lmsCourseId?.let { model.refresh(SyncScope.Course(it)) } },
     ) {

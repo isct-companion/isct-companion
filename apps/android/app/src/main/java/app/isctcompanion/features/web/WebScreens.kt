@@ -1,5 +1,6 @@
 package app.isctcompanion.features.web
 
+import app.isctcompanion.design.BackButton
 import app.isctcompanion.design.t
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -29,7 +30,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -483,7 +483,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
     Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
         TopAppBar(
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                BackButton { navigator.back() }
             },
             title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             actions = { PageMenu(page.site) },

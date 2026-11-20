@@ -1,5 +1,7 @@
 package app.isctcompanion.design
 
+import app.isctcompanion.core.openInAnotherApp
+import app.isctcompanion.core.showsInApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import android.content.Intent

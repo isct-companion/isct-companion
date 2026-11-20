@@ -5,7 +5,7 @@
  * (`approach/core-deadline-plan`); these helpers only choose which row of the snapshot a
  * surface shows.
  */
-import type { SchoolAuthProfile, SchoolSessionState } from "./desktop-bridge";
+import type { SchoolAuthProfile, SchoolSessionState } from "./school-session-contract";
 
 export type SyncPriority = "background" | "visible" | "interactive";
 export type SyncNetwork = "offline" | "wifi" | "cellular" | "unknown";

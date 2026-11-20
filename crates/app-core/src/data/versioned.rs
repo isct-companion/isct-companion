@@ -84,6 +84,31 @@ pub(crate) fn keep_unchanged(
     Ok(true)
 }
 
+/// Marks absent rows within the caller's authoritative inventory scope.
+/// `table` is a trusted schema name and the caller supplies the timestamp.
+pub(crate) fn mark_missing_rows<T: AsRef<str>>(
+    tx: &rusqlite::Transaction<'_>,
+    table: &str,
+    candidates: Vec<String>,
+    live: &std::collections::HashSet<String>,
+    mut timestamp: impl FnMut() -> T,
+) -> rusqlite::Result<usize> {
+    let mut changed = 0;
+    for id in candidates.into_iter().filter(|id| !live.contains(id)) {
+        let missing = timestamp();
+        changed += tx.execute(
+            &format!(
+                "UPDATE {table}
+                 SET missing_since=?2,rev=rev+1,
+                     value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2)
+                 WHERE id=?1 AND missing_since IS NULL"
+            ),
+            rusqlite::params![id, missing.as_ref()],
+        )?;
+    }
+    Ok(changed)
+}
+
 #[cfg(test)]
 #[path = "../tests/data__versioned.rs"]
 mod tests;

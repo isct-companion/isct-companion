@@ -1,6 +1,5 @@
 package app.isctcompanion.core
 
-import app.isctcompanion.design.showsInApp
 import app.isctcompanion.design.t
 import android.content.ContentValues
 import android.content.Context

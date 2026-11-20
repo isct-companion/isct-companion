@@ -8,14 +8,14 @@ import {
   retryScope,
   type SyncSnapshot,
 } from "../platform/sync";
-import { refresh as sendRefresh } from "./useSync";
+import { refresh as sendRefresh } from "../platform/sync-intents";
 import {
   ageText,
   failureText,
   heldText,
   runText,
   sourceName,
-} from "./sync-text";
+} from "../lib/sync-text";
 
 /** One line of what Core's planner is doing now. A bar appears only when
  * Core knows the run's size; background-only work is a small spinner. */

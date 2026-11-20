@@ -28,7 +28,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { usePageLayer } from "../../app/KeptPage";
+import { usePageLayer } from "./page-layer";
 import { t } from "../../i18n";
 import { cx } from "./layout";
 

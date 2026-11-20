@@ -1,3 +1,4 @@
+import { errorText } from "../../lib/error-text";
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiTextarea } from "../../components/ui";
@@ -159,7 +160,7 @@ function ProfileEditor({
       setError("");
       setDirty(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e, { nativeMessage: false }) ?? String(e));
     } finally {
       setSaving(false);
     }
@@ -357,7 +358,7 @@ function ProfileEditor({
               setDraft(await validated());
               setRaw(null);
             } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
+              setError(errorText(e, { nativeMessage: false }) ?? String(e));
             }
           }}
         >

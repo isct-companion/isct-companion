@@ -1,4 +1,4 @@
-import { notify as appNotify } from "../../app/notify";
+import { notify as appNotify } from "../../components/notifications/notify";
 import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { english, t, type MessageKey } from "../../i18n";
@@ -8,8 +8,9 @@ import type {
   Workspace,
 } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
-import type { Platform, Section } from "../../app/shared";
-import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
+import type { Section } from "../../lib/route-contract";
+import type { Platform } from "../../platform/capabilities";
+import type { SchoolAuthProfile } from "../../platform/school-session-contract";
 import { performAction } from "../../platform/actions";
 import { resolveCapabilities } from "../../platform/capabilities";
 import { workspaceActions } from "../../store/workspace";

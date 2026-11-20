@@ -380,6 +380,29 @@ pub struct ReferenceFetch<T> {
     pub source_ts: String,
 }
 
+impl<T> ReferenceFetch<T> {
+    fn from_source(url: Url, source: &IndexedSource, value: Option<T>) -> Self {
+        Self {
+            value,
+            data_url: url.to_string(),
+            remote_hash: source.hash.clone(),
+            source_ts: source.ts.clone(),
+        }
+    }
+
+    fn validate<U>(
+        self,
+        validate: impl FnOnce(&T) -> Result<U, SubscriptionError>,
+    ) -> Result<ReferenceFetch<U>, SubscriptionError> {
+        Ok(ReferenceFetch {
+            value: self.value.as_ref().map(validate).transpose()?,
+            data_url: self.data_url,
+            remote_hash: self.remote_hash,
+            source_ts: self.source_ts,
+        })
+    }
+}
+
 fn validate_indexed_source(source: &IndexedSource) -> Result<(), SubscriptionError> {
     if source.hash.len() != 64 || !source.hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("subscription index hash must be a SHA-256 hex digest".into());
@@ -922,6 +945,31 @@ impl SubscriptionClient {
         Ok((base, index, actual))
     }
 
+    async fn download_indexed_text(
+        &self,
+        url: Url,
+        source: &IndexedSource,
+    ) -> Result<String, SubscriptionError> {
+        let raw = self.get(url, MAX_DATA_BYTES).await?;
+        verify_source_hash(&raw, &source.hash)?;
+        Ok(raw)
+    }
+
+    async fn fetch_indexed_text(
+        &self,
+        base: &Url,
+        source: &IndexedSource,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<String>, SubscriptionError> {
+        let url = source_url(base, source)?;
+        let value = if known_hash == Some(source.hash.as_str()) {
+            None
+        } else {
+            Some(self.download_indexed_text(url.clone(), source).await?)
+        };
+        Ok(ReferenceFetch::from_source(url, source, value))
+    }
+
     pub async fn fetch_calendar(
         &self,
         index_url: &str,
@@ -935,27 +983,15 @@ impl SubscriptionClient {
             .get(&year.to_string())
             .ok_or("calendar year is not published in this index")?
             .academic_calendar;
-        let url = source_url(&base, source)?;
-        if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch {
-                value: None,
-                data_url: url.to_string(),
-                remote_hash: source.hash.clone(),
-                source_ts: source.ts.clone(),
-            });
-        }
-        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
-        verify_source_hash(&raw, &source.hash)?;
-        let calendar = validate_academic_calendar(&raw)?;
-        if calendar.academic_year != year {
-            return Err("calendar year does not match the selection".into());
-        }
-        Ok(ReferenceFetch {
-            value: Some(calendar),
-            data_url: url.to_string(),
-            remote_hash: source.hash.clone(),
-            source_ts: source.ts.clone(),
-        })
+        self.fetch_indexed_text(&base, source, known_hash)
+            .await?
+            .validate(|raw| {
+                let calendar = validate_academic_calendar(raw)?;
+                if calendar.academic_year != year {
+                    return Err("calendar year does not match the selection".into());
+                }
+                Ok(calendar)
+            })
     }
     pub async fn fetch_departments(
         &self,
@@ -970,27 +1006,15 @@ impl SubscriptionClient {
             .get(&year.to_string())
             .ok_or("admission year is not published in this index")?
             .departments;
-        let url = source_url(&base, source)?;
-        if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch {
-                value: None,
-                data_url: url.to_string(),
-                remote_hash: source.hash.clone(),
-                source_ts: source.ts.clone(),
-            });
-        }
-        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
-        verify_source_hash(&raw, &source.hash)?;
-        let departments = validate_departments(&raw)?;
-        if departments.admission_year != year {
-            return Err("guide year does not match the selection".into());
-        }
-        Ok(ReferenceFetch {
-            value: Some(departments),
-            data_url: url.to_string(),
-            remote_hash: source.hash.clone(),
-            source_ts: source.ts.clone(),
-        })
+        self.fetch_indexed_text(&base, source, known_hash)
+            .await?
+            .validate(|raw| {
+                let departments = validate_departments(raw)?;
+                if departments.admission_year != year {
+                    return Err("guide year does not match the selection".into());
+                }
+                Ok(departments)
+            })
     }
     pub async fn fetch_important_dates(
         &self,
@@ -1005,24 +1029,9 @@ impl SubscriptionClient {
             .get(&year.to_string())
             .and_then(|entry| entry.important_dates.as_ref())
             .ok_or("important dates are not published for this year")?;
-        let url = source_url(&base, source)?;
-        if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch {
-                value: None,
-                data_url: url.to_string(),
-                remote_hash: source.hash.clone(),
-                source_ts: source.ts.clone(),
-            });
-        }
-        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
-        verify_source_hash(&raw, &source.hash)?;
-        let value = validate_important_dates(&raw, year)?;
-        Ok(ReferenceFetch {
-            value: Some(value),
-            data_url: url.to_string(),
-            remote_hash: source.hash.clone(),
-            source_ts: source.ts.clone(),
-        })
+        self.fetch_indexed_text(&base, source, known_hash)
+            .await?
+            .validate(|raw| validate_important_dates(raw, year))
     }
 
     /// A year without published class schedules yields an empty feed, so
@@ -1056,24 +1065,9 @@ impl SubscriptionClient {
                 source_ts: String::new(),
             });
         };
-        let url = source_url(&base, source)?;
-        if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch {
-                value: None,
-                data_url: url.to_string(),
-                remote_hash: source.hash.clone(),
-                source_ts: source.ts.clone(),
-            });
-        }
-        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
-        verify_source_hash(&raw, &source.hash)?;
-        let value = validate_class_schedules(&raw, year)?;
-        Ok(ReferenceFetch {
-            value: Some(value),
-            data_url: url.to_string(),
-            remote_hash: source.hash.clone(),
-            source_ts: source.ts.clone(),
-        })
+        self.fetch_indexed_text(&base, source, known_hash)
+            .await?
+            .validate(|raw| validate_class_schedules(raw, year))
     }
 
     /// The campus map of format 2: its `.gz` bytes, checked against the
@@ -1094,12 +1088,7 @@ impl SubscriptionClient {
             .ok_or("the campus map of format 2 is not published in this index")?;
         let url = source_url(&base, source)?;
         if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch {
-                value: None,
-                data_url: url.to_string(),
-                remote_hash: source.hash.clone(),
-                source_ts: source.ts.clone(),
-            });
+            return Ok(ReferenceFetch::from_source(url, source, None));
         }
         let bytes = self
             .get_bytes(
@@ -1114,12 +1103,7 @@ impl SubscriptionClient {
         }
         let file = crate::campus_map::CampusMapFile::read(bytes, source.hash.clone())
             .map_err(|error| SubscriptionError::Validation(error.to_string()))?;
-        Ok(ReferenceFetch {
-            value: Some(file),
-            data_url: url.to_string(),
-            remote_hash: source.hash.clone(),
-            source_ts: source.ts.clone(),
-        })
+        Ok(ReferenceFetch::from_source(url, source, Some(file)))
     }
 
     pub async fn fetch_exams(
@@ -1175,8 +1159,7 @@ impl SubscriptionClient {
                 format!("invalid exam path in subscription index: {}", source.source)
             })?;
             let url = source_url(&base, source)?;
-            let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
-            verify_source_hash(&raw, &source.hash)?;
+            let raw = self.download_indexed_text(url.clone(), source).await?;
             let feed = validate_exam_feed(&raw, year, &quarter, kind)?;
             feeds.push(PublishedExamFeed {
                 kind,
@@ -1389,21 +1372,7 @@ pub fn apply_reference(
         {
             continue;
         }
-        let mut statement = tx
-            .prepare(&format!(
-                "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
-            ))
-            .map_err(SubscriptionError::from)?;
-        let old = statement
-            .query_map([prefix], |r| r.get::<_, String>(0))
-            .map_err(SubscriptionError::from)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(SubscriptionError::from)?;
-        drop(statement);
-        for id in old.into_iter().filter(|id| !live.contains(id)) {
-            let missing = Utc::now().to_rfc3339();
-            changed+=tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),rusqlite::params![id,missing]).map_err(SubscriptionError::from)?;
-        }
+        changed += mark_missing(tx, table, &prefix, &live)?;
     }
     Ok(changed)
 }
@@ -1425,12 +1394,8 @@ fn mark_missing(
         .collect::<Result<Vec<_>, _>>()
         .map_err(SubscriptionError::from)?;
     drop(statement);
-    let mut changed = 0;
-    for id in old.into_iter().filter(|id| !live.contains(id)) {
-        let timestamp = Utc::now().to_rfc3339();
-        changed += tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"), rusqlite::params![id,timestamp]).map_err(SubscriptionError::from)?;
-    }
-    Ok(changed)
+    crate::data::versioned::mark_missing_rows(tx, table, old, live, || Utc::now().to_rfc3339())
+        .map_err(SubscriptionError::from)
 }
 
 pub fn apply_important_dates(

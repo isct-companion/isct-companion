@@ -1,13 +1,13 @@
 import { Clock } from "lucide-react";
-import { notify as appNotify } from "../../app/notify";
-import { errorText } from "../../app/shared";
+import { notify as appNotify } from "../../components/notifications/notify";
+import { errorText } from "../../lib/error-text";
 import { useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import { UiButton, EmptyState } from "../../components/ui";
 import { Row, SettingsGroup, Toggle } from "../../components/forms";
-import { formatDay } from "./subscription-status";
+import { formatDay } from "../../lib/civil-date";
 
 /** What Core stores as a task's `lastResult`; any other text shows as stored. */
 const RESULT_KEYS: Record<string, MessageKey> = {

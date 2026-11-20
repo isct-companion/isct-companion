@@ -144,7 +144,7 @@ impl VisitMut for SyncRenames {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("../app-core/src");
     let files = [
-        "workspace.rs",
+        "workspace/mod.rs",
         "exam_share/model.rs",
         "workspace_changes.rs",
         "study_profile.rs",
@@ -166,7 +166,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "course_query/mod.rs",
         "catalog.rs",
         "course_query/contracts.rs",
-        "school_auth.rs",
+        "school_auth/mod.rs",
         "school_service.rs",
         "school_session/mod.rs",
         "school_browser/mod.rs",

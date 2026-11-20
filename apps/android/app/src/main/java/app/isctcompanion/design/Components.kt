@@ -1,5 +1,6 @@
 package app.isctcompanion.design
 
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,6 +68,11 @@ import kotlinx.coroutines.launch
 private val tabular = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
 
 /** Text style with tabular figures, for times and countdowns. */
+@Composable
+fun BackButton(onBack: () -> Unit) {
+    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+}
+
 @Composable
 fun androidx.compose.ui.text.TextStyle.tabular() = merge(tabular)
 

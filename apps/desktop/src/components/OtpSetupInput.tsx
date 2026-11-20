@@ -1,3 +1,4 @@
+import { errorText } from "../lib/error-text";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -14,7 +15,7 @@ import {
 } from "./ui";
 import { t } from "../i18n";
 import { useTimeout } from "usehooks-ts";
-import { desktopBridge } from "../app/native";
+import { desktopBridge } from "../platform/native";
 import {
   importOtp,
   otpImportError,
@@ -105,7 +106,7 @@ export function OtpSetupInput({
         throw new Error(t("settings.otp.copyFailed"));
       setCopied(true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     }
   };
   // The SVG holds the secret, so it lives only while the dialog is open.
@@ -116,7 +117,7 @@ export function OtpSetupInput({
       if (!desktopBridge) throw new Error(t("settings.otp.copyFailed"));
       setQr(await desktopBridge.schoolOtpQr());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     }
   };
   const [camera, setCamera] = useState(false);

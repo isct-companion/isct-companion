@@ -37,8 +37,8 @@ import {
   SCHEDULE_READS,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
-import { notify } from "@app/app/notify";
-import { notifications } from "@app/app/notifications";
+import { notify } from "@app/components/notifications/notify";
+import { notifications } from "@app/components/notifications/notifications";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction, FinderPage } from "@app/generated/persistence";

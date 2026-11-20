@@ -1,12 +1,9 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "../../platform/native-error";
 import {
   nativeOs,
   type NativeOs,
   type SchoolSite,
 } from "../../platform/desktop-bridge";
-import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
-import type { Settings } from "../../lib/model";
 import type { Viewer } from "../../generated/persistence";
 /** Where a note lives: a section of a course; Core names the course's folder. */
 export type CourseFolder = { courseId: string; section: string };
@@ -21,7 +18,6 @@ export type LocalFile = {
   /** How the reader shows it (Core's `file_preview`). */
   viewer: Viewer;
 };
-export type StorageInfo = { root: string; custom: boolean; canChoose: boolean };
 /** Writes to one note run one after another. */
 const queues = new Map<string, Promise<unknown>>();
 const key = (context: CourseFolder, id: string) =>
@@ -55,32 +51,7 @@ export function lmsFileUrl(
   return `${origin}/get?${query}`;
 }
 
-const boundedInteger = (
-  value: number | undefined,
-  policy: { default: number; min: number; max: number },
-) => {
-  const integer = Number.isFinite(value) ? Math.round(value!) : policy.default;
-  return Math.min(policy.max, Math.max(policy.min, integer));
-};
-/** Byte limit for automatic downloads, from the settings value in MB. */
-export const downloadLimit = (
-  settings: Pick<Settings, "autoDownloadLimitMb">,
-) =>
-  boundedInteger(
-    settings.autoDownloadLimitMb,
-    COURSE_FILE_POLICY.autoDownloadLimitMb,
-  ) *
-  1024 *
-  1024;
-/** Days a downloaded file may remain unopened before launch cleanup removes it. */
-export const retentionDays = (settings: Pick<Settings, "autoCleanDays">) =>
-  boundedInteger(settings.autoCleanDays, COURSE_FILE_POLICY.retentionDays);
 export { previewKind } from "./file-types";
-export const storageInfo = (): Promise<StorageInfo> =>
-  invoke("course_storage_info");
-export async function chooseStorage(reset = false): Promise<StorageInfo> {
-  return invoke("choose_course_storage", { reset });
-}
 /** The notes of course `courseId` in `sections`. */
 export const listNotes = (
   courseId: string,
@@ -141,7 +112,6 @@ export type Material =
   | { state: "external"; url: string }
   | { state: "failed"; reason: LmsFileReason; page: SchoolPage | null };
 
-export const localFileUrl = (path: string) => convertFileSrc(path);
 /**
  * Asks Core what an item or link opens as. A file is read from the course
  * folder; with `download`, Core fetches it first with its signed-in LMS
@@ -174,10 +144,6 @@ export const shareStoredFile = (
   path: string,
   anchor: { x: number; y: number; width: number; height: number },
 ): Promise<void> => invoke("share_course_file", { path, anchor });
-/** Remove downloaded files not opened for `days` days. */
-export const cleanMaterials = (days: number): Promise<number> =>
-  invoke("clean_course_materials", { days });
-
 export async function moveNote(
   context: CourseFolder,
   id: string,

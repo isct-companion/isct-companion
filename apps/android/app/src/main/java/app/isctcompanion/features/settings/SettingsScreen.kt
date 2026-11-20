@@ -1,5 +1,6 @@
 package app.isctcompanion.features.settings
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Translate
@@ -60,7 +61,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.Button
@@ -69,11 +69,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -239,7 +237,7 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
-            back?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) } }
+            if (back != null) BackButton(back)
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
     )
@@ -788,21 +786,6 @@ private fun Secret(
             if (login) Modifier.semantics { contentType = ContentType.Password } else Modifier,
         ),
     )
-}
-
-/** A switch with its title, and an optional line under it saying what it does. */
-@Composable
-internal fun SwitchRow(title: String, checked: Boolean, detail: String? = null, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = 8.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Theme.colors.ink)
-            detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
-        }
-        Switch(checked, onChange)
-    }
 }
 
 /** The background theme: five round swatches, each its light background

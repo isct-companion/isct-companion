@@ -1,13 +1,14 @@
+import { retentionDays } from "../lib/course-file-policy";
 import { useEffect, useRef, useState } from "react";
 import type { Workspace } from "../lib/model";
 import type { CapabilityRuntime } from "../platform/capabilities";
 import type { NativeCapabilitySnapshot } from "../platform/desktop-bridge";
 import { bootstrapReminders } from "../platform/reminders";
-import { cleanMaterials, retentionDays } from "../features/lms/files";
+import { cleanMaterials } from "../platform/course-storage";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { fetchRecords, useRecords } from "../platform/records";
-import { desktopBridge } from "./native";
-import { notify } from "./notify";
+import { desktopBridge } from "../platform/native";
+import { notify } from "../components/notifications/notify";
 
 export function useWorkspaceRuntime(sourceData: Workspace | undefined) {
   const [schedulerState, setSchedulerState] =

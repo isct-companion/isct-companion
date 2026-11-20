@@ -1,11 +1,11 @@
 package app.isctcompanion.features.settings
 
-import android.Manifest
+import app.isctcompanion.shared.StillCameraResult
+import app.isctcompanion.shared.rememberStillCamera
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -75,8 +75,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.MatrixCameraSession
@@ -97,7 +95,6 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.io.ByteArrayOutputStream
-import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -473,30 +470,32 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
             .onFailure { error = t("settings.credentialImport.pasteExactly70LettersIn") }
     }
 
-    fun scan(uri: Uri) {
-        scope.launch {
-            reading = true
-            error = null
-            note = null
-            try {
-                val jpeg = withContext(Dispatchers.IO) { jpeg(context, uri) }
-                val result = model.scanMatrix(jpeg)
-                if (result.size != 70) {
-                    error = t("settings.credentialImport.couldNotFindTheGrid")
-                } else {
-                    result.forEachIndexed { index, cell ->
-                        cells[index] = cell.text
-                        confidence[index] = cell.level
-                    }
-                    publish()
-                    editing = true
-                    note = t("settings.credentialImport.checkTheColouredCellsAgainst")
+    suspend fun scanImage(uri: Uri) {
+        reading = true
+        error = null
+        note = null
+        try {
+            val jpeg = withContext(Dispatchers.IO) { jpeg(context, uri) }
+            val result = model.scanMatrix(jpeg)
+            if (result.size != 70) {
+                error = t("settings.credentialImport.couldNotFindTheGrid")
+            } else {
+                result.forEachIndexed { index, cell ->
+                    cells[index] = cell.text
+                    confidence[index] = cell.level
                 }
-            } catch (failure: Exception) {
-                error = AppModel.describe(failure)
+                publish()
+                editing = true
+                note = t("settings.credentialImport.checkTheColouredCellsAgainst")
             }
-            reading = false
+        } catch (failure: Exception) {
+            error = AppModel.describe(failure)
         }
+        reading = false
+    }
+
+    fun scan(uri: Uri) {
+        scope.launch { scanImage(uri) }
     }
 
     var live by remember { mutableStateOf<MatrixCameraSession?>(null) }
@@ -518,24 +517,13 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(::scan)
     }
-    // Upload image, as on iOS: the system camera's still or a library photo.
-    // The system camera writes into a file this app hands it.
     var choosing by remember { mutableStateOf(false) }
-    var shot by remember { mutableStateOf<Uri?>(null) }
-    val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
-    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
-        if (taken) shot?.let(::scan)
-    }
-    fun takePhoto() {
-        val file = File(context.cacheDir, "photos").apply { mkdirs() }.resolve("matrix.jpg")
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        shot = uri
-        takePicture.launch(uri)
-    }
-    // An app that declares the camera permission must hold it to start the
-    // system camera.
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-        if (allowed) takePhoto() else error = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+    val camera = rememberStillCamera<Unit> { _, result ->
+        when (result) {
+            is StillCameraResult.Captured -> scanImage(result.uri)
+            StillCameraResult.Denied -> error = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+            StillCameraResult.Cancelled -> Unit
+        }
     }
 
     if (!editing) {
@@ -543,7 +531,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     }
     ChipRow {
         if (canScan) {
-            if (hasCamera) {
+            if (camera.available) {
                 SourceChip(t("settings.credentialImport.autoScan"), Icons.Rounded.DocumentScanner, enabled = !reading) {
                     error = null
                     note = null
@@ -555,15 +543,11 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
             Box {
                 SourceChip(t("settings.credentialImport.uploadImage"), Icons.Rounded.Image, enabled = !reading) { choosing = true }
                 DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
-                    if (hasCamera) {
+                    if (camera.available) {
                         DropdownMenuItem(text = { Text(t("settings.credentialImport.takePhoto")) }, onClick = {
                             choosing = false
                             error = null
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                takePhoto()
-                            } else {
-                                cameraPermission.launch(Manifest.permission.CAMERA)
-                            }
+                            camera.take(Unit)
                         })
                     }
                     DropdownMenuItem(text = { Text(t("settings.credentialImport.chooseFromLibrary")) }, onClick = {

@@ -1,3 +1,4 @@
+import { errorText } from "../../lib/error-text";
 import { SearchX, Check, ChevronRight, X } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Paper, EmptyState, Skeleton } from "../../components/ui";
@@ -15,8 +16,8 @@ import type { TermId } from "../../lib/model";
 import type { FinderRowView } from "../../platform/finder-query";
 import type { CourseEligibility } from "../../generated/persistence";
 import { runsFor } from "../../platform/sync";
-import { useSync } from "../../app/useSync";
-import { heldText } from "../../app/sync-text";
+import { useSync } from "../../store/sync";
+import { heldText } from "../../lib/sync-text";
 import i18n, { t, type MessageKey } from "../../i18n";
 import type { Finder } from "./useFinder";
 
@@ -79,9 +80,6 @@ function Highlight({ text, query }: { text: string; query: string }) {
     </>
   );
 }
-
-const message = (reason: unknown) =>
-  reason instanceof Error ? reason.message : String(reason);
 
 function eligibilityLabel(eligibility: CourseEligibility | undefined) {
   switch (eligibility?.reason) {
@@ -314,7 +312,7 @@ export function CourseFinder({
       });
     } catch (reason) {
       mark(courses, undefined);
-      setError(message(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     } finally {
       setMutating(false);
     }
@@ -335,7 +333,7 @@ export function CourseFinder({
       setLastAdded(null);
     } catch (reason) {
       mark(courses, { placed: true, saving: false, after: finder.issued() });
-      setError(message(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     } finally {
       setMutating(false);
     }
@@ -419,7 +417,7 @@ export function CourseFinder({
             .join(" · "),
         );
       })
-      .catch((reason) => setError(message(reason)));
+      .catch((reason) => setError(errorText(reason, { nativeMessage: false }) ?? String(reason)));
   };
 
   const pillLabel = (c: Condition) =>

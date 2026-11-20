@@ -1,5 +1,5 @@
 import { dayShort } from "../../components/timetable/timetable";
-import { zoomFrom } from "../../app/course-zoom";
+import { zoomFrom } from "../../components/timetable/course-zoom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CalendarCheck } from "lucide-react";
 import { ExamCards } from "../../components/exams/ExamCards";

@@ -1,4 +1,4 @@
-import { clearZoom } from "./course-zoom";
+import { clearZoom } from "../components/timetable/course-zoom";
 import {
   BookOpen,
   CalendarDays,
@@ -16,7 +16,9 @@ import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { WelcomeSheet } from "../components/guide";
 import { useMediaQuery } from "usehooks-ts";
-import { refresh, syncAvailable, useOpenHint, useSync } from "./useSync";
+import { refresh, syncAvailable } from "../platform/sync-intents";
+import { useOpenHint } from "./useOpenHint";
+import { useSync } from "../store/sync";
 import { pageProgress, runsFor } from "../platform/sync";
 import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusLine } from "./SchoolStatusLine";
@@ -31,7 +33,7 @@ import {
 } from "../platform/core-query";
 import { useFinder } from "../pages/courses/useFinder";
 import type { FinderRowView } from "../platform/finder-query";
-import { Notifications } from "./notifications";
+import { Notifications } from "../components/notifications/notifications";
 import {
   createHashRouter,
   RouterProvider,
@@ -47,31 +49,34 @@ import {
   routeRedirect,
   workspaceRoutes,
 } from "./routes";
-import { notify } from "./notify";
+import { notify } from "../components/notifications/notify";
 import { UiButton } from "../components/ui";
 import { confirmAction, ConfirmDialogs } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
-import { type Page, type Section } from "./shared";
+import { desktopBridge } from "../platform/native";
+import { saveExportFile } from "../platform/save-export";
+import { hideNativeSchoolWeb } from "../platform/school-web-owner";
+import { type Page, type Section } from "../lib/route-contract";
 
 import { Today } from "../pages/today/TodayPage";
-import type { CourseEntry } from "../features/lms/LmsWorkspace";
+import type { CourseEntry } from "../features/lms";
 import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
-import { saveVpnOnDemand, vpnNoticeText } from "../pages/tools/CampusVpn";
+import { saveVpnOnDemand } from "../store/vpn-settings";
+import { vpnNoticeText } from "../lib/vpn-text";
 import { About } from "../pages/about/AboutPage";
 import { Tools } from "../pages/tools/ToolsPage";
 import { PastExams } from "../pages/past-exams/PastExamsPage";
-import { availableTools } from "../pages/tools/registry";
+import { availableTools } from "../platform/available-tools";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 const LmsWorkspace = lazy(() =>
-  import("../features/lms/LmsWorkspace").then((module) => ({
+  import("../features/lms").then((module) => ({
     default: module.LmsWorkspace,
   })),
 );
@@ -79,12 +84,9 @@ import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
 import { schoolSessions, useSchoolSession } from "../platform/school-session";
-import type {
-  SchoolAuthProfile,
-  SchoolProfileSession,
-} from "../platform/desktop-bridge";
+import type { SchoolAuthProfile, SchoolProfileSession } from "../platform/school-session-contract";
 import { onWidgetRoute } from "../platform/widget-links";
-import { otpNotSetUp, sessionDetails, sessionText } from "./sync-text";
+import { otpNotSetUp, sessionDetails, sessionText } from "../lib/sync-text";
 
 import { performAction } from "../platform/actions";
 
@@ -256,6 +258,7 @@ export function WorkspaceApp() {
   const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useAnimatedNavigate();
+  const openAccounts = () => void navigate(paths.settings("accounts"));
   const widgetNavigate = useRef(navigate);
   useEffect(() => {
     widgetNavigate.current = navigate;
@@ -926,6 +929,7 @@ export function WorkspaceApp() {
         return (
           <Suspense fallback={<p role="status">{t("common.loading")}</p>}>
             <LmsWorkspace
+              openAccounts={openAccounts}
               course={course}
               entry={entry}
               active={active}
@@ -1273,6 +1277,7 @@ export function WorkspaceApp() {
   );
   const webPage = (
     <Web
+      openAccounts={openAccounts}
       key={webContext?.url ?? "web"}
       active={page === "web"}
       platform={platform}

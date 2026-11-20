@@ -490,6 +490,7 @@ extension View {
 /// the person skips this version for good. Turning the checks off is in
 /// Settings › About.
 private struct UpdateOffer: ViewModifier {
+    @Environment(\.openURL) private var openURL
     let model: AppModel
 
     func body(content: Content) -> some View {
@@ -500,10 +501,9 @@ private struct UpdateOffer: ViewModifier {
         ) { release in
             Button(t("common.later"), role: .cancel) {}
             Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
-            if let url = URL(string: release.url) {
+            if let button = OpenReleaseButton(release: release, openURL: openURL) {
                 // The preferred action: bold, and Return picks it.
-                Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
-                    .keyboardShortcut(.defaultAction)
+                button.keyboardShortcut(.defaultAction)
             }
         }
     }

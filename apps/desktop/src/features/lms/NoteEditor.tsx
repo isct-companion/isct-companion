@@ -1,4 +1,4 @@
-import { ReaderTools } from "./ReaderPane";
+import { ReaderTools } from "../../components/files/ReaderPane";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { readNote, saveNote, moveNote, type CourseFolder } from "./files";

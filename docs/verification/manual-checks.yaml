@@ -619,7 +619,7 @@ checks:
       - crates/app-core/src/net/moodle/token.rs
       - crates/app-core/src/net/moodle/rest.rs
       - crates/app-core/src/net/moodle/ajax.rs
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
       - crates/app-core/src/plan/school.rs
       - crates/app-core/src/plan/planner.rs
       - docs/lms-api/README.md
@@ -1139,7 +1139,7 @@ checks:
       - crates/app-ocr/**
       - crates/app-ocr-adapter/**
       - apps/desktop/src/lib/matrix-ocr.ts
-      - crates/app-core/src/matrix_scan.rs
+      - crates/app-core/src/matrix_scan/mod.rs
       - crates/app-core/src/matrix_scan/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
@@ -2074,7 +2074,7 @@ checks:
       in crates/adpt-printer/src/tests and crates/app-core/src/tests.
     covers:
       - crates/adpt-printer/src/cups.rs
-      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/mod.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
@@ -2175,7 +2175,7 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
-      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/mod.rs
       - crates/app-core/src/campus_printer/ipp.rs
       - crates/app-core/src/campus_printer/ipp/attributes.rs
     verified: null
@@ -2292,7 +2292,7 @@ checks:
       - apps/desktop/src/pages/tools/ToolsPage.tsx
       - apps/desktop/src/pages/tools/ToolCard.tsx
       - apps/desktop/src/pages/tools/tools.css
-      - apps/desktop/src/pages/tools/registry.ts
+      - apps/desktop/src/platform/available-tools.ts
       - apps/desktop/src/app/App.tsx
   - id: DESKTOP-CAMPUS-VPN
     area: desktop
@@ -2393,7 +2393,7 @@ checks:
       - crates/vpn-protocol/src/tests/protocol.rs
       - crates/app-core/src/tests/vpn.rs
       - crates/app-core/src/tests/vpn__f5.rs
-      - crates/app-core/src/vpn.rs
+      - crates/app-core/src/vpn/mod.rs
       - crates/app-core/src/vpn/f5.rs
       - crates/app-core/src/school_session/vpn.rs
       - crates/app-core/src/tests/school_session__vpn.rs
@@ -2766,7 +2766,7 @@ checks:
       tests drive the same paths only over a test transport.
     covers:
       - crates/app-core/src/net/moodle/submission.rs
-      - crates/app-core/src/submissions.rs
+      - crates/app-core/src/submissions/mod.rs
       - crates/app-core/src/submissions/**
       - crates/app-core/src/agent/submissions.rs
       - crates/app-core/src/deadlines.rs
@@ -3180,7 +3180,9 @@ checks:
     covers:
       - apps/desktop/src/store/workspace.ts
       - apps/desktop/src/platform/core-query.ts
-      - apps/desktop/src/app/useSync.ts
+      - apps/desktop/src/app/useOpenHint.ts
+      - apps/desktop/src/platform/sync-intents.ts
+      - apps/desktop/src/store/sync.ts
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/app/interaction-trace.ts
     verified: null
@@ -3243,7 +3245,7 @@ checks:
       real school failure only exist against the live services.
     covers:
       - apps/desktop/src/app/SchoolStatusLine.tsx
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/components/PullRing.tsx
@@ -3378,7 +3380,7 @@ checks:
       - apps/desktop/src/app/App.tsx
       - apps/desktop/src/platform/query-client.ts
       - apps/desktop/src/store/workspace.ts
-      - crates/app-core/src/workspace.rs
+      - crates/app-core/src/workspace/mod.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/commands/read_models.rs
       - crates/app-core/src/course_query/mod.rs
@@ -3499,7 +3501,7 @@ checks:
       for English keys are tested in Core. Which panel shows what is a
       glance check (AGENTS.md §5).
     covers:
-      - apps/desktop/src/pages/courses/syllabus-frame.tsx
+      - apps/desktop/src/components/courses/syllabus-frame.tsx
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
@@ -3833,7 +3835,7 @@ checks:
       - apps/desktop/src/pages/lectures/lectures.css
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
       - apps/desktop/src/components/confirm.tsx
-      - apps/desktop/src/features/lms/ReaderPane.tsx
+      - apps/desktop/src/components/files/ReaderPane.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/components/workspace-chrome.css
     verified: null
@@ -4246,6 +4248,7 @@ checks:
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/store/app-update.ts
       - apps/desktop/src/pages/about/AboutPage.tsx
       - crates/app-core/src/app_updates.rs
     verified: null
@@ -4470,7 +4473,7 @@ checks:
     covers:
       - crates/app-core/src/school_session/store.rs
       - crates/app-core/src/school_session/mod.rs
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
     verified: null
 
 
@@ -5718,6 +5721,7 @@ checks:
       suite.
     covers:
       - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/store/app-update.ts
       - apps/desktop/src/components/confirm.tsx
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
@@ -5783,7 +5787,7 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
       - crates/app-ffi/src/campus_print.rs
-      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/mod.rs
       - crates/adpt-printer/src/document.rs
       - crates/adpt-printer/src/lpd.rs
     verified: null
@@ -5908,7 +5912,9 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt
       - apps/android/app/src/main/java/app/isctcompanion/App.kt
       - apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt
       - apps/android/app/src/main/AndroidManifest.xml
@@ -6058,8 +6064,8 @@ checks:
       a person sees at a glance whether it reads right. The text and the labels
       themselves are checked in Core's plan tests.
     covers:
-      - apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift
-      - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
+      - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
       - apps/desktop/src/app/SchoolStatusLine.tsx
     verified: null
 
@@ -6405,7 +6411,7 @@ checks:
       Core's sync snapshot, covered by its planner tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
-      - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
     verified: null
 
   - id: ANDROID-SETTINGS-PAGES
@@ -6462,7 +6468,11 @@ checks:
       object is covered by Core's workspace tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/DataUpdatesScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
     verified: null
 
@@ -8030,7 +8040,7 @@ checks:
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/timetable/timetable.tsx
       - apps/desktop/src/components/exams/ExamEditor.tsx
-      - apps/desktop/src/app/notify.ts
+      - apps/desktop/src/components/notifications/notify.ts
       - apps/desktop/src/styles.css
       - design/tokens/course.json
     verified: null
@@ -8082,7 +8092,7 @@ checks:
       - crates/app-core/src/plan/planner.rs
       - crates/app-core/src/plan/runner.rs
       - crates/app-core/src/plan/school.rs
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
     verified: null
 
   - id: IOS-SIGNIN-REASON-AND-RETRY
@@ -8483,7 +8493,7 @@ checks:
       cannot run in CI. Promotion and the sync payload are covered by Core's
       school_auth and school_browser tests.
     covers:
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
       - crates/app-core/src/ports.rs
       - apps/ios/IsctCompanion/Core/KeychainVault.swift
       - apps/desktop/src-tauri/src/secrets.rs
@@ -8532,7 +8542,7 @@ checks:
       real devices. Re-reading a changed vault item is covered by Core's
       school_auth tests.
     covers:
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
       - crates/app-core/src/school_session/mod.rs
     verified: null
 
@@ -8655,7 +8665,7 @@ checks:
       Only the real keychain prompt can be denied. The snapshot Core gives
       for a denied read is covered by the school_session suite.
     covers:
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src-tauri/src/secrets.rs
       - crates/app-core/src/school_session/identity.rs
     verified: null
@@ -8913,11 +8923,11 @@ checks:
       labels, colours and Retry are a glance in each shell, and the refusal
       needs the live school.
     covers:
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
-      - apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift
+      - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
-      - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
     verified: null
 
@@ -8944,8 +8954,8 @@ checks:
       Requires the live school and a real vault that selectively denies the
       refusal write; the vault-state decision is covered by school_auth tests.
     covers:
-      - apps/desktop/src/app/sync-text.ts
-      - crates/app-core/src/school_auth.rs
+      - apps/desktop/src/lib/sync-text.ts
+      - crates/app-core/src/school_auth/mod.rs
     verified: null
 
   - id: DESKTOP-ERROR-CODE-COPY

@@ -1,5 +1,5 @@
 import { UiButton, UiInput, UiSelect } from "../../components/ui";
-import { ReaderTools } from "./ReaderPane";
+import { ReaderTools } from "../../components/files/ReaderPane";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getDocument,

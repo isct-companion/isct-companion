@@ -1,3 +1,4 @@
+import { downloadLimit } from "../../lib/course-file-policy";
 import { ExamCards } from "../../components/exams/ExamCards";
 import { dueRole } from "../../components/DueChip";
 import { Tag } from "../../components/ui";
@@ -5,7 +6,7 @@ import { GuideTip } from "../../components/guide";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { useResizeObserver } from "usehooks-ts";
-import { ReaderPane } from "./ReaderPane";
+import { ReaderPane } from "../../components/files/ReaderPane";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import {
   loadReading,
@@ -39,11 +40,11 @@ import { t } from "../../i18n";
 import { detectPlatform } from "../../platform/capabilities";
 import { useClock } from "../../platform/use-clock";
 import type { PageProgress } from "../../platform/sync";
-import { ageText } from "../../app/sync-text";
+import { ageText } from "../../lib/sync-text";
 import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
 import { announcements, formatLmsDate, contentText, safeUrl } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
-import { SyllabusFrame } from "../../pages/courses/syllabus-frame";
+import { SyllabusFrame } from "../../components/courses/syllabus-frame";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import {
   gravityTarget,
@@ -70,7 +71,6 @@ import {
 } from "./file-types";
 import { withRecords } from "../../platform/records";
 import {
-  downloadLimit,
   moveNote,
   type LocalFile,
   type SchoolPage,
@@ -126,6 +126,7 @@ export function LmsWorkspaceBody({
   headerStart,
   openPastExams,
   openWeb,
+  openAccounts,
 }: {
   course: Course;
   data: Workspace;
@@ -137,6 +138,7 @@ export function LmsWorkspaceBody({
   openPastExams?: () => void;
   /** Opens a school page on the Web page. */
   openWeb?: (url: string) => void;
+  openAccounts?: () => void;
   close: () => void;
   /** Asks Core to refresh this course now (`Refresh { course }`). */
   refresh?: () => void;
@@ -1529,6 +1531,7 @@ export function LmsWorkspaceBody({
                     url={opened.url!}
                     active={viewerActive}
                     available={schoolWebAvailable}
+                    openAccounts={openAccounts}
                   />
                 </>
               ) : (

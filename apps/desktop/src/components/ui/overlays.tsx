@@ -13,7 +13,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
 } from "react";
-import { usePageLayer, useTopPageLayer } from "../../app/KeptPage";
+import { usePageLayer, useTopPageLayer } from "./page-layer";
 import { t } from "../../i18n";
 import { cx, spacing, type Size } from "./layout";
 import { CloseButton } from "./controls";

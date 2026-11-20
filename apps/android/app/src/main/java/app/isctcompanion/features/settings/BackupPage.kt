@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -99,7 +98,14 @@ internal fun BackupPage() {
             val providers = state?.providers.orEmpty()
             providers.forEachIndexed { index, provider ->
                 if (index > 0) RowDivider(inset = Theme.rowX)
-                SwitchRow(providerName(provider.provider), providerDetail(provider), provider.error != null, provider.enabled, !locked) {
+                SwitchRow(
+                    title = providerName(provider.provider),
+                    checked = provider.enabled,
+                    detail = providerDetail(provider),
+                    enabled = !locked,
+                    detailColor = if (provider.error != null) Theme.colors.danger else Theme.colors.muted,
+                    compact = false,
+                ) {
                     run { model.setCloudEnabled(provider.provider, it) }
                 }
             }
@@ -108,9 +114,11 @@ internal fun BackupPage() {
                 val automatic = state?.automatic == true
                 SwitchRow(
                     t("settings.backup.syncAutomatically"),
-                    if (automatic) t("settings.backup.pullsOtherDevicesChangesWhen")
-                    else t("settings.backup.uploadAndPullByHand"),
-                    false, automatic, !locked,
+                    checked = automatic,
+                    detail = if (automatic) t("settings.backup.pullsOtherDevicesChangesWhen")
+                        else t("settings.backup.uploadAndPullByHand"),
+                    enabled = !locked,
+                    compact = false,
                 ) { run { model.setCloudAutomatic(it) } }
                 RowDivider(inset = Theme.rowX)
                 Row(
@@ -186,34 +194,6 @@ private fun providerDetail(provider: ProviderState): String? {
     }
     if (!provider.enabled) return null
     return provider.lastSyncedAt?.let { t("settings.backup.syncedDate", "date" to Format.due(it)) } ?: t("settings.backup.waitingForTheFirstSync")
-}
-
-@Composable
-private fun SwitchRow(
-    title: String,
-    detail: String?,
-    failed: Boolean,
-    checked: Boolean,
-    enabled: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Theme.colors.ink)
-            detail?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (failed) Theme.colors.danger else Theme.colors.muted,
-                )
-            }
-        }
-        Switch(checked, onChange, enabled = enabled)
-    }
 }
 
 @Composable

@@ -1,5 +1,6 @@
 package app.isctcompanion.features.assignments
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import app.isctcompanion.core.AssignmentBoard
@@ -29,14 +30,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import app.isctcompanion.design.EmptyState
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -76,7 +75,7 @@ import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
-import app.isctcompanion.features.today.rememberNow
+import app.isctcompanion.shared.rememberNow
 import java.time.Instant
 import kotlinx.coroutines.launch
 
@@ -250,7 +249,7 @@ fun AssignmentListScreen() {
         TopAppBar(
             title = { Text(t("widget.assignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                BackButton { navigator.back() }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
@@ -275,7 +274,7 @@ fun RecordScreen() {
         TopAppBar(
             title = { Text(t("common.allAssignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                BackButton { navigator.back() }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )

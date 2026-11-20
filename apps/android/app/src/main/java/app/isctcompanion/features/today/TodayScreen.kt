@@ -1,5 +1,6 @@
 package app.isctcompanion.features.today
 
+import app.isctcompanion.shared.rememberNow
 import app.isctcompanion.design.SkeletonRows
 import app.isctcompanion.design.Skeleton
 import app.isctcompanion.design.Motion
@@ -58,7 +59,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -98,12 +98,12 @@ import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
-import app.isctcompanion.design.FirstLoadCard
-import app.isctcompanion.design.SyncProblemBanner
-import app.isctcompanion.design.SyncRingButton
+import app.isctcompanion.features.schoolstatus.FirstLoadCard
+import app.isctcompanion.features.schoolstatus.SyncProblemBanner
+import app.isctcompanion.features.schoolstatus.SyncRingButton
 import app.isctcompanion.features.map.RoomMapButton
-import app.isctcompanion.design.activeRuns
-import app.isctcompanion.design.problem
+import app.isctcompanion.features.schoolstatus.activeRuns
+import app.isctcompanion.features.schoolstatus.problem
 import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
@@ -112,20 +112,7 @@ import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.nowTint
 import app.isctcompanion.design.tabular
 import java.time.Instant
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/** A clock for countdowns, ticking every `seconds`. */
-@Composable
-fun rememberNow(seconds: Long): Instant {
-    val now by produceState(Instant.now()) {
-        while (true) {
-            delay(seconds * 1_000)
-            value = Instant.now()
-        }
-    }
-    return now
-}
 
 /** 今日: what Core chose for this moment (the class in progress or tonight's
  * deadline), the stack of the next classes, then the quarter's assignments.

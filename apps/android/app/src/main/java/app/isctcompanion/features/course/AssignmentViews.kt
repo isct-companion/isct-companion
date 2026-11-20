@@ -1,5 +1,6 @@
 package app.isctcompanion.features.course
 
+import app.isctcompanion.design.BackButton
 import app.isctcompanion.design.Motion
 import app.isctcompanion.design.LocalReducedMotion
 import androidx.compose.animation.fadeOut
@@ -23,11 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -75,7 +74,7 @@ fun AssignmentScreen(assignmentId: String) {
     TabPage(
         assignment?.title.orEmpty(),
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+            BackButton { navigator.back() }
         },
     ) {
         Column(

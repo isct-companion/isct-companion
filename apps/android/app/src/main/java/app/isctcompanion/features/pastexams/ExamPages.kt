@@ -1,5 +1,6 @@
 package app.isctcompanion.features.pastexams
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -75,12 +75,6 @@ sealed interface ExamSubjectEntry {
 }
 
 @Composable
-private fun BackButton() {
-    val navigator = LocalNavigator.current
-    IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
-}
-
-@Composable
 private fun Loading() {
     Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
 }
@@ -89,6 +83,7 @@ private fun Loading() {
  * teachers first, the others folded away, a button per document. */
 @Composable
 fun ExamSubjectScreen(entry: ExamSubjectEntry) {
+    val navigator = LocalNavigator.current
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
@@ -125,7 +120,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
     ExamFrame(calls) {
         TabPage(
             current?.let { it.subject.name }.orEmpty(),
-            navigationIcon = { BackButton() },
+            navigationIcon = { BackButton { navigator.back() } },
             actions = {
                 if (current != null && connected) Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Add, t("examShare.upload.title")) }
@@ -242,6 +237,7 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
  * zoom, photos zoom, Markdown formatted, text as text); actions in the menu. */
 @Composable
 fun ExamDocumentScreen(id: String) {
+    val navigator = LocalNavigator.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
@@ -263,7 +259,7 @@ fun ExamDocumentScreen(id: String) {
     ExamFrame(calls) {
         TabPage(
             current?.let { documentTitle(it.document) }.orEmpty(),
-            navigationIcon = { BackButton() },
+            navigationIcon = { BackButton { navigator.back() } },
             actions = {
                 if (current != null) Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, t("examShare.more")) }
@@ -381,7 +377,7 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
     }
 
     ExamFrame(calls) {
-        TabPage(t("examShare.requests"), navigationIcon = { BackButton() }) {
+        TabPage(t("examShare.requests"), navigationIcon = { BackButton { navigator.back() } }) {
             val item = request
             when {
                 item != null -> Column(

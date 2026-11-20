@@ -18,7 +18,7 @@
 //        --by human --evidence <path> [--notes "..."] [--blocked-by "..."]
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, parseDocument } from "yaml";
@@ -47,8 +47,10 @@ const GENERATED_BANNER =
 const git = (...args) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 
-function trackedFiles() {
-  return git("ls-files").split("\n").filter(Boolean);
+function workingTreeFiles() {
+  return git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    .split("\0")
+    .filter((file) => file && existsSync(join(root, file)));
 }
 
 /** Converts a repository-relative glob into a regular expression. */
@@ -122,7 +124,7 @@ function load() {
   return parse(readFileSync(source, "utf8"));
 }
 
-export function validate(doc, files = trackedFiles()) {
+export function validate(doc, files = workingTreeFiles()) {
   const problems = [];
   if (doc?.version !== 1) problems.push("version must be 1");
 
@@ -192,7 +194,7 @@ export function validate(doc, files = trackedFiles()) {
       for (const glob of check.covers) {
         const hits = files.filter((file) => globToRegExp(glob).test(file));
         if (hits.length === 0)
-          problems.push(`${at}: covers ${glob} matches no tracked file`);
+          problems.push(`${at}: covers ${glob} matches no working-tree file`);
       }
       // A check whose whole surface is already exercised by a suite belongs in
       // `tests/`, not here.

@@ -25,7 +25,7 @@ import {
 import type { Assignment, Course, Material, Workspace } from "@app/lib/model";
 import type { LmsCourseRecord, LmsSection } from "@app/platform/desktop-bridge";
 import type { CourseContent, LessonItemKind } from "@app/generated/persistence";
-import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
+import type { CourseEntry } from "@app/features/lms";
 
 /**
  * The LMS reading workspace and the readers it opens, over the scripted host.
@@ -91,7 +91,7 @@ beforeEach(() => {
 });
 
 /**
- * Installs the scripted host, then loads the real module. `app/native` captures
+ * Installs the scripted host, then loads the real module. `platform/native` captures
  * its bridge at first import, so the fake host has to be in place first —
  * `mountApp` does the same thing for the shell.
  */

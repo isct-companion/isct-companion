@@ -1,5 +1,6 @@
 package app.isctcompanion.features.pastexams
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
@@ -251,7 +251,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
         TabPage(
             t("examShare.title"),
             navigationIcon = {
-                if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                if (onBack != null) BackButton(onBack)
             },
             actions = {
                 ExamLinkButton(links) {

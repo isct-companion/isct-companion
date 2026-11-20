@@ -1,7 +1,7 @@
 import { createElement, Fragment, type ComponentType } from "react";
 import { matchRoutes, replace, type RouteObject } from "react-router";
 import type { Course } from "../lib/model";
-import type { Page, Section } from "./shared";
+import type { Page, Section } from "../lib/route-contract";
 import {
   sectionParent,
   sectionSupported,

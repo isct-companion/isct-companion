@@ -1,4 +1,5 @@
-import type { Platform, Section } from "../../app/shared";
+import type { Section } from "../../lib/route-contract";
+import type { Platform } from "../../platform/capabilities";
 import { nativeOs } from "../../platform/desktop-bridge";
 import type { MessageKey } from "../../i18n";
 

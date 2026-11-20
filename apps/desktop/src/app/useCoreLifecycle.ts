@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { desktopBridge } from "./native";
-import { sendHint } from "./useSync";
+import { desktopBridge } from "../platform/native";
+import { sendHint } from "../platform/sync-intents";
 import { networkHint } from "../platform/sync";
 import { everythingChanged } from "../platform/query-client";
 import { resyncClock } from "../platform/use-clock";

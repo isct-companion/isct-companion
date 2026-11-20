@@ -71,5 +71,3 @@ export const prepareSubmission = (
   );
 export const deleteWorkspace = (path: string) =>
   invoke<void>("delete_workspace", { path });
-/** Remove workspaces unchanged for a month; returns how many. */
-export const cleanWorkspaces = () => invoke<number>("clean_workspaces");

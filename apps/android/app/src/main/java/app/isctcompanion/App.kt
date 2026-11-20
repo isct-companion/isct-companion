@@ -93,8 +93,8 @@ import app.isctcompanion.core.WidgetRoute
 import app.isctcompanion.core.Viewer
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.features.handin.InboxTray
-import app.isctcompanion.design.CourseArchiveScreen
-import app.isctcompanion.design.CourseFileScreen
+import app.isctcompanion.features.course.CourseArchiveScreen
+import app.isctcompanion.features.course.CourseFileScreen
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.LocalDestinationScope

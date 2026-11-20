@@ -8,8 +8,9 @@ import {
 } from "lucide-react";
 import { Switch, UiButton } from "../../components/ui";
 import { useResetGuide } from "../../components/guide";
-import { desktopBridge } from "../../app/native";
-import { lastInstallText, useAppUpdate } from "../../app/useDesktopUpdates";
+import { desktopBridge } from "../../platform/native";
+import { lastInstallText } from "../../lib/app-update-text";
+import { useAppUpdate } from "../../store/app-update";
 import { workspaceStore } from "../../store/workspace";
 import type { Workspace } from "../../lib/model";
 import { t, type MessageKey } from "../../i18n";

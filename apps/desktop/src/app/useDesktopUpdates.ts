@@ -1,72 +1,12 @@
 import { useEffect } from "react";
-import { create } from "zustand";
-import { notifications } from "./notifications";
-import { desktopBridge } from "./native";
+import { notifications } from "../components/notifications/notifications";
+import { desktopBridge } from "../platform/native";
 import { chooseAction } from "../components/confirm";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { t } from "../i18n";
-import type {
-  AppLastInstall,
-  AppUpdateStatus,
-} from "../platform/desktop-bridge";
-
-// Transport state only: the native updater owns checks, verified bytes and install.
-export const useAppUpdate = create<{
-  status?: AppUpdateStatus;
-  pending: boolean;
-  check: (manual?: boolean, download?: boolean) => Promise<void>;
-}>((set, get) => ({
-  pending: false,
-  check: async (manual = false, download = false) => {
-    if (!desktopBridge?.checkAppUpdate || get().pending) return;
-    set({ pending: true });
-    // The command resolves only after the download; read the native phase and
-    // byte count meanwhile so the panel does not sit on "Checking…".
-    const poll = window.setInterval(() => {
-      void desktopBridge
-        ?.appUpdateState?.()
-        .then((status) => {
-          if (get().pending) set({ status });
-        })
-        .catch(() => undefined);
-    }, 500);
-    try {
-      set({ status: await desktopBridge.checkAppUpdate(manual, download) });
-    } catch (error) {
-      const status = await desktopBridge
-        .appUpdateState?.()
-        .catch(() => undefined);
-      if (status) set({ status });
-      else
-        set({
-          status: {
-            phase: "error",
-            message: String(error),
-            signedUpdates: false,
-            releaseUrl:
-              "https://github.com/isct-companion/isct-companion/releases/latest",
-          },
-        });
-    } finally {
-      window.clearInterval(poll);
-      set({ pending: false });
-    }
-  },
-}));
-
-export function lastInstallText(last: AppLastInstall) {
-  switch (last.outcome) {
-    case "installed":
-      return t("app.updatedToVersion", { version: last.version });
-    case "incomplete":
-      return t("app.theUpdateToVersionDid", { version: last.version });
-    case "failed":
-      return t("app.installingVersionFailedMessage", {
-        version: last.version,
-        message: last.message,
-      });
-  }
-}
+import type { AppUpdateStatus } from "../platform/desktop-bridge";
+import { useAppUpdate } from "../store/app-update";
+import { lastInstallText } from "../lib/app-update-text";
 
 let lastInstallShown = false;
 function announceLastInstall(status?: AppUpdateStatus) {

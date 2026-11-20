@@ -1,4 +1,4 @@
-import { formatJst } from "../../lib/civil-date";
+import { formatTimestamp } from "../../lib/civil-date";
 import { extension, fileFamily, previewKind } from "./file-types";
 import { t } from "../../i18n";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
@@ -285,13 +285,5 @@ export function formatLmsDate(value: string, locale: string) {
   const date = new Date(
     `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute}:00+09:00`,
   );
-  return Number.isNaN(date.getTime())
-    ? value
-    : formatJst(date, locale, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+  return formatTimestamp(date, locale) ?? value;
 }

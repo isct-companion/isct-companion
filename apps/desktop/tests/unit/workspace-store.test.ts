@@ -32,16 +32,8 @@ import {
   scheduleQuery,
   type ScheduleQuery,
 } from "@app/platform/core-query";
-import {
-  createTauriDesktopBridge,
-  getDesktopBridge,
-  type InvokeNative,
-  type ListenNative,
-  type SchoolDownloadEvent,
-  type SchoolRecords,
-  type SchoolSessionSnapshot,
-  type WorkspaceChangedEvent,
-} from "@app/platform/desktop-bridge";
+import { createTauriDesktopBridge, getDesktopBridge, type InvokeNative, type ListenNative, type SchoolDownloadEvent, type SchoolRecords, type WorkspaceChangedEvent } from "@app/platform/desktop-bridge";
+import type { SchoolSessionSnapshot } from "@app/platform/school-session-contract";
 import { finderQuery } from "@app/platform/finder-query";
 import {
   changesCommitted,

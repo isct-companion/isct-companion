@@ -1,5 +1,6 @@
 package app.isctcompanion.features.timetable
 
+import app.isctcompanion.shared.rememberNow
 import app.isctcompanion.design.Skeleton
 import app.isctcompanion.design.Loading
 import app.isctcompanion.design.Motion
@@ -111,14 +112,12 @@ import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
 import java.io.File
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -697,13 +696,7 @@ private fun RowRules(axis: TimetableAxis, rowHeight: Dp) {
 /** The current time across today's column, moving with the clock. */
 @Composable
 private fun NowLine(axis: TimetableAxis, rowHeight: Dp) {
-    var now by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000)
-            now = Instant.now()
-        }
-    }
+    val now = rememberNow(30)
     val offset = axis.now(now) ?: return
     val danger = Theme.colors.danger
     Canvas(Modifier.fillMaxSize()) {

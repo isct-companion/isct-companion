@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { desktopBridge } from "../app/native";
-import { notify } from "../app/notify";
+import { desktopBridge } from "../platform/native";
+import { notify } from "./notifications/notify";
 import { t, type MessageKey } from "../i18n";
 import {
   nativeOs,

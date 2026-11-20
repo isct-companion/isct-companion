@@ -1,6 +1,6 @@
 package app.isctcompanion.design
 
-import android.content.ActivityNotFoundException
+import app.isctcompanion.core.openInAnotherApp
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -18,7 +18,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import android.os.ParcelFileDescriptor
-import android.webkit.MimeTypeMap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -73,14 +72,6 @@ import kotlinx.coroutines.withContext
 // The app's own file viewers, one per `Viewer` Core decides (`file_preview`).
 // Core says how a file shows; these only draw it.
 
-/** Whether the app shows this viewer itself; the rest open in another app.
- * On Android Core names media and office files EXTERNAL, so VIDEO, AUDIO and
- * DOCUMENT never arrive. */
-fun showsInApp(viewer: Viewer): Boolean = when (viewer) {
-    Viewer.PDF, Viewer.MARKDOWN, Viewer.TEXT, Viewer.IMAGE -> true
-    Viewer.VIDEO, Viewer.AUDIO, Viewer.DOCUMENT, Viewer.TOO_LARGE, Viewer.EXTERNAL -> false
-}
-
 /** `file` shown the way Core said; `fallback` for a viewer the app does not
  * draw or a file it cannot read. */
 @Composable
@@ -113,20 +104,6 @@ fun FileUnavailable(file: File) {
             t("lms.thisFileTypeCantBe"),
             action = t("common.openInDefaultApp") to { openInAnotherApp(context, file) },
         )
-    }
-}
-
-/** Hands a downloaded file to the app that views its type; false when none
- * can or the file is not one the app shares. */
-fun openInAnotherApp(context: Context, file: File): Boolean {
-    val uri = runCatching { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }.getOrNull()
-        ?: return false
-    val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
-    return try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-        true
-    } catch (_: ActivityNotFoundException) {
-        false
     }
 }
 

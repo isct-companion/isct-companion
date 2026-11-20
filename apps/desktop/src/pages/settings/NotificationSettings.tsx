@@ -1,7 +1,8 @@
+import { errorText } from "../../lib/error-text";
 import { MultiSelect } from "../../components/ui";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import { resolveCapabilities } from "../../platform/capabilities";
 import {
   CLASS_LEAD_CHOICES,
@@ -68,7 +69,7 @@ export function NotificationSettings({
         );
       } else notify(t("settings.notification.notificationsAreOff"));
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error));
+      notify(errorText(error, { nativeMessage: false }) ?? String(error));
     }
   };
 

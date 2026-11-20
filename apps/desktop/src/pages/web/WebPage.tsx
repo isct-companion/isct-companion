@@ -1,3 +1,4 @@
+import { openExternalUrl } from "../../platform/external-url";
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -13,13 +14,11 @@ import {
   useSchoolWebPage,
 } from "../../features/school-web";
 import type { Workspace } from "../../lib/model";
-import {
-  claimSchoolView,
-  desktopBridge,
-  schoolWebExit,
-  official,
-} from "../../app/native";
-import { errorText, type Platform } from "../../app/shared";
+import { desktopBridge } from "../../platform/native";
+import { official } from "../../lib/school-sites";
+import { claimSchoolView, schoolWebExit } from "../../platform/school-web-owner";
+import { type Platform } from "../../platform/capabilities";
+import { errorText } from "../../lib/error-text";
 import { withRecords } from "../../platform/records";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -49,6 +48,7 @@ function WebBody({
   request,
   returnLabel,
   onReturn,
+  openAccounts,
   active = true,
 }: {
   /** False while another page is shown; the page stays mounted (keep alive). */
@@ -62,6 +62,7 @@ function WebBody({
   request?: number;
   returnLabel?: string;
   onReturn?: () => void;
+  openAccounts?: () => void;
 }) {
   const [site, setSite] = useState<SchoolSite>(() => {
     if (requestedUrl) return "science-lms";
@@ -296,11 +297,11 @@ function WebBody({
           url: targetUrl,
         })
         .catch(() => notify(t("web.theSchoolWindowCouldNot")));
-    } else if (desktopBridge && platform !== "browser-preview")
-      void desktopBridge
-        .openExternal(targetUrl)
-        .catch(() => notify(t("web.couldNotOpenTheSystem")));
-    else window.open(targetUrl, "_blank", "noopener,noreferrer");
+    } else {
+      void openExternalUrl(targetUrl, platform).catch(() =>
+        notify(t("web.couldNotOpenTheSystem")),
+      );
+    }
   };
 
   const frameable = site !== "science-lms";
@@ -438,7 +439,12 @@ function WebBody({
               </UiButton>
             </form>
             {embedded && (
-              <SchoolWebNotices site={site} page={page} onError={failed} />
+              <SchoolWebNotices
+                site={site}
+                page={page}
+                onError={failed}
+                openAccounts={openAccounts}
+              />
             )}
             <div className="webHost" ref={host}>
               {embedded ? null : platform === "browser-preview" && frameable ? (

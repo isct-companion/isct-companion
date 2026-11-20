@@ -25,7 +25,7 @@ import {
 } from "../../lib/civil-date";
 import { UiSelect } from "../../components/ui";
 import { t } from "../../i18n";
-import type { CourseEntry } from "../../features/lms/LmsWorkspace";
+import type { CourseEntry } from "../../features/lms";
 import { useClock } from "../../platform/use-clock";
 import {
   useScheduleQueries,

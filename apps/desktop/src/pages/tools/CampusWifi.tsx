@@ -2,7 +2,7 @@ import { Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Progress } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import {
   CAMPUS_WIFI_STEPS,
   type CampusWifiOutcome,
@@ -12,7 +12,7 @@ import {
 import { InfoTip, UiButton } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
-import { errorText } from "../../app/shared";
+import { errorText } from "../../lib/error-text";
 
 const OUTCOME_TEXT: Record<
   Exclude<CampusWifiOutcome, "science-tokyo-x">,

@@ -1,3 +1,4 @@
+import type { SchoolAuthProfile, SchoolSessionState, SchoolSignInProblemKind, SchoolSessionSnapshot } from "./school-session-contract";
 import type {
   ExamAccount,
   ExamAction,
@@ -9,7 +10,8 @@ import type {
   CoreWorkspaceCommit,
   WorkspaceMutation,
 } from "../lib/workspace-intents";
-import type { FinderRequest, FinderPage } from "./finder-query";
+import type { FinderRequest } from "./finder-contract";
+import type { FinderPage } from "../generated/persistence";
 import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
@@ -78,7 +80,6 @@ export type DownloadEvent = {
   /** Set on `done`: the saved file, accepted by `revealDownload`. */
   path?: string;
 };
-export type SchoolAuthProfile = "science" | "tokyo-tech";
 export type SchoolCredentials = {
   username: string;
   password: string;
@@ -118,21 +119,6 @@ export type SchoolCredentialStatus = {
     hasMatrix: boolean;
   };
 };
-/** One account's school session, as Core's session read model names it. */
-export type SchoolSessionState =
-  /** No saved credentials. */
-  | "not-configured"
-  /** Nothing stands in the way: Core signs in when it needs to. */
-  | "normal"
-  | "signing-in"
-  /** The school refused the saved credentials; Core does not sign in with
-   * them on its own until they change or the person retries. */
-  | "refused"
-  /** The person signs in on the school page (email code, password change,
-   * a page Core does not know). */
-  | "needs-web"
-  /** Network, timeout or server failure; Core tries again after `retryAt`. */
-  | "unavailable";
 const SCHOOL_SESSION_STATES: readonly unknown[] = [
   "not-configured",
   "normal",
@@ -141,53 +127,6 @@ const SCHOOL_SESSION_STATES: readonly unknown[] = [
   "needs-web",
   "unavailable",
 ] satisfies SchoolSessionState[];
-export type SchoolSignInProblemKind =
-  /** With `refused`. */
-  | "invalid-credentials"
-  | "invalid-otp"
-  /** A Connect without an OTP setup reached the App OTP step. */
-  | "otp-needed"
-  | "invalid-matrix"
-  /** With `needs-web`. */
-  | "email-otp"
-  | "password-change"
-  | "unknown-page"
-  /** With `unavailable`. */
-  | "network"
-  | "unanswered"
-  | "anomaly"
-  | "credential-store";
-/** Why the last sign-in did not finish. `message` is Core's English
- * diagnostic, for logs and tooltips; the shell shows text chosen by `kind`. */
-export type SchoolSignInProblem = {
-  kind: SchoolSignInProblemKind;
-  message: string;
-};
-/** LMS (science) or 教務Web (tokyoTech) paused for maintenance. */
-export type SchoolMaintenance = {
-  /** The school's own notice, when it posted one. */
-  notice: string | null;
-  /** RFC 3339. */
-  until: string;
-};
-export type SchoolProfileSession = {
-  signOutPending: boolean;
-  refusalUnsaved: boolean;
-  state: SchoolSessionState;
-  problem: SchoolSignInProblem | null;
-  /** RFC 3339; only with `unavailable`. */
-  retryAt: string | null;
-  maintenance: SchoolMaintenance | null;
-};
-/** Both accounts' sessions; every event carries the whole snapshot, and the
- * higher `revision` wins. */
-export type SchoolSessionSnapshot = {
-  revision: number;
-  profiles: {
-    science: SchoolProfileSession;
-    tokyoTech: SchoolProfileSession;
-  };
-};
 /** How Connect ended. Only `connected` saved anything: the entered
  * credentials are the verified ones now and sync to the other devices. */
 export type SchoolConnectOutcome =
@@ -798,16 +737,19 @@ const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
   );
 };
 
-/** Listens to a native event, passing on only payloads `accepts` takes. */
+/** Listens to a native event, decoding payloads for the caller. */
 function subscribe<T>(
+  listen: ListenNative,
   event: string,
-  accepts: (payload: any) => boolean,
+  decode: (payload: T) => T | undefined,
   callback: (payload: T) => void,
 ): () => void {
   let disposed = false;
   let unlisten: (() => void) | undefined;
-  void tauriListen<T>(event, ({ payload }) => {
-    if (!disposed && accepts(payload)) callback(payload);
+  void listen<T>(event, (payload) => {
+    if (disposed) return;
+    const decoded = decode(payload);
+    if (decoded !== undefined) callback(decoded);
   })
     .then((fn) => {
       if (disposed) quietly(fn);
@@ -890,21 +832,14 @@ export function createTauriDesktopBridge(
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     examShare: (action) => result("exam_share", { action }),
-    onExamAccount: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<ExamAccount>("exam-account", (payload) => {
-        if (!disposed && payload && typeof payload.status === "string")
-          callback(payload);
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
+    onExamAccount: (callback) =>
+      subscribe<ExamAccount>(
+        listen,
+        "exam-account",
+        (payload) =>
+          payload && typeof payload.status === "string" ? payload : undefined,
+        callback,
+      ),
     examUploadPickFiles: async (title) => {
       const command = "exam_upload_pick_files";
       const files = await invokeCommand<ExamUploadFile[] | null>(command, {
@@ -982,25 +917,18 @@ export function createTauriDesktopBridge(
       });
       return () => quietly(unlisten);
     },
-    onCatalogChanged: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<unknown>("catalog-changed", (payload) => {
-        if (disposed || !payload || typeof payload !== "object") return;
-        const { year, version } = payload as Record<string, unknown>;
-        if (Number.isSafeInteger(year) && Number.isSafeInteger(version))
-          callback({ year: year as number, version: version as number });
-      })
-        .then((fn) => {
-          if (disposed) quietly(fn);
-          else unlisten = fn;
-        })
-        .catch(() => undefined);
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
+    onCatalogChanged: (callback) =>
+      subscribe<{ year: number; version: number }>(
+        listen,
+        "catalog-changed",
+        (payload) => {
+          if (!payload || typeof payload !== "object") return;
+          const { year, version } = payload;
+          if (Number.isSafeInteger(year) && Number.isSafeInteger(version))
+            return { year, version };
+        },
+        callback,
+      ),
     schoolCredentialStatus: () => result("school_credential_status"),
     campusPrinterStatus: () => result("plugin:campus-printer|status"),
     installCampusPrinter: (prompt) =>
@@ -1016,18 +944,23 @@ export function createTauriDesktopBridge(
       invokeCommand("plugin:campus-vpn|publishers", { list }),
     onVpnStatus: (callback) =>
       subscribe<VpnStatus>(
+        listen,
         "vpn-status",
-        (payload) => typeof payload?.state === "string",
+        (payload) =>
+          typeof payload?.state === "string" ? payload : undefined,
         callback,
       ),
     onVpnNotice: (callback) =>
       subscribe<VpnNotice>(
+        listen,
         "vpn-notice",
         (payload) =>
           payload?.kind === "ended" ||
           (payload?.kind === "demandStopped" &&
             typeof payload.code === "string") ||
-          (payload?.kind === "ending" && typeof payload.minutes === "number"),
+          (payload?.kind === "ending" && typeof payload.minutes === "number")
+            ? payload
+            : undefined,
         callback,
       ),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
@@ -1112,57 +1045,37 @@ export function createTauriDesktopBridge(
       booleanCommand("close_school_web_popup", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
-    onSchoolWebNotice: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<SchoolWebNotice>("school-web-notice", (payload) => {
-        if (
-          !disposed &&
-          payload &&
-          typeof payload.site === "string" &&
-          payload.kind === "reopened" &&
-          typeof payload.url === "string"
-        )
-          callback(payload);
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
-    onSchoolDownload: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<SchoolDownloadEvent>("school-download", (payload) => {
-        if (
-          !disposed &&
-          payload &&
-          typeof payload.site === "string" &&
-          (payload.state === "started" ||
-            payload.state === "done" ||
-            payload.state === "failed") &&
-          typeof payload.name === "string" &&
-          (payload.path === undefined || typeof payload.path === "string") &&
-          (payload.state !== "done" || typeof payload.path === "string")
-        )
-          callback({
-            site: payload.site,
-            state: payload.state,
-            name: payload.name,
-            path: payload.path,
-          });
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
+    onSchoolWebNotice: (callback) =>
+      subscribe<SchoolWebNotice>(
+        listen,
+        "school-web-notice",
+        (payload) => payload && typeof payload.site === "string" &&
+          payload.kind === "reopened" && typeof payload.url === "string"
+            ? payload
+            : undefined,
+        callback,
+      ),
+    onSchoolDownload: (callback) =>
+      subscribe<SchoolDownloadEvent>(
+        listen,
+        "school-download",
+        (payload) => {
+          if (
+            payload &&
+            typeof payload.site === "string" &&
+            (payload.state === "started" ||
+              payload.state === "done" ||
+              payload.state === "failed") &&
+            typeof payload.name === "string" &&
+            (payload.path === undefined || typeof payload.path === "string") &&
+            (payload.state !== "done" || typeof payload.path === "string")
+          ) {
+            const { site, state, name, path } = payload;
+            return { site, state, name, path };
+          }
+        },
+        callback,
+      ),
     revealDownload: (path) => booleanCommand("reveal_download", { path }),
     syncHint: async (hint) => {
       await invokeCommand("sync_hint", { hint });
@@ -1203,31 +1116,14 @@ export function createTauriDesktopBridge(
       };
     },
     setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
-    onSchoolIngest: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<SchoolIngestOutcome>("school-ingest", (payload) => {
-        if (!disposed && payload && typeof payload.state === "string")
-          callback(payload);
-      }).then((fn) => {
-        if (disposed) {
-          try {
-            void Promise.resolve(fn() as unknown).catch(() => undefined);
-          } catch {
-            // The runtime is already gone (window closing, tests).
-          }
-        } else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        try {
-          // Tauri's unlisten may also reject asynchronously.
-          void Promise.resolve(unlisten?.() as unknown).catch(() => undefined);
-        } catch {
-          // The runtime is already gone (window closing, tests).
-        }
-      };
-    },
+    onSchoolIngest: (callback) =>
+      subscribe<SchoolIngestOutcome>(
+        listen,
+        "school-ingest",
+        (payload) =>
+          payload && typeof payload.state === "string" ? payload : undefined,
+        callback,
+      ),
     configureSchoolWebPolicy: (policy) =>
       booleanCommand("configure_school_web_policy", { policy }),
 
@@ -1244,21 +1140,14 @@ export function createTauriDesktopBridge(
       result<CloudSyncState>("set_cloud_sync_automatic", { automatic }),
     restoreCloudVersion: (id) =>
       result<CloudSyncState>("restore_cloud_version", { id }),
-    onCloudSyncState: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<CloudSyncState>("cloud-sync-state", (payload) => {
-        if (!disposed && payload && Array.isArray(payload.providers))
-          callback(payload);
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
+    onCloudSyncState: (callback) =>
+      subscribe<CloudSyncState>(
+        listen,
+        "cloud-sync-state",
+        (payload) =>
+          payload && Array.isArray(payload.providers) ? payload : undefined,
+        callback,
+      ),
     cloudCredentialSyncStatus: () =>
       booleanCommand("cloud_credential_sync_status"),
     cloudCredentialBackupStatus: () =>
