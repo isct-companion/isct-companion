@@ -1,0 +1,5 @@
+<resources>
+    <!-- The share sheet entry that prints through Android's own print screen (PrintShareActivity.kt). -->
+    <string name="print_share_label">Print via campus printer</string>
+    <string name="print_share_failed">This file can\'t be printed. Share a PDF or an image.</string>
+</resources>
