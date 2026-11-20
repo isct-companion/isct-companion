@@ -475,10 +475,23 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     /** Keeps the higher `revision` of Core's `school-session` events and
      * `schoolSession` reads. */
     internal fun applySchool(snapshot: SchoolSessionSnapshot) {
-        val shown = sessionRevision
-        if (shown != null && snapshot.revision < shown) return
-        sessionRevision = snapshot.revision
-        sessions = snapshot.profiles
+        val current = schoolSession
+        if (current != null && snapshot.revision <= current.revision) return
+        schoolSession = snapshot
+    }
+
+    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
+    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
+        val session = session ?: return emptyList()
+        ocrProgress = 0
+        val operation = session.scanMatrix(image)
+        val id = operation.id()
+        ocrOperation = id
+        return try {
+            (operation.value() as? OperationResult.Recognitions)?.cells.orEmpty()
+        } finally {
+            if (ocrOperation == id) ocrOperation = null
+        }
     }
 
     /** On start and after a missed stream; `sync-snapshot` events carry every
