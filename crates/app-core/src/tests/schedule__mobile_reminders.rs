@@ -72,6 +72,7 @@ fn facts() -> ReminderPortFacts {
     ReminderPortFacts {
         permitted: true,
         available_slots: 64,
+        can_update_elapsed_content: true,
         pending: vec![],
     }
 }
@@ -79,10 +80,10 @@ fn facts() -> ReminderPortFacts {
 fn pending(item: &NotificationItem) -> PendingReminder {
     PendingReminder {
         key: item.key.clone(),
-        at: Some(due_at(item).unwrap()),
-        title: Some(item.title.clone()),
-        body: Some(item.body.clone()),
-        deep_link: Some(item.deep_link.clone()),
+        at: due_at(item).unwrap(),
+        title: item.title.clone(),
+        body: item.body.clone(),
+        deep_link: item.deep_link.clone(),
         state: PendingReminderState::Pending,
     }
 }
@@ -257,8 +258,22 @@ fn full_queue_reuses_cancelled_slots_and_refills_at_its_next_wake() {
 
     let wake = plan.refill_at.unwrap();
     assert_eq!(wake, instant(DUE).to_utc() + Duration::seconds(1));
-    let refill = history.plan(
+    let still_full = history.plan(
         &wake.to_rfc3339(),
+        ReminderPortFacts {
+            available_slots: 0,
+            pending: plan.delivery.register.iter().map(pending).collect(),
+            ..facts()
+        },
+        items.clone(),
+    );
+    assert!(still_full.delivery.register.is_empty());
+    // Android reports a freed slot when the deferred alarm actually leaves
+    // the queue, before the fallback wake at the next scheduled request.
+    let released = "2026-04-13T10:01:00+09:00";
+    assert!(instant(released).to_utc() < still_full.refill_at.unwrap());
+    let refill = history.plan(
+        released,
         ReminderPortFacts {
             available_slots: 1,
             pending: vec![pending(&plan.delivery.register[1])],
@@ -351,11 +366,11 @@ fn same_instant_with_changed_payload_replaces_the_request() {
 
     for stale in [
         PendingReminder {
-            title: Some("Previous title".into()),
+            title: "Previous title".into(),
             ..pending(new)
         },
         PendingReminder {
-            deep_link: Some("/previous".into()),
+            deep_link: "/previous".into(),
             ..pending(new)
         },
     ] {
@@ -373,6 +388,16 @@ fn same_instant_with_changed_payload_replaces_the_request() {
         .delivery
         .register
         .is_empty());
+
+    let immutable = history.reconcile(
+        "2026-04-13T08:42:00+09:00",
+        ReminderPortFacts {
+            can_update_elapsed_content: false,
+            ..held(pending(old))
+        },
+        &workspace,
+    );
+    assert!(immutable.delivery.update_pending.is_empty() && immutable.delivery.cancel.is_empty());
 
     for elapsed in ["2026-04-13T08:42:00+09:00", "2026-04-13T08:48:00+09:00"] {
         let refresh = history

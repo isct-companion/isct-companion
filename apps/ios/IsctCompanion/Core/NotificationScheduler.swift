@@ -22,30 +22,44 @@ final class NotificationScheduler: NativeReminderPort {
     func facts() async throws -> ReminderPortFacts {
         let permitted = await Self.allowed(center)
         let requests = await center.pendingNotificationRequests()
+        var instants: [String: Date] = [:]
+        var incomplete: [String] = []
         let pending = requests.compactMap { request -> PendingReminder? in
             guard request.identifier.hasPrefix(Self.prefix) else { return nil }
-            let at = request.content.userInfo["reminderAt"] as? String
+            guard let at = request.content.userInfo["reminderAt"] as? String,
+                  let date = AppModel.date(at),
+                  let link = request.content.userInfo["deepLink"] as? String else {
+                incomplete.append(request.identifier)
+                return nil
+            }
+            let key = String(request.identifier.dropFirst(Self.prefix.count))
+            instants[key] = date
             return PendingReminder(
-                key: String(request.identifier.dropFirst(Self.prefix.count)),
+                key: key,
                 at: at,
                 title: request.content.title,
                 body: request.content.body,
-                deepLink: request.content.userInfo["deepLink"] as? String,
+                deepLink: link,
                 state: .pending
             )
         }
-        pendingAt = Dictionary(uniqueKeysWithValues: pending.compactMap { request in
-            guard let at = request.at, let date = AppModel.date(at) else { return nil }
-            return (request.key, date)
-        })
-        return ReminderPortFacts(permitted: permitted, availableSlots: UInt32(max(0, Self.limit - requests.count)), pending: pending)
+        pendingAt = instants
+        var occupied = requests.count
+        if !incomplete.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: incomplete)
+            occupied = await center.pendingNotificationRequests().count
+        }
+        return ReminderPortFacts(
+            permitted: permitted,
+            availableSlots: UInt32(max(0, Self.limit - occupied)),
+            canUpdateElapsedContent: false,
+            pending: pending
+        )
     }
 
     func apply(plan: ReminderDeliveryPlan) async throws -> ReminderReceipt {
         if plan.permissionNeeded { askWhenActive() }
-        // A past calendar trigger cannot be installed again. Withdraw stale
-        // requests that the notification center still lists.
-        let stale = plan.cancel + plan.updatePending.map(\.key)
+        let stale = plan.cancel
         var removed: Set<String> = []
         if !stale.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: stale.map { Self.prefix + $0 })
@@ -79,7 +93,7 @@ final class NotificationScheduler: NativeReminderPort {
         }
         return ReminderReceipt(
             registered: registered,
-            updatedPending: plan.updatePending.map(\.key).filter { removed.contains($0) },
+            updatedPending: [],
             cancelled: plan.cancel.filter { removed.contains($0) },
             failedDeliveries: failed
         )

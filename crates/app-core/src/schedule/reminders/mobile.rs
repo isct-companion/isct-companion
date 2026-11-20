@@ -7,11 +7,10 @@ const REGISTRATION_DAYS: i64 = 7;
 #[serde(rename_all = "camelCase")]
 pub struct PendingReminder {
     pub key: String,
-    /// A recovered request may not expose its original instant or payload.
-    pub at: Option<DateTime<Utc>>,
-    pub title: Option<String>,
-    pub body: Option<String>,
-    pub deep_link: Option<String>,
+    pub at: DateTime<Utc>,
+    pub title: String,
+    pub body: String,
+    pub deep_link: String,
     pub state: PendingReminderState,
 }
 
@@ -31,6 +30,8 @@ pub struct ReminderPortFacts {
     pub permitted: bool,
     /// Free slots, excluding all requests already pending on the device.
     pub available_slots: u32,
+    /// Whether content can change while keeping the original OS trigger.
+    pub can_update_elapsed_content: bool,
     pub pending: Vec<PendingReminder>,
 }
 
@@ -321,9 +322,7 @@ fn plan_delivery(
     // Recover registrations that the platform accepted before Core received
     // the receipt. A new business time says nothing about an old request.
     for (&key, item) in &pending {
-        if let Some(at) = item.at {
-            updated_registrations.insert(key.to_owned(), at);
-        }
+        updated_registrations.insert(key.to_owned(), item.at);
     }
     updated_fired.retain(|key, fired_at| {
         *fired_at >= oldest.timestamp_millis() || still_relevant(key) || in_flight(key)
@@ -336,18 +335,12 @@ fn plan_delivery(
         .map(|(&key, _)| key)
         .filter(|key| {
             !updated_fired.contains_key(*key)
-                && match updated_registrations.get(*key) {
-                    Some(at) => {
-                        *at <= now
-                            && planned.get(key) == Some(at)
-                            && (*at >= cutoff
-                                || assignment_id(key)
-                                    .is_none_or(|id| open_assignments.contains(id)))
-                    }
-                    // An unexplained request can occupy a slot this round
-                    // without establishing any durable delivery evidence.
-                    None => planned.contains_key(key),
-                }
+                && updated_registrations.get(*key).is_some_and(|at| {
+                    *at <= now
+                        && planned.get(key) == Some(at)
+                        && (*at >= cutoff
+                            || assignment_id(key).is_none_or(|id| open_assignments.contains(id)))
+                })
         })
         .collect();
     let occupied = pending
@@ -369,9 +362,7 @@ fn plan_delivery(
     let mut overflow = None;
     for (at, item) in &candidates {
         if elapsed_pending.contains(item.key.as_str()) {
-            if updated_registrations.get(&item.key) == Some(at)
-                && !same_content(pending[item.key.as_str()], item)
-            {
+            if facts.can_update_elapsed_content && !same_content(pending[item.key.as_str()], item) {
                 plan.update_pending.push(item.clone());
             }
             continue;
@@ -455,9 +446,7 @@ fn assignment_id(key: &str) -> Option<&str> {
 }
 
 fn same_content(request: &PendingReminder, item: &NotificationItem) -> bool {
-    request.title.as_deref() == Some(item.title.as_str())
-        && request.body.as_deref() == Some(item.body.as_str())
-        && request.deep_link.as_deref() == Some(item.deep_link.as_str())
+    request.title == item.title && request.body == item.body && request.deep_link == item.deep_link
 }
 
 fn confirm_delivery(

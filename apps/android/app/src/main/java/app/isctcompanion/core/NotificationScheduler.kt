@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.util.Log
+import app.isctcompanion.BackgroundWake
 import app.isctcompanion.MainActivity
 import app.isctcompanion.R
 import app.isctcompanion.design.Format
@@ -30,7 +31,17 @@ class NotificationScheduler(
         val alarms = context.getSystemService(AlarmManager::class.java)
         val exact = alarms?.canScheduleExactAlarms() == true
         val store = store(context)
-        val pending = readAlarms(store).map { (key, alarm) ->
+        val stored = readRecords(store)
+        val incomplete = recordKeys(store) - stored.keys
+        if (incomplete.isNotEmpty() && !persistRecords(store, stored, incomplete)) {
+            Log.w("isct", "Could not remove incomplete reminder alarms")
+        }
+        val pending = stored.keys.map { key ->
+            val requests = stored.forKey(key).sortedBy { Format.date(it.at) }
+            val live = requests.firstOrNull { alarm ->
+                (!alarm.exact || exact) && pendingIntent(context, key, alarm.token) != null
+            }
+            val alarm = live ?: requests.first()
             PendingReminder(
                 key = key,
                 at = alarm.at,
@@ -38,9 +49,8 @@ class NotificationScheduler(
                 body = alarm.body,
                 deepLink = alarm.link,
                 state = when {
-                    alarm.token == null || pendingIntent(context, key, alarm.token) == null ||
-                        (alarm.exact && !exact) -> PendingReminderState.MISSING
-                    alarm.exact != exact -> PendingReminderState.NEEDS_REFRESH
+                    live == null -> PendingReminderState.MISSING
+                    alarm.exact != exact || key in stored.installing -> PendingReminderState.NEEDS_REFRESH
                     else -> PendingReminderState.PENDING
                 },
             )
@@ -49,6 +59,7 @@ class NotificationScheduler(
         ReminderPortFacts(
             permitted = allowed(context),
             availableSlots = (LIMIT - pending.count { it.state != PendingReminderState.MISSING }).coerceAtLeast(0).toUInt(),
+            canUpdateElapsedContent = true,
             pending = pending,
         )
     }
@@ -60,77 +71,84 @@ class NotificationScheduler(
         val alarms = context.getSystemService(AlarmManager::class.java)
         val exact = alarms?.canScheduleExactAlarms() == true
         val store = store(context)
-        val existing = readAlarms(store)
-        val scheduled = existing.toMutableMap()
+        val existing = readRecords(store)
+        val installed = existing.installed.toMutableMap()
+        val installing = existing.installing.toMutableMap()
         val cancelled = plan.cancel.toSet()
-        for (key in cancelled) scheduled.remove(key)
+        for (key in cancelled) {
+            installed.remove(key)
+            installing.remove(key)
+        }
 
-        val updated = plan.updatePending.mapNotNull { item ->
-            val previous = scheduled[item.key]
-            // A broadcast can finish between facts() and apply().
-            if (previous?.token == null) return@mapNotNull item.key
-            if (previous.at != observed[item.key]?.at) return@mapNotNull null
-            scheduled[item.key] = previous.copy(title = item.title, body = item.body, link = item.deepLink)
+        val updated = plan.updatePending.map { item ->
+            for (records in listOf(installed, installing)) {
+                val alarm = records[item.key]
+                if (alarm != null && alarm.at == observed[item.key]?.at) {
+                    records[item.key] = alarm.withContent(item)
+                }
+            }
             item.key
         }
+        val refreshed = mutableSetOf<String>()
         val registrations = plan.register.mapNotNull { item ->
             val at = Format.date(item.at) ?: return@mapNotNull null
             val now = Instant.now()
             if (alarms == null || at <= now) return@mapNotNull null
             val previous = observed[item.key]
             val previousAt = Format.date(previous?.at)
-            if (previous != null && item.key !in existing) return@mapNotNull null
+            if (previous != null && item.key !in existing.keys) return@mapNotNull null
             if (previousAt != null && previousAt <= now) return@mapNotNull null
+            val active = installed[item.key]
+            if (active != null && previousAt == at && previous?.state == PendingReminderState.PENDING &&
+                active.exact == exact && pendingIntent(context, item.key, active.token) != null
+            ) {
+                installed[item.key] = active.withContent(item)
+                refreshed.add(item.key)
+                return@mapNotNull null
+            }
+            installing[item.key]?.let { installed.putIfAbsent(item.key, it) }
             val alarm = StoredAlarm(item.at, exact, UUID.randomUUID().toString(), item.title, item.body, item.deepLink)
-            scheduled[item.key] = alarm
+            installing[item.key] = alarm
             item.key to alarm
         }
 
-        val changed = cancelled + updated + registrations.map { it.first }
-        // A receiver can start a fresh process as soon as AlarmManager has
-        // accepted a request. Its token and content must already be on disk.
-        val persisted = changed.isEmpty() || persistAlarms(store, scheduled, changed)
+        val changed = cancelled + updated + refreshed + registrations.map { it.first }
+        // The original alarm and the candidate both have a durable payload
+        // before the candidate can reach AlarmManager.
+        val prepared = AlarmRecords(installed.toMap(), installing.toMap())
+        val persisted = changed.isEmpty() || persistRecords(store, prepared, changed)
         if (!persisted) {
-            persistAlarms(store, existing, changed)
+            persistRecords(store, existing, changed)
             Log.w("isct", "Could not persist reminder alarms")
         }
         val registered = mutableListOf<String>()
         if (persisted) {
-            for (key in cancelled) existing[key]?.token?.let { revokeAlarm(context, alarms, key, it) }
-            val rejected = mutableSetOf<String>()
+            registered.addAll(refreshed)
+            for (key in cancelled) {
+                existing.forKey(key).forEach { revokeAlarm(context, alarms, key, it.token) }
+            }
+            val accepted = mutableMapOf<String, String>()
             for ((key, alarm) in registrations) {
-                val accepted = attempt("register alarm") {
-                    val at = Format.date(alarm.at) ?: return@attempt false
-                    val token = alarm.token ?: return@attempt false
-                    if (alarms == null || at <= Instant.now()) return@attempt false
-                    val previousAt = Format.date(observed[key]?.at)
-                    if (previousAt != null && previousAt <= Instant.now()) return@attempt false
-                    val intent = pendingIntent(context, key, token, install = true) ?: return@attempt false
-                    try {
-                        if (alarm.exact) {
-                            alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), intent)
-                        } else {
-                            alarms.setWindow(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), WINDOW_MS, intent)
-                        }
-                    } catch (error: Exception) {
-                        intent.cancel()
-                        throw error
-                    }
-                    true
-                }
-                val previous = existing[key]
-                if (accepted) {
-                    registered.add(key)
-                    // A generation has its own handle. Keep the former alarm
-                    // available until AlarmManager accepts its replacement.
-                    previous?.token?.let { revokeAlarm(context, alarms, key, it) }
+                if (installAlarm(context, alarms, key, alarm)) {
+                    accepted[key] = alarm.token
+                    installed[key] = alarm
+                    installing.remove(key)
                 } else {
-                    rejected.add(key)
-                    if (previous == null) scheduled.remove(key) else scheduled[key] = previous
+                    existing.installed[key].let { if (it == null) installed.remove(key) else installed[key] = it }
+                    existing.installing[key].let { if (it == null) installing.remove(key) else installing[key] = it }
                 }
             }
-            if (rejected.isNotEmpty() && !persistAlarms(store, scheduled, rejected)) {
-                Log.w("isct", "Could not restore rejected reminder alarms")
+            val finished = registrations.map { it.first }.toSet()
+            if (finished.isNotEmpty() && !persistRecords(store, AlarmRecords(installed, installing), finished)) {
+                persistRecords(store, prepared, finished)
+                // AlarmManager may already have accepted a request. A lost
+                // receipt preserves Core's provisional ownership.
+                error("Could not finalize reminder alarm ownership")
+            }
+            for ((key, token) in accepted) {
+                existing.forKey(key).filter { it.token != token }
+                    .forEach { revokeAlarm(context, alarms, key, it.token) }
+                registered.add(key)
             }
         }
         val failed = plan.deliverNow.filterNot { item ->
@@ -144,14 +162,46 @@ class NotificationScheduler(
         )
     }
 
+    private fun installAlarm(context: Context, manager: AlarmManager?, key: String, alarm: StoredAlarm): Boolean =
+        attempt("register alarm") {
+            val at = Format.date(alarm.at) ?: return@attempt false
+            val now = Instant.now()
+            val previousAt = Format.date(observed[key]?.at)
+            if (manager == null || at <= now || (previousAt != null && previousAt <= now)) return@attempt false
+            val intent = pendingIntent(context, key, alarm.token, install = true) ?: return@attempt false
+            try {
+                if (alarm.exact) {
+                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), intent)
+                } else {
+                    manager.setWindow(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), WINDOW_MS, intent)
+                }
+            } catch (error: Exception) {
+                intent.cancel()
+                throw error
+            }
+            true
+        }
+
+    private data class AlarmRecords(
+        val installed: Map<String, StoredAlarm> = emptyMap(),
+        val installing: Map<String, StoredAlarm> = emptyMap(),
+    ) {
+        val keys: Set<String> = installed.keys + installing.keys
+
+        fun forKey(key: String): List<StoredAlarm> = listOfNotNull(installed[key], installing[key])
+    }
+
     private data class StoredAlarm(
-        val at: String?,
+        val at: String,
         val exact: Boolean,
-        val token: String?,
-        val title: String?,
-        val body: String?,
-        val link: String?,
-    )
+        val token: String,
+        val title: String,
+        val body: String,
+        val link: String,
+    ) {
+        fun withContent(item: NotificationItem): StoredAlarm =
+            copy(title = item.title, body = item.body, link = item.deepLink)
+    }
 
     companion object {
         private const val LIMIT = 64
@@ -159,6 +209,8 @@ class NotificationScheduler(
         private const val CHANNEL = "reminder-banners"
         private const val OLD_CHANNEL = "reminders"
         private const val SCHEDULED = "scheduled"
+        private const val INSTALLING = "installing"
+        private const val NEXT = "installing:"
         private const val AT = "alarm-at:"
         private const val EXACT = "alarm-exact:"
         private const val TITLE = "alarm-title:"
@@ -180,17 +232,16 @@ class NotificationScheduler(
             store(context).edit().putBoolean(ASKED, true).apply()
         }
 
-        /** A reboot or package replacement can discard alarms. Keep the stored
-         * keys for Core's ownership recovery, while invalidating their handles. */
+        /** Android can discard its alarms after a reboot or package
+         * replacement. Core keeps the durable delivery decision. */
         fun invalidateAlarms(context: Context) {
             val store = store(context)
             val alarms = context.getSystemService(AlarmManager::class.java)
-            val scheduled = readAlarms(store)
-            for ((key, alarm) in scheduled) {
-                alarm.token?.let { revokeAlarm(context, alarms, key, it) }
-            }
-            if (scheduled.isNotEmpty()) {
-                persistAlarms(store, scheduled.mapValues { (_, alarm) -> alarm.copy(token = null) }, scheduled.keys)
+            val keys = recordKeys(store)
+            val records = readRecords(store)
+            for (key in keys) records.forKey(key).forEach { revokeAlarm(context, alarms, key, it.token) }
+            if (keys.isNotEmpty() && !persistRecords(store, AlarmRecords(), keys)) {
+                Log.w("isct", "Could not clear discarded reminder alarms")
             }
         }
 
@@ -231,34 +282,45 @@ class NotificationScheduler(
             return true
         }
 
-        private fun readAlarms(store: SharedPreferences): Map<String, StoredAlarm> =
-            store.getStringSet(SCHEDULED, emptySet()).orEmpty().associateWith { key ->
-                StoredAlarm(
-                    store.getString("$AT$key", null),
-                    store.getBoolean("$EXACT$key", false),
-                    store.getString("$TOKEN$key", null),
-                    store.getString("$TITLE$key", null),
-                    store.getString("$BODY$key", null),
-                    store.getString("$LINK$key", null),
-                )
-            }
+        private fun recordKeys(store: SharedPreferences): Set<String> =
+            store.getStringSet(SCHEDULED, emptySet()).orEmpty() + store.getStringSet(INSTALLING, emptySet()).orEmpty()
 
-        private fun persistAlarms(
+        private fun readRecords(store: SharedPreferences): AlarmRecords =
+            AlarmRecords(readAlarms(store, SCHEDULED, ""), readAlarms(store, INSTALLING, NEXT))
+
+        private fun readAlarms(store: SharedPreferences, set: String, prefix: String): Map<String, StoredAlarm> =
+            store.getStringSet(set, emptySet()).orEmpty().mapNotNull { key ->
+                val name = prefix + key
+                val at = store.getString("$AT$name", null) ?: return@mapNotNull null
+                val token = store.getString("$TOKEN$name", null) ?: return@mapNotNull null
+                val title = store.getString("$TITLE$name", null) ?: return@mapNotNull null
+                val body = store.getString("$BODY$name", null) ?: return@mapNotNull null
+                val link = store.getString("$LINK$name", null) ?: return@mapNotNull null
+                key to StoredAlarm(at, store.getBoolean("$EXACT$name", false), token, title, body, link)
+            }.toMap()
+
+        private fun persistRecords(
             store: SharedPreferences,
-            scheduled: Map<String, StoredAlarm>,
+            records: AlarmRecords,
             changed: Set<String>,
         ): Boolean {
-            val edit = store.edit().putStringSet(SCHEDULED, scheduled.keys.toSet())
+            val edit = store.edit()
+                .putStringSet(SCHEDULED, records.installed.keys.toSet())
+                .putStringSet(INSTALLING, records.installing.keys.toSet())
             for (key in changed) {
-                val alarm = scheduled[key]
-                edit.putString("$AT$key", alarm?.at)
-                    .putString("$TITLE$key", alarm?.title)
-                    .putString("$BODY$key", alarm?.body)
-                    .putString("$LINK$key", alarm?.link)
-                    .putString("$TOKEN$key", alarm?.token)
-                if (alarm == null) edit.remove("$EXACT$key") else edit.putBoolean("$EXACT$key", alarm.exact)
+                writeAlarm(edit, key, records.installed[key])
+                writeAlarm(edit, NEXT + key, records.installing[key])
             }
             return edit.commit()
+        }
+
+        private fun writeAlarm(edit: SharedPreferences.Editor, name: String, alarm: StoredAlarm?) {
+            edit.putString("$AT$name", alarm?.at)
+                .putString("$TITLE$name", alarm?.title)
+                .putString("$BODY$name", alarm?.body)
+                .putString("$LINK$name", alarm?.link)
+                .putString("$TOKEN$name", alarm?.token)
+            if (alarm == null) edit.remove("$EXACT$name") else edit.putBoolean("$EXACT$name", alarm.exact)
         }
 
         private fun pendingIntent(context: Context, key: String, token: String, install: Boolean = false): PendingIntent? {
@@ -286,15 +348,18 @@ class NotificationScheduler(
             val key = intent.getStringExtra("key") ?: return
             val store = store(context)
             val token = intent.getStringExtra("token") ?: return
-            val scheduled = readAlarms(store)
-            val current = scheduled[key] ?: return
-            // Replacing a request can leave an old broadcast queued for the same instant.
-            if (token != current.token) return
-            pendingIntent(context, key, token)?.cancel()
-            if (!persistAlarms(store, scheduled - key, setOf(key))) {
+            val records = readRecords(store)
+            val requests = records.forKey(key)
+            // Replacing a request can leave an old broadcast queued. Only a
+            // token still holding the business reminder can produce a banner.
+            val delivered = requests.firstOrNull { it.token == token } ?: return
+            if (!persistRecords(store, AlarmRecords(records.installed - key, records.installing - key), setOf(key))) {
                 Log.w("isct", "Could not remove delivered reminder alarm")
             }
-            attempt("post alarm reminder") { post(context, key, current.title, current.body, current.link) }
+            val alarms = context.getSystemService(AlarmManager::class.java)
+            requests.forEach { revokeAlarm(context, alarms, key, it.token) }
+            attempt("post alarm reminder") { post(context, key, delivered.title, delivered.body, delivered.link) }
+            if (records.keys.size == LIMIT) BackgroundWake.soon(context)
         }
     }
 }

@@ -77,14 +77,14 @@ class BackgroundWake(context: Context, params: WorkerParameters) : CoroutineWork
             }
         }
 
-        /** One local opportunity as soon as Android allows: the session opens
-         * and the reminder alarms are scheduled again. */
+        /** One local opportunity for changed system facts. Keep a successor
+         * when an earlier opportunity may already have read the old facts. */
         fun soon(context: Context) {
             val request = OneTimeWorkRequestBuilder<BackgroundWake>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(workDataOf(NETWORK to false, SYSTEM_CHANGE to true))
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("$NAME-now", ExistingWorkPolicy.REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork("$NAME-now", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 }
