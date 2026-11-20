@@ -27,8 +27,8 @@ import org.json.JSONArray
 internal fun AssignmentLeadsPage() {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    val options = ReminderLeads.assignmentOptions(model.records.settings.optJSONObject("notifications")) ?: return
-    val chosen = options.selected.map { it.toInt() }
+    val options = model.records.reminderLeadOptions?.assignments ?: return
+    val chosen = ReminderLeads.assignmentLeads(model.records.settings.optJSONObject("notifications"))
     Page {
         Card {
             options.presets.map { it.toInt() }.forEachIndexed { index, minutes ->

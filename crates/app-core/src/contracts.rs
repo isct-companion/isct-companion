@@ -1,5 +1,5 @@
 use crate::locale::Localized;
-use crate::schedule::{ClassGroup, ReminderLeadOptions};
+use crate::schedule::ClassGroup;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
@@ -459,8 +459,6 @@ contract!(Notifications {
     pub exam_lead_minutes: u32,
     pub class_lead_minutes: u32,
     pub assignment_lead_minutes: Vec<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")] #[cfg_attr(feature = "ts", ts(optional))]
-    pub assignment_lead_options: Option<ReminderLeadOptions>,
     #[cfg_attr(feature = "ts", ts(type = "NotificationPermission"))] pub local_permission: String,
 });
 contract!(CloudSettings {
@@ -657,7 +655,6 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         CourseOverride::decl(cfg),
         AgentAccess::decl(cfg),
         Notifications::decl(cfg),
-        ReminderLeadOptions::decl(cfg),
         CloudSettings::decl(cfg),
         SubscriptionRefreshSettings::decl(cfg),
         SiteCustomization::decl(cfg),

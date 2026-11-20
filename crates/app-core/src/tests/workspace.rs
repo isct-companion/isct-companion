@@ -1676,8 +1676,8 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
     );
     let settings = settings_with(&initial, |settings| {
         settings["notifications"]["exams"] = json!(false);
-        settings["notifications"]["examLeadMinutes"] = json!(1440);
-        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30]);
+        settings["notifications"]["examLeadMinutes"] = json!(75);
+        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 17]);
     });
     let saved = service
         .apply(WorkspaceMutation {
@@ -1685,17 +1685,34 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
             intent: WorkspaceIntent::ReplaceSettings { settings },
         })
         .unwrap();
+    let read = service.read_back().unwrap();
+    let crate::schedule::WorkspaceQueryResult::Records(records) = crate::schedule::query(
+        &read.workspace,
+        &read.school,
+        crate::schedule::WorkspaceQuery::Records { fields: vec![] },
+    )
+    .unwrap() else {
+        panic!("expected settings records");
+    };
+    let stored = &read.workspace;
     assert_eq!(
-        service.read_back().unwrap().workspace["settings"]["notifications"]
-            ["assignmentLeadMinutes"],
-        json!([180, 30])
+        records["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 17])
     );
-    let stored = service.read_back().unwrap().workspace;
-    assert_eq!(
-        stored["settings"]["notifications"]["assignmentLeadOptions"]["selected"],
-        json!([180, 30])
-    );
-    assert_eq!(stored["settings"]["notifications"]["examLeadMinutes"], 1440);
+    assert!(records["settings"]["notifications"]
+        .get("assignmentLeadOptions")
+        .is_none());
+    let options = &records["reminderLeadOptions"];
+    assert!(options["classes"].as_array().unwrap().contains(&json!(30)));
+    let exam_options = options["exams"].as_array().unwrap();
+    assert!(exam_options
+        .windows(3)
+        .any(|leads| leads == [json!(60), json!(75), json!(1440)]));
+    let assignment_options = options["assignments"]["presets"].as_array().unwrap();
+    assert!(assignment_options
+        .windows(3)
+        .any(|leads| leads == [json!(30), json!(17), json!(15)]));
+    assert_eq!(stored["settings"]["notifications"]["examLeadMinutes"], 75);
     assert_eq!(stored["settings"]["notifications"]["exams"], false);
     for invalid_lead in [json!(0), json!(10081), json!("one day")] {
         let invalid = settings_with(&saved, |settings| {
@@ -1709,7 +1726,7 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
             .is_err());
         assert_eq!(
             service.read_back().unwrap().workspace["settings"]["notifications"]["examLeadMinutes"],
-            1440
+            75
         );
     }
     let invalid = settings_with(&saved, |settings| {
@@ -1724,6 +1741,6 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
     assert_eq!(
         service.read_back().unwrap().workspace["settings"]["notifications"]
             ["assignmentLeadMinutes"],
-        json!([180, 30])
+        json!([180, 17])
     );
 }

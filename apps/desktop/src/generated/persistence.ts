@@ -486,15 +486,7 @@ export type Notifications = {
   examLeadMinutes: number;
   classLeadMinutes: number;
   assignmentLeadMinutes: Array<number>;
-  assignmentLeadOptions?: ReminderLeadOptions;
   localPermission: NotificationPermission;
-};
-
-export type ReminderLeadOptions = {
-  presets: Array<number>;
-  selected: Array<number>;
-  minSelected: number;
-  maxSelected: number;
 };
 
 export type CloudSettings = {
@@ -1367,6 +1359,18 @@ export type NotificationPlan = {
   items: Array<NotificationItem>;
 };
 
+export type ReminderLeadOptions = {
+  classes: Array<number>;
+  exams: Array<number>;
+  assignments: AssignmentLeadOptions;
+};
+
+export type AssignmentLeadOptions = {
+  presets: Array<number>;
+  minSelected: number;
+  maxSelected: number;
+};
+
 export type GlanceSnapshot = {
   term: string;
   date: string;
@@ -1755,12 +1759,6 @@ export type TermTaskView = {
 
 export type TaskView = {
   deadlines: { [key in string]: TaskDeadlineView };
-  /**
-   * Visible assignments Core treats as submitted (`submission` submitted
-   * or graded, or LMS `submissionStatus` submitted). Shells render this
-   * instead of applying their own rule.
-   */
-  submittedIds: Array<string>;
   states: { [key in string]: AssignmentState };
   handInAvailability: { [key in string]: HandInAvailability };
   nearestByCourse: { [key in string]: string };
@@ -1788,11 +1786,6 @@ export type DeadlineItem = {
   title: string;
   dueAt: string | null;
   deadline: TaskDeadlineView | null;
-  overdue: boolean;
-  /**
-   * `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
-   */
-  tone: string;
   pinned: boolean;
   submitted: boolean;
   state: AssignmentState;
@@ -2697,8 +2690,6 @@ export const COURSE_PALETTE = [
 
 export const CREDENTIAL_PASSWORD_LENGTH = { min: 12, max: 128 } as const;
 
-export const DEFAULT_ASSIGNMENT_LEADS = [1440, 60] as const;
-
 export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
   {
     periods: [1, 2],
@@ -2731,6 +2722,16 @@ export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
     endTime: "20:45",
   },
 ];
+
+export const DEFAULT_REMINDER_LEAD_OPTIONS: ReminderLeadOptions = {
+  classes: [5, 10, 15, 30],
+  exams: [10, 30, 60, 1440, 2880],
+  assignments: {
+    presets: [10080, 4320, 2880, 1440, 720, 360, 180, 60, 30, 15],
+    minSelected: 1,
+    maxSelected: 8,
+  },
+};
 
 export const EMPTY_WORKSPACE: Workspace = {
   academicCalendar: [],

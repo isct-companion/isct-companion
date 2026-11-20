@@ -1,5 +1,8 @@
 import { createElement, type ComponentType } from "react";
-import { EMPTY_WORKSPACE } from "../generated/persistence";
+import {
+  EMPTY_WORKSPACE,
+  type ReminderLeadOptions,
+} from "../generated/persistence";
 import type { Workspace } from "../lib/model";
 import type { SchoolRecords } from "./desktop-bridge";
 import {
@@ -13,7 +16,9 @@ import { freshAnswer, queryClient } from "./query-client";
 /** What a page can ask Core for by name: workspace records, and the school
  * records only the shell shows. */
 export type ShellRecords = Workspace &
-  Pick<SchoolRecords, "lmsCourses" | "freshness" | "pageAvailability">;
+  Pick<SchoolRecords, "lmsCourses" | "freshness" | "pageAvailability"> & {
+    readonly reminderLeadOptions: ReminderLeadOptions;
+  };
 export type RecordField = keyof ShellRecords;
 
 const recordsQuery = (fields: readonly RecordField[]): ScheduleQuery => ({

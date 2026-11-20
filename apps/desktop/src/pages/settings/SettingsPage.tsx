@@ -1,3 +1,4 @@
+import type { SchoolAuthProfile } from "../../generated/persistence";
 import { notify as appNotify } from "../../components/notifications/notify";
 import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -10,7 +11,7 @@ import type {
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import type { Section } from "../../lib/route-contract";
 import type { Platform } from "../../platform/capabilities";
-import type { SchoolAuthProfile } from "../../platform/school-session-contract";
+
 import { performAction } from "../../platform/actions";
 import { resolveCapabilities } from "../../platform/capabilities";
 import { workspaceActions } from "../../store/workspace";
@@ -39,7 +40,7 @@ import {
   type SectionContext,
 } from "./registry";
 import "./settings.css";
-import { withRecords } from "../../platform/records";
+import { withRecords, type ShellRecords } from "../../platform/records";
 
 type Update = (f: (d: Workspace) => Workspace) => void;
 
@@ -96,7 +97,7 @@ function SettingsBody({
   capabilitiesReady = true,
 }: {
   platform: Platform;
-  data: Workspace;
+  data: ShellRecords;
   mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   /** Preferences and device state. */
   update: Update;

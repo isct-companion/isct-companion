@@ -30,34 +30,54 @@ pub use mobile::{
 
 pub const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
 
+const CLASS_LEAD_PRESETS: [u32; 4] = [5, 10, 15, 30];
+const EXAM_LEAD_PRESETS: [u32; 5] = [10, 30, 60, 1440, 2880];
 const ASSIGNMENT_LEAD_PRESETS: [u32; 10] = [15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080];
 const MIN_ASSIGNMENT_LEADS: u32 = 1;
 const MAX_ASSIGNMENT_LEADS: u32 = 8;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ReminderLeadOptions {
+    pub classes: Vec<u32>,
+    pub exams: Vec<u32>,
+    pub assignments: AssignmentLeadOptions,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AssignmentLeadOptions {
     pub presets: Vec<u32>,
-    pub selected: Vec<u32>,
     pub min_selected: u32,
     pub max_selected: u32,
 }
 
 pub fn reminder_lead_options(settings: &Value) -> Result<ReminderLeadOptions, ScheduleError> {
-    let selected: Vec<u32> = assignment_lead_minutes(settings)?
-        .into_iter()
-        .map(|minutes| minutes as u32)
-        .collect();
-    let mut presets = ASSIGNMENT_LEAD_PRESETS.to_vec();
-    presets.extend(selected.iter().copied());
-    presets.sort_unstable_by(|a, b| b.cmp(a));
-    presets.dedup();
+    let preferences = notification_preferences(settings);
+    let mut exams = EXAM_LEAD_PRESETS.to_vec();
+    exams.push(preferences.exam_lead_minutes as u32);
+    exams.sort_unstable();
+    exams.dedup();
+
+    let mut assignments = ASSIGNMENT_LEAD_PRESETS.to_vec();
+    assignments.extend(
+        assignment_lead_minutes(settings)?
+            .into_iter()
+            .map(|lead| lead as u32),
+    );
+    assignments.sort_unstable_by(|a, b| b.cmp(a));
+    assignments.dedup();
+
     Ok(ReminderLeadOptions {
-        presets,
-        selected,
-        min_selected: MIN_ASSIGNMENT_LEADS,
-        max_selected: MAX_ASSIGNMENT_LEADS,
+        classes: CLASS_LEAD_PRESETS.to_vec(),
+        exams,
+        assignments: AssignmentLeadOptions {
+            presets: assignments,
+            min_selected: MIN_ASSIGNMENT_LEADS,
+            max_selected: MAX_ASSIGNMENT_LEADS,
+        },
     })
 }
 

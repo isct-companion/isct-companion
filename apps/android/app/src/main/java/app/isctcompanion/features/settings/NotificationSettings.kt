@@ -29,15 +29,9 @@ import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import app.isctcompanion.core.ReminderLeadOptions
+import app.isctcompanion.core.minutes
 
-/** The desktop's reminder choices (`platform/reminders.ts`) and labels
- * (`NotificationSettings.tsx`), so every shell writes the same values to
- * `settings.notifications`. */
 internal object ReminderLeads {
-    val classChoices = listOf(5, 10, 15, 30)
-    val examChoices = listOf(10, 30, 60, 1440, 2880)
-
     fun label(minutes: Int): String = when {
         minutes == 1440 -> t("settings.notification.oneDayBefore")
         minutes % 1440 == 0 -> t("settings.notification.daysBefore", "days" to minutes / 1440)
@@ -57,20 +51,8 @@ internal object ReminderLeads {
 
     fun examLead(settings: JSONObject?): Int = settings?.optInt("examLeadMinutes") ?: 0
 
-    fun assignmentOptions(settings: JSONObject?): ReminderLeadOptions? {
-        val options = settings?.optJSONObject("assignmentLeadOptions") ?: return null
-        val presets = options.getJSONArray("presets")
-        val selected = options.getJSONArray("selected")
-        return ReminderLeadOptions(
-            presets = (0 until presets.length()).map { presets.getInt(it).toUInt() },
-            selected = (0 until selected.length()).map { selected.getInt(it).toUInt() },
-            minSelected = options.getInt("minSelected").toUInt(),
-            maxSelected = options.getInt("maxSelected").toUInt(),
-        )
-    }
-
     fun assignmentLeads(settings: JSONObject?): List<Int> =
-        assignmentOptions(settings)?.selected.orEmpty().map { it.toInt() }
+        settings?.optJSONArray("assignmentLeadMinutes")?.minutes().orEmpty()
 
     fun summary(settings: JSONObject?): String {
         val parts = mutableListOf<String>()
@@ -102,6 +84,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
     }
     var pending by remember { mutableStateOf<String?>(null) }
     val settings = model.records.settings.optJSONObject("notifications")
+    val leadOptions = model.records.reminderLeadOptions
     val turnOn = { key: String ->
         scope.launch {
             model.setNotifications {
@@ -140,17 +123,17 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
     Page {
         Card {
             SwitchRow(t("settings.main.remindMeBeforeClasses"), settings?.optBoolean("classes") == true) { toggle("classes", it) }
-            if (settings?.optBoolean("classes") == true) {
+            if (settings?.optBoolean("classes") == true && leadOptions != null) {
                 RowDivider(inset = Theme.rowX)
-                PickerRow(t("settings.main.remindMe"), ReminderLeads.classLead(settings), ReminderLeads.classChoices) { lead("classLeadMinutes", it) }
+                PickerRow(t("settings.main.remindMe"), ReminderLeads.classLead(settings), leadOptions.classes.map(UInt::toInt)) { lead("classLeadMinutes", it) }
             }
         }
         Card(Modifier.padding(top = Theme.space4)) {
             SwitchRow(t("settings.main.remindMeBeforeExams"), ReminderLeads.exams(settings)) { toggle("exams", it) }
-            if (ReminderLeads.exams(settings)) {
+            if (ReminderLeads.exams(settings) && leadOptions != null) {
                 val current = ReminderLeads.examLead(settings)
                 RowDivider(inset = Theme.rowX)
-                PickerRow(t("settings.main.remindMe"), current, (ReminderLeads.examChoices + current).distinct().sorted()) { lead("examLeadMinutes", it) }
+                PickerRow(t("settings.main.remindMe"), current, leadOptions.exams.map(UInt::toInt)) { lead("examLeadMinutes", it) }
             }
             // Also decides Today's upcoming exams, so it stays while reminders
             // are off and asks for no permission.

@@ -3,10 +3,13 @@ import type {
   CoreWorkspaceCommit,
   WorkspaceIntent,
 } from "@app/lib/workspace-intents";
-import type { WorkspaceChange } from "@app/generated/persistence";
+import {
+  DEFAULT_REMINDER_LEAD_OPTIONS,
+  type SyncSnapshot,
+  type WorkspaceChange,
+} from "@app/generated/persistence";
 import type { Workspace } from "@app/lib/model";
 import type { DesktopTool, SchoolRecords } from "@app/platform/desktop-bridge";
-import type { SyncSnapshot } from "@app/platform/sync";
 import {
   DEFAULT_TIMETABLE_AXIS,
   SCHEDULE_READS,
@@ -189,10 +192,12 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       lmsCourses: structuredClone(core.schoolRecords.lmsCourses),
       freshness: structuredClone(core.schoolRecords.freshness),
       pageAvailability: structuredClone(core.schoolRecords.pageAvailability),
+      reminderLeadOptions: DEFAULT_REMINDER_LEAD_OPTIONS,
     } as Record<string, unknown>;
     const named = [
       ...fields,
       "settings",
+      "reminderLeadOptions",
       "academicProfile",
       "deviceId",
       "selectedTerm",

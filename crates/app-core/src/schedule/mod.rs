@@ -815,6 +815,12 @@ pub fn query(
                     records.insert(field.to_owned(), value.clone());
                 }
             }
+            if let Some(settings) = workspace.pointer("/settings/notifications") {
+                records.insert(
+                    "reminderLeadOptions".into(),
+                    serde_json::json!(reminder_lead_options(settings)?),
+                );
+            }
             Ok(WorkspaceQueryResult::Records(Value::Object(records)))
         }
         WorkspaceQuery::ClassGroups { today } => {
@@ -1048,6 +1054,8 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         NotificationPriority::decl(cfg),
         NotificationItem::decl(cfg),
         NotificationPlan::decl(cfg),
+        ReminderLeadOptions::decl(cfg),
+        reminders::AssignmentLeadOptions::decl(cfg),
         GlanceSnapshot::decl(cfg),
         AgendaRequestOptions::decl(cfg),
         DatedAgenda::decl(cfg),

@@ -4,7 +4,7 @@ import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../platform/native";
 import { resolveCapabilities } from "../../platform/capabilities";
-import { CLASS_LEAD_CHOICES } from "../../platform/reminders";
+import type { ShellRecords } from "../../platform/records";
 import { UiButton, UiSelect } from "../../components/ui";
 import {
   Row,
@@ -20,14 +20,14 @@ export function NotificationSettings({
   caps,
   notify,
 }: {
-  data: Workspace;
+  data: ShellRecords;
   update: (f: (d: Workspace) => Workspace) => void;
   caps: ReturnType<typeof resolveCapabilities>;
   notify: (message: string) => void;
 }) {
   const settings = data.settings.notifications;
-  // Core resolves every preference's default before the workspace arrives.
-  const assignmentLeads = settings.assignmentLeadOptions;
+  const leadOptions = data.reminderLeadOptions;
+  const assignmentLeads = leadOptions.assignments;
   const leadLabel = (minutes: number) =>
     minutes % 1440 === 0
       ? minutes === 1440
@@ -131,7 +131,7 @@ export function NotificationSettings({
                   const minutes = Number(value);
                   set((n) => (n.classLeadMinutes = minutes));
                 }}
-                data={CLASS_LEAD_CHOICES.map((minutes) => ({
+                data={leadOptions.classes.map((minutes) => ({
                   value: String(minutes),
                   label: t("settings.notification.minutesBefore", { minutes }),
                 }))}
@@ -157,21 +157,10 @@ export function NotificationSettings({
                 onChange={(value) =>
                   set((n) => (n.examLeadMinutes = Number(value)))
                 }
-                data={[
-                  ...new Set([
-                    10,
-                    30,
-                    60,
-                    1440,
-                    2880,
-                    settings.examLeadMinutes,
-                  ]),
-                ]
-                  .sort((a, b) => a - b)
-                  .map((minutes) => ({
-                    value: String(minutes),
-                    label: leadLabel(minutes),
-                  }))}
+                data={leadOptions.exams.map((minutes) => ({
+                  value: String(minutes),
+                  label: leadLabel(minutes),
+                }))}
               />
             </Row>
           </div>
@@ -192,7 +181,7 @@ export function NotificationSettings({
             onChange={(value) => set((n) => (n.assignments = value))}
           />
         </Row>
-        {settings.assignments && assignmentLeads && (
+        {settings.assignments && (
           <div
             className="settingsSuboptions"
             role="group"
@@ -202,7 +191,7 @@ export function NotificationSettings({
               <MultiSelect
                 className="assignmentTimes"
                 aria-label={t("settings.notification.assignmentReminderTimes")}
-                value={assignmentLeads.selected.map(String)}
+                value={settings.assignmentLeadMinutes.map(String)}
                 data={assignmentLeads.presets.map((minutes) => ({
                   value: String(minutes),
                   label: leadLabel(minutes),

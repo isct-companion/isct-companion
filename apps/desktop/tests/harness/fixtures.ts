@@ -5,9 +5,10 @@ import type {
   LectureSearch,
   TimetableAxis,
   WorkspaceChange,
+  SchoolSessionSnapshot,
+  SchoolSessionState,
 } from "@app/generated/persistence";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
-import type { SchoolSessionSnapshot, SchoolSessionState } from "@app/platform/school-session-contract";
 
 /**
  * Data builders shared by the suites.
@@ -156,12 +157,6 @@ export function workspaceFixture(
   workspace.terms = [TERM];
   // Suites test their own screens; the first-run notice has its own case.
   workspace.settings.dataNoticeAcknowledgedAt = UPDATED_AT;
-  workspace.settings.notifications.assignmentLeadOptions = {
-    presets: [10080, 4320, 2880, 1440, 720, 360, 180, 60, 30, 15],
-    selected: workspace.settings.notifications.assignmentLeadMinutes,
-    minSelected: 1,
-    maxSelected: 8,
-  };
   for (const task of workspace.scheduledTasks) {
     task.updatedAt = UPDATED_AT;
     task.updatedBy = DEVICE;

@@ -1,4 +1,5 @@
 import Foundation
+import IsctCore
 
 /// Rows of the `records(fields)` view query, indexed by id. Core read
 /// models return ids (course detail, timetable blocks); screens look the rows
@@ -9,6 +10,7 @@ struct WorkspaceRecords {
     private(set) var assignments: [String: Row] = [:]
     /// The complete settings object; forms edit a copy and replace it.
     private(set) var settings: Row = [:]
+    private(set) var reminderLeadOptions: ReminderLeadOptions?
 
     init() {}
 
@@ -19,6 +21,17 @@ struct WorkspaceRecords {
         courses = Self.index(root["courses"])
         assignments = Self.index(root["assignments"])
         settings = root["settings"] as? Row ?? [:]
+        if let options = root["reminderLeadOptions"] as? Row,
+           let classes = options["classes"] as? [UInt32],
+           let exams = options["exams"] as? [UInt32],
+           let assignments = options["assignments"] as? Row,
+           let presets = assignments["presets"] as? [UInt32],
+           let min = assignments["minSelected"] as? UInt32,
+           let max = assignments["maxSelected"] as? UInt32 {
+            reminderLeadOptions = ReminderLeadOptions(
+                classes: classes, exams: exams,
+                assignments: AssignmentLeadOptions(presets: presets, minSelected: min, maxSelected: max))
+        }
     }
 
     private static func index(_ value: Any?) -> [String: Row] {

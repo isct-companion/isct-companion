@@ -582,7 +582,7 @@ impl DataStore {
         // Shells and reminders read one resolved value per preference.
         if let Some(notifications) = workspace.pointer_mut("/settings/notifications") {
             let resolved = crate::schedule::notification_preferences(notifications);
-            let leads = crate::schedule::reminder_lead_options(notifications)?;
+            let assignment_leads = crate::schedule::assignment_lead_minutes(notifications)?;
             for (name, value) in [
                 ("classes", json!(resolved.classes)),
                 ("classLeadMinutes", json!(resolved.class_lead_minutes)),
@@ -590,8 +590,7 @@ impl DataStore {
                 ("examLeadMinutes", json!(resolved.exam_lead_minutes)),
                 ("quizzes", json!(resolved.quizzes)),
                 ("assignments", json!(resolved.assignments)),
-                ("assignmentLeadMinutes", json!(leads.selected)),
-                ("assignmentLeadOptions", json!(leads)),
+                ("assignmentLeadMinutes", json!(assignment_leads)),
             ] {
                 notifications[name] = value;
             }

@@ -2,13 +2,7 @@ import SwiftUI
 import IsctCore
 import UserNotifications
 
-/// The desktop's reminder choices (`platform/reminders.ts`) and labels
-/// (`NotificationSettings.tsx`), so both ends write the same values to
-/// `settings.notifications`.
 enum ReminderLeads {
-    static let classChoices = [5, 10, 15, 30]
-    static let examChoices = [10, 30, 60, 1440, 2880]
-
     static func label(_ minutes: Int) -> String {
         if minutes == 1440 { return t("settings.notification.oneDayBefore") }
         if minutes % 1440 == 0 { return t("settings.notification.daysBefore", ["days": minutes / 1440]) }
@@ -37,17 +31,7 @@ enum ReminderLeads {
     }
 
     static func assignmentLeads(_ settings: [String: Any]) -> [Int] {
-        assignmentOptions(settings)?.selected.map(Int.init) ?? []
-    }
-
-    static func assignmentOptions(_ settings: [String: Any]) -> ReminderLeadOptions? {
-        guard let options = settings["assignmentLeadOptions"] as? [String: Any],
-              let presets = options["presets"] as? [NSNumber],
-              let selected = options["selected"] as? [NSNumber],
-              let min = options["minSelected"] as? NSNumber,
-              let max = options["maxSelected"] as? NSNumber else { return nil }
-        return ReminderLeadOptions(presets: presets.map(\.uint32Value), selected: selected.map(\.uint32Value),
-                                   minSelected: min.uint32Value, maxSelected: max.uint32Value)
+        settings["assignmentLeadMinutes"] as? [Int] ?? []
     }
 }
 
@@ -67,22 +51,23 @@ struct NotificationsScreen: View {
     }
 
     var body: some View {
+        let leadOptions = model.records.reminderLeadOptions
         Form {
             Group {
                 Section {
                     Toggle(t("settings.main.remindMeBeforeClasses"), isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
-                    if settings["classes"] as? Bool == true {
+                    if settings["classes"] as? Bool == true, let leadOptions {
                         Picker(t("settings.main.remindMe"), selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
-                            ForEach(ReminderLeads.classChoices, id: \.self) { Text(ReminderLeads.label($0)).tag($0) }
+                            ForEach(leadOptions.classes.map(Int.init), id: \.self) { Text(ReminderLeads.label($0)).tag($0) }
                         }
                     }
                 }
                 Section {
                     Toggle(t("settings.main.remindMeBeforeExams"), isOn: binding("exams", current: ReminderLeads.exams(settings)))
-                    if ReminderLeads.exams(settings) {
+                    if ReminderLeads.exams(settings), let leadOptions {
                         let lead = ReminderLeads.examLead(settings)
                         Picker(t("settings.main.remindMe"), selection: leadBinding("examLeadMinutes", lead)) {
-                            ForEach(Array(Set(ReminderLeads.examChoices + [lead])).sorted(), id: \.self) {
+                            ForEach(leadOptions.exams.map(Int.init), id: \.self) {
                                 Text(ReminderLeads.label($0)).tag($0)
                             }
                         }
@@ -177,12 +162,9 @@ struct NotificationsScreen: View {
 struct AssignmentLeadsScreen: View {
     @Environment(AppModel.self) private var model
 
-    private var options: ReminderLeadOptions? {
-        ReminderLeads.assignmentOptions(model.records.settings["notifications"] as? [String: Any] ?? [:])
-    }
-
     var body: some View {
-        let chosen = options?.selected.map(Int.init) ?? []
+        let options = model.records.reminderLeadOptions?.assignments
+        let chosen = ReminderLeads.assignmentLeads(model.records.settings["notifications"] as? [String: Any] ?? [:])
         Form {
             Group {
                 Section {

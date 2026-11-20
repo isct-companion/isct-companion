@@ -83,29 +83,30 @@ fn main() {
             .expect("serialize credential password length"),
     );
     output.push_str(" as const;\n");
-    output.push_str("\nexport const DEFAULT_ASSIGNMENT_LEADS = ");
-    output.push_str(
-        &serde_json::to_string(&app_core::schedule::DEFAULT_ASSIGNMENT_LEADS)
-            .expect("serialize reminder defaults"),
-    );
-    output.push_str(" as const;\n");
     output.push_str("\nexport const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = ");
     output.push_str(
         &serde_json::to_string_pretty(&app_core::schedule::default_teaching_periods())
             .expect("serialize default teaching periods"),
     );
     output.push_str(";\n");
-    output.push_str("\nexport const EMPTY_WORKSPACE: Workspace = ");
+    let empty_workspace = app_core::data::initial_workspace(
+        chrono::NaiveDate::from_ymd_opt(2026, 4, 1).expect("fixture date"),
+        "preview-device",
+        "2026-04-01T00:00:00.000Z",
+    )
+    .expect("valid initial workspace");
+    output.push_str("\nexport const DEFAULT_REMINDER_LEAD_OPTIONS: ReminderLeadOptions = ");
     output.push_str(
         &serde_json::to_string_pretty(
-            &app_core::data::initial_workspace(
-                chrono::NaiveDate::from_ymd_opt(2026, 4, 1).expect("fixture date"),
-                "preview-device",
-                "2026-04-01T00:00:00.000Z",
-            )
-            .expect("valid initial workspace"),
+            &app_core::schedule::reminder_lead_options(&empty_workspace["settings"]["notifications"])
+                .expect("valid default reminder times"),
         )
-        .expect("serialize empty workspace"),
+        .expect("serialize reminder choices"),
+    );
+    output.push_str(";\n");
+    output.push_str("\nexport const EMPTY_WORKSPACE: Workspace = ");
+    output.push_str(
+        &serde_json::to_string_pretty(&empty_workspace).expect("serialize empty workspace"),
     );
     output.push_str(";\n");
     output.push_str("\nexport const PUBLIC_DATA_INDEX = ");
