@@ -54,6 +54,12 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
 
     private val downloads = SchoolDownloads(context)
 
+    /** A file a school page handed over that the app shows itself; the
+     * screen on top opens it and clears this. */
+    var viewing by mutableStateOf<ViewedFile?>(null)
+
+    class ViewedFile(val path: String, val name: String, val viewer: Viewer)
+
     init {
         // Plain HTTP and other sites Core sends out; cleartext stays off in the app.
         browser.onOpenExternal = { uri ->
@@ -64,9 +70,11 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         browser.onDownload = { url, referer, contentDisposition, mimeType ->
             session?.let { session ->
                 scope.launch {
-                    downloads.save(session, url, referer, contentDisposition, mimeType) { uri ->
-                        browser.onOpenExternal?.invoke(uri)
-                    }
+                    downloads.save(
+                        session, url, referer, contentDisposition, mimeType,
+                        openExternal = { uri -> browser.onOpenExternal?.invoke(uri) },
+                        openInApp = { file, name, viewer -> viewing = ViewedFile(file.path, name, viewer) },
+                    )
                 }
             }
         }

@@ -1011,10 +1011,19 @@ async fn publish(
             .await
             .map_err(write_error)?;
         temp.disarm();
+        let viewer = {
+            let (path, name, mime) = (path.clone(), candidate.clone(), mime_type.clone());
+            tokio::task::spawn_blocking(move || {
+                crate::file_preview::viewer_of_file(&path, &name, Some(&mime))
+            })
+            .await
+            .unwrap_or(crate::file_preview::Viewer::External)
+        };
         return Ok(SchoolFile::Saved {
             path,
             name: candidate,
             mime_type,
+            viewer,
         });
     }
     Err(FetchError::WriteDenied)

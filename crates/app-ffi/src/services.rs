@@ -123,10 +123,12 @@ impl Session {
                         path,
                         name,
                         mime_type,
+                        viewer,
                     } => SchoolFile::Saved {
                         path: path.to_string_lossy().into_owned(),
                         name,
                         mime_type,
+                        viewer: crate::json::project_input(viewer)?,
                     },
                     app_core::school_files::SchoolFile::External { url } => {
                         SchoolFile::External { url }
@@ -290,6 +292,8 @@ pub enum SchoolFile {
         path: String,
         name: String,
         mime_type: String,
+        /// How the app shows it once saved (Core's `file_preview`).
+        viewer: Viewer,
     },
     /// Not on a school host: Core fetches only school files, so the shell
     /// opens it in the system browser.

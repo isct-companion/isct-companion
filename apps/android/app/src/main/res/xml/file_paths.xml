@@ -5,6 +5,8 @@
 <paths>
     <files-path name="files" path="files/" />
     <cache-path name="exports" path="exports/" />
+    <!-- The last school file opened in the app's viewer, for Open in another app. -->
+    <cache-path name="school-viewing" path="school-viewing/" />
     <cache-path name="photos" path="photos/" />
     <!-- An update's APK, handed to the system installer. -->
     <external-files-path name="updates" path="updates/" />

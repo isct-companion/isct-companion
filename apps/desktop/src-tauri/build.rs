@@ -106,6 +106,23 @@ fn write_native_text(os: &str) -> Result<(), Box<dyn std::error::Error>> {
             writeln!(source, "        {field}: {value:?},")?;
         }
         writeln!(source, "    }},")?;
+        if os == "macos" {
+            writeln!(source, "    sign_in: SignInText {{")?;
+            for (field, key) in [
+                ("title", "schoolWeb.signIn.title"),
+                ("retry", "schoolWeb.signIn.retry"),
+                ("user", "schoolWeb.signIn.user"),
+                ("password", "schoolWeb.signIn.password"),
+                ("sign_in", "schoolWeb.signIn.button"),
+                ("cancel", "common.cancel"),
+            ] {
+                let value = catalog
+                    .get(key)
+                    .ok_or_else(|| format!("{path}: missing {key}"))?;
+                writeln!(source, "        {field}: {value:?},")?;
+            }
+            writeln!(source, "    }},")?;
+        }
         if os == "windows" {
             // Core supplies the print result keys at runtime.
             writeln!(source, "    campus_print: &[")?;

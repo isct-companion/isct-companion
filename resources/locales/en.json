@@ -1703,5 +1703,10 @@
   "lms.openPdf": "Open",
   "lms.pdfNeedsPassword": "This PDF is protected. Enter its password to open it.",
   "lms.pdfPassword": "PDF password",
-  "lms.pdfPasswordWrong": "That password is not right. Try again."
+  "lms.pdfPasswordWrong": "That password is not right. Try again.",
+  "schoolWeb.signIn.title": "Sign in to {{host}}",
+  "schoolWeb.signIn.retry": "The user name or password was not accepted.",
+  "schoolWeb.signIn.user": "User name",
+  "schoolWeb.signIn.password": "Password",
+  "schoolWeb.signIn.button": "Sign In"
 }

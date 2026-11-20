@@ -1703,5 +1703,10 @@
   "lms.openPdf": "打开",
   "lms.pdfNeedsPassword": "此 PDF 受密码保护，请输入密码后打开。",
   "lms.pdfPassword": "PDF 密码",
-  "lms.pdfPasswordWrong": "密码不正确，请重新输入。"
+  "lms.pdfPasswordWrong": "密码不正确，请重新输入。",
+  "schoolWeb.signIn.title": "登录 {{host}}",
+  "schoolWeb.signIn.retry": "用户名或密码不正确。",
+  "schoolWeb.signIn.user": "用户名",
+  "schoolWeb.signIn.password": "密码",
+  "schoolWeb.signIn.button": "登录"
 }

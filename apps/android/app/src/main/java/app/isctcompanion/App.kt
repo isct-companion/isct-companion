@@ -396,6 +396,14 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    // A file a school page handed over opens in the app's viewer for it,
+    // as a browser opens what it downloaded (WebView shows no PDF).
+    val viewing = model.web.viewing
+    LaunchedEffect(viewing) {
+        viewing ?: return@LaunchedEffect
+        model.web.viewing = null
+        navigator.openCourseFile(viewing.path, viewing.name, viewing.viewer)
+    }
     LaunchedEffect(widgetLink, destination != null) {
         if (widgetLink == null || destination == null) return@LaunchedEffect
         when (val route = model.widgetRoute(widgetLink)) {

@@ -1703,5 +1703,10 @@
   "lms.openPdf": "開く",
   "lms.pdfNeedsPassword": "この PDF は保護されています。開くにはパスワードを入力してください。",
   "lms.pdfPassword": "PDF のパスワード",
-  "lms.pdfPasswordWrong": "パスワードが違います。もう一度入力してください。"
+  "lms.pdfPasswordWrong": "パスワードが違います。もう一度入力してください。",
+  "schoolWeb.signIn.title": "{{host}} にサインイン",
+  "schoolWeb.signIn.retry": "ユーザ名またはパスワードが正しくありません。",
+  "schoolWeb.signIn.user": "ユーザ名",
+  "schoolWeb.signIn.password": "パスワード",
+  "schoolWeb.signIn.button": "サインイン"
 }

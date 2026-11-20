@@ -138,6 +138,10 @@ pub struct NavigationRequest {
     pub main_frame: bool,
     pub kind: NavigationKind,
     pub user_gesture: bool,
+    /// The person asked for it somewhere else, as a browser opens a new tab:
+    /// a link ⌘-clicked or middle-clicked. Hosts whose input has no such
+    /// gesture (touch) never set it.
+    pub elsewhere: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

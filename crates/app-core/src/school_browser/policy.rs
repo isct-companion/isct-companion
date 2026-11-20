@@ -326,6 +326,11 @@ pub(crate) fn navigation_rule(request: &NavigationRequest) -> Verdict {
     if request.main_frame && google_account_page(&request.url) {
         return Verdict::External;
     }
+    // What a browser opens in a new tab opens in the person's browser: the
+    // school views have no tabs. A page they could load here goes there too.
+    if request.elsewhere && matches!(target(&request.url), Target::Https | Target::Cleartext) {
+        return Verdict::External;
+    }
     match target(&request.url) {
         Target::Local { data: true } if request.main_frame => Verdict::Deny(DenyReason::Scheme),
         Target::Local { .. } | Target::Https => Verdict::Allow,

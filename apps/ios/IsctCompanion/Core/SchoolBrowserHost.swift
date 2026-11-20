@@ -362,10 +362,11 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         }
     }
 
-    /// A navigation of `page` became a download, saved to a file. Core
-    /// disposes a popup that had nothing else to show; its transfer goes on.
-    @MainActor fileprivate func becameDownload(_ page: SchoolPage, hadPage: Bool) {
-        try? listener()?.becameDownload(page: page.page, hadPage: hadPage, disposition: .saved)
+    /// A navigation of `page` became a download, saved to a file or `shown`
+    /// back in its view. Core disposes a popup that had nothing else to show;
+    /// its transfer goes on.
+    @MainActor fileprivate func becameDownload(_ page: SchoolPage, hadPage: Bool, shown: Bool) {
+        try? listener()?.becameDownload(page: page.page, hadPage: hadPage, disposition: shown ? .shown : .saved)
     }
 
     /// A transfer of `page` ended; a disposed page goes once it has none left.
@@ -406,8 +407,13 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // WebKit says whether the person acted only through private API,
         // which an App Store build does not call; Core counts links and forms
         // as the person's.
+        // A link ⌘-clicked (iPadOS with a keyboard), which a browser opens
+        // in a new tab. WebKit reports the keys from iOS 18.4.
+        let commandKey: Bool
+        if #available(iOS 18.4, *) { commandKey = action.modifierFlags.contains(.command) } else { commandKey = false }
+        let elsewhere = action.navigationType == .linkActivated && commandKey
         return NavigationRequest(
-            page: page.page, url: url, mainFrame: mainFrame, kind: kind, userGesture: false)
+            page: page.page, url: url, mainFrame: mainFrame, kind: kind, userGesture: false, elsewhere: elsewhere)
     }
 
     @MainActor fileprivate func decide(_ page: SchoolPage, _ action: WKNavigationAction) -> WKNavigationActionPolicy {
@@ -523,7 +529,9 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     private var historyObservations: [NSKeyValueObservation] = []
     /// WebKit holds its delegate weakly. The page owns each native transfer
     /// until completion or disposal, including its temporary file.
-    private var downloads: [ObjectIdentifier: (download: WKDownload, file: URL?)] = [:]
+    /// Transfers of this page; `shown` is the response of an attachment
+    /// loaded back into the view once it is fetched.
+    private var downloads: [ObjectIdentifier: (download: WKDownload, file: URL?, shown: URLResponse?)] = [:]
 
     init(id: BrowserId, parent: BrowserId?, webView: WKWebView, host: SchoolBrowserHost) {
         self.id = id
@@ -593,11 +601,23 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
         _ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
         decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
     ) {
-        let disposition = (response.response as? HTTPURLResponse)?
-            .value(forHTTPHeaderField: "Content-Disposition")?
-            .split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased()
         // Displayable Moodle attachments otherwise commit an empty page.
-        decisionHandler(disposition == "attachment" || !response.canShowMIMEType ? .download : .allow)
+        decisionHandler(Self.attachment(response) || !response.canShowMIMEType ? .download : .allow)
+    }
+
+    private static func attachment(_ response: WKNavigationResponse) -> Bool {
+        (response.response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "Content-Disposition")?
+            .split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased() == "attachment"
+    }
+
+    /// A main-frame attachment WebKit can show that Core lets show in place
+    /// (a PDF, an image, media): fetched, then loaded back into the view, so
+    /// WebKit's own viewer opens it, a PDF's password field included, as on
+    /// macOS. Everything else is a file.
+    private static func shownInPlace(_ response: WKNavigationResponse) -> Bool {
+        response.isForMainFrame && attachment(response) && response.canShowMIMEType
+            && attachmentShownInPlace(mime: response.response.mimeType ?? "")
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -679,6 +699,52 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
         presenter.present(alert, animated: true)
     }
 
+    /// A server asking for a user name and password (HTTP Basic, Digest,
+    /// NTLM) gets the sign-in alert a browser shows, on the page the person is
+    /// looking at; every other challenge (server trust, client certificates)
+    /// is WebKit's. The credential lasts for this session and is never stored.
+    func webView(
+        _ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let space = challenge.protectionSpace
+        guard
+            [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodNTLM]
+                .contains(space.authenticationMethod),
+            let presenter = host?.presenter(for: webView)
+        else {
+            // Without a credential the server's own 401 page shows, as in a
+            // browser after Cancel.
+            return completionHandler(.performDefaultHandling, nil)
+        }
+        let alert = UIAlertController(
+            title: t("schoolWeb.signIn.title", ["host": space.host]),
+            message: challenge.previousFailureCount > 0 ? t("schoolWeb.signIn.retry") : nil,
+            preferredStyle: .alert)
+        alert.addTextField {
+            $0.placeholder = t("schoolWeb.signIn.user")
+            $0.textContentType = .username
+            $0.autocapitalizationType = .none
+            $0.autocorrectionType = .no
+        }
+        alert.addTextField {
+            $0.placeholder = t("schoolWeb.signIn.password")
+            $0.textContentType = .password
+            $0.isSecureTextEntry = true
+        }
+        alert.addAction(UIAlertAction(title: t("common.cancel"), style: .cancel) { _ in
+            completionHandler(.performDefaultHandling, nil)
+        })
+        alert.addAction(UIAlertAction(title: t("schoolWeb.signIn.button"), style: .default) { [weak alert] _ in
+            let fields = alert?.textFields ?? []
+            completionHandler(
+                .useCredential,
+                URLCredential(
+                    user: fields.first?.text ?? "", password: fields.last?.text ?? "", persistence: .forSession))
+        })
+        presenter.present(alert, animated: true)
+    }
+
     /// `window.print()` reaches WebKit's private
     /// `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without it
     /// nothing happens. The page goes on at once and the panel follows, so
@@ -695,20 +761,20 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     // MARK: Downloads
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        receive(download)
+        receive(download, shown: nil)
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        receive(download)
+        receive(download, shown: Self.shownInPlace(navigationResponse) ? navigationResponse.response : nil)
     }
 
     /// Reported for this page, the one whose navigation it was, never
     /// `download.webView`: for a popup with nothing committed WebKit names
     /// the opener there.
-    private func receive(_ download: WKDownload) {
-        downloads[ObjectIdentifier(download)] = (download, nil)
+    private func receive(_ download: WKDownload, shown: URLResponse?) {
+        downloads[ObjectIdentifier(download)] = (download, nil, shown)
         download.delegate = self
-        host?.becameDownload(self, hadPage: committed != nil)
+        host?.becameDownload(self, hadPage: committed != nil, shown: shown != nil)
     }
 
     func download(
@@ -720,7 +786,7 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let name = (suggestedFilename as NSString).lastPathComponent
             let file = directory.appendingPathComponent(name.isEmpty || name == "." || name == ".." ? "download" : name)
-            downloads[ObjectIdentifier(download)] = (download, file)
+            downloads[ObjectIdentifier(download)] = (download, file, downloads[ObjectIdentifier(download)]?.shown)
             completionHandler(file)
         } catch {
             try? FileManager.default.removeItem(at: directory)
@@ -730,9 +796,20 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        let file = downloads.removeValue(forKey: ObjectIdentifier(download))?.file
+        let item = downloads.removeValue(forKey: ObjectIdentifier(download))
         host?.transferEnded(self)
-        if let file { host?.onDownload?(file) }
+        guard let file = item?.file else { return }
+        guard let shown = item?.shown, let url = shown.url else {
+            host?.onDownload?(file)
+            return
+        }
+        // The same response minus its headers, so WebKit displays it.
+        let data = try? Data(contentsOf: file)
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        guard let data else { return }
+        let response = URLResponse(
+            url: url, mimeType: shown.mimeType, expectedContentLength: data.count, textEncodingName: shown.textEncodingName)
+        webView.loadSimulatedRequest(URLRequest(url: url), response: response, responseData: data)
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {

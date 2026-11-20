@@ -47,6 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -252,6 +255,7 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
         }
     }
     PageDialog(web.browser)
+    SignInDialog(web.browser)
     PageFiles(web.browser)
 }
 
@@ -349,6 +353,48 @@ private fun PageDialog(host: SchoolBrowserHost) {
             },
             dismissButton = if (dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT) null else {
                 { TextButton(onClick = { dialog.answer(false, null) }) { Text(if (leave) t("web.stay") else t("common.cancel")) } }
+            },
+        )
+    }
+}
+
+/** The user name and password a server of the page on screen asks for, as
+ * a browser asks (HTTP Basic, Digest, NTLM). */
+@Composable
+private fun SignInDialog(host: SchoolBrowserHost) {
+    val request = host.signIn ?: return
+    key(request) {
+        var user by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        DisposableEffect(Unit) { onDispose { request.answer(null, null) } }
+        AlertDialog(
+            onDismissRequest = { request.answer(null, null) },
+            title = { Text(t("schoolWeb.signIn.title", "host" to request.host)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (request.retry) Text(t("schoolWeb.signIn.retry"), color = Theme.colors.danger)
+                    OutlinedTextField(
+                        user, { user = it },
+                        singleLine = true,
+                        label = { Text(t("schoolWeb.signIn.user")) },
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        password, { password = it },
+                        singleLine = true,
+                        label = { Text(t("schoolWeb.signIn.password")) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { request.answer(user, password) }) { Text(t("schoolWeb.signIn.button")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { request.answer(null, null) }) { Text(t("common.cancel")) }
             },
         )
     }
