@@ -21,20 +21,22 @@ export type ShellRecords = Workspace &
   };
 export type RecordField = keyof ShellRecords;
 
+type RecordsAnswer = Record<string, unknown> &
+  Pick<ShellRecords, "reminderLeadOptions">;
+
 const recordsQuery = (fields: readonly RecordField[]): ScheduleQuery => ({
   kind: "records",
   fields: [...new Set(fields)].sort(),
 });
 
 /** Fields a page left out read as empty, never as missing. */
-const complete = (answer: Record<string, unknown>) =>
-  ({
-    ...EMPTY_WORKSPACE,
-    lmsCourses: [],
-    freshness: {},
-    pageAvailability: {},
-    ...answer,
-  }) as ShellRecords;
+const complete = (answer: RecordsAnswer): ShellRecords => ({
+  ...EMPTY_WORKSPACE,
+  lmsCourses: [],
+  freshness: {},
+  pageAvailability: {},
+  ...answer,
+});
 
 /** Core's records for `fields` now, from the query cache when it holds a
  * current answer; for an edit that starts from what is stored. */
@@ -45,10 +47,7 @@ export async function fetchRecords(
   const answer = await queryClient.fetchQuery({
     queryKey: ["schedule", [query]],
     queryFn: ({ signal }) =>
-      freshAnswer(
-        () => scheduleAnswers<[Record<string, unknown>]>([query]),
-        signal,
-      ),
+      freshAnswer(() => scheduleAnswers<[RecordsAnswer]>([query]), signal),
   });
   return complete(answer.value[0]);
 }
@@ -64,7 +63,7 @@ export function useRecords(
   fields: readonly RecordField[],
   enabled = true,
 ): ShellRecords | undefined {
-  const answer = useScheduleQuery<Record<string, unknown>>(
+  const answer = useScheduleQuery<RecordsAnswer>(
     recordsQuery(fields),
     enabled,
   ).value;

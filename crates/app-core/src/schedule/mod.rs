@@ -424,9 +424,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
-            Self::Today { .. }
-            | Self::CourseContent { .. }
-            | Self::Glance { .. } => &[
+            Self::Today { .. } | Self::CourseContent { .. } | Self::Glance { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -828,12 +826,12 @@ pub fn query(
                     records.insert(field.to_owned(), value.clone());
                 }
             }
-            if let Some(settings) = workspace.pointer("/settings/notifications") {
-                records.insert(
-                    "reminderLeadOptions".into(),
-                    serde_json::json!(reminder_lead_options(settings)?),
-                );
-            }
+            records.insert(
+                "reminderLeadOptions".into(),
+                serde_json::json!(reminder_lead_options(
+                    &workspace["settings"]["notifications"]
+                )?),
+            );
             Ok(WorkspaceQueryResult::Records(Value::Object(records)))
         }
         WorkspaceQuery::ClassGroups { today } => {

@@ -1564,8 +1564,22 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(ids(&board.today.later), ["next-week"]);
     // Overdue for a week at most, hidden and submitted work never.
     assert_eq!(ids(&board.today.past_recent), ["late"]);
-    assert_eq!(board.today.past_recent[0].tone, "past");
-    assert_eq!(board.today.due_this_week[0].tone, "urgent");
+    assert_eq!(
+        board.today.past_recent[0]
+            .deadline
+            .as_ref()
+            .unwrap()
+            .countdown_tone,
+        "past"
+    );
+    assert_eq!(
+        board.today.due_this_week[0]
+            .deadline
+            .as_ref()
+            .unwrap()
+            .countdown_tone,
+        "urgent"
+    );
     assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
     assert_eq!(
         ids(&board.record.due_this_week),
@@ -2203,11 +2217,8 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
     assert_eq!(ja.items[1].body, "締切まで30分");
     for selected in [vec![17], vec![17, 1, 2, 3, 4, 5, 6, 7]] {
         data["settings"]["notifications"]["assignmentLeadMinutes"] = json!(selected);
-        let options = reminder_lead_options(&data["settings"]["notifications"]).unwrap();
-        assert_eq!((options.min_selected, options.max_selected), (1, 8));
-        assert_eq!(options.selected, selected);
-        assert!(options.presets.contains(&17) && options.presets.contains(&60));
-        assert!(options.presets.windows(2).all(|pair| pair[0] > pair[1]));
+        let plan = notification_plan(&data, &SchoolReads::fixture(&data), from, to, None).unwrap();
+        assert_eq!(plan.items.len(), selected.len());
     }
     for invalid in [
         json!([]),
@@ -2220,7 +2231,6 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
     ] {
         data["settings"]["notifications"]["assignmentLeadMinutes"] = invalid;
         assert!(notification_plan(&data, &SchoolReads::fixture(&data), from, to, None).is_err());
-        assert!(reminder_lead_options(&data["settings"]["notifications"]).is_err());
     }
 }
 

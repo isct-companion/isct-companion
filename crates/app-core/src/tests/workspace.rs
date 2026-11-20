@@ -1708,6 +1708,8 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
     assert!(exam_options
         .windows(3)
         .any(|leads| leads == [json!(60), json!(75), json!(1440)]));
+    assert_eq!(options["assignments"]["minSelected"], 1);
+    assert_eq!(options["assignments"]["maxSelected"], 8);
     let assignment_options = options["assignments"]["presets"].as_array().unwrap();
     assert!(assignment_options
         .windows(3)
