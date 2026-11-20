@@ -483,7 +483,7 @@ fn advanced_calendar_and_course_rules_match_desktop_cases() {
 #[test]
 fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
     let mut data = workspace();
-    data["memberships"][0]["evidence"] = json!({"provider":"school"});
+    data["courses"][0]["meetings"][0]["days"] = json!([2]);
     data["exams"] = json!([{"id":"exam","academicYear":2026,"level":"undergraduate","quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-13","label":{"ja":"試験"},"periods":[3,4],"room":{"ja":"W9-101"},"rooms":[],"status":"scheduled","sourceIds":["notice"],"sourcePages":[1]}]);
     let rows = resolve_day_agenda(
         &data,
@@ -551,7 +551,7 @@ fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
     );
 
     data["exams"] = json!([]);
-    data["events"] = json!([]);
+    data["courses"][0]["meetings"][0]["days"] = json!([1]);
     data["scheduleOverrides"] = json!([{"id":"override","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","date":"2026-04-14","periods":[5,6],"room":"Moved","hidden":false}]);
     assert!(resolve_day_agenda(
         &data,
@@ -2364,23 +2364,25 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
 }
 
 #[test]
-fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
+fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_edits() {
     let mut data = workspace();
     data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    let exam_week_monday = "2026-06-01";
     let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
     data["exams"] = json!([
         // The weekly class meets Mondays 1-2.
         row("moved", "class", "2026-04-13", [3, 4]),
         row("extra", "class", "2026-04-15", [5, 6]),
-        row("final", "exam", "2026-04-16", [3, 4]),
+        row("final", "exam", "2026-04-13", [5, 6]),
         row("kept", "class", "2026-04-20", [7, 8]),
-        row("exam-week", "class", "2026-05-28", [1, 2]),
+        row("exam-week", "class", exam_week_monday, [1, 2]),
         row("monday-exam", "exam", "2026-04-27", [5, 6]),
         row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
     ]);
-    // A hand-edited weekly session outranks the timetable.
+    // A session the person re-roomed outranks the timetable. A stored row
+    // without `targetKind` names a class session too.
     data["scheduleOverrides"] = json!([
-        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","targetKind":"course","room":"My room","hidden":false},
+        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","room":"My room","hidden":false},
         {"id":"mine-too","targetKey":"course-weekly-0-2026-05-11","targetKind":"course","room":"My room","hidden":false}
     ]);
     let agenda = |date| {
@@ -2406,13 +2408,20 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     };
     assert_eq!(
         agenda("2026-04-13"),
-        [session("reference:moved", "10:45", "W8E-E207")]
+        [
+            session("reference:moved", "10:45", "W8E-E207"),
+            (
+                OccurrenceKind::Exam,
+                "reference:final".into(),
+                "13:30".into(),
+                "W8E-E207".into(),
+            ),
+        ]
     );
     assert_eq!(
         agenda("2026-04-15"),
         [session("reference:extra", "13:30", "W8E-E207")]
     );
-    assert_eq!(agenda("2026-04-16")[0].0, OccurrenceKind::Exam);
     assert_eq!(
         agenda("2026-04-20"),
         [
@@ -2421,7 +2430,8 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
         ]
     );
 
-    // An exam replaces the weekly class too, unless the user edited it.
+    // An exam replaces the weekly class of its day too, unless the person
+    // edited that session.
     let kinds = |date| {
         agenda(date)
             .into_iter()
@@ -2438,8 +2448,8 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let days = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
-        "2026-05-28",
-        "2026-05-29",
+        exam_week_monday,
+        "2026-06-02",
     )
     .unwrap();
     assert_eq!(
@@ -2473,6 +2483,25 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     .conflicts
     .iter()
     .all(|view| view.kind == "exam"));
+
+    // Marking the published class as a quiz must not bring back the
+    // cancelled weekly session it replaces.
+    mark_session(&mut data, "reference:exam-week", "quiz");
+    let days = calendar_between(
+        &data,
+        &SchoolReads::fixture(&data),
+        exam_week_monday,
+        exam_week_monday,
+    )
+    .unwrap();
+    assert_eq!(
+        days[0]
+            .occurrences
+            .iter()
+            .map(|block| (block.key.as_str(), block.mark))
+            .collect::<Vec<_>>(),
+        [("reference:exam-week", Some(SessionMark::Quiz))]
+    );
 }
 
 #[test]
@@ -2624,15 +2653,24 @@ fn a_user_mark_decides_what_a_session_is() {
     .is_err());
     mark_session(&mut data, "course-weekly-0-2026-04-20", "exam");
     assert_eq!(agenda(&data, "2026-04-21"), [(OccurrenceKind::Exam, None)]);
-    // The session gives way to the published exam of its course that day.
+    // The session gives way to the published exam of its course that day;
+    // the mark stays and counts again once that exam leaves the timetable.
     data["exams"].as_array_mut().unwrap().push(json!({"id":"monday","kind":"exam","sourceKey":"reference:monday","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-05-11","periods":[1,2],"room":{"ja":"W8E-E207"},"label":{"ja":"中間"},"status":"scheduled"}));
     mark_session(&mut data, "course-weekly-0-2026-05-11", "exam");
     assert_eq!(agenda(&data, "2026-05-11"), [(OccurrenceKind::Exam, None)]);
     assert!(!listed(&data)
         .iter()
         .any(|row| row.0 == "course-weekly-0-2026-05-11"));
-    // A session the exam period cancels runs when the user says it does.
+    let monday = data["exams"].as_array_mut().unwrap().pop().unwrap();
+    assert!(listed(&data).contains(&session("course-weekly-0-2026-05-11", "exam")));
+    data["exams"].as_array_mut().unwrap().push(monday);
+    // The exam period cancels the weekly session; it stays in the calendar
+    // so the person can say it runs.
     assert!(agenda(&data, "2026-06-01").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-06-01"),
+        [(OccurrenceKind::Course, Some(true))]
+    );
     mark_session(&mut data, "course-weekly-0-2026-06-01", "class");
     assert_eq!(
         agenda(&data, "2026-06-01"),
@@ -2643,14 +2681,30 @@ fn a_user_mark_decides_what_a_session_is() {
         .unwrap()
         .iter()
         .any(|row| row["targetKey"] == "course-weekly-0-2026-06-01" && row["mark"] == "class"));
-    let day = calendar_between(
+    let days = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
         "2026-06-01",
-        "2026-06-01",
+        "2026-06-08",
     )
     .unwrap();
-    assert!(!day[0].no_classes);
+    assert!(!days[0].no_classes);
+    assert!(days[7].no_classes);
+    assert_eq!(
+        days[7]
+            .occurrences
+            .iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>(),
+        [(OccurrenceKind::Course, Some(true))]
+    );
+    // Moved to another day, the session takes place there.
+    data["scheduleOverrides"].as_array_mut().unwrap().push(json!({"id":"moved-out","targetKey":"course-weekly-0-2026-06-08","targetKind":"course","date":"2026-06-09","hidden":false}));
+    assert!(calendar(&data, "2026-06-08").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-06-09"),
+        [(OccurrenceKind::Course, None)]
+    );
 
     // Exam-timetable rows: cancel, turn into a class, then back to the source.
     mark_session(&mut data, "reference:final", "cancelled");

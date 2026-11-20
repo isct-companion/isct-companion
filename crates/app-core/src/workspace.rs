@@ -351,7 +351,7 @@ impl WorkspaceService {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let mut undo = receipt.clone();
-        let ((), revision, tables) =
+        let ((), revision, seq, tables) =
             self.store
                 .workspace_write(&mutation.expected_revision, |write, current, school| {
                     apply_intent(write, current, school, mutation.intent, &mut undo)
@@ -363,7 +363,7 @@ impl WorkspaceService {
                 .into_iter()
                 .collect(),
             revision,
-            seq: self.store.commit_seq(),
+            seq,
         })
     }
 }

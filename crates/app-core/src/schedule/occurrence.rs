@@ -1,12 +1,14 @@
 use super::SchoolReads;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use chrono::{DateTime, Duration, FixedOffset, NaiveTime, Timelike};
+use chrono::{DateTime, Duration, FixedOffset, NaiveTime};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
+use super::agenda_layout::finalize_agenda;
 use super::alternation::{self, Alternation, Resolution};
 use super::calendar::{calendar_state, quarter_range};
 use super::civil::weekday;
@@ -150,8 +152,7 @@ pub struct ScheduleProblem {
 pub struct AgendaOptions {
     pub include_personal: bool,
     pub include_cancelled_courses: bool,
-    /// Shared, so a range read passes one term's courses to every day.
-    pub courses: Option<std::sync::Arc<[Value]>>,
+    pub courses: Option<Arc<[Value]>>,
     pub events: Option<Vec<Value>>,
 }
 
@@ -552,121 +553,136 @@ pub(crate) fn placement_terms(workspace: &Value) -> impl Iterator<Item = &str> {
         .filter_map(|row| text(row, "termId"))
 }
 
-pub fn occurrences_on_date(
-    workspace: &Value,
-    term: &str,
-    date: &str,
-    options: AgendaOptions,
-) -> Result<Vec<Occurrence>, ScheduleError> {
-    let teaching_periods = teaching_periods(workspace)?;
-    let day = weekday(date)?;
-    let state = calendar_state(workspace, date);
-    let state_kind = state.as_ref().and_then(|row| text(row, "type"));
-    let closed = matches!(state_kind, Some("holiday" | "no-class" | "break"));
-    let teaching_day = if state_kind == Some("replacement") {
-        state
-            .as_ref()
-            .and_then(|row| row.get("replacementDay"))
-            .and_then(Value::as_u64)
-            .and_then(|value| u8::try_from(value).ok())
-            .unwrap_or(day)
-    } else if closed && !options.include_cancelled_courses {
-        0
-    } else {
-        day
-    };
-    let range = quarter_range(workspace, term)?;
-    let in_quarter = range
-        .as_ref()
-        .is_some_and(|range| date >= range.from.as_str() && date <= range.to.as_str());
-    let outside_teaching = range
-        .as_ref()
-        .and_then(|range| range.teaching_ranges.as_ref())
-        .is_some_and(|ranges| {
-            state_kind != Some("replacement")
-                && !ranges
-                    .iter()
-                    .any(|range| date >= range.start.as_str() && date <= range.end.as_str())
-        });
-    let courses = options
-        .courses
-        .unwrap_or_else(|| scheduled_courses(workspace, term).into());
-    // Sessions the user marked as running take place whatever the calendar says.
-    let runs: HashSet<&str> = array(workspace, "scheduleOverrides")
-        .iter()
-        .filter(|row| visible(row) && text(row, "mark") == Some("class"))
-        .filter_map(|row| text(row, "targetKey"))
-        .collect();
-    let mut blocks = Vec::new();
-    if in_quarter {
-        for course in courses.iter().filter(|row| visible(row)) {
+/// The course sources and single-session changes used by every dated read of a term.
+pub(super) struct CourseSessions<'a> {
+    workspace: &'a Value,
+    pub(super) term: &'a str,
+    courses: Arc<[Value]>,
+    pub(super) range: Option<super::QuarterRange>,
+    periods: Vec<TeachingPeriod>,
+    changes: HashMap<&'a str, &'a Value>,
+    moved: HashMap<&'a str, Vec<(&'a str, &'a Value)>>,
+    enrolled: HashSet<&'a str>,
+}
+
+impl<'a> CourseSessions<'a> {
+    pub(super) fn new(
+        workspace: &'a Value,
+        term: &'a str,
+        courses: Option<Arc<[Value]>>,
+    ) -> Result<Self, ScheduleError> {
+        let changes: HashMap<_, _> = array(workspace, "scheduleOverrides")
+            .iter()
+            .filter(|row| visible(row) && names_session(row))
+            .filter_map(|row| Some((text(row, "targetKey")?, row)))
+            .collect();
+        let mut moved: HashMap<_, Vec<_>> = HashMap::new();
+        for (&key, &row) in &changes {
+            if let Some(date) = text(row, "date").filter(|date| Some(*date) != key_date(key)) {
+                moved.entry(date).or_default().push((key, row));
+            }
+        }
+        Ok(Self {
+            workspace,
+            term,
+            courses: courses.unwrap_or_else(|| scheduled_courses(workspace, term).into()),
+            range: quarter_range(workspace, term)?,
+            periods: teaching_periods(workspace)?,
+            changes,
+            moved,
+            enrolled: array(workspace, "memberships")
+                .iter()
+                .filter(|row| visible(row) && text(row, "termId") == Some(term))
+                .filter_map(|row| text(row, "courseId"))
+                .collect(),
+        })
+    }
+
+    /// The session a stored key names, at its original date.
+    pub(super) fn original(&self, key: &str) -> Result<Option<Occurrence>, ScheduleError> {
+        let Some(date) = key_date(key) else {
+            return Ok(None);
+        };
+        Ok(self.sources(date, Some(key))?.pop())
+    }
+
+    pub(super) fn edited(&self, mut block: Occurrence, change: &Value) -> Option<Occurrence> {
+        if change.get("hidden").and_then(Value::as_bool) == Some(true) {
+            return None;
+        }
+        // An invalid correction leaves the class as scheduled.
+        // `schedule_problems` reports the record.
+        let source_date = block.date.clone();
+        if apply_override(&mut block, change, &self.periods).is_ok() {
+            // Moved to another day, it takes place there, whatever cancelled
+            // it on its own day.
+            if block.date != source_date {
+                block.cancelled = None;
+            }
+            apply_mark(&mut block, change);
+        }
+        Some(block)
+    }
+
+    fn sources(&self, date: &str, only: Option<&str>) -> Result<Vec<Occurrence>, ScheduleError> {
+        let day = weekday(date)?;
+        let Some(range) = self.range.as_ref().filter(|range| range.contains(date)) else {
+            return Ok(Vec::new());
+        };
+        let state = calendar_state(self.workspace, date);
+        let state_kind = state.as_ref().and_then(|row| text(row, "type"));
+        let closed = matches!(state_kind, Some("holiday" | "no-class" | "break"));
+        let replacement = state_kind == Some("replacement");
+        let teaching_day = if replacement {
+            state.as_ref().and_then(replacement_weekday).unwrap_or(day)
+        } else {
+            day
+        };
+        let outside_teaching = !replacement && range.outside_teaching(date);
+        let mut blocks = Vec::new();
+        for course in self.courses.iter().filter(|row| visible(row)) {
             let course_id = text(course, "id").unwrap_or_default();
+            let alternation = alternation::resolve(self.workspace, course, self.term, date, true);
             for (index, meeting) in course
                 .get("meetings")
                 .and_then(Value::as_array)
-                .map(Vec::as_slice)
-                .unwrap_or(&[])
-                .iter()
+                .into_iter()
+                .flatten()
                 .enumerate()
             {
-                if text(meeting, "validFrom").is_some_and(|from| date < from)
+                let key = format!("{course_id}-weekly-{index}-{date}");
+                if only.is_some_and(|only| only != key)
+                    || text(meeting, "validFrom").is_some_and(|from| date < from)
                     || text(meeting, "validTo").is_some_and(|to| date > to)
                 {
                     continue;
                 }
-                let Ok((start, end)) = meeting_clock(meeting, &teaching_periods) else {
-                    continue;
+                let on = |weekday| {
+                    meeting["days"].as_array().is_some_and(|days| {
+                        days.iter().any(|v| v.as_u64() == Some(u64::from(weekday)))
+                    })
                 };
-                let on = |weekday: u8| {
-                    meeting
-                        .get("days")
-                        .and_then(Value::as_array)
-                        .is_some_and(|days| {
-                            days.iter()
-                                .any(|value| value.as_u64() == Some(u64::from(weekday)))
-                        })
-                };
-                let marker = match alternation::resolve(
-                    workspace,
-                    course,
-                    term,
-                    date,
-                    options.include_cancelled_courses,
-                ) {
-                    Resolution::Weekly(marker) => marker,
-                    Resolution::Hide => continue,
-                    // A published session is dated; the teaching ranges do
-                    // not apply to it.
+                let mark = self
+                    .changes
+                    .get(key.as_str())
+                    .and_then(|row| text(row, "mark"));
+                let (marker, cancelled) = match &alternation {
                     Resolution::Show {
                         alternation,
                         cancelled,
-                    } => {
-                        if on(day) {
-                            let key = format!("{course_id}-weekly-{index}-{date}");
-                            let cancelled = cancelled && !runs.contains(key.as_str());
-                            let mut block = course_occurrence(
-                                course,
-                                key,
-                                date,
-                                text(meeting, "room").unwrap_or_default(),
-                                &start,
-                                &end,
-                                cancelled.then_some(true),
-                            );
-                            block.alternation = Some(alternation);
-                            blocks.push(block);
-                        }
-                        continue;
+                    } if on(day) => (Some(alternation.clone()), *cancelled),
+                    // Exam weeks and closed days keep the weekly session as
+                    // cancelled, so the person can mark it as running.
+                    Resolution::Weekly(marker)
+                        if on(teaching_day) || mark == Some("class") && on(day) =>
+                    {
+                        (marker.clone(), closed || outside_teaching)
                     }
+                    _ => continue,
                 };
-                let key = format!("{course_id}-weekly-{index}-{date}");
-                let runs_anyway = runs.contains(key.as_str()) && on(day);
-                if !runs_anyway
-                    && ((outside_teaching && !options.include_cancelled_courses)
-                        || !on(teaching_day))
-                {
+                let Ok((start, end)) = meeting_clock(meeting, &self.periods) else {
                     continue;
-                }
+                };
                 let mut block = course_occurrence(
                     course,
                     key,
@@ -674,31 +690,35 @@ pub fn occurrences_on_date(
                     text(meeting, "room").unwrap_or_default(),
                     &start,
                     &end,
-                    (!runs_anyway && (closed || outside_teaching)).then_some(true),
+                    cancelled.then_some(true),
                 );
                 block.alternation = marker;
                 blocks.push(block);
             }
-            for intensive in array(workspace, "intensiveSchedules").iter().filter(|row| {
-                visible(row)
-                    && text(row, "courseId") == Some(course_id)
-                    && text(row, "from").is_some_and(|from| date >= from)
-                    && text(row, "to").is_some_and(|to| date <= to)
-            }) {
-                let Some(selected) = intensive
-                    .get("days")
-                    .and_then(Value::as_array)
+            for intensive in array(self.workspace, "intensiveSchedules")
+                .iter()
+                .filter(|row| {
+                    visible(row)
+                        && text(row, "courseId") == Some(course_id)
+                        && text(row, "from").is_some_and(|from| date >= from)
+                        && text(row, "to").is_some_and(|to| date <= to)
+                })
+            {
+                let key = format!("{}-{date}", text(intensive, "id").unwrap_or_default());
+                if only.is_some_and(|only| only != key) {
+                    continue;
+                }
+                let Some(periods) = intensive["days"]
+                    .as_array()
                     .and_then(|days| days.iter().find(|row| text(row, "date") == Some(date)))
+                    .and_then(|row| periods(row.get("periods")))
                 else {
                     continue;
                 };
-                let Some(periods) = periods(selected.get("periods")) else {
-                    continue;
-                };
-                let (start, end) = clock_for_periods(&teaching_periods, periods)?;
+                let (start, end) = clock_for_periods(&self.periods, periods)?;
                 blocks.push(course_occurrence(
                     course,
-                    format!("{}-{date}", text(intensive, "id").unwrap_or_default()),
+                    key,
                     date,
                     text(intensive, "room").unwrap_or_default(),
                     start,
@@ -707,20 +727,129 @@ pub fn occurrences_on_date(
                 ));
             }
         }
+        Ok(blocks)
     }
-    if options.include_personal {
-        let events = options.events.unwrap_or_else(|| {
-            array(workspace, "events")
-                .iter()
-                .filter(|row| text(row, "termId") == Some(term))
-                .cloned()
-                .collect()
+
+    pub(super) fn blocks_on(
+        &self,
+        date: &str,
+        published: &[super::ExamView],
+        include_cancelled: bool,
+    ) -> Result<Vec<Occurrence>, ScheduleError> {
+        let mut blocks = Vec::new();
+        for original in self.sources(date, None)? {
+            let change = self.changes.get(original.key.as_str()).copied();
+            let block = match change {
+                Some(change) => self.edited(original, change),
+                None => Some(original),
+            };
+            blocks.extend(block.filter(|block| block.date == date));
+        }
+        for &(key, change) in self.moved.get(date).into_iter().flatten() {
+            if let Some(original) = self.original(key)? {
+                blocks.extend(
+                    self.edited(original, change)
+                        .filter(|block| block.date == date),
+                );
+            }
+        }
+        // `approach/day-source-precedence`: the exam timetable states what a
+        // course does that day, so its rows replace the weekly sessions; only
+        // a session the person says still runs stays beside them.
+        let official: HashSet<&str> = published
+            .iter()
+            .filter(|exam| exam.date == date)
+            .filter_map(super::ExamView::replaced_course)
+            .collect();
+        blocks.retain(|block| {
+            runs_anyway(block)
+                || !weekly_session(&block.key)
+                || !block
+                    .course_id
+                    .as_deref()
+                    .is_some_and(|id| official.contains(id))
         });
-        blocks.extend(personal_occurrences(date, &events)?);
+        blocks.extend(
+            published
+                .iter()
+                .filter(|exam| exam.date == date)
+                .filter_map(|exam| published_block(exam, include_cancelled)),
+        );
+        for block in &mut blocks {
+            block.term_id = Some(self.term.into());
+            block.planned = block
+                .course_id
+                .as_deref()
+                .is_some_and(|id| !self.enrolled.contains(id))
+                .then_some(true);
+        }
+        if !include_cancelled {
+            blocks.retain(|block| block.cancelled != Some(true));
+        }
+        Ok(blocks)
     }
-    mark_conflicts(&mut blocks)?;
-    blocks.sort_by(|a, b| a.start_time.cmp(&b.start_time).then(a.key.cmp(&b.key)));
-    Ok(blocks)
+
+    pub(super) fn agenda_on(
+        &self,
+        date: &str,
+        published: &[super::ExamView],
+        options: AgendaOptions,
+    ) -> Result<Vec<Occurrence>, ScheduleError> {
+        let mut blocks = self.blocks_on(date, published, options.include_cancelled_courses)?;
+        if options.include_personal {
+            let events = options.events.unwrap_or_else(|| {
+                array(self.workspace, "events")
+                    .iter()
+                    .filter(|row| text(row, "termId") == Some(self.term))
+                    .cloned()
+                    .collect()
+            });
+            blocks.extend(personal_occurrences(date, &events)?);
+        }
+        finalize_agenda(blocks, &self.periods)
+    }
+}
+
+/// The civil date a class session key ends with.
+pub(super) fn key_date(key: &str) -> Option<&str> {
+    key.get(key.len().saturating_sub(10)..)
+        .filter(|date| parse_civil_date(date).is_ok())
+}
+
+/// Whether `key` names a session of a course's weekly meetings, as
+/// `CourseSessions::sources` keys them; an intensive day is dated on its own.
+fn weekly_session(key: &str) -> bool {
+    key.contains("-weekly-")
+}
+
+/// A stored change to a class session. Rows written without `targetKind`
+/// name a session too; `exam` rows belong to the exam timetable.
+pub(super) fn names_session(row: &Value) -> bool {
+    text(row, "targetKind").is_none_or(|kind| kind == "course")
+}
+
+/// A class session the person moved, re-roomed or marked as running. A
+/// session they marked as an exam or a quiz says what the timetable says and
+/// gives way to it.
+fn runs_anyway(block: &Occurrence) -> bool {
+    block.kind == OccurrenceKind::Course
+        && block.overridden == Some(true)
+        && block.cancelled != Some(true)
+}
+
+fn replacement_weekday(row: &Value) -> Option<u8> {
+    u8::try_from(row.get("replacementDay")?.as_u64()?).ok()
+}
+
+#[cfg(test)]
+pub(crate) fn occurrences_on_date(
+    workspace: &Value,
+    term: &str,
+    date: &str,
+    options: AgendaOptions,
+) -> Result<Vec<Occurrence>, ScheduleError> {
+    let sessions = CourseSessions::new(workspace, term, options.courses.clone())?;
+    sessions.agenda_on(date, &[], options)
 }
 
 /// The weekly personal events, of the term the caller picked, that fall on `date`.
@@ -866,7 +995,7 @@ fn course_occurrence(
     }
 }
 
-fn mark_conflicts(blocks: &mut [Occurrence]) -> Result<(), ScheduleError> {
+pub(super) fn mark_conflicts(blocks: &mut [Occurrence]) -> Result<(), ScheduleError> {
     for i in 0..blocks.len() {
         for j in i + 1..blocks.len() {
             if blocks[i].cancelled == Some(true)
@@ -923,335 +1052,55 @@ pub fn resolve_day_agenda(
     date: &str,
     options: AgendaOptions,
 ) -> Result<Vec<Occurrence>, ScheduleError> {
-    resolve_day_agenda_with(
-        workspace,
-        term,
-        date,
-        options,
-        &super::exams::published_exam_views(workspace, school, term),
-    )
+    let sessions = CourseSessions::new(workspace, term, options.courses.clone())?;
+    let published = super::exams::published_exam_views(workspace, school, term);
+    sessions.agenda_on(date, &published, options)
 }
 
-/// `resolve_day_agenda` with the term's exams already read, for a caller
-/// resolving many days of one term.
-pub(crate) fn resolve_day_agenda_with(
-    workspace: &Value,
-    term: &str,
-    date: &str,
-    options: AgendaOptions,
-    term_exams: &[super::ExamView],
-) -> Result<Vec<Occurrence>, ScheduleError> {
-    let teaching_periods = teaching_periods(workspace)?;
-    let mut blocks = occurrences_on_date(workspace, term, date, options.clone())?;
-    let overrides: Vec<_> = array(workspace, "scheduleOverrides")
-        .iter()
-        .filter(|r| visible(r))
-        .collect();
-    let shown = |r: &Value| {
-        r.get("hidden").and_then(Value::as_bool) != Some(true)
-            && (text(r, "mark") != Some("cancelled") || options.include_cancelled_courses)
-    };
-    blocks = blocks
-        .into_iter()
-        .filter_map(|mut block| {
-            let change = overrides
-                .iter()
-                .find(|r| text(r, "targetKey") == Some(&block.key));
-            match change {
-                Some(r) if !shown(r) => None,
-                Some(r) => {
-                    // An override Core cannot apply leaves the class as
-                    // scheduled; `schedule_problems` reports the record.
-                    if apply_override(&mut block, r, &teaching_periods).is_err() {
-                        return Some(block);
-                    }
-                    apply_mark(&mut block, r);
-                    (block.date == date).then_some(block)
-                }
-                None => Some(block),
-            }
-        })
-        .collect();
-    for change in overrides.iter().filter(|r| {
-        shown(r) && text(r, "targetKind") == Some("course") && text(r, "date") == Some(date)
-    }) {
-        let key = text(change, "targetKey").unwrap_or_default();
-        if blocks.iter().any(|b| b.key == key) {
-            continue;
-        }
-        let Some(source) = key
-            .get(key.len().saturating_sub(10)..)
-            .filter(|v| parse_civil_date(v).is_ok())
-        else {
-            continue;
-        };
-        if source == date {
-            continue;
-        }
-        if let Some(mut original) = occurrences_on_date(workspace, term, source, options.clone())?
-            .into_iter()
-            .find(|b| b.key == key)
-        {
-            if apply_override(&mut original, change, &teaching_periods).is_ok() {
-                apply_mark(&mut original, change);
-                blocks.push(original)
-            }
-        }
+fn published_block(exam: &super::ExamView, include_cancelled: bool) -> Option<Occurrence> {
+    let cancelled = exam.status != "scheduled";
+    if cancelled && !(include_cancelled && exam.mark.as_deref() == Some("cancelled")) {
+        return None;
     }
-    // A class session the user marked as an exam gives way to the published
-    // exam of its course that day, so the day never shows the exam twice.
-    let published: HashSet<(&str, &str)> = term_exams
-        .iter()
-        .filter(|exam| exam.origin == "published" && exam.kind == "exam")
-        .filter_map(|exam| Some((exam.course_id.as_deref()?, exam.date.as_str())))
-        .collect();
-    blocks.retain(|block| {
-        block.kind != OccurrenceKind::Exam
-            || !block
-                .course_id
-                .as_deref()
-                .is_some_and(|id| published.contains(&(id, block.date.as_str())))
-    });
-    let mut exams = Vec::new();
-    for exam in term_exams.iter().filter(|exam| {
-        // Marked sessions are drawn above from the class itself.
-        exam.origin == "published"
-            && exam.date == date
-            && (exam.status == "scheduled"
-                    // A session the user cancelled stays visible to undo.
-                    || (exam.mark.as_deref() == Some("cancelled")
-                        && options.include_cancelled_courses))
-    }) {
-        let exam = exam.clone();
-        let (Some(id), Some(start), Some(end)) = (exam.course_id, exam.start_time, exam.end_time)
-        else {
-            continue;
-        };
-        // The exam timetable's own class row replaces the weekly pattern for
-        // that course and day; a session the user changed by hand stays.
-        let class = exam.kind == "class";
-        let cancelled = exam.status != "scheduled";
-        if class && !cancelled {
-            blocks.retain(|block| {
-                block.kind != OccurrenceKind::Course
-                    || block.course_id.as_deref() != Some(id.as_str())
-                    || block.overridden == Some(true)
-            });
-        }
-        exams.push(Occurrence {
-            key: exam.key,
-            id: id.clone(),
-            kind: if class {
-                OccurrenceKind::Course
-            } else {
-                OccurrenceKind::Exam
-            },
-            term_id: None,
-            course_id: Some(id),
-            date: exam.date,
-            title: exam.title,
-            subtitle: Some(exam.code),
-            room: exam.room,
-            time_label: Some(exam.periods.map_or_else(
-                || format!("{start}–{end}"),
-                |p| format!("{}–{}限", p[0], p[1]),
-            )),
-            start_time: start,
-            end_time: end,
-            end_date: None,
-            color: exam.color,
-            conflict: None,
-            dim: None,
-            cancelled: cancelled.then_some(true),
-            conflict_with: None,
-            overridden: exam.edited.then_some(true),
-            alternation: None,
-            planned: None,
-            quiz: (exam.kind == "quiz").then_some(true),
-            source_changed: exam.conflict.is_some().then_some(true),
-            grid: None,
-            mark: None,
-        });
-    }
-    blocks.extend(exams);
-    let enrolled: HashSet<&str> = array(workspace, "memberships")
-        .iter()
-        .filter(|row| visible(row) && text(row, "termId") == Some(term))
-        .filter_map(|row| text(row, "courseId"))
-        .collect();
-    for block in &mut blocks {
-        if matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam) {
-            block.term_id = Some(term.into());
-            block.planned = block
-                .course_id
-                .as_deref()
-                .is_some_and(|id| !enrolled.contains(id))
-                .then_some(true);
-        }
-    }
-    finalize_agenda(blocks, &teaching_periods)
-}
-
-pub(crate) fn finalize_agenda(
-    mut blocks: Vec<Occurrence>,
-    periods: &[TeachingPeriod],
-) -> Result<Vec<Occurrence>, ScheduleError> {
-    let exam_ids: HashSet<_> = blocks
-        .iter()
-        .filter(|block| block.kind == OccurrenceKind::Exam && block.quiz != Some(true))
-        .filter_map(|e| e.course_id.clone())
-        .collect();
-    // An exam replaces its course's classes that day, except a session the
-    // user changed by hand. A quiz is part of one class and replaces nothing.
-    blocks.retain(|b| {
-        b.kind != OccurrenceKind::Course
-            || b.overridden == Some(true)
-            || !b
-                .course_id
-                .as_deref()
-                .is_some_and(|id| exam_ids.contains(id))
-    });
-    for block in &mut blocks {
-        block.conflict = None;
-        block.conflict_with = None;
-    }
-    alternation::pair_blocks(&mut blocks)?;
-    mark_conflicts(&mut blocks)?;
-    for i in 0..blocks.len() {
-        if blocks[i].kind != OccurrenceKind::Exam {
-            continue;
-        }
-        let collisions: Vec<_> = (0..blocks.len())
-            .filter(|&j| {
-                j != i
-                    && blocks[j].cancelled != Some(true)
-                    && blocks[j].course_id != blocks[i].course_id
-                    && overlap(&blocks[i], &blocks[j]).unwrap_or(false)
-            })
-            .collect();
-        let names: Vec<_> = collisions
-            .into_iter()
-            .map(|j| {
-                blocks[j].conflict = Some(true);
-                blocks[j].title.clone()
-            })
-            .collect();
-        if !names.is_empty() {
-            blocks[i].conflict = Some(true);
-            blocks[i].conflict_with = Some(names)
-        }
-    }
-    blocks.sort_by(|a, b| {
-        a.start_time
-            .cmp(&b.start_time)
-            .then((a.kind == OccurrenceKind::Exam).cmp(&(b.kind == OccurrenceKind::Exam)))
-            .then(a.key.cmp(&b.key))
-    });
-    place_on_grid(&mut blocks, periods);
-    for block in &mut blocks {
-        block.mark = session_mark(block);
-    }
-    Ok(blocks)
-}
-
-fn session_mark(block: &Occurrence) -> Option<SessionMark> {
-    let mark = match (block.kind, block.cancelled, block.quiz) {
-        (OccurrenceKind::Event, ..) => return None,
-        (_, Some(true), _) => SessionMark::Cancelled,
-        (OccurrenceKind::Exam, _, Some(true)) => SessionMark::Quiz,
-        (OccurrenceKind::Exam, ..) => SessionMark::Exam,
-        (OccurrenceKind::Course, ..) => SessionMark::Class,
-    };
-    (block.planned != Some(true) || mark != SessionMark::Class).then_some(mark)
-}
-
-/// The grid a timetable draws: a class or exam whose times fall inside
-/// teaching blocks fills the whole blocks it touches (an exam at 09:30–10:20
-/// fills 1–2限), and blocks that then overlap sit side by side, the earlier
-/// one on the left. `grid` stays empty for a block drawn at its own times
-/// on its own.
-fn place_on_grid(blocks: &mut [Occurrence], periods: &[TeachingPeriod]) {
-    let clock = |raw: &str| {
-        NaiveTime::parse_from_str(raw, "%H:%M")
-            .ok()
-            .map(|time| time.hour() * 60 + time.minute())
-    };
-    let teaching: Vec<_> = periods
-        .iter()
-        .filter_map(|period| Some((clock(&period.start_time)?, clock(&period.end_time)?, period)))
-        .collect();
-    let spans: Vec<Option<(String, String, u32, u32)>> = blocks
-        .iter()
-        .map(|block| {
-            let (start, end) = (clock(&block.start_time)?, clock(&block.end_time)?);
-            if end <= start || block.end_date.is_some() {
-                return None;
-            }
-            let snaps = matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam);
-            let from = teaching
-                .iter()
-                .find(|(from, to, _)| snaps && start >= *from && start < *to);
-            let to = teaching
-                .iter()
-                .find(|(from, to, _)| snaps && end > *from && end <= *to);
-            Some((
-                from.map_or_else(|| block.start_time.clone(), |p| p.2.start_time.clone()),
-                to.map_or_else(|| block.end_time.clone(), |p| p.2.end_time.clone()),
-                from.map_or(start, |p| p.0),
-                to.map_or(end, |p| p.1),
-            ))
-        })
-        .collect();
-    let mut order: Vec<usize> = (0..blocks.len()).filter(|&i| spans[i].is_some()).collect();
-    order.sort_by_key(|&i| spans[i].as_ref().map(|span| (span.2, u32::MAX - span.3)));
-    let mut lanes = vec![(0u8, 1u8); blocks.len()];
-    let mut cluster: Vec<usize> = Vec::new();
-    let mut lane_ends: Vec<u32> = Vec::new();
-    let mut cluster_end = 0;
-    let close = |lanes: &mut [(u8, u8)], cluster: &mut Vec<usize>, lane_ends: &mut Vec<u32>| {
-        let count = u8::try_from(lane_ends.len().max(1)).unwrap_or(u8::MAX);
-        for &member in cluster.iter() {
-            lanes[member].1 = count;
-        }
-        cluster.clear();
-        lane_ends.clear();
-    };
-    for &i in &order {
-        let Some((_, _, start, end)) = spans[i] else {
-            continue;
-        };
-        if !cluster.is_empty() && start >= cluster_end {
-            close(&mut lanes, &mut cluster, &mut lane_ends);
-        }
-        let lane = match lane_ends.iter().position(|&lane_end| lane_end <= start) {
-            Some(free) => {
-                lane_ends[free] = end;
-                free
-            }
-            None => {
-                lane_ends.push(end);
-                lane_ends.len() - 1
-            }
-        };
-        lanes[i].0 = u8::try_from(lane).unwrap_or(u8::MAX);
-        cluster.push(i);
-        cluster_end = cluster_end.max(end);
-        if cluster.len() == 1 {
-            cluster_end = end;
-        }
-    }
-    close(&mut lanes, &mut cluster, &mut lane_ends);
-    for (i, block) in blocks.iter_mut().enumerate() {
-        block.grid = spans[i].as_ref().and_then(|(from, to, _, _)| {
-            let (lane, count) = lanes[i];
-            (count > 1 || *from != block.start_time || *to != block.end_time).then(|| GridSlot {
-                start_time: from.clone(),
-                end_time: to.clone(),
-                lane,
-                lanes: count,
-            })
-        });
-    }
+    let (id, start, end) = (
+        exam.course_id.as_ref()?,
+        exam.start_time.as_ref()?,
+        exam.end_time.as_ref()?,
+    );
+    Some(Occurrence {
+        key: exam.key.clone(),
+        id: id.clone(),
+        kind: if exam.kind == "class" {
+            OccurrenceKind::Course
+        } else {
+            OccurrenceKind::Exam
+        },
+        term_id: None,
+        course_id: Some(id.clone()),
+        date: exam.date.clone(),
+        title: exam.title.clone(),
+        subtitle: Some(exam.code.clone()),
+        room: exam.room.clone(),
+        time_label: Some(exam.periods.map_or_else(
+            || format!("{start}–{end}"),
+            |p| format!("{}–{}限", p[0], p[1]),
+        )),
+        start_time: start.clone(),
+        end_time: end.clone(),
+        end_date: None,
+        color: exam.color.clone(),
+        conflict: None,
+        dim: None,
+        cancelled: cancelled.then_some(true),
+        conflict_with: None,
+        overridden: exam.edited.then_some(true),
+        alternation: None,
+        planned: None,
+        quiz: (exam.kind == "quiz").then_some(true),
+        source_changed: exam.conflict.is_some().then_some(true),
+        grid: None,
+        mark: None,
+    })
 }
 
 /// The user's mark on a class session: an exam or quiz takes the class's

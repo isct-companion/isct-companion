@@ -421,13 +421,17 @@ pub(super) fn class_moment(
         upcoming.extend(day.iter().cloned());
     }
     upcoming.truncate(UPCOMING_CLASSES);
-    let next_boundary = match phase {
-        TodayPhase::BeforeClasses | TodayPhase::BetweenClasses => {
-            upcoming.first().map(|item| item.starts_at)
-        }
-        TodayPhase::InClass => current.as_ref().map(|item| item.ends_at),
-        TodayPhase::AfterClasses | TodayPhase::NoClasses => None,
-    };
+    // An overlapping class can leave the upcoming list before the hero ends.
+    let next_boundary = current
+        .iter()
+        .map(|item| item.ends_at)
+        .chain(
+            todays
+                .iter()
+                .filter(|item| item.starts_at > now)
+                .map(|item| item.starts_at),
+        )
+        .min();
     ClassMoment {
         phase,
         current,

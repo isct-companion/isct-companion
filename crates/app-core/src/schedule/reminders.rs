@@ -15,8 +15,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::{
-    array, resolve_day_agenda, scheduled_courses, text, tokyo_date, visible, AgendaOptions,
-    Occurrence, OccurrenceKind, ScheduleError,
+    array, resolve_day_agenda, text, tokyo_date, visible, AgendaOptions, Occurrence,
+    OccurrenceKind, ScheduleError,
 };
 use crate::locale::{pick, ContentLanguage};
 
@@ -618,19 +618,16 @@ pub fn notification_plan(
             terms.extend(super::exams::exam_terms(workspace, school));
         }
         for source_term in terms {
-            let courses: std::sync::Arc<[Value]> =
-                scheduled_courses(workspace, &source_term).into();
+            let sessions = super::occurrence::CourseSessions::new(workspace, &source_term, None)?;
+            let published =
+                super::exams::published_sessions_by_date(workspace, school, &source_term);
             for offset in 0..=days + (class_lead.max(exam_lead) + 1439) / 1440 + 1 {
                 let date = (start_date + Duration::days(offset)).to_string();
-                for block in resolve_day_agenda(
-                    workspace,
-                    school,
-                    &source_term,
+                for block in sessions.agenda_on(
                     &date,
+                    published.get(&date).map(Vec::as_slice).unwrap_or_default(),
                     AgendaOptions {
                         include_personal: false,
-                        courses: Some(courses.clone()),
-                        events: Some(vec![]),
                         ..AgendaOptions::default()
                     },
                 )? {

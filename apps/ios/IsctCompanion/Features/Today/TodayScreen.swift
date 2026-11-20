@@ -15,7 +15,7 @@ struct TodayScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
     /// Core's upcoming exams for the next two weeks.
-    @State private var exams: [ExamView] = []
+    private var exams: [ExamView] { model.upcomingExams }
 
     /// The dashboard's list margin, which its header lines up with.
     private static let margin = Theme.gutter
@@ -53,10 +53,7 @@ struct TodayScreen: View {
         // What the page points at opens beside it on the workstation.
         .environment(\.push, PushAction { navigator.open($0) })
         .onAppear { model.syncHint(.open(view: .today)) }
-        .task(id: "\(model.contentRevision)-\(model.today?.date ?? "")") {
-            let loaded = await model.upcomingExams()
-            if !Task.isCancelled { exams = loaded }
-        }
+
     }
 
     private func page<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

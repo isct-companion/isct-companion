@@ -1,5 +1,6 @@
 //! Calendar and schedule read models shared by every application shell.
 
+mod agenda_layout;
 pub mod alternation;
 mod calendar;
 mod civil;
@@ -62,13 +63,14 @@ pub(crate) use exams::{
 };
 pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
+#[cfg(test)]
+pub(crate) use occurrence::occurrences_on_date;
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
-    course_terms, course_timeline, intensive_days, occurrences_on_date, planning_week,
-    resolve_day_agenda, schedule_problems, scheduled_courses, term_courses,
-    validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline, EventCarryOver,
-    GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek, ScheduleProblem,
-    ScheduleProblemKind, SessionMark,
+    course_terms, course_timeline, intensive_days, planning_week, resolve_day_agenda,
+    schedule_problems, scheduled_courses, term_courses, validate_academic_profile, AgendaOptions,
+    CourseConflict, CourseTimeline, EventCarryOver, GridSlot, Occurrence, OccurrenceKind,
+    PlanningDay, PlanningWeek, ScheduleProblem, ScheduleProblemKind, SessionMark,
 };
 pub use range::calendar_between;
 pub(crate) use reminders::ReminderChanges;
@@ -157,6 +159,16 @@ pub enum WorkspaceQuery {
     /// Phone Today: phase, hero and sections for this moment.
     Today {
         now: String,
+    },
+    /// Upcoming exams in this inclusive range of civil dates.
+    UpcomingExams {
+        from: String,
+        to: Option<String>,
+    },
+    /// All visible items in an inclusive civil-date range, across terms.
+    CalendarRange {
+        from: String,
+        to: String,
     },
     /// Phone assignment lists: a quarter's timeline as rows, the current
     /// quarter's unless `term` names another (the iPad 授業 page's 課題).
@@ -337,7 +349,11 @@ impl WorkspaceQuery {
                 Subscriptions,
                 Settings,
             ],
-            Self::PlanningWeek { .. } | Self::DayAgenda { .. } | Self::QuarterIcs { .. } => AGENDA,
+            Self::CalendarRange { .. }
+            | Self::UpcomingExams { .. }
+            | Self::PlanningWeek { .. }
+            | Self::DayAgenda { .. }
+            | Self::QuarterIcs { .. } => AGENDA,
             Self::ExamAssociation { .. } => {
                 &[Courses, Registrations, Finder, Calendar, Plans, Settings]
             }
@@ -434,7 +450,6 @@ pub struct ScheduleView {
     pub courses: Vec<Value>,
     pub agendas: Vec<DatedAgenda>,
     pub exams: Vec<ExamView>,
-    pub upcoming_exams: Vec<ExamView>,
     pub declared_credits: Option<f64>,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
@@ -491,6 +506,8 @@ pub enum WorkspaceQueryResult {
     AcademicYears(AcademicYearIndex),
     TaskView(TaskView),
     Today(TodayView),
+    UpcomingExams(Vec<ExamView>),
+    CalendarRange(Vec<DatedAgenda>),
     AssignmentBoard(AssignmentBoard),
     CourseDetail(CourseDetail),
     AssignmentDetail(Option<AssignmentDetail>),
@@ -602,6 +619,15 @@ pub fn query(
             school,
             parse_timestamp(&now)?,
         )?)),
+        WorkspaceQuery::CalendarRange { from, to } => Ok(WorkspaceQueryResult::CalendarRange(
+            calendar_between(workspace, school, &from, &to)?,
+        )),
+        WorkspaceQuery::UpcomingExams { from, to } => Ok(WorkspaceQueryResult::UpcomingExams(
+            exams::upcoming_exams(workspace, school, &from)
+                .into_iter()
+                .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
+                .collect(),
+        )),
         WorkspaceQuery::AssignmentBoard { now, term } => {
             let term = term.map(|term| Term::parse(&term)).transpose()?;
             Ok(WorkspaceQueryResult::AssignmentBoard(assignment_board(
@@ -638,26 +664,19 @@ pub fn query(
             let term_id = term.to_string();
             let overview = workspace_overview(workspace, school, &term_id)?;
             let courses = overview.courses.clone();
-            let mut agendas = calendar_between(workspace, school, &from, &to)?;
-            if !include_personal {
-                let periods = teaching_periods(workspace)?;
-                for agenda in &mut agendas {
-                    agenda.occurrences.retain(|block| {
-                        matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
-                    });
-                    agenda.occurrences = occurrence::finalize_agenda(
-                        std::mem::take(&mut agenda.occurrences),
-                        &periods,
-                    )?;
-                }
-            }
+            let agendas = range::calendar_between_with_personal(
+                workspace,
+                school,
+                &from,
+                &to,
+                include_personal,
+            )?;
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
                 term: term.to_string(),
                 range: overview.range,
                 courses,
                 agendas,
                 exams: exam_views(workspace, school, &term_id),
-                upcoming_exams: exams::upcoming_exams(workspace, school, &from),
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
                 on_timetable_course_ids: overview.on_timetable_course_ids,

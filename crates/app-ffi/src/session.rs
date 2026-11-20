@@ -333,6 +333,17 @@ impl Session {
             })
         })
     }
+    /// Current version of an answer's declared dependencies, including commits
+    /// whose notifications are still queued. Reads only in-memory counters.
+    pub fn read_version(&self, reads: Vec<WorkspaceChange>) -> Result<u64, SdkError> {
+        let gate = self.inner.gate.lock().map_err(|_| SdkError::Closed)?;
+        if *gate {
+            return Err(SdkError::Closed);
+        }
+        let reads: Vec<app_core::workspace_changes::WorkspaceChange> = project_input(reads)?;
+        Ok(self.inner.core.store.read_version(&reads))
+    }
+
     pub fn schedule_query(&self, queries: Vec<WorkspaceQuery>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             let snapshot = i.core.schedule_query(project_input(queries)?)?;

@@ -117,7 +117,9 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -140,7 +142,8 @@ fun TimetableScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
-    var week by remember { mutableStateOf(model.cachedWeek(monday)) }
+    val week = model.timetableWeeks[monday]
+    val weekRevision = model.timetableWeeks.revision
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
     var year by remember { mutableStateOf<TimetableYear?>(null) }
     var picker by remember { mutableStateOf(false) }
@@ -156,17 +159,25 @@ fun TimetableScreen() {
         monday = monday(LocalDate.parse(date))
         navigator.timetableDate = null
     }
-    // A week read with its neighbours draws at once; the effect below still
-    // checks it against the current revision.
-    LaunchedEffect(monday) { model.cachedWeek(monday)?.let { week = it } }
-    LaunchedEffect(monday, model.contentRevision) {
-        // A newer revision or week cancels this read (the query rethrows), so
-        // its empty answer never replaces what is shown.
-        val loaded = model.week(monday)
-        week = loaded
-        model.timetableAxis(loaded)?.let { axis = it }
-        val number = model.academicYear(monday) ?: return@LaunchedEffect
-        if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
+    val requestedMonday = monday
+    LaunchedEffect(requestedMonday, weekRevision, model.today?.term) {
+        if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
+        val loaded = model.week(requestedMonday) ?: return@LaunchedEffect
+        val shape = model.timetableAxis(loaded)
+        currentCoroutineContext().ensureActive()
+        if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
+        if (shape != null) {
+            axis = shape
+            model.lastTimetableAxis = shape
+        }
+        val number = model.academicYear(requestedMonday) ?: return@LaunchedEffect
+        if (year?.year != number || year?.quarters?.isEmpty() == true) {
+            val calendar = model.timetableYear(number)
+            currentCoroutineContext().ensureActive()
+            if (monday == requestedMonday && model.timetableWeeks.revision == weekRevision && calendar != null) {
+                year = calendar
+            }
+        }
     }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
     var width by remember { mutableFloatStateOf(1f) }
@@ -175,7 +186,6 @@ fun TimetableScreen() {
     // popped in where they stand.
     fun show(to: LocalDate) {
         monday = to
-        model.cachedWeek(to)?.let { week = it }
     }
     val gap = with(LocalDensity.current) { weekGap.toPx() }
     // The weeks lie side by side and follow the finger; a swipe glides the
@@ -264,7 +274,7 @@ fun TimetableScreen() {
                 val start = monday.plusWeeks(slot.toLong())
                 key(slot) {
                     Grid(
-                        start, if (slot == 0) week else model.cachedWeek(start), axis, rowHeight,
+                        start, model.timetableWeeks[start], axis, rowHeight,
                         Modifier
                             .offset { IntOffset((slot * (width + gap) + shift.value).roundToInt(), 0) }
                             .graphicsLayer { alpha = fade.value }
@@ -416,7 +426,8 @@ private fun DayHeader(day: LocalDate, today: Boolean, modifier: Modifier) {
     }
 }
 
-/** Period numbers at their rows; each block's start time under its first. */
+/** Period numbers at their rows; each block's start time under its first
+ * period and its end time under its last. */
 @Composable
 private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier) {
     Box(modifier) {
@@ -424,32 +435,36 @@ private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier
             val periods = row.periods ?: continue
             if (periods.size != 2) continue
             val first = periods[0].toInt()
-            for (period in first..maxOf(first, periods[1].toInt())) {
+            val last = maxOf(first, periods[1].toInt())
+            for (period in first..last) {
                 Column(
                     Modifier.fillMaxWidth().offset(y = rowHeight * (row.top + (period - first)).toFloat()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("$period", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-                    if (period == first) {
-                        // A time of five characters is wider than the column:
-                        // it shrinks to fit, as iOS's minimumScaleFactor(0.8).
-                        // The floor is in dp because the column is: a floor in
-                        // sp would grow past it with the system font size.
-                        val style = MaterialTheme.typography.labelSmall.tabular()
-                        Text(
-                            row.startTime.removePrefix("0"), style = style,
-                            color = Theme.colors.muted, maxLines = 1,
-                            autoSize = TextAutoSize.StepBased(
-                                minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
-                                maxFontSize = style.fontSize,
-                                stepSize = 0.25.sp,
-                            ),
-                        )
-                    }
+                    if (period == first) PeriodTime(row.startTime)
+                    if (period == last) PeriodTime(row.endTime)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PeriodTime(time: String) {
+    // A time of five characters is wider than the column: it shrinks to
+    // fit, as iOS's minimumScaleFactor(0.8). The floor is in dp because the
+    // column is: a floor in sp would grow past it with the system font size.
+    val style = MaterialTheme.typography.labelSmall.tabular()
+    Text(
+        time.removePrefix("0"), style = style,
+        color = Theme.colors.muted, maxLines = 1,
+        autoSize = TextAutoSize.StepBased(
+            minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
+            maxFontSize = style.fontSize,
+            stepSize = 0.25.sp,
+        ),
+    )
 }
 
 @Composable
@@ -475,7 +490,9 @@ private fun DayColumn(
             // The first read of a week draws placeholder blocks, then fades in.
             Loading(week != null, placeholder = { DaySkeleton(axis, rowHeight) }) {
                 Box(Modifier.fillMaxSize()) {
-                    for (block in blocks) Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                    for (block in blocks) key(block.key) {
+                        Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                    }
                 }
             }
             if (today) NowLine(axis, rowHeight)
@@ -630,8 +647,9 @@ private fun Block(
                     trailingIcon = { if (mark == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
                     onClick = {
                         menu = false
+                        val committed = model.markSession(block.key, if (mark == state) "class" else value)
                         scope.launch {
-                            model.markSession(block.key, if (mark == state) "class" else value)
+                            committed.join()
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         }
                     },

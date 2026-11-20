@@ -1039,6 +1039,7 @@ export function WorkspaceApp() {
       >
         <div className="homeDay">
           <Today
+            data={data}
             active={page === "home"}
             term={todayTerm}
             openExam={openExam}
@@ -1075,6 +1076,7 @@ export function WorkspaceApp() {
             ‹ {t("common.today")}
           </UiButton>
           <CalendarView
+            data={data}
             mark={
               readOnly
                 ? undefined

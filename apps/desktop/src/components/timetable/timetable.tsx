@@ -209,7 +209,10 @@ export function WeekTimetable({
                 <b>
                   {period.isBreak ? t("timetable.breakBand") : period.label}
                 </b>
+                {/* Start over end, like a printed timetable: the column is
+                    too narrow for one "08:50–10:30" line. */}
                 <small>{period.start}</small>
+                <small>{period.end}</small>
               </div>
             );
           })}

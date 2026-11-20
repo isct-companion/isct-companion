@@ -24,18 +24,19 @@ import {
   tokyoDate,
 } from "../../lib/civil-date";
 import {
+  useScheduleQueries,
   useScheduleQuery,
-  type ScheduleView,
+  type DatedAgenda,
   type TaskView,
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
-import { withRecords } from "../../platform/records";
+import type { ExamView, TodayView } from "../../generated/persistence";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
 /** Rows shown before a list folds behind "+N more". */
 const CLASS_ROWS = 6;
 const DUE_ROWS = 8;
-export function TodayBody({
+export function Today({
   data,
   term,
   open,
@@ -95,18 +96,25 @@ export function TodayBody({
   const isToday = viewIso === todayIso;
   const viewDate = new Date(`${viewIso}T12:00:00+09:00`);
   const weekStart = addDays(viewIso, 1 - civilWeekday(viewIso));
-  const scheduleQuery = useScheduleQuery<ScheduleView>({
-    kind: "scheduleView",
-    term,
-    from: weekStart,
-    to: addDays(viewIso, 7),
-    includePersonal: true,
-  });
-  const schedule = scheduleQuery.value;
-  // Nothing to draw yet (no cached read): placeholders instead of "nothing".
-  const scheduleLoading = scheduleQuery.pending && !schedule;
+  // Apart from the rest: another week's days must not draw under this one,
+  // while the answers below stay on screen when only the minute changes.
+  const weekQuery = useScheduleQuery<DatedAgenda[]>(
+    { kind: "calendarRange", from: weekStart, to: addDays(viewIso, 7) },
+    active,
+  );
+  const dashboard = useScheduleQueries<[ExamView[], TodayView, TaskView]>(
+    [
+      { kind: "upcomingExams", from: viewIso, to: null },
+      { kind: "today", now: nowIso },
+      { kind: "taskView", now: nowIso },
+    ],
+    active,
+  );
+  const agendas = weekQuery.value;
+  const [exams, today, taskView] = dashboard.value ?? [];
+  const scheduleLoading = weekQuery.pending && !agendas;
   const scheduleReveal = useReveal(scheduleLoading);
-  const agenda = schedule?.agendas.find((day) => day.date === viewIso);
+  const agenda = agendas?.find((day) => day.date === viewIso);
   const teachingState = agenda?.calendarState;
   const effectiveDay = civilWeekday(viewIso);
   const blocks = agenda?.occurrences ?? [];
@@ -116,27 +124,17 @@ export function TodayBody({
     return {
       date,
       busy: Boolean(
-        schedule?.agendas.find((day) => day.date === date)?.occurrences.length,
+        agendas?.find((day) => day.date === date)?.occurrences.length,
       ),
     };
   });
   const clock = jstClock(now);
-  const activeIndex = isToday
-    ? blocks.findIndex(
-        (block) => block.startTime <= clock && block.endTime > clock,
-      )
-    : -1;
-  const nextIndex = isToday
-    ? blocks.findIndex((block) => block.startTime > clock)
-    : -1;
+  const currentKey = isToday ? today?.hero?.occurrence.key : undefined;
+  const nextKey = isToday ? today?.upcoming[0]?.occurrence.key : undefined;
+  const activeIndex = blocks.findIndex((block) => block.key === currentKey);
+  const nextIndex = blocks.findIndex((block) => block.key === nextKey);
   const focusIndex = activeIndex >= 0 ? activeIndex : nextIndex;
-
-  const taskQuery = useScheduleQuery<TaskView>({
-    kind: "taskView",
-    now: nowIso,
-  });
-  const taskView = taskQuery.value;
-  const tasksLoading = taskQuery.pending && !taskView;
+  const tasksLoading = dashboard.pending && !taskView;
   const tasksReveal = useReveal(tasksLoading);
   const taskTerm = taskView?.byTerm[term];
   const submittedIds = new Set(taskView?.submittedIds);
@@ -194,7 +192,7 @@ export function TodayBody({
   // With no agenda today, show the next actual occurrence within a week.
   const nextClass = (() => {
     if (blocks.length) return undefined;
-    for (const dayAgenda of schedule?.agendas ?? []) {
+    for (const dayAgenda of agendas ?? []) {
       const date = dayAgenda.date;
       if (date <= viewIso || date > addDays(viewIso, 7)) continue;
       const offset = Math.round(
@@ -322,12 +320,7 @@ export function TodayBody({
             ))}
           </aside>
         )}
-        {(schedule?.upcomingExams ?? []).some(
-          (exam) =>
-            exam.courseId &&
-            exam.status === "scheduled" &&
-            exam.date >= viewIso,
-        ) && (
+        {Boolean(exams?.length) && (
           <section
             className="todaySection"
             aria-label={t("today.upcomingExams")}
@@ -336,15 +329,8 @@ export function TodayBody({
               <h2>{t("today.upcomingExams")}</h2>
             </header>
             <ExamCards
-              exams={(schedule?.upcomingExams ?? [])
-                .filter(
-                  (exam) =>
-                    exam.courseId &&
-                    exam.status === "scheduled" &&
-                    exam.date >= viewIso,
-                )
-                .slice(0, 3)}
-              courses={schedule?.courses ?? []}
+              exams={exams?.slice(0, 3) ?? []}
+              courses={data.courses}
               open={(id) => open(id)}
               openExam={openExam}
             />
@@ -376,7 +362,12 @@ export function TodayBody({
                             ? "today.next"
                             : block.endTime <= clock
                               ? "common.earlier"
-                              : "common.later",
+                              : // Core's moment covers classes; a personal
+                                // event is now while its own time runs.
+                                block.kind === "event" &&
+                                  block.startTime <= clock
+                                ? "common.now"
+                                : "common.later",
                       );
                   return (
                     <UiButton
@@ -534,20 +525,3 @@ export function TodayBody({
     </div>
   );
 }
-
-/** Today with the records it shows (`platform/records`). */
-export const Today = withRecords(
-  [
-    "assignments",
-    "courses",
-    "materials",
-    "events",
-    "memberships",
-    "planItems",
-    "exceptions",
-    "scheduleOverrides",
-    "intensiveSchedules",
-    "academicProfile",
-  ],
-  TodayBody,
-);
