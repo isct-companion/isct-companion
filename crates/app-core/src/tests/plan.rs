@@ -1450,6 +1450,11 @@ impl Duty for Once {
 async fn a_suspended_engine_runs_only_what_its_opportunity_allows() {
     let (engine, _store) = engine("duties");
     engine.prepare_background_start();
+    // This exercises opportunity admission. Keep the real reference refresh
+    // out of its quiet window by reporting an offline connection.
+    engine.hint(Hint::Network {
+        network: Network::Offline,
+    });
     let local = Once::new(BackgroundWork::Local);
     let network = Once::new(BackgroundWork::Network);
     engine.register(local.clone());
