@@ -207,7 +207,7 @@ private fun PageMenu(site: SchoolSite) {
             HorizontalDivider()
             for (percent in SchoolBrowserHost.textScales) {
                 DropdownMenuItem(
-                    text = { Text(t("web.textSizePercent", "percent" to percent)) },
+                    text = { Text(t("web.pageZoomPercent", "percent" to percent)) },
                     leadingIcon = { Icon(Icons.Rounded.FormatSize, null) },
                     trailingIcon = { if (percent == web.browser.textScale) Icon(Icons.Rounded.Check, null) },
                     onClick = {

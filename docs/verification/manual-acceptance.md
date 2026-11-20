@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 171 checks must be re-run before the next release.**
+**5 of 172 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**166 checks have never been run or could not be run:**
+**167 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -134,6 +134,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
+- `ANDROID-MAPS-GOOGLE-ONLY` — never verified
 - `ANDROID-SCHOOL-POPUPS` — never verified
 - `ANDROID-SCHOOL-NO-RESUBMIT` — never verified
 - `ANDROID-SCHOOL-LOAD-FAILURE` — never verified
@@ -211,7 +212,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/app-core/src/kyomu_ingest.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/study_profile.rs |
 | `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/kyomu_ingest.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
-| `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs |
+| `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs<br>crates/app-ffi/src/services.rs<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>crates/app-ocr-adapter/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan/mod.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `ANDROID-CAMPUS-MAP-SYSTEM` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/map/FloorMapView.kt |
@@ -309,7 +310,8 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-ORIENTATION` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/DataUpdatesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt |
-| `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-MAPS-GOOGLE-ONLY` | native | International student | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>crates/app-core/src/campus_map/map.rs |
 | `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolDownloads.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
@@ -1311,7 +1313,7 @@ that cannot be automated without live credentials.
 
 **Last recorded** never run
 
-### School logins back up to Drive and restore on a second desktop (`CLOUD-CREDENTIAL-BACKUP`)
+### School logins back up to Drive and restore on a second desktop and Android (`CLOUD-CREDENTIAL-BACKUP`)
 
 **Area** cloud · **Persona** Two devices, interrupted work · **Result** —
 
@@ -1322,7 +1324,8 @@ that cannot be automated without live credentials.
 Two desktops (Windows on one side makes the Drive file the only path,
 since Macs also share logins through iCloud Keychain), both with
 Google Drive on under the same account. Desktop A has a working school
-login; desktop B has none.
+login; desktop B has none. An Android phone C with Drive on under the
+same account and no school login.
 
 **Steps**
 
@@ -1344,18 +1347,25 @@ login; desktop B has none.
      keeps a password only after the upload it encrypted succeeded. The
      old shell wrote the new password first and kept it after a failed
      upload, so A and Drive disagreed.
+4. On C, open Settings › Backup: under Login credentials the row reads
+   "Restore login credentials". Enter a wrong password, then the right one.
+   - *Why:* Android had no way into the Drive file, so a phone restored from a
+     backup stayed signed out. It must offer to restore (one field, no
+     confirmation), refuse the wrong password with Core's message, and
+     after the right one sign in to the school without typing anything.
 
 **Where to look**
 
-The row's hint, button state and messages on both desktops, and whether
-B reaches the school portal signed in.
+The row's hint, button state and messages on both desktops and the
+phone, and whether B and C reach the school portal signed in.
 
 **Expected**
 
 A accepts only a 12–128 character new password, including a long
 passphrase; B restores only with the right password and a wrong one
 changes nothing in Drive; an offline password change fails and the
-next successful one replaces the backup.
+next successful one replaces the backup; C restores the same way and
+signs in.
 
 **Why this is manual**
 
@@ -1370,6 +1380,9 @@ in-memory store.
 - `apps/desktop/src/pages/settings/BackupSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/cloud.rs`
 - `crates/app-core/src/cloud_credentials.rs`
+- `crates/app-ffi/src/services.rs`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt`
 
 **Last recorded** never run
 
@@ -7533,11 +7546,13 @@ needed, the SSO login page is enough.
    - *Why:* Both are device preferences, as on iOS: ウェブ must open on ポータル
      with large text. LMS or 115% after the relaunch means they are
      held in memory only.
-3. Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
+3. Open the page menu (⋮) and pick another ページの拡大率; reopen 設定.
    - *Why:* The menu holds 再読み込み, 共有, ブラウザで開く and 印刷, then the
-     text sizes. The menu and 設定 show one value with a tick; a
+     zoom levels. The menu and 設定 show one value with a tick; a
      page that does not resize, or 設定 showing the old size, means two
-     owners.
+     owners. Both places say ページの拡大率 (zh 网页缩放比例): the
+     setting zooms school pages only, and 文字サイズ read as the app's
+     own text size, which a tester reported as not working.
 4. Follow a link inside the page, then pick the shown site again from
    the title; follow another link and tap the ウェブ tab in the bottom
    bar.
@@ -7576,7 +7591,50 @@ school browser tests.
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Android has no maps-app choice and opens places in Google Maps (`ANDROID-MAPS-GOOGLE-ONLY`)
+
+**Area** native · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An Android build of this commit with the campus map downloaded, whose
+data was restored from a backup made on an iPhone or a Mac with
+Apple Maps chosen.
+
+**Steps**
+
+1. Open 設定 and scroll past 言語.
+   - *Why:* Android has no Apple Maps app, so the Google/Apple choice is gone;
+     a row offering Apple マップ is the old screen.
+2. Open the campus map, pick a building and tap its maps link.
+   - *Why:* Core opens Google Maps on Android whatever the synced mapsApp
+     setting says; a maps.apple.com page means the setting still decides.
+
+**Where to look**
+
+設定 and the app the maps link opens.
+
+**Expected**
+
+No maps-app row in 設定, and the link opens Google Maps.
+
+**Why this is manual**
+
+A person sees the row and the opened app at a glance; the Android rule
+is compiled only for the Android target, which the host suites do not
+build.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `crates/app-core/src/campus_map/map.rs`
 
 **Last recorded** never run
 

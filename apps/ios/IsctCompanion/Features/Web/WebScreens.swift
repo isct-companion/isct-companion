@@ -239,7 +239,7 @@ private struct PageActions: View {
             Picker(selection: $textScale) {
                 ForEach(SchoolBrowserHost.textScales, id: \.self) { Text(verbatim: "\($0)%").tag($0) }
             } label: {
-                Label(t("common.textSize"), systemImage: "textformat.size")
+                Label(t("web.pageZoom"), systemImage: "textformat.size")
             }
             .pickerStyle(.menu)
         } label: {

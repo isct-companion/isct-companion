@@ -83,7 +83,7 @@ struct SettingsScreen: View {
                     Picker(selection: $textScale) {
                         ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
                     } label: {
-                        Label { Text(t("common.textSize")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
+                        Label { Text(t("web.pageZoom")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
                     }
                     Picker(selection: $firstSite) {
                         ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }

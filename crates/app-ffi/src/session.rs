@@ -74,6 +74,8 @@ pub(crate) struct Inner {
     sync_services: CloudServices,
     /// Drive's sign-in, when the shell installed a Drive port.
     drive: Option<Arc<DriveAuth>>,
+    /// Holds the school-login backup's password (`cloud_credentials`).
+    pub(crate) credential_vault: crate::ports::Vault,
     pub files: PathBuf,
     backup_directory: PathBuf,
     capabilities: Capabilities,
@@ -90,6 +92,18 @@ impl Inner {
         } else {
             Err(unavailable("Cloud transport"))
         }
+    }
+    /// Drive's app-data folder, where the encrypted school-login backup is.
+    pub(crate) fn credential_files(
+        &self,
+    ) -> Result<app_core::cloud_sync::google_drive::GoogleDrive<crate::ports::SharedDrive>, SdkError>
+    {
+        let drive = self
+            .drive
+            .clone()
+            .ok_or_else(|| unavailable("Google Drive"))?;
+        app_core::cloud_sync::google_drive::GoogleDrive::new(crate::ports::SharedDrive(drive))
+            .map_err(|e| crate::error::coded(&e))
     }
 }
 #[derive(uniffi::Object)]
@@ -780,6 +794,7 @@ async fn initialize(
     let native_cloud = cloud.clone();
     let store_drive = drive.clone();
     let exam_vault = Arc::new(crate::ports::Vault(vault.clone()));
+    let credential_vault = crate::ports::Vault(vault.clone());
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
@@ -859,6 +874,7 @@ async fn initialize(
         sync,
         sync_services,
         drive,
+        credential_vault,
         files,
         backup_directory,
         capabilities,

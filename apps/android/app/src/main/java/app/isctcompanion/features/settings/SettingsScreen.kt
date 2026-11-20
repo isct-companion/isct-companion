@@ -252,7 +252,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         }
         ThemeCard()
         LanguageCard()
-        MapCard()
+        // No maps-app choice: Android has no Apple Maps, and Core opens Google Maps.
         WebCard()
         // As on iOS: About holds the version, the tips and the logs, then the
         // desktop note; the destructive Reset group comes last.
@@ -446,7 +446,7 @@ private fun WebCard() {
     SectionLabel(t("common.web"))
     Card {
         Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space5)) {
-            IconHeading(t("common.textSize"), Icons.Rounded.FormatSize, Theme.colors.muted)
+            IconHeading(t("web.pageZoom"), Icons.Rounded.FormatSize, Theme.colors.muted)
             Choices(SchoolBrowserHost.textScales.map { "$it" to "$it%" }, "${web.browser.textScale}") {
                 web.browser.chooseTextScale(it.toInt())
             }

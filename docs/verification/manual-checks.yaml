@@ -932,13 +932,14 @@ checks:
 
   - id: CLOUD-CREDENTIAL-BACKUP
     area: cloud
-    title: School logins back up to Drive and restore on a second desktop
+    title: School logins back up to Drive and restore on a second desktop and Android
     persona: careless-multidevice
     preconditions: |
       Two desktops (Windows on one side makes the Drive file the only path,
       since Macs also share logins through iCloud Keychain), both with
       Google Drive on under the same account. Desktop A has a working school
-      login; desktop B has none.
+      login; desktop B has none. An Android phone C with Drive on under the
+      same account and no school login.
     steps:
       - action: |
           On A, Settings › Backup › Login credential sync › Set up: type an
@@ -964,14 +965,23 @@ checks:
           keeps a password only after the upload it encrypted succeeded. The
           old shell wrote the new password first and kept it after a failed
           upload, so A and Drive disagreed.
+      - action: |
+          On C, open Settings › Backup: under Login credentials the row reads
+          "Restore login credentials". Enter a wrong password, then the right one.
+        reason: |
+          Android had no way into the Drive file, so a phone restored from a
+          backup stayed signed out. It must offer to restore (one field, no
+          confirmation), refuse the wrong password with Core's message, and
+          after the right one sign in to the school without typing anything.
     observe: |
-      The row's hint, button state and messages on both desktops, and whether
-      B reaches the school portal signed in.
+      The row's hint, button state and messages on both desktops and the
+      phone, and whether B and C reach the school portal signed in.
     expected: |
       A accepts only a 12–128 character new password, including a long
       passphrase; B restores only with the right password and a wrong one
       changes nothing in Drive; an offline password change fails and the
-      next successful one replaces the backup.
+      next successful one replaces the backup; C restores the same way and
+      signs in.
     why_manual: |
       Needs a real Google account, Drive's app-data folder and two signed
       desktop installs with a school login. Core's side, including the
@@ -982,6 +992,9 @@ checks:
       - apps/desktop/src/pages/settings/BackupSettings.tsx
       - apps/desktop/src-tauri/src/commands/cloud.rs
       - crates/app-core/src/cloud_credentials.rs
+      - crates/app-ffi/src/services.rs
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt
     verified: null
 
   - id: CLOUD-RESILIENCE
@@ -6577,12 +6590,14 @@ checks:
           with large text. LMS or 115% after the relaunch means they are
           held in memory only.
       - action: |
-          Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
+          Open the page menu (⋮) and pick another ページの拡大率; reopen 設定.
         reason: |
           The menu holds 再読み込み, 共有, ブラウザで開く and 印刷, then the
-          text sizes. The menu and 設定 show one value with a tick; a
+          zoom levels. The menu and 設定 show one value with a tick; a
           page that does not resize, or 設定 showing the old size, means two
-          owners.
+          owners. Both places say ページの拡大率 (zh 网页缩放比例): the
+          setting zooms school pages only, and 文字サイズ read as the app's
+          own text size, which a tester reported as not working.
       - action: |
           Follow a link inside the page, then pick the shown site again from
           the title; follow another link and tap the ウェブ tab in the bottom
@@ -6618,7 +6633,39 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
       - apps/android/app/src/main/java/app/isctcompanion/App.kt
+    verified: null
+
+  - id: ANDROID-MAPS-GOOGLE-ONLY
+    area: native
+    title: Android has no maps-app choice and opens places in Google Maps
+    persona: international-student
+    preconditions: |
+      An Android build of this commit with the campus map downloaded, whose
+      data was restored from a backup made on an iPhone or a Mac with
+      Apple Maps chosen.
+    steps:
+      - action: |
+          Open 設定 and scroll past 言語.
+        reason: |
+          Android has no Apple Maps app, so the Google/Apple choice is gone;
+          a row offering Apple マップ is the old screen.
+      - action: |
+          Open the campus map, pick a building and tap its maps link.
+        reason: |
+          Core opens Google Maps on Android whatever the synced mapsApp
+          setting says; a maps.apple.com page means the setting still decides.
+    observe: 設定 and the app the maps link opens.
+    expected: |
+      No maps-app row in 設定, and the link opens Google Maps.
+    why_manual: |
+      A person sees the row and the opened app at a glance; the Android rule
+      is compiled only for the Android target, which the host suites do not
+      build.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - crates/app-core/src/campus_map/map.rs
     verified: null
 
   - id: ANDROID-SCHOOL-POPUPS

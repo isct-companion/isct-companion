@@ -137,6 +137,12 @@ internal fun BackupPage() {
                 }
             }
         }
+        // As on the desktop: with Drive on, school logins can follow in an
+        // encrypted file (Android has no iCloud Keychain).
+        if (state?.providers.orEmpty().any { it.provider == CloudProvider.GOOGLE_DRIVE && it.enabled }) {
+            Spacer(Modifier.height(Theme.space4))
+            BackupCredentials(::toast)
+        }
         val versions = state?.versions.orEmpty().sortedByDescending { it.savedAt }
         if (versions.isNotEmpty()) {
             Spacer(Modifier.height(Theme.space4))

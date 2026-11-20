@@ -447,3 +447,84 @@ impl Session {
         self.inner.core.campus_map.close();
     }
 }
+
+fn credential_backup_error(e: app_core::cloud_credentials::CredentialBackupError) -> SdkError {
+    crate::error::coded(&e)
+}
+
+/// How many characters a new school-login backup password must have.
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct CredentialPasswordLength {
+    pub min: u32,
+    pub max: u32,
+}
+
+#[uniffi::export]
+pub fn credential_password_length() -> CredentialPasswordLength {
+    let length = app_core::cloud_credentials::PASSWORD_LENGTH;
+    CredentialPasswordLength {
+        min: u32::try_from(length.min).unwrap_or(u32::MAX),
+        max: u32::try_from(length.max).unwrap_or(u32::MAX),
+    }
+}
+
+/// School logins in an encrypted Google Drive file, as on the desktop. Core
+/// decides whether a password restores an existing backup or encrypts this
+/// device's logins under a new one, and keeps it only when that succeeded.
+#[uniffi::export]
+impl Session {
+    /// Whether this device holds the backup password.
+    pub fn credential_backup_configured(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(|i| {
+            let files = i.credential_files()?;
+            let backup =
+                app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files);
+            Ok(OperationResult::Flag {
+                value: backup.configured().map_err(credential_backup_error)?,
+            })
+        })
+    }
+    /// Whether Drive holds a backup that some device made.
+    pub fn credential_backup_exists(&self) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, |i, _| async move {
+            let files = i.credential_files()?;
+            let backup =
+                app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files);
+            Ok(OperationResult::Flag {
+                value: backup.exists().await.map_err(credential_backup_error)?,
+            })
+        })
+    }
+    /// Restores the Drive backup with `password` on a device without one;
+    /// otherwise encrypts this device's logins under `password`, a new one.
+    /// Answers `restored` or `uploaded`. Restored logins reach sync through
+    /// the sessions' own credential signal.
+    pub fn enable_credential_backup(&self, password: String) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let files = i.credential_files()?;
+            let backup =
+                app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files);
+            let outcome = backup
+                .enable(&password, i.core.sessions())
+                .await
+                .map_err(credential_backup_error)?;
+            Ok(OperationResult::Text {
+                value: match outcome {
+                    app_core::cloud_credentials::BackupOutcome::Restored => "restored",
+                    app_core::cloud_credentials::BackupOutcome::Uploaded => "uploaded",
+                }
+                .into(),
+            })
+        })
+    }
+    /// Forgets this device's password; the Drive file stays for other devices.
+    pub fn disable_credential_backup(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(|i| {
+            let files = i.credential_files()?;
+            app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files)
+                .disable()
+                .map_err(credential_backup_error)?;
+            Ok(OperationResult::Done)
+        })
+    }
+}

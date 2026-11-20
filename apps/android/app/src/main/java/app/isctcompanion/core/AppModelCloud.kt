@@ -3,6 +3,7 @@ package app.isctcompanion.core
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 
 /** The cloud journal and the backup operations that update it. */
 internal class CloudBackup(
@@ -55,6 +56,37 @@ internal class CloudBackup(
         session.applyBackup(text).value()
         refresh()
         refreshWorkspace()
+    }
+
+    /** Whether this device holds the school-login backup's password; null
+     * without a session or when the vault cannot be read. */
+    suspend fun credentialBackupConfigured(): Boolean? = flag { it.credentialBackupConfigured() }
+
+    /** Whether Drive holds a school-login backup; null when Drive cannot be
+     * reached, as the desktop shows "Checking Google Drive…". */
+    suspend fun credentialBackupExists(): Boolean? = flag { it.credentialBackupExists() }
+
+    /** Core restores the Drive backup with [password] on a device without
+     * one, otherwise encrypts this device's logins under it. Throws Core's
+     * reason (a wrong password, a short new one). */
+    suspend fun enableCredentialBackup(password: String) {
+        session()?.enableCredentialBackup(password)?.value()
+    }
+
+    /** Forgets this device's password; the Drive file stays for other devices. */
+    suspend fun disableCredentialBackup() {
+        session()?.disableCredentialBackup()?.value()
+    }
+
+    private suspend fun flag(start: (Session) -> Operation): Boolean? {
+        val session = session() ?: return null
+        return try {
+            (start(session).value() as? OperationResult.Flag)?.value
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            null
+        }
     }
 
     private suspend fun cloudOperation(start: (Session) -> Operation) {
