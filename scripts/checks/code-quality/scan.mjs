@@ -18,7 +18,7 @@ import {
 } from "./config.mjs";
 import { createFunctionSection } from "./functions.mjs";
 import { createStyleSection } from "./styles.mjs";
-import { createCouplingSection } from "./coupling.mjs";
+import { createCouplingSection, isDesktopModule } from "./coupling.mjs";
 import { renderMarkdown } from "./report.mjs";
 
 const usage = `Usage: yarn quality:audit [options]
@@ -92,8 +92,8 @@ function main(argv) {
     console.log(usage);
     return;
   }
-  const { files, base } = sourceFiles(options);
-  const report = audit(files, { ...options, base });
+  const { files, desktopFiles, base } = sourceFiles(options);
+  const report = audit(files, desktopFiles, { ...options, base });
   const output = resolve(options.repo, ".quality-audit");
   mkdirSync(output, { recursive: true });
   writeReport(
@@ -131,7 +131,7 @@ function writeReport(path, contents) {
 
 // Git lists tracked and untracked, nonignored files with `/` separators on
 // every host, and the changed-file mode needs it anyway.
-function sourceFiles({ repo, changed, base: ref, scope }) {
+function sourceFiles({ repo, changed, base: ref, scope, sections }) {
   const git = (...args) =>
     execFileSync("git", args, {
       cwd: repo,
@@ -167,18 +167,24 @@ function sourceFiles({ repo, changed, base: ref, scope }) {
     ]);
   }
   const fragments = scope.map((value) => value.toLowerCase());
-  const files = [
+  const sources = [
     ...new Set(listed("--cached", "--others", "--exclude-standard")),
   ]
-    .filter((file) => !deleted.has(file) && isAuditedSource(file))
+    .filter((file) => !deleted.has(file))
+    .sort();
+  const files = sources
+    .filter(isAuditedSource)
     .filter((file) => !changedFiles || changedFiles.has(file))
     .filter(
       (file) =>
         fragments.length === 0 ||
         fragments.some((value) => file.toLowerCase().includes(value)),
-    )
-    .sort();
-  return { files, base };
+    );
+  const desktopFiles =
+    sections.includes("coupling") && files.some(isDesktopModule)
+      ? sources.filter(isDesktopModule)
+      : [];
+  return { files, desktopFiles, base };
 }
 
 function createStructureSection() {
@@ -222,7 +228,7 @@ function createStructureSection() {
   };
 }
 
-function audit(files, options) {
+function audit(files, desktopFiles, options) {
   const { repo } = options;
   const read = (file) => readFileSync(resolve(repo, file), "utf8");
   const active = options.sections.map((name) => [
@@ -230,14 +236,21 @@ function audit(files, options) {
     sections[name]({ ...options, read }),
   ]);
   const errors = [];
-  for (const file of files) {
-    const visitors = active.filter(([, section]) => section.accepts(file));
+  const selectedFiles = new Set(files);
+  const inputs = new Set([...files, ...desktopFiles]);
+  for (const file of inputs) {
+    const selected = selectedFiles.has(file);
+    const visitors = active.filter(
+      ([name, section]) =>
+        (selected || name === "coupling") && section.accepts(file),
+    );
     if (visitors.length === 0) continue;
     try {
       const source = read(file);
       let ast;
       const entry = {
         file,
+        selected,
         platform: platformFor(file),
         source,
         lines: source.split(/\r?\n/),

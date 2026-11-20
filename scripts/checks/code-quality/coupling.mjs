@@ -14,6 +14,8 @@ import { walk } from "./functions.mjs";
 // The desktop source is organised in layers. An import against this order,
 // or between two siblings of one layer, is a lead. Each rule says why.
 const desktop = "apps/desktop/src/";
+export const isDesktopModule = (file) =>
+  file.startsWith(desktop) && /\.tsx?$/.test(file);
 const desktopRules = [
   {
     name: "shared UI imports a page",
@@ -90,7 +92,7 @@ const importSources = (ast) => {
 };
 
 // Vite resolves extensionless relative imports; the candidates are matched
-// against the scanned file list, not the disk.
+// against the desktop module list.
 function resolveImport(from, specifier, files) {
   const base = posix.normalize(posix.join(posix.dirname(from), specifier));
   return ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]
@@ -133,7 +135,8 @@ function cycles(edges) {
   return found.sort((a, b) => b.length - a.length);
 }
 
-function desktopDependencies(imports, files) {
+function desktopDependencies(imports, selected) {
+  const files = new Set(imports.keys());
   const edges = new Map();
   const unresolved = [];
   for (const [file, specifiers] of imports) {
@@ -148,7 +151,6 @@ function desktopDependencies(imports, files) {
   }
   const violations = [];
   for (const [file, targets] of edges) {
-    if (!file.startsWith(desktop)) continue;
     const from = file.slice(desktop.length);
     for (const target of targets) {
       const to = target.slice(desktop.length);
@@ -172,7 +174,16 @@ function desktopDependencies(imports, files) {
       fanIn: fanIn.get(file) ?? 0,
     }))
     .sort((a, b) => b.fanOut - a.fanOut || a.file.localeCompare(b.file));
-  return { violations, cycles: cycles(edges), modules, unresolved };
+  return {
+    violations: violations.filter(
+      ({ file, target }) => selected.has(file) || selected.has(target),
+    ),
+    cycles: cycles(edges).filter((members) =>
+      members.some((file) => selected.has(file)),
+    ),
+    modules: modules.filter(({ file }) => selected.has(file)),
+    unresolved: unresolved.filter(({ file }) => selected.has(file)),
+  };
 }
 
 // jscpd finds exact and renamed copies and, with --similarity, functions of
@@ -307,9 +318,9 @@ export function createCouplingSection({ repo }) {
   const imports = new Map();
   return {
     accepts: () => true,
-    visit({ file, ast }) {
-      files.push(file);
-      if (/\.tsx?$/.test(file)) imports.set(file, importSources(ast()));
+    visit({ file, ast, selected }) {
+      if (selected) files.push(file);
+      if (isDesktopModule(file)) imports.set(file, importSources(ast()));
     },
     finish() {
       const errors = [];

@@ -65,8 +65,11 @@ list partial results and the errored files or languages.
 Coupling results are leads for the coupling and duplication checks in
 `docs/code-quality.md` §3. Desktop imports are resolved from the Babel AST
 (the repository's TypeScript 7 has no JavaScript API for dependency-cruiser)
-and checked against the layer rules in `coupling.mjs`, with import cycles and
-the modules that import the most. jscpd lists exact and renamed copies and
+and checked against the layer rules in `coupling.mjs`. When the selection
+includes desktop modules, the scanner computes violations, cycles and module
+counts from the full desktop graph, then reports results that touch the
+selected modules. Duplication and Git history use the selected files. jscpd
+lists exact and renamed copies and
 functions of the same structure in every scanned language, flagging pairs on
 different platforms. Git history lists files in different directories that
 change in the same commits and the most changed files; with few commits these
