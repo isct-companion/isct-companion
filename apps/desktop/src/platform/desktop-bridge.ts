@@ -1,16 +1,3 @@
-import type {
-  SchoolAuthProfile,
-  SchoolSessionState,
-  SchoolSignInProblemKind,
-  SchoolSessionSnapshot,
-  SignInPresentation,
-} from "./school-session-contract";
-import type {
-  ExamAccount,
-  ExamAction,
-  ExamAnswer,
-  ExamUploadFile,
-} from "../generated/persistence";
 import type { MessageKey } from "../i18n";
 import type {
   CoreWorkspaceCommit,
@@ -19,14 +6,91 @@ import type {
 import type { FinderRequest } from "./finder-contract";
 import type { FinderPage } from "../generated/persistence";
 import type { Localized } from "../lib/model";
-import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import { nativeError } from "./native-error";
 import type {
   SchoolPageAvailability,
   WorkspaceChange,
 } from "../generated/persistence";
 import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
+
+import {
+  createBridgeCommands,
+  quietly,
+  requireString,
+  subscribe,
+  type InvokeNative,
+  type ListenNative,
+} from "./desktop-bridge/helpers";
+import {
+  campusToolsCommands,
+  type CampusToolsBridge,
+  type DesktopTool,
+} from "./desktop-bridge/campus-tools";
+import {
+  cloudSyncCommands,
+  type CloudSyncBridge,
+} from "./desktop-bridge/cloud-sync";
+import {
+  pastExamsCommands,
+  type PastExamsBridge,
+} from "./desktop-bridge/past-exams";
+import {
+  schoolSessionCommands,
+  type SchoolSessionBridge,
+} from "./desktop-bridge/school-session";
+import {
+  schoolWebCommands,
+  type SchoolWebBridge,
+} from "./desktop-bridge/school-web";
+
+export type {
+  InvokeNative,
+  ListenNative,
+  SavedDownload,
+} from "./desktop-bridge/helpers";
+export {
+  CAMPUS_WIFI_STEPS,
+  type CampusPrinterSetup,
+  type CampusPrinterStatus,
+  type CampusWifiOutcome,
+  type CampusWifiStatus,
+  type CampusWifiStep,
+  type DesktopTool,
+  type PrinterAccount,
+  type VpnNotice,
+  type VpnStatus,
+} from "./desktop-bridge/campus-tools";
+export type {
+  CloudSyncProvider,
+  CloudSyncState,
+  CloudSyncTask,
+  CloudSyncVersion,
+} from "./desktop-bridge/cloud-sync";
+export type {
+  SchoolConnectOutcome,
+  SchoolCredentials,
+  SchoolCredentialStatus,
+  SchoolOtpCode,
+} from "./desktop-bridge/school-session";
+export type {
+  DownloadEvent,
+  KyomuGuideItem,
+  SchoolDownloadEvent,
+  SchoolIngestOutcome,
+  SchoolLoadFailure,
+  SchoolOtpEnrollment,
+  SchoolOtpIntent,
+  SchoolSite,
+  SchoolWebAccess,
+  SchoolWebBounds,
+  SchoolWebEntry,
+  SchoolWebFailure,
+  SchoolWebNotice,
+  SchoolWebPage,
+  SchoolWebProblem,
+  SchoolWebStep,
+} from "./desktop-bridge/school-web";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
@@ -56,7 +120,6 @@ export const nativeOs = (): NativeOs | undefined =>
     ? undefined
     : window.__ISCT_COMPANION_NATIVE_OS__;
 /** The desktop tools this binary was built with (`src-tauri/build.rs`). */
-export type DesktopTool = "campus-wifi" | "campus-vpn" | "campus-printer";
 export const nativeTools = (): readonly DesktopTool[] =>
   (typeof window === "undefined"
     ? undefined
@@ -66,106 +129,6 @@ export const windowMaterial = (): "mica" | undefined =>
   typeof window === "undefined"
     ? undefined
     : window.__ISCT_COMPANION_WINDOW_MATERIAL__ || undefined;
-export type SchoolSite =
-  | "science-portal"
-  | "science-lms"
-  | "tokyo-portal"
-  | "tokyo-mail"
-  | "kyomu"
-  | "library"
-  | "tsubame"
-  | "syllabus"
-  | "study-guide";
-/** A file saved to Downloads by any desktop source. */
-export type SavedDownload = { name: string; path: string };
-/** School-webview download progress stays associated with its own surface. */
-export type SchoolDownloadEvent = DownloadEvent & { site: SchoolSite };
-export type DownloadEvent = {
-  state: "started" | "done" | "failed";
-  name: string;
-  /** Set on `done`: the saved file, accepted by `revealDownload`. */
-  path?: string;
-};
-export type SchoolCredentials = {
-  username: string;
-  password: string;
-  otpSecret: string;
-  matrix: string;
-};
-export type SchoolOtpCode = {
-  otp: string;
-  expiresAt: number;
-  period: number;
-};
-
-export type SchoolCredentialStatus = {
-  suggestedAdmissionYear?: number;
-  science: {
-    availability:
-      | "not-configured"
-      | "saved-locked"
-      | "available"
-      | "missing"
-      | "access-denied";
-    saved: boolean;
-    username: string;
-    hasOtp: boolean;
-    hasMatrix: boolean;
-  };
-  tokyoTech: {
-    availability:
-      | "not-configured"
-      | "saved-locked"
-      | "available"
-      | "missing"
-      | "access-denied";
-    saved: boolean;
-    username: string;
-    hasOtp: boolean;
-    hasMatrix: boolean;
-  };
-};
-const SCHOOL_SESSION_STATES: readonly unknown[] = [
-  "not-configured",
-  "normal",
-  "signing-in",
-  "refused",
-  "needs-web",
-  "unavailable",
-] satisfies SchoolSessionState[];
-/** How Connect ended. Only `connected` saved anything: the entered
- * credentials are the verified ones now and sync to the other devices. */
-export type SchoolConnectOutcome = { presentation: SignInPresentation } & (
-  | { kind: "connected" | "unreachable" | "not-saved" | "stopped" }
-  | {
-      kind: "refused" | "needs-web";
-      reason: SchoolSignInProblemKind;
-      refusalUnsaved: boolean;
-    }
-);
-const isSchoolSessionSnapshot = (
-  value: unknown,
-): value is SchoolSessionSnapshot => {
-  if (!value || typeof value !== "object") return false;
-  const { revision, profiles } = value as Partial<SchoolSessionSnapshot>;
-  return (
-    Number.isSafeInteger(revision) &&
-    (revision as number) >= 0 &&
-    Boolean(profiles) &&
-    Array.isArray(profiles?.science?.presentation?.recovery) &&
-    Array.isArray(profiles?.tokyoTech?.presentation?.recovery) &&
-    SCHOOL_SESSION_STATES.includes(profiles?.science?.state) &&
-    SCHOOL_SESSION_STATES.includes(profiles?.tokyoTech?.state)
-  );
-};
-/** One extractor result from LMS or one 教務Web page. */
-export type SchoolIngestOutcome = {
-  site: SchoolSite;
-  kind: string;
-  state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
-  changed: number;
-  message: string;
-};
 export type LmsSection = {
   id: number;
   number: number;
@@ -237,109 +200,6 @@ export type SchoolRecords = {
     value: string;
   }[];
 };
-export type KyomuGuideItem = {
-  offeringId: string;
-  code: string;
-  title: string;
-  day?: number;
-  slot: string;
-};
-/** Why a school page did not load, as Core reports it. */
-export type SchoolLoadFailure =
-  | "offline"
-  | "host-not-found"
-  | "unreachable"
-  | "insecure"
-  | "cleartext"
-  | "other";
-
-/** A one-time note about the page on screen: a reload was sent as GET. */
-export type SchoolWebNotice = {
-  site: SchoolSite;
-  kind: "reopened";
-  url: string;
-};
-
-/** Why Core's sign-in of a school view stopped. */
-export type SchoolWebProblem =
-  /** The school could not be reached; no password was sent. */
-  | "unreachable"
-  /** The school refused the saved password; Settings updates it. */
-  | "rejected"
-  /** The sign-in could not be written into the web view. */
-  | "storage"
-  /** The page still asks for a sign-in. */
-  | "still-sign-in";
-
-/** Core is signing the view in (the view is covered; the person may cancel),
- * or what its last sign-in left to say, until the view shows another page. */
-export type SchoolWebAccess =
-  { kind: "signing-in" } | { kind: "problem"; problem: SchoolWebProblem };
-
-/** Whether the app's Back or Forward does something for the page in front;
- * "unknown" when the host does not report history. */
-export type SchoolWebStep = "yes" | "no" | "unknown";
-
-/** A load of the page in front that failed; Core clears it. */
-export type SchoolWebFailure = {
-  url: string | null;
-  reason: SchoolLoadFailure;
-};
-
-/** The page the person sees of a site, as every surface renders it. */
-export type SchoolWebPage = {
-  site: SchoolSite;
-  /** Grows with every change; keep the highest seen. */
-  revision: number;
-  url: string | null;
-  /** Popups open over the view. */
-  popups: number;
-  back: SchoolWebStep;
-  forward: SchoolWebStep;
-  notice: SchoolWebFailure | null;
-  access: SchoolWebAccess | null;
-  /** The page in front is a sign-in page Core is not signing in now, and the
-   * saved account could: the manual way out, through Reload. */
-  signIn: boolean;
-  /** The page in front is outside the school sites: the view has none of
-   * the person's other accounts, so Open in browser is offered plainly. */
-  outside: boolean;
-  otp: SchoolOtpEnrollment | null;
-};
-
-export type SchoolOtpEnrollment = {
-  id: number;
-  owner: string | null;
-  stage:
-    | "sign-in"
-    | "checking"
-    | "setting-up"
-    | "saving"
-    | "complete"
-    | "account-mismatch"
-    | "incomplete"
-    | "unknown"
-    | "save-failed";
-};
-export type SchoolOtpIntent = "stop" | "retry-save";
-
-/** How a surface brings a site's view on screen. Core resumes, goes to the
- * URL, or (for "return") resumes only when this surface showed it last. */
-export type SchoolWebEntry =
-  | { kind: "resume" }
-  | { kind: "go"; url: string }
-  | { kind: "return"; url: string }
-  /** The site's start page as it is: Core writes no identity and signs in
-   * nowhere, so the person signs in on the page by hand. */
-  | { kind: "unsigned" }
-  | { kind: "otpSetup"; username: string };
-
-export type SchoolWebBounds = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
 export type NativeCapabilitySnapshot = {
   schoolImport: boolean;
   schoolWeb: boolean;
@@ -348,116 +208,11 @@ export type NativeCapabilitySnapshot = {
   backgroundSchedule: boolean;
   cloudSync: boolean;
 };
-export type CampusWifiOutcome =
-  | "signed-in"
-  | "already-online"
-  | "needs-account"
-  | "rejected"
-  | "science-tokyo-x";
-export type CampusWifiStatus =
-  "signed-in" | "sign-in-required" | "science-tokyo-x" | "other";
-/** A campus VPN reminder Core decided is due. */
-export type VpnNotice =
-  | { kind: "ending"; minutes: number }
-  | { kind: "ended" }
-  | { kind: "unused" }
-  | { kind: "demandStopped"; code: string };
-/** Campus VPN as the helper reports it; `error` is a code the UI keys on. */
-export type VpnStatus = {
-  /** `unavailable`: this build has no VPN payload (Intel Macs). */
-  state: "disconnected" | "connecting" | "connected" | "error" | "unavailable";
-  address?: string | null;
-  /** When the campus session ends (RFC 3339), for the countdown. */
-  expiresAt?: string | null;
-  /** Whether on-demand connecting is on now. */
-  onDemand?: boolean;
-  /** While on-demand has signed in its hourly most, when it resumes. */
-  demandPausedUntil?: string | null;
-  /** On the campus network, where the VPN is not needed. */
-  onCampus?: boolean;
-  /** Publisher sites the tunnel carries, and whether that is the default list. */
-  publishers?: string[];
-  publishersDefault?: boolean;
-  error?: string | null;
-  detail?: string | null;
-};
-/** Sign-in stages in order; "joining" is skipped when already on ScienceTokyo. */
-export const CAMPUS_WIFI_STEPS = [
-  "joining",
-  "opening-portal",
-  "signing-in",
-  "verifying",
-] as const;
-export type CampusWifiStep = (typeof CAMPUS_WIFI_STEPS)[number];
-/** Whose jobs the campus printer would bill (Core's `PrinterAccount`). */
-export type PrinterAccount =
-  | { kind: "ready"; studentId: string }
-  | { kind: "not-connected" }
-  | { kind: "not-student-id" }
-  | { kind: "needs-attention" }
-  | { kind: "unverified" };
-export type CampusPrinterStatus = {
-  account: PrinterAccount;
-  reach: "reachable" | "unreachable";
-};
-/** How adding the printer to the system ended. */
-export type CampusPrinterSetup =
-  | { kind: "added" }
-  | { kind: "cancelled" }
-  | { kind: "account"; account: PrinterAccount }
-  | { kind: "failed" };
-/** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
-export type CloudSyncProvider = "icloud" | "google-drive";
-export type CloudSyncVersion = {
-  id: string;
-  provider: CloudSyncProvider;
-  savedAt: string;
-  device: string;
-  version?: string;
-};
-export type CloudSyncTask = {
-  id: string;
-  direction: "upload" | "pull";
-  version: string;
-  createdAt: string;
-  deliveries: {
-    provider: CloudSyncProvider;
-    status: "pending" | "running" | "completed";
-    attempts: number;
-    retryAt: number;
-    error?: string;
-  }[];
-};
-export type CloudSyncState = {
-  syncing: boolean;
-  automatic?: boolean;
-  localVersion?: string;
-  tasks?: CloudSyncTask[];
-  providers: {
-    provider: CloudSyncProvider;
-    enabled: boolean;
-    lastSyncedAt?: string;
-    syncedVersion?: string;
-    error?: string;
-  }[];
-  /** Earlier cloud copies, newest first. */
-  versions: CloudSyncVersion[];
-};
-
 /** The local MCP server: no listener or token while agent access is off. */
 export type AgentConnection =
   | { state: "off" }
   | { state: "listening"; url: string; token: string }
   | { state: "failed"; error: string };
-
-export type InvokeNative = (
-  command: string,
-  payload?: Record<string, unknown>,
-) => Promise<unknown>;
-export type ListenNative = <T>(
-  event: string,
-  callback: (payload: T) => void,
-) => Promise<() => void>;
 
 export interface AppUpdateStatus {
   phase:
@@ -496,19 +251,14 @@ export type ApplicationLogSnapshot = {
   dropped: boolean;
 };
 
-export interface DesktopBridge {
-  examShare?(action: ExamAction): Promise<ExamAnswer>;
-  /** Every `exam-account` event: the account and its upload progress. */
-  onExamAccount?(callback: (account: ExamAccount) => void): () => void;
-  examUploadPickFiles?(title: string): Promise<ExamUploadFile[] | null>;
-  examUploadClearFiles?(): Promise<void>;
-  /** Opens a Core past-exam file in the system default application. */
-  examOpenFile?(path: string): Promise<void>;
-  /** Keeps the opened version for offline use, returning whether the library changed. */
-  examRetainFile?(id: string, path: string): Promise<boolean>;
-  /** Copies the opened past-exam version into Downloads under the name Core
-   * gives it (the uploaded name, suffixed to match its validated type). */
-  examSaveCopy?(id: string, path: string): Promise<SavedDownload>;
+export interface DesktopBridge
+  extends
+    PastExamsBridge,
+    SchoolSessionBridge,
+    SchoolWebBridge,
+    CampusToolsBridge,
+    CloudSyncBridge
+{
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -537,10 +287,6 @@ export interface DesktopBridge {
   /** The build's operating system; see `nativeOs`. */
   os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
-  resolveSchoolUrl(
-    url: string,
-    site: SchoolSite,
-  ): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
   /** Opens the feedback form in the system browser, this build filled in. */
   openFeedbackForm(): Promise<void>;
@@ -558,249 +304,25 @@ export interface DesktopBridge {
   onCatalogChanged?(
     callback: (event: { year: number; version: number }) => void,
   ): () => void;
-  schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
-  /** Signs in with the entered credentials; saves them only when the school
-   * accepts them. */
-  connectSchool(
-    profile: SchoolAuthProfile,
-    credentials: SchoolCredentials,
-  ): Promise<SchoolConnectOutcome>;
-  deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
-  /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
-  copySchoolMatrix(): Promise<boolean>;
-  copySchoolOtp(setup?: string): Promise<boolean>;
-  /** SVG QR code of the OTP setup, for another authenticator to scan. */
-  schoolOtpQr(): Promise<string>;
-  schoolOtpCode(): Promise<SchoolOtpCode | null>;
-  copySchoolOtpCode(otp: string): Promise<void>;
-  /** Shows `site`'s view for `surface` (an id of the app page showing it). */
-  openSchoolSite(
-    site: SchoolSite,
-    css: string,
-    js: string,
-    bounds: SchoolWebBounds | undefined,
-    surface: string,
-    entry: SchoolWebEntry,
-  ): Promise<{
-    site: SchoolSite;
-    url: string;
-    phase: "sessionRestored" | "pageLoaded" | "navigationDispatched";
-  }>;
-  configureSchoolWebPolicy(policy: {
-    restoreAcrossRestarts: boolean;
-    idleMinutes: number;
-  }): Promise<boolean>;
-  /** Position the embedded school webview over a region of the main window (logical px). */
-  setSchoolWebBounds?(bounds: SchoolWebBounds): Promise<boolean>;
-  /** Hide every embedded school webview (when leaving the Web page). */
-  hideSchoolWeb?(): Promise<boolean>;
-  reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
-  schoolOtpIntent?(id: number, intent: SchoolOtpIntent): Promise<boolean>;
-  /** "Cancel, I'll sign in myself" while Core signs the view in. */
-  cancelSchoolWebSignIn?(site: SchoolSite): Promise<boolean>;
-  navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
-  /** Back through the engine's history of the view or the popup in front;
-   * Core keeps it from sending a form again. */
-  schoolWebBack?(site: SchoolSite): Promise<boolean>;
-  schoolWebForward?(site: SchoolSite): Promise<boolean>;
-  /** Closes the popup in front of the site's view; false when none is open. */
-  closeSchoolWebPopup?(site: SchoolSite): Promise<boolean>;
-  setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
-  /** The page the person sees of `site` now. */
-  schoolWebPage?(site: SchoolSite): Promise<SchoolWebPage>;
-  /** Every change of the page on screen. Resolves once the listener is
-   * registered, so a snapshot read afterwards misses nothing. */
-  onSchoolWebPage?(
-    callback: (page: SchoolWebPage) => void,
-  ): Promise<() => void>;
-  /** A one-time note about the page the person is looking at. */
-  onSchoolWebNotice?(callback: (notice: SchoolWebNotice) => void): () => void;
-  /** What the Wi-Fi interface is on now (macOS builds only). */
-  campusWifiStatus?(): Promise<CampusWifiStatus>;
-  /** Campus VPN state from the privileged helper (macOS and Windows builds). */
-  vpnStatus?(): Promise<VpnStatus>;
-  /** One administrator approval installs or updates the helper and openconnect. */
-  vpnInstall?(): Promise<VpnStatus>;
-  /** Signs in to the campus VPN with the saved Tokyo Tech account and connects. */
-  vpnConnect?(): Promise<VpnStatus>;
-  vpnDisconnect?(): Promise<VpnStatus>;
-  /** On-demand connecting on or off for now; the page stores the choice. */
-  vpnOnDemand?(enabled: boolean): Promise<VpnStatus>;
-  /** The publisher list, or `null` for the default; the page stores it. */
-  vpnPublishers?(list: string[] | null): Promise<VpnStatus>;
-  /** The state after each check while a tunnel is up (every minute). */
-  onVpnStatus?(callback: (status: VpnStatus) => void): () => void;
-  /** The session ends in a few minutes, or ended on its own. */
-  onVpnNotice?(callback: (notice: VpnNotice) => void): () => void;
-  /**
-   * Joins ScienceTokyo if needed and signs in once with the Tokyo Tech account
-   * (macOS builds only). Returns "science-tokyo-x" without changing anything
-   * unless leaving ScienceTokyoX was confirmed.
-   */
-  campusWifiConnect?(
-    leaveScienceTokyoX: boolean,
-    onStep: (step: CampusWifiStep) => void,
-  ): Promise<CampusWifiOutcome>;
-  /** The verified student ID and whether the printer answers, found once. */
-  campusPrinterStatus?(): Promise<CampusPrinterStatus>;
-  /** Adds or replaces the system printer behind the system's administrator
-   * prompt, which shows `prompt` on macOS. */
-  installCampusPrinter?(prompt: string): Promise<CampusPrinterSetup>;
-  onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
-  /** Locates a file saved to Downloads this session; false for unknown or moved files. */
-  revealDownload?(path: string): Promise<boolean>;
-  schoolSessionSnapshot(): Promise<SchoolSessionSnapshot>;
-  /** One foreground sign-in with the saved credentials, read again from the
-   * synced store; the credentials themselves do not change. */
-  retrySchool(profile: SchoolAuthProfile): Promise<SchoolSessionSnapshot>;
-  onSchoolSession(
-    callback: (snapshot: SchoolSessionSnapshot) => void,
-  ): Promise<() => void> | (() => void);
   /** A shell fact or intent for Core's sync planner; never waits for a read. */
   syncHint?(hint: SyncHint): Promise<void>;
   /** Core's sync snapshot now. */
   syncSnapshot?(): Promise<SyncSnapshot>;
   /** The current snapshot, then every `sync-snapshot` event. */
   onSyncSnapshot?(callback: (snapshot: SyncSnapshot) => void): () => void;
-  /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
-  setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
-  /** An extractor finished while the person browsed LMS / 教務Web. */
-  onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
   /** Saves a validated workspace export under app-owned local storage. */
   /** Asks where to save an exported file; false when the person cancels. */
   saveFile(name: string, contents: string): Promise<boolean>;
-  cloudLifecycle?(kind: "foreground" | "background"): Promise<void>;
-  cloudSyncState?(): Promise<CloudSyncState>;
   /** Local MCP server state; reconciles the listener with the setting first. */
   agentConnection?(): Promise<AgentConnection>;
-  setCloudSyncProvider?(
-    provider: CloudSyncProvider,
-    enabled: boolean,
-  ): Promise<CloudSyncState>;
-  syncCloudNow?(direction: "upload" | "pull"): Promise<CloudSyncState>;
-  setCloudSyncAutomatic?(automatic: boolean): Promise<CloudSyncState>;
-  restoreCloudVersion?(id: string): Promise<CloudSyncState>;
-  onCloudSyncState?(callback: (state: CloudSyncState) => void): () => void;
-  cloudCredentialSyncStatus(): Promise<boolean>;
-  cloudCredentialBackupStatus(): Promise<boolean>;
-  /** Restores the Drive backup with `password` on a device without one;
-   * otherwise uploads this device's logins under `password`, a new one. */
-  enableCloudCredentialSync(password: string): Promise<boolean>;
-  clearCloudCredentialSyncPassword(): Promise<boolean>;
 }
 
-const schoolWebSteps: readonly unknown[] = ["yes", "no", "unknown"];
-const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
-  if (!value || typeof value !== "object") return false;
-  const page = value as Record<string, unknown>;
-  const notice = page.notice as Record<string, unknown> | null | undefined;
-  const otp = page.otp as Record<string, unknown> | null | undefined;
-  const access = page.access as Record<string, unknown> | null | undefined;
-  return (
-    typeof page.site === "string" &&
-    Number.isSafeInteger(page.revision) &&
-    (page.url === null || typeof page.url === "string") &&
-    Number.isSafeInteger(page.popups) &&
-    schoolWebSteps.includes(page.back) &&
-    schoolWebSteps.includes(page.forward) &&
-    typeof page.signIn === "boolean" &&
-    typeof page.outside === "boolean" &&
-    (otp === null ||
-      (typeof otp === "object" &&
-        Number.isSafeInteger(otp.id) &&
-        (otp.owner === null || typeof otp.owner === "string") &&
-        [
-          "sign-in",
-          "checking",
-          "setting-up",
-          "saving",
-          "complete",
-          "account-mismatch",
-          "incomplete",
-          "unknown",
-          "save-failed",
-        ].includes(String(otp.stage)))) &&
-    (notice === null ||
-      (typeof notice === "object" &&
-        (notice.url === null || typeof notice.url === "string") &&
-        typeof notice.reason === "string")) &&
-    (access === null ||
-      (typeof access === "object" &&
-        (access.kind === "signing-in" ||
-          (access.kind === "problem" && typeof access.problem === "string"))))
-  );
-};
-
-/** Listens to a native event, decoding payloads for the caller. */
-function subscribe<T>(
-  listen: ListenNative,
-  event: string,
-  decode: (payload: T) => T | undefined,
-  callback: (payload: T) => void,
-): () => void {
-  let disposed = false;
-  let unlisten: (() => void) | undefined;
-  void listen<T>(event, (payload) => {
-    if (disposed) return;
-    const decoded = decode(payload);
-    if (decoded !== undefined) callback(decoded);
-  })
-    .then((fn) => {
-      if (disposed) quietly(fn);
-      else unlisten = fn;
-    })
-    .catch(() => undefined);
-  return () => {
-    disposed = true;
-    if (unlisten) quietly(unlisten);
-  };
-}
-
-/** Tauri's unlisten throws, or rejects, once the runtime is gone (window closing, tests). */
-const quietly = (unlisten: () => unknown) => {
-  try {
-    void Promise.resolve(unlisten()).catch(() => undefined);
-  } catch {
-    // Already gone.
-  }
-};
-const requireBoolean = (command: string, value: unknown) => {
-  if (typeof value !== "boolean")
-    throw new Error(`${command} returned an invalid result.`);
-  return value;
-};
-const requireString = (command: string, value: unknown) => {
-  if (typeof value !== "string")
-    throw new Error(`${command} returned an invalid result.`);
-  return value;
-};
-const requireObject = <T>(command: string, value: unknown): T => {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(`${command} returned an invalid result.`);
-  return value as T;
-};
 export function createTauriDesktopBridge(
   invoke: InvokeNative,
   listen: ListenNative,
 ): DesktopBridge {
-  const invokeCommand = async <T>(
-    command: string,
-    payload?: Record<string, unknown>,
-  ): Promise<T> => {
-    try {
-      return (await invoke(command, payload)) as T;
-    } catch (error) {
-      throw nativeError(error, `${command} failed`);
-    }
-  };
-  const result = async <T>(
-    command: string,
-    payload?: Record<string, unknown>,
-  ) => requireObject<T>(command, await invokeCommand(command, payload));
-  const booleanCommand = async (
-    command: string,
-    payload?: Record<string, unknown>,
-  ) => requireBoolean(command, await invokeCommand(command, payload));
+  const commands = createBridgeCommands(invoke);
+  const { invokeCommand, result, booleanCommand } = commands;
   return {
     runtime: "tauri",
     os: nativeOs(),
@@ -825,41 +347,9 @@ export function createTauriDesktopBridge(
     },
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
-    examShare: (action) => result("exam_share", { action }),
-    onExamAccount: (callback) =>
-      subscribe<ExamAccount>(
-        listen,
-        "exam-account",
-        (payload) =>
-          payload && typeof payload.status === "string" ? payload : undefined,
-        callback,
-      ),
-    examUploadPickFiles: async (title) => {
-      const command = "exam_upload_pick_files";
-      const files = await invokeCommand<ExamUploadFile[] | null>(command, {
-        title,
-      });
-      if (files === null) return null;
-      if (
-        !Array.isArray(files) ||
-        !files.every(
-          (file) =>
-            typeof file?.path === "string" && typeof file.name === "string",
-        )
-      ) {
-        throw new Error(`${command} returned an invalid result.`);
-      }
-      return files;
-    },
-    examUploadClearFiles: () => invokeCommand("exam_upload_clear_files"),
-    examOpenFile: (path) => invokeCommand("exam_open_file", { path }),
-    examRetainFile: (id, path) =>
-      booleanCommand("exam_retain_file", { id, path }),
-    examSaveCopy: (id, path) => result("exam_save_copy", { id, path }),
+    ...pastExamsCommands(commands, listen),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
-    resolveSchoolUrl: (url, site) =>
-      result("resolve_school_url", { url, site }),
     openExternal: async (url) => {
       await invokeCommand("open_external", { url });
     },
@@ -923,153 +413,9 @@ export function createTauriDesktopBridge(
         },
         callback,
       ),
-    schoolCredentialStatus: () => result("school_credential_status"),
-    campusPrinterStatus: () => result("plugin:campus-printer|status"),
-    installCampusPrinter: (prompt) =>
-      result("plugin:campus-printer|install", { prompt }),
-    campusWifiStatus: () => invokeCommand("plugin:campus-wifi|status"),
-    vpnStatus: () => invokeCommand("plugin:campus-vpn|status"),
-    vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
-    vpnConnect: () => invokeCommand("plugin:campus-vpn|connect"),
-    vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
-    vpnOnDemand: (enabled) =>
-      invokeCommand("plugin:campus-vpn|on_demand", { enabled }),
-    vpnPublishers: (list) =>
-      invokeCommand("plugin:campus-vpn|publishers", { list }),
-    onVpnStatus: (callback) =>
-      subscribe<VpnStatus>(
-        listen,
-        "vpn-status",
-        (payload) => (typeof payload?.state === "string" ? payload : undefined),
-        callback,
-      ),
-    onVpnNotice: (callback) =>
-      subscribe<VpnNotice>(
-        listen,
-        "vpn-notice",
-        (payload) =>
-          payload?.kind === "ended" ||
-          (payload?.kind === "demandStopped" &&
-            typeof payload.code === "string") ||
-          (payload?.kind === "ending" && typeof payload.minutes === "number")
-            ? payload
-            : undefined,
-        callback,
-      ),
-    campusWifiConnect: (leaveScienceTokyoX, onStep) => {
-      const steps = new Channel<CampusWifiStep>();
-      steps.onmessage = onStep;
-      return invokeCommand("plugin:campus-wifi|connect", {
-        leaveScienceTokyoX,
-        onStep: steps,
-      });
-    },
-    connectSchool: (profile, credentials) =>
-      result("connect_school", { profile, credentials }),
-    deleteSchoolCredentials: (profile) =>
-      booleanCommand("delete_school_credentials", { profile }),
-    copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
-    copySchoolOtp: (setup) => booleanCommand("copy_school_otp", { setup }),
-    schoolOtpCode: () => invokeCommand<SchoolOtpCode | null>("school_otp_code"),
-    copySchoolOtpCode: (otp) =>
-      invokeCommand<void>("copy_school_otp_code", { otp }),
-    schoolOtpQr: async () =>
-      requireString("school_otp_qr", await invokeCommand("school_otp_qr")),
-    schoolSessionSnapshot: async () => {
-      const snapshot = await invokeCommand("school_session_snapshot");
-      if (!isSchoolSessionSnapshot(snapshot))
-        throw new Error("school_session_snapshot returned an invalid result.");
-      return snapshot;
-    },
-    retrySchool: async (profile) => {
-      const snapshot = await invokeCommand("retry_school", { profile });
-      if (!isSchoolSessionSnapshot(snapshot))
-        throw new Error("retry_school returned an invalid result.");
-      return snapshot;
-    },
-    onSchoolSession: async (callback) => {
-      let disposed = false;
-      const unlisten = await listen<unknown>("school-session", (payload) => {
-        if (!disposed && isSchoolSessionSnapshot(payload)) callback(payload);
-      });
-      return () => {
-        disposed = true;
-        quietly(unlisten);
-      };
-    },
-    openSchoolSite: (site, css, js, bounds, surface, entry) =>
-      result("open_school_site", {
-        site,
-        css,
-        js,
-        bounds: bounds ?? null,
-        surface,
-        entry,
-      }),
-    schoolWebPage: async (site) => {
-      const page = await result<SchoolWebPage>("school_web_page", { site });
-      if (!isSchoolWebPage(page))
-        throw new Error("school_web_page returned an invalid result.");
-      return page;
-    },
-    onSchoolWebPage: async (callback) => {
-      let disposed = false;
-      const unlisten = await listen<unknown>("school-web-page", (payload) => {
-        if (!disposed && isSchoolWebPage(payload)) callback(payload);
-      });
-      return () => {
-        disposed = true;
-        quietly(unlisten);
-      };
-    },
-    setSchoolWebBounds: (bounds) =>
-      booleanCommand("set_school_web_bounds", { bounds }),
-    hideSchoolWeb: () => booleanCommand("hide_school_web"),
-    schoolOtpIntent: (id, intent) =>
-      booleanCommand("school_otp_intent", { id, intent }),
-    reloadSchoolWeb: (site) => booleanCommand("reload_school_web", { site }),
-    cancelSchoolWebSignIn: (site) =>
-      booleanCommand("cancel_school_web_sign_in", { site }),
-    navigateSchoolWeb: (site, url) =>
-      booleanCommand("navigate_school_web", { site, url }),
-    schoolWebBack: (site) => booleanCommand("school_web_back", { site }),
-    schoolWebForward: (site) => booleanCommand("school_web_forward", { site }),
-    closeSchoolWebPopup: (site) =>
-      booleanCommand("close_school_web_popup", { site }),
-    setSchoolWebZoom: (site, scale) =>
-      booleanCommand("set_school_web_zoom", { site, scale }),
-    onSchoolWebNotice: (callback) =>
-      subscribe<SchoolWebNotice>(
-        listen,
-        "school-web-notice",
-        (payload) => payload && typeof payload.site === "string" &&
-          payload.kind === "reopened" && typeof payload.url === "string"
-            ? payload
-            : undefined,
-        callback,
-      ),
-    onSchoolDownload: (callback) =>
-      subscribe<SchoolDownloadEvent>(
-        listen,
-        "school-download",
-        (payload) => {
-          if (
-            payload &&
-            typeof payload.site === "string" &&
-            (payload.state === "started" ||
-              payload.state === "done" ||
-              payload.state === "failed") &&
-            typeof payload.name === "string" &&
-            (payload.path === undefined || typeof payload.path === "string") &&
-            (payload.state !== "done" || typeof payload.path === "string")
-          ) {
-            const { site, state, name, path } = payload;
-            return { site, state, name, path };
-          }
-        },
-        callback,
-      ),
-    revealDownload: (path) => booleanCommand("reveal_download", { path }),
+    ...schoolSessionCommands(commands, listen),
+    ...campusToolsCommands(commands, listen),
+    ...schoolWebCommands(commands, listen),
     syncHint: async (hint) => {
       await invokeCommand("sync_hint", { hint });
     },
@@ -1108,47 +454,11 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
-    onSchoolIngest: (callback) =>
-      subscribe<SchoolIngestOutcome>(
-        listen,
-        "school-ingest",
-        (payload) =>
-          payload && typeof payload.state === "string" ? payload : undefined,
-        callback,
-      ),
-    configureSchoolWebPolicy: (policy) =>
-      booleanCommand("configure_school_web_policy", { policy }),
 
     saveFile: (name, contents) =>
       booleanCommand("save_file", { name, contents }),
-    cloudLifecycle: (kind) => result<void>("cloud_lifecycle", { kind }),
-    cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
+    ...cloudSyncCommands(commands, listen),
     agentConnection: () => result<AgentConnection>("agent_connection"),
-    setCloudSyncProvider: (provider, enabled) =>
-      result<CloudSyncState>("set_cloud_sync_provider", { provider, enabled }),
-    syncCloudNow: (direction) =>
-      result<CloudSyncState>("sync_cloud_now", { direction }),
-    setCloudSyncAutomatic: (automatic) =>
-      result<CloudSyncState>("set_cloud_sync_automatic", { automatic }),
-    restoreCloudVersion: (id) =>
-      result<CloudSyncState>("restore_cloud_version", { id }),
-    onCloudSyncState: (callback) =>
-      subscribe<CloudSyncState>(
-        listen,
-        "cloud-sync-state",
-        (payload) =>
-          payload && Array.isArray(payload.providers) ? payload : undefined,
-        callback,
-      ),
-    cloudCredentialSyncStatus: () =>
-      booleanCommand("cloud_credential_sync_status"),
-    cloudCredentialBackupStatus: () =>
-      booleanCommand("cloud_credential_backup_status"),
-    enableCloudCredentialSync: (password) =>
-      booleanCommand("enable_cloud_credential_sync", { password }),
-    clearCloudCredentialSyncPassword: () =>
-      booleanCommand("clear_cloud_credential_sync_password"),
   };
 }
 

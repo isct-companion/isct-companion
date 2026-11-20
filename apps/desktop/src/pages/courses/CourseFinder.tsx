@@ -20,6 +20,7 @@ import { useSync } from "../../store/sync";
 import { heldText } from "../../lib/sync-text";
 import i18n, { t, type MessageKey } from "../../i18n";
 import type { Finder } from "./useFinder";
+import { unavailable, useFinderSelection } from "./useFinderSelection";
 
 /** Core names the official filter groups in English; this table gives each
  * name its catalog key and leaves any other name as Core wrote it. */
@@ -103,14 +104,8 @@ function eligibilityLabel(eligibility: CourseEligibility | undefined) {
       return undefined;
   }
 }
-const unavailable = (row: FinderRowView) =>
-  row.eligibility?.status === "ineligible";
 const unavailableLabel = (row: FinderRowView) =>
   eligibilityLabel(row.eligibility) ?? t("courses.notAvailableForThisStudy");
-
-/** An add or undo the row shows before Core confirms it. `after` is the
- * last request sent when it settled; a page sent later is authoritative. */
-type Mark = { placed: boolean; saving: boolean; after: number };
 
 /**
  * Browser-address-bar style course search: type, pick a suggestion, conditions become
@@ -147,15 +142,26 @@ export function CourseFinder({
   /** What is on this quarter's timetable, e.g. "3 on timetable · 6 credits". */
   summary?: string;
 }) {
-  const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [selected, setSelected] = useState<Map<string, FinderRowView>>(
-    () => new Map(),
-  );
-  const [lastAdded, setLastAdded] = useState<FinderCourse[] | null>(null);
-  const [marks, setMarks] = useState<Map<string, Mark>>(() => new Map());
-  const [mutating, setMutating] = useState(false);
+  const {
+    error,
+    setError,
+    selected,
+    addPasted,
+    clearSelected,
+    mutating,
+    lastAdded,
+    placed,
+    saving,
+    toggle,
+    chosen,
+    chosenCredits,
+    chosenClashes,
+    addCourses,
+    addSelected,
+    undoLast,
+  } = useFinderSelection(finder, add, undo);
   const resultsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
@@ -206,13 +212,6 @@ export function CourseFinder({
   );
   const duplicates = view?.duplicates ?? 0;
   const showUnavailable = finder.includeIneligible;
-  const placed = (row: FinderRowView) => {
-    const mark = marks.get(row.course.id);
-    return mark && finder.shown <= mark.after ? mark.placed : row.placed;
-  };
-  const saving = (row: FinderRowView) =>
-    Boolean(marks.get(row.course.id)?.saving);
-
   const live = view?.live ?? "";
   const rows = finder.rows;
   const total = view?.total ?? 0;
@@ -251,30 +250,10 @@ export function CourseFinder({
   }, [conditionsKey]);
   const availableSuggestions = view?.suggestions ?? [];
   const suggestions: Suggestion[] = open ? availableSuggestions : [];
-  // A pick reads as the finder has it now (credits and clashes follow the
-  // timetable); one that has left the results reads as it was picked.
-  const chosen = [...selected.values()]
-    .map(
-      (row) =>
-        finder.rows.find((current) => current.course.id === row.course.id) ??
-        row,
-    )
-    .filter((row) => !unavailable(row) && !placed(row));
-  const chosenCredits = chosen.reduce((sum, row) => sum + row.credits, 0);
-  const chosenClashes = chosen.filter((row) => row.clash).length;
   const commit = (key: string) => {
     finder.commit(key);
     setActive(0);
     setOpen(false);
-  };
-  const toggle = (row: FinderRowView) => {
-    if (placed(row) || unavailable(row)) return;
-    setSelected((current) => {
-      const next = new Map(current);
-      if (next.has(row.course.id)) next.delete(row.course.id);
-      else next.set(row.course.id, row);
-      return next;
-    });
   };
   const apply = (s: Suggestion | undefined) => {
     if (!s) return;
@@ -286,57 +265,6 @@ export function CourseFinder({
     } else if (s.kind === "course")
       toggle(s.row); // keep the text: several matches can be picked in a row
     else commit(s.key);
-  };
-  const mark = (courses: FinderCourse[], next: Mark | undefined) =>
-    setMarks((current) => {
-      const marked = new Map(current);
-      for (const course of courses)
-        if (next) marked.set(course.id, next);
-        else marked.delete(course.id);
-      return marked;
-    });
-  // The rows say "Added" at once; a failed write puts them back.
-  const addCourses = async (courses: FinderCourse[]) => {
-    if (mutating) return;
-    setMutating(true);
-    setError("");
-    mark(courses, { placed: true, saving: true, after: Infinity });
-    try {
-      await add(courses);
-      mark(courses, { placed: true, saving: false, after: finder.issued() });
-      setLastAdded(courses);
-      setSelected((current) => {
-        const next = new Map(current);
-        courses.forEach((course) => next.delete(course.id));
-        return next;
-      });
-    } catch (reason) {
-      mark(courses, undefined);
-      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
-    } finally {
-      setMutating(false);
-    }
-  };
-  const addSelected = () => {
-    if (!chosen.length) return;
-    void addCourses(chosen.map((row) => row.course));
-  };
-  const undoLast = async () => {
-    if (!lastAdded || mutating) return;
-    const courses = lastAdded;
-    setMutating(true);
-    setError("");
-    mark(courses, { placed: false, saving: false, after: Infinity });
-    try {
-      await undo(courses);
-      mark(courses, { placed: false, saving: false, after: finder.issued() });
-      setLastAdded(null);
-    } catch (reason) {
-      mark(courses, { placed: true, saving: false, after: finder.issued() });
-      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
-    } finally {
-      setMutating(false);
-    }
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -399,11 +327,7 @@ export function CourseFinder({
           onChange(pasted);
           return;
         }
-        setSelected((current) => {
-          const selection = new Map(current);
-          for (const row of next.pasted) selection.set(row.course.id, row);
-          return selection;
-        });
+        addPasted(next.pasted);
         setError(
           [
             next.ineligibleCodes.length
@@ -843,7 +767,7 @@ export function CourseFinder({
           type="button"
           className="button"
           disabled={!chosen.length || mutating}
-          onClick={() => setSelected(new Map())}
+          onClick={clearSelected}
         >
           {t("common.clear")}
         </UiButton>

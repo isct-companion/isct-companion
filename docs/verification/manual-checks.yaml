@@ -520,6 +520,7 @@ checks:
       - crates/app-core/src/data/school_projection.rs
       - crates/app-core/src/schedule/search.rs
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
@@ -1933,6 +1934,8 @@ checks:
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/styles.css
       - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/pages/lectures/LectureExams.tsx
     verified: null
 
 
@@ -1976,6 +1979,8 @@ checks:
       - apps/desktop/src/app/App.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/features/lms/lms.css
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/features/lms/LmsReader.tsx
       - apps/desktop/src-tauri/src/lib.rs
     verified: null
 
@@ -2300,6 +2305,7 @@ checks:
       - apps/desktop/src/pages/tools/tools.css
       - apps/desktop/src/platform/available-tools.ts
       - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/platform/desktop-bridge/campus-tools.ts
   - id: DESKTOP-CAMPUS-VPN
     area: desktop
     title: Campus VPN connect, use, disconnect from outside campus
@@ -3190,6 +3196,8 @@ checks:
       - apps/desktop/src/store/sync.ts
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/app/interaction-trace.ts
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/features/lms/useOutlineReading.ts
     verified: null
 
   - id: DESKTOP-SYNC-STATUS
@@ -3255,6 +3263,9 @@ checks:
       - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/components/PullRing.tsx
       - apps/desktop/src/styles.css
+      - apps/desktop/src/app/SchoolStatusBar.tsx
+      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
     verified: null
 
   - id: DESKTOP-PLANNING-PANEL
@@ -3350,6 +3361,7 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
+      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
       - crates/app-core/src/catalog.rs
       - crates/app-core/src/facade.rs
     verified: null
@@ -3382,9 +3394,10 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
-      - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
       - apps/desktop/src/platform/query-client.ts
       - apps/desktop/src/store/workspace.ts
+      - apps/desktop/src/pages/courses/useFinderSelection.ts
       - crates/app-core/src/workspace/mod.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/commands/read_models.rs
@@ -3514,6 +3527,9 @@ checks:
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
+      - apps/desktop/src/features/lms/LmsReader.tsx
+      - apps/desktop/src/features/lms/useLmsReader.ts
       - crates/app-core/src/net/kyomu.rs
       - crates/adpt-isct/src/kyomu/search.rs
     verified: null
@@ -3847,6 +3863,9 @@ checks:
       - apps/desktop/src/components/files/ReaderPane.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/components/workspace-chrome.css
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/features/lms/LmsReader.tsx
+      - apps/desktop/src/platform/desktop-bridge/school-web.ts
     verified: null
 
   - id: SCHOOL-ASSIGNMENT-UPLOAD
@@ -3924,6 +3943,7 @@ checks:
       - crates/adpt-isct/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
+      - apps/desktop/src/features/lms/LmsAssignmentCard.tsx
       - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
@@ -4167,6 +4187,7 @@ checks:
       - crates/app-core/src/catalog.rs
       - crates/app-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/pages/courses/useCoursePlanning.tsx
     verified: null
 
   - id: DESKTOP-SIGNED-UPDATES
@@ -5262,6 +5283,9 @@ checks:
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/pages/lectures/lectures.css
       - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/pages/lectures/LectureExams.tsx
+      - apps/desktop/src/pages/today/TodayAgenda.tsx
+      - apps/desktop/src/pages/today/TodayAssignments.tsx
     verified: null
 
 
@@ -7013,6 +7037,7 @@ checks:
       spring-scroll.ts.
     covers:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/features/lms/useOutlineReading.ts
     verified: null
 
   - id: COURSE-LESSON-SERIES-LABELS
@@ -7056,6 +7081,7 @@ checks:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/features/lms/content.ts
       - apps/desktop/src/features/lms/lms.css
+      - apps/desktop/src/features/lms/useOutlineReading.ts
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
       - apps/ios/IsctCompanion/Design/HTMLText.swift
       - apps/ios/IsctCompanion/Design/HorizontalPager.swift
@@ -8956,6 +8982,7 @@ checks:
     covers:
       - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+      - apps/desktop/src/app/SchoolStatusBar.tsx
       - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
@@ -9103,6 +9130,7 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/pages/courses/editors.tsx
+      - apps/desktop/src/pages/today/TodayAgenda.tsx
       - apps/desktop/src/pages/today/TodayPage.tsx
     verified: null
 
