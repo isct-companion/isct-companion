@@ -38,6 +38,30 @@
 .workspaceSeparator[data-separator="active"]::after {
   background: var(--accent);
 }
+/* The collapsible first panel's button (WorkspaceSidebarToggle). */
+.workspaceSidebarToggle {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--muted);
+  cursor: default;
+}
+.workspaceSidebarToggle:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+/* A folded first panel leaves no separator behind; the page that holds the
+   workspace marks the state. */
+[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
+  width: 0;
+  visibility: hidden;
+}
 /* With resizing off, the page's own layout owns presentation. Keeping these
    wrappers avoids remounting a note or native webview on resize. */
 .splitWorkspace[data-resizable="false"],

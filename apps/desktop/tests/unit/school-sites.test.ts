@@ -30,23 +30,7 @@ const readScript = (name: string) =>
  * School webview bounds
  * ------------------------------------------------------------------ */
 
-const viewport = (
-  dimensions: Partial<{
-    innerWidth: number;
-    innerHeight: number;
-    outerWidth: number;
-    outerHeight: number;
-    devicePixelRatio: number;
-  }> = {},
-) =>
-  ({
-    innerWidth: 1180,
-    innerHeight: 740,
-    outerWidth: 1196,
-    outerHeight: 779,
-    devicePixelRatio: 1,
-    ...dimensions,
-  }) as Window;
+const viewport = (devicePixelRatio = 1) => ({ devicePixelRatio }) as Window;
 
 describe("school webview bounds", () => {
   it("sends the DOM client-area rectangle in physical pixels on Windows", () => {
@@ -62,32 +46,22 @@ describe("school webview bounds", () => {
     expect(
       schoolWebBounds(
         { left: 289, top: 61, width: 987, height: 559 },
-        viewport({ devicePixelRatio: 1.25 }),
+        viewport(1.25),
         "windows",
       ),
     ).toEqual({ x: 361, y: 76, width: 1234, height: 699 });
   });
 
-  it("keeps the WKWebView title-bar compensation on macOS", () => {
+  it("sends the DOM rectangle in points on macOS, the host adding the title bar", () => {
+    // The page cannot measure the title bar (WKWebView reports equal inner
+    // and outer sizes), so it sends the content rectangle as it is, rounded.
     expect(
       schoolWebBounds(
-        { left: 180, top: 32, width: 988, height: 675 },
-        viewport({ outerWidth: 1180, outerHeight: 740 }),
-        "macos",
-      ),
-    ).toEqual({ x: 180, y: 60, width: 988, height: 675 });
-  });
-
-  it("subtracts half the horizontal chrome inset from the macOS origin", () => {
-    // 1196x779 outer against a 1180x740 client area: 16px of side chrome and a
-    // 39px measured title-bar inset, so x shifts by 8 and y by 39 - 8 = 31.
-    expect(
-      schoolWebBounds(
-        { left: 180, top: 32, width: 988, height: 675 },
+        { left: 180.4, top: 32.6, width: 987.6, height: 674.4 },
         viewport(),
         "macos",
       ),
-    ).toEqual({ x: 188, y: 63, width: 988, height: 675 });
+    ).toEqual({ x: 180, y: 33, width: 988, height: 674 });
   });
 
   it("reads the injected native OS when the caller does not name one", () => {
@@ -99,13 +73,11 @@ describe("school webview bounds", () => {
         viewport(),
       ),
     ).toEqual({ x: 180, y: 32, width: 988, height: 675 });
+    // Points on macOS: a Retina scale does not multiply them.
     scope.__ISCT_COMPANION_NATIVE_OS__ = "macos";
     expect(
-      schoolWebBounds(
-        { left: 180, top: 32, width: 988, height: 675 },
-        viewport({ outerWidth: 1180, outerHeight: 740 }),
-      ),
-    ).toEqual({ x: 180, y: 60, width: 988, height: 675 });
+      schoolWebBounds({ left: 180, top: 32, width: 988, height: 675 }, viewport(2)),
+    ).toEqual({ x: 180, y: 32, width: 988, height: 675 });
     delete scope.__ISCT_COMPANION_NATIVE_OS__;
   });
 });

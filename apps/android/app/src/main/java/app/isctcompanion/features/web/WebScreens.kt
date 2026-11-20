@@ -15,6 +15,12 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import app.isctcompanion.design.GuideTip
 import android.net.Uri
 import android.view.ViewGroup
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalDensity
+import app.isctcompanion.design.CollapsingBar
+import kotlin.math.abs
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -91,10 +97,19 @@ import app.isctcompanion.design.Theme
  * position and session survive tab and route changes. A pull at the top of
  * the page reloads it through Core, as on iOS. */
 @Composable
-private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision: Int, modifier: Modifier = Modifier) {
+private fun ResidentWebView(
+    site: SchoolSite,
+    host: SchoolBrowserHost,
+    revision: Int,
+    onReading: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val web = LocalModel.current.web
     // Read so a newly created view is attached.
     val created = host.revision
+    val reading by rememberUpdatedState(onReading)
+    val travel = with(LocalDensity.current) { BarsTravel.toPx() }
+    val listener = remember(travel) { ReadingListener(travel) { reading(it) } }
     AndroidView(
         factory = { context ->
             val container = FrameLayout(context)
@@ -116,18 +131,53 @@ private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision:
             revision + created
             val webView = host.front(site)
             val shown = (0 until container.childCount).map { container.getChildAt(it) }
-            for (child in shown) if (child !== webView && child is WebView) host.park(child)
+            for (child in shown) if (child !== webView && child is WebView) {
+                child.setOnScrollChangeListener(null)
+                host.park(child)
+            }
             if (webView != null && webView.parent !== container) {
                 (webView.parent as? ViewGroup)?.removeView(webView)
                 container.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }
+            webView?.setOnScrollChangeListener(listener)
         },
         onRelease = { pull ->
             val container = pull.tag as FrameLayout
-            (0 until container.childCount).map { container.getChildAt(it) }.filterIsInstance<WebView>().forEach(host::park)
+            (0 until container.childCount).map { container.getChildAt(it) }.filterIsInstance<WebView>().forEach {
+                it.setOnScrollChangeListener(null)
+                host.park(it)
+            }
         },
         modifier = modifier,
     )
+}
+
+/** How far the page scrolls one way before the bars follow, so a small
+ * correction does not flick them, as on iOS. */
+private val BarsTravel = 24.dp
+
+/** Turns a page's scrolling into reading down (true) or back up or at the
+ * top (false), as iOS's resident container does. */
+private class ReadingListener(
+    private val travelPx: Float,
+    private val reading: (Boolean) -> Unit,
+) : View.OnScrollChangeListener {
+    private var travel = 0f
+
+    override fun onScrollChange(view: View, x: Int, y: Int, oldX: Int, oldY: Int) {
+        // At the top the bars always show.
+        if (y <= travelPx) {
+            travel = 0f
+            reading(false)
+            return
+        }
+        val delta = (y - oldY).toFloat()
+        travel = if ((travel >= 0f) == (delta >= 0f)) travel + delta else delta
+        if (abs(travel) >= travelPx) {
+            reading(travel > 0f)
+            travel = 0f
+        }
+    }
 }
 
 /** The page menu both web screens share, as on iOS: reload, share, open in
@@ -211,7 +261,7 @@ private fun HistoryBack(site: SchoolSite, onExhausted: (() -> Unit)?) {
  * asks for. A page that did not load is covered by the notice, so WebView's
  * own error page never shows. */
 @Composable
-private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
+private fun SchoolPage(site: SchoolSite, onReading: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     val web = LocalModel.current.web
     val context = LocalContext.current
     val page = web.pages[site]
@@ -250,7 +300,7 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            ResidentWebView(site, web.browser, web.attachRevision, Modifier.fillMaxSize())
+            ResidentWebView(site, web.browser, web.attachRevision, onReading, Modifier.fillMaxSize())
             if (failure != null && failure.reason != LoadFailure.CLEARTEXT) FailedPage(site, failure)
         }
     }
@@ -411,18 +461,25 @@ fun WebTabScreen() {
     DisposableEffect(Unit) {
         web.showTab(web.tabSite)
         web.setVisible(web.tabSite)
-        onDispose { web.setVisible(null) }
+        onDispose {
+            web.barsHidden = false
+            web.setVisible(null)
+        }
     }
     HistoryBack(web.tabSite, onExhausted = null)
-    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        CenterAlignedTopAppBar(
-            navigationIcon = { Row { HistoryButtons(web.tabSite) } },
-            title = { SiteTitle() },
-            actions = { PageMenu(web.tabSite) },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
-        )
+    // The status bar's inset stays when the top bar folds away.
+    Column(Modifier.fillMaxSize().background(Theme.colors.bg).statusBarsPadding()) {
+        CollapsingBar(!web.barsHidden) {
+            CenterAlignedTopAppBar(
+                navigationIcon = { Row { HistoryButtons(web.tabSite) } },
+                title = { SiteTitle() },
+                actions = { PageMenu(web.tabSite) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
+                windowInsets = WindowInsets(0, 0, 0, 0),
+            )
+        }
         Box(Modifier.fillMaxSize()) {
-            SchoolPage(web.tabSite, Modifier.fillMaxSize())
+            SchoolPage(web.tabSite, { web.barsHidden = it }, Modifier.fillMaxSize())
             if (web.loading == web.tabSite && web.browser.webView(web.tabSite) == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
@@ -473,36 +530,50 @@ private fun SiteTitle() {
 fun WebPageScreen(page: WebRouter.PushedPage) {
     val web = LocalModel.current.web
     val navigator = LocalNavigator.current
-    val context = LocalContext.current
     DisposableEffect(page) {
         web.open(page.site, page.target)
         web.setVisible(page.site)
-        onDispose { web.setVisible(null) }
+        onDispose {
+            web.barsHidden = false
+            web.setVisible(null)
+        }
     }
     HistoryBack(page.site) { navigator.back() }
-    Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
-        TopAppBar(
-            navigationIcon = {
-                BackButton { navigator.back() }
-            },
-            title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            actions = { PageMenu(page.site) },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
-        )
+    Column(Modifier.fillMaxSize().background(Theme.colors.surface).statusBarsPadding()) {
+        CollapsingBar(!web.barsHidden) {
+            TopAppBar(
+                navigationIcon = {
+                    BackButton { navigator.back() }
+                },
+                title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                actions = { PageMenu(page.site) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
+                windowInsets = WindowInsets(0, 0, 0, 0),
+            )
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            SchoolPage(page.site, Modifier.fillMaxSize())
+            SchoolPage(page.site, { web.barsHidden = it }, Modifier.fillMaxSize())
             web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
         }
-        BottomAppBar(containerColor = Theme.colors.surface) {
-            val url = web.pages[page.site]?.url
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                HistoryButtons(page.site)
-                IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {
-                    Icon(Icons.Rounded.Share, t("common.share"))
-                }
-                IconButton(onClick = { url?.let { openInBrowser(context, it) } }, enabled = url != null) {
-                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInBrowser"))
-                }
+        CollapsingBar(!web.barsHidden) { BottomBar(page.site) }
+    }
+}
+
+/** A pushed page's history, share and browser buttons, as in Safari's bottom
+ * bar. */
+@Composable
+private fun BottomBar(site: SchoolSite) {
+    val web = LocalModel.current.web
+    val context = LocalContext.current
+    BottomAppBar(containerColor = Theme.colors.surface) {
+        val url = web.pages[site]?.url
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            HistoryButtons(site)
+            IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {
+                Icon(Icons.Rounded.Share, t("common.share"))
+            }
+            IconButton(onClick = { url?.let { openInBrowser(context, it) } }, enabled = url != null) {
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInBrowser"))
             }
         }
     }
