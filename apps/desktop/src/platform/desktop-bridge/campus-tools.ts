@@ -56,7 +56,7 @@ export type CampusPrinterStatus = {
   reach: "reachable" | "unreachable";
 };
 /** How adding the printer to the system ended. */
-export type CampusPrinterSetup =
+type CampusPrinterSetup =
   | { kind: "added" }
   | { kind: "cancelled" }
   | { kind: "account"; account: PrinterAccount }

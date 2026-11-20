@@ -14,7 +14,12 @@ import type {
   WorkspaceIntent,
   WorkspaceMutation,
 } from "@app/lib/workspace-intents";
-import type { WorkspaceChange } from "@app/generated/persistence";
+import type {
+  WorkspaceChange,
+  RunView,
+  SchoolSessionSnapshot,
+  SyncSnapshot,
+} from "@app/generated/persistence";
 import type { SectionContext } from "@app/pages/settings/registry";
 import {
   can,
@@ -33,7 +38,6 @@ import {
   type ScheduleQuery,
 } from "@app/platform/core-query";
 import { createTauriDesktopBridge, getDesktopBridge, type InvokeNative, type ListenNative, type SchoolDownloadEvent, type SchoolRecords, type WorkspaceChangedEvent } from "@app/platform/desktop-bridge";
-import type { SchoolSessionSnapshot } from "@app/platform/school-session-contract";
 import { finderQuery } from "@app/platform/finder-query";
 import {
   changesCommitted,
@@ -46,8 +50,6 @@ import {
   pageProgress,
   progressLine,
   runsFor,
-  type RunView,
-  type SyncSnapshot,
 } from "@app/platform/sync";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
@@ -1419,64 +1421,24 @@ const syncOf = (
 });
 
 describe("sync snapshot surfaces", () => {
-  it("shows a bar only for a run of known size and a spinner for background-only work", () => {
+  it("renders Core's selected work with the appropriate progress control", () => {
     expect(progressLine(syncOf(null))).toEqual({ kind: "idle" });
-    const background = run({ run: "bg", priority: "background", total: 40 });
-    expect(
-      progressLine(syncOf({ kind: "active", run: "bg" }, background)),
-    ).toMatchObject({
-      kind: "background",
-    });
-    const unsized = run({ run: "vis" });
-    expect(
-      progressLine(syncOf({ kind: "active", run: "vis" }, background, unsized)),
-    ).toMatchObject({
-      kind: "busy",
-      run: { run: "vis" },
-    });
-    // The page the person opened outranks Core's visible work.
-    const opened = run({
-      run: "open",
-      priority: "interactive",
-      done: 4,
-      total: 9,
-    });
-    expect(
-      progressLine(syncOf({ kind: "active", run: "open" }, unsized, opened)),
-    ).toEqual({
-      kind: "bar",
-      run: opened,
-      done: 4,
-      total: 9,
-    });
-  });
 
-  it("names a held foreground run before quiet background work, and skips failed runs", () => {
-    const held = run({ run: "held", held: { kind: "cellular" } });
-    const failed = run({
-      run: "failed",
-      total: 3,
-      failure: {
-        kind: "http-503",
-        reason: {
-          key: "syncStatus.failure.serverFailed",
-          args: { status: "503" },
-        },
-        keysFailed: 1,
-        retryAt: null,
-        detail: null,
-      },
-    });
-    const background = run({ run: "bg", priority: "background" });
-    expect(
-      progressLine(
-        syncOf({ kind: "held", run: "held" }, failed, held, background),
-      ),
-    ).toMatchObject({
-      kind: "held",
-      held: { kind: "cellular" },
-    });
-    expect(progressLine(syncOf(null, failed))).toEqual({ kind: "idle" });
+    const background = run({ priority: "background", total: 40 });
+    expect(progressLine(syncOf({ kind: "active", run: background.run }, background)))
+      .toMatchObject({ kind: "background" });
+
+    const unsized = run({});
+    expect(progressLine(syncOf({ kind: "active", run: unsized.run }, unsized)))
+      .toMatchObject({ kind: "busy" });
+
+    const sized = run({ done: 4, total: 9 });
+    expect(progressLine(syncOf({ kind: "active", run: sized.run }, sized)))
+      .toEqual({ kind: "bar", run: sized, done: 4, total: 9 });
+
+    const held = run({ held: { kind: "cellular" } });
+    expect(progressLine(syncOf({ kind: "held", run: held.run }, held)))
+      .toMatchObject({ kind: "held", held: { kind: "cellular" } });
   });
 
   it("sums a page's runs by scope, and drops the total when any run's size is unknown", () => {

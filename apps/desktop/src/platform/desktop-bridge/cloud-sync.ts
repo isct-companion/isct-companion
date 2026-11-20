@@ -9,7 +9,7 @@ export type CloudSyncVersion = {
   device: string;
   version?: string;
 };
-export type CloudSyncTask = {
+type CloudSyncTask = {
   id: string;
   direction: "upload" | "pull";
   version: string;

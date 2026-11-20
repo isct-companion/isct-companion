@@ -32,9 +32,15 @@ import {
   parseMatrixText,
   recognizeMatrixImage,
 } from "../../lib/matrix-ocr";
-import type { MatrixConfidence } from "../../generated/persistence";
-import type { SchoolConnectOutcome, SchoolCredentialStatus, SchoolCredentials } from "../../platform/desktop-bridge";
-import type { SchoolAuthProfile, SchoolSessionState } from "../../platform/school-session-contract";
+import type {
+  MatrixConfidence,
+  SchoolAuthProfile,
+  SchoolConnectOutcome,
+  SchoolCredentialStatus,
+  SchoolCredentials,
+  SchoolSessionState,
+} from "../../generated/persistence";
+
 import {
   schoolSessions,
   useSchoolSession,

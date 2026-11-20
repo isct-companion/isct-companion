@@ -1,3 +1,8 @@
+import type {
+  SchoolAuthProfile,
+  SchoolProfileSession,
+  SyncSnapshot,
+} from "../generated/persistence";
 import { SchoolStatusLine } from "./SchoolStatusLine";
 import { notify } from "../components/notifications/notify";
 import { UiButton } from "../components/ui";
@@ -5,12 +10,7 @@ import { t } from "../i18n";
 import { desktopBridge } from "../platform/native";
 import { useState } from "react";
 import { schoolSessions } from "../platform/school-session";
-import type {
-  SchoolAuthProfile,
-  SchoolProfileSession,
-} from "../platform/school-session-contract";
 import { sessionDetails, sessionText } from "../lib/sync-text";
-import type { SyncSnapshot } from "../platform/sync";
 
 /** One account in the footer: a dot by state, its label, the reason on
  * hover, and Retry while the account waits on the person. */

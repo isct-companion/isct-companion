@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SchoolSite {
     #[serde(rename = "science-portal", alias = "portal")]
     SciencePortal,

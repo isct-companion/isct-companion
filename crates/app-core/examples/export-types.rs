@@ -14,7 +14,12 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
-    for declaration in app_core::school_service::declarations(&cfg) {
+    for declaration in app_core::school_service::declarations(&cfg)
+        .into_iter()
+        .chain(app_core::school_auth::declarations(&cfg))
+        .chain(app_core::school_session::declarations(&cfg))
+        .chain(app_core::plan::declarations(&cfg))
+    {
         output.push_str("export ");
         output.push_str(&declaration);
         output.push_str("\n\n");

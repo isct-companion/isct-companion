@@ -207,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ("schedule/occurrence/mod.rs", "planning")
                         | ("course_query/mod.rs", "catalog" | "personal" | "conditions")
                         | ("school_auth/mod.rs", "matrix")
-                        | ("school_session/mod.rs", "presentation")
+                        | ("school_session/mod.rs", "presentation" | "snapshot")
                 ) {
                     items.extend(read_items(&path.with_file_name(format!("{child}.rs")))?);
                     continue;

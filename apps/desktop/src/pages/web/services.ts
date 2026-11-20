@@ -1,4 +1,4 @@
-import type { SchoolSite } from "../../platform/desktop-bridge";
+import type { SchoolSite } from "../../generated/persistence";
 
 /** School services by how often students open them. */
 export const serviceTiers: Array<{

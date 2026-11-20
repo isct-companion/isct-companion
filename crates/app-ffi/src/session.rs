@@ -683,6 +683,11 @@ pub fn decode_school_web_page(payload: JsonValue) -> Result<SchoolWebPage, SdkEr
 pub fn decode_sync_snapshot(payload: JsonValue) -> Result<SyncSnapshot, SdkError> {
     project_input(payload.0)
 }
+/// Decodes the same school snapshot as `Session::school_session` from a stream event.
+#[uniffi::export]
+pub fn decode_school_session(payload: JsonValue) -> Result<SchoolSessionSnapshot, SdkError> {
+    project_input(payload.0)
+}
 /// Decodes the payload of an `exam-account` stream event.
 #[uniffi::export]
 pub fn decode_exam_account(payload: JsonValue) -> Result<ExamAccount, SdkError> {

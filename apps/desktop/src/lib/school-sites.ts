@@ -1,4 +1,4 @@
-import type { SchoolSite } from "../platform/desktop-bridge";
+import type { SchoolSite } from "../generated/persistence";
 import type { MessageKey } from "../i18n";
 
 export type CustomizationSite = "portal" | "lms" | "syllabus";

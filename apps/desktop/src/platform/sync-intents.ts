@@ -1,5 +1,5 @@
+import type { RetryPlan, SyncHint, SyncScope } from "../generated/persistence";
 import { desktopBridge } from "./native";
-import type { RetryPlan, SyncHint, SyncScope } from "./sync";
 
 /** Forwards a fact or intent; Core decides what follows. */
 export function sendHint(hint: SyncHint) {

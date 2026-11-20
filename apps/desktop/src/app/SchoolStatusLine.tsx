@@ -1,8 +1,9 @@
+import type { SyncSnapshot } from "../generated/persistence";
 import { UiButton } from "../components/ui";
 import { formatJst } from "../lib/civil-date";
 import { t } from "../i18n";
 import { useClock } from "../platform/use-clock";
-import { failedRuns, progressLine, type SyncSnapshot } from "../platform/sync";
+import { failedRuns, progressLine } from "../platform/sync";
 import { retry } from "../platform/sync-intents";
 import {
   ageText,

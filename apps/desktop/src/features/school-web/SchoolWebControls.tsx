@@ -3,12 +3,12 @@ import { DownloadNotice } from "../../components/DownloadNotice";
 import { UiButton } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
+import type { SchoolSite } from "../../generated/persistence";
 import {
   type SchoolDownloadEvent,
   type SchoolLoadFailure,
   type SchoolOtpEnrollment,
   type SchoolOtpIntent,
-  type SchoolSite,
   type SchoolWebNotice,
   type SchoolWebPage,
   type SchoolWebProblem,

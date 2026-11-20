@@ -24,7 +24,7 @@ import { courseEditors } from "../../store/course-editors";
 import { useOpenHint } from "../../app/useOpenHint";
 import type { useCoursePlanningTerm } from "./useCoursePlanningTerm";
 import type { ShellRecords } from "../../platform/records";
-import type { SyncSnapshot, SyncView } from "../../platform/sync";
+import type { SyncSnapshot, SyncView } from "../../generated/persistence";
 
 const KYOMU_REGISTRATION =
   "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx";

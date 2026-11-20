@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { desktopBridge } from "../../platform/native";
 import { schoolWebExit } from "../../platform/school-web-owner";
-import type { SchoolSite, SchoolWebPage } from "../../platform/desktop-bridge";
+import type { SchoolSite } from "../../generated/persistence";
+import type { SchoolWebPage } from "../../platform/desktop-bridge";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
 
 /**

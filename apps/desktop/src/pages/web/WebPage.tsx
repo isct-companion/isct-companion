@@ -1,3 +1,4 @@
+import type { SchoolSite } from "../../generated/persistence";
 import { openExternalUrl } from "../../platform/external-url";
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import {
@@ -8,7 +9,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
-import type { SchoolSite, SchoolWebEntry } from "../../platform/desktop-bridge";
+import type { SchoolWebEntry } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import {
   boundsOf,

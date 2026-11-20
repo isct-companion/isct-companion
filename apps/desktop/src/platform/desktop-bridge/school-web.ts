@@ -1,3 +1,4 @@
+import type { SchoolSite } from "../../generated/persistence";
 import {
   quietly,
   subscribe,
@@ -5,16 +6,6 @@ import {
   type ListenNative,
 } from "./helpers";
 
-export type SchoolSite =
-  | "science-portal"
-  | "science-lms"
-  | "tokyo-portal"
-  | "tokyo-mail"
-  | "kyomu"
-  | "library"
-  | "tsubame"
-  | "syllabus"
-  | "study-guide";
 /** School-webview download progress stays associated with its own surface. */
 export type SchoolDownloadEvent = DownloadEvent & { site: SchoolSite };
 export type DownloadEvent = {
@@ -24,14 +15,14 @@ export type DownloadEvent = {
   path?: string;
 };
 /** One extractor result from LMS or one 教務Web page. */
-export type SchoolIngestOutcome = {
+type SchoolIngestOutcome = {
   site: SchoolSite;
   kind: string;
   state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
   changed: number;
   message: string;
 };
-export type KyomuGuideItem = {
+type KyomuGuideItem = {
   offeringId: string;
   code: string;
   title: string;
@@ -67,15 +58,15 @@ export type SchoolWebProblem =
 
 /** Core is signing the view in (the view is covered; the person may cancel),
  * or what its last sign-in left to say, until the view shows another page. */
-export type SchoolWebAccess =
+type SchoolWebAccess =
   { kind: "signing-in" } | { kind: "problem"; problem: SchoolWebProblem };
 
 /** Whether the app's Back or Forward does something for the page in front;
  * "unknown" when the host does not report history. */
-export type SchoolWebStep = "yes" | "no" | "unknown";
+type SchoolWebStep = "yes" | "no" | "unknown";
 
 /** A load of the page in front that failed; Core clears it. */
-export type SchoolWebFailure = {
+type SchoolWebFailure = {
   url: string | null;
   reason: SchoolLoadFailure;
 };

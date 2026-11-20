@@ -1,6 +1,6 @@
 import { useEffect } from "react";
+import type { SyncView } from "../generated/persistence";
 import { sendHint } from "../platform/sync-intents";
-import type { SyncView } from "../platform/sync";
 
 /** Tells Core a view became visible. Re-sent when the view changes or is
  * shown again; Core's open threshold keeps repeats cheap. */

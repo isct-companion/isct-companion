@@ -47,6 +47,8 @@ use serde::{Deserialize, Serialize};
 /// Interactive beats Visible beats Background. A higher tier is leased
 /// first but never interrupts a key that is already being read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncPriority"))]
 #[serde(rename_all = "kebab-case")]
 pub enum Priority {
     Background,
@@ -55,6 +57,8 @@ pub enum Priority {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncNetwork"))]
 #[serde(rename_all = "kebab-case")]
 pub enum Network {
     Offline,
@@ -65,6 +69,8 @@ pub enum Network {
 
 /// Facts and intents from a shell. None of them decides anything.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncHint"))]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Hint {
     Foreground,
@@ -90,6 +96,8 @@ pub enum Hint {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncView"))]
 #[serde(
     tag = "kind",
     rename_all = "kebab-case",
@@ -101,6 +109,7 @@ pub enum View {
     Timetable,
     /// One LMS course page (lms.course + lms.assign at Interactive).
     Course {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         lms_course_id: u64,
     },
     /// Course search for an academic year (catalog keys of that year).
@@ -111,6 +120,8 @@ pub enum View {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncScope"))]
 #[serde(
     tag = "kind",
     rename_all = "kebab-case",
@@ -122,6 +133,7 @@ pub enum Scope {
         site: SchoolSite,
     },
     Course {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         lms_course_id: u64,
     },
     /// What the timetable grid is drawn from, the keys of `View::Timetable`.
@@ -138,6 +150,7 @@ pub enum Scope {
 
 /// Refresh scopes that cover the failed keys.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RetryPlan {
     pub scopes: Vec<Scope>,
@@ -145,13 +158,18 @@ pub struct RetryPlan {
 
 /// i18n key plus arguments; shells translate, Core never builds sentences.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncLabel"))]
 pub struct Label {
     pub key: String,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown> | null"))]
     pub args: serde_json::Value,
 }
 
 /// Why due work is waiting.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "SyncHeld"))]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Held {
     Offline,
@@ -161,10 +179,12 @@ pub enum Held {
     /// The shell suspended the app.
     Background,
     Backoff {
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         until: DateTime<Utc>,
     },
     HostPaused {
         host: String,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         until: DateTime<Utc>,
     },
     /// No credential on the key's path can serve it and none can be got
@@ -185,6 +205,7 @@ pub enum Held {
 /// What lets an account's waiting reads go on. Waiting for the network is
 /// `Held::Offline`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum AccountWait {
     /// The person: no credentials, the school refused them or wants its own
@@ -192,16 +213,21 @@ pub enum AccountWait {
     /// person's Retry or Connect.
     Person,
     /// A pause after a sign-in without a verdict, until `until`.
-    Paused { until: DateTime<Utc> },
+    Paused {
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
+        until: DateTime<Utc>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SyncFailure {
     /// `sync_runs.error_kind` code (`timeout`, `http-503`, …).
     pub kind: String,
     pub reason: Label,
     pub keys_failed: u32,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub retry_at: Option<DateTime<Utc>>,
     /// Which pages of a run failed and why, one `page: reason` line each.
     /// Diagnostic text a person can quote in a report, not translated; only
@@ -212,6 +238,7 @@ pub struct SyncFailure {
 /// One dataset being worked on now (or held). Shells show `total` as a
 /// determinate bar only when it is `Some`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RunView {
     pub run: String,
@@ -230,10 +257,12 @@ pub struct RunView {
 
 /// One source as the status line shows it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SourceView {
     /// `lms`, `kyomu`, `references`, `catalog`.
     pub source: String,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub last_updated: Option<DateTime<Utc>>,
     pub running: bool,
     pub held: Option<Held>,
@@ -246,6 +275,7 @@ pub struct SourceView {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SyncWork {
     Resetting,
@@ -255,6 +285,7 @@ pub enum SyncWork {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(
     tag = "kind",
     rename_all = "kebab-case",
@@ -264,6 +295,7 @@ pub enum SyncAttentionProblem {
     Account {
         profile: SchoolAuthProfile,
         presentation: Option<SignInPresentation>,
+        #[cfg_attr(feature = "ts", ts(type = "string | null"))]
         retry_at: Option<DateTime<Utc>>,
     },
     RunFailed {
@@ -279,6 +311,7 @@ pub enum SyncAttentionProblem {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SyncAttention {
     pub primary: Option<SyncWork>,
@@ -287,13 +320,39 @@ pub struct SyncAttention {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SyncSnapshot {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub generation: u64,
     pub resetting: bool,
     pub attention: SyncAttention,
     pub runs: Vec<RunView>,
     pub sources: Vec<SourceView>,
+}
+
+#[cfg(feature = "ts")]
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
+    use ts_rs::TS;
+    vec![
+        SchoolSite::decl(cfg),
+        Priority::decl(cfg),
+        Network::decl(cfg),
+        Hint::decl(cfg),
+        View::decl(cfg),
+        Scope::decl(cfg),
+        Label::decl(cfg),
+        Held::decl(cfg),
+        RetryPlan::decl(cfg),
+        AccountWait::decl(cfg),
+        SyncFailure::decl(cfg),
+        RunView::decl(cfg),
+        SourceView::decl(cfg),
+        SyncWork::decl(cfg),
+        SyncAttentionProblem::decl(cfg),
+        SyncAttention::decl(cfg),
+        SyncSnapshot::decl(cfg),
+    ]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

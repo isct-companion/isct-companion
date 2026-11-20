@@ -38,6 +38,7 @@ mod login;
 mod owner;
 mod presentation;
 mod site;
+mod snapshot;
 mod store;
 mod vpn;
 mod walk;
@@ -47,11 +48,13 @@ pub(crate) use identity::{Ended, SignInAdmission};
 pub(crate) use login::fresh_otp;
 pub(crate) use owner::Permit;
 pub use presentation::{
-    SchoolConnectOutcome, SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles,
-    SchoolSessionSnapshot, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
+    SchoolConnectOutcome, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
     SignInPresentation, SignInRecovery,
 };
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
+pub use snapshot::{
+    SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
+};
 pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
 
@@ -1347,6 +1350,23 @@ impl Inner {
             answer: None,
         })
     }
+}
+
+#[cfg(feature = "ts")]
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
+    use ts_rs::TS;
+    vec![
+        SchoolSessionState::decl(cfg),
+        SchoolSignInProblemKind::decl(cfg),
+        SignInRecovery::decl(cfg),
+        SignInPresentation::decl(cfg),
+        SchoolSignInProblem::decl(cfg),
+        SchoolConnectOutcome::decl(cfg),
+        SchoolMaintenance::decl(cfg),
+        SchoolProfileSession::decl(cfg),
+        SchoolSessionProfiles::decl(cfg),
+        SchoolSessionSnapshot::decl(cfg),
+    ]
 }
 
 #[cfg(test)]

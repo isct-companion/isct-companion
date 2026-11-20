@@ -52,7 +52,6 @@ import { useTranslation } from "react-i18next";
 import { desktopBridge } from "../platform/native";
 import { hideNativeSchoolWeb } from "../platform/school-web-owner";
 import { type Page, type Section } from "../lib/route-contract";
-
 import { Today } from "../pages/today/TodayPage";
 import type { CourseEntry } from "../features/lms";
 import {
@@ -71,22 +70,17 @@ import { About } from "../pages/about/AboutPage";
 import { Tools } from "../pages/tools/ToolsPage";
 import { PastExams } from "../pages/past-exams/PastExamsPage";
 import { availableTools } from "../platform/available-tools";
-
 import { useEffect, useMemo, useRef, useState } from "react";
-
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
 import { useSchoolSession } from "../platform/school-session";
-import type { SchoolProfileSession } from "../platform/school-session-contract";
+import type { SchoolProfileSession } from "../generated/persistence";
 import { onWidgetRoute } from "../platform/widget-links";
-
 import { performAction } from "../platform/actions";
-
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { KeptPage } from "./KeptPage";
 import { traceRouter } from "./interaction-trace";
-
 import type { ClassGroupChoice, TermId, Workspace } from "../lib/model";
 import { tokyoDate } from "../lib/civil-date";
 import { useRecords } from "../platform/records";

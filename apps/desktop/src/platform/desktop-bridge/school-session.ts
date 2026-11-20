@@ -1,10 +1,12 @@
 import type {
   SchoolAuthProfile,
-  SchoolSessionState,
-  SchoolSignInProblemKind,
+  SchoolConnectOutcome,
+  SchoolCredentialStatus,
+  SchoolCredentials,
+  SchoolOtpCode,
   SchoolSessionSnapshot,
-  SignInPresentation,
-} from "../school-session-contract";
+  SchoolSessionState,
+} from "../../generated/persistence";
 
 import {
   quietly,
@@ -13,45 +15,6 @@ import {
   type ListenNative,
 } from "./helpers";
 
-export type SchoolCredentials = {
-  username: string;
-  password: string;
-  otpSecret: string;
-  matrix: string;
-};
-export type SchoolOtpCode = {
-  otp: string;
-  expiresAt: number;
-  period: number;
-};
-
-export type SchoolCredentialStatus = {
-  suggestedAdmissionYear?: number;
-  science: {
-    availability:
-      | "not-configured"
-      | "saved-locked"
-      | "available"
-      | "missing"
-      | "access-denied";
-    saved: boolean;
-    username: string;
-    hasOtp: boolean;
-    hasMatrix: boolean;
-  };
-  tokyoTech: {
-    availability:
-      | "not-configured"
-      | "saved-locked"
-      | "available"
-      | "missing"
-      | "access-denied";
-    saved: boolean;
-    username: string;
-    hasOtp: boolean;
-    hasMatrix: boolean;
-  };
-};
 const SCHOOL_SESSION_STATES: readonly unknown[] = [
   "not-configured",
   "normal",
@@ -60,16 +23,6 @@ const SCHOOL_SESSION_STATES: readonly unknown[] = [
   "needs-web",
   "unavailable",
 ] satisfies SchoolSessionState[];
-/** How Connect ended. Only `connected` saved anything: the entered
- * credentials are the verified ones now and sync to the other devices. */
-export type SchoolConnectOutcome = { presentation: SignInPresentation } & (
-  | { kind: "connected" | "unreachable" | "not-saved" | "stopped" }
-  | {
-      kind: "refused" | "needs-web";
-      reason: SchoolSignInProblemKind;
-      refusalUnsaved: boolean;
-    }
-);
 const isSchoolSessionSnapshot = (
   value: unknown,
 ): value is SchoolSessionSnapshot => {

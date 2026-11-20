@@ -3,7 +3,11 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SchoolAuthProfile, SchoolSessionSnapshot, SchoolSessionState } from "@app/platform/school-session-contract";
+import type {
+  SchoolAuthProfile,
+  SchoolSessionSnapshot,
+  SchoolSessionState,
+} from "@app/generated/persistence";
 import { bootstrapReminders } from "@app/platform/reminders";
 import { schoolSessions } from "@app/platform/school-session";
 import { schoolWebBounds } from "@app/platform/school-web-bounds";

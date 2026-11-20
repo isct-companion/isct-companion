@@ -1,10 +1,6 @@
 import { invoke } from "../../platform/native-error";
-import {
-  nativeOs,
-  type NativeOs,
-  type SchoolSite,
-} from "../../platform/desktop-bridge";
-import type { Viewer } from "../../generated/persistence";
+import { nativeOs, type NativeOs } from "../../platform/desktop-bridge";
+import type { SchoolSite, Viewer } from "../../generated/persistence";
 /** Where a note lives: a section of a course; Core names the course's folder. */
 export type CourseFolder = { courseId: string; section: string };
 export type LocalFile = {

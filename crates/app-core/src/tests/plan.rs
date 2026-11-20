@@ -1582,7 +1582,12 @@ fn retry_scopes_cover_failed_keys_without_guessing_from_malformed_scopes() {
     let inputs = inputs(vec![
         stored(current.dataset, &current.key, None, retry_at),
         stored(earlier.dataset, &earlier.key, None, retry_at),
+        stored(Dataset::CatalogOfficial, "2026/LA/en", None, retry_at),
         stored(Dataset::CatalogOfficial, "26/X", None, retry_at),
+        stored(Dataset::KyomuPage, "grades", None, retry_at),
+        stored(Dataset::KyomuPage, "gpa", None, retry_at),
+        stored(Dataset::LmsEnrolment, "all", None, retry_at),
+        stored(Dataset::LmsDeadlines, "all", None, retry_at),
     ]);
     let snapshot = snapshot::build(snapshot::Parts {
         generation: 0,
@@ -1594,12 +1599,18 @@ fn retry_scopes_cover_failed_keys_without_guessing_from_malformed_scopes() {
         inputs: &inputs,
         now: now(),
     });
-    let source = snapshot
-        .sources
-        .iter()
-        .find(|source| source.source == "catalog")
-        .unwrap();
-    let scopes = &source.retry.as_ref().unwrap().scopes;
+    let scopes_for = |name| {
+        &snapshot
+            .sources
+            .iter()
+            .find(|source| source.source == name)
+            .unwrap()
+            .retry
+            .as_ref()
+            .unwrap()
+            .scopes
+    };
+    let scopes = scopes_for("catalog");
     assert_eq!(
         scopes,
         &[Scope::Catalog { year: 2024 }, Scope::Catalog { year: 2026 }]
@@ -1613,6 +1624,18 @@ fn retry_scopes_cover_failed_keys_without_guessing_from_malformed_scopes() {
     assert!(queued
         .iter()
         .all(|key| key.dataset == Dataset::CatalogOfficial));
+    assert_eq!(
+        scopes_for("kyomu"),
+        &[Scope::Site {
+            site: SchoolSite::Kyomu,
+        }]
+    );
+    assert_eq!(
+        scopes_for("lms"),
+        &[Scope::Site {
+            site: SchoolSite::ScienceLms,
+        }]
+    );
 
     let run = |target: Key, scope: Option<&str>| {
         snapshot::run_view(&runner::Batch {
@@ -1692,7 +1715,7 @@ fn every_dataset_has_its_sync_labels_in_every_catalog() {
 }
 
 #[test]
-fn attention_puts_account_blockers_ahead_of_background_progress_and_reset_ahead_of_both() {
+fn attention_prioritizes_visible_work_and_account_blockers_below_reset() {
     let inputs = inputs(vec![stored(
         Dataset::CatalogOfficial,
         "2024/X",
@@ -1725,6 +1748,7 @@ fn attention_puts_account_blockers_ahead_of_background_progress_and_reset_ahead_
                 wait: AccountWait::Person,
             }),
         ),
+        batch("visible", Dataset::LmsCourse, Priority::Visible, None),
     ];
     let build = |batches, resetting| {
         snapshot::build(snapshot::Parts {
@@ -1740,6 +1764,19 @@ fn attention_puts_account_blockers_ahead_of_background_progress_and_reset_ahead_
         .attention
     };
     let primary = build(&batches, false);
+    assert_eq!(
+        primary.primary,
+        Some(SyncWork::Active {
+            run: "visible".into(),
+        })
+    );
+    assert!(primary.busy);
+    assert!(matches!(
+        primary.problem,
+        Some(SyncAttentionProblem::Account { .. })
+    ));
+
+    let primary = build(&batches[..2], false);
     assert_eq!(primary.primary, Some(SyncWork::Problem));
     assert!(!primary.busy);
     assert!(matches!(
@@ -1757,16 +1794,35 @@ fn attention_puts_account_blockers_ahead_of_background_progress_and_reset_ahead_
             problem: None
         }
     );
-    let source = build(&[], false);
+    let waiting = [batch(
+        "waiting",
+        Dataset::LmsCourse,
+        Priority::Visible,
+        Some(Held::Cellular),
+    )];
+    let attention = build(&waiting, false);
+    assert_eq!(
+        attention.primary,
+        Some(SyncWork::Held {
+            run: "waiting".into(),
+        })
+    );
+    assert!(!attention.busy);
     assert!(
-        matches!(source.problem, Some(SyncAttentionProblem::SourceFailed {
-        retry: Some(RetryPlan { scopes }), ..
-    }) if scopes == [Scope::Catalog { year: 2024 }])
+        matches!(attention.problem, Some(SyncAttentionProblem::SourceFailed {
+            retry: Some(RetryPlan { scopes }), ..
+        }) if scopes == [Scope::Catalog { year: 2024 }])
     );
 }
 
 #[test]
 fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
+    let catalogs = [
+        include_str!("../../../../resources/locales/en.json"),
+        include_str!("../../../../resources/locales/ja.json"),
+        include_str!("../../../../resources/locales/zh.json"),
+    ]
+    .map(|catalog| serde_json::from_str::<serde_json::Value>(catalog).unwrap());
     for (kind, expected, arg) in [
         (
             "http-302",
@@ -1805,8 +1861,16 @@ fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
             inputs: &inputs,
             now: now(),
         });
-        let reason = &projected.sources[2].failure.as_ref().unwrap().reason;
+        let reference = projected
+            .sources
+            .iter()
+            .find(|source| source.source == "references")
+            .unwrap();
+        let reason = &reference.failure.as_ref().unwrap().reason;
         assert_eq!(reason.key, format!("syncStatus.failure.{expected}"));
         assert_eq!(reason.args, arg);
+        for catalog in &catalogs {
+            assert!(catalog[&reason.key].is_string(), "{}", reason.key);
+        }
     }
 }

@@ -10,9 +10,11 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
   SchoolPageAvailability,
+  SyncHint,
+  SyncSnapshot,
   WorkspaceChange,
 } from "../generated/persistence";
-import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
+import { isSyncSnapshot } from "./sync";
 
 import {
   createBridgeCommands,
@@ -51,7 +53,6 @@ export type {
 } from "./desktop-bridge/helpers";
 export {
   CAMPUS_WIFI_STEPS,
-  type CampusPrinterSetup,
   type CampusPrinterStatus,
   type CampusWifiOutcome,
   type CampusWifiStatus,
@@ -64,32 +65,19 @@ export {
 export type {
   CloudSyncProvider,
   CloudSyncState,
-  CloudSyncTask,
   CloudSyncVersion,
 } from "./desktop-bridge/cloud-sync";
 export type {
-  SchoolConnectOutcome,
-  SchoolCredentials,
-  SchoolCredentialStatus,
-  SchoolOtpCode,
-} from "./desktop-bridge/school-session";
-export type {
   DownloadEvent,
-  KyomuGuideItem,
   SchoolDownloadEvent,
-  SchoolIngestOutcome,
   SchoolLoadFailure,
   SchoolOtpEnrollment,
   SchoolOtpIntent,
-  SchoolSite,
-  SchoolWebAccess,
   SchoolWebBounds,
   SchoolWebEntry,
-  SchoolWebFailure,
   SchoolWebNotice,
   SchoolWebPage,
   SchoolWebProblem,
-  SchoolWebStep,
 } from "./desktop-bridge/school-web";
 
 export type DesktopRuntime = "tauri";
@@ -429,7 +417,7 @@ export function createTauriDesktopBridge(
       let disposed = false;
       let unlisten: (() => void) | undefined;
       let version = 0;
-      void listen<SyncSnapshot>("sync-snapshot", (payload) => {
+      void listen<unknown>("sync-snapshot", (payload) => {
         if (!disposed && isSyncSnapshot(payload)) {
           version++;
           callback(payload);

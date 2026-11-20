@@ -51,6 +51,7 @@ impl SchoolAuthError {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum SchoolAuthProfile {
     Science,
@@ -90,6 +91,7 @@ impl SchoolAuthProfile {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolCredentials {
     pub username: String,
@@ -180,15 +182,18 @@ fn student_admission_year(username: &str) -> Option<i32> {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolCredentialStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub suggested_admission_year: Option<i32>,
     pub science: CredentialSummary,
     pub tokyo_tech: CredentialSummary,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialSummary {
     /// Authoritative vault state. `saved` is retained for older clients, but
@@ -202,6 +207,7 @@ pub struct CredentialSummary {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum CredentialAvailability {
     #[default]
@@ -1181,11 +1187,27 @@ pub struct OtpWindow {
 /// The current App OTP, its expiry as a Unix timestamp in seconds, and the
 /// length of its time step, so a shell can draw how much of it is left.
 #[derive(Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolOtpCode {
     pub otp: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expires_at: u64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub period: u64,
+}
+
+#[cfg(feature = "ts")]
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
+    use ts_rs::TS;
+    vec![
+        SchoolAuthProfile::decl(cfg),
+        SchoolCredentials::decl(cfg),
+        CredentialAvailability::decl(cfg),
+        CredentialSummary::decl(cfg),
+        SchoolCredentialStatus::decl(cfg),
+        SchoolOtpCode::decl(cfg),
+    ]
 }
 
 #[cfg(test)]

@@ -25,8 +25,8 @@ import {
   schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
-import type { CloudSyncState, SchoolCredentialStatus } from "@app/platform/desktop-bridge";
-import type { SchoolProfileSession } from "@app/platform/school-session-contract";
+import type { SchoolCredentialStatus, SchoolProfileSession } from "@app/generated/persistence";
+import type { CloudSyncState } from "@app/platform/desktop-bridge";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
 import { schoolSessions } from "@app/platform/school-session";

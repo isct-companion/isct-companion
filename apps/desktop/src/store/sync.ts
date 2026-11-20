@@ -1,6 +1,7 @@
+import type { SyncSnapshot } from "../generated/persistence";
 import { useSyncExternalStore } from "react";
 import { desktopBridge } from "../platform/native";
-import { EMPTY_SYNC, type SyncSnapshot } from "../platform/sync";
+import { EMPTY_SYNC } from "../platform/sync";
 
 // One subscription for the whole shell: every surface reads the same
 // snapshot, which the bridge seeds with `sync_snapshot` and then replaces on

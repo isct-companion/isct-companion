@@ -1,20 +1,18 @@
 /** Words for Core's sync snapshot and school sessions. Core sends i18n keys,
  * states and facts; this file names them and decides nothing about what is
  * due or when to sign in. */
-import { formatJst } from "./civil-date";
-import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
-import type {
-  SchoolAuthProfile,
-  SchoolProfileSession,
-  SignInPresentation,
-} from "../platform/school-session-contract";
 import type {
   AccountWait,
   RunView,
+  SchoolAuthProfile,
+  SchoolProfileSession,
+  SignInPresentation,
   SyncFailure,
   SyncHeld,
   SyncLabel,
-} from "../platform/sync";
+} from "../generated/persistence";
+import { formatJst } from "./civil-date";
+import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
 
 /** One name per `sync_state::Dataset`. */
 const DATASET_NAMES: Record<string, MessageKey> = {

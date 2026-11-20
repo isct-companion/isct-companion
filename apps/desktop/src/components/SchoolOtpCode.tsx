@@ -1,8 +1,8 @@
+import type { SchoolOtpCode } from "../generated/persistence";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { desktopBridge } from "../platform/native";
 import { t } from "../i18n";
-import type { SchoolOtpCode } from "../platform/desktop-bridge";
 import { Button, Modal, Stack, Text } from "./ui";
 
 export function SchoolOtpCodeButton({ disabled }: { disabled: boolean }) {

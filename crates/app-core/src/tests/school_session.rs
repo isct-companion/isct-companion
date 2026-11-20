@@ -520,6 +520,15 @@ async fn a_retry_the_vault_refuses_says_why() {
         Some(SchoolSignInProblemKind::CredentialStore)
     );
     assert!(session.retry_at.is_some());
+    assert_eq!(
+        session.presentation.state_key,
+        "schoolSession.state.unavailableRetry"
+    );
+    assert_eq!(
+        session.presentation.reason_key.as_deref(),
+        Some("schoolSession.problem.credentialStore")
+    );
+    assert_eq!(session.presentation.recovery, [SignInRecovery::Retry]);
     assert_eq!(sessions.0.account(profile).identity.sign_ins_started(), 1);
     assert!(sessions.0.account(profile).identity.configured());
 }
@@ -654,16 +663,76 @@ async fn a_reset_finishes_each_account_whose_credentials_went() {
     assert!(!sessions.0.auth.configured(science));
     assert!(sessions.sign_out_pending(tokyo));
     assert!(sessions.0.auth.configured(tokyo), "credentials go last");
+    let snapshot = sessions.snapshot();
+    let pending = &snapshot.profile(tokyo).presentation;
+    assert_eq!(pending.state_key, "schoolSession.state.signOutPending");
+    assert_eq!(pending.recovery, [SignInRecovery::FinishSignOut]);
+    assert!(pending.reason_key.is_none());
     let relaunched = SchoolSessions::new(None, auth());
     assert!(!relaunched.sign_out_pending(science) && relaunched.sign_out_pending(tokyo));
 
     *vault.credential_writes.lock().unwrap() = None;
     assert_eq!(sessions.sign_out(tokyo).await, Ok(true));
     assert!(!sessions.sign_out_pending(tokyo));
+    assert!(sessions
+        .snapshot()
+        .profile(tokyo)
+        .presentation
+        .recovery
+        .is_empty());
     assert!(!sessions.0.auth.configured(tokyo));
     let relaunched = SchoolSessions::new(None, auth());
     assert!(PROFILES
         .iter()
         .all(|profile| !relaunched.sign_out_pending(*profile)));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+// A revision always carries the view it was numbered with: shells keep the
+// highest revision they saw, so a higher revision with an older view (an
+// account stuck on "signing in") must be impossible, however publishes and
+// reads interleave. An unchanged view keeps its revision.
+#[test]
+fn a_school_session_revision_always_carries_its_own_view() {
+    let sessions = SchoolSessions::new(None, Arc::new(SchoolAuthService::new(NoVault)));
+    let first = sessions.snapshot();
+    assert_eq!(sessions.snapshot(), first);
+
+    let seen = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for thread in 0..4 {
+            let (sessions, seen) = (&sessions, &seen);
+            scope.spawn(move || {
+                for step in 0..300 {
+                    let identity = &sessions.0.account(SchoolAuthProfile::Science).identity;
+                    identity.set_configured((thread + step) % 2 == 0);
+                    sessions.0.publish();
+                    let snapshot = sessions.snapshot();
+                    seen.lock().unwrap().push(snapshot);
+                }
+            });
+        }
+    });
+    let mut views = std::collections::BTreeMap::new();
+    for snapshot in seen.into_inner().unwrap() {
+        let view = views
+            .entry(snapshot.revision)
+            .or_insert_with(|| snapshot.profiles.clone());
+        assert_eq!(*view, snapshot.profiles, "revision {}", snapshot.revision);
+    }
+    let last = sessions.snapshot();
+    assert!(last.revision > first.revision);
+    assert_eq!(
+        last.profiles.science.state,
+        if sessions
+            .0
+            .account(SchoolAuthProfile::Science)
+            .identity
+            .configured()
+        {
+            SchoolSessionState::Normal
+        } else {
+            SchoolSessionState::NotConfigured
+        }
+    );
 }
