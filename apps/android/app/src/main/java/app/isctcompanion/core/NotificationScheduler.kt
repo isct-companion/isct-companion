@@ -8,11 +8,14 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.util.Log
 import app.isctcompanion.MainActivity
 import app.isctcompanion.R
 import app.isctcompanion.design.Format
+import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -21,26 +24,28 @@ class NotificationScheduler(
     private val context: Context,
     private val onPermissionNeeded: (Boolean) -> Unit,
 ) : NativeReminderPort {
-    private var refreshing = emptySet<String>()
+    private var observed = emptyMap<String, PendingReminder>()
 
     override suspend fun facts(): ReminderPortFacts = withContext(Dispatchers.Main.immediate) {
         val alarms = context.getSystemService(AlarmManager::class.java)
         val exact = alarms?.canScheduleExactAlarms() == true
         val store = store(context)
-        val pending = store.getStringSet(SCHEDULED, emptySet()).orEmpty().map { key ->
-            val at = store.getString("$AT$key", null)
-            val wasExact = store.getBoolean("$EXACT$key", false)
+        val pending = readAlarms(store).map { (key, alarm) ->
             PendingReminder(
                 key = key,
-                at = at,
+                at = alarm.at,
+                title = alarm.title,
+                body = alarm.body,
+                deepLink = alarm.link,
                 state = when {
-                    pendingIntent(context, key) == null || (wasExact && !exact) -> PendingReminderState.MISSING
-                    at == null || wasExact != exact -> PendingReminderState.NEEDS_REFRESH
+                    alarm.token == null || pendingIntent(context, key, alarm.token) == null ||
+                        (alarm.exact && !exact) -> PendingReminderState.MISSING
+                    alarm.exact != exact -> PendingReminderState.NEEDS_REFRESH
                     else -> PendingReminderState.PENDING
                 },
             )
         }
-        refreshing = pending.filter { it.state == PendingReminderState.NEEDS_REFRESH }.map { it.key }.toSet()
+        observed = pending.associateBy { it.key }
         ReminderPortFacts(
             permitted = allowed(context),
             availableSlots = (LIMIT - pending.count { it.state != PendingReminderState.MISSING }).coerceAtLeast(0).toUInt(),
@@ -55,47 +60,98 @@ class NotificationScheduler(
         val alarms = context.getSystemService(AlarmManager::class.java)
         val exact = alarms?.canScheduleExactAlarms() == true
         val store = store(context)
-        val scheduled = store.getStringSet(SCHEDULED, emptySet()).orEmpty().toMutableSet()
-        val edit = store.edit()
-        val cancelled = plan.cancel.filter { key ->
-            attempt("cancel alarm") {
-                pendingIntent(context, key)?.let { intent ->
-                    alarms?.cancel(intent)
-                    intent.cancel()
+        val existing = readAlarms(store)
+        val scheduled = existing.toMutableMap()
+        val cancelled = plan.cancel.toSet()
+        for (key in cancelled) scheduled.remove(key)
+
+        val updated = plan.updatePending.mapNotNull { item ->
+            val previous = scheduled[item.key]
+            // A broadcast can finish between facts() and apply().
+            if (previous?.token == null) return@mapNotNull item.key
+            if (previous.at != observed[item.key]?.at) return@mapNotNull null
+            scheduled[item.key] = previous.copy(title = item.title, body = item.body, link = item.deepLink)
+            item.key
+        }
+        val registrations = plan.register.mapNotNull { item ->
+            val at = Format.date(item.at) ?: return@mapNotNull null
+            val now = Instant.now()
+            if (alarms == null || at <= now) return@mapNotNull null
+            val previous = observed[item.key]
+            val previousAt = Format.date(previous?.at)
+            if (previous != null && item.key !in existing) return@mapNotNull null
+            if (previousAt != null && previousAt <= now) return@mapNotNull null
+            val alarm = StoredAlarm(item.at, exact, UUID.randomUUID().toString(), item.title, item.body, item.deepLink)
+            scheduled[item.key] = alarm
+            item.key to alarm
+        }
+
+        val changed = cancelled + updated + registrations.map { it.first }
+        // A receiver can start a fresh process as soon as AlarmManager has
+        // accepted a request. Its token and content must already be on disk.
+        val persisted = changed.isEmpty() || persistAlarms(store, scheduled, changed)
+        if (!persisted) {
+            persistAlarms(store, existing, changed)
+            Log.w("isct", "Could not persist reminder alarms")
+        }
+        val registered = mutableListOf<String>()
+        if (persisted) {
+            for (key in cancelled) existing[key]?.token?.let { revokeAlarm(context, alarms, key, it) }
+            val rejected = mutableSetOf<String>()
+            for ((key, alarm) in registrations) {
+                val accepted = attempt("register alarm") {
+                    val at = Format.date(alarm.at) ?: return@attempt false
+                    val token = alarm.token ?: return@attempt false
+                    if (alarms == null || at <= Instant.now()) return@attempt false
+                    val previousAt = Format.date(observed[key]?.at)
+                    if (previousAt != null && previousAt <= Instant.now()) return@attempt false
+                    val intent = pendingIntent(context, key, token, install = true) ?: return@attempt false
+                    try {
+                        if (alarm.exact) {
+                            alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), intent)
+                        } else {
+                            alarms.setWindow(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), WINDOW_MS, intent)
+                        }
+                    } catch (error: Exception) {
+                        intent.cancel()
+                        throw error
+                    }
+                    true
                 }
-                scheduled.remove(key)
-                edit.remove("$AT$key").remove("$EXACT$key")
-                true
+                val previous = existing[key]
+                if (accepted) {
+                    registered.add(key)
+                    // A generation has its own handle. Keep the former alarm
+                    // available until AlarmManager accepts its replacement.
+                    previous?.token?.let { revokeAlarm(context, alarms, key, it) }
+                } else {
+                    rejected.add(key)
+                    if (previous == null) scheduled.remove(key) else scheduled[key] = previous
+                }
+            }
+            if (rejected.isNotEmpty() && !persistAlarms(store, scheduled, rejected)) {
+                Log.w("isct", "Could not restore rejected reminder alarms")
             }
         }
         val failed = plan.deliverNow.filterNot { item ->
             attempt("post reminder") { post(context, item.key, item.title, item.body, item.deepLink) }
         }.map { it.key }
-        val registered = plan.register.filter { item ->
-            attempt("register alarm") {
-                // A previously installed alarm may have fired since facts().
-                if (item.key in refreshing && item.key !in scheduled) return@attempt false
-                val at = Format.date(item.at) ?: return@attempt false
-                if (alarms == null) return@attempt false
-                val intent = pendingIntent(context, item.key, item) ?: return@attempt false
-                try {
-                    if (exact) {
-                        alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), intent)
-                    } else {
-                        alarms.setWindow(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), WINDOW_MS, intent)
-                    }
-                } catch (error: Exception) {
-                    intent.cancel()
-                    throw error
-                }
-                scheduled.add(item.key)
-                edit.putString("$AT${item.key}", item.at).putBoolean("$EXACT${item.key}", exact)
-                true
-            }
-        }.map { it.key }
-        if (cancelled.isNotEmpty() || registered.isNotEmpty()) edit.putStringSet(SCHEDULED, scheduled).apply()
-        ReminderReceipt(registered = registered, cancelled = cancelled, failedDeliveries = failed)
+        ReminderReceipt(
+            registered = registered,
+            updatedPending = if (persisted) updated else emptyList(),
+            cancelled = if (persisted) cancelled.toList() else emptyList(),
+            failedDeliveries = failed,
+        )
     }
+
+    private data class StoredAlarm(
+        val at: String?,
+        val exact: Boolean,
+        val token: String?,
+        val title: String?,
+        val body: String?,
+        val link: String?,
+    )
 
     companion object {
         private const val LIMIT = 64
@@ -105,6 +161,10 @@ class NotificationScheduler(
         private const val SCHEDULED = "scheduled"
         private const val AT = "alarm-at:"
         private const val EXACT = "alarm-exact:"
+        private const val TITLE = "alarm-title:"
+        private const val BODY = "alarm-body:"
+        private const val LINK = "alarm-link:"
+        private const val TOKEN = "alarm-token:"
         private const val WINDOW_MS = 10 * 60 * 1000L
         private const val ASKED = "asked"
 
@@ -123,8 +183,14 @@ class NotificationScheduler(
         /** A reboot or package replacement can discard alarms. Keep the stored
          * keys for Core's ownership recovery, while invalidating their handles. */
         fun invalidateAlarms(context: Context) {
-            for (key in store(context).getStringSet(SCHEDULED, emptySet()).orEmpty()) {
-                pendingIntent(context, key)?.cancel()
+            val store = store(context)
+            val alarms = context.getSystemService(AlarmManager::class.java)
+            val scheduled = readAlarms(store)
+            for ((key, alarm) in scheduled) {
+                alarm.token?.let { revokeAlarm(context, alarms, key, it) }
+            }
+            if (scheduled.isNotEmpty()) {
+                persistAlarms(store, scheduled.mapValues { (_, alarm) -> alarm.copy(token = null) }, scheduled.keys)
             }
         }
 
@@ -165,16 +231,53 @@ class NotificationScheduler(
             return true
         }
 
-        private fun pendingIntent(context: Context, key: String, item: NotificationItem? = null): PendingIntent? {
-            val intent = Intent(context, Receiver::class.java).setAction("app.isctcompanion.REMIND.$key")
-            val flags = if (item == null) {
-                PendingIntent.FLAG_NO_CREATE
-            } else {
-                intent.putExtra("key", item.key).putExtra("title", item.title).putExtra("body", item.body)
-                    .putExtra("deepLink", item.deepLink).putExtra("at", item.at)
-                PendingIntent.FLAG_CANCEL_CURRENT
+        private fun readAlarms(store: SharedPreferences): Map<String, StoredAlarm> =
+            store.getStringSet(SCHEDULED, emptySet()).orEmpty().associateWith { key ->
+                StoredAlarm(
+                    store.getString("$AT$key", null),
+                    store.getBoolean("$EXACT$key", false),
+                    store.getString("$TOKEN$key", null),
+                    store.getString("$TITLE$key", null),
+                    store.getString("$BODY$key", null),
+                    store.getString("$LINK$key", null),
+                )
             }
+
+        private fun persistAlarms(
+            store: SharedPreferences,
+            scheduled: Map<String, StoredAlarm>,
+            changed: Set<String>,
+        ): Boolean {
+            val edit = store.edit().putStringSet(SCHEDULED, scheduled.keys.toSet())
+            for (key in changed) {
+                val alarm = scheduled[key]
+                edit.putString("$AT$key", alarm?.at)
+                    .putString("$TITLE$key", alarm?.title)
+                    .putString("$BODY$key", alarm?.body)
+                    .putString("$LINK$key", alarm?.link)
+                    .putString("$TOKEN$key", alarm?.token)
+                if (alarm == null) edit.remove("$EXACT$key") else edit.putBoolean("$EXACT$key", alarm.exact)
+            }
+            return edit.commit()
+        }
+
+        private fun pendingIntent(context: Context, key: String, token: String, install: Boolean = false): PendingIntent? {
+            val intent = Intent(context, Receiver::class.java)
+                .setAction("app.isctcompanion.REMIND.$key.$token")
+                .putExtra("key", key)
+                .putExtra("token", token)
+            val flags = if (install) 0 else PendingIntent.FLAG_NO_CREATE
             return PendingIntent.getBroadcast(context, key.hashCode(), intent, flags or PendingIntent.FLAG_IMMUTABLE)
+        }
+
+        private fun revokeAlarm(context: Context, alarms: AlarmManager?, key: String, token: String) {
+            attempt("cancel alarm") {
+                pendingIntent(context, key, token)?.let { intent ->
+                    alarms?.cancel(intent)
+                    intent.cancel()
+                }
+                true
+            }
         }
     }
 
@@ -182,14 +285,16 @@ class NotificationScheduler(
         override fun onReceive(context: Context, intent: Intent) {
             val key = intent.getStringExtra("key") ?: return
             val store = store(context)
-            val scheduled = store.getStringSet(SCHEDULED, emptySet()).orEmpty()
-            // Ignore a broadcast already queued for an alarm Core has replaced.
-            if (key !in scheduled || intent.getStringExtra("at") != store.getString("$AT$key", null)) return
-            pendingIntent(context, key)?.cancel()
-            store.edit().putStringSet(SCHEDULED, scheduled - key).remove("$AT$key").remove("$EXACT$key").apply()
-            attempt("post alarm reminder") {
-                post(context, key, intent.getStringExtra("title"), intent.getStringExtra("body"), intent.getStringExtra("deepLink"))
+            val token = intent.getStringExtra("token") ?: return
+            val scheduled = readAlarms(store)
+            val current = scheduled[key] ?: return
+            // Replacing a request can leave an old broadcast queued for the same instant.
+            if (token != current.token) return
+            pendingIntent(context, key, token)?.cancel()
+            if (!persistAlarms(store, scheduled - key, setOf(key))) {
+                Log.w("isct", "Could not remove delivered reminder alarm")
             }
+            attempt("post alarm reminder") { post(context, key, current.title, current.body, current.link) }
         }
     }
 }

@@ -294,12 +294,7 @@ impl Core {
             }),
             runtime: Arc::downgrade(&runtime),
             reminders: reminders.changes(),
-            reminder_reads: crate::schedule::WorkspaceQuery::NotificationPlan {
-                now: String::new(),
-                horizon: String::new(),
-                locale: None,
-            }
-            .reads(),
+            reminder_reads: crate::schedule::REMINDER_FIELDS.to_vec(),
             plan: plan_hints.clone(),
             widgets: Arc::downgrade(&widgets),
             #[cfg(feature = "agent")]

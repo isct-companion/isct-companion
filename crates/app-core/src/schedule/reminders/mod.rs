@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
@@ -243,12 +243,7 @@ impl ReminderService {
                     }
                     // Only what the notification plan reads.
                     let fields = crate::workspace_changes::loaded_fields(
-                        super::WorkspaceQuery::NotificationPlan {
-                            now: String::new(),
-                            horizon: String::new(),
-                            locale: None,
-                        }
-                        .reads(),
+                        super::REMINDER_FIELDS.iter().copied(),
                     );
                     let (workspace, school, _) = store.view(&fields)?;
                     let permission = workspace
@@ -672,6 +667,20 @@ pub fn notification_plan(
     horizon: DateTime<FixedOffset>,
     locale: Option<NotificationLocale>,
 ) -> Result<NotificationPlan, ScheduleError> {
+    notification_plan_with_tracked(workspace, school, now, horizon, locale, &BTreeSet::new())
+}
+
+/// Include the current business reminder for each tracked key even outside
+/// the registration window. An OS request can still be pending past grace,
+/// and a delivered reminder can move beyond the current scheduling horizon.
+fn notification_plan_with_tracked(
+    workspace: &Value,
+    school: &SchoolReads,
+    now: DateTime<FixedOffset>,
+    horizon: DateTime<FixedOffset>,
+    locale: Option<NotificationLocale>,
+    tracked: &BTreeSet<&str>,
+) -> Result<NotificationPlan, ScheduleError> {
     if horizon < now {
         return Err(ScheduleError::InvalidInput(
             "notification horizon must not precede now".into(),
@@ -709,6 +718,34 @@ pub fn notification_plan(
     }
     let quizzes = preferences.quizzes;
     if classes || exams {
+        let class_keys: BTreeSet<_> = tracked
+            .iter()
+            .filter_map(|key| key.strip_prefix("class:"))
+            .collect();
+        let mut dates: BTreeSet<_> = (0..=days + (class_lead.max(exam_lead) + 1439) / 1440 + 1)
+            .map(|offset| (start_date + Duration::days(offset)).to_string())
+            .collect();
+        dates.extend(
+            class_keys
+                .iter()
+                .filter_map(|key| super::occurrence::key_date(key))
+                .map(str::to_owned),
+        );
+        if !class_keys.is_empty() {
+            dates.extend(
+                array(workspace, "scheduleOverrides")
+                    .iter()
+                    .filter(|row| visible(row))
+                    .filter_map(|row| {
+                        let key = text(row, "targetKey")?;
+                        if class_keys.contains(key) {
+                            text(row, "date").map(str::to_owned)
+                        } else {
+                            None
+                        }
+                    }),
+            );
+        }
         let term = reminder_term(workspace);
         let mut terms = std::collections::BTreeSet::from([term.clone()]);
         if exams {
@@ -718,11 +755,16 @@ pub fn notification_plan(
             let sessions = super::occurrence::CourseSessions::new(workspace, &source_term, None)?;
             let published =
                 super::exams::published_sessions_by_date(workspace, school, &source_term);
-            for offset in 0..=days + (class_lead.max(exam_lead) + 1439) / 1440 + 1 {
-                let date = (start_date + Duration::days(offset)).to_string();
+            let published_dates = published.iter().filter_map(|(date, exams)| {
+                exams.iter()
+                    .any(|exam| class_keys.contains(exam.key.as_str()))
+                    .then_some(date)
+            });
+            let source_dates: BTreeSet<_> = dates.iter().chain(published_dates).collect();
+            for date in source_dates {
                 for block in sessions.agenda_on(
-                    &date,
-                    published.get(&date).map(Vec::as_slice).unwrap_or_default(),
+                    date,
+                    published.get(date).map(Vec::as_slice).unwrap_or_default(),
                     AgendaOptions {
                         include_personal: false,
                         ..AgendaOptions::default()
@@ -750,7 +792,8 @@ pub fn notification_plan(
                         )
                     })?;
                     let at = start - Duration::minutes(lead);
-                    if at < now || at > horizon {
+                    let key = format!("class:{}", block.key);
+                    if !(now..=horizon).contains(&at) && !tracked.contains(key.as_str()) {
                         continue;
                     }
                     let title = if block.kind == OccurrenceKind::Exam {
@@ -779,7 +822,7 @@ pub fn notification_plan(
                         }
                     );
                     items.push(NotificationItem {
-                        key: format!("class:{}", block.key),
+                        key,
                         at: at.to_rfc3339(),
                         title,
                         body,
@@ -817,7 +860,11 @@ pub fn notification_plan(
                 .to_owned();
             for &lead in &assignment_leads {
                 let at = due - Duration::minutes(lead);
-                if at < now || at > horizon {
+                let key = format!(
+                    "assignment:{}:{lead}",
+                    text(assignment, "id").unwrap_or_default()
+                );
+                if !(now..=horizon).contains(&at) && !tracked.contains(key.as_str()) {
                     continue;
                 }
                 let lead_text = if japanese {
@@ -839,10 +886,7 @@ pub fn notification_plan(
                     )
                 };
                 items.push(NotificationItem {
-                    key: format!(
-                        "assignment:{}:{lead}",
-                        text(assignment, "id").unwrap_or_default()
-                    ),
+                    key,
                     at: at.to_rfc3339(),
                     title: text(assignment, "title").unwrap_or_default().into(),
                     body: if course_title.is_empty() {

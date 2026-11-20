@@ -13,6 +13,7 @@ final class NotificationScheduler: NativeReminderPort {
     private let log = Logger(subsystem: "app.isctcompanion", category: "reminders")
     private weak var session: Session?
     private var asking = false
+    private var pendingAt: [String: Date] = [:]
 
     init(session: Session) {
         self.session = session
@@ -24,19 +25,32 @@ final class NotificationScheduler: NativeReminderPort {
         let pending = requests.compactMap { request -> PendingReminder? in
             guard request.identifier.hasPrefix(Self.prefix) else { return nil }
             let at = request.content.userInfo["reminderAt"] as? String
-                ?? (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate().map { AppModel.timestamp($0) }
-            return PendingReminder(key: String(request.identifier.dropFirst(Self.prefix.count)), at: at, state: .pending)
+            return PendingReminder(
+                key: String(request.identifier.dropFirst(Self.prefix.count)),
+                at: at,
+                title: request.content.title,
+                body: request.content.body,
+                deepLink: request.content.userInfo["deepLink"] as? String,
+                state: .pending
+            )
         }
+        pendingAt = Dictionary(uniqueKeysWithValues: pending.compactMap { request in
+            guard let at = request.at, let date = AppModel.date(at) else { return nil }
+            return (request.key, date)
+        })
         return ReminderPortFacts(permitted: permitted, availableSlots: UInt32(max(0, Self.limit - requests.count)), pending: pending)
     }
 
     func apply(plan: ReminderDeliveryPlan) async throws -> ReminderReceipt {
         if plan.permissionNeeded { askWhenActive() }
-        var cancelled: [String] = []
-        if !plan.cancel.isEmpty {
-            center.removePendingNotificationRequests(withIdentifiers: plan.cancel.map { Self.prefix + $0 })
+        // A past calendar trigger cannot be installed again. Withdraw stale
+        // requests that the notification center still lists.
+        let stale = plan.cancel + plan.updatePending.map(\.key)
+        var removed: Set<String> = []
+        if !stale.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: stale.map { Self.prefix + $0 })
             let pending = Set(await center.pendingNotificationRequests().map(\.identifier))
-            cancelled = plan.cancel.filter { !pending.contains(Self.prefix + $0) }
+            removed = Set(stale.filter { !pending.contains(Self.prefix + $0) })
         }
         var failed: [String] = []
         for item in plan.deliverNow {
@@ -50,6 +64,8 @@ final class NotificationScheduler: NativeReminderPort {
                 log.error("Invalid reminder date from Core")
                 continue
             }
+            // The old request could have fired since Core read the pending list.
+            if let previous = pendingAt[item.key], previous <= Date() { continue }
             var parts = Calendar.tokyo.dateComponents([.year, .month, .day, .hour, .minute, .second], from: at)
             parts.calendar = Calendar.tokyo
             parts.timeZone = .tokyo
@@ -61,7 +77,12 @@ final class NotificationScheduler: NativeReminderPort {
                 registered.append(item.key)
             }
         }
-        return ReminderReceipt(registered: registered, cancelled: cancelled, failedDeliveries: failed)
+        return ReminderReceipt(
+            registered: registered,
+            updatedPending: plan.updatePending.map(\.key).filter { removed.contains($0) },
+            cancelled: plan.cancel.filter { removed.contains($0) },
+            failedDeliveries: failed
+        )
     }
 
     private func add(_ item: NotificationItem, identifier: String, trigger: UNNotificationTrigger?) async -> Bool {

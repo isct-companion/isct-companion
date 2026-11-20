@@ -304,6 +304,19 @@ const AGENDA: &[WorkspaceChange] = &[
     Settings,
 ];
 const CALENDAR: &[WorkspaceChange] = &[Calendar, Settings];
+pub(crate) const REMINDER_FIELDS: &[WorkspaceChange] = &[
+    Courses,
+    Registrations,
+    Finder,
+    Calendar,
+    Materials,
+    Assignments,
+    Plans,
+    Events,
+    Subscriptions,
+    Settings,
+    Exams,
+];
 
 impl WorkspaceQuery {
     /// The changes whose records this query's result is computed from. A
@@ -319,7 +332,7 @@ impl WorkspaceQuery {
         // The exam timetable lives in `SchoolReads` and loads no field, so no
         // check can tell which answers it reaches. Every query that reads the
         // workspace re-runs when it changes; it changes a few times a quarter.
-        if !reads.is_empty() {
+        if !reads.is_empty() && !reads.contains(&Exams) {
             reads.push(Exams);
         }
         reads
@@ -413,8 +426,7 @@ impl WorkspaceQuery {
             ],
             Self::Today { .. }
             | Self::CourseContent { .. }
-            | Self::Glance { .. }
-            | Self::NotificationPlan { .. } => &[
+            | Self::Glance { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -426,6 +438,7 @@ impl WorkspaceQuery {
                 Subscriptions,
                 Settings,
             ],
+            Self::NotificationPlan { .. } => REMINDER_FIELDS,
         }
     }
 }
