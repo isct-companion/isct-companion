@@ -12,7 +12,7 @@ struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
     @State private var monday = TimetableScreen.monday(of: Date())
-    private var week: ScheduleView? { model.weeks[AppModel.civil(monday)] }
+    private var week: ScheduleView? { model.timetableWeeks[monday] }
     @State private var year: TimetableYear?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
@@ -33,6 +33,7 @@ struct TimetableScreen: View {
     private static let dayHeaderHeight: CGFloat = 54
 
     var body: some View {
+        let weekRevision = model.timetableWeeks.revision
         VStack(alignment: .leading, spacing: 12) {
             header
             TipView(TimetableMarkTip())
@@ -61,22 +62,25 @@ struct TimetableScreen: View {
             model.syncHint(.open(view: .timetable))
             if axis == nil { axis = model.lastTimetableAxis }
         }
-        .task(id: "\(monday.timeIntervalSince1970)-\(model.timetableRevision)-\(model.today?.term ?? "")") {
-            // A newer revision cancels this read: its empty answer must not
-            // replace what is shown.
-            let loaded = await model.week(starting: monday)
-            guard !Task.isCancelled else { return }
-            let blocks = (loaded?.agendas ?? []).flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
+        .task(id: "\(monday.timeIntervalSince1970)-\(weekRevision)-\(model.today?.term ?? "")") { [monday] in
+            guard self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
+            guard let loaded = await model.week(starting: monday), !Task.isCancelled else { return }
+            let blocks = loaded.agendas.flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
             let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
             let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
             let shape = await model.timetableAxis(earliest: earliest, latest: latest)
-            guard !Task.isCancelled else { return }
-            if let shape { axis = shape }
+            guard !Task.isCancelled, self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
+            if let shape {
+                axis = shape
+                model.lastTimetableAxis = shape
+            }
             guard let number = await model.academicYear(of: monday),
                 year?.year != number || year?.quarters.isEmpty == true
             else { return }
             let calendar = await model.timetableYear(number)
-            if !Task.isCancelled, let calendar { year = calendar }
+            if !Task.isCancelled, self.monday == monday, model.timetableWeeks.revision == weekRevision, let calendar {
+                year = calendar
+            }
         }
         .sheet(isPresented: $showsPicker) {
             WeekPicker(year: year, monday: monday) { picked in
@@ -243,7 +247,7 @@ struct TimetableScreen: View {
         return ZStack(alignment: .topLeading) {
             ForEach([-1, 0, 1], id: \.self) { slot in
                 let start = Calendar.tokyo.date(byAdding: .day, value: 7 * slot, to: monday) ?? monday
-                grid(start, week: slot == 0 ? week : model.weeks[AppModel.civil(start)])
+                grid(start, week: model.timetableWeeks[start])
                     .offset(x: CGFloat(slot) * page + dragOffset)
                     .allowsHitTesting(slot == 0)
                     .accessibilityHidden(slot != 0)

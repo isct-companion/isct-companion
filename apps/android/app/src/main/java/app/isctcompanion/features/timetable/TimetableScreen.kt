@@ -117,7 +117,9 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -140,7 +142,8 @@ fun TimetableScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
-    val week = model.cachedWeek(monday)
+    val week = model.timetableWeeks[monday]
+    val weekRevision = model.timetableWeeks.revision
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
     var year by remember { mutableStateOf<TimetableYear?>(null) }
     var picker by remember { mutableStateOf(false) }
@@ -156,15 +159,25 @@ fun TimetableScreen() {
         monday = monday(LocalDate.parse(date))
         navigator.timetableDate = null
     }
-    // A week read with its neighbours draws at once; the effect below still
-    // checks it against the current revision.
-    LaunchedEffect(monday, model.timetableRevision, model.today?.term) {
-        // A newer revision or week cancels this read (the query rethrows), so
-        // its empty answer never replaces what is shown.
-        val loaded = model.week(monday)
-        model.timetableAxis(loaded)?.let { axis = it }
-        val number = model.academicYear(monday) ?: return@LaunchedEffect
-        if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
+    val requestedMonday = monday
+    LaunchedEffect(requestedMonday, weekRevision, model.today?.term) {
+        if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
+        val loaded = model.week(requestedMonday) ?: return@LaunchedEffect
+        val shape = model.timetableAxis(loaded)
+        currentCoroutineContext().ensureActive()
+        if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
+        if (shape != null) {
+            axis = shape
+            model.lastTimetableAxis = shape
+        }
+        val number = model.academicYear(requestedMonday) ?: return@LaunchedEffect
+        if (year?.year != number || year?.quarters?.isEmpty() == true) {
+            val calendar = model.timetableYear(number)
+            currentCoroutineContext().ensureActive()
+            if (monday == requestedMonday && model.timetableWeeks.revision == weekRevision && calendar != null) {
+                year = calendar
+            }
+        }
     }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
     var width by remember { mutableFloatStateOf(1f) }
@@ -261,7 +274,7 @@ fun TimetableScreen() {
                 val start = monday.plusWeeks(slot.toLong())
                 key(slot) {
                     Grid(
-                        start, if (slot == 0) week else model.cachedWeek(start), axis, rowHeight,
+                        start, model.timetableWeeks[start], axis, rowHeight,
                         Modifier
                             .offset { IntOffset((slot * (width + gap) + shift.value).roundToInt(), 0) }
                             .graphicsLayer { alpha = fade.value }
@@ -472,7 +485,9 @@ private fun DayColumn(
             // The first read of a week draws placeholder blocks, then fades in.
             Loading(week != null, placeholder = { DaySkeleton(axis, rowHeight) }) {
                 Box(Modifier.fillMaxSize()) {
-                    for (block in blocks) Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                    for (block in blocks) key(block.key) {
+                        Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                    }
                 }
             }
             if (today) NowLine(axis, rowHeight)
@@ -627,8 +642,9 @@ private fun Block(
                     trailingIcon = { if (mark == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
                     onClick = {
                         menu = false
+                        val committed = model.markSession(block.key, if (mark == state) "class" else value)
                         scope.launch {
-                            model.markSession(block.key, if (mark == state) "class" else value)
+                            committed.join()
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         }
                     },

@@ -117,9 +117,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private var revision = ""
     private var lastNotificationSeq: ULong? = null
     private val dashboardReads = ScheduleReads()
-    private val timetableReads = ScheduleReads()
-    var timetableRevision by mutableStateOf(0L)
-        private set
+    internal val timetableWeeks = TimetableWeeks()
+    private val sessionMarks = Mutex()
     var upcomingExams by mutableStateOf(emptyList<ExamView>())
         private set
     private var boundaryJob: Job? = null
@@ -383,17 +382,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     private fun scheduleRefresh(force: Boolean = false): Job? {
         val session = session ?: return null
-        if (force) dashboardReads.invalidate()
-        if (force || (weeks.isNotEmpty() && !timetableReads.current(session))) {
-            invalidateWeeks()
+        if (force) {
+            dashboardReads.invalidate()
+            timetableWeeks.invalidate()
+        } else {
+            timetableWeeks.invalidateIfChanged(session)
         }
         return dashboardReads.refresh(scope, session, { readDashboard(session, it) }, { problem = describe(it) })
-    }
-
-    private fun invalidateWeeks() {
-        timetableReads.invalidate()
-        timetableRevision++
-        weeks.clear()
     }
 
     suspend fun refresh() { scheduleRefresh(force = true)?.join() }
@@ -429,7 +424,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             when (value) {
                 is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
                 is WorkspaceQueryResult.Today -> {
-                    if (today?.term?.let { it != value.v1.term } == true) invalidateWeeks()
+                    if (today?.term?.let { it != value.v1.term } == true) timetableWeeks.invalidate()
                     today = value.v1
                 }
                 is WorkspaceQueryResult.UpcomingExams -> upcomingExams = value.v1
@@ -493,44 +488,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (shown == null || snapshot.generation >= shown.generation) syncSnapshot = snapshot
     }
 
-    /** Weeks already read this revision, by Monday, so the timetable draws
-     * them at once; a new revision re-reads them. */
-    private val weeks = androidx.compose.runtime.mutableStateMapOf<LocalDate, ScheduleView>()
-
-    /** A week read with its neighbours, if this revision has it. */
-    fun cachedWeek(monday: LocalDate): ScheduleView? = weeks[monday]
-
-    /** The week from `monday`, read with `WEEK_REACH` weeks on either side in
-     * one query, so stepping or swiping through nearby weeks draws at once. */
     suspend fun week(monday: LocalDate): ScheduleView? {
         val session = session ?: return null
-        val generation = timetableReads.generation
-        if (timetableReads.current(session)) weeks[monday]?.let { return it }
         val term = today?.term ?: return null
-        val first = Format.civil(monday.minusWeeks(WEEK_REACH))
-        val last = Format.civil(monday.plusWeeks(WEEK_REACH).plusDays(4))
-        val spec = WorkspaceQuery.ScheduleView(term, first, last, false)
-        var view: ScheduleView
-        while (true) {
-            val result = scheduleSnapshot(session, spec) ?: return null
-            if (generation != timetableReads.generation || today?.term != term) return null
-            if (weeks.isNotEmpty() && !timetableReads.current(session)) {
-                weeks.clear()
-                timetableRevision++
-            }
-            if (timetableReads.accept(result, generation, session)) {
-                view = (result.values.single() as WorkspaceQueryResult.ScheduleView).v1
-                break
-            }
-        }
-        for (offset in -WEEK_REACH..WEEK_REACH) {
-            val start = monday.plusWeeks(offset)
-            val from = Format.civil(start)
-            val to = Format.civil(start.plusDays(4))
-            // Civil dates compare as text.
-            weeks[start] = view.copy(agendas = view.agendas.filter { it.date >= from && it.date <= to })
-        }
-        return weeks[monday]
+        return timetableWeeks.week(monday, term, session) { scheduleSnapshot(session, it) }
     }
 
     /** The academic year (April–March) a date belongs to. */
@@ -656,19 +617,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */
-    suspend fun timetableAxis(week: ScheduleView?): TimetableAxis? {
-        val blocks = week?.agendas.orEmpty().flatMap { it.occurrences }
+    suspend fun timetableAxis(week: ScheduleView): TimetableAxis? {
+        val blocks = week.agendas.flatMap { it.occurrences }
             .filter { it.kind == OccurrenceKind.COURSE || it.kind == OccurrenceKind.EXAM }
         val earliest = blocks.map { it.startTime }.minByOrNull(::clockMinutes)
         val latest = blocks.map { it.endTime }.maxByOrNull(::clockMinutes)
-        val axis = (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
-        if (axis != null) lastTimetableAxis = axis
-        return axis
+        return (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
     }
 
     /** The last axis Core gave, so a timetable draws its rows at once. */
     var lastTimetableAxis: TimetableAxis? = null
-        private set
 
     /** A quarter as an iCalendar file, written by Core as the desktop's export. */
     suspend fun quarterIcs(term: String, scope: CalendarExportScope): String {
@@ -677,10 +635,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val value = (session.scheduleQuery(listOf(query)).value() as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
         return (value as? WorkspaceQueryResult.QuarterIcs)?.v1 ?: throw SdkException.Unavailable("quarter calendar")
     }
-
-    /** Exams Core lists as upcoming (linked and scheduled) from today
-     * through `days` days ahead, for 今日. */
-
 
     /** Downloads (or reuses) a course file through the signed-in LMS session. */
     /** What an item or link of the course `courseId` opens as; a file is
@@ -830,8 +784,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
      * `class` (a plain class; Core clears the mark when that is the default).
      * The commit names `calendar`, which re-queries the week. */
-    suspend fun markSession(key: String, mark: String) {
-        commit(WorkspaceIntent.MarkSession(key, mark))
+    fun markSession(key: String, mark: String): Job = scope.launch {
+        // Each mark uses the workspace revision returned by the preceding commit.
+        sessionMarks.withLock { commit(WorkspaceIntent.MarkSession(key, mark)) }
     }
 
     /** Records `sectionId` as the lesson of the class at `occurrence` (Core's
@@ -1046,7 +1001,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * announces the change, which re-reads every screen. */
     suspend fun reset(request: ResetRequest) {
         val session = session ?: return
-        session.reset(request)
+        try {
+            session.reset(request)
+        } finally {
+            timetableWeeks.invalidate(discard = true)
+        }
         problem = null
         refreshAccounts()
         readSync()
@@ -1188,9 +1147,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 }
 
 data class UndoAction(val title: String, val assignmentId: String)
-
-/** Weeks read on either side of the one asked for. */
-private const val WEEK_REACH = 4L
 
 /** What opening Core's campus map page answered. */
 sealed interface CampusMapOpening {

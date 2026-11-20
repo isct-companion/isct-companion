@@ -66,8 +66,8 @@ final class AppModel {
     private var revision = ""
     private var lastNotificationSeq: UInt64?
     private let dashboardReads = ScheduleReads()
-    private let timetableReads = ScheduleReads()
-    private(set) var timetableRevision = 0
+    let timetableWeeks = TimetableWeeks()
+    @ObservationIgnored private var pendingSessionMark: Task<Void, Never>?
     private(set) var upcomingExams: [ExamView] = []
     private var boundaryTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
@@ -395,19 +395,15 @@ final class AppModel {
     @discardableResult
     private func scheduleRefresh(force: Bool = false) -> Task<Void, Never>? {
         guard let session else { return nil }
-        if force { dashboardReads.invalidate() }
-        if force || (!weeks.isEmpty && (try? timetableReads.current(session)) == false) {
-            invalidateWeeks()
+        if force {
+            dashboardReads.invalidate()
+            timetableWeeks.invalidate()
+        } else {
+            timetableWeeks.invalidateIfChanged(session)
         }
         return dashboardReads.refresh(session, read: { generation in
             try await self.readDashboard(session, generation: generation)
         }, failed: { self.problem = Self.describe($0) })
-    }
-
-    private func invalidateWeeks() {
-        timetableReads.invalidate()
-        timetableRevision += 1
-        weeks.removeAll()
     }
 
     func refresh() async { await scheduleRefresh(force: true)?.value }
@@ -445,7 +441,7 @@ final class AppModel {
             switch value {
             case let .records(json): records = WorkspaceRecords(json: json)
             case let .today(view):
-                if let old = today?.term, old != view.term { invalidateWeeks() }
+                if let old = today?.term, old != view.term { timetableWeeks.invalidate() }
                 today = view
             case let .upcomingExams(exams): upcomingExams = exams
             case let .assignmentBoard(value): board = value; writeShareChoices(value)
@@ -501,52 +497,10 @@ final class AppModel {
         syncSnapshot = snapshot
     }
 
-    /// The week from `monday`, read with `weekReach` weeks on either side in
-    /// one query, so stepping or swiping through nearby weeks draws at once.
     func week(starting monday: Date) async -> ScheduleView? {
-        let key = Self.civil(monday)
-        let generation = timetableReads.generation
-        if let session, let cached = weeks[key], (try? timetableReads.current(session)) == true { return cached }
         guard let session, let term = today?.term else { return nil }
-        let calendar = Calendar.tokyo
-        let first = calendar.date(byAdding: .day, value: -7 * Self.weekReach, to: monday) ?? monday
-        let last = calendar.date(byAdding: .day, value: 7 * Self.weekReach + 4, to: monday) ?? monday
-        let query = WorkspaceQuery.scheduleView(
-            term: term, from: Self.civil(first), to: Self.civil(last), includePersonal: false)
-        var view: ScheduleView
-        while true {
-            guard !Task.isCancelled, generation == timetableReads.generation, term == today?.term,
-                  case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
-                  case let .scheduleView(value)? = result.values.first else { return nil }
-            guard generation == timetableReads.generation, term == today?.term else { return nil }
-            if !weeks.isEmpty, (try? timetableReads.current(session)) == false {
-                weeks.removeAll()
-                timetableRevision += 1
-            }
-            guard let accepted = try? timetableReads.accept(result, started: generation, session: session) else { return nil }
-            if accepted {
-                view = value
-                break
-            }
-        }
-        for offset in -Self.weekReach...Self.weekReach {
-            guard let start = calendar.date(byAdding: .day, value: 7 * offset, to: monday) else { continue }
-            let from = Self.civil(start)
-            let to = Self.civil(calendar.date(byAdding: .day, value: 4, to: start) ?? start)
-            var slice = view
-            // Civil dates compare as text.
-            slice.agendas = view.agendas.filter { $0.date >= from && $0.date <= to }
-            weeks[from] = slice
-        }
-        return weeks[key]
+        return await timetableWeeks.week(starting: monday, term: term, session: session)
     }
-
-    /// Weeks read on either side of the one asked for.
-    private static let weekReach = 4
-
-    /// Weeks already read this revision, by Monday, so the timetable draws
-    /// them at once; a new revision re-reads them.
-    private(set) var weeks: [String: ScheduleView] = [:]
 
     /// A quarter as an iCalendar file, written by Core as the desktop's export.
     func quarterIcs(term: String, scope: CalendarExportScope) async throws -> String {
@@ -607,12 +561,11 @@ final class AppModel {
             ]).value(),
             case let .timetableAxis(axis)? = result.values.first
         else { return nil }
-        lastTimetableAxis = axis
         return axis
     }
 
     /// The last axis Core gave, so a timetable draws its rows at once.
-    private(set) var lastTimetableAxis: TimetableAxis?
+    var lastTimetableAxis: TimetableAxis?
 
     /// A course's LMS content lesson by lesson.
     func courseContent(_ id: String) async -> CourseContent? {
@@ -1106,7 +1059,10 @@ extension AppModel {
 
     func reset(_ request: ResetRequest) async throws {
         guard let session else { return }
-        _ = try await session.reset(request: request)
+        do {
+            defer { timetableWeeks.invalidate(discard: true) }
+            _ = try await session.reset(request: request)
+        }
         problem = nil
         await refreshAccounts()
         await refreshSyncSnapshot()
@@ -1145,10 +1101,15 @@ extension AppModel {
     /// `class` (a plain class; Core clears the mark when that is the default).
     /// The commit names `calendar`, which re-queries the week.
     func markSession(_ key: String, _ mark: String) async {
-        await editWorkspace(.markSession(key: key, mark: mark))
+        // Each mark uses the workspace revision returned by the preceding commit.
+        let previous = pendingSessionMark
+        let markTask = Task {
+            await previous?.value
+            await editWorkspace(.markSession(key: key, mark: mark))
+        }
+        pendingSessionMark = markTask
+        await markTask.value
     }
-
-
 }
 
 // MARK: Course page: lesson marks
