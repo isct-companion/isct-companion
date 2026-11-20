@@ -27,6 +27,13 @@ committing it, go through that checklist against the change's diff (every
 shell, not only the desktop frontend) and name in the report what each item
 found, fixed or left.
 
+Use `yarn quality:audit` to gather source locations for style literals and
+token reuse, function boundaries, and file organization. Use `--changed` for
+a branch review or `--scope <path-fragment>` for a feature review. The scanner
+overwrites the ignored `.quality-audit/` reports on each run. Confirm the role
+of each value, the shared behavior, and the intended owner before reporting a
+finding. [Scanner setup and options](scripts/checks/code-quality/README.md)
+
 A UI change lands on all four platforms by default. A change to what a screen
 shows or how it behaves on desktop makes the same change in the iOS and
 Android shells in the same change, and the other way round. The exceptions

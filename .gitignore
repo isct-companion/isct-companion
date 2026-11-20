@@ -20,6 +20,7 @@ coverage/
 :memory:.ses
 
 # Local previews, QA output, and temporary files
+/.quality-audit/
 artifacts/
 tmp/
 work/
