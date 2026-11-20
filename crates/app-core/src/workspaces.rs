@@ -49,6 +49,8 @@ pub enum HandInError {
     Workspace(#[from] WorkspaceError),
     #[error("This assignment is no longer available for draft upload.")]
     Unavailable,
+    #[error("Only files can be handed in.")]
+    FilesOnly,
     #[error("The submit folder is empty")]
     Empty,
     #[error("Use ZIP to upload folders.")]

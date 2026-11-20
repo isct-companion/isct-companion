@@ -329,6 +329,7 @@ coded!(crate::workspaces::HandInError, |e| {
     match e {
         E::Workspace(e) => e.code(),
         E::Unavailable => C::HandInUnavailable,
+        E::FilesOnly => C::HandInFilesOnly,
         E::Empty => C::HandInEmpty,
         E::NeedsZip => C::HandInNeedsZip,
         E::TooLarge => C::HandInTooLarge,
