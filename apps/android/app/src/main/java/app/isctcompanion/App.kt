@@ -344,10 +344,9 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
 private fun NotificationPermissionAsk() {
     val model = LocalModel.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var asked by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) scope.launch { model.resyncNotifications() }
+        if (granted) model.resyncNotifications()
     }
     LaunchedEffect(model.notificationsBlocked) {
         // Once refused, only the settings page leads on (as iOS asks only

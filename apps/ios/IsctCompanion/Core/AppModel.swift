@@ -64,7 +64,6 @@ final class AppModel {
     let web: WebRouter
     private var session: Session?
     private var revision = ""
-    private var lastNotificationSeq: UInt64?
     private let dashboardReads = ScheduleReads()
     let timetableWeeks = TimetableWeeks()
     @ObservationIgnored private var pendingSessionMark: Task<Void, Never>?
@@ -159,6 +158,7 @@ final class AppModel {
             if let widgets = WidgetStorage() {
                 try session.attachWidgets(port: widgets)
             }
+            try session.attachReminderPort(port: NotificationScheduler(session: session))
             self.session = session
             let stream = try session.subscribe()
             Task { await self.listen(stream) }
@@ -187,6 +187,10 @@ final class AppModel {
 
     func refreshWidgets() {
         try? session?.refreshWidgets()
+    }
+
+    func refreshReminders() {
+        try? session?.refreshReminderPort()
     }
 
     func widgetRoute(_ url: URL) async throws -> WidgetRoute? {
@@ -438,8 +442,6 @@ final class AppModel {
         }).first, boundary <= Date() { return }
         guard try dashboardReads.accept(result, started: generation, session: session) else { return }
         if revision == previousRevision { revision = current }
-        let changed = lastNotificationSeq != result.seq
-        lastNotificationSeq = result.seq
         // No suspension between accepting the snapshot and publishing its views.
         for value in result.values {
             switch value {
@@ -457,7 +459,6 @@ final class AppModel {
         contentRevision = "\(generation)-\(result.seq)"
         scheduleBoundary()
         await refreshWaiting()
-        if changed { await NotificationScheduler.sync(session) }
     }
 
     /// Re-query when Core says the phase or hero changes next.

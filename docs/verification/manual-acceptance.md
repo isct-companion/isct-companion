@@ -263,7 +263,7 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/components/files/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/core_ports.rs |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders/mod.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/core_ports.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/app-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/school.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
@@ -4725,7 +4725,7 @@ and native notification delivery; tests use a headless notification sink.
 - `apps/desktop/src-tauri/src/commands/platform.rs`
 - `apps/desktop/src/app/useWorkspaceRuntime.ts`
 - `scripts/desktop/tauri.mjs`
-- `crates/app-core/src/schedule/reminders.rs`
+- `crates/app-core/src/schedule/reminders/mod.rs`
 - `crates/app-core/src/deadlines.rs`
 - `apps/desktop/src-tauri/src/core_ports.rs`
 
@@ -6787,6 +6787,13 @@ notifications) in the same workspace.
    - *Why:* Android clears alarms on a reboot or an update, which iOS's
      scheduled notifications survive; the app must put Core's reminders
      back on its own within a minute of boot.
+6. On each phone, let a scheduled reminder arrive while the app is
+   closed. Dismiss it from the notification shade or Notification Center
+   and reopen the app within five minutes of the scheduled time. Allow
+   exact alarms for this step on Android.
+   - *Why:* Once the system delivered the request, it no longer appears in the
+     pending list. After dismissal, reopening must still respect that
+     the OS already owned that reminder.
 
 **Where to look**
 
@@ -6798,7 +6805,8 @@ Each phone asks once after the first sync; the test shows a banner with
 the app in front; after denying, the page says notifications are not
 allowed and 設定を開く opens the app's notification settings, also on
 a later visit, with no new prompt; Android's reminders are back after a
-reboot without opening the app.
+reboot without opening the app. The dismissed reminder stays dismissed
+when the app reopens within the catch-up window.
 
 **Why this is manual**
 

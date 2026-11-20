@@ -113,6 +113,7 @@ struct NotificationsScreen: View {
                         Button(t("settings.notification.send")) {
                             Task {
                                 let sent = await NotificationScheduler.sendTest()
+                                model.refreshReminders()
                                 denied = !sent
                                 tested = sent
                             }

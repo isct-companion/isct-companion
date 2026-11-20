@@ -4051,7 +4051,7 @@ checks:
       - apps/desktop/src-tauri/src/commands/platform.rs
       - apps/desktop/src/app/useWorkspaceRuntime.ts
       - scripts/desktop/tauri.mjs
-      - crates/app-core/src/schedule/reminders.rs
+      - crates/app-core/src/schedule/reminders/mod.rs
       - crates/app-core/src/deadlines.rs
       - apps/desktop/src-tauri/src/core_ports.rs
     verified: null
@@ -5896,13 +5896,23 @@ checks:
           Android clears alarms on a reboot or an update, which iOS's
           scheduled notifications survive; the app must put Core's reminders
           back on its own within a minute of boot.
+      - action: |
+          On each phone, let a scheduled reminder arrive while the app is
+          closed. Dismiss it from the notification shade or Notification Center
+          and reopen the app within five minutes of the scheduled time. Allow
+          exact alarms for this step on Android.
+        reason: |
+          Once the system delivered the request, it no longer appears in the
+          pending list. After dismissal, reopening must still respect that
+          the OS already owned that reminder.
     observe: The system prompts, the banner, and 設定 › 通知 on both phones.
     expected: |
       Each phone asks once after the first sync; the test shows a banner with
       the app in front; after denying, the page says notifications are not
       allowed and 設定を開く opens the app's notification settings, also on
       a later visit, with no new prompt; Android's reminders are back after a
-      reboot without opening the app.
+      reboot without opening the app. The dismissed reminder stays dismissed
+      when the app reopens within the catch-up window.
     why_manual: |
       The permission prompt, banners and system settings exist only on real
       devices with a signed app; which reminders are due is Core's

@@ -1,46 +1,94 @@
 import Foundation
 import IsctCore
+import os
+import UIKit
 import UserNotifications
 
-/// Registers Core's notification plan with the system. Core decides what is
-/// due and when (class lead time, deadlines, settings); the shell schedules it
-/// within iOS's limit of 64 pending requests.
-enum NotificationScheduler {
+/// Applies Core's reminder plan using the system notification center.
+@MainActor
+final class NotificationScheduler: NativeReminderPort {
     private static let limit = 64
-    private static let horizonDays = 7
     private static let prefix = "isct."
+    private let center = UNUserNotificationCenter.current()
+    private let log = Logger(subsystem: "app.isctcompanion", category: "reminders")
+    private weak var session: Session?
+    private var asking = false
 
-    static func sync(_ session: Session) async {
-        let center = UNUserNotificationCenter.current()
-        let now = Date()
-        let horizon = now.addingTimeInterval(TimeInterval(horizonDays * 24 * 3600))
-        guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-            .notificationPlan(now: AppModel.timestamp(now), horizon: AppModel.timestamp(horizon), locale: nil)
-        ]).value(), case let .notificationPlan(plan)? = result.values.first
-        else { return }
-        // Reminder switches sync from the other devices, so this device may
-        // never have seen one turned on: it asks the first time Core has a
-        // reminder for it, instead of dropping the plan unasked.
-        if !plan.items.isEmpty, await center.notificationSettings().authorizationStatus == .notDetermined {
-            _ = await requestPermission()
+    init(session: Session) {
+        self.session = session
+    }
+
+    func facts() async throws -> ReminderPortFacts {
+        let permitted = await Self.allowed(center)
+        let requests = await center.pendingNotificationRequests()
+        let pending = requests.compactMap { request -> PendingReminder? in
+            guard request.identifier.hasPrefix(Self.prefix) else { return nil }
+            let at = request.content.userInfo["reminderAt"] as? String
+                ?? (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate().map { AppModel.timestamp($0) }
+            return PendingReminder(key: String(request.identifier.dropFirst(Self.prefix.count)), at: at, state: .pending)
         }
-        guard await allowed(center) else { return }
-        let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(prefix) }
-        center.removePendingNotificationRequests(withIdentifiers: pending)
-        for item in plan.items.prefix(limit) {
-            guard let at = AppModel.date(item.at), at > now else { continue }
-            let content = UNMutableNotificationContent()
-            content.title = item.title
-            content.body = item.body
-            content.sound = .default
-            content.userInfo = ["deepLink": item.deepLink]
-            let parts = Calendar.tokyo.dateComponents(in: .tokyo, from: at)
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: DateComponents(
-                    calendar: Calendar.tokyo, timeZone: .tokyo, year: parts.year, month: parts.month,
-                    day: parts.day, hour: parts.hour, minute: parts.minute),
-                repeats: false)
-            try? await center.add(UNNotificationRequest(identifier: prefix + item.key, content: content, trigger: trigger))
+        return ReminderPortFacts(permitted: permitted, availableSlots: UInt32(max(0, Self.limit - requests.count)), pending: pending)
+    }
+
+    func apply(plan: ReminderDeliveryPlan) async throws -> ReminderReceipt {
+        if plan.permissionNeeded { askWhenActive() }
+        var cancelled: [String] = []
+        if !plan.cancel.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: plan.cancel.map { Self.prefix + $0 })
+            let pending = Set(await center.pendingNotificationRequests().map(\.identifier))
+            cancelled = plan.cancel.filter { !pending.contains(Self.prefix + $0) }
+        }
+        var failed: [String] = []
+        for item in plan.deliverNow {
+            if !(await add(item, identifier: "isct-now." + item.key, trigger: nil)) {
+                failed.append(item.key)
+            }
+        }
+        var registered: [String] = []
+        for item in plan.register {
+            guard let at = AppModel.date(item.at) else {
+                log.error("Invalid reminder date from Core")
+                continue
+            }
+            var parts = Calendar.tokyo.dateComponents([.year, .month, .day, .hour, .minute, .second], from: at)
+            parts.calendar = Calendar.tokyo
+            parts.timeZone = .tokyo
+            let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+            // If the request's date elapsed while applying the plan, this
+            // trigger has no occurrence for the OS to register.
+            guard trigger.nextTriggerDate() != nil else { continue }
+            if await add(item, identifier: Self.prefix + item.key, trigger: trigger) {
+                registered.append(item.key)
+            }
+        }
+        return ReminderReceipt(registered: registered, cancelled: cancelled, failedDeliveries: failed)
+    }
+
+    private func add(_ item: NotificationItem, identifier: String, trigger: UNNotificationTrigger?) async -> Bool {
+        let content = UNMutableNotificationContent()
+        content.title = item.title
+        content.body = item.body
+        content.sound = .default
+        content.userInfo = ["deepLink": item.deepLink, "reminderAt": item.at]
+        do {
+            try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+            return true
+        } catch {
+            log.error("Notification request failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func askWhenActive() {
+        guard !asking, UIApplication.shared.applicationState == .active else { return }
+        asking = true
+        // The planner can finish this pass while the system prompt is open.
+        Task {
+            defer { asking = false }
+            guard await center.notificationSettings().authorizationStatus == .notDetermined else { return }
+            if await Self.requestPermission() {
+                try? session?.refreshReminderPort()
+            }
         }
     }
 

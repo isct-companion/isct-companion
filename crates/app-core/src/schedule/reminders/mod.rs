@@ -20,6 +20,14 @@ use super::{
 };
 use crate::locale::{pick, ContentLanguage};
 
+#[cfg(any(test, feature = "mobile-reminders"))]
+mod mobile;
+#[cfg(any(test, feature = "mobile-reminders"))]
+pub use mobile::{
+    PendingReminder, PendingReminderState, ReminderDeliveryPlan, ReminderPort, ReminderPortFacts,
+    ReminderReceipt,
+};
+
 pub const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
 
 const ASSIGNMENT_LEAD_PRESETS: [u32; 10] = [15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080];
@@ -101,9 +109,11 @@ struct ReminderInner {
     store: crate::data::DataStore,
     tasks: crate::runtime_tasks::RuntimeTasks,
     pass: Arc<tokio::sync::Semaphore>,
-    /// The shell's notification port, attached once; without one the
-    /// shell schedules the plan with the OS itself.
+    /// The desktop port posts directly when a reminder is due.
     sink: Mutex<Option<Arc<dyn NotificationSink>>>,
+    /// The phone port reconciles Core's plan with its OS scheduler.
+    #[cfg(feature = "mobile-reminders")]
+    mobile_port: Mutex<Option<Arc<dyn ReminderPort>>>,
     /// When the next pass is due (`PlanEngine` asks); `None` before the
     /// first pass, which is due at once.
     next: Mutex<Option<DateTime<Utc>>>,
@@ -119,6 +129,8 @@ impl ReminderService {
             tasks: crate::runtime_tasks::RuntimeTasks::default(),
             pass: Arc::new(tokio::sync::Semaphore::new(1)),
             sink: Mutex::new(None),
+            #[cfg(feature = "mobile-reminders")]
+            mobile_port: Mutex::new(None),
             next: Mutex::new(None),
             legacy_import_until: tokio::time::Instant::now() + LEGACY_IMPORT_WAIT,
             fired_path,
@@ -136,10 +148,14 @@ impl ReminderService {
         self.0.sink.lock().ok().and_then(|sink| sink.clone())
     }
 
-    /// When the next pass is due: the next reminder's time, never before
-    /// the legacy import's wait ends. `None` without a notification port.
+    /// When the next pass is due. `None` without a notification port.
     pub(crate) fn next_due(&self) -> Option<DateTime<Utc>> {
+        #[cfg(not(feature = "mobile-reminders"))]
         self.sink()?;
+        #[cfg(feature = "mobile-reminders")]
+        if self.sink().is_none() && self.mobile_port().is_none() {
+            return None;
+        }
         Some(
             self.0
                 .next
@@ -309,6 +325,10 @@ impl ReminderService {
         if let Ok(mut sink) = self.0.sink.lock() {
             *sink = None;
         }
+        #[cfg(feature = "mobile-reminders")]
+        if let Ok(mut port) = self.0.mobile_port.lock() {
+            *port = None;
+        }
     }
 }
 
@@ -325,7 +345,16 @@ impl ReminderChanges {
 }
 
 fn changed(inner: &ReminderInner) {
-    let soon = Utc::now() + Duration::seconds(5);
+    let delay = Duration::seconds(5);
+    #[cfg(feature = "mobile-reminders")]
+    let delay = if inner.mobile_port.lock().is_ok_and(|port| port.is_some()) {
+        // Include reconciliation in the OS opportunity that committed the
+        // change. The planner can go quiet while a future duty is pending.
+        Duration::zero()
+    } else {
+        delay
+    };
+    let soon = Utc::now() + delay;
     if let Ok(mut next) = inner.next.lock() {
         *next = Some(next.map_or(soon, |next| next.min(soon)));
     }
@@ -378,12 +407,16 @@ pub(super) fn read_fired(path: &Path) -> Result<BTreeMap<String, i64>, ReminderE
 }
 
 fn write_fired(path: &Path, fired: &BTreeMap<String, i64>) -> Result<(), ReminderError> {
+    write_history(path, fired)
+}
+
+fn write_history(path: &Path, history: &impl Serialize) -> Result<(), ReminderError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| ReminderError::Storage(error.to_string()))?;
     }
     let bytes =
-        serde_json::to_vec(fired).map_err(|error| ReminderError::Storage(error.to_string()))?;
+        serde_json::to_vec(history).map_err(|error| ReminderError::Storage(error.to_string()))?;
     crate::storage::durable_replace(path, &bytes)
         .map_err(|error| ReminderError::Storage(error.to_string()))
 }
@@ -430,15 +463,26 @@ pub(super) fn claim_fired(
     now: DateTime<FixedOffset>,
 ) -> Result<bool, ReminderError> {
     let mut fired = read_fired(path)?;
-    if fired.contains_key(key) {
+    if !claim_fired_entry(&mut fired, key, now) {
         return Ok(false);
+    }
+    write_fired(path, &fired)?;
+    Ok(true)
+}
+
+fn claim_fired_entry(
+    fired: &mut BTreeMap<String, i64>,
+    key: &str,
+    now: DateTime<FixedOffset>,
+) -> bool {
+    if fired.contains_key(key) {
+        return false;
     }
     let now_millis = now.timestamp_millis();
     fired.insert(key.to_owned(), now_millis);
     let oldest = (now - Duration::seconds(FIRED_TTL_SECONDS)).timestamp_millis();
     fired.retain(|_, fired_at| *fired_at >= oldest);
-    write_fired(path, &fired)?;
-    Ok(true)
+    true
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

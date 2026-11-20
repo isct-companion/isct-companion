@@ -397,13 +397,14 @@ impl Core {
         }
         if matches!(hint, Hint::Foreground | Hint::Resume) {
             self.widgets.changed();
+            #[cfg(feature = "mobile-reminders")]
+            self.refresh_reminder_port();
         }
         self.sync.hint(hint);
     }
 
     /// The shell's ports for the deadline duties, attached once: the
-    /// scheduled-export port, local notifications (the desktop's; phones
-    /// schedule the plan with their OS) and the cloud providers.
+    /// scheduled-export port, direct local notifications and the cloud providers.
     pub fn attach_ports(&self, ports: PlatformPorts) {
         if let Some(exporter) = ports.exporter {
             self.runtime.attach_exporter(exporter);
@@ -415,6 +416,24 @@ impl Core {
             sync.attach(cloud);
         }
         self.sync.duties_changed();
+    }
+
+    #[cfg(feature = "mobile-reminders")]
+    pub fn attach_reminder_port(
+        &self,
+        port: Arc<dyn crate::schedule::ReminderPort>,
+    ) -> Result<(), crate::schedule::ReminderError> {
+        self.reminders.attach_mobile(port)?;
+        self.sync.duties_changed();
+        Ok(())
+    }
+
+    /// The OS may have changed permission or discarded scheduled reminders.
+    #[cfg(feature = "mobile-reminders")]
+    pub fn refresh_reminder_port(&self) {
+        if self.reminders.mobile_changed() {
+            self.sync.duties_changed();
+        }
     }
 
     /// Open the ScienceTokyoExam client with the shell's vault and, where

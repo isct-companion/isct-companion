@@ -80,6 +80,11 @@ pub use reminders::{
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
     ReminderService, DEFAULT_ASSIGNMENT_LEADS, REMINDER_LOG,
 };
+#[cfg(any(test, feature = "mobile-reminders"))]
+pub use reminders::{
+    PendingReminder, PendingReminderState, ReminderDeliveryPlan, ReminderPort, ReminderPortFacts,
+    ReminderReceipt,
+};
 pub use requests::{ColorCourse, ColorOverrides};
 pub use school::SchoolReads;
 pub(crate) use school::{CatalogEntry, ExamTimetable};

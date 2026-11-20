@@ -97,7 +97,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
     // as iOS re-reads it when the scene becomes active.
     LifecycleResumeEffect(Unit) {
         denied = NotificationScheduler.denied(context)
-        if (NotificationScheduler.allowed(context) && model.notificationsBlocked) scope.launch { model.resyncNotifications() }
+        if (NotificationScheduler.allowed(context) && model.notificationsBlocked) model.resyncNotifications()
         onPauseOrDispose {}
     }
     var pending by remember { mutableStateOf<String?>(null) }
@@ -113,7 +113,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
     val sendTest = {
         tested = NotificationScheduler.sendTest(context)
         denied = !tested
-        scope.launch { model.resyncNotifications() }
+        model.resyncNotifications()
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         denied = !granted

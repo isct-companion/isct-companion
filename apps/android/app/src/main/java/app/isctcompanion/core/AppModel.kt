@@ -114,7 +114,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     val web = WebRouter(browser, scope, context)
     private var session: Session? = null
     private var revision = ""
-    private var lastNotificationSeq: ULong? = null
     private val dashboardReads = ScheduleReads()
     internal val timetableWeeks = TimetableWeeks()
     private val sessionMarks = Mutex()
@@ -158,6 +157,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
             )
             session.attachWidgets(WidgetStorage(context))
+            val model = java.lang.ref.WeakReference(this)
+            session.attachReminderPort(NotificationScheduler(context) { needed ->
+                model.get()?.notificationsBlocked = needed
+            })
             this.session = session
             val stream = session.subscribe()
             scope.launch { listen(stream) }
@@ -204,8 +207,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             armDeadline()
             scheduleRefresh(force = true)
             scope.launch { checkForUpdate() }
-            // Permission granted in the system settings while away.
-            if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
             deadlineJob?.cancel()
             deadlineJob = null
@@ -234,7 +235,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt, systemChange: Boolean) {
         start()
         val session = session ?: return
-        if (systemChange) runCatching { session.refreshWidgets() }
+        if (systemChange) {
+            runCatching { session.refreshWidgets() }
+            resyncNotifications()
+        }
         val id = java.util.UUID.randomUUID().toString()
         val operation = runCatching { session.beginBackgroundOpportunity(id, budgetSeconds, network) }
             .getOrNull() ?: return
@@ -418,8 +422,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (!dashboardReads.accept(snapshot, generation, session)) return
         if (revision == previousRevision) revision = current
         val key = "$generation-${result.seq}"
-        val changed = lastNotificationSeq != result.seq
-        lastNotificationSeq = result.seq
         // Publish every view and its revision before the next suspension.
         for (value in result.values) {
             when (value) {
@@ -438,7 +440,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         contentRevision = key
         scheduleBoundary()
         refreshWaiting()
-        if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
     }
 
     /** Re-query when Core says the phase or hero changes next. */
@@ -916,10 +917,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         Unit
     }
 
-    /** Schedules the plan again, after the notification permission changed. */
-    suspend fun resyncNotifications() {
-        val session = session ?: return
-        notificationsBlocked = NotificationScheduler.sync(context, session)
+    /** Reports a change in the system's reminder settings. */
+    fun resyncNotifications() {
+        runCatching { session?.refreshReminderPort() }
     }
 
     /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */

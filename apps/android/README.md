@@ -48,7 +48,7 @@ UniFFI checks signatures when the library loads.
 | `core/WebRouter.kt` | Which school page is on screen; `openSchool` and the visibility fact |
 | `core/WebCookieSeed.kt` | `NativeWebCookies`: writes Core's verified sign-in cookies into the WebView store before a school page opens; clears every school site only (WebView cannot clear one account's), on reset or the person's choice after a sign-out; Core never reads it |
 | `core/KeystoreVault.kt` | `NativeVault`: secrets sealed with an Android Keystore AES-GCM key, kept on this device |
-| `core/NotificationScheduler.kt` | Schedules Core's `notificationPlan` as alarms (64 pending at most) |
+| `core/NotificationScheduler.kt` | Reports permission and stored alarms, then applies Core's reminder plan through `AlarmManager` and `NotificationManager` |
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |
 | `CampusPrintService.kt` | The campus printer as a system print service: every app's print dialog lists it, the system renders the PDF, Core verifies the student ID and sends it over LPD |
 | `BackgroundWake.kt` | The WorkManager wake that runs Core's `backgroundWake` out of front |

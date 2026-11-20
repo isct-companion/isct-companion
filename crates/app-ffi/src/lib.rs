@@ -33,6 +33,8 @@ mod events;
 mod matrix;
 mod operation;
 pub mod ports;
+mod reminders;
+pub use reminders::NativeReminderPort;
 mod reset;
 mod session;
 pub use events::{Event, StreamUpdate, Subscription};
