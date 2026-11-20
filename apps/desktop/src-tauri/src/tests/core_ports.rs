@@ -4,7 +4,7 @@ use app_core::{
     data::WorkspaceChangeSource,
     events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
-    plan::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
+    plan::{Held, Label, Priority, RunView, SourceView, SyncAttention, SyncSnapshot},
     school_browser::{
         LoadFailure, SchoolWebAccess, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
         SchoolWebProblem, SchoolWebStep,
@@ -12,7 +12,7 @@ use app_core::{
     school_service::{IngestOutcome, IngestState},
     school_session::{
         SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot, SchoolSessionState,
-        SchoolSignInProblem, SchoolSignInProblemKind,
+        SchoolSignInProblem, SchoolSignInProblemKind, SignInPresentation, SignInRecovery,
     },
     workspace_changes::WorkspaceChange,
 };
@@ -76,6 +76,11 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                         sign_out_pending: false,
                         refusal_unsaved: false,
                         state: SchoolSessionState::Normal,
+                        presentation: SignInPresentation {
+                            state_key: "schoolSession.state.normal".into(),
+                            reason_key: None,
+                            recovery: vec![],
+                        },
                         problem: None,
                         retry_at: None,
                         maintenance: None,
@@ -84,6 +89,11 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                         sign_out_pending: false,
                         refusal_unsaved: false,
                         state: SchoolSessionState::Refused,
+                        presentation: SignInPresentation {
+                            state_key: "schoolSession.state.refused".into(),
+                            reason_key: Some("failure.theMatrixAnswerWasNot".into()),
+                            recovery: vec![SignInRecovery::Retry],
+                        },
                         problem: Some(SchoolSignInProblem {
                             kind: SchoolSignInProblemKind::InvalidMatrix,
                             message: "matrix".into(),
@@ -95,8 +105,8 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             }),
             "school-session",
             json!({"revision":7,"profiles":{
-                "science":{"signOutPending":false,"refusalUnsaved":false,"state":"normal","problem":null,"retryAt":null,"maintenance":null},
-                "tokyoTech":{"signOutPending":false,"refusalUnsaved":false,"state":"refused","problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
+                "science":{"signOutPending":false,"refusalUnsaved":false,"state":"normal","presentation":{"stateKey":"schoolSession.state.normal","reasonKey":null,"recovery":[]},"problem":null,"retryAt":null,"maintenance":null},
+                "tokyoTech":{"signOutPending":false,"refusalUnsaved":false,"state":"refused","presentation":{"stateKey":"schoolSession.state.refused","reasonKey":"failure.theMatrixAnswerWasNot","recovery":["retry"]},"problem":{"kind":"invalid-matrix","message":"matrix"},"retryAt":null,"maintenance":null}
             }}),
         ),
         (
@@ -116,9 +126,10 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                 }),
                 sign_in: true,
                 otp: None,
+                outside: false,
             }),
             "school-web-page",
-            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"still-sign-in"},"signIn":true,"otp":null}),
+            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"},"access":{"kind":"problem","problem":"still-sign-in"},"signIn":true,"otp":null,"outside":false}),
         ),
         (
             CoreEvent::SchoolWebNotice {
@@ -153,6 +164,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             CoreEvent::SyncSnapshot(SyncSnapshot {
                 generation: 2,
                 resetting: false,
+                attention: SyncAttention::default(),
                 runs: vec![RunView {
                     run: "run-7".into(),
                     dataset: "lms.course".into(),
@@ -167,6 +179,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     scope: Some("42".into()),
                     held: Some(Held::Cellular),
                     failure: None,
+                    retry: None,
                 }],
                 sources: vec![SourceView {
                     source: "lms".into(),
@@ -176,10 +189,11 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                     failure: None,
                     session: Some(SchoolSessionState::Normal),
                     maintenance: None,
+                    retry: None,
                 }],
             }),
             "sync-snapshot",
-            json!({"generation":2,"resetting":false,"runs":[{"run":"run-7","dataset":"lms.course","label":{"key":"sync.dataset.lms.course","args":{}},"priority":"visible","done":3,"total":9,"current":null,"scope":"42","held":{"kind":"cellular"},"failure":null}],"sources":[{"source":"lms","lastUpdated":null,"running":true,"held":null,"failure":null,"session":"normal","maintenance":null}]}),
+            json!({"generation":2,"resetting":false,"attention":{"primary":null,"problem":null,"busy":false},"runs":[{"run":"run-7","dataset":"lms.course","label":{"key":"sync.dataset.lms.course","args":{}},"priority":"visible","done":3,"total":9,"current":null,"scope":"42","held":{"kind":"cellular"},"failure":null,"retry":null}],"sources":[{"source":"lms","lastUpdated":null,"running":true,"held":null,"failure":null,"session":"normal","maintenance":null,"retry":null}]}),
         ),
         (
             CoreEvent::CloudSyncState(SyncState::default()),
