@@ -78,6 +78,14 @@ fn connect_error(error: std::io::Error) -> VpnError {
 /// plist, so `_resources` is only the shared signature.
 pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     let service = daemon();
+    // Registering an enabled daemon again changes nothing: launchd keeps the
+    // code requirement it took from the helper the first time. A helper that
+    // no longer meets it (an ad hoc one is pinned to its cdhash) never starts
+    // ("needs LWCR update", EX_CONFIG) and the old one keeps answering, so an
+    // update registers the daemon afresh from this bundle.
+    if unsafe { service.status() } == SMAppServiceStatus::Enabled {
+        let _ = unsafe { service.unregisterAndReturnError() };
+    }
     // A daemon that still needs approval in Login Items is registered all
     // the same, yet register fails with EPERM ("Operation not permitted");
     // an already registered one fails too. The status says where it stands.
