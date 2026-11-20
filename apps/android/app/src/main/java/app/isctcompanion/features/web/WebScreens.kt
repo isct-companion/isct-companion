@@ -14,6 +14,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import app.isctcompanion.design.GuideTip
 import android.net.Uri
+import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsPadding
