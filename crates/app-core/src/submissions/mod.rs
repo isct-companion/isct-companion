@@ -72,7 +72,6 @@ const TOKEN_PATH: &[Credential] = &[Credential::Token];
 /// be executed, so a repeated execute finds the write it repeats; the ledger
 /// keeps no history beyond that.
 const RECEIPT_RETENTION: i64 = PREPARATION_TTL;
-/// Hex characters of each sha256 the confirmation shows.
 
 /// The site and user the transport reads and writes as.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

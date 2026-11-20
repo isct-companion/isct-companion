@@ -442,7 +442,7 @@ async fn files_changed_after_prepare_are_never_sent() {
     assert_eq!(prepared.files[0].bytes, 12);
     assert_eq!(
         prepared.summary().files[0].sha256_prefix.len(),
-        DIGEST_PREFIX
+        super::preparation::DIGEST_PREFIX
     );
 
     fixture.put("report.pdf", b"%PDF-1 second");

@@ -11,7 +11,8 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 /// confirmation, while the LMS state it describes is still recent.
 pub(super) const PREPARATION_TTL: i64 = 60 * 60;
 
-const DIGEST_PREFIX: usize = 12;
+/// Hex characters of each sha256 the confirmation shows.
+pub(super) const DIGEST_PREFIX: usize = 12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
