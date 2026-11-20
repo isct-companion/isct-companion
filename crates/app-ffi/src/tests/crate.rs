@@ -64,7 +64,6 @@ impl Fixture {
             None,
             None,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -821,7 +820,6 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -938,7 +936,6 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         config,
         Arc::new(Vault::default()),
         Some(browser.clone()),
-        None,
         None,
         None,
         None,
@@ -1229,7 +1226,6 @@ async fn drive_signs_in_through_the_token_port_and_stays_authorized_after_restar
                 authorized_cloud_providers: vec![],
             },
             vault.clone(),
-            None,
             None,
             None,
             None,

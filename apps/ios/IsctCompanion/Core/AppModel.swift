@@ -149,7 +149,7 @@ final class AppModel {
                 cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
-                notifications: nil, webCookies: WebCookieSeed(),
+                webCookies: WebCookieSeed(),
                 webAuth: BrowserAuthentication(),
                 iosGoogleClientId: Bundle.main.object(forInfoDictionaryKey: "IsctGoogleClientID") as? String,
                 browserOpener: nil, driveTokens: nil)

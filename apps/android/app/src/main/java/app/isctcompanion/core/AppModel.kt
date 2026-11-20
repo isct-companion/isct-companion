@@ -155,7 +155,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
+                config, KeystoreVault(context), browser, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
             )
             session.attachWidgets(WidgetStorage(context))
             val model = java.lang.ref.WeakReference(this)

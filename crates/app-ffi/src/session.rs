@@ -47,7 +47,6 @@ pub struct SessionConfig {
 pub struct Capabilities {
     pub school_browser: bool,
     pub cloud: bool,
-    pub notifications: bool,
     pub ocr: bool,
 }
 struct RuntimeOwner(Option<Runtime>);
@@ -75,7 +74,6 @@ pub(crate) struct Inner {
     sync_services: CloudServices,
     /// Drive's sign-in, when the shell installed a Drive port.
     drive: Option<Arc<DriveAuth>>,
-    pub notifications: Option<Arc<dyn NativeNotifications>>,
     pub files: PathBuf,
     backup_directory: PathBuf,
     capabilities: Capabilities,
@@ -246,7 +244,6 @@ impl Session {
         vault: Arc<dyn NativeVault>,
         browser: Option<Arc<dyn NativeBrowser>>,
         cloud: Option<Arc<dyn NativeCloud>>,
-        notifications: Option<Arc<dyn NativeNotifications>>,
         web_cookies: Option<Arc<dyn NativeWebCookies>>,
         // iOS: Google sign-in in a web authentication session, with the
         // app's registered client.
@@ -284,7 +281,6 @@ impl Session {
                 browser,
                 Ports {
                     cloud,
-                    notifications,
                     web_cookies,
                     web_auth,
                     ios_google_client_id,
@@ -728,7 +724,6 @@ fn ocr_available() -> bool {
 /// The optional native ports a shell passed to `Session::open`.
 struct Ports {
     cloud: Option<Arc<dyn NativeCloud>>,
-    notifications: Option<Arc<dyn NativeNotifications>>,
     web_cookies: Option<Arc<dyn NativeWebCookies>>,
     web_auth: Option<Arc<dyn NativeWebAuthSession>>,
     ios_google_client_id: Option<String>,
@@ -744,7 +739,6 @@ async fn initialize(
 ) -> Result<Arc<Inner>, SdkError> {
     let Ports {
         cloud,
-        notifications,
         web_cookies,
         web_auth,
         ios_google_client_id,
@@ -774,7 +768,6 @@ async fn initialize(
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
         cloud: cloud.is_some() || drive.is_some(),
-        notifications: notifications.is_some(),
         ocr: ocr_available(),
     };
     let initial_network: app_core::plan::Network = project_input(config.initial_network)?;
@@ -861,7 +854,6 @@ async fn initialize(
         sync,
         sync_services,
         drive,
-        notifications,
         files,
         backup_directory,
         capabilities,
@@ -878,9 +870,7 @@ async fn initialize(
             inner.backup.clone(),
             inner.backup_directory.clone(),
         ))),
-        notifications: inner.notifications.as_ref().map(|sink| {
-            Arc::new(Notifications(sink.clone())) as Arc<dyn app_core::schedule::NotificationSink>
-        }),
+        notifications: None,
         cloud: inner
             .capabilities
             .cloud
