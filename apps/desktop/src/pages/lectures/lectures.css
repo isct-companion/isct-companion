@@ -43,17 +43,7 @@
 .lectureSlot.entering, .lectureExamDetails.entering { animation: paneEnter var(--motion-duration-slow) var(--motion-easing-emphasized); }
 .lectureSlot[hidden] { display: none; }
 
-.lectureSidebarToggle {
-  flex: 0 0 auto; display: grid; place-items: center;
-  width: 28px; height: 28px; padding: 0; border: 0;
-  border-radius: var(--radius-control); background: none;
-  color: var(--muted); cursor: default;
-}
-.lectureSidebarToggle:hover { color: var(--ink); background: var(--surface-3); }
 .lectureEmptyHeader { display: flex; padding: var(--space-2); }
-.lectureDesk[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
-  width: 0; visibility: hidden;
-}
 /* Keep the same list mounted while the panel takes zero layout space. It
    floats over the page's own left edge, so it moves with the page's entrance
    instead of against the window; no panel between is positioned, so their

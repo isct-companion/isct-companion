@@ -1,9 +1,12 @@
 import { dayShort } from "../../components/timetable/timetable";
-import { BookOpen, PanelLeft } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import { DueChip } from "../../components/DueChip";
 import { CloseButton, Input, EmptyState, Skeleton } from "../../components/ui";
 import "./lectures.css";
-import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import {
+  ResizableWorkspace,
+  WorkspaceSidebarToggle,
+} from "../../components/ResizableWorkspace";
 import { KeptPage } from "../../app/KeptPage";
 import { usePanelRef } from "react-resizable-panels";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -264,21 +267,12 @@ function LectureDeskBody({
     : recent;
 
   const sidebarToggle = (
-    <button
-      type="button"
-      className="lectureSidebarToggle"
-      aria-label={t("lectures.toggleSidebar")}
-      aria-expanded={!collapsed}
-      aria-controls="lecture-sidebar"
-      title={t("lectures.toggleSidebar")}
-      onClick={() => {
-        setFloating(false);
-        if (sidebar.current?.isCollapsed()) sidebar.current.expand();
-        else sidebar.current?.collapse();
-      }}
-    >
-      <PanelLeft size={18} strokeWidth={1.75} aria-hidden />
-    </button>
+    <WorkspaceSidebarToggle
+      panel={sidebar}
+      collapsed={collapsed}
+      controls="lecture-sidebar"
+      onToggle={() => setFloating(false)}
+    />
   );
 
   return (

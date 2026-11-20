@@ -1,4 +1,5 @@
-import type { ReactNode, Ref } from "react";
+import type { ReactNode, Ref, RefObject } from "react";
+import { PanelLeft } from "lucide-react";
 import {
   Group,
   Panel,
@@ -97,5 +98,38 @@ export function ResizableWorkspace({
         {children[1]}
       </Panel>
     </Group>
+  );
+}
+
+/** The button that folds a collapsible first panel away and back, as a
+ * Mac app's sidebar button does. */
+export function WorkspaceSidebarToggle({
+  panel,
+  collapsed,
+  controls,
+  onToggle,
+}: {
+  panel: RefObject<PanelImperativeHandle | null>;
+  collapsed: boolean;
+  /** The id of the first panel's content. */
+  controls: string;
+  onToggle?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="workspaceSidebarToggle"
+      aria-label={t("common.toggleSidebar")}
+      aria-expanded={!collapsed}
+      aria-controls={controls}
+      title={t("common.toggleSidebar")}
+      onClick={() => {
+        onToggle?.();
+        if (panel.current?.isCollapsed()) panel.current.expand();
+        else panel.current?.collapse();
+      }}
+    >
+      <PanelLeft size={18} strokeWidth={1.75} aria-hidden />
+    </button>
   );
 }

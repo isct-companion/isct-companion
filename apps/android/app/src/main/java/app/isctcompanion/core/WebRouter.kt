@@ -46,6 +46,10 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /** The web screens' bars are out of the way while the person reads down
+     * a page; scrolling back up or reaching the top brings them back. Shell
+     * state only: the screens set it, and App's navigation bar follows it. */
+    var barsHidden by mutableStateOf(false)
     /** Bumped when Core opened a page, so containers re-attach its view. */
     var attachRevision by mutableIntStateOf(0)
         private set

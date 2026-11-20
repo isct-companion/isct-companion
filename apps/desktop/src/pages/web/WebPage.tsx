@@ -1,6 +1,10 @@
 import { openExternalUrl } from "../../platform/external-url";
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
-import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import {
+  ResizableWorkspace,
+  WorkspaceSidebarToggle,
+} from "../../components/ResizableWorkspace";
+import { usePanelRef } from "react-resizable-panels";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
@@ -86,6 +90,9 @@ function WebBody({
     });
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
+  /** The site list folds away to give the page the window's width. */
+  const sites = usePanelRef();
+  const [sitesCollapsed, setSitesCollapsed] = useState(false);
   const owner = useRef(Symbol("web-page"));
   const addressInput = useRef<HTMLInputElement>(null);
   const editingAddress = useRef(false);
@@ -307,7 +314,7 @@ function WebBody({
   const frameable = site !== "science-lms";
   return (
     <div className="page web servicesPage">
-      <div className="servicesBody">
+      <div className="servicesBody" data-sidebar-collapsed={sitesCollapsed}>
         <ResizableWorkspace
           id="web"
           enabled
@@ -316,8 +323,16 @@ function WebBody({
           firstMax={360}
           secondMin="40%"
           secondMax="100%"
+          firstCollapsible
+          firstPanelRef={sites}
+          onFirstCollapse={setSitesCollapsed}
         >
-          <nav className="servicePicker" aria-label={t("web.schoolServices")}>
+          <nav
+            id="web-sites"
+            className="servicePicker"
+            aria-label={t("web.schoolServices")}
+            inert={sitesCollapsed}
+          >
             {serviceTiers.map((tier, tierIndex) => (
               <div className="serviceTier" key={tier.frequency}>
                 {tierIndex > 0 && <div className="serviceDivider" />}
@@ -345,6 +360,11 @@ function WebBody({
               className="webToolbar"
               onSubmit={(event) => void navigate(event)}
             >
+              <WorkspaceSidebarToggle
+                panel={sites}
+                collapsed={sitesCollapsed}
+                controls="web-sites"
+              />
               <div className="webAddress">
                 {onReturn && (
                   <UiButton

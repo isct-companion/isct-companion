@@ -1,5 +1,6 @@
 package app.isctcompanion
 
+import app.isctcompanion.design.CollapsingBar
 import app.isctcompanion.design.reducedMotion
 import app.isctcompanion.design.LocalReducedMotion
 import android.Manifest
@@ -453,15 +454,19 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 // Six entries crowd a bottom bar: a tablet's sit in the side rail.
+                // It folds away while a school page is read down, with the
+                // page's own top bar.
                 if (showsBar && !wide) {
-                    NavigationBar {
-                        for (tab in tabs) {
-                            NavigationBarItem(
-                                selected = tab == current,
-                                onClick = { select(tab) },
-                                icon = { Icon(tab.icon, null) },
-                                label = { Text(t(tab.label)) },
-                            )
+                    CollapsingBar(!(current == AppTab.Web && model.web.barsHidden)) {
+                        NavigationBar {
+                            for (tab in tabs) {
+                                NavigationBarItem(
+                                    selected = tab == current,
+                                    onClick = { select(tab) },
+                                    icon = { Icon(tab.icon, null) },
+                                    label = { Text(t(tab.label)) },
+                                )
+                            }
                         }
                     }
                 }

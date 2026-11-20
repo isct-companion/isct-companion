@@ -1027,8 +1027,9 @@ summary,
 .web {
   gap: var(--space-6);
 }
+/* The school page takes the window: a narrow margin keeps its card a card. */
 .servicesPage {
-  padding: var(--space-gutter);
+  padding: var(--space-3);
 }
 .webStatus {
   max-width: 180px;
@@ -1884,7 +1885,7 @@ summary,
   display: grid;
   /* The zoom and open controls keep their minimum width on narrow windows;
      a shrunk track let "Zoom in" slide under "Open in browser". */
-  grid-template-columns: minmax(0, 85fr) minmax(min-content, 10fr) minmax(
+  grid-template-columns: auto minmax(0, 85fr) minmax(min-content, 10fr) minmax(
       min-content,
       5fr
     );
