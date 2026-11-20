@@ -21,7 +21,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Localizer
 import app.isctcompanion.features.timetable.clockMinutes
-import app.isctcompanion.features.timetable.thisWeek
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -116,11 +115,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     val web = WebRouter(browser, scope, context)
     private var session: Session? = null
     private var revision = ""
-    /** The newest commit sequence heard from an event or a write; an answer
-     * read before it is asked for again. */
-    private var latestSeq: ULong = 0u
+    private var lastNotificationSeq: ULong? = null
+    private val dashboardReads = ScheduleReads()
+    internal val timetableWeeks = TimetableWeeks()
+    private val sessionMarks = Mutex()
+    var upcomingExams by mutableStateOf(emptyList<ExamView>())
+        private set
     private var boundaryJob: Job? = null
-    private var refreshJob: Job? = null
     /** The one timer for Core's next deadline (`WakeDirective`). */
     private var deadlineJob: Job? = null
     private var directive: WakeDirective? = null
@@ -202,7 +203,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             runCatching { session.resume() }
             hint(Hint.Foreground)
             armDeadline()
-            scope.launch { refresh() }
+            scheduleRefresh(force = true)
             scope.launch { checkForUpdate() }
             // Permission granted in the system settings while away.
             if (notificationsBlocked) scope.launch { resyncNotifications() }
@@ -362,17 +363,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
                     "school-download", "catalog-changed" -> Unit
-                    // A key re-read with nothing new renews only its freshness,
-                    // which no screen here shows.
-                    "workspace-changed" -> {
-                        latestSeq = maxOf(latestSeq, seqOf(update.event.payload))
-                        if (!onlyFreshness(update.event.payload)) scheduleRefresh()
-                    }
-                    else -> scheduleRefresh()
+                    "workspace-changed" -> scheduleRefresh()
+                    else -> Unit
                 }
                 is StreamUpdate.SnapshotRequired -> {
                     runCatching { session?.refreshWidgets() }
-                    scheduleRefresh()
+                    scheduleRefresh(force = true)
                     session?.let { runCatching { it.wakeDirective() }.onSuccess(::applyDirective) }
                     web.refreshPages()
                     refreshAccounts()
@@ -384,90 +380,64 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     }
 
-    /** The commit sequence a `workspace-changed` names. */
-    private fun seqOf(payload: String): ULong =
-        runCatching { JSONObject(payload).optLong("seq").toULong() }.getOrDefault(0u)
-
-    /** What a committed intent says: where the next one starts, and the
-     * sequence answers must not be older than. */
-    private fun adopt(commit: WorkspaceCommit) {
-        revision = commit.revision
-        latestSeq = maxOf(latestSeq, commit.seq)
-    }
-
-    /** Whether a `workspace-changed` names sync freshness and nothing else.
-     * An unreadable payload counts as a real change. */
-    private fun onlyFreshness(payload: String): Boolean = runCatching {
-        val changes = JSONObject(payload).getJSONArray("changes")
-        changes.length() > 0 && (0 until changes.length()).all { changes.getString(it) == "freshness" }
-    }.getOrDefault(false)
-
-    /** Coalesces bursts of change hints into one read. */
-    private fun scheduleRefresh() {
-        refreshJob?.cancel()
-        refreshJob = scope.launch {
-            delay(150)
-            refresh()
+    private fun scheduleRefresh(force: Boolean = false): Job? {
+        val session = session ?: return null
+        if (force) {
+            dashboardReads.invalidate()
+            timetableWeeks.invalidate()
+        } else {
+            timetableWeeks.invalidateIfChanged(session)
         }
+        return dashboardReads.refresh(scope, session, { readDashboard(session, it) }, { problem = describe(it) })
     }
 
-    // Read models
+    suspend fun refresh() { scheduleRefresh(force = true)?.join() }
 
-    suspend fun refresh() {
-        val session = session ?: return
-        val now = Format.timestamp(Instant.now())
-        try {
-            revision = (session.workspaceRevision().value() as? OperationResult.Text)?.value ?: return
-            // The rows screens look up, with the read models, from one read.
-            val result = (
-                session.scheduleQuery(
-                    listOf(
-                        WorkspaceQuery.Records(listOf("courses", "assignments")),
-                        WorkspaceQuery.Today(now),
-                        WorkspaceQuery.AssignmentBoard(now, null),
-                        WorkspaceQuery.TeachingPeriods,
-                    ),
-                ).value() as? OperationResult.Schedule
-                )?.snapshot ?: return
-            // An answer read before the newest change heard is stale: ask again
-            // (`approach/query-cache-consistency`).
-            if (result.seq < latestSeq) {
-                scheduleRefresh()
-                return
-            }
-            for (value in result.values) {
-                when (value) {
-                    is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
-                    is WorkspaceQueryResult.Today -> today = value.v1
-                    is WorkspaceQueryResult.AssignmentBoard -> {
-                        board = value.v1
-                        refreshWaiting()
-                    }
-                    is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
-                    else -> Unit
+    private suspend fun readDashboard(session: Session, generation: Long) {
+        val instant = Instant.now()
+        val now = Format.timestamp(instant)
+        val date = Format.today(instant)
+        val previousRevision = revision
+        val current = (session.workspaceRevision().value() as OperationResult.Text).value
+        val queries = listOf(
+            WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
+            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14))),
+            WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods,
+        )
+        val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
+        val overview = try {
+            (session.scheduleQuery(listOf(WorkspaceQuery.WorkspaceOverview(""))).value() as OperationResult.Schedule).snapshot
+        } catch (e: SdkException) {
+            // A new install may have no term for an overview yet.
+            null
+        }
+        val snapshot = if (overview == null) result else result.copy(reads = (result.reads + overview.reads).distinct())
+        val boundary = result.values.filterIsInstance<WorkspaceQueryResult.Today>().firstOrNull()?.v1?.nextBoundary
+        if (Format.date(boundary)?.let { !it.isAfter(Instant.now()) } == true) return
+        if (!dashboardReads.accept(snapshot, generation, session)) return
+        if (revision == previousRevision) revision = current
+        val key = "$generation-${result.seq}"
+        val changed = lastNotificationSeq != result.seq
+        lastNotificationSeq = result.seq
+        // Publish every view and its revision before the next suspension.
+        for (value in result.values) {
+            when (value) {
+                is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
+                is WorkspaceQueryResult.Today -> {
+                    if (today?.term?.let { it != value.v1.term } == true) timetableWeeks.invalidate()
+                    today = value.v1
                 }
+                is WorkspaceQueryResult.UpcomingExams -> upcomingExams = value.v1
+                is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
+                is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
+                else -> Unit
             }
-            // A fresh install has no current term yet, so the overview may fail alone.
-            runCatching {
-                val overview = session.scheduleQuery(listOf(WorkspaceQuery.WorkspaceOverview(""))).value()
-                val value = (overview as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
-                if (value is WorkspaceQueryResult.WorkspaceOverview) colors = value.v1.colors
-            }
-            val changed = contentRevision != result.seq.toString()
-            contentRevision = result.seq.toString()
-            scheduleBoundary()
-            if (changed || weeks.isEmpty()) {
-                weeks.clear()
-                scope.launch { prefetchTimetable() }
-            }
-            if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
-        } catch (error: CancellationException) {
-            // A newer change hint replaced this read; it is not a failure.
-            throw error
-        } catch (error: SdkException.Cancelled) {
-        } catch (error: Exception) {
-            problem = describe(error)
         }
+        (overview?.values?.firstOrNull() as? WorkspaceQueryResult.WorkspaceOverview)?.let { colors = it.v1.colors }
+        contentRevision = key
+        scheduleBoundary()
+        refreshWaiting()
+        if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
     }
 
     /** Re-query when Core says the phase or hero changes next. */
@@ -518,35 +488,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (shown == null || snapshot.generation >= shown.generation) syncSnapshot = snapshot
     }
 
-    /** Weeks already read this revision, by Monday, so the timetable draws
-     * them at once; a new revision re-reads them. */
-    private val weeks = mutableMapOf<LocalDate, ScheduleView>()
-
-    /** A week read with its neighbours, if this revision has it. */
-    fun cachedWeek(monday: LocalDate): ScheduleView? = weeks[monday]
-
-    /** The week from `monday`, read with `WEEK_REACH` weeks on either side in
-     * one query, so stepping or swiping through nearby weeks draws at once. */
     suspend fun week(monday: LocalDate): ScheduleView? {
-        weeks[monday]?.let { return it }
+        val session = session ?: return null
         val term = today?.term ?: return null
-        val first = Format.civil(monday.minusWeeks(WEEK_REACH))
-        val last = Format.civil(monday.plusWeeks(WEEK_REACH).plusDays(4))
-        val view = (query(WorkspaceQuery.ScheduleView(term, first, last, false)) as? WorkspaceQueryResult.ScheduleView)?.v1
-            ?: return null
-        for (offset in -WEEK_REACH..WEEK_REACH) {
-            val start = monday.plusWeeks(offset)
-            val from = Format.civil(start)
-            val to = Format.civil(start.plusDays(4))
-            // Civil dates compare as text.
-            weeks[start] = view.copy(agendas = view.agendas.filter { it.date >= from && it.date <= to })
-        }
-        return weeks[monday]
-    }
-
-    /** Reads this week and its axis ahead of the timetable being opened. */
-    private suspend fun prefetchTimetable() {
-        timetableAxis(week(thisWeek()) ?: return)
+        return timetableWeeks.week(monday, term, session) { scheduleSnapshot(session, it) }
     }
 
     /** The academic year (April–March) a date belongs to. */
@@ -672,19 +617,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */
-    suspend fun timetableAxis(week: ScheduleView?): TimetableAxis? {
-        val blocks = week?.agendas.orEmpty().flatMap { it.occurrences }
+    suspend fun timetableAxis(week: ScheduleView): TimetableAxis? {
+        val blocks = week.agendas.flatMap { it.occurrences }
             .filter { it.kind == OccurrenceKind.COURSE || it.kind == OccurrenceKind.EXAM }
         val earliest = blocks.map { it.startTime }.minByOrNull(::clockMinutes)
         val latest = blocks.map { it.endTime }.maxByOrNull(::clockMinutes)
-        val axis = (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
-        if (axis != null) lastTimetableAxis = axis
-        return axis
+        return (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
     }
 
     /** The last axis Core gave, so a timetable draws its rows at once. */
     var lastTimetableAxis: TimetableAxis? = null
-        private set
 
     /** A quarter as an iCalendar file, written by Core as the desktop's export. */
     suspend fun quarterIcs(term: String, scope: CalendarExportScope): String {
@@ -692,17 +634,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val query = WorkspaceQuery.QuarterIcs(term, scope, Format.timestamp(Instant.now()))
         val value = (session.scheduleQuery(listOf(query)).value() as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
         return (value as? WorkspaceQueryResult.QuarterIcs)?.v1 ?: throw SdkException.Unavailable("quarter calendar")
-    }
-
-    /** Exams Core lists as upcoming (linked and scheduled) from today
-     * through `days` days ahead, for 今日. */
-    suspend fun upcomingExams(days: Long = 14): List<ExamView> {
-        val term = today?.term ?: return emptyList()
-        val from = Format.civil(Format.today())
-        val last = Format.civil(Format.today().plusDays(days))
-        val view = (query(WorkspaceQuery.ScheduleView(term, from, from, false)) as? WorkspaceQueryResult.ScheduleView)?.v1
-        // Civil dates compare as text.
-        return view?.upcomingExams.orEmpty().filter { it.date <= last }
     }
 
     /** Downloads (or reuses) a course file through the signed-in LMS session. */
@@ -795,6 +726,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * A cancelled caller stays cancelled rather than reading "no answer". */
     private suspend fun query(query: WorkspaceQuery): WorkspaceQueryResult? {
         val session = session ?: return null
+        return scheduleSnapshot(session, query)?.values?.firstOrNull()
+    }
+
+    private suspend fun scheduleSnapshot(session: Session, query: WorkspaceQuery): ScheduleSnapshot? {
         val result = try {
             session.scheduleQuery(listOf(query)).value()
         } catch (error: CancellationException) {
@@ -802,7 +737,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         } catch (error: Exception) {
             null
         }
-        return (result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
+        return (result as? OperationResult.Schedule)?.snapshot
     }
 
     // Intents
@@ -849,8 +784,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
      * `class` (a plain class; Core clears the mark when that is the default).
      * The commit names `calendar`, which re-queries the week. */
-    suspend fun markSession(key: String, mark: String) {
-        commit(WorkspaceIntent.MarkSession(key, mark))
+    fun markSession(key: String, mark: String): Job = scope.launch {
+        // Each mark uses the workspace revision returned by the preceding commit.
+        sessionMarks.withLock { commit(WorkspaceIntent.MarkSession(key, mark)) }
     }
 
     /** Records `sectionId` as the lesson of the class at `occurrence` (Core's
@@ -866,14 +802,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         var committed = false
         try {
             (session.mutateCommit(WorkspaceMutation(revision, intent)).value() as? OperationResult.Committed)
-                ?.let { adopt(it.commit) }
+                ?.let { revision = it.commit.revision }
             committed = true
         } catch (error: SdkException.Conflict) {
             // Re-read below.
         } catch (error: Exception) {
             problem = describe(error)
         }
-        refresh()
+        if (committed) scheduleRefresh()?.join() else refresh()
         return committed
     }
 
@@ -916,8 +852,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun setStudyProfile(profile: StudyProfile) {
         val session = session ?: return
         (session.mutateCommit(WorkspaceMutation(revision, WorkspaceIntent.SetStudyProfile(profile.admissionYear, profile.enrollments))).value() as? OperationResult.Committed)
-            ?.let { adopt(it.commit) }
-        refresh()
+            ?.let { revision = it.commit.revision }
+        scheduleRefresh()?.join()
     }
 
     /** Pull to refresh: Core's planner decides what to read, and the sync
@@ -970,17 +906,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * previous one committed, so two quick toggles cannot both copy the same
      * old object. */
     suspend fun updateSettings(edit: (JSONObject) -> Unit): Unit = settingsWrite.withLock {
-        val session = session ?: return@withLock
         val settings = JSONObject(records.settings.toString())
         edit(settings)
-        val mutation = WorkspaceMutation(revision, WorkspaceIntent.ReplaceSettings(settings.toString()))
-        try {
-            (session.mutateCommit(mutation).value() as? OperationResult.Committed)?.let { adopt(it.commit) }
-        } catch (error: Exception) {
-            problem = describe(error)
-        }
-        refresh()
-        notificationsBlocked = NotificationScheduler.sync(context, session)
+        commit(WorkspaceIntent.ReplaceSettings(settings.toString()))
+        Unit
     }
 
     /** Schedules the plan again, after the notification permission changed. */
@@ -1072,7 +1001,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * announces the change, which re-reads every screen. */
     suspend fun reset(request: ResetRequest) {
         val session = session ?: return
-        session.reset(request)
+        try {
+            session.reset(request)
+        } finally {
+            timetableWeeks.invalidate(discard = true)
+        }
         problem = null
         refreshAccounts()
         readSync()
@@ -1214,9 +1147,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 }
 
 data class UndoAction(val title: String, val assignmentId: String)
-
-/** Weeks read on either side of the one asked for. */
-private const val WEEK_REACH = 4L
 
 /** What opening Core's campus map page answered. */
 sealed interface CampusMapOpening {

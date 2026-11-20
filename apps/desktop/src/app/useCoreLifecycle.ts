@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { desktopBridge } from "./native";
 import { sendHint } from "./useSync";
 import { networkHint } from "../platform/sync";
+import { everythingChanged } from "../platform/query-client";
 import { resyncClock } from "../platform/use-clock";
 
 /** Shell facts for Core: visibility and the network link. The native side
@@ -17,13 +18,25 @@ export function useCoreLifecycle() {
       sendHint({ kind });
       void desktopBridge?.cloudLifecycle?.(kind).catch(() => undefined);
     };
-    const focus = () => {
-      if (document.visibilityState !== "hidden") report("foreground");
+    let away = document.visibilityState === "hidden" || !document.hasFocus();
+    const leave = () => {
+      away = true;
     };
-    const visibility = () =>
-      report(
-        document.visibilityState === "hidden" ? "background" : "foreground",
-      );
+    const restore = () => {
+      if (away) everythingChanged();
+      away = false;
+      report("foreground");
+    };
+    const focus = () => {
+      if (document.visibilityState !== "hidden") restore();
+    };
+    const visibility = () => {
+      if (document.visibilityState === "visible") restore();
+      else {
+        leave();
+        report("background");
+      }
+    };
     const connection = (
       navigator as Navigator & {
         connection?: {
@@ -39,9 +52,11 @@ export function useCoreLifecycle() {
       addEventListener("offline", network);
       connection?.addEventListener?.("change", network);
     }
+    addEventListener("blur", leave);
     addEventListener("focus", focus);
     document.addEventListener("visibilitychange", visibility);
     return () => {
+      removeEventListener("blur", leave);
       removeEventListener("focus", focus);
       removeEventListener("online", network);
       removeEventListener("offline", network);

@@ -12,7 +12,7 @@ struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
     @State private var monday = TimetableScreen.monday(of: Date())
-    @State private var week: ScheduleView?
+    private var week: ScheduleView? { model.timetableWeeks[monday] }
     @State private var year: TimetableYear?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
@@ -33,6 +33,7 @@ struct TimetableScreen: View {
     private static let dayHeaderHeight: CGFloat = 54
 
     var body: some View {
+        let weekRevision = model.timetableWeeks.revision
         VStack(alignment: .leading, spacing: 12) {
             header
             TipView(TimetableMarkTip())
@@ -60,30 +61,26 @@ struct TimetableScreen: View {
         .onAppear {
             model.syncHint(.open(view: .timetable))
             if axis == nil { axis = model.lastTimetableAxis }
-            if week == nil { week = model.weeks[AppModel.civil(monday)] }
         }
-        // A week read with its neighbours draws at once; the task below
-        // still checks it against the current revision.
-        .onChange(of: monday) { _, next in
-            if let cached = model.weeks[AppModel.civil(next)] { week = cached }
-        }
-        .task(id: "\(monday.timeIntervalSince1970)-\(model.contentRevision)") {
-            // A newer revision cancels this read: its empty answer must not
-            // replace what is shown.
-            let loaded = await model.week(starting: monday)
-            guard !Task.isCancelled else { return }
-            week = loaded
-            let blocks = (loaded?.agendas ?? []).flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
+        .task(id: "\(monday.timeIntervalSince1970)-\(weekRevision)-\(model.today?.term ?? "")") { [monday] in
+            guard self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
+            guard let loaded = await model.week(starting: monday), !Task.isCancelled else { return }
+            let blocks = loaded.agendas.flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
             let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
             let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
             let shape = await model.timetableAxis(earliest: earliest, latest: latest)
-            guard !Task.isCancelled else { return }
-            if let shape { axis = shape }
+            guard !Task.isCancelled, self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
+            if let shape {
+                axis = shape
+                model.lastTimetableAxis = shape
+            }
             guard let number = await model.academicYear(of: monday),
                 year?.year != number || year?.quarters.isEmpty == true
             else { return }
             let calendar = await model.timetableYear(number)
-            if !Task.isCancelled, let calendar { year = calendar }
+            if !Task.isCancelled, self.monday == monday, model.timetableWeeks.revision == weekRevision, let calendar {
+                year = calendar
+            }
         }
         .sheet(isPresented: $showsPicker) {
             WeekPicker(year: year, monday: monday) { picked in
@@ -185,7 +182,6 @@ struct TimetableScreen: View {
     /// cards popped in where they stand.
     private func show(_ next: Date) {
         monday = next
-        if let cached = model.weeks[AppModel.civil(next)] { week = cached }
     }
 
     /// The weeks lie side by side and follow the finger; past the threshold
@@ -251,7 +247,7 @@ struct TimetableScreen: View {
         return ZStack(alignment: .topLeading) {
             ForEach([-1, 0, 1], id: \.self) { slot in
                 let start = Calendar.tokyo.date(byAdding: .day, value: 7 * slot, to: monday) ?? monday
-                grid(start, week: slot == 0 ? week : model.weeks[AppModel.civil(start)])
+                grid(start, week: model.timetableWeeks[start])
                     .offset(x: CGFloat(slot) * page + dragOffset)
                     .allowsHitTesting(slot == 0)
                     .accessibilityHidden(slot != 0)
@@ -299,14 +295,16 @@ struct TimetableScreen: View {
         }
     }
 
-    /// Period numbers at their rows; each block's start time under its first.
+    /// Period numbers at their rows; each block's start time under its first
+    /// period and its end time under its last.
     private var periodColumn: some View {
         ZStack(alignment: .top) {
             ForEach(axis?.rows ?? [], id: \.top) { row in
                 if let periods = row.periods, periods.count == 2 {
                     let first = Int(periods[0])
-                    ForEach(first...max(first, Int(periods[1])), id: \.self) { period in
-                        periodLabel(period, row: row, first: period == first)
+                    let last = max(first, Int(periods[1]))
+                    ForEach(first...last, id: \.self) { period in
+                        periodLabel(period, row: row, first: period == first, last: period == last)
                             .padding(.top, (row.top + Double(period - first)) * rowHeight)
                             .frame(maxHeight: .infinity, alignment: .top)
                     }
@@ -315,18 +313,21 @@ struct TimetableScreen: View {
         }
     }
 
-    private func periodLabel(_ period: Int, row: AxisRow, first: Bool) -> some View {
+    private func periodLabel(_ period: Int, row: AxisRow, first: Bool, last: Bool) -> some View {
         VStack(spacing: 0) {
             Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
-            if first {
-                Text(row.startTime.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
-                    .font(.tick.monospacedDigit())
-                    .foregroundStyle(Theme.muted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
+            if first { periodTime(row.startTime) }
+            if last { periodTime(row.endTime) }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func periodTime(_ time: String) -> some View {
+        Text(time.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
+            .font(.tick.monospacedDigit())
+            .foregroundStyle(Theme.muted)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 
     private func agenda(_ day: Date, in week: ScheduleView?) -> DatedAgenda? {

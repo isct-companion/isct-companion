@@ -1895,7 +1895,7 @@ describe("Study profile", () => {
       );
       await act(async () =>
         emitNative(mounted.core, "workspace-changed", {
-          seq: 1,
+          seq: mounted.core.commit().seq,
           source: "cloud-sync",
           changes: ["settings"],
         }),

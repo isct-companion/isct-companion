@@ -25,7 +25,7 @@ export type WorkspaceState = {
   readonly status: "idle" | "loading" | "ready" | "error";
   /** Baseline for user intents; school and reference ingests keep it. */
   readonly revision: string;
-  /** Counts changes heard per name; a whole re-read counts as `all`. The
+  /** Latest commit sequence per name and number of full reloads. The
    * finder refreshes its open page by the names its page read. */
   readonly viewRevisions: ViewRevisions;
   readonly error?: string;
@@ -66,12 +66,18 @@ export function createWorkspaceStore(service: WorkspaceService) {
   const publish = (next: WorkspaceState) => {
     state.setState(Object.freeze(next), true);
   };
-  const counted = (changes: readonly (WorkspaceChange | "all")[]) => {
+  const counted = (
+    changes: readonly (WorkspaceChange | "all")[],
+    seq?: number,
+  ) => {
     const viewRevisions: Partial<Record<WorkspaceChange | "all", number>> = {
       ...state.getState().viewRevisions,
     };
     for (const change of changes)
-      viewRevisions[change] = (viewRevisions[change] ?? 0) + 1;
+      viewRevisions[change] =
+        seq === undefined
+          ? (viewRevisions[change] ?? 0) + 1
+          : Math.max(viewRevisions[change] ?? 0, seq);
     return viewRevisions;
   };
   /** Reads the revision again and refetches every answer: anything may have
@@ -113,12 +119,12 @@ export function createWorkspaceStore(service: WorkspaceService) {
           expectedRevision: state.getState().revision,
           intent: resolved,
         });
+        changesCommitted(commit.changes, commit.seq);
         publish({
           ...state.getState(),
           revision: commit.revision,
-          viewRevisions: counted(commit.changes),
+          viewRevisions: counted(commit.changes, commit.seq),
         });
-        changesCommitted(commit.changes, commit.seq);
         localMutationRevisions.add(commit.revision);
         if (localMutationRevisions.size > 32)
           localMutationRevisions.delete(
@@ -143,7 +149,10 @@ export function createWorkspaceStore(service: WorkspaceService) {
   };
   const handleWorkspaceChanged = async (event: WorkspaceChangedEvent) => {
     changesCommitted(event.changes, event.seq);
-    publish({ ...state.getState(), viewRevisions: counted(event.changes) });
+    publish({
+      ...state.getState(),
+      viewRevisions: counted(event.changes, event.seq),
+    });
     if (event.source !== "user-intent") {
       revisionStale = true;
       return;

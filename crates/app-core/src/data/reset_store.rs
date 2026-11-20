@@ -214,8 +214,11 @@ impl DataStore {
     /// Publishes a change committed without a source, once the caller is
     /// ready for shells to read it. A reset may have changed any table.
     pub(crate) fn announce(&self, source: WorkspaceChangeSource) {
-        self.commit_seq.advance();
-        self.observer
-            .committed(source, None, &migrations::all_tables());
+        let tables = migrations::all_tables();
+        let writer = self.connections.writer();
+        self.committed_tables(&tables);
+        let seq = self.commit_seq();
+        drop(writer);
+        self.observer.committed(source, None, seq, &tables);
     }
 }

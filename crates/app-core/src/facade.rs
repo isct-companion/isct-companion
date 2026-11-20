@@ -110,7 +110,6 @@ impl EventSink for CoreEvents {
 /// folder's lock, alive after Core is gone.
 struct StoreChanges {
     events: Option<StoreEvents>,
-    seq: crate::data::CommitSeq,
     runtime: std::sync::Weak<CoreRuntime>,
     /// The deadline services a commit can bring forward.
     reminders: crate::schedule::ReminderChanges,
@@ -133,6 +132,7 @@ impl CommitObserver for StoreChanges {
         &self,
         source: WorkspaceChangeSource,
         revision: Option<String>,
+        seq: u64,
         tables: &BTreeSet<String>,
     ) {
         if let Some(runtime) = self.runtime.upgrade() {
@@ -179,7 +179,7 @@ impl CommitObserver for StoreChanges {
                     source,
                     revision,
                     changes: changes.into_iter().collect(),
-                    seq: self.seq.get(),
+                    seq,
                 });
         } else if !changes.is_empty() {
             events.workspace.push(source, changes);
@@ -270,7 +270,6 @@ impl Core {
         let sync = Arc::new(sync);
         let seq = store.commit_seq_handle();
         store.observe(Arc::new(StoreChanges {
-            seq: seq.clone(),
             events: events.clone().map(|events| {
                 let sink = events.clone();
                 // Delivered after every commit it merges has landed.

@@ -951,6 +951,7 @@ impl CommitObserver for HeardCommits {
         &self,
         _source: WorkspaceChangeSource,
         _revision: Option<String>,
+        _seq: u64,
         tables: &std::collections::BTreeSet<String>,
     ) {
         self.0.lock().unwrap().push(tables.clone());

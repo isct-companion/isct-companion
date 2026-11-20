@@ -1876,7 +1876,6 @@ export type ScheduleView = {
   courses: unknown[];
   agendas: Array<DatedAgenda>;
   exams: Array<ExamView>;
-  upcomingExams: Array<ExamView>;
   declaredCredits: number | null;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
@@ -1899,6 +1898,8 @@ export type WorkspaceQuery =
   | { kind: "academicYears"; date: string; selectedYear: number }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
+  | { kind: "upcomingExams"; from: string; to: string | null }
+  | { kind: "calendarRange"; from: string; to: string }
   | { kind: "assignmentBoard"; now: string; term: string | null }
   | { kind: "courseDetail"; courseId: string }
   | { kind: "courseContent"; courseId: string; now: string }
@@ -1962,6 +1963,8 @@ export type WorkspaceQueryResult =
   | { kind: "academicYears"; value: AcademicYearIndex }
   | { kind: "taskView"; value: TaskView }
   | { kind: "today"; value: TodayView }
+  | { kind: "upcomingExams"; value: Array<ExamView> }
+  | { kind: "calendarRange"; value: Array<DatedAgenda> }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "assignmentDetail"; value: AssignmentDetail | null }

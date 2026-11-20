@@ -27,6 +27,14 @@ committing it, go through that checklist against the change's diff (every
 shell, not only the desktop frontend) and name in the report what each item
 found, fixed or left.
 
+A UI change lands on all four platforms by default. A change to what a screen
+shows or how it behaves on desktop makes the same change in the iOS and
+Android shells in the same change, and the other way round. The exceptions
+are a feature a slotledger decision keeps on some platforms (for example
+`approach/course-editing-desktop-only`, `approach/desktop-tools-page`) and
+behaviour that exists on only one platform (the desktop webview's own
+right-click menu). The report names which shells changed and why any did not.
+
 ## 3. Isolate native differences at compile time, not with runtime checks
 
 Behaviour that differs because of the native platform is separated in source
@@ -90,7 +98,6 @@ coarse services through FFI, with correlated callbacks and snapshot recovery.
 Preserve active desktop behaviour and stored-data compatibility at each tested
 checkpoint, then commit. Remove superseded implementations and state owners;
 record production-code reduction separately from tests and generated code.
-Mobile shells will be redesigned; old mobile UI parity is not required.
 
 ## 5. Keep every test in one place, and pick the layer before writing it
 

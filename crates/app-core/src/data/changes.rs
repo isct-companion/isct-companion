@@ -47,6 +47,7 @@ pub trait CommitObserver: Send + Sync {
         &self,
         source: WorkspaceChangeSource,
         revision: Option<String>,
+        seq: u64,
         tables: &BTreeSet<String>,
     );
 
@@ -72,6 +73,7 @@ impl Observer {
         &self,
         source: WorkspaceChangeSource,
         revision: Option<String>,
+        seq: u64,
         tables: &BTreeSet<String>,
     ) {
         if tables.is_empty() {
@@ -83,7 +85,7 @@ impl Observer {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         if let Some(observer) = observer {
-            observer.committed(source, revision, tables);
+            observer.committed(source, revision, seq, tables);
         }
     }
 
