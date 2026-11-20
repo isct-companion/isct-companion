@@ -5,8 +5,8 @@ import app.isctcompanion.design.t
 /** Queues this selection for the LMS draft page the person will save. */
 internal suspend fun AppModel.handIn(
     selection: SharedInbox.Selection,
-    target: SharedInbox.Target,
-): WebRouter.PushedPage {
+    assignmentId: String,
+): OperationResult.DraftUpload {
     val session = session ?: throw SdkException.Closed()
     val messages = UploadMessages(
         t("failure.preparingYourLMSUpload"),
@@ -14,7 +14,6 @@ internal suspend fun AppModel.handIn(
         t("failure.theUploadAreaIsNot"),
     )
     val files = selection.files.map { SharedFile(it.file.path, it.name) }
-    val upload = session.prepareHandIn(target.assignmentId, files, messages).value() as? OperationResult.DraftUpload
+    return session.prepareHandIn(assignmentId, files, messages).value() as? OperationResult.DraftUpload
         ?: throw SdkException.Unavailable("")
-    return WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, upload.url, target.title, upload.id)
 }

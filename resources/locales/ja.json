@@ -630,6 +630,7 @@
   "failure.thePreviousTaskHasNot": "前の処理がまだ終わっていません。",
   "failure.theSchoolSiteIsNot": "学校サイトの応答がありません。",
   "failure.theSchoolSiteIsUnder": "学校のサイトはメンテナンス中です。",
+  "failure.theDraftUploadFailed": "ファイルを LMS の下書きに送れませんでした。課題を選んでやり直してください。",
   "failure.theUploadAreaIsNot": "アップロード領域を利用できません。LMS でファイルを選択してください。",
   "failure.thisIsNotAvailableRight": "この機能は今使えません。",
   "failure.youreOfflineShowingSavedData": "オフラインです。保存済みのデータを表示しています。",

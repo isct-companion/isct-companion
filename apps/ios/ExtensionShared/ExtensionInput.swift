@@ -10,6 +10,10 @@ enum ExtensionInput {
         let folder = try SharedInbox.temporaryFolder()
         do {
             let files = try await SharedInbox.copy(providers, into: folder)
+            guard !files.isEmpty else {
+                try? FileManager.default.removeItem(at: folder)
+                return nil
+            }
             return SharedInbox.Transfer(folder: folder, files: files, choice: nil)
         } catch {
             try? FileManager.default.removeItem(at: folder)

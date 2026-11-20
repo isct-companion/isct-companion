@@ -60,6 +60,7 @@ pub enum OperationResult {
     DraftUpload {
         id: String,
         url: String,
+        receipt: std::sync::Arc<crate::hand_in::UploadReceipt>,
     },
     /// `checked`: whether a check was due and ran; `release`: a newer build
     /// for this platform, if it ran and found one; `prompt`: whether Core

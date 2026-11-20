@@ -98,7 +98,7 @@ internal fun InboxSheet() {
                 ) {
                     items(selection.files, key = { it.file.path }) { item ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(80.dp)) {
-                            Thumbnail(item.file, Modifier.size(72.dp, 92.dp))
+                            Thumbnail(item.file, Modifier.size(72.dp, 92.dp), name = item.name)
                             Text(item.name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }

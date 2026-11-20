@@ -115,8 +115,10 @@ enum SharedInbox {
         let group = DispatchGroup()
         var results: [Int: Result<File, Error>] = [:]
         for (index, provider) in providers.enumerated() {
+            let representations = fileRepresentations(provider)
+            guard !representations.isEmpty else { continue }
             group.enter()
-            copy(provider, into: folder) { result in
+            copy(provider, through: representations[...], into: folder) { result in
                 DispatchQueue.main.async {
                     results[index] = result
                     group.leave()
@@ -135,22 +137,37 @@ enum SharedInbox {
         }
     }
 
+    private static func fileRepresentations(_ provider: NSItemProvider) -> [UTType] {
+        let offered = provider.registeredTypeIdentifiers.compactMap(UTType.init)
+        let hasMetadata = offered.contains { $0.conforms(to: .url) || $0.conforms(to: .plainText) || $0 == .text }
+        var files = offered.filter { type in
+            type.conforms(to: .data) && !type.conforms(to: .plainText) && !type.conforms(to: .url) &&
+                type != .text && (!hasMetadata || type != .data)
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            files.append(.fileURL)
+        }
+        return files
+    }
+
     private static func copy(
-        _ provider: NSItemProvider, into folder: URL,
+        _ provider: NSItemProvider, through types: ArraySlice<UTType>, into folder: URL,
         completion: @escaping (Result<File, Error>) -> Void
     ) {
-        let suggested = provider.suggestedName
-        let types = provider.registeredTypeIdentifiers.compactMap(UTType.init)
-        if let type = types.first(where: { $0.conforms(to: .data) && !$0.conforms(to: .plainText) && !$0.conforms(to: .url) }) {
-            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
-                completion(Result {
-                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
-                    return try store(url, suggested: suggested, type: type, into: folder)
-                })
+        // The first request starts synchronously in the drop handler. If this
+        // representation fails, try the other file types of this same provider.
+        guard let type = types.first else { return }
+        let finish: (Result<File, Error>) -> Void = { result in
+            if case .failure = result, types.count > 1 {
+                copy(provider, through: types.dropFirst(), into: folder, completion: completion)
+            } else {
+                completion(result)
             }
-        } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, error in
-                completion(Result {
+        }
+        let suggested = provider.suggestedName
+        if type == .fileURL {
+            provider.loadItem(forTypeIdentifier: type.identifier) { item, error in
+                finish(Result {
                     let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
                     guard let url, url.isFileURL else { throw error ?? CocoaError(.fileReadUnknown) }
                     let scoped = url.startAccessingSecurityScopedResource()
@@ -159,11 +176,19 @@ enum SharedInbox {
                 })
             }
         } else {
-            completion(.failure(CocoaError(.fileReadUnsupportedScheme)))
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
+                finish(Result {
+                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
+                    return try store(url, suggested: suggested, type: type, into: folder)
+                })
+            }
         }
     }
 
     private static func store(_ source: URL, suggested: String?, type: UTType?, into folder: URL) throws -> File {
+        guard try source.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
         let base = suggested ?? source.deletingPathExtension().lastPathComponent
         let ext = source.pathExtension.isEmpty ? (type?.preferredFilenameExtension ?? "") : source.pathExtension
         let name = ext.isEmpty || base.hasSuffix(".\(ext)") ? base : "\(base).\(ext)"

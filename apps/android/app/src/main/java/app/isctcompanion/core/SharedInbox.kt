@@ -22,7 +22,12 @@ object SharedInbox {
     data class Item(val file: File, val name: String)
     data class Selection(val folder: File, val files: List<Item>, val target: Target?)
 
+    private data class Upload(val id: String, val selection: Selection, val receipt: UploadReceipt)
+
     private var generation = 0L
+    private var upload: Upload? = null
+    var failedUpload: String? by mutableStateOf(null)
+        private set
     var selection: Selection? by mutableStateOf(null)
         private set
     var working: Boolean by mutableStateOf(false)
@@ -40,7 +45,7 @@ object SharedInbox {
                 if (!folder.mkdir()) throw IOException("Could not create a temporary folder")
                 uris.map { uri ->
                     val name = displayName(context, uri)
-                    val file = File(folder, "${UUID.randomUUID()}-$name")
+                    val file = File(folder, UUID.randomUUID().toString())
                     val input = context.contentResolver.openInputStream(uri)
                         ?: throw IOException("Could not read $name")
                     input.use { source -> file.outputStream().use { source.copyTo(it) } }
@@ -62,7 +67,6 @@ object SharedInbox {
 
     fun discard(item: Selection) {
         if (selection != item) return
-        generation += 1
         selection = null
         item.folder.deleteRecursively()
     }
@@ -72,16 +76,45 @@ object SharedInbox {
         working = true
         try {
             // Finish reading Core's receipt even if the picker is dismissed.
-            val page = withContext(NonCancellable) { model.handIn(item, target) }
+            val (id, url, receipt) = withContext(NonCancellable) { model.handIn(item, target.assignmentId) }
             if (!currentCoroutineContext().isActive || selection != item) {
-                page.uploadId?.let(model.web::cancelHandIn)
+                model.web.cancelHandIn(id)
                 return null
             }
-            discard(item)
-            return page
+            upload?.selection?.folder?.deleteRecursively()
+            upload = Upload(id, item, receipt)
+            selection = null
+            return WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, target.title, id)
         } finally {
             working = false
         }
+    }
+
+    suspend fun waitForUpload(id: String, web: WebRouter) {
+        val request = upload?.takeIf { it.id == id } ?: return
+        val dispatched = request.receipt.dispatched()
+        if (upload?.id != id) return
+        if (dispatched) {
+            closeUpload(id)
+        } else {
+            web.cancelHandIn(id)
+            failedUpload = id
+        }
+    }
+
+    fun retryUpload(id: String) {
+        val request = upload?.takeIf { it.id == id } ?: return
+        if (selection != null) return
+        upload = null
+        failedUpload = null
+        selection = request.selection.copy(target = null)
+    }
+
+    fun closeUpload(id: String) {
+        val request = upload?.takeIf { it.id == id } ?: return
+        upload = null
+        failedUpload = null
+        request.selection.folder.deleteRecursively()
     }
 
     fun dismissError() { error = null }

@@ -2,16 +2,16 @@ import IsctCore
 
 extension AppModel {
     /// Queues this selection for the LMS draft page the person will save.
-    func handIn(_ assignment: String, title: String, files: [SharedFile]) async throws -> WebRouter.PushedPage {
+    func handIn(_ assignment: String, files: [SharedFile]) async throws -> (id: String, url: String, receipt: UploadReceipt) {
         guard let session else { throw SdkError.Closed }
         let messages = UploadMessages(
             waiting: t("failure.preparingYourLMSUpload"),
             queued: t("failure.filesSentToTheUpload"),
             failed: t("failure.theUploadAreaIsNot"))
-        guard case let .draftUpload(id, url) = try await session.prepareHandIn(
+        guard case let .draftUpload(id, url, receipt) = try await session.prepareHandIn(
             assignmentId: assignment, files: files, messages: messages).value()
         else { throw SdkError.Unavailable(detail: "") }
-        return WebRouter.PushedPage(site: .scienceLms, target: url, title: title, uploadId: id)
+        return (id, url, receipt)
     }
 
     /// The quarter's current draft targets, for the share extension.

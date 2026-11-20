@@ -9,13 +9,8 @@ use crate::{
 };
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::File,
-    io::Read,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{fs::File, io::Read, path::PathBuf, sync::Arc, time::Duration};
+use tokio::{sync::watch, time::Instant};
 use url::Url;
 
 pub const MAX_SUBMISSION_FILES: usize = 32;
@@ -144,6 +139,31 @@ pub(crate) fn selected_files(
 pub struct DraftUpload {
     pub id: String,
     pub url: String,
+    dispatched: watch::Receiver<Option<bool>>,
+    expires: Instant,
+}
+
+impl DraftUpload {
+    /// The phone waits for dispatch of this request while the draft page is open.
+    pub async fn dispatched(&self) -> bool {
+        let mut result = self.dispatched.clone();
+        result
+            .wait_for(Option::is_some)
+            .await
+            .is_ok_and(|outcome| *outcome == Some(true))
+    }
+
+    pub(crate) fn wait_for_expiry(
+        &self,
+    ) -> impl std::future::Future<Output = bool> + Send + 'static {
+        let expires = self.expires;
+        let mut result = self.dispatched.clone();
+        async move {
+            tokio::time::timeout_at(expires, result.wait_for(Option::is_some))
+                .await
+                .is_err()
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -164,6 +184,8 @@ pub(crate) struct PendingSubmission {
     scoped: bool,
     #[serde(skip)]
     expires: Instant,
+    #[serde(skip)]
+    dispatch_result: Option<watch::Sender<Option<bool>>>,
 }
 
 impl PendingSubmission {
@@ -189,18 +211,32 @@ impl PendingSubmission {
             messages,
             scoped: false,
             expires: Instant::now() + Duration::from_secs(300),
+            dispatch_result: None,
         })
     }
 
     /// A distinct URL lets both native hosts correlate a load even when their
     /// WebView callbacks carry no navigation action ID.
-    pub fn scope_to_request(&mut self) -> Result<(), SubmissionError> {
+    pub fn scope_to_request(&mut self) -> Result<DraftUpload, SubmissionError> {
         let mut url = submission_url(&self.url)?;
         url.query_pairs_mut()
             .append_pair(REQUEST_PARAM, &self.request);
         self.url = url.to_string();
         self.scoped = true;
-        Ok(())
+        let (sender, dispatched) = watch::channel(None);
+        self.dispatch_result = Some(sender);
+        Ok(DraftUpload {
+            id: self.request.clone(),
+            url: self.url.clone(),
+            dispatched,
+            expires: self.expires,
+        })
+    }
+
+    pub fn report_dispatch(&self, sent: bool) {
+        if let Some(result) = &self.dispatch_result {
+            result.send_replace(Some(sent));
+        }
     }
 
     pub fn scoped(&self) -> bool {

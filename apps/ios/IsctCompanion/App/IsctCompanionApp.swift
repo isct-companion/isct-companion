@@ -276,7 +276,7 @@ struct RootView: View {
         }
         .sheet(item: Binding(
             get: { inbox.transfer },
-            set: { value in if value == nil, let selection = inbox.transfer { inbox.discard(selection) } }
+            set: { _ in }
         ), onDismiss: inbox.refresh) { selection in
             InboxSheet(selection: selection)
         }

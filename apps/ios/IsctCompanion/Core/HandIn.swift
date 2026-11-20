@@ -9,6 +9,8 @@ final class InboxModel {
     private(set) var transfer: SharedInbox.Transfer?
     private(set) var working = false
     private var generation = 0
+    private var upload: (id: String, selection: SharedInbox.Transfer, receipt: UploadReceipt)?
+    private(set) var failedUpload: String?
     var error: String?
 
     func refresh() {
@@ -19,7 +21,6 @@ final class InboxModel {
 
     func discard(_ selection: SharedInbox.Transfer) {
         guard transfer?.id == selection.id else { return }
-        _ = nextGeneration()
         transfer = nil
         selection.discard()
     }
@@ -31,13 +32,41 @@ final class InboxModel {
         working = true
         defer { working = false }
         let files = selection.files.map { SharedFile(path: $0.url(in: selection.folder).path, name: $0.name) }
-        let page = try await model.handIn(assignment, title: title, files: files)
+        let (id, url, receipt) = try await model.handIn(assignment, files: files)
         guard transfer?.id == selection.id else {
-            if let uploadId = page.uploadId { model.web.cancelHandIn(uploadId) }
+            model.web.cancelHandIn(id)
             return nil
         }
-        discard(selection)
-        return page
+        upload?.selection.discard()
+        upload = (id, selection, receipt)
+        transfer = nil
+        return WebRouter.PushedPage(site: .scienceLms, target: url, title: title, uploadId: id)
+    }
+
+    func waitForUpload(_ id: String, web: WebRouter) async {
+        guard let upload, upload.id == id else { return }
+        let dispatched = await upload.receipt.dispatched()
+        guard !Task.isCancelled, self.upload?.id == id else { return }
+        if dispatched {
+            closeUpload(id)
+        } else {
+            web.cancelHandIn(id)
+            failedUpload = id
+        }
+    }
+
+    func retryUpload(_ id: String) {
+        guard let upload, upload.id == id, transfer == nil else { return }
+        self.upload = nil
+        failedUpload = nil
+        transfer = SharedInbox.Transfer(folder: upload.selection.folder, files: upload.selection.files, choice: nil)
+    }
+
+    func closeUpload(_ id: String) {
+        guard let upload, upload.id == id else { return }
+        self.upload = nil
+        failedUpload = nil
+        upload.selection.discard()
     }
 
     func select(

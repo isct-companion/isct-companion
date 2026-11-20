@@ -2,6 +2,24 @@
 use crate::{Operation, OperationResult, SdkError, Session};
 use std::sync::Arc;
 
+#[derive(uniffi::Object)]
+pub struct UploadReceipt(app_core::school_browser::DraftUpload);
+
+impl std::fmt::Debug for UploadReceipt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadReceipt")
+            .field("id", &self.0.id)
+            .finish()
+    }
+}
+
+#[uniffi::export]
+impl UploadReceipt {
+    pub async fn dispatched(&self) -> bool {
+        self.0.dispatched().await
+    }
+}
+
 /// A file the shell received (shared into the app, dropped on an assignment),
 /// by its path and the name it is handed in under.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -47,8 +65,9 @@ impl Session {
                 )
                 .map_err(|error| crate::error::coded(&error))?;
             Ok(OperationResult::DraftUpload {
-                id: upload.id,
-                url: upload.url,
+                id: upload.id.clone(),
+                url: upload.url.clone(),
+                receipt: Arc::new(UploadReceipt(upload)),
             })
         })
     }

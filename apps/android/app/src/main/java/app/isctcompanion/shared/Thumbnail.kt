@@ -30,9 +30,9 @@ import kotlinx.coroutines.withContext
 /** A file's thumbnail (images, videos, the first page of a PDF), or its
  * type's icon. Drawn off the main thread. */
 @Composable
-fun Thumbnail(file: File, modifier: Modifier = Modifier, corner: Dp = 8.dp) {
-    val bitmap by produceState<Bitmap?>(null, file) {
-        value = withContext(Dispatchers.IO) { thumbnail(file) }
+fun Thumbnail(file: File, modifier: Modifier = Modifier, corner: Dp = 8.dp, name: String = file.name) {
+    val bitmap by produceState<Bitmap?>(null, file, name) {
+        value = withContext(Dispatchers.IO) { thumbnail(file, name) }
     }
     Box(
         modifier.clip(RoundedCornerShape(corner)).background(Theme.colors.surface2),
@@ -44,9 +44,9 @@ fun Thumbnail(file: File, modifier: Modifier = Modifier, corner: Dp = 8.dp) {
     }
 }
 
-private fun thumbnail(file: File): Bitmap? = runCatching {
+private fun thumbnail(file: File, name: String): Bitmap? = runCatching {
     val size = Size(256, 320)
-    when (file.extension.lowercase()) {
+    when (name.substringAfterLast('.', "").lowercase()) {
         "jpg", "jpeg", "png", "heic", "heif", "webp", "gif" -> ThumbnailUtils.createImageThumbnail(file, size, null)
         "mp4", "mov", "m4v" -> ThumbnailUtils.createVideoThumbnail(file, size, null)
         "pdf" -> ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->

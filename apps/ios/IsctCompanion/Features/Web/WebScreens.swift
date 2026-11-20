@@ -305,6 +305,7 @@ typealias SitePickerPress = TabItemPress<SitePick>
 struct WebPageScreen: View {
     let page: WebRouter.PushedPage
     @Environment(WebRouter.self) private var web
+    @Environment(InboxModel.self) private var inbox
     @Environment(Navigator.self) private var navigator
     @State private var visibilityOwner = UUID()
     @State private var barsHidden = false
@@ -319,7 +320,14 @@ struct WebPageScreen: View {
                 reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
             )
             .ignoresSafeArea(.container, edges: .bottom)
-            if let error = web.error {
+            if let id = page.uploadId, inbox.failedUpload == id {
+                VStack(spacing: Theme.space4) {
+                    ProblemNote(text: t("failure.theDraftUploadFailed"))
+                    Button(t("common.retry")) { inbox.retryUpload(id) }
+                }
+                .padding(Theme.space6)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface))
+            } else if let error = web.error {
                 ProblemNote(text: error)
             }
         }
@@ -354,9 +362,15 @@ struct WebPageScreen: View {
             web.open(page.site, target: page.target)
             web.appear(page.site, owner: visibilityOwner)
         }
+        .task(id: page.uploadId) {
+            if let id = page.uploadId { await inbox.waitForUpload(id, web: web) }
+        }
         .onDisappear {
             barsHidden = false
-            if let uploadId = page.uploadId { web.cancelHandIn(uploadId) }
+            if let id = page.uploadId {
+                web.cancelHandIn(id)
+                inbox.closeUpload(id)
+            }
             web.disappear(owner: visibilityOwner)
         }
     }

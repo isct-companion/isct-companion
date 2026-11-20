@@ -86,6 +86,7 @@ import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.LoadFailure
 import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolWebAccess
 import app.isctcompanion.core.SchoolWebFailure
 import app.isctcompanion.core.SchoolWebProblem
@@ -535,10 +536,16 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
         web.open(page.site, page.target)
         web.setVisible(page.site)
         onDispose {
-            page.uploadId?.let(web::cancelHandIn)
+            page.uploadId?.let { id ->
+                web.cancelHandIn(id)
+                SharedInbox.closeUpload(id)
+            }
             web.barsHidden = false
             web.setVisible(null)
         }
+    }
+    LaunchedEffect(page.uploadId) {
+        page.uploadId?.let { SharedInbox.waitForUpload(it, web) }
     }
     HistoryBack(page.site) { navigator.back() }
     Column(Modifier.fillMaxSize().background(Theme.colors.surface).statusBarsPadding()) {
@@ -555,7 +562,18 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             SchoolPage(page.site, { web.barsHidden = it }, Modifier.fillMaxSize())
-            web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
+            val id = page.uploadId
+            if (id != null && SharedInbox.failedUpload == id) {
+                Column(
+                    Modifier.align(Alignment.Center).background(Theme.colors.surface).padding(Theme.space6),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ProblemNote(t("failure.theDraftUploadFailed"), Modifier)
+                    TextButton(onClick = { SharedInbox.retryUpload(id) }) { Text(t("common.retry")) }
+                }
+            } else {
+                web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
+            }
         }
         CollapsingBar(!web.barsHidden) { BottomBar(page.site) }
     }

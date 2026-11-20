@@ -677,6 +677,7 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
+    #[cfg(any(feature = "desktop-workspaces", test))]
     pub fn prepare_submission(
         &self,
         raw: &str,
@@ -717,12 +718,31 @@ impl SchoolBrowserEngine {
             return Err(super::SubmissionError::AssignmentUnavailable);
         }
         let mut pending = PendingSubmission::new(&page, files, messages)?;
-        pending.scope_to_request()?;
-        let upload = super::DraftUpload {
-            id: pending.request.clone(),
-            url: pending.url.clone(),
-        };
+        let upload = pending.scope_to_request()?;
+        let expiry = upload.wait_for_expiry();
+        let id = upload.id.clone();
+        let browser = Arc::downgrade(&self.0);
         self.0.state.guard().submission = Some(pending);
+        if !self.0.tasks.spawn_on(&self.0.runtime, async move {
+            if expiry.await {
+                if let Some(browser) = browser.upgrade() {
+                    browser.state.with(|state| {
+                        if state
+                            .submission
+                            .as_ref()
+                            .is_some_and(|pending| pending.request == id)
+                        {
+                            state.submission = None;
+                        }
+                    });
+                }
+            }
+        }) {
+            self.cancel_submission(&upload.id);
+            return Err(super::SubmissionError::Browser(
+                "School browser has stopped".into(),
+            ));
+        }
         Ok(upload)
     }
 
@@ -1510,8 +1530,12 @@ impl Inner {
             }
         };
         if let Some(pending) = pending {
-            self.dispatch_eval(browser, pending.script()?, false)
-                .map_err(|error| super::SubmissionError::Browser(error.to_string()))?;
+            let result = pending.script().and_then(|script| {
+                self.dispatch_eval(browser, script, false)
+                    .map_err(|error| super::SubmissionError::Browser(error.to_string()))
+            });
+            pending.report_dispatch(result.is_ok());
+            result?;
         }
         Ok(())
     }

@@ -630,6 +630,7 @@
   "failure.thePreviousTaskHasNot": "The previous task has not finished yet.",
   "failure.theSchoolSiteIsNot": "The school site is not responding.",
   "failure.theSchoolSiteIsUnder": "The school site is under maintenance.",
+  "failure.theDraftUploadFailed": "Could not send the files to the LMS draft. Choose an assignment to try again.",
   "failure.theUploadAreaIsNot": "The upload area is not available. Choose the files in LMS.",
   "failure.thisIsNotAvailableRight": "This is not available right now.",
   "failure.youreOfflineShowingSavedData": "You're offline. Showing saved data.",

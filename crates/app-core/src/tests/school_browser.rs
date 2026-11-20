@@ -157,7 +157,7 @@ fn engine() -> (
 
 // Native WebViews have no headless mode; drive their real Core coordinator
 // through page callbacks.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {
     use crate::school_browser::SubmissionFile;
     let (engine, browser, _, store) = engine();
@@ -266,6 +266,7 @@ async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinat
     update_availability(true);
     let cancelled = prepare().unwrap();
     engine.cancel_submission(&cancelled.id);
+    assert!(!cancelled.dispatched().await);
     let current = prepare().unwrap();
     engine.cancel_submission(&cancelled.id);
     engine
@@ -287,8 +288,7 @@ async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinat
         tokio::task::yield_now().await;
         assert_eq!(count_uploads(), expected_uploads);
     }
-    assert_eq!(std::fs::read(&source).unwrap(), b"my report");
-    std::fs::remove_file(source).unwrap();
+    assert!(current.dispatched().await);
     engine.cancel_submission(&current.id);
     assert!(browser
         .commands
@@ -299,6 +299,38 @@ async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinat
             &command.command, BrowserAction::Eval(script)
                 if script.contains(&format!("{{\"cancelRequest\":\"{}\"}}", current.id))
         )));
+    let expired = prepare().unwrap();
+    tokio::time::advance(std::time::Duration::from_secs(301)).await;
+    assert!(!expired.dispatched().await);
+    let before_expired_callback = count_uploads();
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 7,
+        },
+        cause: None,
+        url: Url::parse(&expired.url).unwrap(),
+    });
+    tokio::task::yield_now().await;
+    assert_eq!(count_uploads(), before_expired_callback);
+
+    let failed = prepare().unwrap();
+    engine
+        .navigate(SchoolSite::ScienceLms, &failed.url)
+        .unwrap();
+    browser.unavailable.store(true, Ordering::Release);
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 8,
+        },
+        cause: None,
+        url: Url::parse(&failed.url).unwrap(),
+    });
+    assert!(!failed.dispatched().await);
+    assert!(!browser.unavailable.load(Ordering::Acquire));
+    assert_eq!(std::fs::read(&source).unwrap(), b"my report");
+    std::fs::remove_file(source).unwrap();
     engine.shutdown().await;
 }
 

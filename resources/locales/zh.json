@@ -630,6 +630,7 @@
   "failure.thePreviousTaskHasNot": "上一个操作尚未完成。",
   "failure.theSchoolSiteIsNot": "学校网站没有响应。",
   "failure.theSchoolSiteIsUnder": "学校网站正在维护。",
+  "failure.theDraftUploadFailed": "文件未能发送到 LMS 草稿。请选择作业后重试。",
   "failure.theUploadAreaIsNot": "上传区暂不可用，请在 LMS 中选择文件。",
   "failure.thisIsNotAvailableRight": "此功能暂时无法使用。",
   "failure.youreOfflineShowingSavedData": "当前离线，正在显示已保存的数据。",
