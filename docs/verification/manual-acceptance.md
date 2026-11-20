@@ -243,7 +243,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
 | `DESKTOP-STORE-POWER-LOSS` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/root.rs |
 | `STORE-READS-WHILE-SYNCING-ON-DEVICES` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/views.rs |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/files/PdfDocument.tsx<br>apps/desktop/src/components/files/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
@@ -3546,8 +3546,8 @@ whether the PDF.js data files ship with it.
 
 **Covers**
 
-- `apps/desktop/src/features/lms/PdfDocument.tsx`
-- `apps/desktop/src/features/lms/TextDocument.tsx`
+- `apps/desktop/src/components/files/PdfDocument.tsx`
+- `apps/desktop/src/components/files/TextDocument.tsx`
 - `apps/desktop/src/features/lms/OfficialLmsView.tsx`
 - `apps/desktop/src/features/lms/lms.css`
 - `apps/desktop/src/components/workspace-chrome.css`

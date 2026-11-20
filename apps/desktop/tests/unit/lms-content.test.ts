@@ -22,9 +22,9 @@ import {
   extension,
   fileFamily,
   previewKind,
-} from "@app/features/lms/file-types";
+} from "@app/lib/file-types";
 import type { MatrixCaptureMetrics } from "@app/generated/persistence";
-import { textLanguage } from "@app/features/lms/TextDocument";
+import { textLanguage } from "@app/components/files/TextDocument";
 import {
   gravityTarget,
   springStep,

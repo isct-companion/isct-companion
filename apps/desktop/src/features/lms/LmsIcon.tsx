@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { FileFamily } from "./file-types";
+import type { FileFamily } from "../../lib/file-types";
 
 /** LMS glyphs, all from lucide (slotledger approach/icons-per-platform). */
 const glyphs: Record<

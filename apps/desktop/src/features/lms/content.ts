@@ -1,5 +1,5 @@
 import { formatTimestamp } from "../../lib/civil-date";
-import { extension, fileFamily, previewKind } from "./file-types";
+import { extension, fileFamily, previewKind } from "../../lib/file-types";
 import { t } from "../../i18n";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
 export function safeContent(html: string): string {

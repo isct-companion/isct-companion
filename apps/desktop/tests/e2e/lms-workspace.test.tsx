@@ -2222,7 +2222,7 @@ describe("the PDF viewer", () => {
   async function openPdf() {
     const { real } = await scriptedHost(
       { workspace: workspaceFixture() },
-      () => import("@app/features/lms/PdfDocument"),
+      () => import("@app/components/files/PdfDocument"),
     );
     function RetainedPdf() {
       const [visible, setVisible] = useState(true);
@@ -2553,7 +2553,7 @@ describe("the markdown editor", () => {
     );
     const { Editor, editorViewCtx } = await import("@milkdown/kit/core");
     const { MarkdownDocument } =
-      await import("@app/features/lms/MarkdownDocument");
+      await import("@app/components/files/MarkdownDocument");
     const editors: InstanceType<typeof Editor>[] = [];
     const make = Editor.make.bind(Editor);
     vi.spyOn(Editor, "make").mockImplementation(() => {

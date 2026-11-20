@@ -1,6 +1,6 @@
 import { notify } from "../../components/notifications/notify";
 import { byName, FileName, fileSize, megabytes } from "./file-row";
-import { fileFamily, listsAsFolder } from "./file-types";
+import { fileFamily, listsAsFolder } from "../../lib/file-types";
 import { pageOf, useCourseFile, type OpenPage } from "./course-file";
 import { openStoredFile, type SchoolPage } from "./files";
 import { useState } from "react";

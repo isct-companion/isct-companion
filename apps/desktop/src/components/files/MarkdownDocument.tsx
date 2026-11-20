@@ -1,4 +1,4 @@
-import { ReaderTools } from "../../components/files/ReaderPane";
+import { ReaderTools } from "./ReaderPane";
 import { t, type MessageKey } from "../../i18n";
 import {
   toggleStrongCommand,

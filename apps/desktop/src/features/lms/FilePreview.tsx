@@ -23,7 +23,7 @@ import {
   fileFamily,
   previewOf,
   type FileFamily,
-} from "./file-types";
+} from "../../lib/file-types";
 import { FileView } from "../../components/files/FileView";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import {

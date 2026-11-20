@@ -51,7 +51,7 @@ export function lmsFileUrl(
   return `${origin}/get?${query}`;
 }
 
-export { previewKind } from "./file-types";
+export { previewKind } from "../../lib/file-types";
 /** The notes of course `courseId` in `sections`. */
 export const listNotes = (
   courseId: string,

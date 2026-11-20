@@ -39,7 +39,7 @@ import {
   type CourseDetail,
   type TaskView,
 } from "../../platform/core-query";
-import { extension, fileFamily, listsAsFolder } from "./file-types";
+import { extension, fileFamily, listsAsFolder } from "../../lib/file-types";
 import { withRecords } from "../../platform/records";
 import { moveNote, type LocalFile } from "./files";
 import {

@@ -2987,8 +2987,8 @@ checks:
       and was never covered by a live run, and only an installed bundle shows
       whether the PDF.js data files ship with it.
     covers:
-      - apps/desktop/src/features/lms/PdfDocument.tsx
-      - apps/desktop/src/features/lms/TextDocument.tsx
+      - apps/desktop/src/components/files/PdfDocument.tsx
+      - apps/desktop/src/components/files/TextDocument.tsx
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
       - apps/desktop/src/features/lms/lms.css
       - apps/desktop/src/components/workspace-chrome.css

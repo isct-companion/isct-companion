@@ -1,20 +1,20 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { Viewer } from "../../generated/persistence";
 import { t } from "../../i18n";
-import { previewOf } from "../../features/lms/file-types";
+import { previewOf } from "../../lib/file-types";
 import { localFileUrl } from "../../platform/course-storage";
-import { ImageView } from "../../features/lms/ImageView";
+import { ImageView } from "./ImageView";
 import { ReaderTools } from "./ReaderPane";
-import { useReleaseSource } from "../../features/lms/useReleaseSource";
+import { useReleaseSource } from "./useReleaseSource";
 
 const PdfDocument = lazy(() =>
-  import("../../features/lms/PdfDocument").then((m) => ({ default: m.PdfDocument })),
+  import("./PdfDocument").then((m) => ({ default: m.PdfDocument })),
 );
 const TextDocument = lazy(() =>
-  import("../../features/lms/TextDocument").then((m) => ({ default: m.TextDocument })),
+  import("./TextDocument").then((m) => ({ default: m.TextDocument })),
 );
 const ReadableMarkdown = lazy(() =>
-  import("../../features/lms/ReadableMarkdown").then((m) => ({ default: m.ReadableMarkdown })),
+  import("./ReadableMarkdown").then((m) => ({ default: m.ReadableMarkdown })),
 );
 
 const loading = (

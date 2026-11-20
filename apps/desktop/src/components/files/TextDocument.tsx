@@ -1,3 +1,4 @@
+import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { EditorState } from "@codemirror/state";
 import {
@@ -29,7 +30,6 @@ import { java } from "@codemirror/lang-java";
 import { python } from "@codemirror/lang-python";
 import { r } from "@codemirror/legacy-modes/mode/r";
 import { t } from "../../i18n";
-import { LmsIcon } from "./LmsIcon";
 
 /** Matches counted for the panel; past this the count reads as "999+". */
 const COUNT_LIMIT = 999;
@@ -216,7 +216,7 @@ export function TextDocument({ value, name }: { value: string; name: string }) {
             aria-label={t("lms.findInDocument")}
             onClick={() => editor.current && openSearchPanel(editor.current)}
           >
-            <LmsIcon name="search" size={14} />
+            <Search size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
           </button>
         )}
         <div ref={host} />

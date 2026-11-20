@@ -1,5 +1,6 @@
-import { UiButton, UiInput, UiSelect } from "../../components/ui";
-import { ReaderTools } from "../../components/files/ReaderPane";
+import { Minus, Plus, Search } from "lucide-react";
+import { UiButton, UiInput, UiSelect } from "../ui";
+import { ReaderTools } from "./ReaderPane";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getDocument,
@@ -12,7 +13,6 @@ import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
 import "./reader.css";
 import { t } from "../../i18n";
-import { LmsIcon } from "./LmsIcon";
 GlobalWorkerOptions.workerSrc = workerUrl;
 // Copied beside the bundle by vite.config.ts. Without CMaps, text in
 // non-embedded Japanese fonts (common in LMS handouts) silently disappears.
@@ -484,7 +484,7 @@ export function PdfDocument({
                 disabled={zoom <= 0.5}
                 onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
               >
-                <LmsIcon name="minus" size={14} />
+                <Minus size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
               </button>
               <UiSelect
                 aria-label={t("lms.zoom")}
@@ -506,7 +506,7 @@ export function PdfDocument({
                 disabled={zoom >= 3}
                 onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
               >
-                <LmsIcon name="plus" size={14} />
+                <Plus size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
               </button>
             </div>
             <button
@@ -516,7 +516,7 @@ export function PdfDocument({
               aria-expanded={searchOpen}
               onClick={() => setSearchOpen((value) => !value)}
             >
-              <LmsIcon name="search" size={15} />
+              <Search size={15} strokeWidth={1.75} aria-hidden="true" focusable="false" />
             </button>
           </div>
           {fileToolbar}

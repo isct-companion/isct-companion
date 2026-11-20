@@ -1,4 +1,4 @@
-import { extension } from "./file-types";
+import { extension } from "../../lib/file-types";
 
 export const megabytes = (bytes: number) =>
   `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;

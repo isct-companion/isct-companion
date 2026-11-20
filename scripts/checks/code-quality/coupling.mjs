@@ -16,10 +16,16 @@ import { walk } from "./functions.mjs";
 const desktop = "apps/desktop/src/";
 const desktopRules = [
   {
-    name: "shared UI imports a screen",
+    name: "shared UI imports a page",
     from: /^components\//,
-    to: /^(?:pages|features)\//,
-    why: "components/ are shared by screens and must not depend on one",
+    to: /^pages\//,
+    why: "components/ are shared by pages and must not depend on one",
+  },
+  {
+    name: "shared UI imports a feature",
+    from: /^components\//,
+    to: /^features\//,
+    why: "components/ sit below features; code a feature shares moves into components/ or lib/",
   },
   {
     name: "module below the shell imports app/",

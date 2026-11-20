@@ -1,8 +1,8 @@
+import { X } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "../../i18n";
-import { LmsIcon } from "../../features/lms/LmsIcon";
-import "../../features/lms/reader.css";
+import "./reader.css";
 
 const ToolsHost = createContext<HTMLElement | null>(null);
 
@@ -34,7 +34,7 @@ export function ReaderPane({
           title={t("common.close")}
           onClick={close}
         >
-          <LmsIcon name="close" size={14} />
+          <X size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
         </button>
       </header>
       <ToolsHost.Provider value={host}>

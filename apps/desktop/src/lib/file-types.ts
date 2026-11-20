@@ -2,7 +2,7 @@ import {
   FILE_KINDS,
   type FileKind,
   type Viewer,
-} from "../../generated/persistence";
+} from "../generated/persistence";
 
 export type PreviewKind =
   | "pdf" | "markdown" | "text" | "image" | "video" | "audio" | "archive";

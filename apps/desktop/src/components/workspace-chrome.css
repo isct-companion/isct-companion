@@ -1,5 +1,5 @@
 /* The pane and tool bar that embedded web pages and the document reader
-   share. The reader's own header and tools are features/lms/reader.css. */
+   share. The reader's own header and tools are components/files/reader.css. */
 .workspacePane {
   display: flex;
   flex-direction: column;

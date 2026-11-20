@@ -2,7 +2,7 @@ import { type OpenedContent } from "./reading-state";
 import { useCallback, useState } from "react";
 import type { Assignment, Material, Workspace } from "../../lib/model";
 import { safeUrl } from "./content";
-import { downloadOnly } from "./file-types";
+import { downloadOnly } from "../../lib/file-types";
 import { type SchoolPage } from "./files";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
