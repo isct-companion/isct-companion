@@ -178,12 +178,6 @@ impl ReminderService {
         )
     }
 
-    /// What reminders read changed: the next pass plans again shortly, so
-    /// a sync's burst of commits makes one pass.
-    pub(crate) fn changed(&self) {
-        changed(&self.0);
-    }
-
     /// A handle for the store's commit observer, which must not keep the
     /// service (and so the store) alive.
     pub(crate) fn changes(&self) -> ReminderChanges {
