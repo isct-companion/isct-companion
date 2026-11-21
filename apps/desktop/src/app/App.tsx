@@ -19,7 +19,7 @@ import { refresh, syncAvailable } from "../platform/sync-intents";
 import { useOpenHint } from "./useOpenHint";
 import { useSync } from "../store/sync";
 import { useAnimatedNavigate } from "./navigation";
-import { SchoolStatusBar } from "./SchoolStatusBar";
+import { SchoolStatusPanel } from "./SchoolStatusPanel";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 import { useAppearance } from "./useAppearance";
@@ -875,7 +875,7 @@ export function WorkspaceApp() {
         {keep("about", aboutPage)}
       </main>
       {overlays}
-      <SchoolStatusBar
+      <SchoolStatusPanel
         scienceSession={scienceSession}
         tokyoTechSession={tokyoTechSession}
         snapshot={sync}

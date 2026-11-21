@@ -1905,7 +1905,7 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("renders Core's sync snapshot in the footer and sends hints for refresh and opened pages", async () => {
+it("renders Core's sync snapshot in the status panel and sends hints for refresh and opened pages", async () => {
   app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
   // Core decides what is due and how far a run is (`plan` and its
   // tests); the shell only picks the row to show and names it.
@@ -1952,14 +1952,21 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
         sources,
       }),
     );
-  const status = () => app!.host.querySelector(".lmsStatus")!;
+  // The summary floats in the shell; its panel (where the detail lives)
+  // renders in a portal, so it is read from the document.
+  const overview = () =>
+    app!.host.querySelector<HTMLButtonElement>(".schoolStatusOverview")!;
+  const status = () => document.querySelector(".lmsStatus")!;
   const hints = () =>
     app!.core.calls
       .filter((call) => call.command === "sync_hint")
       .map((call) => call.args.hint);
 
+  await click(overview());
   await emit([run({ done: 7, total: 62 })]);
   await until(() => {
+    expect(overview().getAttribute("data-kind")).toBe("busy");
+    expect(overview().textContent).toContain("Course content 7/62");
     expect(status().getAttribute("data-kind")).toBe("bar");
     expect(status().textContent).toContain("Course content · 7 / 62");
     expect(status().querySelector("progress")!.value).toBe(7);
@@ -2014,11 +2021,13 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     "the failed dataset's Retry",
   );
   expect(status().textContent).toContain("教務Web pages failed · timed out");
+  expect(overview().getAttribute("data-kind")).toBe("problem");
+  expect(overview().textContent).toBe("Needs attention (1)");
   await click(retry);
   const force = await required(
     () =>
-      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === "Refresh now",
+      app!.host.querySelector<HTMLButtonElement>(
+        '.schoolStatusPanel button[aria-label="Refresh now"]',
       ),
     "Refresh now",
   );
@@ -2055,6 +2064,8 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
       },
     ],
   );
+  // Refresh sits outside the panel, so pressing it closed the panel.
+  await click(overview());
   const catalogRetry = await required(
     () =>
       [...status().querySelectorAll<HTMLButtonElement>("button")].find(

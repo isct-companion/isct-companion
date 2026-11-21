@@ -165,7 +165,14 @@ export const Drawer = ({
 }: ModalProps & { position?: "right" }) => <DialogSurface {...props} drawer />;
 
 type Placement =
-  "top" | "bottom" | "left" | "right" | "bottom-start" | "bottom-end";
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-start"
+  | "top-end"
+  | "bottom-start"
+  | "bottom-end";
 const placement = (value: Placement) => ({
   side: value.split("-")[0] as "top" | "bottom" | "left" | "right",
   align: (value.endsWith("-end")

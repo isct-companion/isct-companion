@@ -1515,6 +1515,8 @@
   "syncStatus.source.kyomu": "教務Web",
   "syncStatus.source.lms": "LMS",
   "syncStatus.sourceIsUnderMaintenance": "{{source}} はメンテナンス中です",
+  "syncStatus.summary.problems": "要確認（{{count}}）",
+  "syncStatus.summary.updating": "更新中…",
   "syncStatus.upToDate": "最新です",
   "syncStatus.updated": "更新しました",
   "syncStatus.updatedDate": "{{date}}更新",

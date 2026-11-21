@@ -10,7 +10,9 @@ import type {
   SyncFailure,
   SyncHeld,
   SyncLabel,
+  SyncSnapshot,
 } from "../generated/persistence";
+import type { ProgressLine } from "../platform/sync";
 import { formatJst } from "./civil-date";
 import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
 
@@ -141,6 +143,53 @@ export function sourceFailureText(
 export function ageText(at: string | null, now: string, locale: string) {
   if (!at) return t("common.neverUpdated");
   return relativeTimeAgo(at, now, locale) ?? t("syncStatus.justNow");
+}
+
+/** The floating status's one line; its panel holds the rest. `problem`
+ * counts what needs the person: failed runs and sources, and accounts that
+ * wait on them (or Core's account blocker). */
+export function statusOverview(
+  snapshot: SyncSnapshot,
+  line: ProgressLine,
+  sessions: (SchoolProfileSession | undefined)[],
+  now: string,
+  locale: string,
+): { kind: "problem" | "held" | "busy" | "idle"; text: string } {
+  if (snapshot.resetting) return { kind: "busy", text: t("app.resetting") };
+  const flagged =
+    snapshot.runs.filter((run) => run.failure).length +
+      snapshot.sources.filter((source) => source.failure).length +
+      sessions.filter(
+        (session) =>
+          session?.state === "refused" || session?.state === "needs-web",
+      ).length || (snapshot.attention.problem ? 1 : 0);
+  if (flagged)
+    return {
+      kind: "problem",
+      text: t("syncStatus.summary.problems", { count: flagged }),
+    };
+  switch (line.kind) {
+    case "bar":
+      return {
+        kind: "busy",
+        text: `${runText(line.run)} ${line.done}/${line.total}`,
+      };
+    case "busy":
+      return { kind: "busy", text: t("syncStatus.summary.updating") };
+    case "background":
+      return { kind: "busy", text: t("app.updatingInTheBackground") };
+    case "held":
+      return { kind: "held", text: heldText(line.held, locale) };
+    default: {
+      const held = snapshot.sources.find((source) => source.held);
+      if (held?.held)
+        return { kind: "held", text: heldText(held.held, locale) };
+      const oldest = snapshot.sources
+        .map((source) => source.lastUpdated)
+        .sort((a, b) => (a ?? "").localeCompare(b ?? ""))[0];
+      return { kind: "idle", text: ageText(oldest ?? null, now, locale) };
+    }
+  }
 }
 
 /** The site each account's maintenance pauses. */

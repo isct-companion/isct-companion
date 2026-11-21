@@ -155,17 +155,14 @@ function SyncFailures({
   );
 }
 
-/** The right half of the workstation footer: how old each source is, what
- * is running, and what failed. */
+/** The status panel's sync half: how old each source is, what is running,
+ * and what failed. */
 export function SchoolStatusLine({
   snapshot,
   locale,
-  refresh,
 }: {
   snapshot: SyncSnapshot;
   locale: string;
-  /** Sends `Refresh { everything }`; absent outside the desktop app. */
-  refresh?: () => void;
 }) {
   const line = progressLine(snapshot);
   const now = useClock(line.kind === "idle");
@@ -202,16 +199,6 @@ export function SchoolStatusLine({
           </span>
         ) : (
           <SyncProgressLine snapshot={snapshot} locale={locale} />
-        )}
-        {refresh && (
-          <UiButton
-            type="button"
-            className="textButton"
-            disabled={snapshot.resetting}
-            onClick={refresh}
-          >
-            {t(snapshot.resetting ? "app.resetting" : "common.refreshNow")}
-          </UiButton>
         )}
       </div>
       <SyncFailures snapshot={snapshot} locale={locale} />
