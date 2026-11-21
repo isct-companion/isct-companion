@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { TitleRow } from "../../components/TitleRow";
 import { ExamCards } from "../../components/exams/ExamCards";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
@@ -121,73 +122,72 @@ export function Today({
 
   return (
     <div className="page todayPage" ref={page}>
-      <header className="todayHeader">
-        <div className="daySwap" key={viewIso} style={swap}>
-          <p className="todayEyebrow">
+      <TitleRow nav className="todayHeader">
+        <h1 className="daySwap" key={viewIso} style={swap}>
+          {formatJst(viewDate, data.settings.locale, {
+            day: "numeric",
+            month: "long",
+          })}
+          <span className="todayEyebrow">
             {formatJst(viewDate, data.settings.locale, {
               weekday: "long",
             })}
-          </p>
-          <h1>
-            {formatJst(viewDate, data.settings.locale, {
-              day: "numeric",
-              month: "long",
-            })}
-          </h1>
-        </div>
-        <div className="todayWeek">
-          <div
-            className="weekStrip"
-            role="group"
-            aria-label={t("today.week")}
-            style={
-              {
-                "--day": effectiveDay - 1,
-                "--swap": direction,
-              } as React.CSSProperties
-            }
-          >
-            <UiButton
-              className="weekShift"
-              aria-label={t("today.previousWeek")}
-              onClick={() => pick(addDays(viewIso, -7))}
-            >
-              <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
-            </UiButton>
-            {week.map(({ date, busy }) => (
-              <UiButton
-                key={date}
-                className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
-                aria-pressed={date === viewIso}
-                aria-label={date}
-                onClick={() => pick(date === todayIso ? null : date)}
-              >
-                <small>
-                  {formatJst(date, data.settings.locale, {
-                    weekday: "narrow",
-                  })}
-                </small>
-                <b>{Number(date.slice(8))}</b>
-              </UiButton>
-            ))}
-            <UiButton
-              className="weekShift"
-              aria-label={t("today.nextWeek")}
-              onClick={() => pick(addDays(viewIso, 7))}
-            >
-              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-            </UiButton>
-          </div>
-          <span className="teachingState">
-            {!isToday && (
-              <UiButton className="textButton" onClick={() => pick(null)}>
-                {t("common.today")}
-              </UiButton>
-            )}
-            {stateLabel}
           </span>
+        </h1>
+        <span className="titleRowSpacer" />
+        <span className="teachingState">
+          {!isToday && (
+            <UiButton className="textButton" onClick={() => pick(null)}>
+              {t("common.today")}
+            </UiButton>
+          )}
+          {stateLabel}
+        </span>
+      </TitleRow>
+      <div className="todayWeek">
+        <div
+          className="weekStrip"
+          role="group"
+          aria-label={t("today.week")}
+          style={
+            {
+              "--day": effectiveDay - 1,
+              "--swap": direction,
+            } as React.CSSProperties
+          }
+        >
+          <UiButton
+            className="weekShift"
+            aria-label={t("today.previousWeek")}
+            onClick={() => pick(addDays(viewIso, -7))}
+          >
+            <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+          </UiButton>
+          {week.map(({ date, busy }) => (
+            <UiButton
+              key={date}
+              className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
+              aria-pressed={date === viewIso}
+              aria-label={date}
+              onClick={() => pick(date === todayIso ? null : date)}
+            >
+              <small>
+                {formatJst(date, data.settings.locale, {
+                  weekday: "narrow",
+                })}
+              </small>
+              <b>{Number(date.slice(8))}</b>
+            </UiButton>
+          ))}
+          <UiButton
+            className="weekShift"
+            aria-label={t("today.nextWeek")}
+            onClick={() => pick(addDays(viewIso, 7))}
+          >
+            <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+          </UiButton>
         </div>
-      </header>
+      </div>
 
       <div className="todayFlow">
         {importantDates.length > 0 && (

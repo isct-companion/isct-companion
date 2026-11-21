@@ -1,5 +1,5 @@
 //! The courses 過去問 › 探す lists: this quarter's enrolled courses, read
-//! from the device. Each opens its subject on ScienceTokyoExam only when
+//! from the device, each marked with whether it has an exam this quarter. Each opens its subject on ScienceTokyoExam only when
 //! tapped, so listing them asks the site nothing.
 use super::{array, search::subject_codes, text, visible, ScheduleError, SchoolReads, Term};
 use crate::locale::{self, ContentLanguage};
@@ -26,6 +26,10 @@ pub struct ExamCourse {
     /// The codes its subject is looked up by; empty when it has none, and
     /// then it cannot be opened.
     pub subject_codes: Vec<String>,
+    /// The quarter's exams this app keeps (the exam timetable with the
+    /// person's corrections and marked sessions) include one for this
+    /// course. A course without one is listed after the rest, folded away.
+    pub has_exam: bool,
 }
 
 /// Courses with a live membership in the current quarter that was not
@@ -46,6 +50,14 @@ pub(super) fn current(
         })
         .filter_map(|row| text(row, "courseId"))
         .collect();
+    let quizzes = super::exams::quizzes_count(workspace);
+    let examined: HashSet<String> = super::exams::exam_views(workspace, school, &term)
+        .into_iter()
+        .filter(|exam| {
+            (exam.kind == "exam" || (quizzes && exam.kind == "quiz")) && exam.status == "scheduled"
+        })
+        .filter_map(|exam| exam.course_id)
+        .collect();
     let language = ContentLanguage::of(workspace);
     let courses = array(workspace, "courses")
         .iter()
@@ -57,6 +69,7 @@ pub(super) fn current(
             title: course_label(course, "title", "/overrides/title", language),
             instructor: course_label(course, "instructor", "/overrides/instructor", language),
             subject_codes: subject_codes(workspace, school, course),
+            has_exam: examined.contains(id),
         })
         .collect();
     Ok(ExamCourseList { courses })

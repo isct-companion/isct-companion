@@ -16,22 +16,22 @@
 .lmsWorkspace button { cursor: default; color: inherit; font: inherit; }
 .lmsWorkspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .lmsWorkspace svg { flex: 0 0 auto; }
-/* The title keeps at least 18rem; below that the actions wrap to a second row
-   instead of squeezing the title (CJK text can break between any two glyphs). */
-.lmsWorkspaceHeader { display: flex; flex-wrap: wrap; align-items: center; gap: var(--workspace-gutter); padding: var(--space-2) var(--space-2) var(--space-8); border-bottom: 1px solid var(--line); }
-.lmsCourseIdentity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--workspace-gutter); flex: 1 1 18rem; min-width: 0; }
+/* The course's title row (components/TitleRow): its name on one line, its
+   actions at the right; the plane's edge below is the divider. */
+.lmsWorkspaceHeader { gap: var(--space-4); }
+.lmsCourseIdentity { display: flex; align-items: baseline; gap: var(--space-4); flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .lmsCourseIdentity small { flex: 0 0 auto; white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsCourseIdentity h1 {
-  flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: break-word; font-size: calc(var(--type-title-size) * var(--text)); font-weight: var(--type-title-weight); line-height: 1.35; letter-spacing: -.015em;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: calc(var(--type-row-size) * var(--text)); font-weight: 650;
 }
-.lmsHeaderActions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--workspace-gutter); margin-left: auto; }
+.lmsHeaderActions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-2); margin-left: auto; }
 .lmsEntryTime { white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
   display: inline-flex; align-items: center; gap: var(--space-3); border: 0; border-radius: var(--radius-control);
   background: none; color: var(--accent) !important; white-space: nowrap; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500;
 }
-.lmsRefresh { padding: 7px var(--space-5); }
+.lmsRefresh { height: 28px; padding: 0 var(--space-5); border-radius: 999px; }
 .lmsRefresh:hover:not(:disabled), .lmsOutlineTools button:hover { background: var(--accent-soft); }
 .lmsRefresh:disabled { opacity: .5; cursor: default; }
 
@@ -263,30 +263,41 @@
 .lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { margin-top: var(--space-11); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
-.lmsLessonRail { display: flex; gap: var(--space-1); width: 100%; max-width: 900px; align-self: center; padding: 0 var(--space-10) var(--space-5); overflow-x: auto; scrollbar-width: none; }
-.lmsLessonRail button {
-  position: relative; flex: 1 0 22px; min-width: max-content; padding: var(--space-2) var(--space-2) var(--space-4); border: 0; background: none; white-space: nowrap;
-  color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: center;
+/* A narrow column of numbers down the outline's left edge: a bar beside
+   each lesson reads as progress (held), open work as a warm bar (due). */
+.lmsLessonRail {
+  position: relative; display: flex; flex-direction: column; gap: 1px; flex: 0 0 44px; width: 44px; min-height: 0;
+  padding: var(--space-4) var(--space-2); overflow: hidden auto; scrollbar-width: none; border-right: 1px solid var(--line);
 }
-.lmsLessonRail button::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--motion-duration-base); }
-/* Held lessons read as progress; open work shows as a warm segment, not a mark on the number. */
+.lmsLessonRail button {
+  position: relative; flex: 0 0 auto; width: 100%; min-width: 0; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5); border: 0; border-radius: var(--radius-chip); background: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: left;
+}
+.lmsLessonRail button::after { content: ""; position: absolute; left: 2px; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--motion-duration-base); }
+.lmsLessonRail button:hover { background: var(--surface-3); }
 .lmsLessonRail button.held { color: var(--ink) !important; }
 .lmsLessonRail button.held::after { background: color-mix(in srgb, var(--ink) 45%, transparent); }
 .lmsLessonRail button.due::after { background: var(--warn); }
 .lmsLessonRail button.current { color: var(--accent) !important; font-weight: 700; }
 /* The page being read: one bar that slides between entries instead of jumping. */
-.lmsLessonRail { position: relative; }
 .lmsRailIndicator {
-  position: absolute; left: 0; bottom: 2px; height: 3px; width: 0; border-radius: 2px; background: var(--accent);
+  position: absolute; left: calc(var(--space-2) + 2px); top: 0; width: 3px; height: 0; border-radius: 2px; background: var(--accent);
   pointer-events: none; opacity: 0; z-index: 1;
-  transition: transform var(--motion-duration-slow) var(--motion-easing-emphasized), width var(--motion-duration-slow) var(--motion-easing-emphasized), opacity var(--motion-duration-base);
+  transition: transform var(--motion-duration-slow) var(--motion-easing-emphasized), height var(--motion-duration-slow) var(--motion-easing-emphasized), opacity var(--motion-duration-base);
 }
-.lmsWorkspaceTools .lmsLessonRail .lmsRailIndicator { bottom: 8px; }
 .lmsLessonRail button:hover::after { background: var(--lms-hover-line); }
-
-/* Sections without a number (一般, 連絡先 …) and Activities: text tabs before the numbers. */
-.lmsLessonRail .lmsRailTab { flex: 0 1 auto; max-width: 9em; min-width: 0; padding-left: var(--space-4); padding-right: var(--space-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lmsRailDivider { flex: 0 0 1px; align-self: stretch; margin: var(--space-2) var(--space-3) var(--space-4); background: var(--line); }
+/* Sections without a number (一般, 連絡先 …) and Activities: one row of
+   tabs over the outline, full names, scrolling sideways when they overflow. */
+.lmsSectionTabs { display: flex; gap: var(--space-2); padding: 0 var(--space-6) var(--space-4); overflow-x: auto; scrollbar-width: none; }
+.lmsSectionTab {
+  flex: 0 0 auto; height: 26px; padding: 0 var(--space-5); border: 0; border-radius: 999px; background: var(--surface-3);
+  color: var(--muted) !important; white-space: nowrap; font-size: calc(var(--type-block-size) * var(--text)) !important;
+}
+.lmsSectionTab:hover { color: var(--ink) !important; }
+.lmsSectionTab.current { background: var(--accent-soft); color: var(--accent) !important; font-weight: 600; }
+.lmsOutlineBody { display: flex; flex: 1; min-height: 0; }
+.lmsOutlineMain { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .lmsLessonPage { padding-bottom: var(--space-8); }
 
 /* ---------- Lesson pages ----------
@@ -428,10 +439,8 @@
 .lmsRichContent tr.lmsRowNow > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 /* Progress stays above the workspace; search belongs only to the outline. */
-.lmsWorkspaceTools { padding: var(--space-5) 0 var(--space-1); }
-.lmsWorkspaceTools:empty { display: none; }
-.lmsWorkspaceTools .lmsLessonRail { max-width: none; padding: 0 var(--space-2) var(--space-3); }
-.lmsOutline > .lmsOutlineTools { flex: 0 0 auto; max-width: none; padding: var(--space-5) var(--space-10) var(--space-6); }
+
+.lmsOutlineMain > .lmsOutlineTools { flex: 0 0 auto; max-width: none; padding: var(--space-5) var(--space-6) var(--space-5); }
 .lmsOutlineTools button { flex-shrink: 0; }
 .lmsOutlineScroll > h2:first-child { margin-top: var(--space-8); }
 

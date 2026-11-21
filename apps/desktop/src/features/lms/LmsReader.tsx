@@ -53,25 +53,29 @@ export function LmsReader({
   schoolWebAvailable: boolean;
   openAccounts?: () => void;
   refreshNotes: () => void;
-  setDeletedNote: (note: { id: string; section: string; title: string }) => void;
+  setDeletedNote: (note: {
+    id: string;
+    section: string;
+    title: string;
+  }) => void;
   reader: ReturnType<typeof useLmsReader>;
 }) {
-  const { closeContent, openLink, openPage, openWebPage, archiveInOutline, open } =
-    reader;
+  const {
+    closeContent,
+    openLink,
+    openPage,
+    openWebPage,
+    archiveInOutline,
+    open,
+  } = reader;
   return (
     <ReaderPane title={shown.title} close={closeContent}>
       {/* Hidden readers release their documents; the official view keeps its webview. */}
-      {!viewerActive &&
-      opened.kind !== "official" ? null : opened.kind ===
+      {!viewerActive && opened.kind !== "official" ? null : opened.kind ===
         "announcement" ? (
         <div className="lmsDocument">
           <div className="lmsDocumentHeading">
-            <small>
-              {formatLmsDate(
-                announcement?.date || "",
-                locale,
-              )}
-            </small>
+            <small>{formatLmsDate(announcement?.date || "", locale)}</small>
             <h2>{opened.title}</h2>
           </div>
           {announcement && (
@@ -138,9 +142,7 @@ export function LmsReader({
             );
             if (!url)
               return material && !materialBody ? (
-                <p className="lmsQuiet">
-                  {t("lms.noContentInThisSection")}
-                </p>
+                <p className="lmsQuiet">{t("lms.noContentInThisSection")}</p>
               ) : null;
             return (
               <Suspense fallback={<p>{t("lms.loadingPreview")}</p>}>

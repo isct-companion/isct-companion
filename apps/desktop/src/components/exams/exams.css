@@ -128,18 +128,16 @@
 .lectureExamDetails {
   height: 100%;
   overflow: auto;
-  padding: var(--space-card) var(--space-10);
 }
-.lectureExamDetails > header {
-  margin: var(--space-9) 0 var(--space-10);
+.lectureExamDetails > :not(.titleRow) {
+  margin: var(--space-card) var(--space-10);
 }
-.lectureExamDetails h1 {
-  margin: 0;
-  font-size: 22px;
-}
-.lectureExamDetails > header p {
+.lectureExamHeader > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--muted);
-  font-size: calc(var(--type-row-size) * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .lectureExamDetails .examEditor {
   max-width: 560px;

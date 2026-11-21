@@ -2,6 +2,7 @@ import { Minus, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { useReleaseSource } from "./useReleaseSource";
+import { ReaderTools } from "./ReaderPane";
 import "./reader.css";
 
 const MIN = 0.25;
@@ -178,33 +179,37 @@ export function ImageView({
           onError={onBroken}
         />
       </div>
-      <div className="lmsImageZoom">
-        <button
-          type="button"
-          aria-label={t("common.zoomOut")}
-          title={t("common.zoomOut")}
-          disabled={zoom <= MIN}
-          onClick={() => zoomAt(zoomRef.current / 1.25)}
-        >
-          <Minus size={14} aria-hidden />
-        </button>
-        <button
-          type="button"
-          title={t("lms.fitWidth")}
-          onClick={() => zoomAt(1)}
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button
-          type="button"
-          aria-label={t("common.zoomIn")}
-          title={t("common.zoomIn")}
-          disabled={zoom >= MAX}
-          onClick={() => zoomAt(zoomRef.current * 1.25)}
-        >
-          <Plus size={14} aria-hidden />
-        </button>
-      </div>
+      {/* In a reader the zoom joins its tools in the title row; alone it
+          floats over the picture's corner. */}
+      <ReaderTools>
+        <div className="lmsImageZoom">
+          <button
+            type="button"
+            aria-label={t("common.zoomOut")}
+            title={t("common.zoomOut")}
+            disabled={zoom <= MIN}
+            onClick={() => zoomAt(zoomRef.current / 1.25)}
+          >
+            <Minus size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            title={t("lms.fitWidth")}
+            onClick={() => zoomAt(1)}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            type="button"
+            aria-label={t("common.zoomIn")}
+            title={t("common.zoomIn")}
+            disabled={zoom >= MAX}
+            onClick={() => zoomAt(zoomRef.current * 1.25)}
+          >
+            <Plus size={14} aria-hidden />
+          </button>
+        </div>
+      </ReaderTools>
     </div>
   );
 }

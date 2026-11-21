@@ -3,6 +3,7 @@
  * due or when to sign in. */
 import type {
   AccountWait,
+  RetryPlan,
   RunView,
   SchoolAuthProfile,
   SchoolProfileSession,
@@ -231,4 +232,121 @@ export function sessionDetails(
       ...(session.maintenance.notice ? [session.maintenance.notice] : []),
     );
   return lines;
+}
+
+/** What a status menu entry does when chosen. */
+export type StatusMenuAction =
+  | { kind: "retryAccount"; profile: SchoolAuthProfile }
+  | { kind: "retrySync"; plan: RetryPlan }
+  | { kind: "refresh" };
+
+/** One line of the school status menu: a fact, a divider or an action. */
+export type StatusMenuEntry =
+  | { kind: "label"; text: string }
+  | { kind: "separator" }
+  | { kind: "action"; text: string; action: StatusMenuAction };
+
+/** A failure's diagnostic, quoted on its own line so a person can report
+ * what the school answered; placed before the failure so it reads after the
+ * Retry in a menu scanned top-down is not needed. */
+const failureLines = (failure: SyncFailure): StatusMenuEntry[] =>
+  failure.detail ? [{ kind: "label", text: failure.detail }] : [];
+
+const ACCOUNTS: [SchoolAuthProfile, string][] = [
+  ["science", "Science Tokyo"],
+  ["tokyo-tech", "Tokyo Tech"],
+];
+
+/** The school status menu the rail's dot opens: each account and what it
+ * waits on, what Core is doing now, each failure with its Retry, and
+ * Refresh. Words only; the shell turns entries into a native menu. */
+export function statusMenu(
+  snapshot: SyncSnapshot,
+  line: ProgressLine,
+  sessions: Partial<Record<SchoolAuthProfile, SchoolProfileSession>>,
+  locale: string,
+  canRefresh: boolean,
+): StatusMenuEntry[] {
+  const entries: StatusMenuEntry[] = [];
+  for (const [profile, name] of ACCOUNTS) {
+    const session = sessions[profile];
+    const state = session
+      ? [
+          sessionText(session, locale),
+          ...sessionDetails(profile, session, locale),
+        ].join(" · ")
+      : t("app.checkingSession");
+    entries.push({ kind: "label", text: `${name} — ${state}` });
+    if (session?.presentation.recovery.includes("retry"))
+      entries.push({
+        kind: "action",
+        text: `${t("common.retry")} · ${name}`,
+        action: { kind: "retryAccount", profile },
+      });
+  }
+  const now =
+    line.kind === "resetting"
+      ? t("app.resetting")
+      : line.kind === "bar"
+        ? `${runText(line.run)} · ${line.done} / ${line.total}`
+        : line.kind === "busy"
+          ? runText(line.run)
+          : line.kind === "background"
+            ? t("app.updatingInTheBackground")
+            : line.kind === "held"
+              ? heldText(line.held, locale)
+              : undefined;
+  const failures: StatusMenuEntry[] = [
+    ...snapshot.runs.flatMap((run): StatusMenuEntry[] =>
+      run.failure
+        ? [
+            ...failureLines(run.failure),
+            run.retry
+              ? {
+                  kind: "action",
+                  text: `${t("common.retry")} · ${failureText(run.dataset, run.failure, locale)}`,
+                  action: { kind: "retrySync", plan: run.retry },
+                }
+              : {
+                  kind: "label",
+                  text: failureText(run.dataset, run.failure, locale),
+                },
+          ]
+        : [],
+    ),
+    ...snapshot.sources.flatMap((source): StatusMenuEntry[] => {
+      if (!source.failure) return [];
+      const text = sourceFailureText(
+        sourceName(source.source),
+        source.failure,
+        locale,
+      );
+      return [
+        ...failureLines(source.failure),
+        source.retry
+          ? {
+              kind: "action",
+              text: `${t("common.retry")} · ${text}`,
+              action: { kind: "retrySync", plan: source.retry },
+            }
+          : { kind: "label", text },
+      ];
+    }),
+  ];
+  if (now || failures.length) {
+    entries.push({ kind: "separator" });
+    if (now) entries.push({ kind: "label", text: now });
+    entries.push(...failures);
+  }
+  if (canRefresh && !snapshot.resetting) {
+    entries.push(
+      { kind: "separator" },
+      {
+        kind: "action",
+        text: t("common.refreshNow"),
+        action: { kind: "refresh" },
+      },
+    );
+  }
+  return entries;
 }

@@ -1,4 +1,11 @@
-import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  type ReactNode,
+} from "react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { lookup, t } from "../../i18n";
 import type {
@@ -54,8 +61,18 @@ export function useReload(generation: number, reload: () => void) {
   }, [generation]);
 }
 
-/** The list on the left and what it opens on the right; one layout for all three tabs. */
+/** What the page puts around the list column: its title row and tabs at
+ * the top, the account and the partner's site at the foot. */
+export const ExamChrome = createContext<{
+  head: ReactNode;
+  foot: ReactNode;
+} | null>(null);
+
+/** The list on the left and what it opens on the right; one layout for all
+ * three tabs. Each column runs up to the window's top row: the list's with
+ * the page title, the reader's with its own tools (ReaderPane). */
 export function Workspace({ children }: { children: [ReactNode, ReactNode] }) {
+  const chrome = useContext(ExamChrome);
   return (
     <ResizableWorkspace
       id="past-exams"
@@ -65,7 +82,12 @@ export function Workspace({ children }: { children: [ReactNode, ReactNode] }) {
       firstMax="45%"
       secondMin="40%"
     >
-      {children}
+      <div className="examColumn">
+        {chrome?.head}
+        {children[0]}
+        {chrome?.foot}
+      </div>
+      <div className="examColumn examReaderColumn">{children[1]}</div>
     </ResizableWorkspace>
   );
 }

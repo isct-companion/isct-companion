@@ -66,48 +66,4 @@
 .lmsMarkdownTools button:hover {
   background: var(--accent-soft);
 }
-/* The web page's card holds its tool bar and, inset below it, the page. */
-.webWorkspace .webToolbar {
-  flex: 0 0 auto;
-  min-height: var(--workspace-bar-height);
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 0;
-  border-radius: 0;
-}
-.webWorkspace .webAddress {
-  min-height: var(--workspace-control-height);
-  padding-left: var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-}
-/* The native school view is square: inset on three sides, its corners clear
-   the card's rounded ones (an inner radius of 19px bows in by
-   19 × (1 − 1/√2) ≈ 5.6px), so it never covers the card's edge. */
-.servicesBody .webWorkspace .webHost,
-.webWorkspace > .webNotice {
-  margin: 0 var(--space-3) var(--space-3);
-}
-.servicesBody .webWorkspace .webHost {
-  flex: 1;
-  border: 0;
-  border-radius: 0;
-}
-/* The card's own edge divides the site list from the page: the separator
-   narrows to the page margin and shows its line only while in use. */
-.servicesBody > .splitWorkspace > .workspaceSeparator {
-  width: var(--space-3);
-}
-.servicesBody > .splitWorkspace > .workspaceSeparator::after {
-  inset: var(--space-4) calc(50% - 1px);
-}
-.servicesBody
-  > .splitWorkspace
-  > .workspaceSeparator:not(:hover, :focus-visible, [data-separator="active"])::after {
-  background: transparent;
-}
-@container workspace (max-width: 520px) {
-  .webToolbar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-  }
-}
+

@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { TitleRow } from "../../components/TitleRow";
 import { useState } from "react";
 import { Paper, Input, Skeleton } from "../../components/ui";
 import { UiButton } from "../../components/ui";
@@ -74,56 +75,58 @@ export function CalendarView({
   const visibleTo = view.value?.at(-1)?.date ?? to;
   return (
     <section className="calendarWorkspace" aria-label={t("today.calendar")}>
-      <header className="scheduleTitleRow">
+      <TitleRow className="calendarTitle">
         <h1>{t("today.calendar")}</h1>
-      </header>
-      <Paper className="ttCard" withBorder>
-        <header className="timetableViewBar">
-          <b>
-            {formatCivilDate(visibleFrom, data.settings.locale, {
-              month: "short",
-              day: "numeric",
-            })}{" "}
-            –{" "}
-            {formatCivilDate(visibleTo, data.settings.locale, {
-              month: "short",
-              day: "numeric",
-            })}
-          </b>
-          <div className="scheduleControls">
-            <Input
-              type="date"
-              aria-label={t("common.date")}
-              value={date}
-              onChange={(event) =>
-                event.target.value &&
-                step(
-                  event.target.value,
-                  Math.sign(event.target.value.localeCompare(date)),
-                )
-              }
-            />
-            <UiButton
-              aria-label={t("today.previousWeek")}
-              onClick={() => step(addCivilDays(date, -7), -1)}
-            >
-              <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
-            </UiButton>
-            <UiButton
-              onClick={() =>
-                step(undefined, Math.sign(today.localeCompare(date)))
-              }
-            >
-              {t("common.thisWeek")}
-            </UiButton>
-            <UiButton
-              aria-label={t("today.nextWeek")}
-              onClick={() => step(addCivilDays(date, 7), 1)}
-            >
-              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-            </UiButton>
-          </div>
-        </header>
+        <span className="calendarRange">
+          {formatCivilDate(visibleFrom, data.settings.locale, {
+            month: "short",
+            day: "numeric",
+          })}{" "}
+          –{" "}
+          {formatCivilDate(visibleTo, data.settings.locale, {
+            month: "short",
+            day: "numeric",
+          })}
+        </span>
+      </TitleRow>
+      {/* Stepping through weeks is the calendar's own tool: it sits on the
+          calendar, under the title row. */}
+      <div className="calendarBar">
+        <div className="scheduleControls">
+          <Input
+            type="date"
+            aria-label={t("common.date")}
+            value={date}
+            onChange={(event) =>
+              event.target.value &&
+              step(
+                event.target.value,
+                Math.sign(event.target.value.localeCompare(date)),
+              )
+            }
+          />
+          <UiButton
+            aria-label={t("today.previousWeek")}
+            onClick={() => step(addCivilDays(date, -7), -1)}
+          >
+            <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+          </UiButton>
+          <UiButton
+            onClick={() =>
+              step(undefined, Math.sign(today.localeCompare(date)))
+            }
+          >
+            {t("common.thisWeek")}
+          </UiButton>
+          <UiButton
+            aria-label={t("today.nextWeek")}
+            onClick={() => step(addCivilDays(date, 7), 1)}
+          >
+            <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+          </UiButton>
+        </div>
+      </div>
+      <Paper className="ttCard">
         {view.pending && !view.value ? (
           <Skeleton shape="week" />
         ) : (

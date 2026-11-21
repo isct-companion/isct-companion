@@ -1108,6 +1108,8 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
         {"id":"multi","termId":"2026-3Q","title":"Long Course","code":"MTH.B301"}
     ]);
     data["lmsCourses"] = json!([{"lmsId":7,"shortname":"ENT.B101(LAS.F101)-01 [2026]"}]);
+    // The exam timetable names one of them; the page folds away the rest.
+    data["exams"] = json!([{"id":"final","academicYear":2026,"level":"undergraduate","quarter":"4Q","courseCode":"LAW.X376","date":"2027-01-25","label":{"ja":"試験"},"periods":[3,4],"room":{"ja":"W9-101"},"rooms":[],"status":"scheduled","sourceIds":["notice"],"sourcePages":[1]}]);
     data["memberships"] = json!([
         {"courseId":"cross","termId":"2026-4Q","status":"registered"},
         {"courseId":"alias-only","termId":"2026-4Q","status":"lms-member"},
@@ -1117,7 +1119,7 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
     ]);
 
     let WorkspaceQueryResult::ExamCourses(list) =
-        query(&data, &SchoolReads::default(), WorkspaceQuery::ExamCourses).unwrap()
+        query(&data, &SchoolReads::fixture(&data), WorkspaceQuery::ExamCourses).unwrap()
     else {
         panic!("expected this quarter's past-exam courses");
     };
@@ -1136,6 +1138,13 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
             ("manual", vec![]),
         ]
     );
+    let examined: Vec<_> = list
+        .courses
+        .iter()
+        .filter(|course| course.has_exam)
+        .map(|course| course.course_id.as_str())
+        .collect();
+    assert_eq!(examined, ["alias-only"]);
 }
 
 #[test]

@@ -1,4 +1,5 @@
 import { downloadLimit } from "../../lib/course-file-policy";
+import { TitleRow } from "../../components/TitleRow";
 import { ExamCards } from "../../components/exams/ExamCards";
 import { GuideTip } from "../../components/guide";
 import { useResizeObserver } from "usehooks-ts";
@@ -715,144 +716,6 @@ export function LmsWorkspaceBody({
     <div
       className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${viewing ? " viewing" : ""}`}
     >
-      <header className="lmsWorkspaceHeader">
-        {headerStart}
-        <div className="lmsCourseIdentity">
-          <h1 title={course.title}>{course.title}</h1>
-          <small>{course.code}</small>
-        </div>
-        {/* One group, so the actions move to their own row together when
-            the title would otherwise get less than its minimum width. */}
-        <div className="lmsHeaderActions">
-          {entry.date && (
-            <span className="lmsEntryTime">
-              {entry.date}{" "}
-              {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
-            </span>
-          )}
-          {syllabus && (
-            <button
-              type="button"
-              className="lmsRefresh"
-              aria-pressed={selected === "syllabus"}
-              onClick={() =>
-                open({
-                  id: "syllabus",
-                  title: t("common.syllabus"),
-                  kind: "syllabus",
-                  url: syllabus,
-                })
-              }
-            >
-              <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
-            </button>
-          )}
-          {openPastExams && (
-            <button
-              type="button"
-              className="lmsRefresh"
-              onClick={openPastExams}
-            >
-              {t("examShare.openCourse")}
-            </button>
-          )}
-          {(progress != null || refresh) && (
-            <div className="lmsPullControls">
-              {progress != null && (
-                // Local data stays on screen; the whole course switches when
-                // Core commits it.
-                <span className="syncPageStatus" role="status">
-                  <i className="schoolStatusSpinner" aria-hidden="true" />
-                  {updatedAt
-                    ? `${t("lms.showingDataFromAge", {
-                        age: ageText(
-                          updatedAt,
-                          timelineNow,
-                          data.settings.locale,
-                        ),
-                      })} · `
-                    : null}
-                  {progress.total !== null
-                    ? t("lms.updatingThisCourseDoneTotal", {
-                        done: progress.done,
-                        total: progress.total,
-                      })
-                    : t("lms.updatingThisCourse")}
-                </span>
-              )}
-              {refresh && (
-                <button
-                  type="button"
-                  className="lmsRefresh"
-                  disabled={progress != null || opened?.kind === "official"}
-                  onClick={refresh}
-                >
-                  {t("common.refreshNow")}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </header>
-      <div className="lmsWorkspaceTools">
-        {lessons.length > 0 && !query.trim() && (
-          <GuideTip id="lesson-mark" text="lms.doubleClickALessonNumber">
-            <nav
-              className="lmsLessonRail"
-              aria-label={t("lms.lessons")}
-              ref={rail}
-            >
-              <span
-                className="lmsRailIndicator"
-                ref={railIndicator}
-                aria-hidden="true"
-              />
-              {pinned.map((section) => (
-                <button
-                  type="button"
-                  key={section.id}
-                  className={`lmsRailTab${paged && shownId === section.id ? " current" : ""}`}
-                  aria-current={
-                    paged && shownId === section.id ? "step" : undefined
-                  }
-                  title={section.title}
-                  onClick={() => goLesson(section.id)}
-                >
-                  {section.title}
-                </button>
-              ))}
-              {hasActivities && (
-                <button
-                  type="button"
-                  className={`lmsRailTab${paged && shownId === ACTIVITIES ? " current" : ""}`}
-                  aria-current={
-                    paged && shownId === ACTIVITIES ? "step" : undefined
-                  }
-                  onClick={() => goLesson(ACTIVITIES)}
-                >
-                  {t("lms.activities")}
-                </button>
-              )}
-              {(pinned.length > 0 || hasActivities) && (
-                <span className="lmsRailDivider" aria-hidden="true" />
-              )}
-              {lessons.map((l, index) => (
-                <button
-                  type="button"
-                  key={l.id}
-                  className={`${atIndex >= 0 && index <= atIndex ? "held" : ""}${l.id === lessonId && paged ? " current" : ""}${pendingIn(l) ? " due" : ""}`}
-                  aria-current={l.id === lessonId && paged ? "step" : undefined}
-                  title={l.title}
-                  onClick={() => goLesson(l.id)}
-                  onDoubleClick={() => markThisClass(l.id)}
-                >
-                  {l.label}
-                </button>
-              ))}
-            </nav>
-          </GuideTip>
-        )}
-      </div>
       <div className="lmsWorkspaceBody" ref={workspaceRef}>
         <ResizableWorkspace
           id={`reading-${course.id}`}
@@ -862,123 +725,283 @@ export function LmsWorkspaceBody({
           secondMin={260}
         >
           <aside className="lmsOutline">
-            <div className="lmsOutlineTools">
-              <input
-                aria-label={t("lms.searchCourseContent")}
-                placeholder={t("lms.searchThisCourse")}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              {lessons.length ? null : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpanded(
-                      expanded.length
-                        ? []
-                        : sections.map((s) => `section:${s.id}`),
-                    )
-                  }
-                >
-                  {expanded.length ? t("lms.expandAll") : t("lms.collapseAll")}
-                </button>
-              )}
-            </div>
-
-            <div
-              className={`lmsOutlineScroll${query ? " searching" : ""}`}
-              ref={outline}
-              onScroll={(event) => {
-                recordPosition(event.currentTarget);
-                followScroll(event.currentTarget);
-                restAfterScroll(event.currentTarget);
-              }}
-            >
-              {fileMenu && (
-                <Suspense fallback={null}>
-                  <FilePopover
-                    key={fileMenu.url}
-                    url={fileMenu.url}
-                    title={fileMenu.title}
-                    courseId={course.id}
-                    limit={limit}
-                    anchor={fileMenu.anchor}
-                    onClose={closeFileMenu}
-                    openPage={(page) => openPage(page, fileMenu.title)}
-                  />
-                </Suspense>
-              )}
-              {noteError && <p role="alert">{noteError}</p>}
-              {deletedNote && (
-                <div className="lmsNoteUndo" role="status">
-                  <span>{t("lms.noteDeleted")}</span>
+            <TitleRow className="lmsWorkspaceHeader">
+              {headerStart}
+              <div className="lmsCourseIdentity">
+                <h1 title={course.title}>{course.title}</h1>
+                <small>{course.code}</small>
+              </div>
+              {/* The course's own actions, on the title row's right. */}
+              <div className="lmsHeaderActions">
+                {entry.date && (
+                  <span className="lmsEntryTime">
+                    {entry.date}{" "}
+                    {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
+                  </span>
+                )}
+                {syllabus && (
                   <button
                     type="button"
-                    onClick={() => {
-                      const note = deletedNote;
-                      void moveNote(
-                        { courseId: course.id, section: note.section },
-                        note.id,
-                        true,
-                      )
-                        .then(() => {
-                          setDeletedNote(null);
-                          refreshNotes();
-                          open({ ...note, kind: "note" });
-                        })
-                        .catch((error) => setNoteError(String(error)));
-                    }}
+                    className="lmsRefresh"
+                    aria-pressed={selected === "syllabus"}
+                    onClick={() =>
+                      open({
+                        id: "syllabus",
+                        title: t("common.syllabus"),
+                        kind: "syllabus",
+                        url: syllabus,
+                      })
+                    }
                   >
-                    {t("common.undo")}
+                    <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
                   </button>
-                </div>
+                )}
+                {openPastExams && (
+                  <button
+                    type="button"
+                    className="lmsRefresh"
+                    onClick={openPastExams}
+                  >
+                    {t("examShare.openCourse")}
+                  </button>
+                )}
+                {(progress != null || refresh) && (
+                  <div className="lmsPullControls">
+                    {progress != null && (
+                      // Local data stays on screen; the whole course switches when
+                      // Core commits it.
+                      <span className="syncPageStatus" role="status">
+                        <i className="schoolStatusSpinner" aria-hidden="true" />
+                        {updatedAt
+                          ? `${t("lms.showingDataFromAge", {
+                              age: ageText(
+                                updatedAt,
+                                timelineNow,
+                                data.settings.locale,
+                              ),
+                            })} · `
+                          : null}
+                        {progress.total !== null
+                          ? t("lms.updatingThisCourseDoneTotal", {
+                              done: progress.done,
+                              total: progress.total,
+                            })
+                          : t("lms.updatingThisCourse")}
+                      </span>
+                    )}
+                    {refresh && (
+                      <button
+                        type="button"
+                        className="lmsRefresh"
+                        disabled={
+                          progress != null || opened?.kind === "official"
+                        }
+                        onClick={refresh}
+                      >
+                        {t("common.refreshNow")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </TitleRow>
+            {/* The lessons run down the outline's left edge: a narrow
+                column of numbers instead of a full-width rail. */}
+            <div className="lmsOutlineBody">
+              {lessons.length > 0 && !query.trim() && (
+                <GuideTip id="lesson-mark" text="lms.doubleClickALessonNumber">
+                  <nav
+                    className="lmsLessonRail"
+                    aria-label={t("lms.lessons")}
+                    ref={rail}
+                  >
+                    <span
+                      className="lmsRailIndicator"
+                      ref={railIndicator}
+                      aria-hidden="true"
+                    />
+                    {lessons.map((l, index) => (
+                      <button
+                        type="button"
+                        key={l.id}
+                        className={`${atIndex >= 0 && index <= atIndex ? "held" : ""}${l.id === lessonId && paged ? " current" : ""}${pendingIn(l) ? " due" : ""}`}
+                        aria-current={
+                          l.id === lessonId && paged ? "step" : undefined
+                        }
+                        title={l.title}
+                        onClick={() => goLesson(l.id)}
+                        onDoubleClick={() => markThisClass(l.id)}
+                      >
+                        {l.label}
+                      </button>
+                    ))}
+                  </nav>
+                </GuideTip>
               )}
-              {courseExams.length > 0 && (
-                <section
-                  className="lmsCourseExams"
-                  aria-label={t("common.exams")}
-                >
-                  <h2>{t("common.exams")}</h2>
-                  <ExamCards
-                    exams={courseExams}
-                    courses={data.courses.filter((row) => row.id === course.id)}
+              <div className="lmsOutlineMain">
+                <div className="lmsOutlineTools">
+                  <input
+                    aria-label={t("lms.searchCourseContent")}
+                    placeholder={t("lms.searchThisCourse")}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
                   />
-                </section>
-              )}
-              {!paged && <h2>{t("syncStatus.dataset.courseContent")}</h2>}
-              {sections.map((section) => sectionView(section))}
-              {!sections.length && (
-                <p className="lmsQuiet">{t("lms.noCourseContentSyncedYet")}</p>
-              )}
-              <div data-page={paged ? "activities" : undefined}>
-                {/* Only assignments outside any section; the rest sit in their lesson. */}
-                {(() => {
-                  const loose = otherAssignments.filter((a) =>
-                    matches(a.title, a.details),
-                  );
-                  return loose.length ? (
-                    <section
-                      data-reading-section="assignments"
-                      className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
+                  {lessons.length ? null : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpanded(
+                          expanded.length
+                            ? []
+                            : sections.map((s) => `section:${s.id}`),
+                        )
+                      }
                     >
-                      <h2>{t("common.assignments")}</h2>
-                      {loose.map(assignmentContent)}
+                      {expanded.length
+                        ? t("lms.expandAll")
+                        : t("lms.collapseAll")}
+                    </button>
+                  )}
+                </div>
+                {/* Sections without a number (一般, 連絡先 …) and the
+                    course's activities: a row of tabs over the outline; the
+                    rail beside it holds only the numbered lessons. */}
+                {lessons.length > 0 &&
+                  !query.trim() &&
+                  (pinned.length > 0 || hasActivities) && (
+                    <nav
+                      className="lmsSectionTabs"
+                      aria-label={t("lms.lessons")}
+                    >
+                      {pinned.map((section) => (
+                        <button
+                          type="button"
+                          key={section.id}
+                          className={`lmsSectionTab${paged && shownId === section.id ? " current" : ""}`}
+                          aria-current={
+                            paged && shownId === section.id ? "step" : undefined
+                          }
+                          title={section.title}
+                          onClick={() => goLesson(section.id)}
+                        >
+                          {section.title}
+                        </button>
+                      ))}
+                      {hasActivities && (
+                        <button
+                          type="button"
+                          className={`lmsSectionTab${paged && shownId === ACTIVITIES ? " current" : ""}`}
+                          aria-current={
+                            paged && shownId === ACTIVITIES ? "step" : undefined
+                          }
+                          onClick={() => goLesson(ACTIVITIES)}
+                        >
+                          {t("lms.activities")}
+                        </button>
+                      )}
+                    </nav>
+                  )}
+
+                <div
+                  className={`lmsOutlineScroll${query ? " searching" : ""}`}
+                  ref={outline}
+                  onScroll={(event) => {
+                    recordPosition(event.currentTarget);
+                    followScroll(event.currentTarget);
+                    restAfterScroll(event.currentTarget);
+                  }}
+                >
+                  {fileMenu && (
+                    <Suspense fallback={null}>
+                      <FilePopover
+                        key={fileMenu.url}
+                        url={fileMenu.url}
+                        title={fileMenu.title}
+                        courseId={course.id}
+                        limit={limit}
+                        anchor={fileMenu.anchor}
+                        onClose={closeFileMenu}
+                        openPage={(page) => openPage(page, fileMenu.title)}
+                      />
+                    </Suspense>
+                  )}
+                  {noteError && <p role="alert">{noteError}</p>}
+                  {deletedNote && (
+                    <div className="lmsNoteUndo" role="status">
+                      <span>{t("lms.noteDeleted")}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const note = deletedNote;
+                          void moveNote(
+                            { courseId: course.id, section: note.section },
+                            note.id,
+                            true,
+                          )
+                            .then(() => {
+                              setDeletedNote(null);
+                              refreshNotes();
+                              open({ ...note, kind: "note" });
+                            })
+                            .catch((error) => setNoteError(String(error)));
+                        }}
+                      >
+                        {t("common.undo")}
+                      </button>
+                    </div>
+                  )}
+                  {courseExams.length > 0 && (
+                    <section
+                      className="lmsCourseExams"
+                      aria-label={t("common.exams")}
+                    >
+                      <h2>{t("common.exams")}</h2>
+                      <ExamCards
+                        exams={courseExams}
+                        courses={data.courses.filter(
+                          (row) => row.id === course.id,
+                        )}
+                      />
                     </section>
-                  ) : null;
-                })()}
+                  )}
+                  {!paged && <h2>{t("syncStatus.dataset.courseContent")}</h2>}
+                  {sections.map((section) => sectionView(section))}
+                  {!sections.length && (
+                    <p className="lmsQuiet">
+                      {t("lms.noCourseContentSyncedYet")}
+                    </p>
+                  )}
+                  <div data-page={paged ? "activities" : undefined}>
+                    {/* Only assignments outside any section; the rest sit in their lesson. */}
+                    {(() => {
+                      const loose = otherAssignments.filter((a) =>
+                        matches(a.title, a.details),
+                      );
+                      return loose.length ? (
+                        <section
+                          data-reading-section="assignments"
+                          className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
+                        >
+                          <h2>{t("common.assignments")}</h2>
+                          {loose.map(assignmentContent)}
+                        </section>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                {data.settings.lmsBilingualFilter && (
+                  <button
+                    type="button"
+                    className="lmsOriginal"
+                    onClick={() => setOriginal((value) => !value)}
+                  >
+                    {original
+                      ? t("lms.usePreferredLanguage")
+                      : t("lms.showOriginal")}
+                  </button>
+                )}
               </div>
             </div>
-            {data.settings.lmsBilingualFilter && (
-              <button
-                type="button"
-                className="lmsOriginal"
-                onClick={() => setOriginal((value) => !value)}
-              >
-                {original
-                  ? t("lms.usePreferredLanguage")
-                  : t("lms.showOriginal")}
-              </button>
-            )}
           </aside>
           {opened && shown && (
             <LmsReader

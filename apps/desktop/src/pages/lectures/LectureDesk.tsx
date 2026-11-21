@@ -1,4 +1,5 @@
 import { dayShort } from "../../components/timetable/timetable";
+import { TitleRow, TitlebarNav } from "../../components/TitleRow";
 import { BookOpen } from "lucide-react";
 import { DueChip } from "../../components/DueChip";
 import { CloseButton, Input, EmptyState, Skeleton } from "../../components/ui";
@@ -274,6 +275,11 @@ function LectureDeskBody({
       onToggle={() => setFloating(false)}
     />
   );
+  // With the list folded away the content column is first after the rail,
+  // so its title row starts with Back, Forward and the sidebar button.
+  const contentStart = collapsed ? (
+    <TitlebarNav sidebar={sidebarToggle} />
+  ) : undefined;
 
   return (
     <div
@@ -311,32 +317,33 @@ function LectureDeskBody({
               setListFocused(false);
           }}
         >
-          <header>
-            <div className="lectureListTitle">
-              {collapsed && floating && sidebarToggle}
-              <h1>{t("lectures.lectureDesk")}</h1>
-            </div>
-            <UiSelect
-              className="lectureTerm"
-              aria-label={t("common.quarter")}
-              value={shownTerm}
-              onChange={(value) => {
-                setQuery("");
-                setShownTerm(value as TermId);
-              }}
-              data={[...new Set(terms.map((item) => item.slice(0, 4)))].map(
-                (year) => ({
-                  group: year,
-                  items: terms
-                    .filter((item) => item.startsWith(`${year}-`))
-                    .map((item) => ({
-                      value: item,
-                      label: item.replace("-", " "),
-                    })),
-                }),
-              )}
-            />
-          </header>
+          <TitleRow
+            nav
+            sidebar={!collapsed || floating ? sidebarToggle : undefined}
+            className="lectureListHeader"
+          >
+            <h1>{t("lectures.lectureDesk")}</h1>
+          </TitleRow>
+          <UiSelect
+            className="lectureTerm"
+            aria-label={t("common.quarter")}
+            value={shownTerm}
+            onChange={(value) => {
+              setQuery("");
+              setShownTerm(value as TermId);
+            }}
+            data={[...new Set(terms.map((item) => item.slice(0, 4)))].map(
+              (year) => ({
+                group: year,
+                items: terms
+                  .filter((item) => item.startsWith(`${year}-`))
+                  .map((item) => ({
+                    value: item,
+                    label: item.replace("-", " "),
+                  })),
+              }),
+            )}
+          />
           <div
             className="dueScope lectureMode"
             role="group"
@@ -449,13 +456,13 @@ function LectureDeskBody({
               courses={courses}
               entering={entering}
               endEntrance={endEntrance}
-              sidebarToggle={sidebarToggle}
+              sidebarToggle={contentStart}
               onRemoved={() => setExamKey(null)}
             />
           )}
           <div className="lectureCourseContent" hidden={mode === "exams"}>
             {!entry && (
-              <header className="lectureEmptyHeader">{sidebarToggle}</header>
+              <TitleRow className="lectureEmptyHeader">{contentStart}</TitleRow>
             )}
             {retained.map((item) => (
               <div
@@ -479,7 +486,7 @@ function LectureDeskBody({
                       mode !== "exams" &&
                       entry?.courseId === item.courseId,
                     entry?.courseId === item.courseId
-                      ? sidebarToggle
+                      ? contentStart
                       : undefined,
                   )}
                 </KeptPage>

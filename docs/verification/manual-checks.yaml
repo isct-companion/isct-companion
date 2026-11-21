@@ -3243,12 +3243,12 @@ checks:
       has already been read once.
     steps:
       - action: |
-          Press Refresh in the floating status at the bottom right, point at
-          its line and watch the panel until it is quiet again.
+          Open the status menu from the dot at the foot of the rail, choose
+          Refresh now, and reopen the menu until the dot is green again.
         reason: |
-          The panel shows a bar only while Core reports a run's total and a
-          label or spinner otherwise. A bar that jumps backwards, or a bar for
-          a run without a total, means the shell is estimating again.
+          The menu shows a count only while Core reports a run's total and the
+          run's name otherwise. A count that jumps backwards, or a count for a
+          run without a total, means the shell is estimating again.
       - action: |
           Open a lecture whose content is a few hours old and press Refresh
           now in its header.
@@ -3258,7 +3258,7 @@ checks:
           A list that empties or half-updates means the page stopped reading
           local data while Core reads.
       - action: |
-          On Timetable, press Refresh timetable and watch the status panel.
+          On Timetable, press Refresh timetable and open the status menu.
         reason: |
           It must read only the LMS course list and the 教務Web pages, with
           the button's ring following them; a run over every current course
@@ -3272,14 +3272,14 @@ checks:
           Core.
       - action: |
           With 教務Web under maintenance or blocked by a firewall rule,
-          refresh, then press Retry beside the failed dataset.
+          refresh, then choose the failed dataset's Retry in the status menu.
         reason: |
           A failure must name the dataset, the reason and when Core retries,
           and Retry must start only that dataset; a generic "Refresh failed"
           or a full refresh means the scope was lost.
     observe: |
-      The floating status and its panel, the lecture header, and the app log for the
-      sync hints sent.
+      The rail's status dot and its menu, the lecture header, and the app log
+      for the sync hints sent.
     expected: |
       Bars only with a total, a spinner for background work, held reasons and
       per-dataset failures in words with a retry time, and a lecture that
@@ -3291,13 +3291,13 @@ checks:
       tests/e2e/app-shell.test.tsx, but real runs, real network loss and a
       real school failure only exist against the live services.
     covers:
-      - apps/desktop/src/app/SchoolStatusLine.tsx
+      - apps/desktop/src/app/SchoolStatus.tsx
       - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/components/PullRing.tsx
       - apps/desktop/src/styles.css
-      - apps/desktop/src/app/SchoolStatusPanel.tsx
+      - apps/desktop/src/platform/native-menu.ts
       - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
     verified: null
@@ -6148,12 +6148,13 @@ checks:
       - action: |
           Answer `PID2_0.aspx` (grades) with the empty document through the
           proxy and press 再試行 on 教務Web. Read the failed row, select its
-          detail line, then hover the failure in the desktop footer.
+          detail line, then open the desktop's status menu from the rail.
         reason: |
           A person reporting a failure can only quote what the row shows, and
           a read that fails on one account cannot be reproduced by anyone else.
-          The detail is selectable on the phones and a tooltip on the desktop.
-    observe: The run's row in the connection sheet, and the desktop footer.
+          The detail is selectable on the phones and its own line in the desktop
+          status menu.
+    observe: The run's row in the connection sheet, and the desktop status menu.
     expected: |
       No `sync.` key is visible anywhere. The failed row shows
       `grades: kyomu extraction was incomplete: The grade page shape is unknown.`
@@ -6166,7 +6167,7 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
-      - apps/desktop/src/app/SchoolStatusLine.tsx
+      - apps/desktop/src/lib/sync-text.ts
     verified: null
 
   - id: ANDROID-TODAY-CLASS-STACK
@@ -9083,7 +9084,7 @@ checks:
     covers:
       - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
-      - apps/desktop/src/app/SchoolStatusPanel.tsx
+      - apps/desktop/src/app/SchoolStatus.tsx
       - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift

@@ -484,7 +484,12 @@ export function PdfDocument({
                 disabled={zoom <= 0.5}
                 onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
               >
-                <Minus size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+                <Minus
+                  size={14}
+                  strokeWidth={1.75}
+                  aria-hidden="true"
+                  focusable="false"
+                />
               </button>
               <UiSelect
                 aria-label={t("lms.zoom")}
@@ -506,7 +511,12 @@ export function PdfDocument({
                 disabled={zoom >= 3}
                 onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
               >
-                <Plus size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+                <Plus
+                  size={14}
+                  strokeWidth={1.75}
+                  aria-hidden="true"
+                  focusable="false"
+                />
               </button>
             </div>
             <button
@@ -516,7 +526,12 @@ export function PdfDocument({
               aria-expanded={searchOpen}
               onClick={() => setSearchOpen((value) => !value)}
             >
-              <Search size={15} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+              <Search
+                size={15}
+                strokeWidth={1.75}
+                aria-hidden="true"
+                focusable="false"
+              />
             </button>
           </div>
           {fileToolbar}

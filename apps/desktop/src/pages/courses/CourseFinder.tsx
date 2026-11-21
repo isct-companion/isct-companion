@@ -360,8 +360,6 @@ export function CourseFinder({
     <Paper
       component="aside"
       className="listCard courseFinder"
-      withBorder
-      shadow="xs"
     >
       <header>
         <div className="finderTitle">

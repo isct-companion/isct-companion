@@ -2,11 +2,13 @@ import { X } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "../../i18n";
+import { TitleRow } from "../TitleRow";
 import "./reader.css";
 
 const ToolsHost = createContext<HTMLElement | null>(null);
 
-/** Document tools share one fixed panel; the reader below owns scrolling. */
+/** The title row names the document; its tools share one bar below it,
+ * and the reader under that owns scrolling. */
 export function ReaderPane({
   title,
   close,
@@ -22,11 +24,10 @@ export function ReaderPane({
       className="workspacePane lmsViewer"
       aria-label={t("lms.openedContent")}
     >
-      <header className="workspaceToolPanel lmsReaderTools">
+      <TitleRow className="workspaceToolPanel lmsReaderTools">
         <span className="lmsReaderTitle" title={title}>
           {title}
         </span>
-        <div className="lmsReaderToolSlot" ref={setHost} />
         <button
           type="button"
           className="lmsViewerClose"
@@ -34,9 +35,19 @@ export function ReaderPane({
           title={t("common.close")}
           onClick={close}
         >
-          <X size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+          <X
+            size={14}
+            strokeWidth={1.75}
+            aria-hidden="true"
+            focusable="false"
+          />
         </button>
-      </header>
+      </TitleRow>
+      {/* The document's own tools sit under the title row, which keeps only
+          what the pane is and how to close it (as Codex's panes do). */}
+      <div className="lmsReaderBar">
+        <div className="lmsReaderToolSlot" ref={setHost} />
+      </div>
       <ToolsHost.Provider value={host}>
         <div className="lmsViewerBody">{children}</div>
       </ToolsHost.Provider>

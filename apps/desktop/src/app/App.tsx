@@ -19,7 +19,7 @@ import { refresh, syncAvailable } from "../platform/sync-intents";
 import { useOpenHint } from "./useOpenHint";
 import { useSync } from "../store/sync";
 import { useAnimatedNavigate } from "./navigation";
-import { SchoolStatusPanel } from "./SchoolStatusPanel";
+import { SchoolStatusDot } from "./SchoolStatus";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 import { useAppearance } from "./useAppearance";
@@ -853,6 +853,15 @@ export function WorkspaceApp() {
               <span>{navigation[p]}</span>
             </UiButton>
           ))}
+          <SchoolStatusDot
+            scienceSession={scienceSession}
+            tokyoTechSession={tokyoTechSession}
+            snapshot={sync}
+            locale={data.settings.locale}
+            refresh={
+              canSync ? () => refresh({ kind: "everything" }) : undefined
+            }
+          />
         </div>
       </aside>
       <main
@@ -875,13 +884,6 @@ export function WorkspaceApp() {
         {keep("about", aboutPage)}
       </main>
       {overlays}
-      <SchoolStatusPanel
-        scienceSession={scienceSession}
-        tokyoTechSession={tokyoTechSession}
-        snapshot={sync}
-        locale={data.settings.locale}
-        refresh={canSync ? () => refresh({ kind: "everything" }) : undefined}
-      />
     </div>
   );
 }

@@ -2180,6 +2180,12 @@ export type ExamCourse = {
    * then it cannot be opened.
    */
   subjectCodes: Array<string>;
+  /**
+   * The quarter's exams this app keeps (the exam timetable with the
+   * person's corrections and marked sessions) include one for this
+   * course. A course without one is listed after the rest, folded away.
+   */
+  hasExam: boolean;
 };
 
 export type ExamCourseList = { courses: Array<ExamCourse> };

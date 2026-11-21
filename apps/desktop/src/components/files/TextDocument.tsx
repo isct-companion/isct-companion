@@ -216,7 +216,12 @@ export function TextDocument({ value, name }: { value: string; name: string }) {
             aria-label={t("lms.findInDocument")}
             onClick={() => editor.current && openSearchPanel(editor.current)}
           >
-            <Search size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+            <Search
+              size={14}
+              strokeWidth={1.75}
+              aria-hidden="true"
+              focusable="false"
+            />
           </button>
         )}
         <div ref={host} />
