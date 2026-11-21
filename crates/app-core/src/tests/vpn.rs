@@ -133,6 +133,8 @@ fn a_helper_from_another_copy_of_the_app_is_replaced_when_no_tunnel_is_up() {
         assert!(error.install_fixes());
     }
     assert!(!VpnError::HelperNeedsApproval.install_fixes());
+    // Installing again is what left it stuck.
+    assert!(!VpnError::HelperRegistrationStuck.install_fixes());
 }
 
 /// The UI keys its guidance on these names; a rename breaks the install prompt.
@@ -147,6 +149,10 @@ fn error_codes_are_stable_names() {
     assert_eq!(
         VpnError::HelperElsewhere("x".into()).code(),
         "helper_elsewhere"
+    );
+    assert_eq!(
+        VpnError::HelperRegistrationStuck.code(),
+        "helper_registration_stuck"
     );
     assert_eq!(VpnError::Timeout.code(), "helper_timeout");
     assert_eq!(VpnError::Tunnel("x".into()).code(), "tunnel_failed");

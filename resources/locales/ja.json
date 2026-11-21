@@ -1683,6 +1683,7 @@
   "tools.campusWifi.vpnHelperUnreachable": "VPN コンポーネントが応答しません。インストールし直してください。",
   "tools.campusWifi.vpnHelperTimeout": "VPN コンポーネントの応答がタイムアウトしました。",
   "tools.campusWifi.vpnHelperProtocol": "VPN コンポーネントが想定外の応答を返しました。",
+  "tools.campusWifi.vpnHelperRegistrationStuck": "macOS が VPN コンポーネントの古い登録を保持していて、App から削除も置き換えもできません。ターミナルで sfltool resetbtm を実行し、Mac を再起動してから「インストール」を押してください。",
   "tools.campusWifi.vpnTunnelFailed": "キャンパス VPN のトンネルを確立できませんでした。",
   "tools.campusWifi.vpnNeedsAccount": "先に Tokyo Tech Portal のアカウントを保存してください。",
   "tools.campusWifi.vpnLoginRejected": "保存された Tokyo Tech のパスワードがポータルに拒否されました。",

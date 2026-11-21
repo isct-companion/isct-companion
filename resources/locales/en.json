@@ -1683,6 +1683,7 @@
   "tools.campusWifi.vpnHelperUnreachable": "The VPN component is not responding. Try installing it again.",
   "tools.campusWifi.vpnHelperTimeout": "The VPN component took too long to answer.",
   "tools.campusWifi.vpnHelperProtocol": "The VPN component sent an unexpected reply.",
+  "tools.campusWifi.vpnHelperRegistrationStuck": "macOS keeps an old registration of the VPN component that the app can't remove or replace. Run sfltool resetbtm in Terminal, restart your Mac, then press Install.",
   "tools.campusWifi.vpnTunnelFailed": "The campus VPN could not be established.",
   "tools.campusWifi.vpnNeedsAccount": "Save your Tokyo Tech Portal account first.",
   "tools.campusWifi.vpnLoginRejected": "The portal refused the saved Tokyo Tech password.",

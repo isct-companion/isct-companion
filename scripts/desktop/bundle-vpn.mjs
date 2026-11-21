@@ -255,6 +255,23 @@ function buildHelper(binary) {
   return helper;
 }
 
+/**
+ * Rebuilds the helper in an existing payload, so a desktop build never ships
+ * one older than the app's protocol (`HELPER_REVISION`): the app would call
+ * it outdated, and an update would install the same stale file again.
+ * openconnect stays as `desktop:vpn` built it. Cargo makes this a no-op when
+ * the helper's sources have not changed.
+ */
+export function refreshHelper() {
+  if (process.platform === "win32") {
+    buildHelper("isct-vpn-helper.exe");
+    return;
+  }
+  const helper = buildHelper("isct-vpn-helper");
+  chmodSync(helper, 0o755);
+  signMacho(helper);
+}
+
 async function mainWindows() {
   const source =
     option("--openconnect") ??

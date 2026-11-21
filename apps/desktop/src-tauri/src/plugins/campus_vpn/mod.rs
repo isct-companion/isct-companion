@@ -333,6 +333,11 @@ async fn install(
             let state = service.failed(VpnError::HelperNeedsApproval);
             return Ok(report(&service, state));
         }
+        #[cfg(target_os = "macos")]
+        helper::Install::Stuck => {
+            let state = service.failed(VpnError::HelperRegistrationStuck);
+            return Ok(report(&service, state));
+        }
         helper::Install::Ready => {}
     }
     // launchd and the service manager start the helper asynchronously, and

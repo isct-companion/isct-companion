@@ -92,12 +92,16 @@ fn connect_error(error: std::io::Error) -> VpnError {
 /// pinned requirement fails the same way ("needs LWCR update"). So every
 /// install takes the old registration away, waits until the system has let
 /// go of it, and registers afresh from here.
+///
+/// A Background Task Management record whose app copy is gone ("fullPath is
+/// nil") does not go: the status stays enabled, and registering again only
+/// confirms the old record, which launchd keeps resolving to the deleted
+/// copy. That is `Install::Stuck`, never `Ready`; only the person can reset
+/// the record (`sfltool resetbtm`, then a restart).
 pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     let service = daemon();
     if unsafe { service.status() } != SMAppServiceStatus::NotRegistered {
         if let Err(error) = unsafe { service.unregisterAndReturnError() } {
-            // An entry whose app copy is gone may refuse to go; registering
-            // below still points it at this copy.
             log::warn!(
                 "[vpn] the old helper registration did not go: {}",
                 error.localizedDescription()
@@ -105,11 +109,16 @@ pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
         }
         // Unregistering finishes in the background. Registering before it
         // has can leave launchd holding the old copy's path.
+        let mut released = false;
         for _ in 0..REGISTER_ATTEMPTS {
             if unsafe { service.status() } == SMAppServiceStatus::NotRegistered {
+                released = true;
                 break;
             }
             std::thread::sleep(SETTLE);
+        }
+        if !released {
+            return Ok(Install::Stuck);
         }
     }
     // A daemon that still needs approval in Login Items is registered all

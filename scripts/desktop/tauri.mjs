@@ -10,6 +10,7 @@ import {
 import { macWidgets } from "./macos-widgets.mjs";
 import { macDevSigningIdentity } from "./macos-dev-signing.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
+import { refreshHelper } from "./bundle-vpn.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const command = process.argv.slice(2);
@@ -145,6 +146,7 @@ const vpnDaemon =
 const vpnBundle = vpnPayload
   ? { resources: withVpn(platformResources()), ...vpnDaemon }
   : undefined;
+if (vpnPayload && command[0] === "build") refreshHelper();
 if (vpnPayload) console.log("Campus VPN payload: included.");
 // launchd records the helper's code requirement when the daemon is
 // registered. An ad hoc helper is pinned to that one binary, so after a local

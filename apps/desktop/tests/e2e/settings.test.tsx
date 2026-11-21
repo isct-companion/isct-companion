@@ -25,7 +25,10 @@ import {
   schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
-import type { SchoolCredentialStatus, SchoolProfileSession } from "@app/generated/persistence";
+import type {
+  SchoolCredentialStatus,
+  SchoolProfileSession,
+} from "@app/generated/persistence";
 import type { CloudSyncState } from "@app/platform/desktop-bridge";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
@@ -2627,6 +2630,51 @@ describe("Campus VPN", () => {
       await clickButton(pane, "Repair");
       await answerDialog("Repair");
       await wait(() => expect(buttonIn(pane, "Connect")).toBeTruthy());
+      expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+        0,
+      );
+    },
+    TIMEOUT,
+  );
+
+  // A system record that will not let go of the old registration is past
+  // anything the app can do: the card gives the reset and restart, offers
+  // neither another Repair nor a Connect that would spend a login, and the
+  // install is not retried.
+  it(
+    "gives the reset steps when macOS keeps an old helper registration",
+    async () => {
+      const status = { address: null, expiresAt: null };
+      const mounted = await mountSettings(paths.tools(), {
+        tools: ["campus-vpn"],
+        handle: (command) => {
+          if (command === "plugin:campus-vpn|status")
+            return {
+              ...status,
+              state: "error",
+              error: "helper_not_starting",
+              detail: null,
+            };
+          if (command === "plugin:campus-vpn|install")
+            return {
+              ...status,
+              state: "error",
+              error: "helper_registration_stuck",
+              detail: null,
+            };
+          return undefined;
+        },
+      });
+      app = mounted;
+      const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() => expect(pane.textContent).toContain("sfltool resetbtm"));
+      expect(buttonByText(pane, "Repair")).toBeFalsy();
+      expect(buttonByText(pane, "Connect")).toBeFalsy();
+      expect(mounted.core.commands("plugin:campus-vpn|install")).toHaveLength(
+        1,
+      );
       expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
         0,
       );

@@ -116,7 +116,14 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
       );
       return undefined;
     }
-    if (next.error !== "helper_needs_approval") return next;
+    // A registration the system will not let go of needs the person's reset
+    // and restart, which the card says; neither a connect nor another
+    // install can get past it.
+    if (
+      next.error !== "helper_needs_approval" &&
+      next.error !== "helper_registration_stuck"
+    )
+      return next;
     setVpn(next);
     return undefined;
   };
@@ -246,27 +253,28 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
   // Automatic management connects and disconnects by itself: a press beside
   // it would only be undone by the next use, so it shows none. The helper
   // still needs the person's consent to install, in either mode.
-  const action = helperNeeded ? (
-    <UiButton
-      className="button small"
-      disabled={vpnBusy}
-      onClick={() => void installHelper()}
-    >
-      {t(helperActionLabel(vpn?.error))}
-    </UiButton>
-  ) : vpn?.onDemand ? null : (
-    <UiButton
-      className={`button small${vpnConnected ? " toolConnected" : ""}`}
-      disabled={vpnBusy}
-      onClick={() => void (vpnConnected ? disconnectVpn() : connectVpn())}
-    >
-      {t(
-        vpnConnected
-          ? "tools.campusWifi.vpnDisconnect"
-          : "tools.campusWifi.vpnConnect",
-      )}
-    </UiButton>
-  );
+  const action =
+    vpn?.error === "helper_registration_stuck" ? null : helperNeeded ? (
+      <UiButton
+        className="button small"
+        disabled={vpnBusy}
+        onClick={() => void installHelper()}
+      >
+        {t(helperActionLabel(vpn?.error))}
+      </UiButton>
+    ) : vpn?.onDemand ? null : (
+      <UiButton
+        className={`button small${vpnConnected ? " toolConnected" : ""}`}
+        disabled={vpnBusy}
+        onClick={() => void (vpnConnected ? disconnectVpn() : connectVpn())}
+      >
+        {t(
+          vpnConnected
+            ? "tools.campusWifi.vpnDisconnect"
+            : "tools.campusWifi.vpnConnect",
+        )}
+      </UiButton>
+    );
 
   if (unavailable)
     return (

@@ -8,6 +8,7 @@ const VPN_ERROR_TEXT: Record<string, MessageKey> = {
   helper_outdated: "tools.campusWifi.vpnHelperOutdated",
   helper_not_starting: "tools.campusWifi.vpnHelperNotStarting",
   helper_elsewhere: "tools.campusWifi.vpnHelperElsewhere",
+  helper_registration_stuck: "tools.campusWifi.vpnHelperRegistrationStuck",
   helper_unreachable: "tools.campusWifi.vpnHelperUnreachable",
   helper_timeout: "tools.campusWifi.vpnHelperTimeout",
   helper_protocol: "tools.campusWifi.vpnHelperProtocol",

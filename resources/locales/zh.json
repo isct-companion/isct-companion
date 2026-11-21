@@ -1683,6 +1683,7 @@
   "tools.campusWifi.vpnHelperUnreachable": "VPN 组件没有响应，请重新安装。",
   "tools.campusWifi.vpnHelperTimeout": "VPN 组件响应超时。",
   "tools.campusWifi.vpnHelperProtocol": "VPN 组件返回了无法识别的内容。",
+  "tools.campusWifi.vpnHelperRegistrationStuck": "macOS 一直保留着这个 VPN 组件的旧登记，App 删不掉它，重新安装也替换不了。请在终端运行 sfltool resetbtm，重启 Mac 后再点「安装」。",
   "tools.campusWifi.vpnTunnelFailed": "无法建立校园 VPN 隧道。",
   "tools.campusWifi.vpnNeedsAccount": "请先保存 Tokyo Tech Portal 账号。",
   "tools.campusWifi.vpnLoginRejected": "门户拒绝了已保存的 Tokyo Tech 密码。",

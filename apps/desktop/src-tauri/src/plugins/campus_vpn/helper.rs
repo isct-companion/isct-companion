@@ -29,6 +29,10 @@ pub(crate) enum Install {
     /// settings, which are open now (Login Items).
     #[cfg(target_os = "macos")]
     NeedsApproval,
+    /// The old registration would not go, so a new one cannot take its
+    /// place; launchd keeps the old copy's program.
+    #[cfg(target_os = "macos")]
+    Stuck,
 }
 
 /// Status answers at once and a stop within the helper's 5-second wait for

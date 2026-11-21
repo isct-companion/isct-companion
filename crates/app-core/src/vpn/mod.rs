@@ -40,6 +40,12 @@ pub enum VpnError {
     /// this app's updates do not reach and which may be deleted under it.
     #[error("the campus VPN helper runs from another copy of the app: {0}")]
     HelperElsewhere(String),
+    /// The system keeps an old registration of the helper that this app can
+    /// neither take away nor replace (macOS: a Background Task Management
+    /// record whose app copy is gone). Installing again cannot fix it; the
+    /// person resets the system's record and restarts.
+    #[error("the system keeps an old registration of the campus VPN helper")]
+    HelperRegistrationStuck,
     #[error("the campus VPN helper is unreachable: {0}")]
     HelperUnreachable(String),
     #[error("the campus VPN helper did not answer in time")]
@@ -61,6 +67,7 @@ impl VpnError {
             Self::HelperOutdated => "helper_outdated",
             Self::HelperNotStarting => "helper_not_starting",
             Self::HelperElsewhere(_) => "helper_elsewhere",
+            Self::HelperRegistrationStuck => "helper_registration_stuck",
             Self::HelperUnreachable(_) => "helper_unreachable",
             Self::Timeout => "helper_timeout",
             Self::Protocol(_) => "helper_protocol",
@@ -240,6 +247,7 @@ fn hopeless(error: &VpnError) -> bool {
             | VpnError::HelperOutdated
             | VpnError::HelperNotStarting
             | VpnError::HelperElsewhere(_)
+            | VpnError::HelperRegistrationStuck
             | VpnError::Login(
                 CampusVpnError::NeedsAccount
                     | CampusVpnError::Rejected
