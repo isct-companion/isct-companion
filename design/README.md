@@ -33,7 +33,7 @@ Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr
 | `bindings/apple-widgets/Sources/IsctWidgets/IsctTokens*.swift` | SwiftUI shell and Apple Widgets (light constants + dark colours) |
 | `apps/android/app/src/main/java/app/isct/design/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
 | `…/generated/design/themes.css`, `…/Generated/IsctThemes.swift`, `…/design/IsctThemes.kt` | The background themes as one table per shell (`data-theme` on desktop) |
-| `apps/desktop/src/generated/design/theme-previews.ts` | Light background and surface for the appearance swatches |
+| `apps/desktop/src/generated/design/theme-previews.ts` | Light and dark background and surface for the appearance swatches |
 | `apps/android/app/src/main/res/values/isct_tokens.xml` | Base background for the Android launch window |
 
 Generated files are committed so Cargo, Xcode and Gradle builds need no Node.

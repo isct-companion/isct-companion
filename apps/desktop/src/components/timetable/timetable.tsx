@@ -149,6 +149,18 @@ export function WeekTimetable({
   const rows = axis ? axisRows(axis) : [];
   const nowOffset =
     now && axis ? nowPercent(axis, jstMinutes(new Date(now))) : undefined;
+  // The right-click marks are invisible until someone is told: the tip
+  // points at the first class drawn that has them.
+  const tipBlock = actionsFor
+    ? days
+        .flatMap((column) => column.blocks.flatMap(blockHalves))
+        .find(
+          ({ block }) =>
+            CLOCK.test(block.startTime) &&
+            CLOCK.test(block.endTime) &&
+            actionsFor(block).length > 0,
+        )?.block.key
+    : undefined;
   return (
     <div
       className={`tt${days.some((column) => column.calendarNotice) ? " hasCalendarNotice" : ""}`}
@@ -160,7 +172,7 @@ export function WeekTimetable({
         aria-label={t("timetable.weeklyTimetable")}
       >
         <div className="ttCorner" />
-        {days.map((column, index) => {
+        {days.map((column) => {
           const head = (
             <div
               className={`ttHead${column.isToday ? " today" : ""}${column.noClasses ? " noClasses" : ""}`}
@@ -180,19 +192,7 @@ export function WeekTimetable({
               )}
             </div>
           );
-          // The right-click marks are invisible until someone is told.
-          return index === 0 && actionsFor ? (
-            <GuideTip
-              key={column.label}
-              id="timetable-marks"
-              text="timetable.rightClickAClassTo"
-              when={days.some((day) => day.blocks.length > 0)}
-            >
-              {head}
-            </GuideTip>
-          ) : (
-            head
-          );
+          return head;
         })}
         <div className="ttAxis">
           {rows.map((period) => {
@@ -300,89 +300,99 @@ export function WeekTimetable({
                 block.cancelled ||
                 (column.noClasses && block.kind === "course");
               const exam = block.kind === "exam" && !cancelled;
+              const button = (
+                <UiButton
+                  type="button"
+                  className={[
+                    "ttBlock",
+                    block.kind,
+                    block.dim ? "dim" : "",
+                    block.planned ? "planned" : "",
+                    cancelled ? "cancelled" : "",
+                    block.quiz ? "quiz" : "",
+                    block.sourceChanged ? "sourceChanged" : "",
+                    selectedId === block.id ? "selected" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  style={
+                    {
+                      "--course": block.color,
+                      // A 2px gutter keeps the card off the row rules.
+                      top: `calc(${position.topPercent}% + 2px)`,
+                      height: `calc(${position.heightPercent}% - 4px)`,
+                      ...(side === "left" && { right: "calc(50% + 1px)" }),
+                      ...(side === "right" && { left: "calc(50% + 1px)" }),
+                      // Overlapping blocks share the column, 1px apart.
+                      ...(lanes && {
+                        left: `calc(${(lanes.lane / lanes.lanes) * 100}% + 1px)`,
+                        right: `calc(${((lanes.lanes - lanes.lane - 1) / lanes.lanes) * 100}% + 1px)`,
+                      }),
+                    } as React.CSSProperties
+                  }
+                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}`}
+                  onClick={(event) => {
+                    if (zoom && block.kind === "course")
+                      zoomFrom(event.currentTarget);
+                    onSelect?.(block);
+                  }}
+                >
+                  {/* An exam or quiz says so before its title, so a short
+                    block still reads as one. */}
+                  {exam ? (
+                    <b>
+                      <span className="ttExamTag">
+                        {t(block.quiz ? "common.quiz" : "common.exam")}
+                      </span>
+                      {block.sourceChanged && (
+                        <span
+                          className="ttSourceChanged"
+                          title={t("exam.thePublishedTimetableChangedAfter")}
+                        >
+                          !
+                        </span>
+                      )}
+                      {block.title}
+                    </b>
+                  ) : (
+                    <b>{block.title}</b>
+                  )}
+                  {/* A block drawn over whole periods names its own times;
+                    a cancelled one says so instead of its room. */}
+                  {cancelled ? (
+                    <small className="ttRoom">{t("common.noClass")}</small>
+                  ) : snapped ? (
+                    <small className="ttRoom">
+                      {block.startTime}–{block.endTime}
+                    </small>
+                  ) : (
+                    block.room && <small className="ttRoom">{block.room}</small>
+                  )}
+                  {block.alternation && (
+                    <small className="ttAlternation">
+                      {alternationLabel(block.alternation)}
+                    </small>
+                  )}
+                  {block.subtitle && (
+                    <span className="ttCode">{block.subtitle}</span>
+                  )}
+                </UiButton>
+              );
               return (
                 <ContextMenu
                   key={block.key}
                   actions={actionsFor?.(block) ?? []}
                 >
-                  <UiButton
-                    type="button"
-                    className={[
-                      "ttBlock",
-                      block.kind,
-                      block.dim ? "dim" : "",
-                      block.planned ? "planned" : "",
-                      cancelled ? "cancelled" : "",
-                      block.quiz ? "quiz" : "",
-                      block.sourceChanged ? "sourceChanged" : "",
-                      selectedId === block.id ? "selected" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    style={
-                      {
-                        "--course": block.color,
-                        // A 2px gutter keeps the card off the row rules.
-                        top: `calc(${position.topPercent}% + 2px)`,
-                        height: `calc(${position.heightPercent}% - 4px)`,
-                        ...(side === "left" && { right: "calc(50% + 1px)" }),
-                        ...(side === "right" && { left: "calc(50% + 1px)" }),
-                        // Overlapping blocks share the column, 1px apart.
-                        ...(lanes && {
-                          left: `calc(${(lanes.lane / lanes.lanes) * 100}% + 1px)`,
-                          right: `calc(${((lanes.lanes - lanes.lane - 1) / lanes.lanes) * 100}% + 1px)`,
-                        }),
-                      } as React.CSSProperties
-                    }
-                    title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}`}
-                    onClick={(event) => {
-                      if (zoom && block.kind === "course")
-                        zoomFrom(event.currentTarget);
-                      onSelect?.(block);
-                    }}
-                  >
-                    {/* An exam or quiz says so before its title, so a short
-                      block still reads as one. */}
-                    {exam ? (
-                      <b>
-                        <span className="ttExamTag">
-                          {t(block.quiz ? "common.quiz" : "common.exam")}
-                        </span>
-                        {block.sourceChanged && (
-                          <span
-                            className="ttSourceChanged"
-                            title={t("exam.thePublishedTimetableChangedAfter")}
-                          >
-                            !
-                          </span>
-                        )}
-                        {block.title}
-                      </b>
-                    ) : (
-                      <b>{block.title}</b>
-                    )}
-                    {/* A block drawn over whole periods names its own times;
-                      a cancelled one says so instead of its room. */}
-                    {cancelled ? (
-                      <small className="ttRoom">{t("common.noClass")}</small>
-                    ) : snapped ? (
-                      <small className="ttRoom">
-                        {block.startTime}–{block.endTime}
-                      </small>
-                    ) : (
-                      block.room && (
-                        <small className="ttRoom">{block.room}</small>
-                      )
-                    )}
-                    {block.alternation && (
-                      <small className="ttAlternation">
-                        {alternationLabel(block.alternation)}
-                      </small>
-                    )}
-                    {block.subtitle && (
-                      <span className="ttCode">{block.subtitle}</span>
-                    )}
-                  </UiButton>
+                  {block.key === tipBlock ? (
+                    <GuideTip
+                      id="timetable-marks"
+                      text="timetable.rightClickAClassTo"
+                    >
+                      {button}
+                    </GuideTip>
+                  ) : (
+                    button
+                  )}
                 </ContextMenu>
               );
             })}

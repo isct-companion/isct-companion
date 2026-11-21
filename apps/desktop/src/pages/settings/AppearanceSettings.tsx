@@ -1,7 +1,7 @@
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { UiInput } from "../../components/ui";
-import { lightThemePreviews } from "../../generated/design/theme-previews";
+import { themePreviews } from "../../generated/design/theme-previews";
 import { nativeOs } from "../../platform/desktop-bridge";
 import {
   Choice,
@@ -49,8 +49,10 @@ function ThemeSwatches({
           key={theme.id}
           style={
             {
-              "--swatch-bg": lightThemePreviews[theme.id].bg,
-              "--swatch-surface": lightThemePreviews[theme.id].surface,
+              "--swatch-bg-light": themePreviews[theme.id].light.bg,
+              "--swatch-surface-light": themePreviews[theme.id].light.surface,
+              "--swatch-bg-dark": themePreviews[theme.id].dark.bg,
+              "--swatch-surface-dark": themePreviews[theme.id].dark.surface,
             } as React.CSSProperties
           }
           onClick={() => onChange(theme.id)}

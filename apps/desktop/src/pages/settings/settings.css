@@ -444,6 +444,8 @@ button.calendarDay.open {
   gap: var(--space-5);
 }
 .themeSwatch {
+  --swatch-bg: var(--swatch-bg-light);
+  --swatch-surface: var(--swatch-surface-light);
   position: relative;
   width: 26px;
   height: 26px;
@@ -459,6 +461,18 @@ button.calendarDay.open {
   border-radius: 50%;
   background: var(--swatch-surface);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-strong) 60%, transparent);
+}
+/* In a dark window the swatches show the dark sets, same rule as the
+   appearance itself (chosen dark, or system dark unless light is chosen). */
+:root[data-appearance="dark"] .themeSwatch {
+  --swatch-bg: var(--swatch-bg-dark);
+  --swatch-surface: var(--swatch-surface-dark);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) .themeSwatch {
+    --swatch-bg: var(--swatch-bg-dark);
+    --swatch-surface: var(--swatch-surface-dark);
+  }
 }
 .themeSwatch[aria-checked="true"] {
   box-shadow:

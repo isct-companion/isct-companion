@@ -16,9 +16,6 @@ private struct ResidentWebView: UIViewRepresentable {
     let revision: Int
     /// Pull to refresh, as in Safari; Core reloads the page.
     var refresh: (() -> Void)?
-    /// Whether the person is reading down the page (true) or back up or at
-    /// its top (false), so the screen can move its bars out of the way.
-    var reading: ((Bool) -> Void)?
 
     func makeUIView(context: Context) -> Container {
         let container = Container(host: host)
@@ -29,7 +26,6 @@ private struct ResidentWebView: UIViewRepresentable {
     func updateUIView(_ container: Container, context: Context) {
         container.site = site
         container.refresh = refresh
-        container.reading = reading
         container.claim()
     }
 
@@ -41,13 +37,6 @@ private struct ResidentWebView: UIViewRepresentable {
         let host: SchoolBrowserHost
         var site: SchoolSite?
         var refresh: (() -> Void)?
-        var reading: ((Bool) -> Void)?
-        /// How far the person scrolls one way before the bars follow, so a
-        /// small correction does not flick them, as in Safari.
-        private static let barsTravel: CGFloat = 24
-        private var offsetObservation: NSKeyValueObservation?
-        private var lastOffset: CGFloat = 0
-        private var travel: CGFloat = 0
         /// One per container: the resident view carries it while held here.
         private lazy var refreshControl: UIRefreshControl = {
             let control = UIRefreshControl()
@@ -86,49 +75,14 @@ private struct ResidentWebView: UIViewRepresentable {
             webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if refresh != nil { webView.scrollView.refreshControl = refreshControl }
             addSubview(webView)
-            follow(webView.scrollView)
             host.arrangePopups(site)
         }
 
         /// Returns whatever view it holds to the parking window.
         func release() {
-            offsetObservation = nil
             for case let held as WKWebView in subviews {
                 if held.scrollView.refreshControl === refreshControl { held.scrollView.refreshControl = nil }
                 host.park(held)
-            }
-        }
-
-        /// Watches the held page's scrolling for `reading`.
-        private func follow(_ scrollView: UIScrollView) {
-            lastOffset = scrollView.contentOffset.y
-            travel = 0
-            offsetObservation = scrollView.observe(\.contentOffset) { [weak self] scrollView, _ in
-                self?.scrolled(scrollView)
-            }
-        }
-
-        private func scrolled(_ scrollView: UIScrollView) {
-            let offset = scrollView.contentOffset.y
-            let delta = offset - lastOffset
-            lastOffset = offset
-            guard let reading else { return }
-            // At the top the bars always show.
-            if offset <= -scrollView.adjustedContentInset.top + Self.barsTravel {
-                travel = 0
-                reading(false)
-                return
-            }
-            // Only the person's own scrolling moves the bars, not a load, a
-            // jump to an anchor or the insets changing as the bars move.
-            guard scrollView.isDragging || scrollView.isDecelerating else {
-                travel = 0
-                return
-            }
-            travel = (travel >= 0) == (delta >= 0) ? travel + delta : delta
-            if abs(travel) >= Self.barsTravel {
-                reading(travel > 0)
-                travel = 0
             }
         }
     }
@@ -140,23 +94,20 @@ private struct ResidentWebView: UIViewRepresentable {
 /// menu, and a pull reloads. Tapping the tab again returns the site home.
 struct WebTabScreen: View {
     @Environment(WebRouter.self) private var web
-    @Environment(Navigator.self) private var navigator
     @State private var visibilityOwner = UUID()
-    @State private var barsHidden = false
 
     var body: some View {
         ZStack {
-            // The page runs on under the translucent navigation and tab bars,
-            // as in Safari: it takes the whole screen, and the bars float over
-            // it until reading down folds them away.
+            // The page stays between the bars. Running it under them, as
+            // Safari does, left the bars clear on iOS 18: they only draw
+            // their material once they see a SwiftUI scroll view scrolled,
+            // and the web view's scrolling is UIKit's.
             ResidentWebView(
                 site: web.tabSite,
                 host: web.browser,
                 revision: web.attachRevision,
-                refresh: { web.reload(web.tabSite) },
-                reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
+                refresh: { web.reload(web.tabSite) }
             )
-            .ignoresSafeArea(.container, edges: [.top, .bottom])
             if web.loading == web.tabSite && web.browser.webView(for: web.tabSite) == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -199,26 +150,12 @@ struct WebTabScreen: View {
                 PageActions(site: web.tabSite)
             }
         }
-        .toolbar(barsHidden ? .hidden : .visible, for: .navigationBar, .tabBar)
         .onAppear {
             web.showTab(web.tabSite)
             web.appear(web.tabSite, owner: visibilityOwner)
         }
-        .onDisappear {
-            barsHidden = false
-            web.disappear(owner: visibilityOwner)
-        }
+        .onDisappear { web.disappear(owner: visibilityOwner) }
     }
-}
-
-/// Both web screens' bars, as in Safari: reading down the page moves them
-/// away, scrolling back up or reaching the top brings them back. The
-/// workstation keeps its bars; there they cost no page height worth saving.
-@MainActor
-private func moveBars(_ readingDown: Bool, _ hidden: Binding<Bool>, workbench: Bool) {
-    let hide = readingDown && !workbench
-    guard hide != hidden.wrappedValue else { return }
-    withAnimation(.smooth(duration: Theme.motionBase)) { hidden.wrappedValue = hide }
 }
 
 /// Whether a Back or Forward button is off: only when Core says it would do
@@ -308,9 +245,7 @@ struct WebPageScreen: View {
     let page: WebRouter.PushedPage
     @Environment(WebRouter.self) private var web
     @Environment(InboxModel.self) private var inbox
-    @Environment(Navigator.self) private var navigator
     @State private var visibilityOwner = UUID()
-    @State private var barsHidden = false
 
     var body: some View {
         ZStack {
@@ -318,10 +253,8 @@ struct WebPageScreen: View {
                 site: page.site,
                 host: web.browser,
                 revision: web.attachRevision,
-                refresh: { web.reload(page.site) },
-                reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
+                refresh: { web.reload(page.site) }
             )
-            .ignoresSafeArea(.container, edges: [.top, .bottom])
             if let id = page.uploadId, inbox.failedUpload == id {
                 VStack(spacing: Theme.space4) {
                     ProblemNote(text: t("failure.theDraftUploadFailed"))
@@ -338,7 +271,6 @@ struct WebPageScreen: View {
         .navigationTitle(page.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar(barsHidden ? .hidden : .visible, for: .navigationBar, .bottomBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 PageActions(site: page.site)
@@ -368,7 +300,6 @@ struct WebPageScreen: View {
             if let id = page.uploadId { await inbox.waitForUpload(id, web: web) }
         }
         .onDisappear {
-            barsHidden = false
             if let id = page.uploadId {
                 web.cancelHandIn(id)
                 inbox.closeUpload(id)

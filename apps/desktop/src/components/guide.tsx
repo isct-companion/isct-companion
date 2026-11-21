@@ -32,24 +32,28 @@ export function useResetGuide() {
 }
 
 /**
- * Shows `text` once beside `children`, after the welcome sheet is done.
- * `when` holds a tip back until the thing it explains is on screen.
+ * Shows `text` once, pointing at `children`, after the welcome sheet is
+ * done. `children` is the one control the tip explains (a lesson tick, a
+ * class block), never the region around it: the tip only fits beside
+ * something small, and pointing at the thing is what makes it read. Render
+ * the tip only while that control is on screen. The control only anchors
+ * the tip; it keeps its own click. Inside another `asChild` (a context menu
+ * trigger), what that one hands down passes through to the control.
  */
 export function GuideTip({
   id,
   text,
-  when = true,
   position = "bottom",
   children,
-}: {
+  ...forwarded
+}: Omit<React.ComponentProps<typeof Popover.Anchor>, "children"> & {
   id: TipId;
   text: MessageKey;
-  when?: boolean;
   position?: "top" | "bottom" | "left" | "right";
-  children: React.ReactNode;
+  children: React.ReactElement;
 }) {
   const [guide, setGuide] = useGuide();
-  const opened = when && guide.welcome === true && !guide.tips?.includes(id);
+  const opened = guide.welcome === true && !guide.tips?.includes(id);
   const dismiss = () =>
     setGuide((current) => ({
       ...current,
@@ -68,7 +72,7 @@ export function GuideTip({
       closeOnClickOutside={false}
       onDismiss={dismiss}
     >
-      <Popover.Target>{children}</Popover.Target>
+      <Popover.Anchor {...forwarded}>{children}</Popover.Anchor>
       <Popover.Dropdown className="guideTip" role="note">
         <Text size="sm">{t(text)}</Text>
         <Group justify="flex-end" mt="space-4">
